@@ -15,10 +15,10 @@ a time; every rung reuses the same identity, ledger, worker runtime and resource
 | Rung | Skill | Writes to | Desktop resource | Human gate |
 |---|---|---|---|---|
 | 0 | `chat` | nothing | none | none |
-| 1 | `qa` | this repo's evidence directory | `unity_editor`, later `android_device` | none |
-| 2 | `fix` | Farm-Client, farm-hive, farmgui sources, common; draft PRs | `unity_editor`, only for runtime verification | PR review by the human assignee |
+| 1 | `qa` | this repo's evidence directory | a Unity slot in interactive mode, later `android_device` | none |
+| 2 | `fix` | Farm-Client, farm-hive, farmgui sources, common; draft PRs | a Unity slot: batch mode for test assemblies, interactive only when no test covers the behaviour | PR review by the human assignee |
 | 3 | `fgui` | farmgui sources; draft PR; published `.bytes` | `fgui_editor`: batchmode CLI once the Pro license is bought, desktop actor until then | publish approval; PR review |
-| 4 | `feature` | Farm-Contract through openspec first, then Farm-Client and farm-hive | `unity_editor`, `fgui_editor` | contract decision before any implementation; PR review |
+| 4 | `feature` | Farm-Contract through openspec first, then Farm-Client and farm-hive | Unity slots, `fgui_editor` | contract decision before any implementation; PR review |
 
 It replaces two prototypes, both of which stay on GitHub as read-only archives:
 
@@ -51,6 +51,7 @@ It replaces two prototypes, both of which stay on GitHub as read-only archives:
 | Worker runtime | One headless CLI process per work item. `codex exec` first, `claude -p` as a drop-in | Stop becomes a process kill. Fresh context is free. Multi-day feature work fits. No dependency on the desktop app's private pipe. |
 | FairyGUI publishing | Interim: a deterministic desktop actor under a resource reservation. Target: the FairyGUI Pro license, whose `-batchmode` publish makes the step a plain subprocess | Publishing is GUI-only under the current license and headless CLIs have no built-in computer use. The user intends to buy the Pro license once the agent has proven itself, which removes the GUI dependency entirely. |
 | Repository | Fresh `farm-linear-agent`; port code deliberately | The prototypes' history is two days of churn. Documentation restarts as current truth instead of appended increments. |
+| Unity access | A pool of identical persistent project copies, each usable in interactive or batch mode; task worktrees never open Unity | `Library/` lives in the project folder and costs a full import. Slots pay it once and move between commits by detached checkout. |
 | Process | superpowers brainstorming, specs, plans and TDD; one operating-contract document rewritten in place | Single implementer. openspec's ceremony and cwd-resolution belong to Farm-Contract, where the agent uses it as a tool. |
 | Agent name | FarmBot | Neutral across QA, fixes and features. A display-name change on the existing application; the app user id survives. |
 | Linear comment language | zh-CN, concise | Team convention carried over from the bug agent. |
@@ -66,7 +67,7 @@ flowchart TD
     LA -->|one CLI process per work item| W[Worker: skill, worktrees, injected MCP set]
     W -->|ledger CLI| D
     W -->|acquire, release| RES[Resource reservations]
-    RES --> U[Unity Editor]
+    RES --> U[Unity slots, interactive or batch]
     RES --> F[FairyGUI editor, through the desktop actor]
     RES --> A[Android device]
     W --> G[GitHub draft PRs]
@@ -81,14 +82,16 @@ flowchart TD
 | Router | Map a session event to a skill and a work item with deterministic rules; ask one question when unsure | new |
 | Launcher | Spawn, monitor and kill one CLI worker per work item; assemble its MCP configuration from the skill manifest and the reservations it holds; capture output | new |
 | Skills | `skills/<name>/SKILL.md` plus a `skill.json` manifest | BugAgent `skills/farm-bug-worker`; FarmTestAgent operating rules; Farm-Client `drive-farm-game` and `smoke-test` |
-| Reservations | One slot per desktop resource, FIFO, hashed owner token, Stop propagation, quiescence-gated release | FarmTestAgent `farmqa_controller.py` |
+| Reservations | Unity slot pool plus the FairyGUI editor and devices: FIFO, hashed owner token, mode-aware scheduling, Stop propagation, quiescence-gated release | FarmTestAgent `farmqa_controller.py` |
 | Identity probe | Read Editor project, commit, platform, loaded module ids and live session identity; compare with the work item's pinned target | FarmTestAgent `farmqa_identity.py`, `farmqa_unity_identity.py`, `farmqa_request_session.py` |
 | Desktop actor | Deterministic GUI steps on the Windows host, first the FairyGUI publish; retired for publishing once the Pro license exists | new |
 | Reporter | Agent activities in the session and outbox comments on the issue, both authored by the agent | FarmTestAgent send path; BugAgent outbox |
 
 **Host.** The Windows machine that already runs Unity 2022.3.62f3, the FairyGUI editor
 and the Android device. The receiver and the HTTPS tunnel run as scheduled tasks as
-today; the launcher runs inside the receiver process. Authoring happens anywhere.
+today; the launcher runs inside the receiver process. Unity slots live under `.local/editors/`,
+and FarmQA's isolated client copy on that machine becomes slot 1. Authoring happens
+anywhere.
 
 **No LLM coordinator.** The bug agent needed a model-driven coordinator because it
 had to poll, select and dispatch. Delegation supplies the selection, so the
@@ -142,7 +145,7 @@ and `skill.json` (what the launcher needs to know). Example manifest for `fix`:
   "trigger": ["delegation"],
   "intents": ["label:Bug"],
   "writes": ["Farm-Client", "farm-hive", "farmgui", "common"],
-  "resources": ["unity_editor"],
+  "resources": ["unity_slot"],
   "gates": ["pr_review"],
   "mcp": [],
   "budget": {"lease_seconds": 2700, "max_hours": 8, "renew_minutes": 10}
@@ -227,22 +230,87 @@ the loaded Editor identity with the pin before acting.
 
 ## 7. Resource reservations
 
-Resources: `unity_editor`, `fgui_editor`, `android_device:<serial>`. One slot per
-resource, FIFO, states `queued`, `active`, `cancel_requested`, `cancelled`, `released`,
-hashed owner token, single-slot unique index. This is the FarmQA controller queue with
-the resource name added.
+Desktop resources are things only one worker may hold at a time:
 
-**Enforcement is tool injection.** A worker can only reach the Unity MCP or the device
-MCP if the launcher put that server into its configuration, and the launcher does so
-only while the item holds the matching reservation. Workers run with an isolated CLI
-home so the host user's global MCP configuration is invisible to them. This makes the
-reservation a real fence rather than a convention.
+| Resource | Meaning | Count |
+|---|---|---|
+| `unity_slot:<n>` | A persistent Farm-Client project copy with its own `Library/`, usable in interactive or batch mode | a pool; one slot in Phase 1 |
+| `fgui_editor` | The FairyGUI editor on the farmgui checkout | one |
+| `android_device:<serial>` | One development-build target | one per device |
 
-**Two-phase acquisition for `fix`.** A fix worker starts without desktop tools. When
-diagnosis decides runtime verification is needed, it checkpoints `needs_resource:
-unity_editor` and exits; the item moves to `awaiting_resource`. The launcher queues the
-reservation and, on acquisition, launches a fresh worker with the Unity MCP injected.
-Skills that always need the resource, such as `qa`, acquire before the first launch.
+Reservations keep the FarmQA controller queue semantics: FIFO, states `queued`,
+`active`, `cancel_requested`, `cancelled`, `released`, hashed owner token, one active
+owner per resource enforced by a unique index. A request names a resource kind and, for
+Unity, the mode it needs; the scheduler picks the slot.
+
+**Why slots exist.** Unity keeps `Library/` inside the project folder and builds it with
+a full import, tens of minutes and several GB on this project. Opening Unity on a
+per-task worktree would pay that on every task. So Unity is only ever pointed at slots:
+long-lived worktrees of FarmBot's clone that build `Library/` once and then move between
+commits. Task worktrees are for code and never open Unity.
+
+**Every slot is identical** and is always in one of four states:
+
+| State | Editor process | Accepts |
+|---|---|---|
+| idle, closed | none | interactive or batch |
+| idle, open | Editor open in Edit Mode, parked on `origin/main` | interactive at once; batch after a graceful close |
+| interactive busy | Editor open, one worker driving it through the Unity MCP | nothing |
+| batch busy | `Unity -batchmode -runTests` process running | nothing |
+
+Interactive and batch are mutually exclusive on one slot because Unity allows one Editor
+process per folder. The slot count is therefore the number of `Library/` folders on the
+host and the cap on concurrent Editor processes, which makes it the memory budget: an
+open Editor on this project costs several GB, more in Play mode. An idle open slot holds
+that memory; an idle closed slot holds only disk.
+
+Each slot binds four things: its folder under `.local/editors/slot-<n>`, the Editor
+instance identity the Unity MCP derives from that folder's path (`Name@hash`), the MCP
+address the worker is given, and a dedicated test account on 公共测试服. Accounts are
+per slot because two logins on one account kick each other and scenario runs mutate
+account state. Slot 1 is FarmQA's existing isolated client copy on the Windows host.
+
+**Scheduling preferences.** An interactive request prefers a slot whose Editor is already
+open. A batch request prefers a slot with no Editor open, and closes an idle open Editor
+gracefully only when no closed slot exists. After an interactive run the Editor stays
+open, parked on main. A mode switch costs one Editor start or stop, one to a few
+minutes, never an import. Ledger wait times in `awaiting_resource` decide when a slot is
+added; a slot is added when waiting routinely exceeds the length of a run.
+
+**Slot switch.** Before a run the launcher, not the worker, moves the slot to the item's
+pinned commit: confirm tracked files are clean, `git checkout --detach <commit>`,
+`git lfs checkout`, then in interactive mode ask the Editor to refresh, wait for
+compilation with zero Console errors, and run the identity probe to confirm the loaded
+HotUpdate module matches the commit. In batch mode the batchmode Editor compiles on
+start. Because task branches are cut from fresh main, the delta is small and so is the
+reimport. When a slot becomes idle the launcher parks it back on `origin/main`, so
+`Library/` tracks main in small steps and the slot is ready for a baseline run.
+
+**Enforcement is tool injection.** A worker reaches the Unity MCP or device-mcp only if
+the launcher put that server into its configuration, and only while the item holds the
+matching reservation. Workers run with an isolated CLI home, so the host user's global
+MCP configuration is invisible to them. A batch run needs no MCP at all; its result is a
+results file and an exit code.
+
+**Addressing a slot's Editor.** The host runs the Unity MCP in HTTP mode: one local
+server on port 8080 that every Editor under the Windows user reports to, keyed by
+project hash. The plugin stores that server URL per user in EditorPrefs, so per-slot
+servers are not available through its settings. With one slot nothing more is needed.
+With several slots there are two fences. On the shared server the worker selects its
+slot with `set_active_instance <Name@hash>`; the server refuses unaddressed calls while
+several Editors are connected, and the identity probe checks the project path before any
+action. In stdio mode each Editor listens on its own port and writes a status file under
+`~/.unity-mcp/`, and the launcher spawns the worker's own server process with
+`UNITY_MCP_DEFAULT_INSTANCE` set to the slot, which pins it before the worker starts.
+The stdio pinning is the target for the pool and is confirmed by a spike when slot 2 is
+built.
+
+**Two-phase acquisition for `fix`.** A fix worker starts without desktop tools. When it
+decides a Unity run is needed, it checkpoints `needs_resource` with the mode, batch for
+test assemblies or interactive for scenario evidence, and exits; the item moves to
+`awaiting_resource`. The launcher queues the reservation and, on acquisition and after
+the slot switch, launches a fresh worker with the matching tools. Skills that always
+need a slot, such as `qa`, acquire before the first launch.
 
 **FairyGUI publish path.** Under the current license the `fgui` worker publishes
 through the desktop actor. Once the Pro license is bought, it runs the documented
@@ -253,11 +321,13 @@ reservation, since one editor instance owns the project and the output directory
 both are followed by the same guard tests and hash verification. Only the actuator
 changes; the gate, the reservation and the evidence are identical.
 
-**Release.** The worker releases after its own quiescence check: Editor back in Edit
-Mode, no pending pointer, driver idle, panels disposed. When the launcher kills a
-worker, it runs the resource's quiescence probe itself; a passing probe releases, a
-failing probe holds the slot for the operator's `recover` command. No slot is ever
-released on a timer alone.
+**Release.** In interactive mode the worker releases after its own quiescence check:
+Editor back in Edit Mode, no pending pointer, driver idle, panels disposed. In batch
+mode the release is the process exit with its results file written. When the launcher
+kills a worker, it runs the resource's quiescence probe itself; a passing probe
+releases, a failing probe holds the slot for the operator's `recover` command. An Editor
+process that dies mid-run leaves Unity's lock file behind; the launcher removes it only
+after confirming the process is gone. No slot is ever released on a timer alone.
 
 **Stop** cancels queued reservations, marks active ones `cancel_requested`, kills the
 worker, then applies the release rule above.
@@ -285,17 +355,39 @@ the agent's own application token. Consequences: comments and activities are aut
 by @FarmBot, the worker can only touch its own issue, and there is one authentication
 surface for Linear on the host.
 
+**Repositories on the host.** FarmBot owns one clone of each repository under
+`.local/repos/<repo>`. Every working copy is a worktree of that clone: task worktrees
+under `.local/worktrees/<item>/<repo>` and, for Farm-Client, slots under
+`.local/editors/slot-<n>`. Worktrees share the object store and the LFS cache, so a
+commit made in a task worktree is visible to a slot without a push or a fetch. Slots
+always use a detached checkout, because git refuses to check the same branch out in two
+worktrees; the pinned target is a commit hash for the same reason. The human's own
+checkouts are never touched.
+
 **Worktrees.** One per repository per item under `.local/worktrees/<item>/<repo>`,
 created from a freshly fetched remote default branch, on Linear's `gitBranchName` with
-collision handling. The user's ordinary checkouts are never touched.
+collision handling. Unity is never opened on a task worktree.
 
-**Concurrency.** `max_concurrent_workers` defaults to 2. Desktop resources serialize
-through reservations regardless of that number. Feature work runs its client and hive
-implementations as two work items so they proceed in parallel.
+**Verification ladder for `fix`.** Cheapest sufficient check first: the HotUpdate
+typecheck, about five seconds; the dotnet unit tests in `tests/Farm.Tests.Unit`; hive
+Go tests; then the targeted EditMode or PlayMode fixtures in a batch slot with
+`Unity -batchmode -projectPath <slot> -runTests -testPlatform <EditMode|PlayMode>
+-testResults <xml> -logFile <log>`, without `-quit` because the test runner exits on its
+own, and without `-nographics` because the PlayMode fixtures render FairyGUI. Batch
+results are compared with the known-red baseline on main by failure set, never by
+count. Only behaviour that no test covers earns an interactive slot and a
+`drive-farm-game` scenario. When a worker already holds an interactive slot, running one
+fixture there through the Unity MCP is an allowed shortcut. Every batch run is a fresh
+Editor process, which removes the FairyGUI static-desync and the EditMode-to-PlayMode
+leak recorded when tests run inside a warm Editor.
+
+**Concurrency.** `max_concurrent_workers` defaults to 2. Workers are cheap; Editors are
+not. Unity use is capped by the slot count regardless of the worker count. Feature work
+runs its client and hive implementations as two work items so they proceed in parallel.
 
 **Authentication on the host.** The CLI runtime is logged in under the service user;
-`gh` is authenticated for GitHub; the Unity MCP listens on loopback; device-mcp runs
-locally. The receiver holds the Linear application credentials in the private
+`gh` is authenticated for GitHub; the Unity MCP server listens on loopback; device-mcp
+runs locally. The receiver holds the Linear application credentials in the private
 configuration directory. Nothing secret enters the ledger, reports or Git.
 
 ## 9. Reporting
@@ -327,7 +419,8 @@ One SQLite file at `.local/agent/ledger.sqlite3`:
 | `inbox` | steering text from `prompted` events for a running item | new |
 | `outbox` | comment actions with marker, body, remote id | BugAgent `outbox` |
 | `published_prs` | PR URLs this agent registered per item | BugAgent `published_prs` |
-| `reservations` | resource, request, state, owner token hash, timestamps | FarmTestAgent `controller_requests` |
+| `reservations` | resource kind, requested mode, assigned slot, state, owner token hash, timestamps | FarmTestAgent `controller_requests` |
+| `slots` | slot id, folder, state, parked commit, Editor instance `Name@hash`, MCP address, bound test account, last switch | new |
 | `stop_requests` | dedupe and cutoff for Stop | FarmTestAgent `stop_requests` |
 | `identity_observations` | allowlisted Editor and session identity samples per item | FarmTestAgent `controller_identity_observations` |
 | `audit` | kind, reason, details per item | BugAgent `events` |
@@ -368,7 +461,8 @@ One SQLite file at `.local/agent/ledger.sqlite3`:
 |---|---|---|
 | FarmTestAgent `tools/linear_farmqa.py` | `agent/receiver.py` | keep verification, dedupe, Stop and session handling; drop the fixed-reply and Codex bridge modes; add delegation detection and first-activity emission |
 | FarmTestAgent `tools/farmqa_state.py` | `agent/sessions.py` | keep session and pinned-target snapshot logic |
-| FarmTestAgent `tools/farmqa_controller.py` | `agent/reservations.py` | add the resource name; keep token, single-slot index and Stop semantics |
+| FarmTestAgent `tools/farmqa_controller.py` | `agent/reservations.py` | add resource kinds, the slot pool and modes; keep token, unique-owner index and Stop semantics |
+| FarmTestAgent isolated Windows client copy `.local/clients/farmqa-7dbf23b` | `.local/editors/slot-1` | operational, not code: create slot 1 as a worktree at main and seed its `Library/` from this copy, which already paid the full import |
 | FarmTestAgent `tools/farmqa_identity.py`, `farmqa_unity_identity.py`, `farmqa_request_session.py` | `agent/unity_identity.py` | keep the probe and comparator; drop synthetic-request plumbing |
 | FarmTestAgent `tools/farmqa-windows-supervisor.ps1` | `tools/windows-supervisor.ps1` | rename components; same supervision model |
 | FarmTestAgent tests for the above | `tests/` | ported with the modules |
@@ -386,7 +480,7 @@ of the first implementation plan.
 
 **Phase 1: one agent, one door, fixes by delegation.**
 Repository skeleton; `agent/` package with ledger, CLI, receiver, router, launcher,
-reservations and identity probe; skills `chat` and `fix`; `codex exec` runtime with
+slot pool with one slot, slot switch and identity probe; skills `chat` and `fix`; `codex exec` runtime with
 isolated home; comments and activities authored by the agent; Windows deployment from
 the new checkout; FarmQA receiver retired; bug agent heartbeat paused; `app:assignable`
 added and the application renamed to FarmBot. Done when:
@@ -396,17 +490,19 @@ added and the application renamed to FarmBot. Done when:
    once that worker has claimed the item.
 2. Stop kills the running worker within 5 seconds and releases or holds reservations
    according to the quiescence probe.
-3. Two delegated items that both need runtime verification serialize on `unity_editor`
-   through the two-phase flow.
+3. Two delegated items that both need Unity serialize on the single slot through the
+   two-phase flow, one in batch mode and one interactive, with the slot switched to
+   each pinned commit and parked back on main afterwards.
 4. All ported tests pass, plus new router and launcher tests.
 5. One real bug is delivered end to end as a draft PR with a delivery comment.
 
-**Phase 2: QA by mention.** `@FarmBot 跑冒烟` pins the target, reserves the Editor,
-verifies identity, runs the smoke scenarios through `drive-farm-game` in the client
-worktree, and returns a report with screenshots. Editor only.
+**Phase 2: QA by mention.** `@FarmBot 跑冒烟` pins the target, reserves a slot in
+interactive mode, verifies identity, runs the smoke scenarios through `drive-farm-game`
+on that slot, and returns a report with screenshots. Editor only.
 
 **Phase 3: fix then verify.** The `fix` worker's verify stage runs the relevant
-scenario on its own PR branch in the Editor. Delivery comments carry runtime evidence
+fixtures in a batch slot and, when no test covers the behaviour, the relevant scenario
+on an interactive slot switched to its PR commit. Delivery comments carry runtime evidence
 or name the exact gap.
 
 **Phase 4: FGUI.** The `fgui` skill edits farmgui sources, asks for publish approval,
@@ -423,14 +519,16 @@ delivers.
 
 - Unit tests with temporary SQLite databases and real subprocesses, as both prototypes
   did: fingerprint and material change, claim and lease expiry with dead and live
-  processes, outbox reuse, handoff validation and staleness, reservation single slot and
-  Stop, router rules, two-phase resource acquisition.
+  processes, outbox reuse, handoff validation and staleness, slot pool acquisition by
+  mode and preference, slot state machine and switch, Stop, router rules, two-phase
+  resource acquisition.
 - Receiver tests against a mocked Linear API: signature, timestamp, identity, dedupe,
   delegation detection, first-activity timing, Stop.
 - Launcher tests with a fake CLI binary: isolated home, MCP injection follows
   reservations, kill on Stop, budget kill, output capture.
 - Live checklist per phase, recorded as a dated report: delegation round trip, Stop
-  during a running worker, two items serializing on the Editor, one real delivery.
+  during a running worker, a batch run and an interactive run serializing on one slot,
+  one real delivery.
 
 ## 16. Risks and open items
 
@@ -443,6 +541,13 @@ delivers.
   fallback is a human clicking Publish, the existing watcher syncing, and the agent
   verifying published hashes. The planned Pro license removes this risk entirely; the
   desktop actor is interim. The gate design is unchanged either way.
+- **Slot switching.** Graceful Editor close and reopen, stale lock files after a crash,
+  and `Library/` health across many detached checkouts are unproven at this cadence.
+  The Phase 1 spike measures switch time and batchmode start time on the host.
+- **Batchmode fixtures.** Whether every PlayMode fixture tolerates a batchmode Editor is
+  unverified; fixtures that do not are marked interactive-only.
+- **Host memory.** The slot count is bounded by RAM. A second slot needs a measurement of
+  one open Editor in Play mode on this project.
 - **Cost and rate limits.** Concurrency is capped at two until usage is observed.
 - **Auto-delegation.** A Linear Loop that delegates new Bug + 程序 issues would remove
   the manual step; availability on the current plan is unverified and it is optional.
