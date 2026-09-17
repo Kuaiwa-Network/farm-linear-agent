@@ -1,9 +1,9 @@
 # farm-linear-agent design
 
 Status: design approved in conversation on 2026-09-17; this document is the written
-spec for review before an implementation plan is drafted. Working agent name: **@Farm**.
-The final name is a display-name change on the Linear OAuth application plus the
-comment marker string; nothing else in this design depends on it.
+spec for review before an implementation plan is drafted. Agent name: **@FarmBot**,
+chosen by the user on 2026-09-17. The existing Linear OAuth application FarmQA is
+renamed to FarmBot; its app user id is unchanged, so existing sessions keep working.
 
 ## 1. Purpose
 
@@ -52,6 +52,7 @@ It replaces two prototypes, both of which stay on GitHub as read-only archives:
 | Desktop GUI steps | A deterministic desktop actor, run under a resource reservation | farmgui publishing is GUI-only under the project's editor license. Headless CLIs have no built-in computer use. |
 | Repository | Fresh `farm-linear-agent`; port code deliberately | The prototypes' history is two days of churn. Documentation restarts as current truth instead of appended increments. |
 | Process | superpowers brainstorming, specs, plans and TDD; one operating-contract document rewritten in place | Single implementer. openspec's ceremony and cwd-resolution belong to Farm-Contract, where the agent uses it as a tool. |
+| Agent name | FarmBot | Neutral across QA, fixes and features. A display-name change on the existing application; the app user id survives. |
 | Linear comment language | zh-CN, concise | Team convention carried over from the bug agent. |
 
 ## 3. Architecture
@@ -272,7 +273,7 @@ task of the Phase 1 plan, not assumed here.
 `fetch-issue` (complete pagination, normalized, signed upload parameters stripped),
 `prepare-comment`, `post-comment`, `confirm-comment` and `activity`, all executed with
 the agent's own application token. Consequences: comments and activities are authored
-by @Farm, the worker can only touch its own issue, and there is one authentication
+by @FarmBot, the worker can only touch its own issue, and there is one authentication
 surface for Linear on the host.
 
 **Worktrees.** One per repository per item under `.local/worktrees/<item>/<repo>`,
@@ -296,7 +297,7 @@ with the final result; `error` for failures and blockers.
 
 Comments on the issue go through the outbox with a stable marker so a restarted worker
 reconciles instead of duplicating: `started` (one per claimed item, beginning
-`👀 Farm 已开始处理`), `blocker`, `delivery`. Chinese, concise: what was found, what
+`👀 FarmBot 已开始处理`), `blocker`, `delivery`. Chinese, concise: what was found, what
 was verified, what is needed next. A delivery comment lists PR URLs and a verification
 summary that names which checks ran and which did not.
 
@@ -379,7 +380,7 @@ Repository skeleton; `agent/` package with ledger, CLI, receiver, router, launch
 reservations and identity probe; skills `chat` and `fix`; `codex exec` runtime with
 isolated home; comments and activities authored by the agent; Windows deployment from
 the new checkout; FarmQA receiver retired; bug agent heartbeat paused; `app:assignable`
-added and the application renamed. Done when:
+added and the application renamed to FarmBot. Done when:
 
 1. Delegating a Bug issue produces a first activity in the session within 10 seconds,
    a fresh worker in its own worktrees, and a `started` comment authored by the agent
@@ -391,7 +392,7 @@ added and the application renamed. Done when:
 4. All ported tests pass, plus new router and launcher tests.
 5. One real bug is delivered end to end as a draft PR with a delivery comment.
 
-**Phase 2: QA by mention.** `@Farm 跑冒烟` pins the target, reserves the Editor,
+**Phase 2: QA by mention.** `@FarmBot 跑冒烟` pins the target, reserves the Editor,
 verifies identity, runs the smoke scenarios through `drive-farm-game` in the client
 worktree, and returns a report with screenshots. Editor only.
 
@@ -434,5 +435,3 @@ delivers.
 - **Cost and rate limits.** Concurrency is capped at two until usage is observed.
 - **Auto-delegation.** A Linear Loop that delegates new Bug + 程序 issues would remove
   the manual step; availability on the current plan is unverified and it is optional.
-- **Final name.** Chosen by the user; affects the application display name and the
-  comment marker only.
