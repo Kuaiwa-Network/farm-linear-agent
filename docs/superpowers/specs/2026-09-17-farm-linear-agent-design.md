@@ -17,7 +17,7 @@ a time; every rung reuses the same identity, ledger, worker runtime and resource
 | 0 | `chat` | nothing | none | none |
 | 1 | `qa` | this repo's evidence directory | `unity_editor`, later `android_device` | none |
 | 2 | `fix` | Farm-Client, farm-hive, farmgui sources, common; draft PRs | `unity_editor`, only for runtime verification | PR review by the human assignee |
-| 3 | `fgui` | farmgui sources; draft PR; published `.bytes` through the desktop actor | `fgui_editor` | publish approval; PR review |
+| 3 | `fgui` | farmgui sources; draft PR; published `.bytes` | `fgui_editor`: batchmode CLI once the Pro license is bought, desktop actor until then | publish approval; PR review |
 | 4 | `feature` | Farm-Contract through openspec first, then Farm-Client and farm-hive | `unity_editor`, `fgui_editor` | contract decision before any implementation; PR review |
 
 It replaces two prototypes, both of which stay on GitHub as read-only archives:
@@ -49,7 +49,7 @@ It replaces two prototypes, both of which stay on GitHub as read-only archives:
 | Trigger for work | Linear delegation: assign the issue to the agent | An explicit human act per issue. Linear sets the app as `delegate` and leaves the human as `assignee`, so the reviewer stays on the issue. |
 | Trigger for conversation | @mention | Questions, steering a running work item, and read-only QA runs. |
 | Worker runtime | One headless CLI process per work item. `codex exec` first, `claude -p` as a drop-in | Stop becomes a process kill. Fresh context is free. Multi-day feature work fits. No dependency on the desktop app's private pipe. |
-| Desktop GUI steps | A deterministic desktop actor, run under a resource reservation | farmgui publishing is GUI-only under the project's editor license. Headless CLIs have no built-in computer use. |
+| FairyGUI publishing | Interim: a deterministic desktop actor under a resource reservation. Target: the FairyGUI Pro license, whose `-batchmode` publish makes the step a plain subprocess | Publishing is GUI-only under the current license and headless CLIs have no built-in computer use. The user intends to buy the Pro license once the agent has proven itself, which removes the GUI dependency entirely. |
 | Repository | Fresh `farm-linear-agent`; port code deliberately | The prototypes' history is two days of churn. Documentation restarts as current truth instead of appended increments. |
 | Process | superpowers brainstorming, specs, plans and TDD; one operating-contract document rewritten in place | Single implementer. openspec's ceremony and cwd-resolution belong to Farm-Contract, where the agent uses it as a tool. |
 | Agent name | FarmBot | Neutral across QA, fixes and features. A display-name change on the existing application; the app user id survives. |
@@ -83,7 +83,7 @@ flowchart TD
 | Skills | `skills/<name>/SKILL.md` plus a `skill.json` manifest | BugAgent `skills/farm-bug-worker`; FarmTestAgent operating rules; Farm-Client `drive-farm-game` and `smoke-test` |
 | Reservations | One slot per desktop resource, FIFO, hashed owner token, Stop propagation, quiescence-gated release | FarmTestAgent `farmqa_controller.py` |
 | Identity probe | Read Editor project, commit, platform, loaded module ids and live session identity; compare with the work item's pinned target | FarmTestAgent `farmqa_identity.py`, `farmqa_unity_identity.py`, `farmqa_request_session.py` |
-| Desktop actor | Deterministic GUI steps on the Windows host, first the FairyGUI publish | new |
+| Desktop actor | Deterministic GUI steps on the Windows host, first the FairyGUI publish; retired for publishing once the Pro license exists | new |
 | Reporter | Agent activities in the session and outbox comments on the issue, both authored by the agent | FarmTestAgent send path; BugAgent outbox |
 
 **Host.** The Windows machine that already runs Unity 2022.3.62f3, the FairyGUI editor
@@ -244,6 +244,15 @@ unity_editor` and exits; the item moves to `awaiting_resource`. The launcher que
 reservation and, on acquisition, launches a fresh worker with the Unity MCP injected.
 Skills that always need the resource, such as `qa`, acquire before the first launch.
 
+**FairyGUI publish path.** Under the current license the `fgui` worker publishes
+through the desktop actor. Once the Pro license is bought, it runs the documented
+batch publish itself, `FairyGUI-Editor -batchmode -p <project.fairy> -b <packages>
+-o <output> -logFile <log>`, bounded by a timeout because the editor process has been
+observed not to self-exit on failure. Both paths run under the same `fgui_editor`
+reservation, since one editor instance owns the project and the output directory, and
+both are followed by the same guard tests and hash verification. Only the actuator
+changes; the gate, the reservation and the evidence are identical.
+
 **Release.** The worker releases after its own quiescence check: Editor back in Edit
 Mode, no pending pointer, driver idle, panels disposed. When the launcher kills a
 worker, it runs the resource's quiescence probe itself; a passing probe releases, a
@@ -401,7 +410,8 @@ scenario on its own PR branch in the Editor. Delivery comments carry runtime evi
 or name the exact gap.
 
 **Phase 4: FGUI.** The `fgui` skill edits farmgui sources, asks for publish approval,
-publishes through the desktop actor under the `fgui_editor` reservation, runs the
+publishes under the `fgui_editor` reservation through the batchmode CLI if the Pro
+license has been bought by then and otherwise through the desktop actor, runs the
 client's atlas and dependency guard tests, and opens the PR.
 
 **Phase 5: feature.** The `feature` skill drafts the contract change with openspec in a
@@ -431,7 +441,8 @@ delivers.
   fixed endpoint is an operations task before Phase 2.
 - **Desktop actor reliability.** If FairyGUI editor automation proves brittle, the
   fallback is a human clicking Publish, the existing watcher syncing, and the agent
-  verifying published hashes. The gate design is unchanged either way.
+  verifying published hashes. The planned Pro license removes this risk entirely; the
+  desktop actor is interim. The gate design is unchanged either way.
 - **Cost and rate limits.** Concurrency is capped at two until usage is observed.
 - **Auto-delegation.** A Linear Loop that delegates new Bug + 程序 issues would remove
   the manual step; availability on the current plan is unverified and it is optional.
