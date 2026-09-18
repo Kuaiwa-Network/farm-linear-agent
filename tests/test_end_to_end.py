@@ -71,6 +71,16 @@ class EndToEndTests(unittest.TestCase):
         path = self.stub / "calls.jsonl"
         return [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines()] if path.exists() else []
 
+    def wait_gone(self, path, timeout=20):
+        """Worktree removal happens on a scheduler tick, not synchronously with the worker's finish."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            self.c.scheduler.tick()
+            if not path.exists():
+                return True
+            time.sleep(0.2)
+        return False
+
     def wait_state(self, item_id, states, timeout=40):
         deadline = time.time() + timeout
         while time.time() < deadline:
@@ -103,7 +113,7 @@ class EndToEndTests(unittest.TestCase):
         methods = [c["method"] for c in self.calls()]
         self.assertEqual(methods.count("create_comment"), 2)
         self.assertIn("👀 FarmBot 已开始处理", self.calls()[[i for i, m in enumerate(methods) if m == "create_comment"][0]]["body"])
-        self.assertFalse((self.c.paths.worktrees / item["id"]).exists())
+        self.assertTrue(self.wait_gone(self.c.paths.worktrees / item["id"]))
 
     def test_stop_kills_a_running_worker_within_five_seconds(self):
         with patch.dict(os.environ, {"FAKE_CLI_MODE": "sleep"}):

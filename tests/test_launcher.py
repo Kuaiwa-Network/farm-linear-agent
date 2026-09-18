@@ -128,12 +128,16 @@ class LauncherTests(unittest.TestCase):
     def test_a_runtime_with_a_writable_flag_gets_one_flag_per_root(self):
         runtime = RUNTIMES["claude"]._replace(command=RUNTIMES["fake"].command)
         launcher = Launcher(self.runs, runtime, host="h")
+
+        def reap():  # never leave a child unreaped, even if an assertion below fails first
+            launcher.stop("item-4")
+            launcher.poll()
+
+        self.addCleanup(reap)
         handle = launcher.spawn("item-4", self.message, {}, budget_seconds=60, cwd=self.tmp.name,
                                 extra_env={"FAKE_CLI_MODE": "echo"},
                                 writable=[Path("/w/item-4/Farm-Client"), Path("/repo/.local/agent")])
-        deadline = time.time() + 10
-        while time.time() < deadline and not launcher.poll():
-            time.sleep(0.05)
+        # The command line is fixed at spawn, so nothing here needs to wait for the worker to finish.
         self.assertEqual(handle.process.args[-6:], ["--add-dir", str(self.runs / "item-4"),
                                                     "--add-dir", "/w/item-4/Farm-Client",
                                                     "--add-dir", "/repo/.local/agent"])

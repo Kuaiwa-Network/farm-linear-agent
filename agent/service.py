@@ -48,8 +48,9 @@ def seed_clones(config, source_root=None):
     for repo in config.repos:
         seed = None
         if source_root:
+            base = Path(source_root).expanduser().resolve()  # git reads a relative path against the clone
             for name in (repo, f"farm-{repo}"):  # the common repo is checked out as farm-common
-                candidate = Path(source_root) / name
+                candidate = base / name
                 if (candidate / ".git").exists() or (candidate / "HEAD").exists():
                     seed = candidate
                     break
@@ -119,7 +120,7 @@ def main(argv=None):
             raise RuntimeError(f"not on PATH: {', '.join(missing)}; install them before writing launchd agents, "
                                "because a launchd job cannot resolve a bare name")
         target = Path.home() / "Library" / "LaunchAgents"
-        written = install(config, target, cloudflared=shutil.which("cloudflared"))
+        written = install(config, target, cloudflared=shutil.which("cloudflared"), config_path=args.config)
         print(json.dumps({label: str(path) for label, path in written.items()}, indent=2))
         print("\nLoad them with:")
         for label in AGENTS.values():

@@ -77,8 +77,9 @@ issue, describe the observed problem, the change, the checks that ran and the on
 - Delivered: `prepare-comment --kind delivery`, `post-comment`, then `finish --outcome delivered` with
   `{"summary", "comment_action_id", "verification", "prs": [...]}`. Verification names the rungs that ran.
 - Delivered with no code change: when the bug is already fixed on the target branch, is a duplicate of
-  work already merged, or does not reproduce, that conclusion is the deliverable. Write the delivery
-  body from the template with your evidence, `prepare-comment --kind delivery`, `post-comment`, then
+  work already merged, or does not reproduce, that conclusion is the deliverable. Write the body from the
+  `delivery (no change)` template, never the plain `delivery` one, which claims a draft PR was submitted.
+  Then `prepare-comment --kind delivery`, `post-comment`, and
   `finish --outcome delivered` with `{"summary", "comment_action_id", "verification", "no_change", "prs": []}`,
   where `no_change` states in one sentence why nothing needed changing, naming the commit or PR that
   already covers it. Never open an empty PR to satisfy the ledger, and never report this as blocked.

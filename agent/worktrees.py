@@ -36,16 +36,32 @@ class Worktrees:
 
     def ensure_clone(self, repo, seed_from=None):
         path = self.clone_path(repo)
-        if not path.exists():
-            self.repos_root.mkdir(parents=True, exist_ok=True)
-            _git("init", "--quiet", "--bare", str(path), cwd=self.repos_root)
-            _git("remote", "add", "origin", self.remotes[repo], cwd=path)
-            _git("config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*", cwd=path)
+        if path.exists():
+            return path
+        self.repos_root.mkdir(parents=True, exist_ok=True)
+        # The destination directory is this method's only readiness marker, so build under a temporary
+        # name: a fetch that fails midway must leave nothing that a later run reads as a finished clone.
+        staging = self.repos_root / f".{repo}.git.incomplete-{os.getpid()}"
+        shutil.rmtree(staging, ignore_errors=True)
+        try:
+            _git("init", "--quiet", "--bare", str(staging), cwd=self.repos_root)
+            _git("remote", "add", "origin", self.remotes[repo], cwd=staging)
+            _git("config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*", cwd=staging)
             # Seeding from a local checkout of the same remote turns the first origin fetch into a small
-            # delta; without it a first launch pays a full clone inside a scheduler tick.
-            if seed_from is not None and Path(seed_from).exists():
-                _git("fetch", "--quiet", str(seed_from), "+refs/remotes/origin/*:refs/remotes/origin/*", cwd=path)
-            _git("fetch", "--quiet", "--prune", "origin", cwd=path)
+            # delta; without it a first launch pays a full clone inside a scheduler tick. The path is
+            # resolved because git would otherwise read a relative one against the clone directory.
+            if seed_from is not None:
+                seed = Path(seed_from).expanduser().resolve()
+                if seed.exists():
+                    _git("fetch", "--quiet", str(seed), "+refs/remotes/origin/*:refs/remotes/origin/*", cwd=staging)
+            _git("fetch", "--quiet", "--prune", "origin", cwd=staging)
+        except BaseException:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
+        if path.exists():
+            shutil.rmtree(staging, ignore_errors=True)  # another run finished first; keep theirs
+        else:
+            staging.rename(path)
         return path
 
     def fetch(self, repo):

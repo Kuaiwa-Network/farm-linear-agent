@@ -170,4 +170,4 @@ class SeedCloneTests(unittest.TestCase):
         checkout.parent.mkdir(parents=True)
         git("clone", "-q", str(self.origin), str(checkout), cwd=self.root)
         report = seed_clones(self.config, source_root=self.root / "sources")
-        self.assertEqual(report, {"Farm-Client": f"seeded from {checkout}"})
+        self.assertEqual(report, {"Farm-Client": f"seeded from {checkout.resolve()}"})

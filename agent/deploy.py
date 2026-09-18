@@ -45,7 +45,7 @@ def tunnel_arguments(config, cloudflared="cloudflared"):
 
 
 def install(config, target_dir, *, python=sys.executable, cloudflared="cloudflared", repo_root=ROOT,
-            path=None):
+            path=None, config_path=None):
     # A launchd job inherits only /usr/bin:/bin:/usr/sbin:/sbin, which holds no codex, claude, gh or
     # cloudflared, so a worker spawned under it dies at Popen. Carry the installing shell's PATH instead.
     environment = {"PATH": path or os.environ.get("PATH", os.defpath), "HOME": str(Path.home())}
@@ -53,10 +53,11 @@ def install(config, target_dir, *, python=sys.executable, cloudflared="cloudflar
     log_dir.mkdir(parents=True, exist_ok=True)
     target_dir = Path(target_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
-    jobs = {
-        AGENTS["serve"]: [python, "-u", "-m", "agent.service", "serve"],
-        AGENTS["tunnel"]: tunnel_arguments(config, cloudflared),
-    }
+    # An installed job cannot inherit the operator's --config, so name it explicitly or it reads another file.
+    serve = [python, "-u", "-m", "agent.service", "serve"]
+    if config_path:
+        serve += ["--config", str(Path(config_path).expanduser().resolve())]
+    jobs = {AGENTS["serve"]: serve, AGENTS["tunnel"]: tunnel_arguments(config, cloudflared)}
     written = {}
     for label, arguments in jobs.items():
         destination = target_dir / f"{label}.plist"

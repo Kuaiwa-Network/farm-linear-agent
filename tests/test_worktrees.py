@@ -1,3 +1,4 @@
+import os
 import subprocess
 import tempfile
 import unittest
@@ -5,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import agent.worktrees
-from agent.worktrees import Worktrees
+from agent.worktrees import WorktreeError, Worktrees
 
 
 def git(*args, cwd):
@@ -117,7 +118,7 @@ class WorktreeTests(unittest.TestCase):
             self.trees.ensure_clone("Farm-Client", seed_from=checkout)
         fetches = [a for a in calls if a[0] == "fetch"]
         self.assertEqual(len(fetches), 2)
-        self.assertIn(str(checkout), fetches[0])
+        self.assertIn(str(checkout.resolve()), fetches[0])  # resolved: /var/folders is a symlink on macOS
         self.assertIn("+refs/remotes/origin/*:refs/remotes/origin/*", fetches[0])
         self.assertIn("origin", fetches[1])
 
@@ -132,3 +133,29 @@ class WorktreeTests(unittest.TestCase):
         with patch("agent.worktrees._git", recording):
             self.trees.ensure_clone("Farm-Client")
         self.assertEqual([a for a in calls if a[0] == "fetch"], [("fetch", "--quiet", "--prune", "origin")])
+
+    def test_a_failed_fetch_leaves_nothing_a_later_run_would_mistake_for_a_clone(self):
+        root = Path(self.tmp.name)
+        repos = root / "repos-broken"
+        trees = Worktrees(repos, root / "wt-broken", {"Farm-Client": str(root / "no-such-origin.git")})
+        with self.assertRaises(WorktreeError):
+            trees.ensure_clone("Farm-Client")
+        self.assertFalse(trees.clone_path("Farm-Client").exists())
+        self.assertEqual(sorted(p.name for p in repos.iterdir()), [])  # not even a staging directory
+
+    def test_a_relative_seed_path_is_resolved_before_git_sees_it(self):
+        root = Path(self.tmp.name)
+        checkout = root / "checkout"
+        git("clone", "-q", str(self.origin), str(checkout), cwd=root)
+        calls = []
+        real = agent.worktrees._git
+
+        def recording(*args, cwd):
+            calls.append(args)
+            return real(*args, cwd=cwd)
+
+        with patch("agent.worktrees._git", recording):
+            # git would resolve a relative path against the clone directory, not against our cwd.
+            self.trees.ensure_clone("Farm-Client", seed_from=os.path.relpath(checkout))
+        seed_fetch = next(a for a in calls if a[0] == "fetch" and "origin" not in a)
+        self.assertIn(str(checkout.resolve()), seed_fetch)

@@ -60,3 +60,15 @@ class DeployTests(unittest.TestCase):
         self.assertEqual(missing_tools(self.config, which=lambda name: None), ["codex", "cloudflared"])
         only_runtime = lambda name: None if name == "cloudflared" else f"/somewhere/{name}"
         self.assertEqual(missing_tools(self.config, which=only_runtime), ["cloudflared"])
+
+    def test_the_installed_job_names_the_config_it_was_installed_with(self):
+        target = self.root / "LaunchAgents"
+        elsewhere = self.root / "elsewhere.json"
+        elsewhere.write_text("{}", encoding="utf-8")
+        install(self.config, target, python="/usr/bin/python3", cloudflared="/usr/bin/cloudflared",
+                config_path=elsewhere)
+        serve = plistlib.loads((target / f"{AGENTS['serve']}.plist").read_bytes())
+        self.assertEqual(serve["ProgramArguments"][-2:], ["--config", str(elsewhere.resolve())])
+        install(self.config, target, python="/usr/bin/python3", cloudflared="/usr/bin/cloudflared")
+        plain = plistlib.loads((target / f"{AGENTS['serve']}.plist").read_bytes())
+        self.assertNotIn("--config", plain["ProgramArguments"])
