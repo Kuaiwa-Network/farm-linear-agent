@@ -165,10 +165,17 @@ class HttpTests(ReceiverBase):
         body = json.dumps(self.event(webhookTimestamp=int(__import__("time").time() * 1000))).encode()
         signature = hmac.new(b"signing-secret", body, hashlib.sha256).hexdigest()
         request = urllib.request.Request(f"http://127.0.0.1:{port}/webhook", data=body, headers={"Linear-Signature": signature})
-        with urllib.request.urlopen(request, timeout=5) as response:
-            self.assertEqual(json.load(response)["status"], "accepted")
-        with self.assertRaises(urllib.error.HTTPError) as ctx:
-            urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{port}/webhook", data=body), timeout=5)
+        import contextlib, io
+        log = io.StringIO()
+        with contextlib.redirect_stdout(log):
+            with urllib.request.urlopen(request, timeout=5) as response:
+                self.assertEqual(json.load(response)["status"], "accepted")
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{port}/webhook", data=body), timeout=5)
         self.assertEqual(ctx.exception.code, 401)
+        lines = [json.loads(line) for line in log.getvalue().splitlines()]
+        self.assertEqual([(l["status"], l["result"], l["type"], l["action"]) for l in lines],
+                         [(200, "accepted", "AgentSessionEvent", "created"), (401, "invalid signature", "AgentSessionEvent", "created")])
+        self.assertNotIn("body", json.dumps(lines))  # outcomes only, never the payload
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=5) as response:
             self.assertEqual(json.load(response)["status"], "FarmBot ready")

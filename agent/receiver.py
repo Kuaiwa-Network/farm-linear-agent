@@ -286,6 +286,14 @@ def make_server(receiver, port=8765):
             except Exception:
                 return self.respond(500, "receiver error")
             self.respond(status, message)
+            # One line per delivery so an ignored or rejected event is visible in the service log; never the body.
+            try:
+                event = json.loads(raw)
+                kind = event.get("type") if isinstance(event, dict) else None
+                action = event.get("action") if isinstance(event, dict) else None
+            except (ValueError, UnicodeError):
+                kind = action = None
+            print(json.dumps({"event": "webhook", "status": status, "result": message, "type": kind, "action": action}), flush=True)
 
     server = ExclusiveServer(("127.0.0.1", port), Handler)
     server.receiver = receiver
