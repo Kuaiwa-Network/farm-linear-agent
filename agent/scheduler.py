@@ -1,6 +1,7 @@
 """Turn queued work items into running workers and reap them back into ledger states (spec §6, §8)."""
 import re
 import threading
+from pathlib import Path
 
 from .dispatch import dispatch_message
 from .ledger import LedgerError
@@ -46,7 +47,8 @@ class Scheduler:
         paths = self._worktrees_for(skill, item, issue)
         message = dispatch_message(item=item, issue=issue, skill_path=self.skill_root / skill.name / "SKILL.md",
                                    worktrees=paths, db_path=self.db_path, runtime=self.runtime_name,
-                                   guidance=self.guidance_for(item), budget=skill.budget)
+                                   guidance=self.guidance_for(item), budget=skill.budget,
+                                   repo_root=Path(self.skill_root).parent)
         primary = paths.get(READ_REPO) or next(iter(paths.values()))
         handle = self.launcher.spawn(item["id"], message, {}, int(skill.budget["max_hours"] * 3600), cwd=primary,
                                      extra_env={"FARMBOT_DB": str(self.db_path)})

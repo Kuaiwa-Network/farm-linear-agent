@@ -356,7 +356,8 @@ containing only the MCP servers the manifest and current reservations allow; an
 approval policy suited to unattended runs inside the worktree; standard output and the
 final message captured into the run directory. The dispatch message is self-contained:
 work item id, ledger path, skill path, worktree paths, pinned target, the authority
-statement, and guidance as data. It never embeds issue prose; the worker fetches the
+statement, the FarmBot repository root with its operating contract and reference paths,
+and guidance as data. It never embeds issue prose; the worker fetches the
 issue fresh.
 
 `codex exec` is the first runtime because the skills and repository instructions are

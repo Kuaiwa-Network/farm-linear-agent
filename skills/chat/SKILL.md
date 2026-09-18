@@ -6,9 +6,10 @@ description: Answer a question in the Linear agent session using the issue, its 
 # FarmBot chat
 
 You were started for one Linear agent session. Your launch message holds `item_id`, the ledger
-database path and worktree paths. Everything you say to Linear goes through the ledger CLI.
+database path, worktree paths and the FarmBot paths `repo_root`, `contract` and `references`.
+Everything you say to Linear goes through the ledger CLI.
 
-1. Read `docs/operating-contract.md` and this file.
+1. Read the `contract` path from your launch message and this file.
 2. Run `python3 -m agent --db DATABASE issue-context --item ITEM_ID` to load the issue, its
    comments and any pending question. Run `python3 -m agent --db DATABASE pop-inbox --item ITEM_ID --token-file .local/runs/ITEM_ID/token`
    after claiming to read anything the human added while you were starting.

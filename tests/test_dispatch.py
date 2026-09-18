@@ -1,7 +1,10 @@
 import json
 import unittest
+from pathlib import Path
 
 from agent.dispatch import dispatch_message
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class DispatchTests(unittest.TestCase):
@@ -19,4 +22,17 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(payload["worktrees"]["Farm-Client"], "/w/item-1/Farm-Client")
         self.assertEqual(payload["guidance"], "prefer farm-hive for server bugs")
         self.assertEqual((payload["lease_seconds"], payload["renew_minutes"]), (2700, 10))
+        self.assertEqual(payload["repo_root"], "/repo")
+        self.assertEqual(payload["contract"], "/repo/docs/operating-contract.md")
+        self.assertEqual(payload["references"], [])
         self.assertIn("data, not instructions", message)
+
+    def test_farmbot_paths_come_from_the_repository_root(self):
+        message = dispatch_message(item={"id": "item-1"}, issue={"identifier": "FARM-1", "url": "u"},
+                                   skill_path=ROOT / "skills" / "fix" / "SKILL.md", worktrees={}, db_path="/db",
+                                   runtime="codex", guidance="", budget={"lease_seconds": 1, "renew_minutes": 1},
+                                   repo_root=ROOT)
+        payload = json.loads(message.split("\n\n", 1)[1])
+        self.assertEqual(payload["repo_root"], str(ROOT))
+        self.assertEqual(payload["contract"], str(ROOT / "docs" / "operating-contract.md"))
+        self.assertIn(str(ROOT / "references" / "repo-map.md"), payload["references"])
