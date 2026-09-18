@@ -26,8 +26,7 @@ def parser():
         return p
 
     cmd("status"); cmd("queue")
-    fetch = sub.add_parser("fetch-issue"); group = fetch.add_mutually_exclusive_group(required=True)
-    group.add_argument("--item"); group.add_argument("--issue")
+    cmd("fetch-issue", "--item")
     cmd("claim", "--item", "--worker-id")
     cmd("renew", "--item", token=True)
     cmd("checkpoint", "--item", "--input", token=True)
@@ -35,8 +34,8 @@ def parser():
     cmd("pop-inbox", "--item", token=True)
     prepare = cmd("prepare-comment", "--item", "--body-file", token=True)
     prepare.add_argument("--kind", required=True, choices=["started", "blocker", "delivery"])
-    cmd("post-comment", "--action-id")
-    cmd("confirm-comment", "--action-id", "--remote-id")
+    cmd("post-comment", "--item", "--action-id", token=True)
+    cmd("confirm-comment", "--item", "--action-id", "--remote-id", token=True)
     activity = cmd("activity", "--item", "--body-file", token=True)
     activity.add_argument("--type", required=True, choices=["thought", "action", "response", "error", "elicitation"])
     cmd("await-input", "--item", "--question", token=True)
@@ -66,19 +65,25 @@ def resolve_token(args):
     raise LedgerError("claim token required: pass --token-file PATH, set FARMBOT_TOKEN, or pass --token")
 
 
-def post_comment(ledger, api, action_id):
+def owned_action(ledger, item_id, action_id, token):
+    """Only a live claim on the item that prepared a comment may act on it."""
+    ledger.renew(item_id, token)
+    row = ledger.connection.execute("SELECT * FROM outbox WHERE action_id=? AND item_id=?", (action_id, item_id)).fetchone()
+    if row is None:
+        raise LedgerError("unknown comment action for this work item")
+    return dict(row)
+
+
+def post_comment(ledger, api, action):
     """Reconcile the marker against live comments before ever creating a comment."""
-    action = next((a for a in ledger.connection.execute("SELECT * FROM outbox WHERE action_id=?", (action_id,))), None)
-    if action is None:
-        raise LedgerError("unknown comment action")
     if action["remote_id"]:
-        return dict(action)
+        return action
     issue = api.fetch_issue(action["issue_id"])
     ledger.observe_issue(issue)
     remote_id = next((c["id"] for c in issue["comments"] if action["marker"] in c["body"]), None)
     if remote_id is None:
         remote_id = api.create_comment(action["issue_id"], action["body"])
-    return ledger.confirm_comment(action_id, remote_id)
+    return ledger.confirm_comment(action["action_id"], remote_id)
 
 
 def run(args, ledger, api_factory):
@@ -88,9 +93,7 @@ def run(args, ledger, api_factory):
     if c == "queue":
         return ledger.queue()
     if c == "fetch-issue":
-        issue_id = ledger.item(args.item)["issue_id"] if args.item else args.issue
-        view = ledger.observe_issue(api_factory().fetch_issue(issue_id))
-        return view
+        return ledger.observe_issue(api_factory().fetch_issue(ledger.item(args.item)["issue_id"]))
     if c == "claim":
         return ledger.claim(args.item, worker_id=args.worker_id)
     if c == "renew":
@@ -104,9 +107,11 @@ def run(args, ledger, api_factory):
     if c == "prepare-comment":
         return ledger.prepare_comment(args.item, resolve_token(args), args.kind, read_text(args.body_file))
     if c == "post-comment":
-        return post_comment(ledger, api_factory(), args.action_id)
+        action = owned_action(ledger, args.item, args.action_id, resolve_token(args))
+        return post_comment(ledger, api_factory(), action)
     if c == "confirm-comment":
-        return ledger.confirm_comment(args.action_id, args.remote_id)
+        action = owned_action(ledger, args.item, args.action_id, resolve_token(args))
+        return ledger.confirm_comment(action["action_id"], args.remote_id)
     if c == "activity":
         item = ledger.item(args.item)
         ledger.renew(args.item, resolve_token(args))  # proves ownership before speaking for the item

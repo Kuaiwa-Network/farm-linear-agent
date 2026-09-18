@@ -3,7 +3,6 @@ import hmac
 import json
 import os
 import subprocess
-import sys
 import tempfile
 import time
 import unittest
@@ -43,7 +42,9 @@ class EndToEndTests(unittest.TestCase):
                "FAKE_CLI_STEPS": json.dumps([
                    ["claim", "--item", "{item}", "--worker-id", "fake"],
                    ["prepare-comment", "--item", "{item}", "--token", "{token}", "--kind", "started", "--body-file", str(root / "started.md")],
+                   ["post-comment", "--item", "{item}", "--token", "{token}", "--action-id", "{action_id}"],
                    ["prepare-comment", "--item", "{item}", "--token", "{token}", "--kind", "blocker", "--body-file", str(root / "blocker.md")],
+                   ["post-comment", "--item", "{item}", "--token", "{token}", "--action-id", "{action_id}"],
                    ["finish", "--item", "{item}", "--token", "{token}", "--outcome", "blocked", "--input", str(root / "outcome.json")]])}
         (root / "started.md").write_text("👀 FarmBot 已开始处理", encoding="utf-8")
         (root / "blocker.md").write_text("缺少信息", encoding="utf-8")
@@ -91,14 +92,11 @@ class EndToEndTests(unittest.TestCase):
         self.c.scheduler.tick()
         self.assertIsNotNone(self.c.ledger.item(item["id"])["worker_pid"])
         self.assertTrue((self.c.paths.worktrees / item["id"] / "Farm-Client").is_dir())
-        # The fake worker's finish needs confirmed comments, so post them through the CLI the way a real worker would.
-        # The steps above prepare both comments; post them here once the outbox rows exist.
+        # The worker prepares and posts both comments itself; its finish retries until outcome.json names
+        # the blocker action, which only exists once the outbox row does.
         deadline = time.time() + 30
         while time.time() < deadline and len(self.c.ledger.outbox(item["id"])) < 2:
             time.sleep(0.2)
-        for action in self.c.ledger.outbox(item["id"]):
-            subprocess.run([sys.executable, "-m", "agent", "--db", str(self.c.paths.ledger), "post-comment", "--action-id", action["action_id"]],
-                           cwd=ROOT, check=True, capture_output=True)
         blocker = next(a for a in self.c.ledger.outbox(item["id"]) if a["kind"] == "blocker")
         (self.root / "outcome.json").write_text(json.dumps({"summary": "缺少信息", "comment_action_id": blocker["action_id"]}), encoding="utf-8")
         self.assertEqual(self.wait_state(item["id"], {"blocked", "failed"}), "blocked")

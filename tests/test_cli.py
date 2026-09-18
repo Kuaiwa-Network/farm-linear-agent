@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from test_ledger import ISSUE, issue
+from test_ledger import ISSUE, OTHER, issue
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -43,13 +43,13 @@ class CliTests(unittest.TestCase):
         text = (self.stub / "calls.jsonl").read_text(encoding="utf-8") if (self.stub / "calls.jsonl").exists() else ""
         return [json.loads(line) for line in text.splitlines()]
 
-    def seeded_item(self):
+    def seeded_item(self, issue_id=ISSUE, session="session-1"):
         """Create a work item the way the receiver would, then return its id."""
         from agent.ledger import Ledger
         ledger = Ledger(self.db)
-        ledger.observe_issue(issue(labels=["Bug"]))
-        ledger.ensure_session("session-1", ISSUE, delegation=True)
-        item = ledger.create_work_item(issue_id=ISSUE, session_id="session-1", skill="fix")
+        ledger.observe_issue(issue(id=issue_id, labels=["Bug"]))
+        ledger.ensure_session(session, issue_id, delegation=True)
+        item = ledger.create_work_item(issue_id=issue_id, session_id=session, skill="fix")
         ledger.close()
         return item["id"]
 
@@ -65,7 +65,7 @@ class CliTests(unittest.TestCase):
         body = self.root / "started.md"
         body.write_text("👀 FarmBot 已开始处理：正在复现。", encoding="utf-8")
         action = self.run_cli("prepare-comment", "--item", item, "--token", token, "--kind", "started", "--body-file", str(body))
-        posted = self.run_cli("post-comment", "--action-id", action["action_id"])
+        posted = self.run_cli("post-comment", "--item", item, "--token", token, "--action-id", action["action_id"])
         self.assertEqual(posted["remote_id"], "stub-comment-1")
         self.assertEqual(self.calls()[-1]["method"], "create_comment")
         self.assertIn(action["marker"], self.calls()[-1]["body"])
@@ -74,7 +74,7 @@ class CliTests(unittest.TestCase):
         blocker = self.root / "blocker.md"
         blocker.write_text("需要设备型号。", encoding="utf-8")
         blocked = self.run_cli("prepare-comment", "--item", item, "--token", token, "--kind", "blocker", "--body-file", str(blocker))
-        self.run_cli("post-comment", "--action-id", blocked["action_id"])
+        self.run_cli("post-comment", "--item", item, "--token", token, "--action-id", blocked["action_id"])
         finished = self.run_cli("finish", "--item", item, "--token", token, "--outcome", "blocked", "--input",
                                 self.json_file("out.json", {"summary": "缺少设备信息", "comment_action_id": blocked["action_id"]}))
         self.assertEqual(finished["state"], "blocked")
@@ -88,7 +88,7 @@ class CliTests(unittest.TestCase):
         existing = issue(labels=["Bug"], comments=[{"id": "c-existing", "body": f"x\n\n{action['marker']}", "author_kind": "bot",
                                                    "created_at": "2026-09-18T00:00:00Z", "updated_at": "2026-09-18T00:00:00Z"}])
         (self.stub / "issue.json").write_text(json.dumps(existing), encoding="utf-8")
-        posted = self.run_cli("post-comment", "--action-id", action["action_id"])
+        posted = self.run_cli("post-comment", "--item", item, "--token", token, "--action-id", action["action_id"])
         self.assertEqual(posted["remote_id"], "c-existing")
         self.assertNotIn("create_comment", [c["method"] for c in self.calls()])
 
@@ -113,6 +113,19 @@ class CliTests(unittest.TestCase):
         self.assertNotIn("token", renewed)
         process = self.run_cli("renew", "--item", item, success=False)
         self.assertIn("claim token required", process.stderr)
+
+    def test_post_comment_refuses_an_action_id_from_another_item(self):
+        mine = self.seeded_item()
+        token = self.run_cli("claim", "--item", mine, "--worker-id", "w")["token"]
+        body = self.root / "b.md"
+        body.write_text("x", encoding="utf-8")
+        action = self.run_cli("prepare-comment", "--item", mine, "--token", token, "--kind", "started", "--body-file", str(body))
+        other = self.seeded_item(issue_id=OTHER, session="session-2")
+        other_token = self.run_cli("claim", "--item", other, "--worker-id", "w2")["token"]
+        process = self.run_cli("post-comment", "--item", other, "--token", other_token, "--action-id", action["action_id"],
+                               success=False)
+        self.assertIn("unknown comment action", process.stderr)
+        self.assertNotIn("create_comment", [c["method"] for c in self.calls()])
 
     def test_await_resource_is_refused_without_slots_and_errors_are_clean(self):
         item = self.seeded_item()

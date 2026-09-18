@@ -34,8 +34,10 @@ elif mode == "cli":
     db = payload["database"]
     item = payload["item_id"]
     token = None
+    action_id = None
     for step in json.loads(os.environ["FAKE_CLI_STEPS"]):
-        args = [a.replace("{token}", token or "").replace("{item}", item) for a in step]
+        args = [a.replace("{token}", token or "").replace("{item}", item).replace("{action_id}", action_id or "")
+                for a in step]
         attempts = 60 if args[0] == "finish" else 1
         for attempt in range(attempts):
             out = subprocess.run([sys.executable, "-m", "agent", "--db", db, *args], capture_output=True, text=True,
@@ -49,4 +51,6 @@ elif mode == "cli":
         result = json.loads(out.stdout)
         if "token" in result:
             token = result["token"]
+        if isinstance(result, dict) and result.get("action_id"):
+            action_id = result["action_id"]
     write_last(f"cli-done:{item}")
