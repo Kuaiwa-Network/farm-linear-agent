@@ -42,7 +42,7 @@ class FakeLauncher:
     def alive(self, pid):
         return pid in self.alive_pids
 
-    def owned_pid(self, pid):
+    def owned_pid(self, pid, item_id):
         return pid in self.alive_pids
 
     def kill_pid(self, pid, grace=5.0):

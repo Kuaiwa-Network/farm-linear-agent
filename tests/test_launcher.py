@@ -104,3 +104,12 @@ class LauncherTests(unittest.TestCase):
         finished = self.wait_finished()[0]
         self.assertEqual((finished.item_id, finished.returncode), ("item-8", 0))
         self.assertTrue((handle.run_dir / "stdin-error.txt").exists())
+
+    def test_owned_pid_requires_the_item_id_on_the_command_line(self):
+        handle = self.launcher.spawn("item-9", self.message, {}, budget_seconds=60, cwd=self.tmp.name,
+                                     extra_env={"FAKE_CLI_MODE": "sleep"})
+        self.assertTrue(self.launcher.owned_pid(handle.pid, "item-9"))
+        self.assertFalse(self.launcher.owned_pid(handle.pid, "item-other"))
+        self.assertTrue(self.launcher.stop("item-9", grace=2.0))
+        self.wait_finished()
+        self.assertFalse(self.launcher.owned_pid(handle.pid, "item-9"))

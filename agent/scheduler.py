@@ -101,7 +101,7 @@ class Scheduler:
         for item_id in self.ledger.status()["recovery_required"]:
             item = self.ledger.item(item_id)
             pid = item["worker_pid"]
-            if pid and (item_id in self.active or self.launcher.owned_pid(pid)):
+            if pid and (item_id in self.active or self.launcher.owned_pid(pid, item_id)):
                 if item_id in self.active:
                     self.launcher.stop(item_id)
                     self.active.pop(item_id, None)
@@ -114,7 +114,7 @@ class Scheduler:
         for row in self.ledger.launched():
             stale = now - row["updated_at"] > self.claim_timeout
             tracked = row["id"] in self.active
-            owned = tracked or self.launcher.owned_pid(row["worker_pid"])
+            owned = tracked or self.launcher.owned_pid(row["worker_pid"], row["id"])
             if owned and not stale:
                 continue
             if tracked:

@@ -140,18 +140,29 @@ class Launcher:
                 stack.append(child)
         return result
 
-    def owned_pid(self, pid):
-        """True when pid is alive and its command line looks like this runtime; guards against pid reuse."""
-        if not pid or not self.alive(pid):
-            return False
-        if os.name == "nt":
-            return True
+    @staticmethod
+    def _command_line(pid):
         try:
-            out = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True, timeout=5).stdout
-        except (OSError, subprocess.TimeoutExpired):
+            if os.name == "nt":
+                out = subprocess.run(["powershell", "-NoProfile", "-Command",
+                                      f"(Get-CimInstance Win32_Process -Filter 'ProcessId={int(pid)}').CommandLine"],
+                                     capture_output=True, text=True, timeout=10).stdout
+            else:
+                out = subprocess.run(["ps", "-o", "command=", "-p", str(int(pid))], capture_output=True, text=True, timeout=5).stdout
+        except (OSError, subprocess.TimeoutExpired, ValueError):
+            return ""
+        return out or ""
+
+    def owned_pid(self, pid, item_id):
+        """True only when pid is alive and its command line names this work item's paths.
+
+        Every runtime receives an item-scoped path on its command line (the worktree for codex
+        and claude, the run directory for the fake), so the item id is a reliable marker. An
+        unverifiable command line yields False: never kill what was not verified.
+        """
+        if not pid or not item_id or not self.alive(pid):
             return False
-        markers = [Path(part).name for part in self.runtime.command if part and "{" not in part][:2]
-        return any(marker and marker in out for marker in markers)
+        return item_id in self._command_line(pid)
 
     def kill_pid(self, pid, grace=5.0):
         """Terminate a worker this launcher no longer tracks (after a restart) plus its descendants."""
