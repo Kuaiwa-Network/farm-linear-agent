@@ -20,6 +20,8 @@ class FakeLauncher:
         self.finished = []
         self.stopped = []
         self.next_pid = 100
+        self.alive_pids = set()
+        self.killed = []
 
     def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None):
         self.next_pid += 1
@@ -37,17 +39,27 @@ class FakeLauncher:
     def running(self):
         return {}
 
-    @staticmethod
-    def alive(pid):
-        return False
+    def alive(self, pid):
+        return pid in self.alive_pids
+
+    def owned_pid(self, pid):
+        return pid in self.alive_pids
+
+    def kill_pid(self, pid, grace=5.0):
+        self.killed.append(pid)
+        self.alive_pids.discard(pid)
+        return [pid]
 
 
 class FakeWorktrees:
     def __init__(self, root):
         self.root = Path(root)
         self.added = []
+        self.fail_on = None
 
     def add(self, repo, item_id, branch):
+        if self.fail_on == (repo, item_id):
+            raise RuntimeError("boom")
         path = self.root / item_id / repo
         path.mkdir(parents=True, exist_ok=True)
         self.added.append((repo, item_id, branch))
@@ -158,3 +170,35 @@ class SchedulerTests(unittest.TestCase):
         self.scheduler.tick()
         self.assertEqual(self.ledger.item(item["id"])["state"], "failed")
         self.assertEqual(len(self.launcher.spawned), 1)
+
+    def test_restart_with_live_expired_worker_kills_it_instead_of_relaunching(self):
+        item = self.item()
+        self.scheduler.tick()
+        pid = self.ledger.item(item["id"])["worker_pid"]
+        self.ledger.claim(item["id"], worker_id="w")
+        self.scheduler.active.clear()
+        self.launcher.alive_pids.add(pid)
+        self.now += 61
+        self.scheduler.tick()
+        self.assertEqual(self.launcher.killed, [pid])
+        self.assertEqual(self.ledger.item(item["id"])["state"], "failed")
+        self.assertEqual(len(self.launcher.spawned), 1)
+
+    def test_launched_worker_that_never_claims_is_stopped_after_the_timeout(self):
+        item = self.item()
+        self.scheduler.tick()
+        pid = self.ledger.item(item["id"])["worker_pid"]
+        self.launcher.alive_pids.add(pid)
+        self.now += 601
+        self.scheduler.tick()
+        self.assertEqual(self.launcher.stopped, [item["id"]])
+        self.assertEqual(self.ledger.item(item["id"])["state"], "failed")
+
+    def test_worktree_failure_fails_only_that_item_and_the_queue_keeps_moving(self):
+        bad = self.item()
+        good = self.item(issue_id=OTHER, session="s2", identifier="FARM-2", priority=4)
+        self.trees.fail_on = ("farm-hive", bad["id"])
+        self.scheduler.tick()
+        self.assertEqual(self.ledger.item(bad["id"])["state"], "failed")
+        self.assertEqual([s[0] for s in self.launcher.spawned], [good["id"]])
+        self.assertIn(("removed", bad["id"], None), self.trees.added)

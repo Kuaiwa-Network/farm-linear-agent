@@ -367,6 +367,11 @@ class Ledger:
         rows = self.connection.execute("SELECT * FROM work_items WHERE state='queued' AND worker_pid IS NULL ORDER BY priority, created_at, id")
         return [self._view(row) for row in rows]
 
+    def launched(self):
+        """Queued items whose worker was spawned but has not claimed yet."""
+        rows = self.connection.execute("SELECT * FROM work_items WHERE state='queued' AND worker_pid IS NOT NULL ORDER BY created_at, id")
+        return [{**self._view(row), "updated_at": row["updated_at"]} for row in rows]
+
     def status(self):
         rows = [self._view(row) for row in self.connection.execute("SELECT * FROM work_items ORDER BY created_at, id")]
         counts = {}

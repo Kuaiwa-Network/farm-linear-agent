@@ -140,6 +140,32 @@ class Launcher:
                 stack.append(child)
         return result
 
+    def owned_pid(self, pid):
+        """True when pid is alive and its command line looks like this runtime; guards against pid reuse."""
+        if not pid or not self.alive(pid):
+            return False
+        if os.name == "nt":
+            return True
+        try:
+            out = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True, timeout=5).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        markers = [Path(part).name for part in self.runtime.command if part and "{" not in part][:2]
+        return any(marker and marker in out for marker in markers)
+
+    def kill_pid(self, pid, grace=5.0):
+        """Terminate a worker this launcher no longer tracks (after a restart) plus its descendants."""
+        targets = [pid] + self.descendants(pid)
+        for target in targets:
+            self._signal_pid(target, signal.SIGTERM)
+        deadline = time.monotonic() + grace
+        while time.monotonic() < deadline and any(self.alive(p) for p in targets):
+            time.sleep(0.05)
+        for target in targets:
+            if self.alive(target):
+                self._signal_pid(target, signal.SIGKILL)
+        return targets
+
     @staticmethod
     def _signal_pid(pid, sig):
         try:

@@ -11,7 +11,7 @@ READ_REPO = "Farm-Client"
 
 class Scheduler:
     def __init__(self, ledger, launcher, skills, worktrees, *, skill_root, db_path, runtime_name, host,
-                 max_concurrent=2, guidance_for=lambda item: ""):
+                 max_concurrent=2, guidance_for=lambda item: "", claim_timeout=600):
         self.ledger = ledger
         self.launcher = launcher
         self.skills = skills
@@ -22,6 +22,7 @@ class Scheduler:
         self.host = host
         self.max_concurrent = max_concurrent
         self.guidance_for = guidance_for
+        self.claim_timeout = claim_timeout
         self.active = {}
 
     def _branch(self, issue):
@@ -47,9 +48,23 @@ class Scheduler:
         primary = paths.get(READ_REPO) or next(iter(paths.values()))
         handle = self.launcher.spawn(item["id"], message, {}, int(skill.budget["max_hours"] * 3600), cwd=primary,
                                      extra_env={"FARMBOT_DB": str(self.db_path)})
-        self.ledger.set_worker(item["id"], handle.pid, self.host)
+        try:
+            self.ledger.set_worker(item["id"], handle.pid, self.host)
+        except LedgerError:
+            self.launcher.stop(item["id"])
+            raise
         self.active[item["id"]] = handle
         return handle
+
+    def _fail_launch(self, item_id, exc):
+        try:
+            self.worktrees.remove(item_id)
+        except Exception:
+            pass
+        try:
+            self.ledger.fail_queued(item_id, f"launch failed: {type(exc).__name__}: {exc}"[:500])
+        except LedgerError:
+            pass
 
     def stop(self, item_id, reason):
         self.launcher.stop(item_id)
@@ -82,31 +97,54 @@ class Scheduler:
 
     def _recover(self):
         recovered = 0
+        now = self.ledger.clock()
         for item_id in self.ledger.status()["recovery_required"]:
             item = self.ledger.item(item_id)
             pid = item["worker_pid"]
-            if pid and self.launcher.alive(pid) and item_id in self.active:
-                self.launcher.stop(item_id)
+            if pid and (item_id in self.active or self.launcher.owned_pid(pid)):
+                if item_id in self.active:
+                    self.launcher.stop(item_id)
+                    self.active.pop(item_id, None)
+                else:
+                    self.launcher.kill_pid(pid)
                 self.ledger.fail(item_id, "lease expired with a live worker; killed")
             else:
                 self.ledger.recover(item_id, "lease expired and worker process is gone")
                 recovered += 1
-        for row in self.ledger.status()["items"]:
-            if row["state"] == "queued" and row["worker_pid"] and row["id"] not in self.active and not self.launcher.alive(row["worker_pid"]):
-                self.ledger.fail_queued(row["id"], "worker process gone before claiming")
-                self.worktrees.remove(row["id"])
-                recovered += 1
+        for row in self.ledger.launched():
+            stale = now - row["updated_at"] > self.claim_timeout
+            tracked = row["id"] in self.active
+            owned = tracked or self.launcher.owned_pid(row["worker_pid"])
+            if owned and not stale:
+                continue
+            if tracked:
+                self.launcher.stop(row["id"])
+                self.active.pop(row["id"], None)
+            elif owned:
+                self.launcher.kill_pid(row["worker_pid"])
+            self.ledger.fail_queued(row["id"], "worker did not claim within the timeout" if owned else "worker process gone before claiming")
+            self.worktrees.remove(row["id"])
+            recovered += 1
         return recovered
+
+    def _sweep_worktrees(self):
+        for row in self.ledger.status()["items"]:
+            if row["state"] in TERMINAL and row["id"] not in self.active:
+                self.worktrees.remove(row["id"])
 
     def tick(self):
         reaped = self._reap()
         recovered = self._recover()
+        self._sweep_worktrees()
         launched = 0
         for item in self.ledger.queue():
             if len(self.active) >= self.max_concurrent:
                 break
             if item["skill"] not in self.skills or item["id"] in self.active:
                 continue
-            self.launch(item)
-            launched += 1
+            try:
+                self.launch(item)
+                launched += 1
+            except Exception as exc:
+                self._fail_launch(item["id"], exc)
         return {"launched": launched, "reaped": reaped, "recovered": recovered}

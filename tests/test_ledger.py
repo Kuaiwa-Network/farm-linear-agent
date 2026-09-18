@@ -116,6 +116,14 @@ class WorkItemTests(LedgerBase):
         self.ledger.set_worker(item["id"], 4242, "h")
         self.assertEqual(self.ledger.queue(), [])
 
+    def test_launched_lists_spawned_but_unclaimed_items_with_their_launch_time(self):
+        item = self.new_item()
+        self.assertEqual(self.ledger.launched(), [])
+        self.ledger.set_worker(item["id"], 4242, "h")
+        launched = self.ledger.launched()
+        self.assertEqual([row["id"] for row in launched], [item["id"]])
+        self.assertEqual(launched[0]["updated_at"], self.now)
+
 
 class LeaseTests(LedgerBase):
     def test_claim_requires_queued_and_issues_cli_safe_token(self):
