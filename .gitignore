@@ -1,0 +1,6 @@
+# Private runtime state: config, ledger, logs, worktrees, slots, runs.
+.local/
+__pycache__/
+*.pyc
+.DS_Store
+.superpowers/
