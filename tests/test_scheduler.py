@@ -9,7 +9,7 @@ from agent.launcher import Finished, Handle
 from agent.ledger import Ledger
 from agent.scheduler import Scheduler
 from agent.skills import load_skills
-from test_ledger import ISSUE, OTHER, SESSION, issue
+from test_ledger import ISSUE, OTHER, SESSION, comment, issue
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -155,6 +155,24 @@ class SchedulerTests(unittest.TestCase):
         self.scheduler.stop(item["id"], "Linear stop")
         self.assertEqual(self.launcher.stopped, [item["id"]])
         self.assertEqual(self.ledger.item(item["id"])["state"], "cancelled")
+
+    def test_item_requeued_by_finish_is_relaunched_not_failed(self):
+        item = self.item()
+        self.scheduler.tick()
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        action = self.ledger.prepare_comment(item["id"], token, "delivery", "已修复，见 PR。")
+        self.ledger.confirm_comment(action["action_id"], "remote-delivery-1")
+        self.ledger.observe_issue(issue(comments=[comment("安卓上也能复现")]))
+        view = self.ledger.finish(item["id"], token, "delivered",
+                                  {"summary": "done", "comment_action_id": action["action_id"],
+                                   "verification": "dotnet tests", "prs": ["https://github.com/o/r/pull/3"]})
+        self.assertEqual((view["state"], view["worker_pid"]), ("queued", None))
+        self.launcher.finished.append(Finished(item["id"], 0, "", False, "exited"))
+        self.scheduler.tick()
+        after = self.ledger.item(item["id"])
+        self.assertIn(after["state"], ("running", "queued"))
+        self.assertEqual(after["worker_pid"], 102)
+        self.assertEqual(len(self.launcher.spawned), 2)
 
     def test_worker_exiting_cleanly_before_claim_fails_the_item(self):
         item = self.item()

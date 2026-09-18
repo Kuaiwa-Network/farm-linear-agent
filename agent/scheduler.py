@@ -90,7 +90,9 @@ class Scheduler:
                 else:
                     self.ledger.fail(finished.item_id, f"worker exited without finishing ({finished.reason}, code {finished.returncode})")
                     state = "failed"
-            elif state == "queued":
+            elif state == "queued" and self.ledger.item(finished.item_id)["worker_pid"] is not None:
+                # A queued item with no pid was requeued after the worker finished (material change or
+                # recovery); it is waiting for a fresh launch, not a worker that died before claiming.
                 self.ledger.fail_queued(finished.item_id, f"worker exited before claiming ({finished.reason}, code {finished.returncode})")
                 state = "failed"
             if state in TERMINAL:
