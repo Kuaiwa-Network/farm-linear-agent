@@ -57,8 +57,17 @@ scheduler tick.
 
 1. A `fix` item that needs no change has no outcome of its own; the worker records it as `blocked` with an
    explanation. Add a no-change outcome to the ledger, the contract and the skill.
-2. Mac deployment: a launchd agent for `serve` and the tunnel, a fixed hostname (named tunnel) or an
-   automatic webhook-URL update, a `seed-clones` command, and the certificate step in the setup notes.
+2. Mac deployment: a launchd agent for `serve` and the tunnel, a `seed-clones` command, and the
+   certificate step in the setup notes. The endpoint question was settled on 2026-09-18 and then
+   deferred, since a quick tunnel is enough for testing: buy a cheap throwaway domain, put it on
+   Cloudflare, run a **named** tunnel on it. Rejected with reasons, so they are not re-proposed:
+   moving the company domain hiiland.com to Cloudflare (refused, it carries Feishu mail); delegating
+   one subdomain to Cloudflare (subdomain zones are Enterprise, the CNAME partial setup is Business);
+   花生壳 (its free tier has no HTTPS certificate and no fixed port, paid starts at ￥1299/year and
+   still needs ICP 备案 plus a DNS transfer to 贝锐); Tailscale Funnel (its docs state it serves only
+   `*.ts.net` names, the hostname is device-bound, and device keys expire by default); ngrok (custom
+   domains are paid). A VPS running Caddy stays viable if a suitable server appears, but a
+   mainland-hosted address serving a custom domain on 443 needs ICP 备案.
 3. Windows: re-run the runtime spike there; the Codex sandbox roots need their Windows equivalent; port the
    supervisor script.
 4. Claude runtime parity: `--add-dir` for the state dir and clones, and an isolated-auth recipe.
@@ -67,4 +76,9 @@ scheduler tick.
    Linear-side mechanism that creates sessions.
 
 The service and tunnel started for this test live only as long as the operator's session; nothing on the
-Mac restarts them yet.
+Mac restarts them yet. Every hostname resolved from this Mac lands in the `198.18.x.x` fake-IP range, so a
+local proxy client intercepts all DNS and sits in the path of every outbound connection. Confirm the tunnel
+still connects with that proxy off before relying on an unattended daemon.
+
+To run another test session: start the service, start `cloudflared tunnel --url http://127.0.0.1:8765`,
+paste the new random hostname with `/webhook` into the Linear app settings, and delegate from the Linear UI.
