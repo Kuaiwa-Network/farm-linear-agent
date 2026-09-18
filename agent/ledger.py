@@ -111,6 +111,11 @@ def _normalize(raw):
     return value
 
 
+def _hash_token(token):
+    """Only the digest is stored: a leaked ledger file must not hand out live claims."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 def _in_scope(issue):
     return not issue["archived"] and issue["status_type"] not in TERMINAL_STATUS_TYPES
 
@@ -277,7 +282,7 @@ class Ledger:
             raise LedgerError(f"unknown issue: {issue_id}")
         return row
 
-    def _view(self, row, *, token=False):
+    def _view(self, row):
         issue = json.loads(self._issue_row(row["issue_id"])["metadata"])
         result = {key: row[key] for key in ["id", "issue_id", "session_id", "skill", "state", "stage",
                                             "priority", "host", "generation", "lease_expires_at",
@@ -285,8 +290,6 @@ class Ledger:
         result.update(identifier=issue["identifier"], target=json.loads(row["target_json"]) if row["target_json"] else None,
                       resume_authorized=bool(row["resume_authorized"]), checkpoint=json.loads(row["checkpoint"]),
                       evidence=json.loads(row["evidence"]))
-        if token:
-            result["token"] = row["token"]
         return result
 
     def _audit(self, item_id, kind, reason="", details=None):
@@ -295,8 +298,9 @@ class Ledger:
 
     def _owned(self, item_id, token):
         row = self._row(item_id)
-        if (row["state"] != "running" or not isinstance(token, str) or not token.isascii()
-                or not secrets.compare_digest(row["token"] or "", token)):
+        presented = _hash_token(token) if isinstance(token, str) and token.isascii() and token else ""
+        if (row["state"] != "running" or not presented
+                or not secrets.compare_digest(row["token"] or "", presented)):
             raise LedgerError("running claim and matching token required")
         if row["lease_expires_at"] <= self.clock():
             raise LedgerError("lease expired; the launcher recovers expired work, workers must stop")
@@ -424,11 +428,13 @@ class Ledger:
             checkpoint = json.loads(row["checkpoint"])
             checkpoint.pop("worker_id", None)
             checkpoint["worker_id"] = worker_id
-            self._set_state(item_id, "running", "claim", token=token,
+            self._set_state(item_id, "running", "claim", token=_hash_token(token),
                             lease_expires_at=self.clock() + (row["lease_seconds"] or self.lease_seconds),
                             claimed_fingerprint=issue_row["fingerprint"], generation=generation, requeue_requested=0,
                             resume_authorized=0, checkpoint=_json(checkpoint))
-            return self._view(self._row(item_id), token=True)
+            result = self._view(self._row(item_id))
+            result["token"] = token  # the only time the raw token exists outside the worker
+            return result
 
     def renew(self, item_id, token):
         with self._transaction():

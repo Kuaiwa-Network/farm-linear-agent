@@ -21,6 +21,7 @@ class CliTests(unittest.TestCase):
         self.stub.mkdir()
         (self.stub / "issue.json").write_text(json.dumps(issue(labels=["Bug"])), encoding="utf-8")
         self.env = {**os.environ, "FARMBOT_LINEAR_STUB_DIR": str(self.stub), "FARMBOT_CONFIG": str(self.root / "missing.json")}
+        self.env.pop("FARMBOT_TOKEN", None)
 
     def run_cli(self, *args, success=True):
         process = subprocess.run([sys.executable, "-m", "agent", "--db", str(self.db), *args], cwd=ROOT, env=self.env,
@@ -101,6 +102,17 @@ class CliTests(unittest.TestCase):
         parked = self.run_cli("await-input", "--item", item, "--token", token, "--question", "需要哪个环境？")
         self.assertEqual(parked["state"], "awaiting_input")
         self.assertEqual(self.calls()[-1]["content"]["type"], "elicitation")
+
+    def test_token_file_authorizes_a_renew_and_a_missing_token_is_refused(self):
+        item = self.seeded_item()
+        token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
+        path = self.root / "token"
+        path.write_text(token, encoding="utf-8")
+        renewed = self.run_cli("renew", "--item", item, "--token-file", str(path))
+        self.assertEqual(renewed["state"], "running")
+        self.assertNotIn("token", renewed)
+        process = self.run_cli("renew", "--item", item, success=False)
+        self.assertIn("claim token required", process.stderr)
 
     def test_await_resource_is_refused_without_slots_and_errors_are_clean(self):
         item = self.seeded_item()

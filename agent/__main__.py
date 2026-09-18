@@ -1,6 +1,7 @@
 """FarmBot ledger CLI: the only path from a worker to the ledger and to Linear (spec §8)."""
 import argparse
 import json
+import os
 import sqlite3
 import sys
 from pathlib import Path
@@ -15,30 +16,33 @@ def parser():
     root.add_argument("--lease-seconds", type=float, default=2700)
     sub = root.add_subparsers(dest="command", required=True)
 
-    def cmd(name, *flags):
+    def cmd(name, *flags, token=False):
         p = sub.add_parser(name)
         for flag in flags:
             p.add_argument(flag, required=True)
+        if token:  # a token on the command line is visible to every process on the host
+            p.add_argument("--token")
+            p.add_argument("--token-file")
         return p
 
     cmd("status"); cmd("queue")
     fetch = sub.add_parser("fetch-issue"); group = fetch.add_mutually_exclusive_group(required=True)
     group.add_argument("--item"); group.add_argument("--issue")
     cmd("claim", "--item", "--worker-id")
-    cmd("renew", "--item", "--token")
-    cmd("checkpoint", "--item", "--token", "--input")
+    cmd("renew", "--item", token=True)
+    cmd("checkpoint", "--item", "--input", token=True)
     cmd("issue-context", "--item")
-    cmd("pop-inbox", "--item", "--token")
-    prepare = cmd("prepare-comment", "--item", "--token", "--body-file")
+    cmd("pop-inbox", "--item", token=True)
+    prepare = cmd("prepare-comment", "--item", "--body-file", token=True)
     prepare.add_argument("--kind", required=True, choices=["started", "blocker", "delivery"])
     cmd("post-comment", "--action-id")
     cmd("confirm-comment", "--action-id", "--remote-id")
-    activity = cmd("activity", "--item", "--token", "--body-file")
+    activity = cmd("activity", "--item", "--body-file", token=True)
     activity.add_argument("--type", required=True, choices=["thought", "action", "response", "error", "elicitation"])
-    cmd("await-input", "--item", "--token", "--question")
-    resource = cmd("await-resource", "--item", "--token", "--resource")
+    cmd("await-input", "--item", "--question", token=True)
+    resource = cmd("await-resource", "--item", "--resource", token=True)
     resource.add_argument("--mode", required=True, choices=["interactive", "batch"])
-    finish = cmd("finish", "--item", "--token", "--input")
+    finish = cmd("finish", "--item", "--input", token=True)
     finish.add_argument("--outcome", required=True, choices=["blocked", "delivered"])
     for name in ("cancel", "recover", "retry"):
         cmd(name, "--item", "--reason")
@@ -51,6 +55,15 @@ def read_json(path):
 
 def read_text(path):
     return Path(path).read_text(encoding="utf-8")
+
+
+def resolve_token(args):
+    """--token-file first, then FARMBOT_TOKEN, then --token; never require it on a command line."""
+    for value in (read_text(args.token_file).strip() if args.token_file else None,
+                  os.environ.get("FARMBOT_TOKEN", "").strip(), (args.token or "").strip()):
+        if value:
+            return value
+    raise LedgerError("claim token required: pass --token-file PATH, set FARMBOT_TOKEN, or pass --token")
 
 
 def post_comment(ledger, api, action_id):
@@ -81,28 +94,29 @@ def run(args, ledger, api_factory):
     if c == "claim":
         return ledger.claim(args.item, worker_id=args.worker_id)
     if c == "renew":
-        return ledger.renew(args.item, args.token)
+        return ledger.renew(args.item, resolve_token(args))
     if c == "checkpoint":
-        return ledger.checkpoint(args.item, args.token, read_json(args.input))
+        return ledger.checkpoint(args.item, resolve_token(args), read_json(args.input))
     if c == "issue-context":
         return ledger.issue_context(args.item)
     if c == "pop-inbox":
-        return ledger.pop_inbox(args.item, args.token)
+        return ledger.pop_inbox(args.item, resolve_token(args))
     if c == "prepare-comment":
-        return ledger.prepare_comment(args.item, args.token, args.kind, read_text(args.body_file))
+        return ledger.prepare_comment(args.item, resolve_token(args), args.kind, read_text(args.body_file))
     if c == "post-comment":
         return post_comment(ledger, api_factory(), args.action_id)
     if c == "confirm-comment":
         return ledger.confirm_comment(args.action_id, args.remote_id)
     if c == "activity":
         item = ledger.item(args.item)
-        ledger.renew(args.item, args.token)  # proves ownership before speaking for the item
+        ledger.renew(args.item, resolve_token(args))  # proves ownership before speaking for the item
         return api_factory().create_activity(item["session_id"], {"type": args.type, "body": read_text(args.body_file)})
     if c == "await-input":
+        token = resolve_token(args)
         item = ledger.item(args.item)
-        ledger.renew(args.item, args.token)
+        ledger.renew(args.item, token)
         api_factory().create_activity(item["session_id"], {"type": "elicitation", "body": args.question})
-        return ledger.await_input(args.item, args.token, args.question)
+        return ledger.await_input(args.item, token, args.question)
     if c == "await-resource":
         try:
             slots = load_config().slots
@@ -110,9 +124,9 @@ def run(args, ledger, api_factory):
             slots = []
         if not slots:
             raise LedgerError("no unity slots configured on this host; record the verification gap instead")
-        return ledger.await_resource(args.item, args.token, args.resource, args.mode)
+        return ledger.await_resource(args.item, resolve_token(args), args.resource, args.mode)
     if c == "finish":
-        return ledger.finish(args.item, args.token, args.outcome, read_json(args.input))
+        return ledger.finish(args.item, resolve_token(args), args.outcome, read_json(args.input))
     if c == "cancel":
         return ledger.cancel(args.item, args.reason)
     if c == "recover":

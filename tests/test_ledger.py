@@ -135,6 +135,16 @@ class LeaseTests(LedgerBase):
         with self.assertRaises(LedgerError):
             self.ledger.claim(item["id"], worker_id="pid-43")
 
+    def test_claim_token_is_stored_only_as_a_hash(self):
+        item = self.new_item()
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        stored = self.ledger.connection.execute("SELECT token FROM work_items WHERE id=?", (item["id"],)).fetchone()["token"]
+        self.assertNotEqual(stored, token)
+        self.assertRegex(stored, r"^[0-9a-f]{64}$")
+        self.assertEqual(self.ledger.renew(item["id"], token)["state"], "running")
+        with self.assertRaises(LedgerError):
+            self.ledger.renew(item["id"], stored)
+
     def test_wrong_token_and_expired_lease_are_refused(self):
         item = self.new_item()
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
