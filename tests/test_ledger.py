@@ -208,6 +208,12 @@ class LeaseTests(LedgerBase):
         self.assertEqual((view["state"], view["resume_authorized"]), ("queued", True))
         self.assertEqual(self.ledger.claim(item["id"], worker_id="w2")["generation"], 0)
 
+    def test_cancel_and_retry_release_the_worker_pid(self):
+        item = self.new_item()
+        self.ledger.set_worker(item["id"], 4242, "h")
+        self.assertIsNone(self.ledger.cancel(item["id"], "stop")["worker_pid"])
+        self.assertIsNone(self.ledger.retry(item["id"], "human asked 重试")["worker_pid"])
+
     def test_retry_requeues_terminal_items_with_new_generation(self):
         item = self.new_item()
         self.ledger.cancel(item["id"], "stop")

@@ -174,6 +174,15 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(after["worker_pid"], 102)
         self.assertEqual(len(self.launcher.spawned), 2)
 
+    def test_retry_after_stop_relaunches_the_item(self):
+        item = self.item()
+        self.scheduler.tick()
+        self.scheduler.stop(item["id"], "Linear stop")
+        self.ledger.retry(item["id"], "human asked 重试")
+        self.scheduler.tick()
+        self.assertNotEqual(self.ledger.item(item["id"])["state"], "failed")
+        self.assertEqual(len(self.launcher.spawned), 2)
+
     def test_worker_exiting_cleanly_before_claim_fails_the_item(self):
         item = self.item()
         self.scheduler.tick()

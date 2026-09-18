@@ -519,7 +519,8 @@ class Ledger:
             row = self._row(item_id)
             if row["state"] not in ACTIVE_STATES:
                 raise LedgerError("work item is already terminal")
-            self._set_state(row["id"], "cancelled", reason, token=None, lease_expires_at=None, needs_resource=None)
+            self._set_state(row["id"], "cancelled", reason, token=None, lease_expires_at=None, worker_pid=None,
+                            needs_resource=None)
             return self._view(self._row(row["id"]))
 
     def fail(self, item_id, reason):
@@ -560,7 +561,8 @@ class Ledger:
             if not _in_scope(json.loads(self._issue_row(row["issue_id"])["metadata"])):
                 raise LedgerError("issue is archived or in a terminal status")
             try:
-                self._set_state(row["id"], "queued", reason, generation=row["generation"] + 1, requeue_requested=0)
+                self._set_state(row["id"], "queued", reason, worker_pid=None, generation=row["generation"] + 1,
+                                requeue_requested=0)
             except sqlite3.IntegrityError:
                 raise LedgerError("another active work item exists for this issue")
             return self._view(self._row(row["id"]))
