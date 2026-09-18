@@ -46,12 +46,12 @@ class Scheduler:
         paths = self._worktrees_for(skill, item, issue)
         message = dispatch_message(item=item, issue=issue, skill_path=self.skill_root / skill.name / "SKILL.md",
                                    worktrees=paths, db_path=self.db_path, runtime=self.runtime_name,
-                                   guidance=self.guidance_for(item))
+                                   guidance=self.guidance_for(item), budget=skill.budget)
         primary = paths.get(READ_REPO) or next(iter(paths.values()))
         handle = self.launcher.spawn(item["id"], message, {}, int(skill.budget["max_hours"] * 3600), cwd=primary,
                                      extra_env={"FARMBOT_DB": str(self.db_path)})
         try:
-            self.ledger.set_worker(item["id"], handle.pid, self.host)
+            self.ledger.set_worker(item["id"], handle.pid, self.host, int(skill.budget["lease_seconds"]))
         except LedgerError:
             self.launcher.stop(item["id"])
             raise

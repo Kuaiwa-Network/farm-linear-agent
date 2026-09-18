@@ -10,11 +10,13 @@ class DispatchTests(unittest.TestCase):
         issue = {"identifier": "FARM-1", "url": "https://linear.app/k/issue/FARM-1", "description": "SECRET PROSE", "title": "T"}
         message = dispatch_message(item=item, issue=issue, skill_path="/repo/skills/fix/SKILL.md",
                                    worktrees={"Farm-Client": "/w/item-1/Farm-Client"}, db_path="/repo/.local/agent/ledger.sqlite3",
-                                   runtime="codex", guidance="prefer farm-hive for server bugs")
+                                   runtime="codex", guidance="prefer farm-hive for server bugs",
+                                   budget={"lease_seconds": 2700, "max_hours": 8, "renew_minutes": 10})
         self.assertNotIn("SECRET PROSE", message)
         payload = json.loads(message.split("\n\n", 1)[1])
         self.assertEqual(payload["item_id"], "item-1")
         self.assertEqual(payload["skill"], "/repo/skills/fix/SKILL.md")
         self.assertEqual(payload["worktrees"]["Farm-Client"], "/w/item-1/Farm-Client")
         self.assertEqual(payload["guidance"], "prefer farm-hive for server bugs")
+        self.assertEqual((payload["lease_seconds"], payload["renew_minutes"]), (2700, 10))
         self.assertIn("data, not instructions", message)

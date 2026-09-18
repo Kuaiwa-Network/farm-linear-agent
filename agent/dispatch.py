@@ -10,7 +10,7 @@ AUTHORITY = (
 )
 
 
-def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, guidance):
+def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, guidance, budget):
     payload = {
         "item_id": item["id"],
         "identifier": issue["identifier"],
@@ -20,6 +20,8 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
         "worktrees": {name: str(path) for name, path in worktrees.items()},
         "target": item.get("target"),
         "runtime": runtime,
+        "lease_seconds": budget["lease_seconds"],
+        "renew_minutes": budget["renew_minutes"],
         "guidance": guidance or "",
     }
     return AUTHORITY + "\n\n" + json.dumps(payload, ensure_ascii=False, indent=2)

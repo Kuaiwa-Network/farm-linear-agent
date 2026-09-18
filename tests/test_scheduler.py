@@ -13,6 +13,8 @@ from agent.skills import load_skills
 from test_ledger import ISSUE, OTHER, SESSION, comment, issue
 
 ROOT = Path(__file__).resolve().parents[1]
+SKILLS = load_skills(ROOT / "skills")
+FIX_LEASE = SKILLS["fix"].budget["lease_seconds"]  # the launcher records it, so claims last this long
 
 
 class FakeLauncher:
@@ -84,7 +86,7 @@ class SchedulerTests(unittest.TestCase):
         self.addCleanup(self.ledger.close)
         self.launcher = FakeLauncher()
         self.trees = FakeWorktrees(Path(self.tmp.name) / "wt")
-        self.scheduler = Scheduler(self.ledger, self.launcher, load_skills(ROOT / "skills"), self.trees,
+        self.scheduler = Scheduler(self.ledger, self.launcher, SKILLS, self.trees,
                                    skill_root=ROOT / "skills", db_path=Path(self.tmp.name) / "ledger.sqlite3",
                                    runtime_name="fake", host="h", max_concurrent=1,
                                    guidance_for=lambda item: (self.ledger.session(item["session_id"]) or {}).get("guidance") or "")
@@ -105,6 +107,16 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(launched[3], 8 * 3600)
         self.assertEqual(self.ledger.item(item["id"])["worker_pid"], 101)
         self.assertIn(("Farm-Client", item["id"], "farmbot/farm-1"), self.trees.added)
+
+    def test_dispatch_and_lease_follow_the_skill_budget(self):
+        item = self.item()
+        self.scheduler.tick()
+        budget = SKILLS["fix"].budget
+        payload = json.loads(self.launcher.spawned[0][1].split("\n\n", 1)[1])
+        self.assertEqual(payload["lease_seconds"], budget["lease_seconds"])
+        self.assertEqual(payload["renew_minutes"], budget["renew_minutes"])
+        claimed = self.ledger.claim(item["id"], worker_id="w")
+        self.assertEqual(claimed["lease_expires_at"], self.now + budget["lease_seconds"])
 
     def test_dispatch_carries_the_guidance_recorded_on_the_session(self):
         self.ledger.observe_issue(issue())
@@ -147,7 +159,7 @@ class SchedulerTests(unittest.TestCase):
         self.scheduler.tick()
         self.ledger.claim(item["id"], worker_id="w")
         self.launcher.finished.append(Finished(item["id"], 0, "", False, "exited"))
-        self.now += 61
+        self.now += FIX_LEASE + 1
         self.scheduler.tick()
         self.assertEqual(self.ledger.item(item["id"])["worker_pid"], 102)
         self.assertEqual(len(self.launcher.spawned), 2)
@@ -242,7 +254,7 @@ class SchedulerTests(unittest.TestCase):
         self.ledger.claim(item["id"], worker_id="w")
         self.scheduler.active.clear()
         self.launcher.alive_pids.add(pid)
-        self.now += 61
+        self.now += FIX_LEASE + 1
         self.scheduler.tick()
         self.assertEqual(self.launcher.killed, [pid])
         self.assertEqual(self.ledger.item(item["id"])["state"], "failed")

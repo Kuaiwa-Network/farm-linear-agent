@@ -196,6 +196,7 @@ class Ledger:
                     resume_authorized INTEGER NOT NULL DEFAULT 0,
                     token TEXT,
                     lease_expires_at REAL,
+                    lease_seconds REAL,
                     worker_pid INTEGER,
                     needs_resource TEXT,
                     target_json TEXT,
@@ -423,7 +424,8 @@ class Ledger:
             checkpoint = json.loads(row["checkpoint"])
             checkpoint.pop("worker_id", None)
             checkpoint["worker_id"] = worker_id
-            self._set_state(item_id, "running", "claim", token=token, lease_expires_at=self.clock() + self.lease_seconds,
+            self._set_state(item_id, "running", "claim", token=token,
+                            lease_expires_at=self.clock() + (row["lease_seconds"] or self.lease_seconds),
                             claimed_fingerprint=issue_row["fingerprint"], generation=generation, requeue_requested=0,
                             resume_authorized=0, checkpoint=_json(checkpoint))
             return self._view(self._row(item_id), token=True)
@@ -432,19 +434,24 @@ class Ledger:
         with self._transaction():
             row = self._owned(item_id, token)
             self.connection.execute("UPDATE work_items SET lease_expires_at=?,updated_at=? WHERE id=?",
-                                    (self.clock() + self.lease_seconds, self.clock(), row["id"]))
+                                    (self.clock() + (row["lease_seconds"] or self.lease_seconds), self.clock(), row["id"]))
             self._audit(row["id"], "renew")
             return self._view(self._row(row["id"]))
 
-    def set_worker(self, item_id, pid, host):
+    def set_worker(self, item_id, pid, host, lease_seconds=None):
+        """Record the launched worker and, with it, the lease this item's skill budgets."""
         if type(pid) is not int or pid <= 0:
             raise LedgerError("pid must be a positive integer")
+        if lease_seconds is not None and (isinstance(lease_seconds, bool) or not isinstance(lease_seconds, (int, float))
+                                          or not math.isfinite(lease_seconds) or lease_seconds <= 0):
+            raise LedgerError("lease_seconds must be a positive finite number")
         with self._transaction():
             row = self._row(item_id)
             if row["state"] not in ("queued", "running"):
                 raise LedgerError("worker can only be recorded for queued or running items")
-            self.connection.execute("UPDATE work_items SET worker_pid=?,host=?,updated_at=? WHERE id=?",
-                                    (pid, host, self.clock(), row["id"]))
+            self.connection.execute(
+                "UPDATE work_items SET worker_pid=?,host=?,lease_seconds=COALESCE(?,lease_seconds),updated_at=? WHERE id=?",
+                (pid, host, lease_seconds, self.clock(), row["id"]))
             self._audit(row["id"], "worker", f"pid {pid} on {host}")
             return self._view(self._row(row["id"]))
 

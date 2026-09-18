@@ -145,6 +145,14 @@ class LeaseTests(LedgerBase):
             self.ledger.renew(item["id"], token)
         self.assertEqual(self.ledger.status()["recovery_required"], [item["id"]])
 
+    def test_claim_and_renew_use_the_lease_recorded_at_launch(self):
+        item = self.new_item()
+        self.ledger.set_worker(item["id"], 4242, "h", 600)
+        claimed = self.ledger.claim(item["id"], worker_id="w")
+        self.assertEqual(claimed["lease_expires_at"], self.now + 600)
+        self.now += 100
+        self.assertEqual(self.ledger.renew(item["id"], claimed["token"])["lease_expires_at"], self.now + 600)
+
     def test_renew_extends_and_checkpoint_keeps_handoff_and_stage(self):
         item = self.new_item()
         token = self.ledger.claim(item["id"], worker_id="w")["token"]

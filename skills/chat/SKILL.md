@@ -13,7 +13,8 @@ database path and worktree paths. Everything you say to Linear goes through the 
    comments and any pending question. Run `python3 -m agent --db DATABASE pop-inbox --item ITEM_ID --token TOKEN`
    after claiming to read anything the human added while you were starting.
 3. Claim first: `python3 -m agent --db DATABASE claim --item ITEM_ID --worker-id WORKER_ID` and keep
-   the token private. Renew every 5 minutes with `renew`.
+   the token private. Renew at least every `renew_minutes` minutes from your launch message with `renew`;
+   your lease is `lease_seconds` long.
 4. Answer the question. You may read any repository in your worktree list. You may not edit files,
    run generators, open PRs, or change anything in Linear other than posting your answer.
 5. Post the answer as a session activity: `python3 -m agent --db DATABASE activity --item ITEM_ID --token TOKEN --type response --body-file ANSWER.md`.
