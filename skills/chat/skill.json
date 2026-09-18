@@ -1,0 +1,10 @@
+{
+  "name": "chat",
+  "trigger": ["mention", "delegation"],
+  "intents": [],
+  "writes": [],
+  "resources": [],
+  "gates": [],
+  "mcp": [],
+  "budget": {"lease_seconds": 600, "max_hours": 0.5, "renew_minutes": 5}
+}

@@ -281,3 +281,17 @@ class OutboxTests(LedgerBase):
         self.assertNotIn("token", str(context))
         self.ledger.observe_issue(issue(title="Harvest duplicates rewards twice"))
         self.assertTrue(self.ledger.issue_context(item_id)["handoff"]["stale"])
+
+    def test_chat_delivery_needs_no_comment_or_pr(self):
+        item = self.new_item(skill="chat")
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        view = self.ledger.finish(item["id"], token, "delivered", {"summary": "answered", "comment_action_id": None,
+                                                                    "verification": "answered in session", "prs": []})
+        self.assertEqual(view["state"], "delivered")
+
+    def test_chat_delivery_rejects_comments_and_prs(self):
+        item = self.new_item(skill="chat")
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        with self.assertRaises(LedgerError):
+            self.ledger.finish(item["id"], token, "delivered", {"summary": "x", "comment_action_id": None,
+                                                                 "verification": "answered", "prs": ["https://github.com/o/r/pull/1"]})

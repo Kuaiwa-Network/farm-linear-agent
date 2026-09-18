@@ -1,0 +1,10 @@
+{
+  "name": "fix",
+  "trigger": ["delegation"],
+  "intents": ["label:Bug"],
+  "writes": ["Farm-Client", "farm-hive", "farmgui", "common"],
+  "resources": ["unity_slot"],
+  "gates": ["pr_review"],
+  "mcp": [],
+  "budget": {"lease_seconds": 2700, "max_hours": 8, "renew_minutes": 10}
+}

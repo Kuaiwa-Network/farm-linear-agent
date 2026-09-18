@@ -585,24 +585,30 @@ class Ledger:
         if not isinstance(evidence, dict):
             raise LedgerError("finish input must be an object")
         _text(evidence.get("summary"), "summary")
-        _text(evidence.get("comment_action_id"), "comment_action_id")
-        if outcome == "delivered":
-            _text(evidence.get("verification"), "verification")
-            prs = evidence.get("prs")
-            if not isinstance(prs, list) or not prs:
-                raise LedgerError("delivered finish requires a nonempty prs array")
-            for pr in prs:
-                _text(pr, "PR URL")
-                parsed = urlsplit(pr)
-                if parsed.scheme != "https" or not parsed.netloc or not parsed.path.strip("/"):
-                    raise LedgerError("each PR URL must be an https URL with a path")
         with self._transaction():
             row = self._owned(item_id, token)
-            action = self.connection.execute("SELECT * FROM outbox WHERE action_id=?", (evidence["comment_action_id"],)).fetchone()
-            kind = "blocker" if outcome == "blocked" else "delivery"
-            if (action is None or action["item_id"] != row["id"] or action["fingerprint"] != row["claimed_fingerprint"]
-                    or action["generation"] != row["generation"] or action["kind"] != kind or not action["remote_id"]):
-                raise LedgerError("finish requires a confirmed comment for this item, claimed input and outcome")
+            chat_delivery = row["skill"] == "chat" and outcome == "delivered"
+            if chat_delivery:
+                _text(evidence.get("verification"), "verification")
+                if evidence.get("comment_action_id") is not None or evidence.get("prs"):
+                    raise LedgerError("chat deliveries carry no issue comment and no PR")
+            else:
+                _text(evidence.get("comment_action_id"), "comment_action_id")
+                if outcome == "delivered":
+                    _text(evidence.get("verification"), "verification")
+                    prs = evidence.get("prs")
+                    if not isinstance(prs, list) or not prs:
+                        raise LedgerError("delivered finish requires a nonempty prs array")
+                    for pr in prs:
+                        _text(pr, "PR URL")
+                        parsed = urlsplit(pr)
+                        if parsed.scheme != "https" or not parsed.netloc or not parsed.path.strip("/"):
+                            raise LedgerError("each PR URL must be an https URL with a path")
+                action = self.connection.execute("SELECT * FROM outbox WHERE action_id=?", (evidence["comment_action_id"],)).fetchone()
+                kind = "blocker" if outcome == "blocked" else "delivery"
+                if (action is None or action["item_id"] != row["id"] or action["fingerprint"] != row["claimed_fingerprint"]
+                        or action["generation"] != row["generation"] or action["kind"] != kind or not action["remote_id"]):
+                    raise LedgerError("finish requires a confirmed comment for this item, claimed input and outcome")
             current = self._issue_row(row["issue_id"])["fingerprint"]
             changed = current != row["claimed_fingerprint"] or row["requeue_requested"]
             state = "queued" if changed else outcome
