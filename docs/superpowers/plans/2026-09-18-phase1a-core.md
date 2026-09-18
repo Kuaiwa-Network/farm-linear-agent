@@ -23,7 +23,7 @@
 - Workers run with an isolated configuration home (`CODEX_HOME` or `CLAUDE_CONFIG_DIR`) containing only injected MCP servers (spec §7, §8, §12).
 - Never merge, deploy, change issue status or assignee (spec §1 non-goals).
 - Private runtime state lives under `.local/` and is git-ignored; nothing secret enters the ledger, reports or git (spec §15).
-- Commit after every task with a conventional-commit message and the trailer `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
+- Commit after every task with a conventional-commit message and a `Co-Authored-By: <model> <noreply@anthropic.com>` trailer naming the model that authored the commit, exactly as that model's own attribution reminder states. The trailer lines inside this plan's commit steps are templates for that line, not literal text.
 
 ---
 
@@ -130,7 +130,7 @@ Create `docs/superpowers/spikes/2026-09-18-runtime-spike.md` with one table per 
 git add docs/superpowers/spikes/2026-09-18-runtime-spike.md
 git commit -m "docs: runtime spike results for headless workers
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+Co-Authored-By: <the model that authored this commit> <noreply@anthropic.com>"
 ```
 
 ---
@@ -194,7 +194,7 @@ Expected: `test_package_exposes_version ... ok`
 git add agent/__init__.py tests/__init__.py tests/test_package.py .gitignore
 git commit -m "chore: package skeleton and test runner
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+Co-Authored-By: <the model that authored this commit> <noreply@anthropic.com>"
 ```
 
 ---
@@ -650,7 +650,7 @@ Expected: all `SnapshotTests` and `WorkItemTests` pass.
 git add agent/ledger.py tests/test_ledger.py
 git commit -m "feat(ledger): issue snapshots, sessions and work items on SQLite
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+Co-Authored-By: <the model that authored this commit> <noreply@anthropic.com>"
 ```
 
 ---
@@ -946,7 +946,7 @@ Expected: all pass. `test_checkpoint_registers_published_prs_once` calls `issue_
 git add agent/ledger.py tests/test_ledger.py
 git commit -m "feat(ledger): claims, leases, checkpoints and work item transitions
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+Co-Authored-By: <the model that authored this commit> <noreply@anthropic.com>"
 ```
 
 ---
@@ -1174,7 +1174,7 @@ Expected: all `SnapshotTests`, `WorkItemTests`, `LeaseTests`, `OutboxTests` pass
 git add agent/ledger.py tests/test_ledger.py
 git commit -m "feat(ledger): outbox with markers, finish, inbox and issue context
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+Co-Authored-By: <the model that authored this commit> <noreply@anthropic.com>"
 ```
 
 ---
@@ -1421,7 +1421,7 @@ Expected: 5 tests pass.
 git add agent/linear_api.py tests/test_linear_api.py
 git commit -m "feat: Linear API client with activities, comments and issue fetch
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+Co-Authored-By: <the model that authored this commit> <noreply@anthropic.com>"
 ```
 
 ---
@@ -1554,7 +1554,7 @@ Expected: 8 tests pass.
 git add agent/router.py tests/test_router.py
 git commit -m "feat: deterministic router for delegation, mention, steering, Stop
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+Co-Authored-By: <the model that authored this commit> <noreply@anthropic.com>"
 ```
 
 ---
@@ -1896,7 +1896,7 @@ Expected: all pass, including `test_chat_delivery_needs_no_comment_or_pr`.
 git add agent/skills.py agent/ledger.py skills references tests/test_skills.py tests/test_ledger.py
 git commit -m "feat: skill registry with chat and fix skills, comment templates, repo map
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+Co-Authored-By: <the model that authored this commit> <noreply@anthropic.com>"
 ```
 
 ---
@@ -2121,7 +2121,7 @@ Expected: 4 tests pass.
 git add agent/worktrees.py agent/dispatch.py tests/test_worktrees.py tests/test_dispatch.py
 git commit -m "feat: bare clones with per-item worktrees and self-contained dispatch messages
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+Co-Authored-By: <the model that authored this commit> <noreply@anthropic.com>"
 ```
 
 ---
@@ -2465,7 +2465,7 @@ Expected: all pass. The kill test finishes in under 5 seconds.
 git add agent/launcher.py agent/worktrees.py tests/fake_cli.py tests/test_launcher.py
 git commit -m "feat: launcher spawns isolated headless workers with MCP injection and kill
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+Co-Authored-By: <the model that authored this commit> <noreply@anthropic.com>"
 ```
 
 ---
@@ -2796,7 +2796,7 @@ Expected: all pass.
 git add agent/scheduler.py agent/worktrees.py agent/ledger.py tests/test_scheduler.py tests/test_worktrees.py
 git commit -m "feat: scheduler launches, reaps and recovers workers within a concurrency cap
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+Co-Authored-By: <the model that authored this commit> <noreply@anthropic.com>"
 ```
 
 ---
@@ -3272,7 +3272,7 @@ Expected: 9 tests pass.
 git add agent/receiver.py agent/ledger.py tests/test_receiver.py
 git commit -m "feat: webhook receiver routes verified Linear events into work items
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+Co-Authored-By: <the model that authored this commit> <noreply@anthropic.com>"
 ```
 
 ---
@@ -3684,7 +3684,7 @@ Expected: 4 tests pass. If `fetch-issue --item` fails because `observe_issue` re
 git add agent/config.py agent/__main__.py tests/test_cli.py
 git commit -m "feat: private config, Linear stub, and the ledger CLI workers use
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+Co-Authored-By: <the model that authored this commit> <noreply@anthropic.com>"
 ```
 
 ---
@@ -3970,7 +3970,7 @@ Expected: every test passes; the end-to-end module takes under a minute.
 git add agent/service.py agent/ledger.py agent/scheduler.py tests/fake_cli.py tests/test_end_to_end.py
 git commit -m "feat: service entry wiring receiver, scheduler and launcher; offline end-to-end test
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+Co-Authored-By: <the model that authored this commit> <noreply@anthropic.com>"
 ```
 
 ---
@@ -4072,7 +4072,7 @@ Behaviour: `docs/operating-contract.md`. Plans: `docs/superpowers/plans/`.
 git add docs/operating-contract.md references/evidence-format.md README.md
 git commit -m "docs: operating contract, evidence format and run instructions
 
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+Co-Authored-By: <the model that authored this commit> <noreply@anthropic.com>"
 ```
 
 ---
