@@ -33,12 +33,13 @@ the issue changed since it was written. Recheck repository heads, branches and t
 
 ## Contract consistency before implementation
 
-Before changing code, compare the intended behaviour with the relevant Farm-Contract clauses. If the
-contract contradicts the confirmed requirement, the contract is corrected first in a Farm-Contract
-worktree following that repository's own instructions, as a draft PR, and only then the implementation.
-If the intended behaviour itself is undecided, ask: `activity --type elicitation --body-file Q.md`,
-then `await-input --question TEXT`, and exit. Record the contradiction, its resolution status and the
-contract PR in every checkpoint until it is complete.
+Before changing code, compare the intended behaviour with the relevant Farm-Contract clauses. You have
+no Farm-Contract worktree and never edit the contract. If the contract contradicts the confirmed
+requirement, post `activity --type elicitation --body-file Q.md` naming the clause and the contract
+change it needs, write the same thing as the blocker comment, and finish blocked with it; contract
+changes are the `feature` skill's job in a later phase. If the intended behaviour itself is undecided,
+ask the same way, then `await-input --question TEXT`, and exit. Record the contradiction and its status
+in every checkpoint.
 
 ## Verification ladder
 
