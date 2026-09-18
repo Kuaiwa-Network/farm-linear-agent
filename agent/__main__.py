@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import re
 import sqlite3
 import sys
 from pathlib import Path
@@ -56,6 +57,24 @@ def read_text(path):
     return Path(path).read_text(encoding="utf-8")
 
 
+GITHUB_REMOTE = re.compile(r"https://github\.com/([^/\s]+)/([^/\s]+?)(?:\.git)?/?")
+
+
+def check_pr_targets(urls):
+    """A worker may only register PRs on the repositories this host is configured for."""
+    try:
+        repos = load_config().repos
+    except (OSError, ValueError):
+        return  # no private config (tests, first run): the ledger's URL shape is the only rule
+    prefixes = {f"https://github.com/{m.group(1)}/{m.group(2)}/pull/"
+                for m in (GITHUB_REMOTE.fullmatch(str(remote)) for remote in (repos or {}).values()) if m}
+    if not prefixes or not isinstance(urls, list):
+        return
+    for url in urls:
+        if not isinstance(url, str) or not any(url.startswith(prefix) for prefix in prefixes):
+            raise LedgerError(f"PR URL is not under a configured repository: {url}")
+
+
 def resolve_token(args):
     """--token-file first, then FARMBOT_TOKEN, then --token; never require it on a command line."""
     for value in (read_text(args.token_file).strip() if args.token_file else None,
@@ -99,7 +118,10 @@ def run(args, ledger, api_factory):
     if c == "renew":
         return ledger.renew(args.item, resolve_token(args))
     if c == "checkpoint":
-        return ledger.checkpoint(args.item, resolve_token(args), read_json(args.input))
+        progress = read_json(args.input)
+        if isinstance(progress, dict):
+            check_pr_targets(progress.get("published_prs"))
+        return ledger.checkpoint(args.item, resolve_token(args), progress)
     if c == "issue-context":
         return ledger.issue_context(args.item)
     if c == "pop-inbox":
@@ -131,7 +153,10 @@ def run(args, ledger, api_factory):
             raise LedgerError("no unity slots configured on this host; record the verification gap instead")
         return ledger.await_resource(args.item, resolve_token(args), args.resource, args.mode)
     if c == "finish":
-        return ledger.finish(args.item, resolve_token(args), args.outcome, read_json(args.input))
+        evidence = read_json(args.input)
+        if isinstance(evidence, dict):
+            check_pr_targets(evidence.get("prs"))
+        return ledger.finish(args.item, resolve_token(args), args.outcome, evidence)
     if c == "cancel":
         return ledger.cancel(args.item, args.reason)
     if c == "recover":

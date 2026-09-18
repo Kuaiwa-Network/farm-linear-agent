@@ -14,7 +14,6 @@ import re
 import secrets
 import sqlite3
 import time
-from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 MARKER = re.compile(r"\[farmbot:[0-9a-f]{64}\]")
@@ -645,9 +644,8 @@ class Ledger:
                         raise LedgerError("delivered finish requires a nonempty prs array")
                     for pr in prs:
                         _text(pr, "PR URL")
-                        parsed = urlsplit(pr)
-                        if parsed.scheme != "https" or not parsed.netloc or not parsed.path.strip("/"):
-                            raise LedgerError("each PR URL must be an https URL with a path")
+                        if not self.PR_URL.fullmatch(pr):
+                            raise LedgerError("each PR URL must be a canonical HTTPS pull request URL")
                 action = self.connection.execute("SELECT * FROM outbox WHERE action_id=?", (evidence["comment_action_id"],)).fetchone()
                 kind = "blocker" if outcome == "blocked" else "delivery"
                 if (action is None or action["item_id"] != row["id"] or action["fingerprint"] != row["claimed_fingerprint"]

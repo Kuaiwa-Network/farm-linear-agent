@@ -127,6 +127,22 @@ class CliTests(unittest.TestCase):
         self.assertIn("unknown comment action", process.stderr)
         self.assertNotIn("create_comment", [c["method"] for c in self.calls()])
 
+    def test_checkpoint_refuses_a_pr_outside_the_configured_repositories(self):
+        config = self.root / "config.json"
+        config.write_text(json.dumps({"client_id": "c", "client_secret": "s", "webhook_secret": "w",
+                                      "repos": {"Farm-Client": "https://github.com/Kuaiwa-Network/Farm-Client.git"},
+                                      "local_root": str(self.root / "local")}), encoding="utf-8")
+        self.env["FARMBOT_CONFIG"] = str(config)
+        item = self.seeded_item()
+        token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
+        process = self.run_cli("checkpoint", "--item", item, "--token", token, "--input",
+                               self.json_file("bad.json", {"published_prs": ["https://github.com/other/repo/pull/1"]}),
+                               success=False)
+        self.assertIn("not under a configured repository", process.stderr)
+        accepted = self.run_cli("checkpoint", "--item", item, "--token", token, "--input",
+                                self.json_file("ok.json", {"published_prs": ["https://github.com/Kuaiwa-Network/Farm-Client/pull/1"]}))
+        self.assertEqual(accepted["state"], "running")
+
     def test_await_resource_is_refused_without_slots_and_errors_are_clean(self):
         item = self.seeded_item()
         token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]

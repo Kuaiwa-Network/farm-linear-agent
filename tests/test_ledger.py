@@ -293,6 +293,13 @@ class OutboxTests(LedgerBase):
                                                                  "verification": "typecheck and dotnet tests", "prs": ["https://github.com/o/r/pull/3"]})
         self.assertEqual(view["state"], "delivered")
 
+    def test_finish_refuses_a_url_that_is_not_a_pull_request(self):
+        item_id, token = self.running()
+        delivery = self.confirmed(item_id, token, "delivery", "已修复，见 PR。")
+        with self.assertRaises(LedgerError):
+            self.ledger.finish(item_id, token, "delivered", {"summary": "done", "comment_action_id": delivery,
+                                                             "verification": "tests", "prs": ["https://github.com/o/r"]})
+
     def test_material_change_during_finish_requeues_instead_of_parking(self):
         item_id, token = self.running()
         action = self.confirmed(item_id, token)
