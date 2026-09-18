@@ -466,7 +466,7 @@ clear owner and a clear reader.
 |---|---|---|---|---|
 | Conversation | what humans said and what the agent answered | Linear: the agent session and the issue's comments | humans and the agent | `fetch-issue` at the start of every run, plus `previousComments` and `guidance` in the webhook |
 | Work item | facts with evidence, hypotheses, checks run, worktree heads, next actions, PR URLs, comment markers | the ledger: bounded handoff, checkpoints, outbox | the worker, through the CLI | the dispatch message, then `issue-context` |
-| Knowledge | how to do things: skills, repo map, evidence format, comment templates, scenarios, gotchas from real runs | versioned files in this repo (`skills/`, `references/`, `docs/operating-contract.md`) and the target repos' own CLAUDE.md, AGENTS.md and scenarios | humans, and the agent by PR | read at worker start; each skill names the references it needs |
+| Knowledge | how to do things and how to play: skills, repo map, evidence format, comment templates, gameplay knowledge, scenarios, gotchas from real runs | versioned files in this repo (`skills/`, `references/`, `knowledge/gameplay/`, `knowledge/metrics.md`, `scenarios/`, `docs/operating-contract.md`) and the target repos' own CLAUDE.md and AGENTS.md | humans, and the agent by PR | read at worker start; each skill names the references it needs |
 | Environment | slot and host state, parked commits, bound accounts, identity observations, the PlayMode known-red baseline per main commit | ledger tables | the launcher and batch runs | CLI queries |
 
 **Start-of-run reading list.** A worker reads, in order: `docs/operating-contract.md`,
@@ -616,9 +616,19 @@ added and the application renamed to FarmBot. Done when:
 4. All ported tests pass, plus new router and launcher tests.
 5. One real bug is delivered end to end as a draft PR with a delivery comment.
 
-**Phase 2: QA by mention.** `@FarmBot 跑冒烟` pins the target, reserves a slot in
-interactive mode, verifies identity, runs the smoke scenarios through `drive-farm-game`
-on that slot, and returns a report with screenshots. Editor only.
+**Phase 2: QA by mention.** Two modes. `scenario`: `@FarmBot 跑冒烟` pins the target,
+reserves a slot in interactive mode, verifies identity, runs named scenarios through
+`drive-farm-game` on that slot, and returns a report with screenshots. `explore`:
+`@FarmBot 探索培育系统` wanders one named system or view within a gesture and time
+budget on the dedicated test account and returns an exploration report, candidate
+gameplay-knowledge entries and scenario drafts as a draft PR in this repository.
+FarmBot owns its gameplay knowledge, `knowledge/gameplay/<system>.md` with entries of
+claim, prerequisites, evidence, build and platform, last verified and status, and its
+scenario library under `scenarios/`, both seeded from FarmTestAgent's planting guide and
+the client's two smoke scenarios; `knowledge/metrics.md` tracks systems against verified
+journeys. Promotion is a human-merged PR (§12); a confirmed defect's replayable trace
+becomes a regression scenario the same way; the `fix` skill reads gameplay knowledge for
+reproduction steps. Editor only; details in the Phase 2 addendum.
 
 **Phase 3: fix then verify.** The `fix` worker's verify stage runs the relevant
 fixtures in a batch slot and, when no test covers the behaviour, the relevant scenario
