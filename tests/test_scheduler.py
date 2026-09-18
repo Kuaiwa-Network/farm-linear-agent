@@ -56,6 +56,25 @@ class FakeLauncher:
         return [pid]
 
 
+class HandleAwareLauncher(FakeLauncher):
+    """Like the real launcher, stop() only kills a worker whose handle spawn() has registered."""
+
+    def __init__(self):
+        super().__init__()
+        self.handles = set()
+
+    def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None):
+        handle = super().spawn(item_id, message, mcp_servers, budget_seconds, cwd, extra_env)
+        self.handles.add(item_id)
+        return handle
+
+    def stop(self, item_id, grace=5.0):
+        super().stop(item_id, grace)
+        found = item_id in self.handles
+        self.handles.discard(item_id)
+        return found
+
+
 class FakeWorktrees:
     def __init__(self, root):
         self.root = Path(root)
@@ -230,6 +249,32 @@ class SchedulerTests(unittest.TestCase):
         finally:
             self.scheduler.lock.release()
         thread.join(timeout=5)
+        self.assertEqual(self.ledger.item(item["id"])["state"], "cancelled")
+
+    def test_stop_during_an_in_flight_launch_still_kills_the_worker(self):
+        item = self.item()
+        self.launcher = self.scheduler.launcher = HandleAwareLauncher()
+        threaded = Ledger(Path(self.tmp.name) / "ledger.sqlite3", clock=lambda: self.now, lease_seconds=60,
+                          check_same_thread=False)
+        self.addCleanup(threaded.close)
+        self.scheduler.ledger = threaded
+        self.scheduler.lock.acquire()  # the scheduler thread is inside tick(), about to spawn
+        thread = threading.Thread(target=self.scheduler.stop, args=(item["id"], "Linear stop"), daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 5)
+        try:
+            deadline = time.monotonic() + 1.0
+            while not self.launcher.stopped and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertEqual(self.launcher.stopped, [item["id"]])  # nothing to kill yet
+            self.scheduler.launch(item)  # the tick registers the worker while Stop waits for the lock
+            self.assertEqual(self.launcher.handles, {item["id"]})
+        finally:
+            self.scheduler.lock.release()
+        thread.join(timeout=5)
+        self.assertEqual(self.launcher.handles, set())  # killed once the lock was ours
+        self.assertEqual(self.launcher.stopped, [item["id"], item["id"]])
+        self.assertNotIn(item["id"], self.scheduler.active)
         self.assertEqual(self.ledger.item(item["id"])["state"], "cancelled")
 
     def test_worker_exiting_cleanly_before_claim_fails_the_item(self):

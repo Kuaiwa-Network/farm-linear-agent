@@ -72,8 +72,11 @@ class Scheduler:
 
     def stop(self, item_id, reason):
         # Killing the worker must not wait for an in-flight tick: a human pressed Stop.
-        self.launcher.stop(item_id)
+        killed = self.launcher.stop(item_id)
         with self.lock:
+            if not killed:
+                # The tick may have been mid-launch: its worker was registered after the first kill.
+                self.launcher.stop(item_id)
             self.active.pop(item_id, None)
             try:
                 self.ledger.cancel(item_id, reason)
