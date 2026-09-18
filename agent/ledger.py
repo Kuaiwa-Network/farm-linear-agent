@@ -360,6 +360,15 @@ class Ledger:
             ('queued','running','awaiting_input','awaiting_resource') ORDER BY created_at DESC LIMIT 1""", (session_id,)).fetchone()
         return self._view(row) if row else None
 
+    def items_for_session(self, session_id):
+        rows = self.connection.execute("SELECT * FROM work_items WHERE session_id=? ORDER BY created_at, id", (session_id,))
+        return [self._view(row) for row in rows]
+
+    def active_item_for_issue(self, issue_id):
+        row = self.connection.execute("""SELECT * FROM work_items WHERE issue_id=? AND state IN
+            ('queued','running','awaiting_input','awaiting_resource') ORDER BY created_at DESC LIMIT 1""", (issue_id,)).fetchone()
+        return self._view(row) if row else None
+
     def item(self, item_id):
         return self._view(self._row(item_id))
 
