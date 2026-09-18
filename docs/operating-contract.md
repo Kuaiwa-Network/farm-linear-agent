@@ -48,8 +48,12 @@ per item), blocker, delivery. Templates: `references/comment-templates.md`.
 
 ## Limits in this phase
 
-- One host; no Unity slots. A fix that needs Editor verification records the gap and finishes
-  blocked or delivers with the gap named.
+- One host at a time (the Mac since the 2026-09-18 live test; Windows follows in Plan 1c); no Unity slots.
+  A fix that needs Editor verification records the gap and finishes blocked or delivers with the gap named.
+- A fix that finds nothing to change (already fixed, duplicate) finishes blocked with the evidence; there
+  is no separate no-change outcome yet.
+- Delegation must come from the Linear UI. Setting the delegate through the API creates no agent session,
+  so FarmBot never hears about it.
 - Two concurrent workers. Run-time budget, lease and renewal cadence are per skill, from its `skill.json`
   (`max_hours`, `lease_seconds`, `renew_minutes`); the launcher records the lease on the work item and the
   launch message tells the worker its own numbers.
