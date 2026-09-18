@@ -47,6 +47,18 @@ class LedgerBase(unittest.TestCase):
         return self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill=skill)
 
 
+class SchemaTests(LedgerBase):
+    def test_opening_an_older_ledger_adds_the_columns_later_waves_introduced(self):
+        self.ledger.connection.execute("ALTER TABLE sessions DROP COLUMN guidance")
+        self.ledger.connection.execute("ALTER TABLE work_items DROP COLUMN lease_seconds")
+        self.ledger.close()
+        reopened = self.open_ledger()
+        reopened.ensure_session(SESSION, None, delegation=True, guidance="先看日志")
+        self.assertEqual(reopened.session(SESSION)["guidance"], "先看日志")
+        columns = {row["name"] for row in reopened.connection.execute("PRAGMA table_info(work_items)")}
+        self.assertIn("lease_seconds", columns)
+
+
 class SnapshotTests(LedgerBase):
     def test_observe_stores_normalized_issue_and_fingerprint(self):
         view = self.ledger.observe_issue(issue())

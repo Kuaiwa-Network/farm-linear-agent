@@ -249,6 +249,11 @@ class Ledger:
                     created_at REAL NOT NULL
                 );
             """)
+            # Columns added after the first ledgers were written; CREATE TABLE IF NOT EXISTS leaves those files as they were.
+            for table, column, declaration in (("sessions", "guidance", "TEXT"), ("work_items", "lease_seconds", "REAL")):
+                present = {row["name"] for row in self.connection.execute(f"PRAGMA table_info({table})")}
+                if column not in present:
+                    self.connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
         except Exception:
             self.connection.close()
             raise
