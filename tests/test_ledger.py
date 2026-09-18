@@ -110,3 +110,95 @@ class WorkItemTests(LedgerBase):
         status = self.ledger.status()
         self.assertEqual(status["counts"], {"queued": 1, "total": 1})
         self.assertNotIn("Tap harvest twice.", str(status))
+
+
+class LeaseTests(LedgerBase):
+    def test_claim_requires_queued_and_issues_cli_safe_token(self):
+        item = self.new_item()
+        claimed = self.ledger.claim(item["id"], worker_id="pid-42")
+        self.assertEqual(claimed["state"], "running")
+        self.assertTrue(claimed["token"].startswith("claim_"))
+        self.assertEqual(claimed["checkpoint"]["worker_id"], "pid-42")
+        with self.assertRaises(LedgerError):
+            self.ledger.claim(item["id"], worker_id="pid-43")
+
+    def test_wrong_token_and_expired_lease_are_refused(self):
+        item = self.new_item()
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        with self.assertRaises(LedgerError):
+            self.ledger.renew(item["id"], "claim_wrong")
+        self.now += 61
+        with self.assertRaises(LedgerError):
+            self.ledger.renew(item["id"], token)
+        self.assertEqual(self.ledger.status()["recovery_required"], [item["id"]])
+
+    def test_renew_extends_and_checkpoint_keeps_handoff_and_stage(self):
+        item = self.new_item()
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        self.now += 30
+        self.assertEqual(self.ledger.renew(item["id"], token)["lease_expires_at"], self.now + 60)
+        handoff = {"facts": [{"claim": "repro on main", "evidence": "run/log.txt"}], "hypotheses": [],
+                   "checks": [], "repositories": [], "next_actions": ["write the test"]}
+        view = self.ledger.checkpoint(item["id"], token, {"stage": "diagnose", "handoff": handoff})
+        self.assertEqual(view["stage"], "diagnose")
+        self.assertEqual(view["checkpoint"]["handoff_meta"]["generation"], 0)
+        with self.assertRaises(LedgerError):
+            self.ledger.checkpoint(item["id"], token, {"handoff": {"facts": []}})
+        with self.assertRaises(LedgerError):
+            self.ledger.checkpoint(item["id"], token, {"worker_id": "someone-else"})
+
+    def test_checkpoint_registers_published_prs_once(self):
+        item = self.new_item()
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        url = "https://github.com/Kuaiwa-Network/Farm-Client/pull/1"
+        self.ledger.checkpoint(item["id"], token, {"published_prs": [url]})
+        self.ledger.checkpoint(item["id"], token, {"published_prs": [url]})
+        with self.assertRaises(LedgerError):
+            self.ledger.checkpoint(item["id"], token, {"published_prs": ["http://insecure/pull/2"]})
+        self.assertEqual([r["url"] for r in self.ledger.connection.execute("SELECT url FROM published_prs WHERE issue_id=?", (ISSUE,))], [url])
+
+    def test_await_input_releases_token_and_resume_requeues(self):
+        item = self.new_item()
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        view = self.ledger.await_input(item["id"], token, "需要哪个服务器环境？")
+        self.assertEqual(view["state"], "awaiting_input")
+        self.assertIsNone(view["lease_expires_at"])
+        self.assertEqual(view["checkpoint"]["pending_question"], "需要哪个服务器环境？")
+        with self.assertRaises(LedgerError):
+            self.ledger.renew(item["id"], token)
+        self.assertEqual(self.ledger.resume(item["id"], "human replied")["state"], "queued")
+
+    def test_await_resource_records_the_request(self):
+        item = self.new_item()
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        view = self.ledger.await_resource(item["id"], token, "unity_slot", "batch")
+        self.assertEqual((view["state"], view["needs_resource"]), ("awaiting_resource", "unity_slot:batch"))
+
+    def test_cancel_from_any_active_state_and_fail_from_running(self):
+        item = self.new_item()
+        self.assertEqual(self.ledger.cancel(item["id"], "stop")["state"], "cancelled")
+        with self.assertRaises(LedgerError):
+            self.ledger.cancel(item["id"], "again")
+        self.ledger.observe_issue(issue(id=OTHER, identifier="FARM-2"))
+        self.ledger.ensure_session("s2", OTHER, delegation=True)
+        other = self.ledger.create_work_item(issue_id=OTHER, session_id="s2", skill="fix")
+        self.ledger.claim(other["id"], worker_id="w")
+        self.assertEqual(self.ledger.fail(other["id"], "budget exceeded")["state"], "failed")
+
+    def test_recover_requires_expiry_and_authorizes_resume(self):
+        item = self.new_item()
+        self.ledger.claim(item["id"], worker_id="w")
+        with self.assertRaises(LedgerError):
+            self.ledger.recover(item["id"], "too early")
+        self.now += 61
+        view = self.ledger.recover(item["id"], "process exited")
+        self.assertEqual((view["state"], view["resume_authorized"]), ("queued", True))
+        self.assertEqual(self.ledger.claim(item["id"], worker_id="w2")["generation"], 0)
+
+    def test_retry_requeues_terminal_items_with_new_generation(self):
+        item = self.new_item()
+        self.ledger.cancel(item["id"], "stop")
+        view = self.ledger.retry(item["id"], "human asked 重试")
+        self.assertEqual((view["state"], view["generation"]), ("queued", 1))
+        with self.assertRaises(LedgerError):
+            self.ledger.retry(item["id"], "already queued")

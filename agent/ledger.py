@@ -377,3 +377,167 @@ class Ledger:
                    for row in rows]
         return {"counts": counts, "items": compact,
                 "recovery_required": [row["id"] for row in rows if row["state"] == "running" and row["lease_expires_at"] <= self.clock()]}
+
+    PR_URL = re.compile(r"https://[A-Za-z0-9.-]+(?::[0-9]+)?/[^/?#\s]+/[^/?#\s]+/pull/[1-9][0-9]*")
+
+    def _set_state(self, item_id, state, reason, **columns):
+        assignments = ",".join(f"{name}=?" for name in columns)
+        values = list(columns.values())
+        self.connection.execute(f"UPDATE work_items SET state=?,updated_at=?{',' + assignments if assignments else ''} WHERE id=?",
+                                (state, self.clock(), *values, item_id))
+        self._audit(item_id, state, reason)
+
+    def claim(self, item_id, *, worker_id):
+        _text(worker_id, "worker_id")
+        if len(worker_id) > 200 or "\n" in worker_id:
+            raise LedgerError("worker_id must be a runtime identifier of at most 200 characters")
+        with self._transaction():
+            row = self._row(item_id)
+            if row["state"] != "queued":
+                raise LedgerError("only a queued work item can be claimed")
+            issue_row = self._issue_row(row["issue_id"])
+            if not _in_scope(json.loads(issue_row["metadata"])):
+                raise LedgerError("issue left scope; cancel instead of claiming")
+            token = "claim_" + secrets.token_urlsafe(32)
+            generation = row["generation"] + int(bool(row["requeue_requested"]))
+            checkpoint = json.loads(row["checkpoint"])
+            checkpoint.pop("worker_id", None)
+            checkpoint["worker_id"] = worker_id
+            self._set_state(item_id, "running", "claim", token=token, lease_expires_at=self.clock() + self.lease_seconds,
+                            claimed_fingerprint=issue_row["fingerprint"], generation=generation, requeue_requested=0,
+                            resume_authorized=0, checkpoint=_json(checkpoint))
+            return self._view(self._row(item_id), token=True)
+
+    def renew(self, item_id, token):
+        with self._transaction():
+            row = self._owned(item_id, token)
+            self.connection.execute("UPDATE work_items SET lease_expires_at=?,updated_at=? WHERE id=?",
+                                    (self.clock() + self.lease_seconds, self.clock(), row["id"]))
+            self._audit(row["id"], "renew")
+            return self._view(self._row(row["id"]))
+
+    def set_worker(self, item_id, pid, host):
+        if type(pid) is not int or pid <= 0:
+            raise LedgerError("pid must be a positive integer")
+        with self._transaction():
+            row = self._row(item_id)
+            if row["state"] not in ("queued", "running"):
+                raise LedgerError("worker can only be recorded for queued or running items")
+            self.connection.execute("UPDATE work_items SET worker_pid=?,host=?,updated_at=? WHERE id=?",
+                                    (pid, host, self.clock(), row["id"]))
+            self._audit(row["id"], "worker", f"pid {pid} on {host}")
+            return self._view(self._row(row["id"]))
+
+    def checkpoint(self, item_id, token, progress):
+        if not isinstance(progress, dict):
+            raise LedgerError("checkpoint input must be an object")
+        if "handoff" in progress:
+            _validate_handoff(progress["handoff"])
+        published = progress.get("published_prs", [])
+        if not isinstance(published, list):
+            raise LedgerError("published_prs must be an array of canonical HTTPS PR URLs")
+        for url in published:
+            _text(url, "published PR URL")
+            if not self.PR_URL.fullmatch(url):
+                raise LedgerError("published_prs must contain canonical HTTPS PR URLs without credentials or query parameters")
+        stage = progress.get("stage")
+        if stage is not None:
+            _text(stage, "stage")
+        with self._transaction():
+            row = self._owned(item_id, token)
+            previous = json.loads(row["checkpoint"])
+            progress = dict(progress)
+            if previous.get("worker_id"):
+                if "worker_id" in progress and progress["worker_id"] != previous["worker_id"]:
+                    raise LedgerError("checkpoint cannot change the running worker identity")
+                progress["worker_id"] = previous["worker_id"]
+            progress.pop("handoff_meta", None)
+            if "handoff" in progress:
+                progress["handoff_meta"] = {"fingerprint": row["claimed_fingerprint"],
+                                            "generation": row["generation"], "recorded_at": self.clock()}
+            elif "handoff" in previous:
+                progress["handoff"] = previous["handoff"]
+                progress["handoff_meta"] = previous.get("handoff_meta")
+            known = {r["url"] for r in self.connection.execute("SELECT url FROM published_prs WHERE issue_id=?", (row["issue_id"],))}
+            existing_input = set(json.loads(self._issue_row(row["issue_id"])["metadata"])["attachments"])
+            for url in sorted(set(published) - known):
+                if url in existing_input:
+                    raise LedgerError("published PR was already issue input; reconcile it instead of registering it as new output")
+                self.connection.execute("INSERT INTO published_prs(issue_id,url,generation,created_at) VALUES(?,?,?,?)",
+                                        (row["issue_id"], url, row["generation"], self.clock()))
+                self._audit(row["id"], "published_pr", details={"url": url})
+            self.connection.execute("UPDATE work_items SET checkpoint=?,stage=COALESCE(?,stage),updated_at=? WHERE id=?",
+                                    (_json(progress), stage, self.clock(), row["id"]))
+            self._audit(row["id"], "checkpoint", stage or "")
+            return self._view(self._row(row["id"]))
+
+    def await_input(self, item_id, token, question):
+        _text(question, "question")
+        with self._transaction():
+            row = self._owned(item_id, token)
+            checkpoint = json.loads(row["checkpoint"])
+            checkpoint["pending_question"] = question
+            self._set_state(row["id"], "awaiting_input", "human gate", token=None, lease_expires_at=None,
+                            worker_pid=None, checkpoint=_json(checkpoint))
+            return self._view(self._row(row["id"]))
+
+    def await_resource(self, item_id, token, resource, mode):
+        _text(resource, "resource")
+        _text(mode, "mode")
+        with self._transaction():
+            row = self._owned(item_id, token)
+            self._set_state(row["id"], "awaiting_resource", f"needs {resource}:{mode}", token=None,
+                            lease_expires_at=None, worker_pid=None, needs_resource=f"{resource}:{mode}")
+            return self._view(self._row(row["id"]))
+
+    def resume(self, item_id, reason):
+        _text(reason, "reason")
+        with self._transaction():
+            row = self._row(item_id)
+            if row["state"] not in ("awaiting_input", "awaiting_resource"):
+                raise LedgerError("only a waiting work item can be resumed")
+            self._set_state(row["id"], "queued", reason, needs_resource=None)
+            return self._view(self._row(row["id"]))
+
+    def cancel(self, item_id, reason):
+        _text(reason, "reason")
+        with self._transaction():
+            row = self._row(item_id)
+            if row["state"] not in ACTIVE_STATES:
+                raise LedgerError("work item is already terminal")
+            self._set_state(row["id"], "cancelled", reason, token=None, lease_expires_at=None, needs_resource=None)
+            return self._view(self._row(row["id"]))
+
+    def fail(self, item_id, reason):
+        _text(reason, "reason")
+        with self._transaction():
+            row = self._row(item_id)
+            if row["state"] != "running":
+                raise LedgerError("only a running work item can fail")
+            self._set_state(row["id"], "failed", reason, token=None, lease_expires_at=None, worker_pid=None)
+            return self._view(self._row(row["id"]))
+
+    def recover(self, item_id, reason):
+        _text(reason, "reason")
+        with self._transaction():
+            row = self._row(item_id)
+            if row["state"] != "running":
+                raise LedgerError("only expired running work can be recovered")
+            if row["lease_expires_at"] > self.clock():
+                raise LedgerError("lease is still valid; recovery cannot transfer live ownership")
+            self._set_state(row["id"], "queued", reason, token=None, lease_expires_at=None, worker_pid=None, resume_authorized=1)
+            return self._view(self._row(row["id"]))
+
+    def retry(self, item_id, reason):
+        _text(reason, "reason")
+        with self._transaction():
+            row = self._row(item_id)
+            if row["state"] not in ("blocked", "delivered", "cancelled", "failed"):
+                raise LedgerError("retry requires a terminal work item")
+            if not _in_scope(json.loads(self._issue_row(row["issue_id"])["metadata"])):
+                raise LedgerError("issue is archived or in a terminal status")
+            try:
+                self._set_state(row["id"], "queued", reason, generation=row["generation"] + 1, requeue_requested=0)
+            except sqlite3.IntegrityError:
+                raise LedgerError("another active work item exists for this issue")
+            return self._view(self._row(row["id"]))
