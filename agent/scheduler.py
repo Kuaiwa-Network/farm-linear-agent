@@ -14,7 +14,8 @@ READ_REPO = "Farm-Client"
 
 class Scheduler:
     def __init__(self, ledger, launcher, skills, worktrees, *, skill_root, db_path, runtime_name, host,
-                 max_concurrent=2, guidance_for=lambda item: "", claim_timeout=600):
+                 max_concurrent=2, guidance_for=lambda item: "", claim_timeout=600, api=None):
+        self.api = api
         self.ledger = ledger
         self.launcher = launcher
         self.skills = skills
@@ -67,6 +68,15 @@ class Scheduler:
         self.active[item["id"]] = handle
         return handle
 
+    def _notify(self, item_id, kind, body):
+        """Best-effort session activity for outcomes the worker cannot report itself: it is dead or never ran."""
+        if self.api is None:
+            return
+        try:
+            self.api.create_activity(self.ledger.item(item_id)["session_id"], {"type": kind, "body": body})
+        except Exception:
+            pass
+
     def _fail_launch(self, item_id, exc):
         try:
             self.worktrees.remove(item_id)
@@ -75,7 +85,8 @@ class Scheduler:
         try:
             self.ledger.fail_queued(item_id, f"launch failed: {type(exc).__name__}: {exc}"[:500])
         except LedgerError:
-            pass
+            return
+        self._notify(item_id, "error", f"FarmBot 无法启动工作进程（{type(exc).__name__}），工作项已标记失败；可回复「重试」。")
 
     def stop(self, item_id, reason):
         # Killing the worker must not wait for an in-flight tick: a human pressed Stop.
@@ -99,14 +110,17 @@ class Scheduler:
                 item = self.ledger.item(finished.item_id)
                 if item["lease_expires_at"] is not None and item["lease_expires_at"] <= self.ledger.clock():
                     self.ledger.recover(finished.item_id, f"worker exited with an expired lease ({finished.reason}, code {finished.returncode})")
+                    self._notify(finished.item_id, "thought", "工作进程在租约过期后退出，已重新排队，等待新的 worker 接手。")
                     state = "queued"
                 else:
                     self.ledger.fail(finished.item_id, f"worker exited without finishing ({finished.reason}, code {finished.returncode})")
+                    self._notify(finished.item_id, "error", f"工作进程未完成即退出（{finished.reason}，退出码 {finished.returncode}），工作项已标记失败；可回复「重试」。")
                     state = "failed"
             elif state == "queued" and self.ledger.item(finished.item_id)["worker_pid"] is not None:
                 # A queued item with no pid was requeued after the worker finished (material change or
                 # recovery); it is waiting for a fresh launch, not a worker that died before claiming.
                 self.ledger.fail_queued(finished.item_id, f"worker exited before claiming ({finished.reason}, code {finished.returncode})")
+                self._notify(finished.item_id, "error", "工作进程在认领工作项前退出，工作项已标记失败；可回复「重试」。")
                 state = "failed"
             if state in TERMINAL:
                 self.worktrees.remove(finished.item_id)
@@ -126,8 +140,10 @@ class Scheduler:
                 else:
                     self.launcher.kill_pid(pid)
                 self.ledger.fail(item_id, "lease expired with a live worker; killed")
+                self._notify(item_id, "error", "工作进程超过租约仍未汇报，已被终止，工作项已标记失败；可回复「重试」。")
             else:
                 self.ledger.recover(item_id, "lease expired and worker process is gone")
+                self._notify(item_id, "thought", "工作进程已消失且租约过期，已重新排队，等待新的 worker 接手。")
                 recovered += 1
         for row in self.ledger.launched():
             stale = now - row["updated_at"] > self.claim_timeout
@@ -141,6 +157,7 @@ class Scheduler:
             elif owned:
                 self.launcher.kill_pid(row["worker_pid"])
             self.ledger.fail_queued(row["id"], "worker did not claim within the timeout" if owned else "worker process gone before claiming")
+            self._notify(row["id"], "error", "工作进程未在时限内认领工作项，工作项已标记失败；可回复「重试」。")
             self.worktrees.remove(row["id"])
             recovered += 1
         return recovered

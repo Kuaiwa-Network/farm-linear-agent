@@ -102,6 +102,7 @@ class ServeTests(unittest.TestCase):
             thread.join(timeout=20)
         self.assertFalse(thread.is_alive())
         self.assertEqual(failures, [])
+        self.assertIs(self.c.scheduler.api, self.c.api)  # worker deaths reach the session through the same client
 
 
 class LoopGuardTests(unittest.TestCase):

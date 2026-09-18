@@ -80,6 +80,18 @@ class HandleAwareLauncher(FakeLauncher):
         return found
 
 
+class FakeAPI:
+    def __init__(self, fail=False):
+        self.activities = []
+        self.fail = fail
+
+    def create_activity(self, session_id, content, activity_id=None):
+        if self.fail:
+            raise RuntimeError("linear down")
+        self.activities.append((session_id, content["type"], content["body"]))
+        return {"success": True}
+
+
 class FakeWorktrees:
     def __init__(self, root):
         self.root = Path(root)
@@ -113,10 +125,12 @@ class SchedulerTests(unittest.TestCase):
         self.addCleanup(self.ledger.close)
         self.launcher = FakeLauncher()
         self.trees = FakeWorktrees(Path(self.tmp.name) / "wt")
+        self.api = FakeAPI()
         self.scheduler = Scheduler(self.ledger, self.launcher, SKILLS, self.trees,
                                    skill_root=ROOT / "skills", db_path=Path(self.tmp.name) / "ledger.sqlite3",
                                    runtime_name="fake", host="h", max_concurrent=1,
-                                   guidance_for=lambda item: (self.ledger.session(item["session_id"]) or {}).get("guidance") or "")
+                                   guidance_for=lambda item: (self.ledger.session(item["session_id"]) or {}).get("guidance") or "",
+                                   api=self.api)
 
     def item(self, issue_id=ISSUE, session=SESSION, skill="fix", **changes):
         self.ledger.observe_issue(issue(id=issue_id, **changes))
@@ -297,6 +311,40 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(self.launcher.stopped, [item["id"], item["id"]])
         self.assertNotIn(item["id"], self.scheduler.active)
         self.assertEqual(self.ledger.item(item["id"])["state"], "cancelled")
+
+    def test_worker_crash_after_claim_marks_the_session_errored(self):
+        item = self.item()
+        self.scheduler.tick()
+        self.ledger.claim(item["id"], worker_id="w")
+        self.launcher.finished.append(Finished(item["id"], 1, "", False, "exited"))
+        self.scheduler.tick()
+        self.assertEqual(self.ledger.item(item["id"])["state"], "failed")
+        self.assertEqual(self.api.activities[-1][:2], (SESSION, "error"))
+        self.assertIn("重试", self.api.activities[-1][2])
+
+    def test_expired_lease_recovery_and_launch_failure_reach_the_session(self):
+        item = self.item()
+        self.scheduler.tick()
+        self.ledger.claim(item["id"], worker_id="w")
+        self.now += FIX_LEASE + 1
+        self.launcher.finished.append(Finished(item["id"], 1, "", False, "exited"))
+        self.scheduler.tick()
+        self.assertIn(self.ledger.item(item["id"])["state"], ("queued", "running"))
+        self.assertEqual([a[1] for a in self.api.activities], ["thought"])
+        other = self.item(issue_id=OTHER, session="session-2")
+        self.scheduler.stop(item["id"], "make room")
+        self.trees.fail_on = ("Farm-Client", other["id"])
+        self.scheduler.tick()
+        self.assertEqual(self.ledger.item(other["id"])["state"], "failed")
+        self.assertEqual(self.api.activities[-1][:2], ("session-2", "error"))
+
+    def test_a_failing_linear_api_never_breaks_the_tick(self):
+        self.scheduler.api = FakeAPI(fail=True)
+        item = self.item()
+        self.scheduler.tick()
+        self.launcher.finished.append(Finished(item["id"], 0, "", False, "exited"))
+        self.assertEqual(self.scheduler.tick()["reaped"], 1)
+        self.assertEqual(self.ledger.item(item["id"])["state"], "failed")
 
     def test_worker_exiting_cleanly_before_claim_fails_the_item(self):
         item = self.item()

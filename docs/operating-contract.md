@@ -37,6 +37,9 @@ skill in a later phase.
 queued → running → delivered | blocked | failed; running ↔ awaiting_input (human gate);
 running → awaiting_resource (Unity slot); any active state → cancelled (Stop). A waiting item
 has no process and holds no resource. A launched worker must claim its item within 10 minutes or it is stopped and the item fails; a worker that exits before claiming fails the item; a worker that dies with an expired lease requeues the item once for a fresh worker.
+The Linear session follows the item: `finish` posts the final response that completes the session (a chat
+answer is its own response); a worker that dies or never starts leaves an error activity naming 重试 as the
+way back, and a requeue leaves a thought.
 
 ## Comments
 

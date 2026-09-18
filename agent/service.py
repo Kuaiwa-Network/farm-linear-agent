@@ -27,7 +27,8 @@ def build(config, runtime_override=None):
     ledger = Ledger(paths.ledger, check_same_thread=False)
     scheduler = Scheduler(ledger, launcher, skills, worktrees, skill_root=ROOT / "skills", db_path=paths.ledger,
                           runtime_name=runtime.name, host=config.host, max_concurrent=config.max_concurrent,
-                          guidance_for=lambda item: (ledger.session(item["session_id"]) or {}).get("guidance") or "")
+                          guidance_for=lambda item: (ledger.session(item["session_id"]) or {}).get("guidance") or "",
+                          api=api)
     receiver = Receiver(paths.ledger, config.webhook_secret,
                         {"oauthClientId": config.client_id, "appUserId": identity["viewer"]["id"],
                          "organizationId": identity["organization"]["id"]},

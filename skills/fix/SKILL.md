@@ -78,6 +78,9 @@ issue, describe the observed problem, the change, the checks that ran and the on
   `{"summary", "comment_action_id", "verification", "prs": [...]}`. Verification names the rungs that ran.
 - Run `fetch-issue` right before `finish`; if the ledger answers `queued`, a human changed the issue while
   you were finishing and a fresh worker will take it, so exit.
+- `finish` itself posts the final `response` that completes the Linear session (已交付／已暂停 plus the
+  summary and PR links). Never post a `response` yourself; use `activity --type thought` for progress and
+  `--type elicitation` only for a question.
 
 Write your run report to `<repo_root>/reports/<date>-<identifier>/report.md`, with `repo_root` from your
 launch message, and commit it.

@@ -86,6 +86,30 @@ def resolve_token(args):
     raise LedgerError("claim token required: pass --token-file PATH, set FARMBOT_TOKEN, or pass --token")
 
 
+def session_response(skill, outcome, evidence):
+    """The activity that completes the Linear session. A chat answer is already its own response."""
+    if skill == "chat" and outcome == "delivered":
+        return None
+    summary = evidence.get("summary", "")
+    prs = [url for url in (evidence.get("prs") or []) if isinstance(url, str)] if isinstance(evidence.get("prs"), list) else []
+    if outcome == "delivered":
+        body = f"✅ 已交付：{summary}" + ("".join(f"\n- {url}" for url in prs))
+    else:
+        body = f"⏸ 已暂停：{summary}"
+    return {"type": "response", "body": body}
+
+
+def complete_session(api_factory, item, outcome, evidence):
+    """Best effort after the ledger is final: Linear keeps a session active until a response or error arrives."""
+    content = session_response(item["skill"], outcome, evidence)
+    if content is None:
+        return
+    try:
+        api_factory().create_activity(item["session_id"], content)
+    except Exception as exc:
+        print(json.dumps({"warning": "session response not posted", "error": type(exc).__name__}), file=sys.stderr, flush=True)
+
+
 def owned_action(ledger, item_id, action_id, token):
     """Only a live claim on the item that prepared a comment may act on it."""
     ledger.renew(item_id, token)
@@ -158,7 +182,10 @@ def run(args, ledger, api_factory):
         evidence = read_json(args.input)
         if isinstance(evidence, dict):
             check_pr_targets(evidence.get("prs"))
-        return ledger.finish(args.item, resolve_token(args), args.outcome, evidence)
+        item = ledger.item(args.item)
+        view = ledger.finish(args.item, resolve_token(args), args.outcome, evidence)
+        complete_session(api_factory, item, args.outcome, evidence)
+        return view
     if c == "cancel":
         return ledger.cancel(args.item, args.reason)
     if c == "recover":
