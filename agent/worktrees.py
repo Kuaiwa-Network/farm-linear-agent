@@ -33,8 +33,10 @@ class Worktrees:
         path = self.clone_path(repo)
         if not path.exists():
             self.repos_root.mkdir(parents=True, exist_ok=True)
-            _git("clone", "--bare", "--quiet", self.remotes[repo], str(path), cwd=self.repos_root)
+            _git("init", "--quiet", "--bare", str(path), cwd=self.repos_root)
+            _git("remote", "add", "origin", self.remotes[repo], cwd=path)
             _git("config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*", cwd=path)
+            _git("fetch", "--quiet", "--prune", "origin", cwd=path)
         return path
 
     def fetch(self, repo):

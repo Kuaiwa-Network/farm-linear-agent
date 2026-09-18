@@ -38,10 +38,26 @@ class WorktreeTests(unittest.TestCase):
         (self.origin / "x.txt").write_text("x", encoding="utf-8")
         git("add", ".", cwd=self.origin)
         git("commit", "-qm", "wip", cwd=self.origin)
+        git("checkout", "-q", "main", cwd=self.origin)
         first = self.trees.add("Farm-Client", "item-1", "farmbot/farm-1")
+        self.assertEqual(git("rev-parse", "--abbrev-ref", "HEAD", cwd=first), "farmbot/farm-1")
         self.assertTrue((first / "x.txt").exists())
+        self.assertEqual(self.trees.default_branch("Farm-Client"), "main")
         second = self.trees.add("Farm-Client", "item-2", "farmbot/farm-1")
         self.assertEqual(git("rev-parse", "--abbrev-ref", "HEAD", cwd=second), "farmbot/farm-1-item-2")
+        self.assertFalse((second / "x.txt").exists())
+
+    def test_remote_branches_existing_before_the_clone_are_not_local_branches(self):
+        git("checkout", "-qb", "farmbot/farm-1", cwd=self.origin)
+        (self.origin / "x.txt").write_text("x", encoding="utf-8")
+        git("add", ".", cwd=self.origin)
+        git("commit", "-qm", "wip", cwd=self.origin)
+        git("checkout", "-q", "main", cwd=self.origin)
+        clone = self.trees.ensure_clone("Farm-Client")
+        self.assertEqual(git("for-each-ref", "--format=%(refname:short)", "refs/heads", cwd=clone), "")
+        path = self.trees.add("Farm-Client", "item-1", "farmbot/farm-1")
+        self.assertEqual(git("rev-parse", "--abbrev-ref", "HEAD", cwd=path), "farmbot/farm-1")
+        self.assertTrue((path / "x.txt").exists())
 
     def test_remove_deletes_all_worktrees_of_an_item(self):
         path = self.trees.add("Farm-Client", "item-1", "farmbot/farm-1")
