@@ -1,5 +1,6 @@
 """Turn queued work items into running workers and reap them back into ledger states (spec §6, §8)."""
 import re
+import threading
 
 from .dispatch import dispatch_message
 from .ledger import LedgerError
@@ -24,6 +25,7 @@ class Scheduler:
         self.guidance_for = guidance_for
         self.claim_timeout = claim_timeout
         self.active = {}
+        self.lock = threading.RLock()
 
     def _branch(self, issue):
         name = issue.get("branch_name") or f"farmbot/{issue['identifier'].lower()}"
@@ -67,12 +69,13 @@ class Scheduler:
             pass
 
     def stop(self, item_id, reason):
-        self.launcher.stop(item_id)
-        self.active.pop(item_id, None)
-        try:
-            self.ledger.cancel(item_id, reason)
-        except LedgerError:
-            pass
+        with self.lock:
+            self.launcher.stop(item_id)
+            self.active.pop(item_id, None)
+            try:
+                self.ledger.cancel(item_id, reason)
+            except LedgerError:
+                pass
 
     def _reap(self):
         reaped = 0
@@ -133,18 +136,19 @@ class Scheduler:
                 self.worktrees.remove(row["id"])
 
     def tick(self):
-        reaped = self._reap()
-        recovered = self._recover()
-        self._sweep_worktrees()
-        launched = 0
-        for item in self.ledger.queue():
-            if len(self.active) >= self.max_concurrent:
-                break
-            if item["skill"] not in self.skills or item["id"] in self.active:
-                continue
-            try:
-                self.launch(item)
-                launched += 1
-            except Exception as exc:
-                self._fail_launch(item["id"], exc)
-        return {"launched": launched, "reaped": reaped, "recovered": recovered}
+        with self.lock:
+            reaped = self._reap()
+            recovered = self._recover()
+            self._sweep_worktrees()
+            launched = 0
+            for item in self.ledger.queue():
+                if len(self.active) >= self.max_concurrent:
+                    break
+                if item["skill"] not in self.skills or item["id"] in self.active:
+                    continue
+                try:
+                    self.launch(item)
+                    launched += 1
+                except Exception as exc:
+                    self._fail_launch(item["id"], exc)
+            return {"launched": launched, "reaped": reaped, "recovered": recovered}

@@ -153,14 +153,14 @@ def _validate_handoff(value):
 class Ledger:
     """One connection, owned by its caller; use a separate connection per thread."""
 
-    def __init__(self, path, *, clock=time.time, lease_seconds=2700):
+    def __init__(self, path, *, clock=time.time, lease_seconds=2700, check_same_thread=True):
         if isinstance(lease_seconds, bool) or not isinstance(lease_seconds, (int, float)) or not math.isfinite(lease_seconds) or lease_seconds <= 0:
             raise LedgerError("lease_seconds must be a positive finite number")
         self.clock = clock
         self.lease_seconds = lease_seconds
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        self.connection = sqlite3.connect(path, timeout=10, isolation_level=None)
+        self.connection = sqlite3.connect(path, timeout=10, isolation_level=None, check_same_thread=check_same_thread)
         self.connection.row_factory = sqlite3.Row
         try:
             self.connection.execute("PRAGMA foreign_keys=ON")

@@ -36,8 +36,13 @@ elif mode == "cli":
     token = None
     for step in json.loads(os.environ["FAKE_CLI_STEPS"]):
         args = [a.replace("{token}", token or "").replace("{item}", item) for a in step]
-        out = subprocess.run([sys.executable, "-m", "agent", "--db", db, *args], capture_output=True, text=True,
-                             cwd=os.environ["FAKE_CLI_REPO"])
+        attempts = 60 if args[0] == "finish" else 1
+        for attempt in range(attempts):
+            out = subprocess.run([sys.executable, "-m", "agent", "--db", db, *args], capture_output=True, text=True,
+                                 cwd=os.environ["FAKE_CLI_REPO"])
+            if out.returncode == 0 or attempt == attempts - 1:
+                break
+            time.sleep(1)
         if out.returncode:
             write_last(f"cli-error:{out.stderr.strip()}")
             sys.exit(4)
