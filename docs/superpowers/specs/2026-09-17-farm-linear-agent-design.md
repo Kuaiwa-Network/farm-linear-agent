@@ -56,6 +56,8 @@ It replaces two prototypes, both of which stay on GitHub as read-only archives:
 | Hosts | One controller, a runner per machine; a single host in Phase 1 | The ledger is the single arbiter; runners add slots and workers without changing skills or gates. |
 | Process | superpowers brainstorming, specs, plans and TDD; one operating-contract document rewritten in place | Single implementer. openspec's ceremony and cwd-resolution belong to Farm-Contract, where the agent uses it as a tool. |
 | Agent name | FarmBot | Neutral across QA, fixes and features. A display-name change on the existing application; the app user id survives. |
+| Learning | Gameplay facts, scenarios and metrics learn automatically with provenance, expiry and supersession; skills and authority change only by reviewed PR | The user wants the agent to learn on its own; structure and expiry, not a human gate, are what stop knowledge from rotting. |
+| Language | Scenarios, gameplay knowledge and run reports in English; UI targets quoted verbatim in Chinese; Linear comments zh-CN | The agent writes and reads its own knowledge; the team reads Linear. |
 | Linear comment language | zh-CN, concise | Team convention carried over from the bug agent. |
 
 ## 3. Architecture
@@ -466,7 +468,7 @@ clear owner and a clear reader.
 |---|---|---|---|---|
 | Conversation | what humans said and what the agent answered | Linear: the agent session and the issue's comments | humans and the agent | `fetch-issue` at the start of every run, plus `previousComments` and `guidance` in the webhook |
 | Work item | facts with evidence, hypotheses, checks run, worktree heads, next actions, PR URLs, comment markers | the ledger: bounded handoff, checkpoints, outbox | the worker, through the CLI | the dispatch message, then `issue-context` |
-| Knowledge | how to do things and how to play: skills, repo map, evidence format, comment templates, gameplay knowledge, scenarios, gotchas from real runs | versioned files in this repo (`skills/`, `references/`, `knowledge/gameplay/`, `knowledge/metrics.md`, `scenarios/`, `docs/operating-contract.md`) and the target repos' own CLAUDE.md and AGENTS.md | humans, and the agent by PR | read at worker start; each skill names the references it needs |
+| Knowledge | how to do things and how to play: skills, repo map, evidence format, comment templates, gameplay knowledge, scenarios, gotchas from real runs | versioned files in this repo (`skills/`, `references/`, `knowledge/gameplay/`, `knowledge/metrics.md`, `scenarios/`, `docs/operating-contract.md`) and the target repos' own CLAUDE.md and AGENTS.md | humans for skills and references, by PR; workers directly for gameplay facts, scenarios and metrics | read at worker start; each skill names the references it needs |
 | Environment | slot and host state, parked commits, bound accounts, identity observations, the PlayMode known-red baseline per main commit | ledger tables | the launcher and batch runs | CLI queries |
 
 **Start-of-run reading list.** A worker reads, in order: `docs/operating-contract.md`,
@@ -475,12 +477,31 @@ repository in its worktrees, the issue through `fetch-issue`, and its handoff th
 `issue-context`. Nothing else is implied. Skills keep this list short by pointing at
 references instead of copying them.
 
-**Knowledge grows only through review.** A worker that notices a reusable lesson records
-it as a candidate in its run report, with the evidence. Promotion into a skill or
-reference is a PR that a human merges. Entries follow the FarmQA format: claim,
-prerequisites, evidence, build and platform, last verified, and a status of confirmed,
-observed, inferred or obsolete. Nothing appends itself to a knowledge file; that is how
-the prototype's notes became a changelog nobody could read.
+**Gameplay facts and scenarios learn automatically; how the agent works stays reviewed.**
+
+| Learns automatically, written by workers into this repository | Changes only through a reviewed PR |
+|---|---|
+| Gameplay facts in `knowledge/gameplay/<system>.md`: claim, evidence, build commit, date, status | Skill files, references, routing rules, authority, the operating contract |
+| Scenario lifecycle in `scenarios/`: draft after exploration, verified after passing on two different builds, regression when linked to a fixed issue | Anything that widens what a skill may write to |
+| `knowledge/metrics.md`, recomputed from verified scenarios | |
+
+Safeguards that make unattended learning safe:
+
+- **Provenance on every entry.** Claim, evidence path or trace, build commit, date, and a status
+  ladder: `observed` after one run, `confirmed` after an independent second run, `obsolete` when a
+  later run contradicts it. Workers write `observed` freely; `confirmed` needs the second run,
+  not a human.
+- **Expiry.** An entry not re-verified within the configured window, or whose build is far behind
+  main, drops back to `observed` and is re-checked the next time its system is explored.
+- **Contradiction supersedes, never appends.** A conflicting observation replaces the entry and
+  marks the old one `obsolete` with a pointer. This is the rule the prototype's notes lacked.
+- **Consolidation job.** On a schedule: merge duplicates, prune `obsolete` entries, rebuild the
+  metrics table, and open one weekly summary PR so a human can skim what FarmBot now believes and
+  veto by editing. Humans keep the delete key; they are not a gate.
+- **Own repository only.** Automatic writes land in this repository's `knowledge/` and
+  `scenarios/`, never in the game repositories, so a wrong fact has no blast radius beyond
+  FarmBot's next run.
+- **Skills read `confirmed` entries as facts and `observed` entries as hints to verify.**
 
 **CLI memory features stay off.** Workers run in a fresh isolated home every time, so
 neither runtime accumulates per-user memory by accident. Claude Code's auto-memory keys
@@ -619,16 +640,20 @@ added and the application renamed to FarmBot. Done when:
 **Phase 2: QA by mention.** Two modes. `scenario`: `@FarmBot 跑冒烟` pins the target,
 reserves a slot in interactive mode, verifies identity, runs named scenarios through
 `drive-farm-game` on that slot, and returns a report with screenshots. `explore`:
-`@FarmBot 探索培育系统` wanders one named system or view within a gesture and time
-budget on the dedicated test account and returns an exploration report, candidate
-gameplay-knowledge entries and scenario drafts as a draft PR in this repository.
-FarmBot owns its gameplay knowledge, `knowledge/gameplay/<system>.md` with entries of
-claim, prerequisites, evidence, build and platform, last verified and status, and its
-scenario library under `scenarios/`, both seeded from FarmTestAgent's planting guide and
-the client's two smoke scenarios; `knowledge/metrics.md` tracks systems against verified
-journeys. Promotion is a human-merged PR (§12); a confirmed defect's replayable trace
-becomes a regression scenario the same way; the `fix` skill reads gameplay knowledge for
-reproduction steps. Editor only; details in the Phase 2 addendum.
+`@FarmBot 探索培育系统` wanders one named system or view within a gesture and time budget on
+the dedicated test account and writes an exploration report, `observed` gameplay-knowledge
+entries and draft scenarios directly into this repository, under the learning rules of §12.
+Scenarios are English Markdown with a fixed shape: preconditions, numbered steps, expected
+observations. A step names its target by the element name from the UI tree or by the exact
+on-screen text in quotes, since the game's UI is Chinese, and an expectation names an
+observable: a view name, a model field, a text, a console condition. FarmBot owns its
+gameplay knowledge in `knowledge/gameplay/<system>.md` and its scenario library in
+`scenarios/`, seeded by translating FarmTestAgent's planting guide and the client's two
+smoke scenarios; `knowledge/metrics.md` tracks systems against verified journeys. A draft
+scenario becomes verified after passing on two different builds; a scenario linked to a fixed
+issue becomes a regression scenario; the `fix` skill reads gameplay knowledge for
+reproduction steps. Run reports and knowledge are English; Linear comments stay zh-CN.
+Editor only; details in the Phase 2 addendum.
 
 **Phase 3: fix then verify.** The `fix` worker's verify stage runs the relevant
 fixtures in a batch slot and, when no test covers the behaviour, the relevant scenario
