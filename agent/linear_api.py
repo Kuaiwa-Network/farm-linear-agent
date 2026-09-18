@@ -94,6 +94,8 @@ class LinearAPI:
 
     def fetch_issue(self, issue_ref):
         """Complete detail plus every comment page, shaped for Ledger.observe_issue."""
+        if self.app_user_id is None:
+            self.identity()
         comments, after, issue = [], None, None
         while True:
             issue = self.graphql(ISSUE_QUERY, {"id": issue_ref, "after": after})["issue"]

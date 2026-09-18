@@ -64,7 +64,8 @@ class LinearAPITests(unittest.TestCase):
                   "user": {"id": "u1"}, "botActor": None}]
         second = [{"id": "c2", "body": "bot text", "createdAt": "2026-09-18T02:00:00.000Z", "updatedAt": "2026-09-18T02:00:00.000Z",
                    "user": None, "botActor": {"id": APP}}]
-        api = self.api({"FarmBotIssue": [issue_page("cur", True, first), issue_page(None, False, second)]})
+        api = self.api({"FarmBotIdentity": [{"data": {"viewer": {"id": APP, "name": "FarmBot"}, "organization": {"id": "org", "name": "K"}}}],
+                        "FarmBotIssue": [issue_page("cur", True, first), issue_page(None, False, second)]})
         issue = api.fetch_issue("FARM-1")
         self.assertEqual(issue["identifier"], "FARM-1")
         self.assertEqual(issue["status_type"], "unstarted")
@@ -73,7 +74,16 @@ class LinearAPITests(unittest.TestCase):
         self.assertEqual(issue["description"], "see https://uploads.linear.app/a/b/c")
         self.assertEqual([c["author_kind"] for c in issue["comments"]], ["human", "bot"])
         self.assertTrue(issue["detail_complete"] and issue["comments_complete"])
-        self.assertEqual(self.http.calls[2][2]["variables"]["after"], "cur")
+        self.assertEqual(self.http.calls[3][2]["variables"]["after"], "cur")
+
+    def test_fetch_issue_classifies_own_user_comments_as_bot_without_prior_identity_call(self):
+        own = [{"id": "c9", "body": "FarmBot says", "createdAt": "2026-09-18T03:00:00.000Z", "updatedAt": "2026-09-18T03:00:00.000Z",
+                "user": {"id": APP}, "botActor": None}]
+        api = self.api({"FarmBotIdentity": [{"data": {"viewer": {"id": APP, "name": "FarmBot"}, "organization": {"id": "org", "name": "K"}}}],
+                        "FarmBotIssue": [issue_page(None, False, own)]})
+        issue = api.fetch_issue("FARM-1")
+        self.assertEqual([c["author_kind"] for c in issue["comments"]], ["bot"])
+        self.assertEqual([c[0].rsplit("/", 1)[-1] for c in self.http.calls][:2], ["token", "graphql"])
 
     def test_strip_signed_removes_upload_query_only(self):
         self.assertEqual(strip_signed("https://uploads.linear.app/a/b?signature=1&x=2"), "https://uploads.linear.app/a/b")
