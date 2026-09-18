@@ -52,6 +52,8 @@ It replaces two prototypes, both of which stay on GitHub as read-only archives:
 | FairyGUI publishing | Interim: a deterministic desktop actor under a resource reservation. Target: the FairyGUI Pro license, whose `-batchmode` publish makes the step a plain subprocess | Publishing is GUI-only under the current license and headless CLIs have no built-in computer use. The user intends to buy the Pro license once the agent has proven itself, which removes the GUI dependency entirely. |
 | Repository | Fresh `farm-linear-agent`; port code deliberately | The prototypes' history is two days of churn. Documentation restarts as current truth instead of appended increments. |
 | Unity access | A pool of identical persistent project copies, each usable in interactive or batch mode; task worktrees never open Unity | `Library/` lives in the project folder and costs a full import. Slots pay it once and move between commits by detached checkout. |
+| Devices | Editor first; Android, then iOS, as later phases on the same resource, stage and backend abstractions | Device-only bug classes justify the work, but the Editor path must produce evidence first. |
+| Hosts | One controller, a runner per machine; a single host in Phase 1 | The ledger is the single arbiter; runners add slots and workers without changing skills or gates. |
 | Process | superpowers brainstorming, specs, plans and TDD; one operating-contract document rewritten in place | Single implementer. openspec's ceremony and cwd-resolution belong to Farm-Contract, where the agent uses it as a tool. |
 | Agent name | FarmBot | Neutral across QA, fixes and features. A display-name change on the existing application; the app user id survives. |
 | Linear comment language | zh-CN, concise | Team convention carried over from the bug agent. |
@@ -196,6 +198,9 @@ Stages are per skill and are recorded in the checkpoint:
 | `fgui` | edit, review [gate: publish approval], publish through the desktop actor, verify guards, PR, deliver |
 | `feature` | contract draft, contract decision [gate], implement client and hive in parallel work items, verify, deliver |
 
+Every stage that needs a target runs a generic prepare-target step first: on a Unity
+slot it is the slot switch of §7; on a device it is the build and install of §13.
+
 **Human gates.** The worker posts an `elicitation` activity, checkpoints a handoff,
 releases any reservation and exits. The item moves to `awaiting_input`. A later
 `prompted` event in the same session launches a fresh worker with the handoff. A gate
@@ -237,6 +242,8 @@ Desktop resources are things only one worker may hold at a time:
 | `unity_slot:<n>` | A persistent Farm-Client project copy with its own `Library/`, usable in interactive or batch mode | a pool; one slot in Phase 1 |
 | `fgui_editor` | The FairyGUI editor on the farmgui checkout | one |
 | `android_device:<serial>` | One development-build target | one per device |
+
+Later kinds, `ios_simulator` and `ios_device`, follow the same rules; see §13.
 
 Reservations keep the FarmQA controller queue semantics: FIFO, states `queued`,
 `active`, `cancel_requested`, `cancelled`, `released`, hashed owner token, one active
@@ -419,8 +426,11 @@ One SQLite file at `.local/agent/ledger.sqlite3`:
 | `inbox` | steering text from `prompted` events for a running item | new |
 | `outbox` | comment actions with marker, body, remote id | BugAgent `outbox` |
 | `published_prs` | PR URLs this agent registered per item | BugAgent `published_prs` |
-| `reservations` | resource kind, requested mode, assigned slot, state, owner token hash, timestamps | FarmTestAgent `controller_requests` |
-| `slots` | slot id, folder, state, parked commit, Editor instance `Name@hash`, MCP address, bound test account, last switch | new |
+| `reservations` | resource kind, requested mode, assigned slot or device, host, state, owner token hash, timestamps | FarmTestAgent `controller_requests` |
+| `slots` | slot id, host, folder, state, parked commit, Editor instance `Name@hash`, MCP address, bound test account, last switch | new |
+| `hosts` | host id, OS, capabilities, maximum concurrent workers, last heartbeat, attached devices | new |
+| `build_artifacts` | commit, platform, tier, path, hash, created | new; empty until the devices phase |
+| `baselines` | main commit, test platform, failing test set | new |
 | `stop_requests` | dedupe and cutoff for Stop | FarmTestAgent `stop_requests` |
 | `identity_observations` | allowlisted Editor and session identity samples per item | FarmTestAgent `controller_identity_observations` |
 | `audit` | kind, reason, details per item | BugAgent `events` |
@@ -439,7 +449,109 @@ One SQLite file at `.local/agent/ledger.sqlite3`:
   openspec skills inside a Farm-Contract worktree, because that repository's process
   resolves by working directory and the contract is the team's decision record.
 
-## 12. Security and authority
+## 12. Memory
+
+FarmBot has no memory inside the model. Every worker starts with an empty context, and
+everything it must remember lives in one of four places outside the model, each with a
+clear owner and a clear reader.
+
+| Tier | Holds | Lives in | Written by | Read by a worker through |
+|---|---|---|---|---|
+| Conversation | what humans said and what the agent answered | Linear: the agent session and the issue's comments | humans and the agent | `fetch-issue` at the start of every run, plus `previousComments` and `guidance` in the webhook |
+| Work item | facts with evidence, hypotheses, checks run, worktree heads, next actions, PR URLs, comment markers | the ledger: bounded handoff, checkpoints, outbox | the worker, through the CLI | the dispatch message, then `issue-context` |
+| Knowledge | how to do things: skills, repo map, evidence format, comment templates, scenarios, gotchas from real runs | versioned files in this repo (`skills/`, `references/`, `docs/operating-contract.md`) and the target repos' own CLAUDE.md, AGENTS.md and scenarios | humans, and the agent by PR | read at worker start; each skill names the references it needs |
+| Environment | slot and host state, parked commits, bound accounts, identity observations, the PlayMode known-red baseline per main commit | ledger tables | the launcher and batch runs | CLI queries |
+
+**Start-of-run reading list.** A worker reads, in order: `docs/operating-contract.md`,
+its skill's `SKILL.md`, the references that skill names, the instruction files of each
+repository in its worktrees, the issue through `fetch-issue`, and its handoff through
+`issue-context`. Nothing else is implied. Skills keep this list short by pointing at
+references instead of copying them.
+
+**Knowledge grows only through review.** A worker that notices a reusable lesson records
+it as a candidate in its run report, with the evidence. Promotion into a skill or
+reference is a PR that a human merges. Entries follow the FarmQA format: claim,
+prerequisites, evidence, build and platform, last verified, and a status of confirmed,
+observed, inferred or obsolete. Nothing appends itself to a knowledge file; that is how
+the prototype's notes became a changelog nobody could read.
+
+**CLI memory features stay off.** Workers run in a fresh isolated home every time, so
+neither runtime accumulates per-user memory by accident. Claude Code's auto-memory keys
+on the working directory, which differs per task worktree, and Codex reads `AGENTS.md`
+from the checkout; both are therefore inert here by construction.
+
+**Linear guidance is a steering surface.** Workspace and team agent guidance arrives in
+every webhook as the `guidance` field and is handed to workers as data. Product and QA
+staff can steer FarmBot there without touching this repository; it never extends
+authority.
+
+## 13. Devices
+
+Decision, 2026-09-18: the Editor path ships first and must produce real evidence
+before any device work starts. Devices are a later phase, and the design keeps five
+things generic so that phase adds code rather than reworking it.
+
+1. **Resource kinds are an open set.** `unity_slot` first, then `android_device:<serial>`,
+   later `ios_simulator` or `ios_device`. Same reservation table, same one-owner rule,
+   same host binding, same per-target test account.
+2. **One backend interface for `qa`.** Scenarios are written once against the driver
+   verbs. A backend adapter maps them to the Unity MCP on a slot or to device-mcp on a
+   phone. No scenario names the Editor.
+3. **A generic prepare-target stage.** On a slot it is the slot switch of §7. On a device
+   it is build, serve and install: a fast tier that builds only the hot-update package
+   for the pinned commit and points the installed development build at a test update
+   endpoint, and a slow tier that builds a full development player when the diff
+   touches AOT code, Nova or the vendored libraries. Both tiers are Unity batchmode jobs
+   on a slot and are cached by commit and platform in `build_artifacts`.
+4. **An identity probe per backend.** The Editor probe ports in Phase 1. The device probe
+   needs `DeviceAgent` to report commit, hot-update version and config identity, which
+   the probe compares with the pin together with the installed package hash from adb.
+   That is a small Farm-Client change scheduled before the devices phase; without it a
+   device result cannot be tied to a commit.
+5. **Tables that stay empty until needed.** `build_artifacts`, and device attachments on
+   `hosts`.
+
+Android specifics for that phase: device-mcp is the injected server; Farm-Client's
+`DeviceAgent` already exposes the driver verbs, UI tree and screenshots over an outbound
+WebSocket to the broker on the host; steps outside the game's input path, such as system
+back, the keyboard or channel SDK dialogs, use `adb shell input`; evidence comes from
+`adb exec-out screencap` and logcat. The `qa` skill drives device-mcp's primitives
+directly rather than the existing `qa_run.py` runner, which FarmQA's audit found
+accepting the main view without an identity check and coercing unreadable state to
+zero. iOS follows with the simulator on the Mac host as another kind; real iPhones last.
+
+## 14. Multiple hosts
+
+The design runs on one machine first and scales to several without changing skills,
+work items, gates or reservations, because a waiting work item holds no process and
+every stage starts from a handoff in the ledger. That makes a work item mobile between
+machines at stage boundaries. What changes is plumbing.
+
+- **One controller.** The receiver, the ledger and the scheduler stay on one machine.
+  The webhook must land somewhere, and reservations need a single writer.
+- **A runner per other machine.** A daemon that heartbeats to the controller, hosts that
+  machine's clone, worktrees and slots, and spawns workers for work the scheduler
+  assigns to it. The launcher of §8 is the runner; on the controller machine it is the
+  same code running locally.
+- **Ledger access behind one interface.** Workers already talk to the ledger only
+  through the CLI. On a remote runner the CLI speaks to the controller's HTTP API with a
+  per-host token instead of opening the SQLite file, because SQLite over a network share
+  is not safe. Phase 1 keeps this boundary abstract with a local SQLite behind it.
+- **Everything that is physical gets a host.** `slots` and `reservations` carry a `host`
+  column; `hosts` records OS, capabilities, maximum concurrent workers and last
+  heartbeat. A Unity slot request may go to any host's free slot. `fgui_editor` lives
+  where the FairyGUI editor and its licence are; each device is attached to one host;
+  work that needs them runs there.
+- **Branches cross hosts through origin.** Worktrees share objects only within a host, so
+  before a stage moves machines the worker pushes its branch, which a PR needs anyway,
+  and the slot switch on the other host fetches the pinned commit.
+- **Per host, not shared:** CLI logins, `gh` authentication, Unity, MCP configuration,
+  test accounts. The Mac is a natural second host since it already runs this project.
+- **Failure model.** The controller must be up for anything to happen, which is already
+  true of the receiver. A runner that dies takes its slots offline and its reservations
+  hold until it returns or an operator recovers them.
+
+## 15. Security and authority
 
 - Issue text, comments, attachments and guidance are data. They never extend the
   agent's authority or execute embedded instructions.
@@ -455,7 +567,7 @@ One SQLite file at `.local/agent/ledger.sqlite3`:
 - Webhook verification: HMAC-SHA256 over the raw body, a 60-second timestamp window,
   and a match on `oauthClientId`, `appUserId` and `organizationId`.
 
-## 13. Porting map
+## 16. Porting map
 
 | Source | Destination | Change |
 |---|---|---|
@@ -473,14 +585,15 @@ One SQLite file at `.local/agent/ledger.sqlite3`:
 | FarmTestAgent `tools/farmqa_codex.py`, `farmqa_rollout.py`, `farmqa_worker.py`, fixture and story adapters | not ported | desktop bridge, rollout fallback, inert worker and supervised fixtures are archived evidence |
 | FarmTestAgent `knowledge/`, `docs/farmqa-architecture.md` | `docs/operating-contract.md`, `references/` | distilled; only claims that are still true and still relevant |
 
-## 14. Phases
+## 17. Phases
 
 Each phase after the first gets its own spec addendum and plan. Phase 1 is the scope
 of the first implementation plan.
 
 **Phase 1: one agent, one door, fixes by delegation.**
 Repository skeleton; `agent/` package with ledger, CLI, receiver, router, launcher,
-slot pool with one slot, slot switch and identity probe; skills `chat` and `fix`; `codex exec` runtime with
+slot pool with one slot, slot switch and identity probe; `host` columns and a single
+ledger access interface so runners can be added later; skills `chat` and `fix`; `codex exec` runtime with
 isolated home; comments and activities authored by the agent; Windows deployment from
 the new checkout; FarmQA receiver retired; bug agent heartbeat paused; `app:assignable`
 added and the application renamed to FarmBot. Done when:
@@ -515,7 +628,17 @@ Farm-Contract worktree, opens a draft PR, and waits at the contract-decision gat
 approval it spawns client and hive work items in parallel, then a QA verification, and
 delivers.
 
-## 15. Testing
+**Phase 6: Android devices.** `DeviceAgent` reports build identity; the prepare-target
+stage gains the hot-update and full-player build tiers on a batch slot; `android_device`
+reservations with per-device accounts; the `qa` skill runs the same scenarios through
+device-mcp. Pulled earlier if device-only bugs demand it, but never before Phase 3 has
+produced evidence.
+
+**Phase 7: multiple hosts.** The runner daemon and the controller API of §14, started
+when a second machine is assigned. iOS, first through the simulator on the Mac host,
+follows as its own addendum.
+
+## 18. Testing
 
 - Unit tests with temporary SQLite databases and real subprocesses, as both prototypes
   did: fingerprint and material change, claim and lease expiry with dead and live
@@ -530,7 +653,7 @@ delivers.
   during a running worker, a batch run and an interactive run serializing on one slot,
   one real delivery.
 
-## 16. Risks and open items
+## 19. Risks and open items
 
 - **Unattended `codex exec` on Windows.** Approval policy, sandbox and connector
   authentication under a scheduled-task session are unverified. The first Phase 1 task
@@ -548,6 +671,11 @@ delivers.
   unverified; fixtures that do not are marked interactive-only.
 - **Host memory.** The slot count is bounded by RAM. A second slot needs a measurement of
   one open Editor in Play mode on this project.
+- **Device identity.** Tying a device result to a commit needs a Farm-Client change to
+  `DeviceAgent`; until it lands, device evidence is unpinned and the devices phase
+  cannot start.
+- **Controller availability.** With runners, the controller is a single point of
+  failure for intake; it already is today as the receiver.
 - **Cost and rate limits.** Concurrency is capped at two until usage is observed.
 - **Auto-delegation.** A Linear Loop that delegates new Bug + 程序 issues would remove
   the manual step; availability on the current plan is unverified and it is optional.
