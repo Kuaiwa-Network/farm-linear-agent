@@ -127,12 +127,34 @@ class CliTests(unittest.TestCase):
         self.assertIn("unknown comment action", process.stderr)
         self.assertNotIn("create_comment", [c["method"] for c in self.calls()])
 
-    def test_checkpoint_refuses_a_pr_outside_the_configured_repositories(self):
+    def write_config(self, repos):
         config = self.root / "config.json"
-        config.write_text(json.dumps({"client_id": "c", "client_secret": "s", "webhook_secret": "w",
-                                      "repos": {"Farm-Client": "https://github.com/Kuaiwa-Network/Farm-Client.git"},
+        config.write_text(json.dumps({"client_id": "c", "client_secret": "s", "webhook_secret": "w", "repos": repos,
                                       "local_root": str(self.root / "local")}), encoding="utf-8")
         self.env["FARMBOT_CONFIG"] = str(config)
+
+    def test_an_explicit_token_beats_a_stale_environment_token(self):
+        item = self.seeded_item()
+        token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
+        self.env["FARMBOT_TOKEN"] = "stale-token-from-an-earlier-item"
+        self.assertEqual(self.run_cli("renew", "--item", item, "--token", token)["state"], "running")
+        process = self.run_cli("renew", "--item", item, success=False)  # the environment alone is still consulted
+        self.assertNotIn("claim token required", process.stderr)
+
+    def test_pr_targets_accept_ssh_remotes_ignore_case_and_refuse_a_config_without_github(self):
+        item = self.seeded_item()
+        token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
+        ok = self.json_file("ok.json", {"published_prs": ["https://github.com/Kuaiwa-Network/Farm-Client/pull/1"]})
+        self.write_config({"Farm-Client": "git@github.com:kuaiwa-network/farm-client.git"})
+        self.assertEqual(self.run_cli("checkpoint", "--item", item, "--token", token, "--input", ok)["state"], "running")
+        self.write_config({"Farm-Client": "https://example.com/farm/Farm-Client.git"})
+        process = self.run_cli("checkpoint", "--item", item, "--token", token, "--input", ok, success=False)
+        self.assertIn("no configured GitHub repository", process.stderr)
+        empty = self.json_file("none.json", {"published_prs": []})
+        self.assertEqual(self.run_cli("checkpoint", "--item", item, "--token", token, "--input", empty)["state"], "running")
+
+    def test_checkpoint_refuses_a_pr_outside_the_configured_repositories(self):
+        self.write_config({"Farm-Client": "https://github.com/Kuaiwa-Network/Farm-Client.git"})
         item = self.seeded_item()
         token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
         process = self.run_cli("checkpoint", "--item", item, "--token", token, "--input",

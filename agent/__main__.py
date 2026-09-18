@@ -57,28 +57,30 @@ def read_text(path):
     return Path(path).read_text(encoding="utf-8")
 
 
-GITHUB_REMOTE = re.compile(r"https://github\.com/([^/\s]+)/([^/\s]+?)(?:\.git)?/?")
+GITHUB_REMOTE = re.compile(r"(?:https://|ssh://git@|git@)github\.com[:/]([^/\s:]+)/([^/\s]+?)(?:\.git)?/?", re.IGNORECASE)
 
 
 def check_pr_targets(urls):
     """A worker may only register PRs on the repositories this host is configured for."""
+    if not isinstance(urls, list) or not urls:
+        return
     try:
         repos = load_config().repos
     except (OSError, ValueError):
         return  # no private config (tests, first run): the ledger's URL shape is the only rule
-    prefixes = {f"https://github.com/{m.group(1)}/{m.group(2)}/pull/"
+    prefixes = {f"https://github.com/{m.group(1)}/{m.group(2)}/pull/".casefold()
                 for m in (GITHUB_REMOTE.fullmatch(str(remote)) for remote in (repos or {}).values()) if m}
-    if not prefixes or not isinstance(urls, list):
-        return
+    if not prefixes:  # a config that names no GitHub remote can never legitimise a PR
+        raise LedgerError("no configured GitHub repository to register PRs on; check repos in the host config")
     for url in urls:
-        if not isinstance(url, str) or not any(url.startswith(prefix) for prefix in prefixes):
+        if not isinstance(url, str) or not any(url.casefold().startswith(prefix) for prefix in prefixes):
             raise LedgerError(f"PR URL is not under a configured repository: {url}")
 
 
 def resolve_token(args):
-    """--token-file first, then FARMBOT_TOKEN, then --token; never require it on a command line."""
+    """--token-file first, then --token, then FARMBOT_TOKEN: an explicit flag beats ambient state."""
     for value in (read_text(args.token_file).strip() if args.token_file else None,
-                  os.environ.get("FARMBOT_TOKEN", "").strip(), (args.token or "").strip()):
+                  (args.token or "").strip(), os.environ.get("FARMBOT_TOKEN", "").strip()):
         if value:
             return value
     raise LedgerError("claim token required: pass --token-file PATH, set FARMBOT_TOKEN, or pass --token")
