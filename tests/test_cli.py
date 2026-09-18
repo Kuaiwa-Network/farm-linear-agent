@@ -194,3 +194,19 @@ class CliTests(unittest.TestCase):
         process = self.run_cli("await-resource", "--item", item, "--token", token, "--resource", "unity_slot", "--mode", "batch", success=False)
         self.assertIn("no unity slots", process.stderr)
         self.run_cli("claim", "--item", item, "--worker-id", "w2", success=False)
+
+    def test_a_no_change_delivery_completes_the_session_as_no_change(self):
+        item = self.seeded_item()
+        token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
+        body = self.root / "d.md"
+        body.write_text("主干已修复。", encoding="utf-8")
+        action = self.run_cli("prepare-comment", "--item", item, "--token", token, "--kind", "delivery",
+                              "--body-file", str(body))
+        self.run_cli("post-comment", "--item", item, "--token", token, "--action-id", action["action_id"])
+        self.run_cli("finish", "--item", item, "--token", token, "--outcome", "delivered", "--input",
+                     self.json_file("nc.json", {"summary": "已确认主干修复", "comment_action_id": action["action_id"],
+                                                "verification": "对比源表与已提交配置",
+                                                "no_change": "主干提交已修正", "prs": []}))
+        final = self.calls()[-1]
+        self.assertEqual(final["content"]["type"], "response")
+        self.assertIn("无需改动", final["content"]["body"])

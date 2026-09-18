@@ -76,6 +76,12 @@ issue, describe the observed problem, the change, the checks that ran and the on
   `finish --outcome blocked --input OUTCOME.json` with `{"summary", "comment_action_id"}`.
 - Delivered: `prepare-comment --kind delivery`, `post-comment`, then `finish --outcome delivered` with
   `{"summary", "comment_action_id", "verification", "prs": [...]}`. Verification names the rungs that ran.
+- Delivered with no code change: when the bug is already fixed on the target branch, is a duplicate of
+  work already merged, or does not reproduce, that conclusion is the deliverable. Write the delivery
+  body from the template with your evidence, `prepare-comment --kind delivery`, `post-comment`, then
+  `finish --outcome delivered` with `{"summary", "comment_action_id", "verification", "no_change", "prs": []}`,
+  where `no_change` states in one sentence why nothing needed changing, naming the commit or PR that
+  already covers it. Never open an empty PR to satisfy the ledger, and never report this as blocked.
 - Run `fetch-issue` right before `finish`; if the ledger answers `queued`, a human changed the issue while
   you were finishing and a fresh worker will take it, so exit.
 - `finish` itself posts the final `response` that completes the Linear session (已交付／已暂停 plus the

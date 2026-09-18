@@ -646,9 +646,17 @@ class Ledger:
                 _text(evidence.get("comment_action_id"), "comment_action_id")
                 if outcome == "delivered":
                     _text(evidence.get("verification"), "verification")
-                    prs = evidence.get("prs")
-                    if not isinstance(prs, list) or not prs:
-                        raise LedgerError("delivered finish requires a nonempty prs array")
+                    prs = evidence.get("prs") or []
+                    if not isinstance(prs, list):
+                        raise LedgerError("prs must be an array")
+                    no_change = evidence.get("no_change")
+                    if no_change is not None:
+                        # The investigation is the deliverable: already fixed, a duplicate, does not reproduce.
+                        _text(no_change, "no_change")
+                        if prs:
+                            raise LedgerError("a no_change delivery carries no PR")
+                    elif not prs:
+                        raise LedgerError("delivered finish requires a nonempty prs array or a no_change reason")
                     for pr in prs:
                         _text(pr, "PR URL")
                         if not self.PR_URL.fullmatch(pr):

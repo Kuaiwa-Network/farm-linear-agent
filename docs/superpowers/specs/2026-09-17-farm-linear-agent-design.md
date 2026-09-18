@@ -198,6 +198,10 @@ running → awaiting_resource → running     (waiting for a desktop slot; proce
 any non-terminal → cancelled               (Stop)
 ```
 
+A delivery normally carries at least one draft PR. The exception is an investigation whose conclusion
+is that nothing needs changing, which delivers with an empty PR list and a `no_change` reason in its
+evidence; it still requires a confirmed delivery comment, so the reasoning always reaches the issue.
+
 Stages are per skill and are recorded in the checkpoint:
 
 | Skill | Stages |

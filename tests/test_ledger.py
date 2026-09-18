@@ -357,3 +357,35 @@ class OutboxTests(LedgerBase):
         with self.assertRaises(LedgerError):
             self.ledger.finish(item["id"], token, "delivered", {"summary": "x", "comment_action_id": None,
                                                                  "verification": "answered", "prs": ["https://github.com/o/r/pull/1"]})
+
+    def test_a_fix_may_deliver_with_no_code_change(self):
+        item = self.new_item()
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        action = self.ledger.prepare_comment(item["id"], token, "delivery", "主干已修复，无需改动。")
+        self.ledger.confirm_comment(action["action_id"], "remote-1")
+        view = self.ledger.finish(item["id"], token, "delivered",
+                                  {"summary": "已确认主干修复", "comment_action_id": action["action_id"],
+                                   "verification": "对比 common 主干与客户端已提交配置",
+                                   "no_change": "主干提交 6bfe03e2 已修正该文案", "prs": []})
+        self.assertEqual(view["state"], "delivered")
+
+    def test_a_no_change_delivery_may_not_also_claim_a_pr(self):
+        item = self.new_item()
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        action = self.ledger.prepare_comment(item["id"], token, "delivery", "已修复。")
+        self.ledger.confirm_comment(action["action_id"], "remote-2")
+        with self.assertRaises(LedgerError):
+            self.ledger.finish(item["id"], token, "delivered",
+                               {"summary": "两者都有", "comment_action_id": action["action_id"],
+                                "verification": "dotnet test", "no_change": "无需改动",
+                                "prs": ["https://github.com/o/r/pull/3"]})
+
+    def test_a_delivery_without_prs_or_a_no_change_reason_is_still_refused(self):
+        item = self.new_item()
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        action = self.ledger.prepare_comment(item["id"], token, "delivery", "已修复。")
+        self.ledger.confirm_comment(action["action_id"], "remote-3")
+        with self.assertRaises(LedgerError):
+            self.ledger.finish(item["id"], token, "delivered",
+                               {"summary": "空交付", "comment_action_id": action["action_id"],
+                                "verification": "dotnet test", "prs": []})

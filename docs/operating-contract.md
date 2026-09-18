@@ -50,8 +50,9 @@ per item), blocker, delivery. Templates: `references/comment-templates.md`.
 
 - One host at a time (the Mac since the 2026-09-18 live test; Windows follows in Plan 1c); no Unity slots.
   A fix that needs Editor verification records the gap and finishes blocked or delivers with the gap named.
-- A fix that finds nothing to change (already fixed, duplicate) finishes blocked with the evidence; there
-  is no separate no-change outcome yet.
+- A fix that finds nothing to change (already fixed, duplicate, does not reproduce) delivers with an
+  empty PR list and a `no_change` reason, and FarmBot's session response says 无需改动. Blocked stays
+  for work that a human must unblock.
 - Delegation must come from the Linear UI. Setting the delegate through the API creates no agent session,
   so FarmBot never hears about it.
 - Two concurrent workers. Run-time budget, lease and renewal cadence are per skill, from its `skill.json`

@@ -93,7 +93,10 @@ def session_response(skill, outcome, evidence):
     summary = evidence.get("summary", "")
     prs = [url for url in (evidence.get("prs") or []) if isinstance(url, str)] if isinstance(evidence.get("prs"), list) else []
     if outcome == "delivered":
-        body = f"✅ 已交付：{summary}" + ("".join(f"\n- {url}" for url in prs))
+        if evidence.get("no_change"):
+            body = f"✅ 无需改动：{summary}"
+        else:
+            body = f"✅ 已交付：{summary}" + ("".join(f"\n- {url}" for url in prs))
     else:
         body = f"⏸ 已暂停：{summary}"
     return {"type": "response", "body": body}
