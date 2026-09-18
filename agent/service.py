@@ -35,21 +35,31 @@ def build(config, runtime_override=None):
     return Components(config, paths, api, ledger, skills, worktrees, launcher, scheduler, receiver, server)
 
 
-def serve(config_path=None):
-    components = build(load_config(config_path))
+def serve(config_path=None, components=None):
+    components = build(load_config(config_path)) if components is None else components
     stop = threading.Event()
 
-    def receive_loop():
-        while not stop.is_set():
-            if not components.receiver.process_one():
-                stop.wait(0.1)
+    def guarded(name, body):
+        """One loop iteration never kills its thread: log the kind of failure and back off."""
+        def loop():
+            while not stop.is_set():
+                try:
+                    body()
+                except Exception as exc:
+                    print(json.dumps({"event": "loop_error", "loop": name, "error": type(exc).__name__}), flush=True)
+                    stop.wait(1.0)
+        return loop
 
-    def schedule_loop():
-        while not stop.is_set():
-            components.scheduler.tick()
-            stop.wait(1.0)
+    def receive_once():
+        if not components.receiver.process_one():
+            stop.wait(0.1)
 
-    threads = [threading.Thread(target=receive_loop, daemon=True), threading.Thread(target=schedule_loop, daemon=True)]
+    def schedule_once():
+        components.scheduler.tick()
+        stop.wait(1.0)
+
+    threads = [threading.Thread(target=guarded("receive", receive_once), daemon=True),
+               threading.Thread(target=guarded("schedule", schedule_once), daemon=True)]
     for thread in threads:
         thread.start()
     print(json.dumps({"event": "ready", "listen": f"http://127.0.0.1:{components.server.server_address[1]}",
