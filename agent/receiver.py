@@ -181,8 +181,11 @@ class Receiver:
                     f"{issue['identifier']} 已有进行中的工作（{elsewhere['skill']}），请在原会话继续，或等它完成后再委派。"})
                 return
             if decision.kind == "chat":
-                self.ledger.push_inbox(elsewhere["id"], decision.text or prepared["text"] or "（无正文）")
-                self._send(session_id, ack_id, {"type": "thought", "body": "该 issue 正在处理中，你的消息已转给正在处理的 worker。"})
+                self.ledger.push_inbox(elsewhere["id"], prepared["text"] or "（无正文）")
+                notice = "该 issue 正在处理中，你的消息已转给正在处理的 worker。"
+                if decision.text and decision.text != prepared["text"]:
+                    notice = decision.text + "\n" + notice
+                self._send(session_id, ack_id, {"type": "thought", "body": notice})
                 return
         if decision.kind == "work":
             if decision.skill in WRITE_SKILLS and not is_delegation:
@@ -194,8 +197,9 @@ class Receiver:
             self._send(session_id, ack_id, {"type": "thought", "body": ACK.get(decision.skill, ACK["chat"])})
         elif decision.kind == "chat":
             item = self.ledger.create_work_item(issue_id=issue["id"], session_id=session_id, skill="chat")
-            self.ledger.push_inbox(item["id"], decision.text or prepared["text"] or "（无正文）")
-            self._send(session_id, ack_id, {"type": "thought", "body": ACK["chat"]})
+            self.ledger.push_inbox(item["id"], prepared["text"] or "（无正文）")
+            body = decision.text if decision.text and decision.text != prepared["text"] else ACK["chat"]
+            self._send(session_id, ack_id, {"type": "thought", "body": body})
         elif decision.kind == "steer":
             self.ledger.push_inbox(active["id"], decision.text)
             self._send(session_id, ack_id, {"type": "thought", "body": "已转给正在处理的 worker，会在下一次检查点读取。"})

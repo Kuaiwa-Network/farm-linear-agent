@@ -135,6 +135,18 @@ class ReceiverTests(ReceiverBase):
         self.assertEqual(self.ledger.items_for_session("session-3"), [])
         self.assertEqual(self.ledger.issue_context(item["id"])["inbox_pending"], 1)
         self.assertEqual(self.activities()[-1]["type"], "thought")
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        self.assertEqual(self.ledger.pop_inbox(item["id"], token), ["@FarmBot 安卓上也能复现"])
+
+    def test_qa_words_without_qa_skill_explain_to_the_human_and_keep_their_text_for_the_worker(self):
+        self.api.fetch_issue.return_value = issue(labels=["Bug"], delegate_id=None)
+        self.receive(self.event(agentSession={"id": "session-4", "issue": {"id": ISSUE, "identifier": "FARM-1", "url": "u"},
+                                              "comment": {"body": "@FarmBot 帮我复现一下"}}))
+        self.receiver.process_one()
+        item = self.ledger.items_for_session("session-4")[0]
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        self.assertEqual(self.ledger.pop_inbox(item["id"], token), ["@FarmBot 帮我复现一下"])
+        self.assertIn("qa", self.activities()[-1]["body"])
 
 
 class HttpTests(ReceiverBase):
@@ -143,6 +155,7 @@ class HttpTests(ReceiverBase):
         import threading
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
         port = server.server_address[1]
         body = json.dumps(self.event(webhookTimestamp=int(__import__("time").time() * 1000))).encode()
