@@ -16,8 +16,9 @@ outside your worktree list.
 1. Read the `contract` path and every path in `references` from your launch message, this file, then the
    `CLAUDE.md` or `AGENTS.md` of every repository in your worktrees.
 2. `python3 -m agent --db DATABASE claim --item ITEM_ID --worker-id WORKER_ID`. Write the returned token
-   to `.local/runs/ITEM_ID/token` with mode 0600, never print it, and pass `--token-file
-   .local/runs/ITEM_ID/token` on every later call. Never put `--token` on a command line: arguments are
+   to `.local/runs/ITEM_ID/token` with mode 0600, never print it, and pass `--item ITEM_ID --token-file
+   .local/runs/ITEM_ID/token` on every later call, including `post-comment` and `confirm-comment`: every
+   worker command is scoped to your own item. Never put `--token` on a command line: arguments are
    visible to every process on the host. If the claim fails, stop and exit 2.
 3. `python3 -m agent --db DATABASE fetch-issue --item ITEM_ID` refreshes the issue and all comments from
    Linear into the ledger. Then `issue-context --item ITEM_ID` gives you the issue, your handoff if a
