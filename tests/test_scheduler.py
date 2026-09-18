@@ -86,6 +86,9 @@ class FakeWorktrees:
         self.added = []
         self.fail_on = None
 
+    def clone_path(self, repo):
+        return self.root / "repos" / f"{repo}.git"
+
     def add(self, repo, item_id, branch):
         if self.fail_on == (repo, item_id):
             raise RuntimeError("boom")
@@ -139,9 +142,11 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(payload["state_dir"], f"/fake/runs/{item['id']}")
         self.assertTrue(self.launcher.spawn_env["PYTHONPATH"].split(":")[0] == str(ROOT))
         self.assertEqual(self.launcher.spawn_env["FARMBOT_DB"], str(Path(self.tmp.name) / "ledger.sqlite3"))
-        worktrees = [str(self.trees.root / item["id"] / repo) for repo in ("Farm-Client", "farm-hive", "farmgui", "common")]
+        repos = ("Farm-Client", "farm-hive", "farmgui", "common")
+        worktrees = [str(self.trees.root / item["id"] / repo) for repo in repos]
+        clones = [str(self.trees.root / "repos" / f"{repo}.git") for repo in repos]  # commits land in the bare clone
         self.assertEqual(self.launcher.spawn_writable[0], str(Path(self.tmp.name)))  # the ledger's directory
-        self.assertEqual(sorted(self.launcher.spawn_writable[1:]), sorted(worktrees))
+        self.assertEqual(sorted(self.launcher.spawn_writable[1:]), sorted(worktrees + clones))
 
     def test_dispatch_and_lease_follow_the_skill_budget(self):
         item = self.item()

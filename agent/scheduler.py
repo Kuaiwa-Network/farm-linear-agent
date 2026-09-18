@@ -54,9 +54,11 @@ class Scheduler:
         primary = paths.get(READ_REPO) or next(iter(paths.values()))
         # `python3 -m agent` must resolve from any worktree, so FarmBot's root leads the worker's PYTHONPATH.
         pythonpath = os.pathsep.join(p for p in (str(repo_root), os.environ.get("PYTHONPATH", "")) if p)
+        # A worktree's commits land in FarmBot's bare clone, so the clone must be writable too.
+        clones = [self.worktrees.clone_path(repo) for repo in paths]
         handle = self.launcher.spawn(item["id"], message, {}, int(skill.budget["max_hours"] * 3600), cwd=primary,
                                      extra_env={"FARMBOT_DB": str(self.db_path), "PYTHONPATH": pythonpath},
-                                     writable=[Path(self.db_path).parent, *paths.values()])
+                                     writable=[Path(self.db_path).parent, *paths.values(), *clones])
         try:
             self.ledger.set_worker(item["id"], handle.pid, self.host, int(skill.budget["lease_seconds"]))
         except LedgerError:
