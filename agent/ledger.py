@@ -541,3 +541,110 @@ class Ledger:
             except sqlite3.IntegrityError:
                 raise LedgerError("another active work item exists for this issue")
             return self._view(self._row(row["id"]))
+
+    def prepare_comment(self, item_id, token, kind, body):
+        if kind not in ("started", "blocker", "delivery"):
+            raise LedgerError("comment kind must be started, blocker or delivery")
+        _text(body, "comment body")
+        with self._transaction():
+            row = self._owned(item_id, token)
+            if not _in_scope(json.loads(self._issue_row(row["issue_id"])["metadata"])):
+                raise LedgerError("issue left scope; do not post a new comment")
+            key = f"{row['issue_id']}:{row['claimed_fingerprint']}:{row['generation']}:{kind}"
+            action_id = hashlib.sha256(key.encode("utf-8")).hexdigest()
+            marker = f"[farmbot:{action_id}]"
+            clean_body = MARKER.sub("", body).rstrip()
+            _text(clean_body, "comment body")
+            if self.connection.execute("SELECT 1 FROM outbox WHERE action_id=?", (action_id,)).fetchone() is None:
+                self.connection.execute("""INSERT INTO outbox(action_id,item_id,issue_id,fingerprint,generation,kind,marker,body,created_at)
+                    VALUES(?,?,?,?,?,?,?,?,?)""", (action_id, row["id"], row["issue_id"], row["claimed_fingerprint"],
+                                                   row["generation"], kind, marker, f"{clean_body}\n\n{marker}", self.clock()))
+                self._audit(row["id"], "prepare_comment", kind, {"action_id": action_id})
+            return dict(self.connection.execute("SELECT * FROM outbox WHERE action_id=?", (action_id,)).fetchone())
+
+    def confirm_comment(self, action_id, remote_id):
+        _text(action_id, "action_id")
+        _text(remote_id, "remote_id")
+        with self._transaction():
+            action = self.connection.execute("SELECT * FROM outbox WHERE action_id=?", (action_id,)).fetchone()
+            if action is None:
+                raise LedgerError("unknown comment action")
+            if action["remote_id"] is not None and action["remote_id"] != remote_id:
+                raise LedgerError("comment action already confirmed with a different remote id")
+            if action["remote_id"] is None:
+                self.connection.execute("UPDATE outbox SET remote_id=?,confirmed_at=? WHERE action_id=?", (remote_id, self.clock(), action_id))
+                self._audit(action["item_id"], "confirm_comment", action["kind"], {"action_id": action_id, "remote_id": remote_id})
+            return dict(self.connection.execute("SELECT * FROM outbox WHERE action_id=?", (action_id,)).fetchone())
+
+    def outbox(self, item_id):
+        return [dict(r) for r in self.connection.execute("SELECT * FROM outbox WHERE item_id=? ORDER BY created_at,action_id", (item_id,))]
+
+    def finish(self, item_id, token, outcome, evidence):
+        if outcome not in ("blocked", "delivered"):
+            raise LedgerError("outcome must be blocked or delivered")
+        if not isinstance(evidence, dict):
+            raise LedgerError("finish input must be an object")
+        _text(evidence.get("summary"), "summary")
+        _text(evidence.get("comment_action_id"), "comment_action_id")
+        if outcome == "delivered":
+            _text(evidence.get("verification"), "verification")
+            prs = evidence.get("prs")
+            if not isinstance(prs, list) or not prs:
+                raise LedgerError("delivered finish requires a nonempty prs array")
+            for pr in prs:
+                _text(pr, "PR URL")
+                parsed = urlsplit(pr)
+                if parsed.scheme != "https" or not parsed.netloc or not parsed.path.strip("/"):
+                    raise LedgerError("each PR URL must be an https URL with a path")
+        with self._transaction():
+            row = self._owned(item_id, token)
+            action = self.connection.execute("SELECT * FROM outbox WHERE action_id=?", (evidence["comment_action_id"],)).fetchone()
+            kind = "blocker" if outcome == "blocked" else "delivery"
+            if (action is None or action["item_id"] != row["id"] or action["fingerprint"] != row["claimed_fingerprint"]
+                    or action["generation"] != row["generation"] or action["kind"] != kind or not action["remote_id"]):
+                raise LedgerError("finish requires a confirmed comment for this item, claimed input and outcome")
+            current = self._issue_row(row["issue_id"])["fingerprint"]
+            changed = current != row["claimed_fingerprint"] or row["requeue_requested"]
+            state = "queued" if changed else outcome
+            self._set_state(row["id"], state, evidence["summary"], token=None, lease_expires_at=None, worker_pid=None,
+                            evidence=_json(evidence), generation=row["generation"] + int(state == "queued"))
+            return self._view(self._row(row["id"]))
+
+    def push_inbox(self, item_id, body):
+        _text(body, "body")
+        with self._transaction():
+            row = self._row(item_id)
+            if row["state"] not in ACTIVE_STATES:
+                raise LedgerError("cannot steer a terminal work item")
+            self.connection.execute("INSERT INTO inbox(item_id,body,created_at) VALUES(?,?,?)", (row["id"], body, self.clock()))
+            self._audit(row["id"], "inbox", "steering message")
+            return {"item_id": row["id"], "pending": self.connection.execute(
+                "SELECT count(*) FROM inbox WHERE item_id=? AND consumed_at IS NULL", (row["id"],)).fetchone()[0]}
+
+    def pop_inbox(self, item_id, token):
+        with self._transaction():
+            row = self._owned(item_id, token)
+            rows = self.connection.execute("SELECT id,body FROM inbox WHERE item_id=? AND consumed_at IS NULL ORDER BY id", (row["id"],)).fetchall()
+            self.connection.execute("UPDATE inbox SET consumed_at=? WHERE item_id=? AND consumed_at IS NULL", (self.clock(), row["id"]))
+            return [r["body"] for r in rows]
+
+    def issue_context(self, item_id):
+        """Everything one worker needs about its own item; no token, no other items."""
+        row = self._row(item_id)
+        issue_row = self._issue_row(row["issue_id"])
+        checkpoint = json.loads(row["checkpoint"])
+        meta = checkpoint.get("handoff_meta")
+        handoff = None
+        if "handoff" in checkpoint and meta:
+            handoff = {"content": checkpoint["handoff"], "recorded_at": meta["recorded_at"],
+                       "stale": meta["fingerprint"] != issue_row["fingerprint"] or meta["generation"] != row["generation"]
+                                or bool(row["requeue_requested"]),
+                       "revalidation_required": True, "source": "previous_worker_checkpoint"}
+        view = self._view(row)
+        coordination = {key: view[key] for key in ("id", "identifier", "skill", "state", "stage", "generation", "target")}
+        return {"issue": json.loads(issue_row["metadata"]), "coordination": coordination, "handoff": handoff,
+                "pending_question": checkpoint.get("pending_question"),
+                "published_prs": [r["url"] for r in self.connection.execute(
+                    "SELECT url FROM published_prs WHERE issue_id=? ORDER BY url", (row["issue_id"],))],
+                "inbox_pending": self.connection.execute(
+                    "SELECT count(*) FROM inbox WHERE item_id=? AND consumed_at IS NULL", (row["id"],)).fetchone()[0]}

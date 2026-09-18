@@ -202,3 +202,82 @@ class LeaseTests(LedgerBase):
         self.assertEqual((view["state"], view["generation"]), ("queued", 1))
         with self.assertRaises(LedgerError):
             self.ledger.retry(item["id"], "already queued")
+
+
+class OutboxTests(LedgerBase):
+    def running(self):
+        item = self.new_item()
+        return item["id"], self.ledger.claim(item["id"], worker_id="w")["token"]
+
+    def confirmed(self, item_id, token, kind="blocker", body="请补充复现步骤。"):
+        action = self.ledger.prepare_comment(item_id, token, kind, body)
+        self.ledger.confirm_comment(action["action_id"], "remote-comment-1")
+        return action["action_id"]
+
+    def test_prepare_comment_appends_marker_and_is_idempotent(self):
+        item_id, token = self.running()
+        first = self.ledger.prepare_comment(item_id, token, "started", "👀 FarmBot 已开始处理，正在复现。")
+        second = self.ledger.prepare_comment(item_id, token, "started", "different wording")
+        self.assertEqual(first["action_id"], second["action_id"])
+        self.assertTrue(first["body"].endswith(first["marker"]))
+        self.assertRegex(first["marker"], r"^\[farmbot:[0-9a-f]{64}\]$")
+        with self.assertRaises(LedgerError):
+            self.ledger.prepare_comment(item_id, token, "greeting", "x")
+
+    def test_confirm_rejects_unknown_and_conflicting_remote_ids(self):
+        item_id, token = self.running()
+        action = self.ledger.prepare_comment(item_id, token, "blocker", "缺少环境信息。")
+        with self.assertRaises(LedgerError):
+            self.ledger.confirm_comment("nope", "r1")
+        self.ledger.confirm_comment(action["action_id"], "r1")
+        with self.assertRaises(LedgerError):
+            self.ledger.confirm_comment(action["action_id"], "r2")
+        self.assertEqual(self.ledger.outbox(item_id)[0]["remote_id"], "r1")
+
+    def test_finish_blocked_requires_confirmed_blocker_comment(self):
+        item_id, token = self.running()
+        with self.assertRaises(LedgerError):
+            self.ledger.finish(item_id, token, "blocked", {"summary": "x", "comment_action_id": "missing"})
+        action = self.confirmed(item_id, token)
+        view = self.ledger.finish(item_id, token, "blocked", {"summary": "需要设备信息", "comment_action_id": action})
+        self.assertEqual(view["state"], "blocked")
+        self.assertIsNone(view["lease_expires_at"])
+
+    def test_finish_delivered_requires_prs_verification_and_delivery_kind(self):
+        item_id, token = self.running()
+        blocker = self.confirmed(item_id, token, "blocker")
+        with self.assertRaises(LedgerError):
+            self.ledger.finish(item_id, token, "delivered", {"summary": "done", "comment_action_id": blocker,
+                                                              "verification": "tests", "prs": ["https://github.com/o/r/pull/3"]})
+        delivery = self.confirmed(item_id, token, "delivery", "已修复，见 PR。")
+        with self.assertRaises(LedgerError):
+            self.ledger.finish(item_id, token, "delivered", {"summary": "done", "comment_action_id": delivery, "verification": "tests", "prs": []})
+        view = self.ledger.finish(item_id, token, "delivered", {"summary": "done", "comment_action_id": delivery,
+                                                                 "verification": "typecheck and dotnet tests", "prs": ["https://github.com/o/r/pull/3"]})
+        self.assertEqual(view["state"], "delivered")
+
+    def test_material_change_during_finish_requeues_instead_of_parking(self):
+        item_id, token = self.running()
+        action = self.confirmed(item_id, token)
+        self.ledger.observe_issue(issue(comments=[comment("new logs attached")]))
+        view = self.ledger.finish(item_id, token, "blocked", {"summary": "x", "comment_action_id": action})
+        self.assertEqual(view["state"], "queued")
+
+    def test_inbox_steering_is_consumed_once_by_the_owner(self):
+        item_id, token = self.running()
+        self.ledger.push_inbox(item_id, "先看服务端日志")
+        self.assertEqual(self.ledger.pop_inbox(item_id, token), ["先看服务端日志"])
+        self.assertEqual(self.ledger.pop_inbox(item_id, token), [])
+        with self.assertRaises(LedgerError):
+            self.ledger.pop_inbox(item_id, "claim_wrong")
+
+    def test_issue_context_is_scoped_and_marks_stale_handoffs(self):
+        item_id, token = self.running()
+        handoff = {"facts": [], "hypotheses": ["timing"], "checks": [], "repositories": [], "next_actions": ["repro"]}
+        self.ledger.checkpoint(item_id, token, {"handoff": handoff})
+        context = self.ledger.issue_context(item_id)
+        self.assertEqual(context["issue"]["identifier"], "FARM-1")
+        self.assertFalse(context["handoff"]["stale"])
+        self.assertNotIn("token", str(context))
+        self.ledger.observe_issue(issue(title="Harvest duplicates rewards twice"))
+        self.assertTrue(self.ledger.issue_context(item_id)["handoff"]["stale"])
