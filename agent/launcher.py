@@ -100,10 +100,21 @@ class Launcher:
         stdout = open(run_dir / "stdout.log", "w", encoding="utf-8")
         stderr = open(run_dir / "stderr.log", "w", encoding="utf-8")
         kwargs = {"start_new_session": True} if os.name != "nt" else {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
-        process = subprocess.Popen(command, cwd=str(cwd), env=env, stdin=subprocess.PIPE, stdout=stdout, stderr=stderr,
-                                   text=True, encoding="utf-8", **kwargs)
-        process.stdin.write(message)
-        process.stdin.close()
+        try:
+            process = subprocess.Popen(command, cwd=str(cwd), env=env, stdin=subprocess.PIPE, stdout=stdout, stderr=stderr,
+                                       text=True, encoding="utf-8", **kwargs)
+        finally:
+            stdout.close()
+            stderr.close()
+        try:
+            process.stdin.write(message)
+        except (BrokenPipeError, OSError) as exc:
+            (run_dir / "stdin-error.txt").write_text(f"{type(exc).__name__}: prompt not fully delivered\n", encoding="utf-8")
+        finally:
+            try:
+                process.stdin.close()
+            except OSError:
+                pass
         handle = Handle(item_id, process.pid, self.clock(), self.clock() + budget_seconds, run_dir, process, last_message)
         self._handles[item_id] = handle
         return handle

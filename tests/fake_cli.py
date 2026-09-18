@@ -5,10 +5,12 @@ import subprocess
 import sys
 import time
 
+mode = os.environ.get("FAKE_CLI_MODE", "echo")
+if mode == "exit-immediately":
+    sys.exit(0)
 prompt = sys.stdin.read()
 payload = json.loads(prompt.split("\n\n", 1)[1]) if "\n\n" in prompt else {}
 last_message = sys.argv[1] if len(sys.argv) > 1 else None
-mode = os.environ.get("FAKE_CLI_MODE", "echo")
 
 
 def write_last(text):
@@ -19,7 +21,8 @@ def write_last(text):
 
 
 if mode == "echo":
-    write_last(f"echo:{payload.get('item_id')}:home={os.environ.get('FAKE_HOME_MARKER', '')}")
+    write_last(f"echo:{payload.get('item_id')}:home={os.environ.get('FAKE_HOME_MARKER', '')}"
+               f":codex_home={os.environ.get('CODEX_HOME', '')}:claude_home={os.environ.get('CLAUDE_CONFIG_DIR', '')}")
 elif mode == "sleep":
     time.sleep(60)
 elif mode == "crash":

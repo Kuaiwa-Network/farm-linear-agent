@@ -5,6 +5,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from agent.launcher import Launcher, RUNTIMES
 
@@ -29,14 +30,14 @@ class LauncherTests(unittest.TestCase):
         self.fail("worker did not finish")
 
     def test_spawn_uses_isolated_home_and_captures_last_message(self):
-        handle = self.launcher.spawn("item-1", self.message, {}, budget_seconds=60, cwd=self.tmp.name,
-                                     extra_env={"FAKE_CLI_MODE": "echo", "FAKE_HOME_MARKER": "set"})
+        with patch.dict(os.environ, {"CODEX_HOME": "/decoy/codex", "CLAUDE_CONFIG_DIR": "/decoy/claude"}):
+            handle = self.launcher.spawn("item-1", self.message, {}, budget_seconds=60, cwd=self.tmp.name,
+                                         extra_env={"FAKE_CLI_MODE": "echo", "FAKE_HOME_MARKER": "set"})
         self.assertTrue((handle.run_dir / "home").is_dir())
         finished = self.wait_finished()[0]
         self.assertEqual((finished.item_id, finished.returncode, finished.killed), ("item-1", 0, False))
-        self.assertEqual(finished.last_message, "echo:item-1:home=set")
+        self.assertEqual(finished.last_message, f"echo:item-1:home=set:codex_home={handle.run_dir / 'home'}:claude_home=")
         self.assertIn("echo:item-1", (handle.run_dir / "stdout.log").read_text(encoding="utf-8"))
-        self.assertNotIn("item-1", os.environ.get("CODEX_HOME", ""))
 
     def test_mcp_servers_are_written_into_the_home_in_the_runtime_format(self):
         codex = Launcher(self.runs, RUNTIMES["codex"]._replace(command=RUNTIMES["fake"].command, seed_files={}), host="h")
@@ -94,3 +95,12 @@ class LauncherTests(unittest.TestCase):
         for pid in descendants:
             self.assertFalse(self.launcher.alive(pid), f"descendant {pid} survived stop")
         self.assertTrue((handle.run_dir / "killed.json").exists())
+
+    def test_child_exiting_before_reading_stdin_does_not_break_spawn(self):
+        big = self.message + "\n" + ("x" * 2_000_000)
+        handle = self.launcher.spawn("item-8", big, {}, budget_seconds=60, cwd=self.tmp.name,
+                                     extra_env={"FAKE_CLI_MODE": "exit-immediately"})
+        self.assertIn("item-8", self.launcher.running())
+        finished = self.wait_finished()[0]
+        self.assertEqual((finished.item_id, finished.returncode), ("item-8", 0))
+        self.assertTrue((handle.run_dir / "stdin-error.txt").exists())
