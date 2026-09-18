@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+import sqlite3
 import tempfile
 import unittest
 import urllib.error
@@ -151,6 +152,22 @@ class ReceiverTests(ReceiverBase):
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
         self.assertEqual(self.ledger.pop_inbox(item["id"], token), ["@FarmBot 帮我复现一下"])
         self.assertIn("qa", self.activities()[-1]["body"])
+
+
+class HardeningTests(ReceiverBase):
+    def test_oversized_guidance_is_rejected_like_oversized_prompt_text(self):
+        self.assertEqual(self.receive(self.event(guidance="指" * 32001)), (400, "invalid prompt"))
+        self.assertEqual(self.receiver.results(), [])
+
+    def test_a_database_failure_marks_the_event_uncertain_and_tells_the_session(self):
+        self.receive()
+        self.receiver.ledger = Mock()
+        self.receiver.ledger.observe_issue.side_effect = sqlite3.OperationalError(
+            "table sessions has no column named guidance")
+        self.assertTrue(self.receiver.process_one())
+        result = self.receiver.results()[-1]
+        self.assertEqual((result["status"], result["error"]), ("uncertain", "OperationalError"))
+        self.assertEqual(self.activities()[-1]["type"], "error")
 
 
 class HttpTests(ReceiverBase):

@@ -121,8 +121,11 @@ class Receiver:
         if not isinstance(text, str) or len(text) > 32000:
             raise ValueError("oversized prompt")
         guidance = event.get("guidance")
+        guidance = guidance if isinstance(guidance, str) else json.dumps(guidance, ensure_ascii=False) if guidance else ""
+        if len(guidance) > 32000:
+            raise ValueError("oversized guidance")
         return {"action": event["action"], "session_id": session["id"], "issue_id": issue_id, "text": text,
-                "guidance": guidance if isinstance(guidance, str) else json.dumps(guidance, ensure_ascii=False) if guidance else ""}
+                "guidance": guidance}
 
     def _receive_stop(self, event):
         session_id = event["agentSession"]["id"]
@@ -225,7 +228,7 @@ class Receiver:
         status, error = "done", None
         try:
             self._decide_and_act(json.loads(row["payload"]), row["ack_id"])
-        except (LedgerError, RuntimeError, ValueError, KeyError, OSError) as exc:
+        except (LedgerError, RuntimeError, ValueError, KeyError, OSError, sqlite3.Error) as exc:
             status, error = "uncertain", type(exc).__name__
             try:
                 self._send(row["session_id"], row["ack_id"], {"type": "error", "body": f"FarmBot 处理这条消息时出错（{type(exc).__name__}），请稍后重试或联系维护者。"})
