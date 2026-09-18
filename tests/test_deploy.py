@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from agent.config import Config
-from agent.deploy import AGENTS, install, plist, tunnel_arguments
+from agent.deploy import AGENTS, install, missing_tools, plist, tunnel_arguments
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -43,3 +43,20 @@ class DeployTests(unittest.TestCase):
         self.assertEqual(serve["ProgramArguments"], ["/usr/bin/python3", "-u", "-m", "agent.service", "serve"])
         self.assertEqual(serve["WorkingDirectory"], str(ROOT))
         self.assertTrue((self.config.local_root / "agent" / "logs").is_dir())
+
+    def test_both_agents_carry_a_path_because_launchd_supplies_almost_none(self):
+        target = self.root / "LaunchAgents"
+        install(self.config, target, python="/usr/bin/python3", cloudflared="/usr/bin/cloudflared",
+                path="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
+        for label in AGENTS.values():
+            job = plistlib.loads((target / f"{label}.plist").read_bytes())
+            # launchd gives a job only /usr/bin:/bin:/usr/sbin:/sbin, which holds no codex, gh or cloudflared,
+            # so a worker spawned under it would die at Popen with FileNotFoundError.
+            self.assertEqual(job["EnvironmentVariables"]["PATH"], "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
+            self.assertIn("HOME", job["EnvironmentVariables"])
+
+    def test_missing_tools_names_what_this_host_cannot_resolve(self):
+        self.assertEqual(missing_tools(self.config, which=lambda name: f"/somewhere/{name}"), [])
+        self.assertEqual(missing_tools(self.config, which=lambda name: None), ["codex", "cloudflared"])
+        only_runtime = lambda name: None if name == "cloudflared" else f"/somewhere/{name}"
+        self.assertEqual(missing_tools(self.config, which=only_runtime), ["cloudflared"])

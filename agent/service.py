@@ -7,7 +7,7 @@ import threading
 from pathlib import Path
 
 from .config import Paths, configure, linear_api, load_config, ROOT
-from .deploy import AGENTS, install
+from .deploy import AGENTS, install, missing_tools
 from .launcher import RUNTIMES, Launcher
 from .ledger import Ledger
 from .receiver import Receiver, make_server
@@ -114,8 +114,12 @@ def main(argv=None):
         return configure(args.config)
     if args.command == "install-launchd":
         config = load_config(args.config)
+        missing = missing_tools(config)
+        if missing:
+            raise RuntimeError(f"not on PATH: {', '.join(missing)}; install them before writing launchd agents, "
+                               "because a launchd job cannot resolve a bare name")
         target = Path.home() / "Library" / "LaunchAgents"
-        written = install(config, target, cloudflared=shutil.which("cloudflared") or "cloudflared")
+        written = install(config, target, cloudflared=shutil.which("cloudflared"))
         print(json.dumps({label: str(path) for label, path in written.items()}, indent=2))
         print("\nLoad them with:")
         for label in AGENTS.values():

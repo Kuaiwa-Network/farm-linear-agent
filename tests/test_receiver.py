@@ -161,6 +161,9 @@ class HardeningTests(ReceiverBase):
 
     def test_a_database_failure_marks_the_event_uncertain_and_tells_the_session(self):
         self.receive()
+        # receiver.close() closes whatever self.ledger holds, so release the real connection before
+        # swapping in the Mock; otherwise it leaks and -W error turns the ResourceWarning into a failure.
+        self.addCleanup(self.receiver.ledger.close)
         self.receiver.ledger = Mock()
         self.receiver.ledger.observe_issue.side_effect = sqlite3.OperationalError(
             "table sessions has no column named guidance")

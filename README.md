@@ -30,8 +30,11 @@ To keep FarmBot running across reboots on macOS:
 python3 -m agent.service install-launchd
 ```
 
-It writes two launchd agents and prints the `launchctl bootstrap` lines to load them. Logs land in
-`.local/agent/logs/`. With no `tunnel` key in the host config it runs a quick tunnel, whose hostname
+Run it from your normal interactive shell: a launchd job inherits only `/usr/bin:/bin:/usr/sbin:/sbin`,
+which contains no `codex`, `gh` or `cloudflared`, so the command captures the PATH of the shell that ran it
+and writes that into both agents. It refuses to write anything when the configured runtime or `cloudflared`
+is not on that PATH. It writes two launchd agents and prints the `launchctl bootstrap` lines to load them.
+Logs land in `.local/agent/logs/`. With no `tunnel` key in the host config it runs a quick tunnel, whose hostname
 changes at every restart and must be pasted into the Linear app settings again; set
 `"tunnel": {"name": "<tunnel>"}` once a named Cloudflare tunnel exists and the hostname stops moving.
 

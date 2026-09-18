@@ -2,7 +2,9 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+import agent.worktrees
 from agent.worktrees import Worktrees
 
 
@@ -98,3 +100,35 @@ class WorktreeTests(unittest.TestCase):
         missing = Path(self.tmp.name) / "nowhere"
         clone = self.trees.ensure_clone("Farm-Client", seed_from=missing)
         self.assertEqual(git("rev-parse", "--is-bare-repository", cwd=clone), "true")
+
+    def test_the_seed_fetch_runs_before_the_origin_fetch_and_names_the_checkout(self):
+        """The end state cannot distinguish a seeded clone from a plain one, so observe the calls."""
+        root = Path(self.tmp.name)
+        checkout = root / "checkout"
+        git("clone", "-q", str(self.origin), str(checkout), cwd=root)
+        calls = []
+        real = agent.worktrees._git
+
+        def recording(*args, cwd):
+            calls.append(args)
+            return real(*args, cwd=cwd)
+
+        with patch("agent.worktrees._git", recording):
+            self.trees.ensure_clone("Farm-Client", seed_from=checkout)
+        fetches = [a for a in calls if a[0] == "fetch"]
+        self.assertEqual(len(fetches), 2)
+        self.assertIn(str(checkout), fetches[0])
+        self.assertIn("+refs/remotes/origin/*:refs/remotes/origin/*", fetches[0])
+        self.assertIn("origin", fetches[1])
+
+    def test_no_seed_fetch_happens_without_a_seed_path(self):
+        calls = []
+        real = agent.worktrees._git
+
+        def recording(*args, cwd):
+            calls.append(args)
+            return real(*args, cwd=cwd)
+
+        with patch("agent.worktrees._git", recording):
+            self.trees.ensure_clone("Farm-Client")
+        self.assertEqual([a for a in calls if a[0] == "fetch"], [("fetch", "--quiet", "--prune", "origin")])

@@ -4,12 +4,19 @@ Writing the property lists is all this module does. Loading them stays an explic
 command the operator reads and runs, because starting a webhook receiver is not a side effect.
 """
 from pathlib import Path
+import os
 import plistlib
+import shutil
 import sys
 
 from .config import Paths, ROOT
 
 AGENTS = {"serve": "com.kuaiwa.farmbot.serve", "tunnel": "com.kuaiwa.farmbot.tunnel"}
+
+
+def missing_tools(config, which=shutil.which):
+    """The binaries the installed jobs will invoke and this host cannot resolve."""
+    return [name for name in (config.runtime, "cloudflared") if which(name) is None]
 
 
 def plist(label, arguments, working_directory, log_dir, environment=None):
@@ -37,7 +44,11 @@ def tunnel_arguments(config, cloudflared="cloudflared"):
             "--no-autoupdate", "--protocol", "http2"]
 
 
-def install(config, target_dir, *, python=sys.executable, cloudflared="cloudflared", repo_root=ROOT):
+def install(config, target_dir, *, python=sys.executable, cloudflared="cloudflared", repo_root=ROOT,
+            path=None):
+    # A launchd job inherits only /usr/bin:/bin:/usr/sbin:/sbin, which holds no codex, claude, gh or
+    # cloudflared, so a worker spawned under it dies at Popen. Carry the installing shell's PATH instead.
+    environment = {"PATH": path or os.environ.get("PATH", os.defpath), "HOME": str(Path.home())}
     log_dir = Paths(config).config_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     target_dir = Path(target_dir)
@@ -48,7 +59,7 @@ def install(config, target_dir, *, python=sys.executable, cloudflared="cloudflar
     }
     written = {}
     for label, arguments in jobs.items():
-        path = target_dir / f"{label}.plist"
-        path.write_text(plist(label, arguments, repo_root, log_dir), encoding="utf-8")
-        written[label] = path
+        destination = target_dir / f"{label}.plist"
+        destination.write_text(plist(label, arguments, repo_root, log_dir, environment), encoding="utf-8")
+        written[label] = destination
     return written
