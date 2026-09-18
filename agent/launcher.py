@@ -9,7 +9,8 @@ import sys
 import time
 from pathlib import Path
 
-RuntimeConfig = namedtuple("RuntimeConfig", "name command home_env mcp_format seed_files")
+RuntimeConfig = namedtuple("RuntimeConfig", "name command home_env mcp_format seed_files writable_flag",
+                           defaults=(None,))
 Handle = namedtuple("Handle", "item_id pid started_at deadline run_dir process last_message_path")
 Finished = namedtuple("Finished", "item_id returncode last_message killed reason")
 
@@ -24,7 +25,7 @@ RUNTIMES = {
         name="claude",
         command=["claude", "-p", "--output-format", "json", "--permission-mode", "bypassPermissions",
                  "--mcp-config", "{mcp_config}", "--strict-mcp-config", "--add-dir", "{cwd}"],
-        home_env="CLAUDE_CONFIG_DIR", mcp_format="json", seed_files={}),
+        home_env="CLAUDE_CONFIG_DIR", mcp_format="json", seed_files={}, writable_flag="--add-dir"),
     "fake": RuntimeConfig(
         name="fake",
         command=[sys.executable, str(Path(__file__).resolve().parents[1] / "tests" / "fake_cli.py"), "{last_message}"],
@@ -108,6 +109,10 @@ class Launcher:
         (run_dir / "prompt.md").write_text(message, encoding="utf-8")
         command = [part.format(cwd=str(cwd), last_message=str(last_message), mcp_config=str(mcp_config), home=str(home))
                    for part in self.runtime.command]
+        if self.runtime.writable_flag:
+            # Codex takes its roots from the isolated home's config; Claude takes them on the command line.
+            for root in roots:
+                command += [self.runtime.writable_flag, root]
         env = {k: v for k, v in os.environ.items() if k not in ("CODEX_HOME", "CLAUDE_CONFIG_DIR")}
         env[self.runtime.home_env] = str(home)
         env["FARMBOT_ITEM_ID"] = item_id
