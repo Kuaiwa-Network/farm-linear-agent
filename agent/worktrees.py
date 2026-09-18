@@ -80,3 +80,13 @@ class Worktrees:
             _git("worktree", "remove", "--force", str(path), cwd=clone)
             _git("worktree", "prune", cwd=clone)
         shutil.rmtree(item_root, ignore_errors=True)
+
+    def add_detached(self, repo, item_id):
+        clone = self.ensure_clone(repo)
+        self.fetch(repo)
+        path = self.worktrees_root / item_id / repo
+        if path.exists():
+            return path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _git("worktree", "add", "--quiet", "--detach", str(path), f"origin/{self.default_branch(repo)}", cwd=clone)
+        return path

@@ -364,7 +364,7 @@ class Ledger:
         return self._view(self._row(item_id))
 
     def queue(self):
-        rows = self.connection.execute("SELECT * FROM work_items WHERE state='queued' ORDER BY priority, created_at, id")
+        rows = self.connection.execute("SELECT * FROM work_items WHERE state='queued' AND worker_pid IS NULL ORDER BY priority, created_at, id")
         return [self._view(row) for row in rows]
 
     def status(self):
@@ -515,6 +515,15 @@ class Ledger:
             if row["state"] != "running":
                 raise LedgerError("only a running work item can fail")
             self._set_state(row["id"], "failed", reason, token=None, lease_expires_at=None, worker_pid=None)
+            return self._view(self._row(row["id"]))
+
+    def fail_queued(self, item_id, reason):
+        _text(reason, "reason")
+        with self._transaction():
+            row = self._row(item_id)
+            if row["state"] != "queued":
+                raise LedgerError("only a queued work item can fail before claim")
+            self._set_state(row["id"], "failed", reason, worker_pid=None)
             return self._view(self._row(row["id"]))
 
     def recover(self, item_id, reason):

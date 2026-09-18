@@ -64,3 +64,8 @@ class WorktreeTests(unittest.TestCase):
         self.trees.remove("item-1")
         self.assertFalse(path.exists())
         self.assertNotIn(str(path), git("worktree", "list", cwd=self.trees.ensure_clone("Farm-Client")))
+
+    def test_detached_worktree_for_read_only_skills(self):
+        path = self.trees.add_detached("Farm-Client", "item-9")
+        self.assertEqual(git("rev-parse", "--abbrev-ref", "HEAD", cwd=path), "HEAD")
+        self.assertEqual(self.trees.add_detached("Farm-Client", "item-9"), path)

@@ -111,6 +111,11 @@ class WorkItemTests(LedgerBase):
         self.assertEqual(status["counts"], {"queued": 1, "total": 1})
         self.assertNotIn("Tap harvest twice.", str(status))
 
+    def test_queue_excludes_items_with_a_launched_worker(self):
+        item = self.new_item()
+        self.ledger.set_worker(item["id"], 4242, "h")
+        self.assertEqual(self.ledger.queue(), [])
+
 
 class LeaseTests(LedgerBase):
     def test_claim_requires_queued_and_issues_cli_safe_token(self):
