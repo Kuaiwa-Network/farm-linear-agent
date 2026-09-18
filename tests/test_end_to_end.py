@@ -53,6 +53,8 @@ class EndToEndTests(unittest.TestCase):
                         repos=remotes, max_concurrent=2, port=0, local_root=root / "local")
         self.c = build(config)
         self.addCleanup(self.c.receiver.close)
+        self.addCleanup(self.c.ledger.close)
+        self.addCleanup(self.c.server.server_close)
         self.root = root
 
     def signed(self, event):
@@ -88,6 +90,7 @@ class EndToEndTests(unittest.TestCase):
         item = self.c.ledger.items_for_session("session-e2e")[0]
         self.c.scheduler.tick()
         self.assertIsNotNone(self.c.ledger.item(item["id"])["worker_pid"])
+        self.assertTrue((self.c.paths.worktrees / item["id"] / "Farm-Client").is_dir())
         # The fake worker's finish needs confirmed comments, so post them through the CLI the way a real worker would.
         # The steps above prepare both comments; post them here once the outbox rows exist.
         deadline = time.time() + 30
