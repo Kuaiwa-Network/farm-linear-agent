@@ -333,6 +333,12 @@ class OutboxTests(LedgerBase):
                                                                     "verification": "answered in session", "prs": []})
         self.assertEqual(view["state"], "delivered")
 
+    def test_chat_blocked_needs_no_comment(self):
+        item = self.new_item(skill="chat")
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        view = self.ledger.finish(item["id"], token, "blocked", {"summary": "问题不清楚", "comment_action_id": None})
+        self.assertEqual(view["state"], "blocked")
+
     def test_chat_delivery_rejects_comments_and_prs(self):
         item = self.new_item(skill="chat")
         token = self.ledger.claim(item["id"], worker_id="w")["token"]

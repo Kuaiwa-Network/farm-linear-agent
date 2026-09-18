@@ -630,11 +630,13 @@ class Ledger:
         _text(evidence.get("summary"), "summary")
         with self._transaction():
             row = self._owned(item_id, token)
-            chat_delivery = row["skill"] == "chat" and outcome == "delivered"
-            if chat_delivery:
+            chat = row["skill"] == "chat"
+            if chat and outcome == "delivered":
                 _text(evidence.get("verification"), "verification")
                 if evidence.get("comment_action_id") is not None or evidence.get("prs"):
                     raise LedgerError("chat deliveries carry no issue comment and no PR")
+            elif chat and evidence.get("comment_action_id") is None:
+                pass  # a chat worker explains its blocker in the session; the issue gets no comment
             else:
                 _text(evidence.get("comment_action_id"), "comment_action_id")
                 if outcome == "delivered":
