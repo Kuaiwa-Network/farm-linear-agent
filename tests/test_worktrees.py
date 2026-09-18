@@ -69,3 +69,14 @@ class WorktreeTests(unittest.TestCase):
         path = self.trees.add_detached("Farm-Client", "item-9")
         self.assertEqual(git("rev-parse", "--abbrev-ref", "HEAD", cwd=path), "HEAD")
         self.assertEqual(self.trees.add_detached("Farm-Client", "item-9"), path)
+
+    def test_git_calls_skip_lfs_smudge_and_never_prompt(self):
+        from unittest.mock import patch
+        from agent.worktrees import _git
+        with patch("agent.worktrees.subprocess.run") as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = "ok\n"
+            self.assertEqual(_git("status", cwd=self.tmp.name), "ok")
+        env = run.call_args.kwargs["env"]
+        self.assertEqual((env["GIT_LFS_SKIP_SMUDGE"], env["GIT_TERMINAL_PROMPT"]), ("1", "0"))
+        self.assertIn("PATH", env)  # the real environment is kept, only extended

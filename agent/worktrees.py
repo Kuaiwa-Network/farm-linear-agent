@@ -1,10 +1,14 @@
 """FarmBot-owned bare clones and per-item worktrees (spec §8). Never touches human checkouts."""
 from pathlib import Path
+import os
 import re
 import shutil
 import subprocess
 
 SAFE_BRANCH = re.compile(r"^[A-Za-z0-9._/一-鿿-]+$")
+# Task worktrees are for code: LFS pointers stay pointers (Farm-Client carries gigabytes of binaries), and a
+# missing credential fails at once instead of waiting on a prompt no one will answer.
+GIT_ENV = {"GIT_LFS_SKIP_SMUDGE": "1", "GIT_TERMINAL_PROMPT": "0"}
 
 
 class WorktreeError(RuntimeError):
@@ -12,7 +16,8 @@ class WorktreeError(RuntimeError):
 
 
 def _git(*args, cwd):
-    result = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True, timeout=600)
+    result = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True, timeout=600,
+                            env={**os.environ, **GIT_ENV})
     if result.returncode:
         raise WorktreeError(f"git {args[0]} failed: {result.stderr.strip()[:500]}")
     return result.stdout.strip()
