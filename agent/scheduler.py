@@ -1,4 +1,5 @@
 """Turn queued work items into running workers and reap them back into ledger states (spec §6, §8)."""
+import os
 import re
 import threading
 from pathlib import Path
@@ -45,13 +46,17 @@ class Scheduler:
         skill = self.skills[item["skill"]]
         issue = self.ledger.issue(item["issue_id"])
         paths = self._worktrees_for(skill, item, issue)
+        repo_root = Path(self.skill_root).parent
         message = dispatch_message(item=item, issue=issue, skill_path=self.skill_root / skill.name / "SKILL.md",
                                    worktrees=paths, db_path=self.db_path, runtime=self.runtime_name,
                                    guidance=self.guidance_for(item), budget=skill.budget,
-                                   repo_root=Path(self.skill_root).parent)
+                                   repo_root=repo_root, state_dir=self.launcher.state_dir(item["id"]))
         primary = paths.get(READ_REPO) or next(iter(paths.values()))
+        # `python3 -m agent` must resolve from any worktree, so FarmBot's root leads the worker's PYTHONPATH.
+        pythonpath = os.pathsep.join(p for p in (str(repo_root), os.environ.get("PYTHONPATH", "")) if p)
         handle = self.launcher.spawn(item["id"], message, {}, int(skill.budget["max_hours"] * 3600), cwd=primary,
-                                     extra_env={"FARMBOT_DB": str(self.db_path)})
+                                     extra_env={"FARMBOT_DB": str(self.db_path), "PYTHONPATH": pythonpath},
+                                     writable=[Path(self.db_path).parent, *paths.values()])
         try:
             self.ledger.set_worker(item["id"], handle.pid, self.host, int(skill.budget["lease_seconds"]))
         except LedgerError:

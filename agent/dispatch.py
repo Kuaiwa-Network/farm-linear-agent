@@ -11,7 +11,8 @@ AUTHORITY = (
 )
 
 
-def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, guidance, budget, repo_root=None):
+def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, guidance, budget, repo_root=None,
+                     state_dir=None):
     root = Path(repo_root) if repo_root is not None else Path(skill_path).parent.parent.parent
     payload = {
         "item_id": item["id"],
@@ -22,6 +23,7 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
         "contract": str(root / "docs" / "operating-contract.md"),
         "references": sorted(str(path) for path in (root / "references").glob("*.md")),
         "database": str(db_path),
+        "state_dir": str(state_dir) if state_dir is not None else None,
         "worktrees": {name: str(path) for name, path in worktrees.items()},
         "target": item.get("target"),
         "runtime": runtime,

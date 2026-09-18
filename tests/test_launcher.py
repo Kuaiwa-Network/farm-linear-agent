@@ -56,6 +56,17 @@ class LauncherTests(unittest.TestCase):
             while time.time() < deadline and not pending.poll():
                 time.sleep(0.05)
 
+    def test_sandbox_roots_and_network_access_precede_mcp_servers_in_the_home_config(self):
+        handle = self.launcher.spawn("item-3", self.message, {"unity": {"url": "http://127.0.0.1:8080/mcp"}},
+                                     budget_seconds=60, cwd=self.tmp.name, extra_env={"FAKE_CLI_MODE": "echo"},
+                                     writable=[Path("/w/item-3/Farm-Client"), Path("/repo/.local/agent")])
+        self.wait_finished()
+        config = (handle.run_dir / "home" / "config.toml").read_text(encoding="utf-8")
+        expected_roots = json.dumps([str(self.runs / "item-3"), "/w/item-3/Farm-Client", "/repo/.local/agent"])
+        self.assertIn(f"[sandbox_workspace_write]\nwritable_roots = {expected_roots}\nnetwork_access = true\n", config)
+        self.assertLess(config.index("[sandbox_workspace_write]"), config.index("[mcp_servers.unity]"))
+        self.assertEqual(self.launcher.state_dir("item-3"), self.runs / "item-3")
+
     def test_stop_kills_a_sleeping_worker_within_grace(self):
         self.launcher.spawn("item-4", self.message, {}, budget_seconds=60, cwd=self.tmp.name, extra_env={"FAKE_CLI_MODE": "sleep"})
         started = time.time()

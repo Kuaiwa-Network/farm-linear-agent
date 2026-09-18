@@ -33,6 +33,8 @@ RUNTIMES = {
 
 
 def _toml_value(value):
+    if isinstance(value, bool):
+        return "true" if value else "false"
     if isinstance(value, str):
         return json.dumps(value)
     if isinstance(value, list):
@@ -42,9 +44,14 @@ def _toml_value(value):
     raise ValueError("unsupported MCP config value")
 
 
-def write_mcp_config(home, mcp_format, servers):
+def write_mcp_config(home, mcp_format, servers, settings=None):
+    """The worker's home config: runtime settings tables first, then one table per injected MCP server."""
     if mcp_format == "toml":
         lines = []
+        for table, values in (settings or {}).items():
+            lines.append(f"[{table}]")
+            lines.extend(f"{key} = {_toml_value(value)}" for key, value in values.items())
+            lines.append("")
         for name, server in servers.items():
             lines.append(f"[mcp_servers.{name}]")
             lines.extend(f"{key} = {_toml_value(value)}" for key, value in server.items())
@@ -77,10 +84,14 @@ class Launcher:
             return False
         return True
 
-    def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None):
+    def state_dir(self, item_id):
+        """The one directory outside its worktrees a worker may write: its runs, token and logs."""
+        return self.runs_root / item_id
+
+    def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None, writable=()):
         if item_id in self._handles:
             raise RuntimeError(f"worker already running for {item_id}")
-        run_dir = self.runs_root / item_id / time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(self.clock()))
+        run_dir = self.state_dir(item_id) / time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(self.clock()))
         home = run_dir / "home"
         home.mkdir(parents=True, exist_ok=True)
         for source, relative in self.runtime.seed_files.items():
@@ -88,7 +99,11 @@ class Launcher:
             destination.parent.mkdir(parents=True, exist_ok=True)
             if Path(source).is_file():
                 shutil.copy2(source, destination)
-        mcp_config = write_mcp_config(home, self.runtime.mcp_format, mcp_servers)
+        # Codex's workspace-write sandbox allows only the cwd and temp dirs and no network by default; the
+        # worker also writes its other worktrees, the ledger and its state dir, and talks to Linear and GitHub.
+        roots = [str(self.state_dir(item_id)), *(str(path) for path in writable)]
+        settings = {"sandbox_workspace_write": {"writable_roots": roots, "network_access": True}}
+        mcp_config = write_mcp_config(home, self.runtime.mcp_format, mcp_servers, settings)
         last_message = run_dir / "last_message.txt"
         (run_dir / "prompt.md").write_text(message, encoding="utf-8")
         command = [part.format(cwd=str(cwd), last_message=str(last_message), mcp_config=str(mcp_config), home=str(home))

@@ -27,9 +27,14 @@ class FakeLauncher:
         self.alive_pids = set()
         self.killed = []
 
-    def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None):
+    def state_dir(self, item_id):
+        return Path("/fake/runs") / item_id
+
+    def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None, writable=()):
         self.next_pid += 1
         self.spawned.append((item_id, message, mcp_servers, budget_seconds, str(cwd)))
+        self.spawn_env = dict(extra_env or {})
+        self.spawn_writable = [str(path) for path in writable]
         return Handle(item_id, self.next_pid, time.time(), time.time() + budget_seconds, Path(cwd), None, Path(cwd) / "last")
 
     def poll(self):
@@ -63,8 +68,8 @@ class HandleAwareLauncher(FakeLauncher):
         super().__init__()
         self.handles = set()
 
-    def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None):
-        handle = super().spawn(item_id, message, mcp_servers, budget_seconds, cwd, extra_env)
+    def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None, writable=()):
+        handle = super().spawn(item_id, message, mcp_servers, budget_seconds, cwd, extra_env, writable)
         self.handles.add(item_id)
         return handle
 
@@ -126,6 +131,17 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(launched[3], 8 * 3600)
         self.assertEqual(self.ledger.item(item["id"])["worker_pid"], 101)
         self.assertIn(("Farm-Client", item["id"], "farmbot/farm-1"), self.trees.added)
+
+    def test_launch_gives_the_worker_a_state_dir_pythonpath_and_writable_roots(self):
+        item = self.item()
+        self.scheduler.tick()
+        payload = json.loads(self.launcher.spawned[0][1].split("\n\n", 1)[1])
+        self.assertEqual(payload["state_dir"], f"/fake/runs/{item['id']}")
+        self.assertTrue(self.launcher.spawn_env["PYTHONPATH"].split(":")[0] == str(ROOT))
+        self.assertEqual(self.launcher.spawn_env["FARMBOT_DB"], str(Path(self.tmp.name) / "ledger.sqlite3"))
+        worktrees = [str(self.trees.root / item["id"] / repo) for repo in ("Farm-Client", "farm-hive", "farmgui", "common")]
+        self.assertEqual(self.launcher.spawn_writable[0], str(Path(self.tmp.name)))  # the ledger's directory
+        self.assertEqual(sorted(self.launcher.spawn_writable[1:]), sorted(worktrees))
 
     def test_dispatch_and_lease_follow_the_skill_budget(self):
         item = self.item()

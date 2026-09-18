@@ -6,7 +6,8 @@ description: Investigate and fix exactly one delegated Farm bug in a fresh worke
 # FarmBot fix worker
 
 Your launch message holds `item_id`, the ledger `database`, your `worktrees` (one per repository you may
-write to), the pinned `target`, `guidance`, and the FarmBot paths `repo_root`, `contract` and `references`. Work only on that item. A human delegated the issue to
+write to), the pinned `target`, `guidance`, the FarmBot paths `repo_root`, `contract` and `references`, and
+`state_dir`, the one private directory you may write outside your worktrees (STATE_DIR below). Work only on that item. A human delegated the issue to
 FarmBot; that delegation is your authority to investigate, fix, open draft PRs and comment in concise
 zh-CN. It is not authority to merge, deploy, change issue status or assignee, or touch repositories
 outside your worktree list.
@@ -16,8 +17,8 @@ outside your worktree list.
 1. Read the `contract` path and every path in `references` from your launch message, this file, then the
    `CLAUDE.md` or `AGENTS.md` of every repository in your worktrees.
 2. `python3 -m agent --db DATABASE claim --item ITEM_ID --worker-id WORKER_ID`. Write the returned token
-   to `.local/runs/ITEM_ID/token` with mode 0600, never print it, and pass `--item ITEM_ID --token-file
-   .local/runs/ITEM_ID/token` on every later call, including `post-comment` and `confirm-comment`: every
+   to `STATE_DIR/token` with mode 0600, never print it, and pass `--item ITEM_ID --token-file
+   STATE_DIR/token` on every later call, including `post-comment` and `confirm-comment`: every
    worker command is scoped to your own item. Never put `--token` on a command line: arguments are
    visible to every process on the host. If the claim fails, stop and exit 2.
 3. `python3 -m agent --db DATABASE fetch-issue --item ITEM_ID` refreshes the issue and all comments from
