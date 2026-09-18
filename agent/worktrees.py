@@ -56,6 +56,8 @@ class Worktrees:
         clone = self.ensure_clone(repo)
         self.fetch(repo)
         path = self.worktrees_root / item_id / repo
+        if path.exists():
+            return path
         path.parent.mkdir(parents=True, exist_ok=True)
         remote_branches = set(_git("for-each-ref", "--format=%(refname:short)", "refs/remotes/origin", cwd=clone).splitlines())
         local_branches = set(_git("for-each-ref", "--format=%(refname:short)", "refs/heads", cwd=clone).splitlines())
