@@ -167,7 +167,7 @@ class Receiver:
         session = self.ledger.session(prepared["session_id"])
         is_delegation = (session["delegation"] if session else
                          prepared["action"] == "created" and issue.get("delegate_id") == self.identity["appUserId"])
-        self.ledger.ensure_session(prepared["session_id"], issue["id"], is_delegation)
+        self.ledger.ensure_session(prepared["session_id"], issue["id"], is_delegation, prepared["guidance"])
         active = self.ledger.active_item_for_session(prepared["session_id"])
         history = self.ledger.items_for_session(prepared["session_id"])
         decision = route(action=prepared["action"], is_delegation=is_delegation, text=prepared["text"], labels=issue["labels"],

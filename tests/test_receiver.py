@@ -61,6 +61,10 @@ class ReceiverTests(ReceiverBase):
         self.assertEqual(self.activities()[0]["type"], "thought")
         self.assertEqual(self.receiver.results()[0]["status"], "done")
 
+    def test_session_keeps_the_webhook_guidance_for_the_worker(self):
+        self.receive(); self.receiver.process_one()
+        self.assertEqual(self.ledger.session("session-1")["guidance"], "prefer hive")
+
     def test_mention_creates_chat_item_with_the_prompt_in_its_inbox(self):
         self.api.fetch_issue.return_value = issue(labels=["Bug"], delegate_id=None)
         self.receive(self.event(agentSession={"id": "session-2", "issue": {"id": ISSUE, "identifier": "FARM-1", "url": "u"},

@@ -86,7 +86,8 @@ class SchedulerTests(unittest.TestCase):
         self.trees = FakeWorktrees(Path(self.tmp.name) / "wt")
         self.scheduler = Scheduler(self.ledger, self.launcher, load_skills(ROOT / "skills"), self.trees,
                                    skill_root=ROOT / "skills", db_path=Path(self.tmp.name) / "ledger.sqlite3",
-                                   runtime_name="fake", host="h", max_concurrent=1)
+                                   runtime_name="fake", host="h", max_concurrent=1,
+                                   guidance_for=lambda item: (self.ledger.session(item["session_id"]) or {}).get("guidance") or "")
 
     def item(self, issue_id=ISSUE, session=SESSION, skill="fix", **changes):
         self.ledger.observe_issue(issue(id=issue_id, **changes))
@@ -104,6 +105,15 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(launched[3], 8 * 3600)
         self.assertEqual(self.ledger.item(item["id"])["worker_pid"], 101)
         self.assertIn(("Farm-Client", item["id"], "farmbot/farm-1"), self.trees.added)
+
+    def test_dispatch_carries_the_guidance_recorded_on_the_session(self):
+        self.ledger.observe_issue(issue())
+        self.ledger.ensure_session(SESSION, ISSUE, delegation=True, guidance="优先看 farm-hive 的日志")
+        self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix")
+        self.scheduler.tick()
+        payload = json.loads(self.launcher.spawned[0][1].split("\n\n", 1)[1])
+        self.assertEqual(payload["guidance"], self.ledger.session(SESSION)["guidance"])
+        self.assertEqual(payload["guidance"], "优先看 farm-hive 的日志")
 
     def test_concurrency_cap_holds_second_item_queued(self):
         self.item()

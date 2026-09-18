@@ -177,6 +177,7 @@ class Ledger:
                     issue_id TEXT,
                     delegation INTEGER NOT NULL,
                     target_json TEXT,
+                    guidance TEXT,
                     created_at REAL NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS work_items (
@@ -321,11 +322,16 @@ class Ledger:
     def issue(self, issue_id):
         return json.loads(self._issue_row(issue_id)["metadata"])
 
-    def ensure_session(self, session_id, issue_id, delegation):
+    def ensure_session(self, session_id, issue_id, delegation, guidance=None):
+        """Guidance is Linear's operator text for this session; later events may add it."""
         _text(session_id, "session_id")
+        if guidance is not None:
+            _text(guidance, "guidance", empty=True)
         with self._transaction():
-            self.connection.execute("""INSERT OR IGNORE INTO sessions(session_id,issue_id,delegation,created_at)
-                VALUES(?,?,?,?)""", (session_id, issue_id, int(bool(delegation)), self.clock()))
+            self.connection.execute("""INSERT OR IGNORE INTO sessions(session_id,issue_id,delegation,guidance,created_at)
+                VALUES(?,?,?,?,?)""", (session_id, issue_id, int(bool(delegation)), guidance, self.clock()))
+            if isinstance(guidance, str) and guidance.strip():
+                self.connection.execute("UPDATE sessions SET guidance=? WHERE session_id=?", (guidance, session_id))
         return self.session(session_id)
 
     def session(self, session_id):
@@ -333,7 +339,7 @@ class Ledger:
         if row is None:
             return None
         return {"session_id": row["session_id"], "issue_id": row["issue_id"], "delegation": bool(row["delegation"]),
-                "target": json.loads(row["target_json"]) if row["target_json"] else None}
+                "target": json.loads(row["target_json"]) if row["target_json"] else None, "guidance": row["guidance"]}
 
     def create_work_item(self, *, issue_id, session_id, skill, target=None):
         _text(skill, "skill")
