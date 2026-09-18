@@ -2,7 +2,9 @@
 from collections import namedtuple
 import argparse
 import json
+import shutil
 import threading
+from pathlib import Path
 
 from .config import Paths, configure, linear_api, load_config, ROOT
 from .launcher import RUNTIMES, Launcher
@@ -35,6 +37,27 @@ def build(config, runtime_override=None):
                         api, lambda: Ledger(paths.ledger, check_same_thread=False), set(skills), scheduler)
     server = make_server(receiver, config.port)
     return Components(config, paths, api, ledger, skills, worktrees, launcher, scheduler, receiver, server)
+
+
+def seed_clones(config, source_root=None):
+    """Create FarmBot's bare clones ahead of the first launch, seeding from local checkouts when given."""
+    paths = Paths(config)
+    trees = Worktrees(paths.repos, paths.worktrees, config.repos)
+    report = {}
+    for repo in config.repos:
+        seed = None
+        if source_root:
+            for name in (repo, f"farm-{repo}"):  # the common repo is checked out as farm-common
+                candidate = Path(source_root) / name
+                if (candidate / ".git").exists() or (candidate / "HEAD").exists():
+                    seed = candidate
+                    break
+        if trees.clone_path(repo).exists():
+            report[repo] = "present"
+            continue
+        trees.ensure_clone(repo, seed_from=seed)
+        report[repo] = f"seeded from {seed}" if seed else "created"
+    return report
 
 
 def serve(config_path=None, components=None):
@@ -82,11 +105,15 @@ def serve(config_path=None, components=None):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="python3 -m agent.service")
-    parser.add_argument("command", choices=["configure", "serve", "status"])
+    parser.add_argument("command", choices=["configure", "serve", "status", "seed-clones"])
     parser.add_argument("--config")
+    parser.add_argument("--from", dest="source_root", help="directory holding local checkouts to seed from")
     args = parser.parse_args(argv)
     if args.command == "configure":
         return configure(args.config)
+    if args.command == "seed-clones":
+        print(json.dumps(seed_clones(load_config(args.config), args.source_root), ensure_ascii=False, indent=2))
+        return 0
     if args.command == "status":
         config = load_config(args.config)
         ledger = Ledger(Paths(config).ledger)

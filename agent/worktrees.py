@@ -34,13 +34,17 @@ class Worktrees:
             raise WorktreeError(f"unknown repository: {repo}")
         return self.repos_root / f"{repo}.git"
 
-    def ensure_clone(self, repo):
+    def ensure_clone(self, repo, seed_from=None):
         path = self.clone_path(repo)
         if not path.exists():
             self.repos_root.mkdir(parents=True, exist_ok=True)
             _git("init", "--quiet", "--bare", str(path), cwd=self.repos_root)
             _git("remote", "add", "origin", self.remotes[repo], cwd=path)
             _git("config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*", cwd=path)
+            # Seeding from a local checkout of the same remote turns the first origin fetch into a small
+            # delta; without it a first launch pays a full clone inside a scheduler tick.
+            if seed_from is not None and Path(seed_from).exists():
+                _git("fetch", "--quiet", str(seed_from), "+refs/remotes/origin/*:refs/remotes/origin/*", cwd=path)
             _git("fetch", "--quiet", "--prune", "origin", cwd=path)
         return path
 

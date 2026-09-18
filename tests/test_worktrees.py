@@ -80,3 +80,21 @@ class WorktreeTests(unittest.TestCase):
         env = run.call_args.kwargs["env"]
         self.assertEqual((env["GIT_LFS_SKIP_SMUDGE"], env["GIT_TERMINAL_PROMPT"]), ("1", "0"))
         self.assertIn("PATH", env)  # the real environment is kept, only extended
+
+    def test_a_clone_can_be_seeded_from_a_local_checkout_before_its_first_origin_fetch(self):
+        root = Path(self.tmp.name)
+        checkout = root / "checkout"
+        git("clone", "-q", str(self.origin), str(checkout), cwd=root)
+        (self.origin / "later.txt").write_text("later", encoding="utf-8")
+        git("add", ".", cwd=self.origin)
+        git("commit", "-qm", "after the checkout was made", cwd=self.origin)
+        clone = self.trees.ensure_clone("Farm-Client", seed_from=checkout)
+        refs = git("for-each-ref", "--format=%(refname:short)", "refs/remotes/origin", cwd=clone)
+        self.assertIn("origin/main", refs)
+        # the origin fetch still runs, so the commit made after the checkout is present too
+        self.assertEqual(git("rev-parse", "origin/main", cwd=clone), git("rev-parse", "HEAD", cwd=self.origin))
+
+    def test_seeding_from_a_path_that_is_not_a_repository_is_ignored(self):
+        missing = Path(self.tmp.name) / "nowhere"
+        clone = self.trees.ensure_clone("Farm-Client", seed_from=missing)
+        self.assertEqual(git("rev-parse", "--is-bare-repository", cwd=clone), "true")

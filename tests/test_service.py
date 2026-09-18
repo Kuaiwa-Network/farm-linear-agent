@@ -16,7 +16,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from agent.config import Config
-from agent.service import Components, build, serve
+from agent.service import Components, build, seed_clones, serve
 from test_ledger import ISSUE, issue
 
 APP = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
@@ -145,3 +145,29 @@ class LoopGuardTests(unittest.TestCase):
         self.assertEqual(logged[0], {"event": "loop_error", "loop": "receive", "error": "RuntimeError"})
         self.assertGreaterEqual(len(calls), 2)
         self.assertEqual(failures, [])
+
+
+class SeedCloneTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.origin = self.root / "origin"
+        self.origin.mkdir(parents=True)
+        git("init", "-q", "-b", "main", ".", cwd=self.origin)
+        (self.origin / "README.md").write_text("hi\n", encoding="utf-8")
+        git("add", ".", cwd=self.origin); git("commit", "-qm", "init", cwd=self.origin)
+        self.config = Config(client_id="c", client_secret="s", webhook_secret="w",
+                             repos={"Farm-Client": str(self.origin)}, local_root=self.root / "local")
+
+    def test_seed_clones_reports_what_it_created_and_then_reuses_it(self):
+        self.assertEqual(seed_clones(self.config), {"Farm-Client": "created"})
+        self.assertTrue((self.root / "local" / "repos" / "Farm-Client.git").is_dir())
+        self.assertEqual(seed_clones(self.config), {"Farm-Client": "present"})
+
+    def test_seed_clones_reports_the_checkout_it_seeded_from(self):
+        checkout = self.root / "sources" / "Farm-Client"
+        checkout.parent.mkdir(parents=True)
+        git("clone", "-q", str(self.origin), str(checkout), cwd=self.root)
+        report = seed_clones(self.config, source_root=self.root / "sources")
+        self.assertEqual(report, {"Farm-Client": f"seeded from {checkout}"})

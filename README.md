@@ -18,8 +18,8 @@ python3 -m agent --db .local/agent/ledger.sqlite3 status
 ```
 
 Before the first `serve` on a new host: point the Linear app's webhook at a tunnel to port 8765
-(`cloudflared tunnel --url http://127.0.0.1:8765`), seed the bare clones under `.local/repos/<repo>.git`
-from local checkouts so the first launch does not fetch gigabytes inside a scheduler tick, and on a
+(`cloudflared tunnel --url http://127.0.0.1:8765`), run `python3 -m agent.service seed-clones --from ~/WorkSpaces/Farm`
+so the bare clones exist before the first launch instead of being fetched inside a scheduler tick, and on a
 python.org Python make sure `etc/openssl/cert.pem` exists (symlink `/etc/ssl/cert.pem`). Delegate from the
 Linear UI; delegating through the API creates no agent session. Live record:
 `docs/superpowers/spikes/2026-09-18-mac-live-smoke.md`.
