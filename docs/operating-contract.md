@@ -12,8 +12,8 @@ design rationale lives in `docs/superpowers/specs/`.
 | @FarmBot in a comment or the session | answers in the session (`chat`); never edits code from a mention |
 | Reply in a session while a worker runs | the text reaches the worker at its next checkpoint |
 | Reply to a FarmBot question | the parked work item resumes with your answer |
-| Say 重试 in a session whose work finished | the work item is requeued with a new generation |
-| Press Stop | the worker process is killed within 5 s; the item is cancelled; FarmBot confirms in the session |
+| Say 重试 in a session whose work finished | the work item is requeued with a new generation, released from its old worker, and a fresh worker takes it on the next scheduler tick |
+| Press Stop | the worker process is killed promptly, without waiting for the scheduler; the item is cancelled; FarmBot confirms in the session |
 | Delegate an issue that already has FarmBot work in another session | declines with a note naming the issue and the running skill; the existing work continues |
 | @FarmBot on an issue that already has FarmBot work in another session | your text is forwarded to the running worker; you get a short notice |
 
@@ -47,6 +47,8 @@ per item), blocker, delivery. Templates: `references/comment-templates.md`.
 
 - One host; no Unity slots. A fix that needs Editor verification records the gap and finishes
   blocked or delivers with the gap named.
-- Two concurrent workers. Fix budget 8 hours, lease 45 minutes, renew every 10 minutes.
+- Two concurrent workers. Run-time budget, lease and renewal cadence are per skill, from its `skill.json`
+  (`max_hours`, `lease_seconds`, `renew_minutes`); the launcher records the lease on the work item and the
+  launch message tells the worker its own numbers.
 - Worker runtime: Codex CLI (`codex exec --approve-for-me`), one isolated `CODEX_HOME` per work item seeded with `auth.json`; Claude Code is the fallback pending an isolated-auth recipe. Details: `docs/superpowers/spikes/2026-09-18-runtime-spike.md`.
 - Receiver: HMAC-SHA256, 60 s timestamp window, identity match on client, app user, organization.

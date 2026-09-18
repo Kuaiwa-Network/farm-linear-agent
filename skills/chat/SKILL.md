@@ -10,13 +10,14 @@ database path, worktree paths and the FarmBot paths `repo_root`, `contract` and 
 Everything you say to Linear goes through the ledger CLI.
 
 1. Read the `contract` path from your launch message and this file.
-2. Run `python3 -m agent --db DATABASE issue-context --item ITEM_ID` to load the issue, its
-   comments and any pending question. Run `python3 -m agent --db DATABASE pop-inbox --item ITEM_ID --token-file .local/runs/ITEM_ID/token`
-   after claiming to read anything the human added while you were starting.
-3. Claim first: `python3 -m agent --db DATABASE claim --item ITEM_ID --worker-id WORKER_ID`. Write the
+2. Claim first: `python3 -m agent --db DATABASE claim --item ITEM_ID --worker-id WORKER_ID`. Write the
    token to `.local/runs/ITEM_ID/token` with mode 0600 and pass `--token-file .local/runs/ITEM_ID/token`
-   on every later call; never put `--token` on a command line. Renew at least every `renew_minutes` minutes from your launch message with `renew`;
-   your lease is `lease_seconds` long.
+   on every later call; never put `--token` on a command line. Renew at least every `renew_minutes`
+   minutes from your launch message with `renew`; your lease is `lease_seconds` long. If the claim
+   fails, stop and exit 2.
+3. Run `python3 -m agent --db DATABASE issue-context --item ITEM_ID` to load the issue, its comments
+   and any pending question, then `python3 -m agent --db DATABASE pop-inbox --item ITEM_ID --token-file .local/runs/ITEM_ID/token`
+   to read anything the human added while you were starting.
 4. Answer the question. You may read any repository in your worktree list. You may not edit files,
    run generators, open PRs, or change anything in Linear other than posting your answer.
 5. Post the answer as a session activity: `python3 -m agent --db DATABASE activity --item ITEM_ID --token-file .local/runs/ITEM_ID/token --type response --body-file ANSWER.md`.
