@@ -62,19 +62,26 @@ It replaces two prototypes, both of which stay on GitHub as read-only archives:
 
 ```mermaid
 flowchart TD
-    L[Linear: delegation, @mention, Stop] -->|webhook| R[Receiver]
-    R <--> D[(Ledger, one SQLite file)]
-    R --> RT[Router and skill registry]
-    RT --> LA[Worker launcher]
-    LA -->|one CLI process per work item| W[Worker: skill, worktrees, injected MCP set]
-    W -->|ledger CLI| D
-    W -->|acquire, release| RES[Resource reservations]
-    RES --> U[Unity slots, interactive or batch]
-    RES --> F[FairyGUI editor, through the desktop actor]
-    RES --> A[Android device]
+    L[Linear: delegation, @mention, Stop] -->|webhook| R
+    subgraph C[Controller, one machine]
+        R[Receiver] <--> D[(Ledger)]
+        R --> RT[Router and scheduler]
+        RT <--> D
+    end
+    RT -->|assign work item, slot, host| LA
+    subgraph H[Runner, one per host]
+        LA[Launcher: spawn, prepare target, kill] -->|one CLI process per work item| W[Worker: skill, worktrees, injected MCP set]
+    end
+    W -->|ledger CLI; HTTP from remote hosts| D
+    K[Knowledge files: operating contract, skills, references, repo instructions] -.->|read at start| W
+    W -->|only while holding the reservation| RES
+    subgraph RES[Desktop resources, one owner each]
+        U[Unity slots: interactive or batch]
+        F[FairyGUI editor]
+        A[Android device; iOS later]
+    end
     W --> G[GitHub draft PRs]
-    R -->|agent activities| L
-    W -->|comments through the outbox, posted as the agent| L
+    C -->|activities and comments, authored by FarmBot| L
 ```
 
 | Component | Responsibility | Ported from |
