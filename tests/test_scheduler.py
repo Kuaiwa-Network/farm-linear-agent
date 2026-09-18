@@ -1,5 +1,6 @@
 import json
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -19,6 +20,7 @@ class FakeLauncher:
         self.spawned = []
         self.finished = []
         self.stopped = []
+        self.stop_times = []
         self.next_pid = 100
         self.alive_pids = set()
         self.killed = []
@@ -34,6 +36,7 @@ class FakeLauncher:
 
     def stop(self, item_id, grace=5.0):
         self.stopped.append(item_id)
+        self.stop_times.append(time.monotonic())
         return True
 
     def running(self):
@@ -182,6 +185,30 @@ class SchedulerTests(unittest.TestCase):
         self.scheduler.tick()
         self.assertNotEqual(self.ledger.item(item["id"])["state"], "failed")
         self.assertEqual(len(self.launcher.spawned), 2)
+
+    def test_stop_kills_the_worker_without_waiting_for_the_scheduler_lock(self):
+        item = self.item()
+        self.scheduler.tick()
+        threaded = Ledger(Path(self.tmp.name) / "ledger.sqlite3", clock=lambda: self.now, lease_seconds=60,
+                          check_same_thread=False)
+        self.addCleanup(threaded.close)
+        self.scheduler.ledger = threaded
+        self.scheduler.lock.acquire()
+        started = time.monotonic()
+        thread = threading.Thread(target=self.scheduler.stop, args=(item["id"], "Linear stop"), daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 5)
+        try:
+            deadline = started + 1.0
+            while not self.launcher.stopped and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertEqual(self.launcher.stopped, [item["id"]])
+            self.assertLess(self.launcher.stop_times[0] - started, 1.0)
+            self.assertEqual(self.ledger.item(item["id"])["state"], "queued")  # cancel still waits for the lock
+        finally:
+            self.scheduler.lock.release()
+        thread.join(timeout=5)
+        self.assertEqual(self.ledger.item(item["id"])["state"], "cancelled")
 
     def test_worker_exiting_cleanly_before_claim_fails_the_item(self):
         item = self.item()
