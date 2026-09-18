@@ -1,5 +1,12 @@
 # Farm repository map (volatile layer)
 
+FarmBot note: this map is inherited from the Farm-Client sweep skill. Repository names and
+write authority for FarmBot come from each skill's `skill.json` manifest, which supersedes the
+"Sweep access" column below wherever they differ. In particular the configuration repository is
+`common` (GitHub `Kuaiwa-Network/common`, often checked out locally as `farm-common`), and the
+`fix` skill may change designer tables there through the documented `designer/configgen`
+toolchain, as draft PRs. Generated artifacts are still never hand-edited.
+
 This file holds the world facts the sweep depends on: which repositories exist,
 who may write where, and which generator owns which artifact. When the
 architecture moves again, update THIS file; `SKILL.md` holds only the durable
@@ -15,7 +22,7 @@ process and should not need edits for repository changes. Last grounded:
 | farmgui | Read/write | FairyGUI source (XML), source tests/contracts, authorized GUI publishing |
 | farm-hive | Read/write | The Go game server (`modules/<feature>/`). The only server fix surface |
 | Farm-Contract | Evidence + handoff target | Behavior contracts (`openspec/specs/`) and network proto (`proto/`). The sweep never writes here; contract changes happen in sessions rooted in this repo |
-| farm-common | Evidence only | Designer-owned config tables and the `designer/configgen` Go toolchain. The sweep never edits tables or toolchain |
+| common (`Kuaiwa-Network/common`, local checkout often `farm-common`) | Read/write for `fix`: designer-owned config tables corrected at their source and regenerated through `designer/configgen`, as draft PRs | Designer-owned config tables and the `designer/configgen` Go toolchain |
 | farm-server | RETIRED — never a fix target | Old C++ stack, frozen at the 2026-08-11 pivot. Read it only as porting reference when an issue is explicitly a porting batch (Farm-Contract CLAUDE.md §三); never route work, worktrees, builds, or `wsl-server-build` at it |
 | farm-hive-server | Out of sweep scope | Deployment/ops repo; deployment needs are recorded gaps, not sweep work |
 
