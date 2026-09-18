@@ -24,4 +24,15 @@ python.org Python make sure `etc/openssl/cert.pem` exists (symlink `/etc/ssl/cer
 Linear UI; delegating through the API creates no agent session. Live record:
 `docs/superpowers/spikes/2026-09-18-mac-live-smoke.md`.
 
+To keep FarmBot running across reboots on macOS:
+
+```bash
+python3 -m agent.service install-launchd
+```
+
+It writes two launchd agents and prints the `launchctl bootstrap` lines to load them. Logs land in
+`.local/agent/logs/`. With no `tunnel` key in the host config it runs a quick tunnel, whose hostname
+changes at every restart and must be pasted into the Linear app settings again; set
+`"tunnel": {"name": "<tunnel>"}` once a named Cloudflare tunnel exists and the hostname stops moving.
+
 Behaviour: `docs/operating-contract.md`. Plans: `docs/superpowers/plans/`.

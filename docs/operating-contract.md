@@ -48,8 +48,10 @@ per item), blocker, delivery. Templates: `references/comment-templates.md`.
 
 ## Limits in this phase
 
-- One host at a time (the Mac since the 2026-09-18 live test; Windows follows in Plan 1c); no Unity slots.
-  A fix that needs Editor verification records the gap and finishes blocked or delivers with the gap named.
+- One host at a time (the Mac since 2026-09-18; Windows follows in its own plan); no Unity slots. A fix
+  that needs Editor verification records the gap and finishes blocked or delivers with the gap named.
+  The receiver and the tunnel run as launchd agents and restart at login; while the host config names no
+  named tunnel, the public hostname changes whenever the tunnel restarts and must be re-entered in Linear.
 - A fix that finds nothing to change (already fixed, duplicate, does not reproduce) delivers with an
   empty PR list and a `no_change` reason, and FarmBot's session response says 无需改动. Blocked stays
   for work that a human must unblock.

@@ -25,6 +25,7 @@ class Config:
     local_root: Path = ROOT / ".local"
     default_server_environment: str = "公共测试服"
     slots: list = field(default_factory=list)
+    tunnel: dict = field(default_factory=dict)
 
 
 class Paths:

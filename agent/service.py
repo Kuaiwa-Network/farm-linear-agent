@@ -7,6 +7,7 @@ import threading
 from pathlib import Path
 
 from .config import Paths, configure, linear_api, load_config, ROOT
+from .deploy import AGENTS, install
 from .launcher import RUNTIMES, Launcher
 from .ledger import Ledger
 from .receiver import Receiver, make_server
@@ -105,12 +106,22 @@ def serve(config_path=None, components=None):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="python3 -m agent.service")
-    parser.add_argument("command", choices=["configure", "serve", "status", "seed-clones"])
+    parser.add_argument("command", choices=["configure", "serve", "status", "seed-clones", "install-launchd"])
     parser.add_argument("--config")
     parser.add_argument("--from", dest="source_root", help="directory holding local checkouts to seed from")
     args = parser.parse_args(argv)
     if args.command == "configure":
         return configure(args.config)
+    if args.command == "install-launchd":
+        config = load_config(args.config)
+        target = Path.home() / "Library" / "LaunchAgents"
+        written = install(config, target, cloudflared=shutil.which("cloudflared") or "cloudflared")
+        print(json.dumps({label: str(path) for label, path in written.items()}, indent=2))
+        print("\nLoad them with:")
+        for label in AGENTS.values():
+            print(f"  launchctl bootstrap gui/$(id -u) {target}/{label}.plist")
+        print("\nStop and remove with `launchctl bootout gui/$(id -u)/<label>`.")
+        return 0
     if args.command == "seed-clones":
         print(json.dumps(seed_clones(load_config(args.config), args.source_root), ensure_ascii=False, indent=2))
         return 0
