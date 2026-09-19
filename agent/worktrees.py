@@ -11,8 +11,22 @@ SAFE_BRANCH = re.compile(r"^[A-Za-z0-9._/一-鿿-]+$")
 # missing credential fails at once instead of waiting on a prompt no one will answer.
 GIT_ENV = {"GIT_LFS_SKIP_SMUDGE": "1", "GIT_TERMINAL_PROMPT": "0"}
 # A slot is what Unity opens, so its binaries must be real files. Smudge stays on for every slot call (spec §7).
-SLOT_ENV = {"GIT_TERMINAL_PROMPT": "0"}
+# The "0" is explicit and not an omission: _git merges os.environ, so merely leaving the key out lets an
+# operator shell that exported GIT_LFS_SKIP_SMUDGE=1 — the shell that built this host's first slot did — win
+# silently and hand Unity pointer files, which is the failure that reads as project corruption.
+SLOT_ENV = {"GIT_TERMINAL_PROMPT": "0", "GIT_LFS_SKIP_SMUDGE": "0"}
 LFS_POINTER = b"version https://git-lfs"
+# The operator's two problems need two different fixes (Task 0 Step 2): a credential missing for the LFS
+# endpoint, or an origin that cannot be reached. Anything else is neither and is left unlabelled.
+CREDENTIAL_FAILURE = re.compile(r"401|Authoriz|credential", re.I)
+TRANSFER_FAILURE = re.compile(r"lfs|smudge|connect|resolve|timed out|timeout|unable to access|"
+                              r"could not read|not found|access denied", re.I)
+
+
+def _transfer_kind(exc):
+    if CREDENTIAL_FAILURE.search(str(exc)):
+        return "credentials"
+    return "reachability" if TRANSFER_FAILURE.search(str(exc)) else None
 
 
 class WorktreeError(RuntimeError):
@@ -170,7 +184,17 @@ class Worktrees:
         path = Path(path)
         if not path.exists():
             path.parent.mkdir(parents=True, exist_ok=True)
-            _git("worktree", "add", "--quiet", "--detach", str(path), commit, cwd=clone, env=SLOT_ENV, timeout=7200)
+            try:
+                _git("worktree", "add", "--quiet", "--detach", str(path), commit, cwd=clone, env=SLOT_ENV,
+                     timeout=7200)
+            except WorktreeError as exc:
+                # With smudge on, the LFS download happens *here* and not in materialize's `git lfs fetch`,
+                # so this is where a 401 or an unreachable origin actually surfaces on a fresh host. A
+                # failure that is neither is re-raised as it came: a bad reference is a third problem.
+                kind = _transfer_kind(exc)
+                if kind is None:
+                    raise
+                raise WorktreeError(f"git worktree add failed ({kind}): {exc}") from exc
         self.materialize(path)
         self.skip_generated(path)
         return path
@@ -201,8 +225,8 @@ class Worktrees:
             # Task 3's error must tell the operator which of the two problems they have (see the operator
             # items): a 401/Authorization failure is a missing credential for git.kuaiwa.com, anything else
             # is reachability. GIT_TERMINAL_PROMPT=0 turns the first into an error instead of a hung prompt.
-            kind = "credentials" if re.search(r"401|Authoriz|credential", str(exc), re.I) else "reachability"
-            raise WorktreeError(f"git lfs fetch failed ({kind}): {exc}") from exc
+            # Unlike worktree add, every way this one fails is a transfer, so it is never left unlabelled.
+            raise WorktreeError(f"git lfs fetch failed ({_transfer_kind(exc) or 'reachability'}): {exc}") from exc
         _git("lfs", "checkout", cwd=path, env=SLOT_ENV, timeout=3600)
         return "materialized"
 

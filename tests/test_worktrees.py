@@ -215,9 +215,38 @@ class WorktreeTests(unittest.TestCase):
             self.trees.add("Farm-Client", "item-1", "farmbot/x")
             task_calls = [env for name, env in seen if name == "worktree"][len(slot_calls):]
         self.assertTrue(slot_calls and task_calls)
-        # _git merges os.environ, so assert the *value*: key absence would depend on the developer's shell.
-        self.assertEqual({env.get("GIT_LFS_SKIP_SMUDGE") for env in slot_calls}, {None})
+        # _git merges os.environ, so the slot map must set the value to "0" rather than leave the key out:
+        # an operator shell exporting GIT_LFS_SKIP_SMUDGE=1 would otherwise win and Unity would get pointers.
+        self.assertEqual({env.get("GIT_LFS_SKIP_SMUDGE") for env in slot_calls}, {"0"})
         self.assertEqual({env.get("GIT_LFS_SKIP_SMUDGE") for env in task_calls}, {"1"})
+
+    def test_a_slot_that_cannot_be_built_tells_credentials_from_reachability(self):
+        """With smudge on the LFS download happens inside `git worktree add`, so that is where a 401 or an
+        unreachable origin surfaces on a fresh host — not inside materialize's `git lfs fetch`."""
+        real = agent.worktrees._git
+        slot = Path(self.tmp.name) / "editors" / "slot-3"
+        commit = self.trees.resolve_commit("Farm-Client")
+
+        def failing(message):
+            def fake(*args, cwd, **kwargs):
+                if args[0] == "worktree":
+                    raise WorktreeError(f"git worktree failed: {message}")
+                return real(*args, cwd=cwd, **kwargs)
+            return fake
+
+        for message, kind in (("HTTP 401 Authorization required", "credentials"),
+                              ("Failed to connect to git.kuaiwa.com port 443: Connection refused", "reachability")):
+            with self.subTest(kind=kind), patch("agent.worktrees._git", failing(message)):
+                with self.assertRaises(WorktreeError) as caught:
+                    self.trees.add_slot("Farm-Client", slot, commit)
+                self.assertIn(f"({kind})", str(caught.exception))
+                self.assertIn(message, str(caught.exception))
+        # A failure that is neither is not dressed up as one: a bad reference is the operator's third problem.
+        with patch("agent.worktrees._git", failing("fatal: invalid reference")):
+            with self.assertRaises(WorktreeError) as caught:
+                self.trees.add_slot("Farm-Client", slot, commit)
+        self.assertNotIn("(credentials)", str(caught.exception))
+        self.assertNotIn("(reachability)", str(caught.exception))
 
     def test_remote_head_caches_a_failure_so_a_burst_of_events_pays_one_timeout(self):
         """The receiver drains events serially: an unreachable origin must cost one ls-remote, not one each."""

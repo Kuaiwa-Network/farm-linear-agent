@@ -59,12 +59,23 @@ class EnsureTests(SlotFixture):
         self.assertTrue((self.root / "editors" / "slot-1" / "README.md").is_file())
 
     def test_ensure_is_idempotent_and_never_disturbs_a_busy_slot(self):
+        """The unchanged state is not enough on its own — with the busy guard deleted nothing sets the state
+        either, so the assertion passes anyway. The spy is what has teeth: a restart must not fetch for, nor
+        create, nor materialize the folder of a slot an Editor has open."""
+        class Untouchable(Worktrees):
+            def resolve_commit(self, repo, ref=None):
+                raise AssertionError("ensure() fetched origin for a busy slot")
+
+            def add_slot(self, repo, path, commit):
+                raise AssertionError("ensure() touched a busy slot's folder")
+
         for state in SlotPool.BUSY:  # held is the one where moving the folder would do the most damage
             with self.subTest(state=state):
                 self.pool().ensure()
                 self.ledger.set_slot_state("unity_slot:1", state)
                 self.commit(f"later-{state}")
-                [slot] = self.pool().ensure()
+                spy = Untouchable(self.root / "repos", self.root / "worktrees", {"Farm-Client": str(self.origin)})
+                [slot] = self.pool(spy).ensure()
                 self.assertEqual(slot["state"], state)
                 self.ledger.set_slot_state("unity_slot:1", "idle_closed")
 
