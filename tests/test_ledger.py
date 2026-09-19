@@ -572,6 +572,24 @@ class ReservationTests(unittest.TestCase):
         second = self.ledger.acquire("unity_slot", owner="pool", host="win")
         self.assertEqual(second["resource"], "unity_slot:2")
 
+    def test_interactive_prefers_an_open_editor_and_batch_prefers_a_closed_one(self):
+        """Spec §7: an interactive request wants an Editor already open, a batch request wants none.
+
+        Both halves expect unity_slot:2, the alphabetically *later* slot, so neither can pass off the
+        slot_id tiebreak — only off the state preference. Reversing `order` in acquire fails both.
+        """
+        self.ledger.ensure_slot("unity_slot:2", kind="unity_slot", host="mac", folder="/e/slot-2")
+        self.ledger.set_slot_state("unity_slot:1", "idle_closed")
+        self.ledger.set_slot_state("unity_slot:2", "idle_open")
+        self.waiting(ISSUE, "a" * 40, "interactive")
+        granted = self.ledger.acquire("unity_slot", owner="pool", host="mac")
+        self.assertEqual(granted["resource"], "unity_slot:2")
+        self.ledger.release(granted["reservation_id"], granted["token"], "interactive finished")
+        self.ledger.set_slot_state("unity_slot:1", "idle_open")
+        self.ledger.set_slot_state("unity_slot:2", "idle_closed")
+        self.waiting(OTHER, "b" * 40, "batch")
+        self.assertEqual(self.ledger.acquire("unity_slot", owner="pool", host="mac")["resource"], "unity_slot:2")
+
     def test_ensure_slot_never_clears_a_discovered_instance(self):
         self.ledger.ensure_slot("unity_slot:1", kind="unity_slot", host="mac", folder="/e/slot-1",
                                 instance="pid-9", mcp_address="127.0.0.1:7777")
