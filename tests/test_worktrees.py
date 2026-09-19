@@ -9,9 +9,11 @@ import agent.worktrees
 from agent.worktrees import WorktreeError, Worktrees
 
 
-def git(*args, cwd):
-    return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=cwd, check=True,
-                          capture_output=True, text=True).stdout.strip()
+def git(*args, cwd, allow_failure=False):
+    """allow_failure lets a caller read the stdout of a command whose non-zero exit is the answer, such as
+    `symbolic-ref -q HEAD` on a detached head, which exits 1 and prints nothing."""
+    return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=cwd,
+                          check=not allow_failure, capture_output=True, text=True).stdout.strip()
 
 
 class WorktreeTests(unittest.TestCase):
@@ -174,6 +176,48 @@ class WorktreeTests(unittest.TestCase):
                           {"Farm-Client": str(self.origin)})
         self.assertEqual(trees.remote_head("Farm-Client"), git("rev-parse", "HEAD", cwd=self.origin))
         self.assertFalse((Path(self.tmp.name) / "empty-repos" / "Farm-Client.git" / "HEAD").exists())
+
+    def test_a_slot_worktree_is_detached_at_the_commit_and_lives_where_it_is_told(self):
+        # Unity rewrites .vscode/settings.json with the *folder* name on every Editor run (Task 0 Step 3), so
+        # the slot must stop tracking it or every switch fails its clean check. The file is created on the
+        # origin here because the fixture's repository does not carry one.
+        (self.origin / ".vscode").mkdir()
+        (self.origin / ".vscode" / "settings.json").write_text(
+            '{"dotnet.defaultSolution": "Farm-Client.slnx"}\n', encoding="utf-8")
+        git("add", ".", cwd=self.origin)
+        git("commit", "-qm", "vscode", cwd=self.origin)
+        commit = self.trees.resolve_commit("Farm-Client")
+        slot = Path(self.tmp.name) / "editors" / "slot-1"
+        self.assertEqual(self.trees.add_slot("Farm-Client", slot, commit), slot)
+        self.assertEqual(git("rev-parse", "HEAD", cwd=slot), commit)
+        self.assertEqual(git("symbolic-ref", "-q", "HEAD", cwd=slot, allow_failure=True), "")
+        self.assertTrue(self.trees.slot_clean(slot))
+        # 'S' in ls-files -v is the skip-worktree bit; the lowercase letters are assume-unchanged (-v) and
+        # fsmonitor-clean (-f), which are different bits this task does not set.
+        self.assertIn("S .vscode/settings.json", git("ls-files", "-v", ".vscode/settings.json", cwd=slot))
+        (slot / ".vscode" / "settings.json").write_text('{"dotnet.defaultSolution": "slot-1.slnx"}\n',
+                                                        encoding="utf-8")
+        self.assertTrue(self.trees.slot_clean(slot))   # the Editor's rewrite no longer dirties the slot
+
+    def test_slot_git_runs_without_the_pointer_preserving_environment(self):
+        seen = []
+        real = subprocess.run
+
+        def record(args, **kwargs):
+            seen.append((args[1] if args[0] == "git" else args[0], dict(kwargs.get("env") or {})))
+            return real(args, **kwargs)
+
+        commit = self.trees.resolve_commit("Farm-Client")
+        # Both calls must be inside the patch, or the second list is empty and the comparison is [] == ['1'].
+        with patch("agent.worktrees.subprocess.run", record):
+            self.trees.add_slot("Farm-Client", Path(self.tmp.name) / "editors" / "slot-2", commit)
+            slot_calls = [env for name, env in seen if name == "worktree"]
+            self.trees.add("Farm-Client", "item-1", "farmbot/x")
+            task_calls = [env for name, env in seen if name == "worktree"][len(slot_calls):]
+        self.assertTrue(slot_calls and task_calls)
+        # _git merges os.environ, so assert the *value*: key absence would depend on the developer's shell.
+        self.assertEqual({env.get("GIT_LFS_SKIP_SMUDGE") for env in slot_calls}, {None})
+        self.assertEqual({env.get("GIT_LFS_SKIP_SMUDGE") for env in task_calls}, {"1"})
 
     def test_remote_head_caches_a_failure_so_a_burst_of_events_pays_one_timeout(self):
         """The receiver drains events serially: an unreachable origin must cost one ls-remote, not one each."""

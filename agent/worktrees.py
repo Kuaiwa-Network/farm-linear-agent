@@ -10,15 +10,18 @@ SAFE_BRANCH = re.compile(r"^[A-Za-z0-9._/一-鿿-]+$")
 # Task worktrees are for code: LFS pointers stay pointers (Farm-Client carries gigabytes of binaries), and a
 # missing credential fails at once instead of waiting on a prompt no one will answer.
 GIT_ENV = {"GIT_LFS_SKIP_SMUDGE": "1", "GIT_TERMINAL_PROMPT": "0"}
+# A slot is what Unity opens, so its binaries must be real files. Smudge stays on for every slot call (spec §7).
+SLOT_ENV = {"GIT_TERMINAL_PROMPT": "0"}
+LFS_POINTER = b"version https://git-lfs"
 
 
 class WorktreeError(RuntimeError):
     pass
 
 
-def _git(*args, cwd, timeout=600):
+def _git(*args, cwd, env=GIT_ENV, timeout=600):
     result = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True, timeout=timeout,
-                            env={**os.environ, **GIT_ENV})
+                            env={**os.environ, **env})
     if result.returncode:
         raise WorktreeError(f"git {args[0]} failed: {result.stderr.strip()[:500]}")
     return result.stdout.strip()
@@ -158,3 +161,82 @@ class Worktrees:
         path.parent.mkdir(parents=True, exist_ok=True)
         _git("worktree", "add", "--quiet", "--detach", str(path), f"origin/{self.default_branch(repo)}", cwd=clone)
         return path
+
+    def add_slot(self, repo, path, commit):
+        """A slot is a long-lived detached worktree whose binaries are files, not pointers (spec §7, §8)."""
+        if not self.COMMIT.match(commit or ""):
+            raise WorktreeError("a slot is only ever checked out at a full commit")
+        clone = self.ensure_clone(repo)
+        path = Path(path)
+        if not path.exists():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            _git("worktree", "add", "--quiet", "--detach", str(path), commit, cwd=clone, env=SLOT_ENV, timeout=7200)
+        self.materialize(path)
+        self.skip_generated(path)
+        return path
+
+    def checkout_commit(self, path, commit):
+        if not self.COMMIT.match(commit or ""):
+            raise WorktreeError("a slot is only ever moved to a full commit")
+        _git("checkout", "--detach", "--force", commit, cwd=path, env=SLOT_ENV, timeout=3600)
+        self.materialize(path)
+        self.skip_generated(path)   # idempotent; a forced checkout is the one thing that could drop the bit
+        return commit
+
+    def materialize(self, path):
+        """Fetch then check out the LFS objects this checkout needs. The store is shared with every other
+        worktree of the same clone, so only the first slot pays the full download.
+
+        There is no --quiet: git-lfs has no per-command quiet flag, and `git lfs fetch --quiet` exits non-zero
+        with `Error: unknown flag: --quiet` (verified against git-lfs/3.7.1). Since _git raises on any non-zero
+        return, passing it would make every call to materialize fail, which is every slot this plan creates.
+        Output is captured by _git already; GIT_LFS_PROGRESS silences the progress meter if it ever matters.
+        A repository with no LFS objects fetches zero and succeeds, which is what the test fixture's origin is.
+        """
+        if shutil.which("git-lfs") is None:
+            return "git-lfs is not installed"
+        try:
+            _git("lfs", "fetch", "origin", "HEAD", cwd=path, env=SLOT_ENV, timeout=7200)
+        except WorktreeError as exc:
+            # Task 3's error must tell the operator which of the two problems they have (see the operator
+            # items): a 401/Authorization failure is a missing credential for git.kuaiwa.com, anything else
+            # is reachability. GIT_TERMINAL_PROMPT=0 turns the first into an error instead of a hung prompt.
+            kind = "credentials" if re.search(r"401|Authoriz|credential", str(exc), re.I) else "reachability"
+            raise WorktreeError(f"git lfs fetch failed ({kind}): {exc}") from exc
+        _git("lfs", "checkout", cwd=path, env=SLOT_ENV, timeout=3600)
+        return "materialized"
+
+    # Tracked files Unity regenerates per *folder*, so they differ in every slot and in none of them is the
+    # difference a change anyone wants. Task 0 Step 3: the Editor rewrites .vscode/settings.json on every run
+    # because the generated solution is named after the project folder (Farm-Client.slnx -> slot-1.slnx),
+    # which would fail Task 4's clean-tree precondition on every switch, for ever.
+    GENERATED_PER_FOLDER = (".vscode/settings.json",)
+
+    def skip_generated(self, path):
+        """Mark the per-folder generated files skip-worktree so they can neither dirty the slot nor be
+        committed. Idempotent, and a file the repository does not carry is skipped rather than an error —
+        git update-index refuses an unknown path, and the Windows host's list may differ."""
+        marked = []
+        for name in self.GENERATED_PER_FOLDER:
+            if not (Path(path) / name).exists():
+                continue
+            _git("update-index", "--skip-worktree", "--", name, cwd=path, env=SLOT_ENV)
+            marked.append(name)
+        return marked
+
+    def slot_clean(self, path):
+        """Tracked files only: Library/, Temp/ and Logs/ are Unity's and are never part of the check (spec §7)."""
+        return _git("status", "--porcelain=v1", "--untracked-files=no", cwd=path, env=SLOT_ENV) == ""
+
+    def pointers_remain(self, path):
+        """One sample of the tracked LFS files proves whether smudge really ran before Unity opens the folder."""
+        if shutil.which("git-lfs") is None:
+            return False
+        names = _git("lfs", "ls-files", "--name-only", cwd=path, env=SLOT_ENV).splitlines()[:20]
+        for name in names:
+            candidate = Path(path) / name
+            if candidate.is_file():
+                with candidate.open("rb") as handle:
+                    if handle.read(len(LFS_POINTER)) == LFS_POINTER:
+                        return True
+        return False

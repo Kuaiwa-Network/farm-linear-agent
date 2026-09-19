@@ -35,6 +35,7 @@ class Paths:
         self.runs = Path(config.local_root) / "runs"
         self.worktrees = Path(config.local_root) / "worktrees"
         self.repos = Path(config.local_root) / "repos"
+        self.editors = Path(config.local_root) / "editors"
 
 
 def load_config(path=None):
