@@ -313,6 +313,73 @@ and `agent/deploy.py` is where the plist is generated.
    port 8080 bound and answering. There is no lockfile timeout to wait on; waiting would
    hang forever.
 
+## Addendum — Unity under the Codex sandbox (2026-09-19)
+
+Step 6 ran the batch suite under a plain LaunchAgent with no seatbelt. Task 7 of the plan
+nevertheless claimed "Task 0 Step 6 verifies the sandboxed batch run, not only the
+unsandboxed one", which was false. This addendum tests what Step 6 did not.
+
+**The sandbox is genuinely in force for workers.** `codex exec --approve-for-me` is
+documented as "Route approval requests through automatic review using the **workspace-write
+sandbox**", so the `[sandbox_workspace_write]` table `agent/launcher.py:106` writes into the
+isolated `CODEX_HOME` is live on every Codex worker, not inert.
+
+**Method.** `CODEX_HOME` nested inside the state dir exactly as `Launcher.spawn` arranges it
+(`run_dir/home`), `writable_roots = [state_dir, slot]` — the launcher's current default set —
+`network_access = true`, then `codex exec --cd <slot> --approve-for-me --skip-git-repo-check`
+with a prompt whose only instruction was to run the Step 4 command and wait for it.
+
+**Result: Unity hangs.** Not a permission error, not a failure — a hang.
+
+| | Under the sandbox | Unsandboxed control, same slot, minutes later |
+|---|---|---|
+| Outcome | **hung indefinitely** (killed at 25 min) | exit **2** in **19 s** |
+| CPU / RSS while hung | 0.0% / 113 MB | (completed; 2.32 GB peak when open) |
+| Results XML | never written | 2,536,767 bytes |
+| Tests | none ran | 4388 total, 4362 passed, 26 failed |
+| Unity log | frozen at 2,289 bytes | complete |
+| `writable_roots` denials | **zero** | zero |
+
+**The cause is Mach service access, not writable roots.** Licensing succeeded inside the
+sandbox — `Successfully updated license`, `Successfully resolved entitlement details`,
+`Serial number assigned to: …` — and the log then stops at:
+
+```
+Failure on line 688 in function scheduleApplicationNotification(LSNotificationCode,
+  NSWorkspaceNotificationCenter *)
+Error received in message reply handler: Connection invalid
+Connection Invalid error for service com.apple.hiservices-xpcservice.
+```
+
+`com.apple.hiservices-xpcservice` is a Launch Services XPC endpoint. The seatbelt denies the
+Mach lookup, Unity's notification scheduling fails, and the Editor blocks rather than exits.
+There were **zero** file-permission denials, so this cannot be fixed by adding entries to
+`writable_roots` — Mach service access is a different axis of the sandbox policy and
+`sandbox_workspace_write` does not expose it.
+
+Also recorded from this run: the log line `Pro License: NO` alongside the serial
+`F4-SCPA-…`. So the earlier characterisation of the licence as "a paid serial rather than
+Personal" was too strong — it carries a serial but reports no Pro entitlement. What matters
+for this plan is unchanged: licensing resolves in batch mode, foreground, under launchd, and
+even inside the seatbelt.
+
+**Decision — Task 7 needs a design change, not a wording fix.** A `fix` worker cannot run
+`Unity -batchmode -runTests` itself, because its own sandbox hangs the Editor. The batch run
+must be performed **by the launcher, outside the worker's sandbox**, with the worker handed
+the results file and exit code as evidence. This is the same division spec §7 already sets
+for the slot switch — "Before a run the launcher, not the worker, moves the slot" — extended
+to the run itself, so it is consistent with the design rather than a departure from it.
+
+Two alternatives were considered and rejected. Granting the worker `danger-full-access` would
+remove the sandbox from an agent that also has repository write access and network, which
+defeats §15. Adding Mach-service exceptions is not expressible through
+`sandbox_workspace_write`, and would mean maintaining a seatbelt profile against an
+undocumented set of services Unity happens to need.
+
+Consequence for the plan: `agent.unity.writable_roots()` is not the mechanism it was designed
+to be. Whatever remains of it serves the *launcher's* own invocation, which is unsandboxed,
+so its list is no longer load-bearing for correctness.
+
 ## Still open
 
 - Contention between a launchd batch Editor and the operator's own Editor on a different
