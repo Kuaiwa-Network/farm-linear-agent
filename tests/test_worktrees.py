@@ -159,3 +159,18 @@ class WorktreeTests(unittest.TestCase):
             self.trees.ensure_clone("Farm-Client", seed_from=os.path.relpath(checkout))
         seed_fetch = next(a for a in calls if a[0] == "fetch" and "origin" not in a)
         self.assertIn(str(checkout.resolve()), seed_fetch)
+
+    def test_resolve_commit_returns_the_remote_default_head_as_forty_hex(self):
+        commit = self.trees.resolve_commit("Farm-Client")
+        self.assertRegex(commit, r"^[0-9a-f]{40}$")
+        self.assertEqual(commit, git("rev-parse", "HEAD", cwd=self.origin))
+
+    def test_resolve_commit_refuses_a_ref_that_does_not_exist(self):
+        with self.assertRaises(WorktreeError):
+            self.trees.resolve_commit("Farm-Client", "origin/no-such-branch")
+
+    def test_remote_head_resolves_without_cloning_or_fetching(self):
+        trees = Worktrees(Path(self.tmp.name) / "empty-repos", self.trees.worktrees_root,
+                          {"Farm-Client": str(self.origin)})
+        self.assertEqual(trees.remote_head("Farm-Client"), git("rev-parse", "HEAD", cwd=self.origin))
+        self.assertFalse((Path(self.tmp.name) / "empty-repos" / "Farm-Client.git" / "HEAD").exists())

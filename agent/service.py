@@ -35,7 +35,8 @@ def build(config, runtime_override=None):
     receiver = Receiver(paths.ledger, config.webhook_secret,
                         {"oauthClientId": config.client_id, "appUserId": identity["viewer"]["id"],
                          "organizationId": identity["organization"]["id"]},
-                        api, lambda: Ledger(paths.ledger, check_same_thread=False), set(skills), scheduler)
+                        api, lambda: Ledger(paths.ledger, check_same_thread=False), set(skills), scheduler,
+                        worktrees=worktrees, default_server_environment=config.default_server_environment)
     server = make_server(receiver, config.port)
     return Components(config, paths, api, ledger, skills, worktrees, launcher, scheduler, receiver, server)
 

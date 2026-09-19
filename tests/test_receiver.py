@@ -7,14 +7,22 @@ import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 from agent.ledger import Ledger
 from agent.receiver import Receiver, make_server
+from agent.worktrees import WorktreeError
 from test_ledger import ISSUE, issue
 
 APP = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
 IDENTITY = {"oauthClientId": "client", "appUserId": APP, "organizationId": "org"}
+
+
+def _raise(exc):
+    def raiser(*args, **kwargs):
+        raise exc
+    return raiser
 
 
 class ReceiverBase(unittest.TestCase):
@@ -152,6 +160,36 @@ class ReceiverTests(ReceiverBase):
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
         self.assertEqual(self.ledger.pop_inbox(item["id"], token), ["@FarmBot 帮我复现一下"])
         self.assertIn("qa", self.activities()[-1]["body"])
+
+    def test_a_new_session_pins_the_client_head_and_says_so_in_the_one_acknowledgment(self):
+        self.receiver.worktrees = SimpleNamespace(remote_head=lambda repo, timeout=8: "c" * 40)
+        self.receive()
+        self.assertTrue(self.receiver.process_one())
+        target = self.ledger.session("session-1")["target"]
+        self.assertEqual((target["commit_sha"], target["server_environment"]), ("c" * 40, "公共测试服"))
+        self.assertEqual(self.ledger.items_for_session("session-1")[0]["target"]["commit_sha"], "c" * 40)
+        # One event, one activity: create_activity treats activity_id as the activity's identity.
+        self.assertEqual(len(self.activities()), 1)
+        self.assertIn("c" * 7, self.activities()[0]["body"])
+
+    def test_a_session_whose_client_head_cannot_be_resolved_still_starts_without_a_pin(self):
+        self.receiver.worktrees = SimpleNamespace(remote_head=_raise(WorktreeError("origin unreachable")))
+        self.receive()
+        self.assertTrue(self.receiver.process_one())
+        self.assertIsNone(self.ledger.session("session-1")["target"])
+        self.assertEqual(self.ledger.items_for_session("session-1")[0]["target"], None)
+        self.assertEqual(len(self.activities()), 1)
+
+    def test_the_receiver_never_clones_or_fetches_to_resolve_a_pin(self):
+        """spec §17 criterion 1 gives the first activity ten seconds; ensure_clone is minutes (Plan 1a's
+        seed-clones exists for exactly this)."""
+        self.receiver.worktrees = SimpleNamespace(remote_head=lambda repo, timeout=8: "c" * 40,
+                                                  ensure_clone=_raise(AssertionError("cloned on the ack path")),
+                                                  fetch=_raise(AssertionError("fetched on the ack path")),
+                                                  resolve_commit=_raise(AssertionError("resolved the slow way")))
+        self.receive()
+        self.assertTrue(self.receiver.process_one())
+        self.assertEqual(self.ledger.session("session-1")["target"]["commit_sha"], "c" * 40)
 
 
 class HardeningTests(ReceiverBase):

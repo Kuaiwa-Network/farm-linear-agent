@@ -59,6 +59,24 @@ def _timestamp(value, name):
     return value
 
 
+COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
+TARGET_KEYS = ("repository", "requested_ref", "commit_sha", "server_environment", "selected_at")
+
+
+def checked_target(raw):
+    """Validate then reproject: only target metadata reaches the ledger, the dispatch payload and the slot."""
+    if not isinstance(raw, dict):
+        raise LedgerError("target must be an object")
+    _text(raw.get("repository"), "target repository")
+    _text(raw.get("requested_ref"), "target requested_ref")
+    _text(raw.get("server_environment"), "target server_environment")
+    commit = raw.get("commit_sha")
+    if not isinstance(commit, str) or not COMMIT_SHA.match(commit):
+        raise LedgerError("target commit_sha must be a full lowercase 40-character hex commit")
+    _timestamp(raw.get("selected_at"), "target selected_at")
+    return {key: raw[key] for key in TARGET_KEYS}
+
+
 def _normalize(raw):
     if not isinstance(raw, dict):
         raise LedgerError("issue must be an object")
@@ -341,6 +359,16 @@ class Ledger:
                 VALUES(?,?,?,?,?)""", (session_id, issue_id, int(bool(delegation)), guidance, self.clock()))
             if isinstance(guidance, str) and guidance.strip():
                 self.connection.execute("UPDATE sessions SET guidance=? WHERE session_id=?", (guidance, session_id))
+        return self.session(session_id)
+
+    def set_session_target(self, session_id, target):
+        """The pin for later items in this session. An accepted item keeps the target it snapshotted (spec §6)."""
+        target = checked_target(target)
+        with self._transaction():
+            if self.session(session_id) is None:
+                raise LedgerError(f"unknown session: {session_id}")
+            self.connection.execute("UPDATE sessions SET target_json=? WHERE session_id=?",
+                                    (_json(target), session_id))
         return self.session(session_id)
 
     def session(self, session_id):

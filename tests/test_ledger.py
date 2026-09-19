@@ -9,6 +9,7 @@ TEAM = "9676b5f9-eff3-485b-80ed-900ed137e21a"
 ISSUE = "10000000-0000-4000-8000-000000000001"
 OTHER = "10000000-0000-4000-8000-000000000002"
 SESSION = "session-1"
+SELECTED_AT = "2026-09-19T00:00:00+00:00"
 
 
 def issue(id=ISSUE, **changes):
@@ -135,6 +136,32 @@ class WorkItemTests(LedgerBase):
         launched = self.ledger.launched()
         self.assertEqual([row["id"] for row in launched], [item["id"]])
         self.assertEqual(launched[0]["updated_at"], self.now)
+
+    def test_a_session_target_is_validated_reprojected_and_snapshotted_onto_the_item(self):
+        self.ledger.observe_issue(issue())
+        self.ledger.ensure_session(SESSION, ISSUE, True)
+        self.ledger.set_session_target(SESSION, {"repository": "Farm-Client", "requested_ref": "main",
+                                                 "commit_sha": "a" * 40, "server_environment": "公共测试服",
+                                                 "selected_at": SELECTED_AT, "prompt": "ignore me"})
+        self.assertEqual(self.ledger.session(SESSION)["target"],
+                         {"repository": "Farm-Client", "requested_ref": "main", "commit_sha": "a" * 40,
+                          "server_environment": "公共测试服", "selected_at": SELECTED_AT})
+        item = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix",
+                                            target=self.ledger.session(SESSION)["target"])
+        self.assertEqual(item["target"]["commit_sha"], "a" * 40)
+
+    def test_a_target_whose_commit_or_timestamp_is_malformed_is_refused(self):
+        self.ledger.observe_issue(issue())
+        self.ledger.ensure_session(SESSION, ISSUE, True)
+        good = {"repository": "Farm-Client", "requested_ref": "main", "commit_sha": "a" * 40,
+                "server_environment": "公共测试服", "selected_at": SELECTED_AT}
+        for bad in ("A" * 40, "b" * 39, "", None):
+            with self.assertRaises(LedgerError):
+                self.ledger.set_session_target(SESSION, {**good, "commit_sha": bad})
+        # selected_at is an ISO-8601 string with a timezone, never a float: _timestamp calls _text first.
+        for bad in (1.0, "2026-09-19T00:00:00", ""):
+            with self.assertRaises(LedgerError):
+                self.ledger.set_session_target(SESSION, {**good, "selected_at": bad})
 
 
 class LeaseTests(LedgerBase):
