@@ -98,14 +98,24 @@ class Worktrees:
             raise WorktreeError(f"unknown repository: {repo}")
         cached = self._head_cache.get(repo)
         if cached and time.monotonic() - cached[0] < 60:
+            if cached[2] is not None:
+                raise WorktreeError(cached[2])
             return cached[1]
         self.repos_root.mkdir(parents=True, exist_ok=True)
-        out = _git("ls-remote", "--exit-code", "--", self.remotes[repo], "HEAD",
-                   cwd=self.repos_root, timeout=timeout)
-        commit = out.split()[0] if out else ""
-        if not self.COMMIT.match(commit):
-            raise WorktreeError(f"{repo}: origin HEAD did not resolve to a commit")
-        self._head_cache[repo] = (time.monotonic(), commit)
+        try:
+            out = _git("ls-remote", "--exit-code", "--", self.remotes[repo], "HEAD",
+                       cwd=self.repos_root, timeout=timeout)
+            commit = out.split()[0] if out else ""
+            if not self.COMMIT.match(commit):
+                raise WorktreeError(f"{repo}: origin HEAD did not resolve to a commit")
+        except (WorktreeError, subprocess.TimeoutExpired, OSError) as exc:
+            # A failure is cached for the same 60s as a success. The receiver drains events serially, so an
+            # unreachable origin must cost one timeout for a whole burst rather than one per event: ten
+            # queued events would otherwise breach spec §17 criterion 1 ten times over. The message is
+            # cached rather than the exception, so a cached timeout does not re-raise a stale traceback.
+            self._head_cache[repo] = (time.monotonic(), None, f"{repo}: {exc}")
+            raise
+        self._head_cache[repo] = (time.monotonic(), commit, None)
         return commit
 
     def add(self, repo, item_id, branch):

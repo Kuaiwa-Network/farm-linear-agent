@@ -174,3 +174,21 @@ class WorktreeTests(unittest.TestCase):
                           {"Farm-Client": str(self.origin)})
         self.assertEqual(trees.remote_head("Farm-Client"), git("rev-parse", "HEAD", cwd=self.origin))
         self.assertFalse((Path(self.tmp.name) / "empty-repos" / "Farm-Client.git" / "HEAD").exists())
+
+    def test_remote_head_caches_a_failure_so_a_burst_of_events_pays_one_timeout(self):
+        """The receiver drains events serially: an unreachable origin must cost one ls-remote, not one each."""
+        root = Path(self.tmp.name)
+        trees = Worktrees(root / "repos-unreachable", self.trees.worktrees_root,
+                          {"Farm-Client": str(root / "no-such-origin.git")})
+        calls = []
+        real = agent.worktrees._git
+
+        def recording(*args, **kwargs):
+            calls.append(args)
+            return real(*args, **kwargs)
+
+        with patch("agent.worktrees._git", recording):
+            for _ in range(3):
+                with self.assertRaises(WorktreeError):
+                    trees.remote_head("Farm-Client")
+        self.assertEqual([a[0] for a in calls], ["ls-remote"])

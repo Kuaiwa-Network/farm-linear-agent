@@ -179,6 +179,32 @@ class ReceiverTests(ReceiverBase):
         self.assertIsNone(self.ledger.session("session-1")["target"])
         self.assertEqual(self.ledger.items_for_session("session-1")[0]["target"], None)
         self.assertEqual(len(self.activities()), 1)
+        # The human is told the pin is missing, and the event is a success, not a swallowed fault.
+        self.assertIn("暂时无法锁定", self.activities()[0]["body"])
+        self.assertEqual(self.receiver.results()[-1]["status"], "done")
+
+    def test_a_first_event_that_only_elicits_still_announces_the_pin(self):
+        """The pin is stored before routing and the echo is guarded on target is None, so a session that does
+        not create work on its first event would otherwise pin in silence and never announce it."""
+        self.api.fetch_issue.return_value = issue(labels=["需求"], delegate_id=APP)
+        self.receiver.worktrees = SimpleNamespace(remote_head=lambda repo, timeout=8: "c" * 40)
+        self.receive()
+        self.assertTrue(self.receiver.process_one())
+        self.assertEqual(self.ledger.items_for_session("session-1"), [])
+        self.assertEqual(self.activities()[0]["type"], "elicitation")
+        self.assertIn("c" * 7, self.activities()[0]["body"])
+        self.assertEqual(self.ledger.session("session-1")["target"]["commit_sha"], "c" * 40)
+
+    def test_a_ledger_fault_while_pinning_is_not_disguised_as_an_unreachable_origin(self):
+        """Only an unreachable origin is absorbed: a fault in our own store must reach the event's status."""
+        self.receiver.worktrees = SimpleNamespace(remote_head=lambda repo, timeout=8: "not-a-commit")
+        self.receive()
+        self.assertTrue(self.receiver.process_one())
+        result = self.receiver.results()[-1]
+        self.assertEqual((result["status"], result["error"]), ("uncertain", "LedgerError"))
+        self.assertEqual(self.activities()[-1]["type"], "error")
+        self.assertNotIn("暂时无法锁定", self.activities()[-1]["body"])
+        self.assertEqual(self.ledger.items_for_session("session-1"), [])
 
     def test_the_receiver_never_clones_or_fetches_to_resolve_a_pin(self):
         """spec §17 criterion 1 gives the first activity ten seconds; ensure_clone is minutes (Plan 1a's
