@@ -387,7 +387,7 @@ class Ledger:
         return row
 
     def observe_issue(self, raw):
-        """Store one complete issue snapshot; requeue blocked items on material change."""
+        """Store one complete snapshot. Observing a comment is not authority to restart."""
         issue = _normalize(raw)
         with self._transaction():
             own_bodies = {r["body"] for r in self.connection.execute("SELECT body FROM outbox WHERE issue_id=?", (issue["id"],))}
@@ -396,11 +396,6 @@ class Ledger:
             self.connection.execute("""INSERT INTO issues(id,metadata,fingerprint,observed_at) VALUES(?,?,?,?)
                 ON CONFLICT(id) DO UPDATE SET metadata=excluded.metadata,fingerprint=excluded.fingerprint,observed_at=excluded.observed_at""",
                                     (issue["id"], _json(issue), fingerprint, self.clock()))
-            for row in self.connection.execute("SELECT * FROM work_items WHERE issue_id=? AND state='blocked'", (issue["id"],)):
-                if fingerprint != row["claimed_fingerprint"] and _in_scope(issue):
-                    self.connection.execute("UPDATE work_items SET state='queued',generation=generation+1,updated_at=? WHERE id=?",
-                                            (self.clock(), row["id"]))
-                    self._audit(row["id"], "requeue", "material change while blocked")
         return {"id": issue["id"], "identifier": issue["identifier"], "fingerprint": fingerprint,
                 "in_scope": _in_scope(issue)}
 
@@ -691,8 +686,13 @@ class Ledger:
             row = self._owned(item_id, token)
             checkpoint = json.loads(row["checkpoint"])
             checkpoint["pending_question"] = question
-            self._set_state(row["id"], "awaiting_input", "human gate", token=None, lease_expires_at=None,
-                            worker_pid=None, checkpoint=_json(checkpoint))
+            # Linear may deliver the answer between posting the question and this
+            # transaction. Do not strand that reply behind an awaiting-input gate.
+            pending = self.connection.execute("SELECT 1 FROM inbox WHERE item_id=? AND consumed_at IS NULL",
+                                              (item_id,)).fetchone() is not None
+            self._set_state(row["id"], "queued" if pending else "awaiting_input", "human gate",
+                            token=None, lease_expires_at=None, worker_pid=None,
+                            resume_authorized=int(pending), checkpoint=_json(checkpoint))
             return self._view(self._row(row["id"]))
 
     RESERVATION_OPEN = ("queued", "active", "cancel_requested")
@@ -1050,6 +1050,45 @@ class Ledger:
                 raise LedgerError("another active work item exists for this issue")
             return self._view(self._row(row["id"]))
 
+    def _resumable_work(self, issue_id, session_id):
+        return self.connection.execute("""SELECT w.* FROM work_items w JOIN sessions s
+            ON s.session_id=w.session_id WHERE w.issue_id=? AND w.skill='fix' AND s.delegation=1
+            AND w.state IN ('blocked','delivered','cancelled','failed')
+            ORDER BY (w.session_id=?) DESC,w.created_at DESC,w.rowid DESC LIMIT 1""",
+            (issue_id, session_id)).fetchone()
+
+    def resume_work(self, item_id, token, message_id, app_user_id):
+        """Atomically hand a chat's natural-language request to its issue's prior fix.
+
+        Intent is interpreted by the chat worker. The host checks fresh delegation;
+        this transaction enforces item ownership, provenance and one active worker.
+        """
+        with self._transaction():
+            chat = self._owned(item_id, token)
+            if chat["skill"] != "chat":
+                raise LedgerError("resume-work requires an owned chat item")
+            issue = json.loads(self._issue_row(chat["issue_id"])["metadata"])
+            if not _in_scope(issue) or not app_user_id or issue.get("delegate_id") != app_user_id:
+                raise LedgerError("issue must remain open and delegated to FarmBot")
+            messages = self.connection.execute("SELECT id,body FROM inbox WHERE item_id=? ORDER BY id",
+                                               (item_id,)).fetchall()
+            if message_id not in {m["id"] for m in messages}:
+                raise LedgerError("resume-work requires a real message from this chat")
+            work = self._resumable_work(chat["issue_id"], chat["session_id"])
+            if work is None:
+                raise LedgerError("no previously delegated fix work on this issue")
+            self._set_state(item_id, "delivered", "handed request to previously delegated work",
+                            token=None, lease_expires_at=None, worker_pid=None,
+                            evidence=_json({"summary": "Resumed previously delegated work", "prs": [],
+                                            "resumed_item": work["id"], "message_id": message_id}))
+            self._set_state(work["id"], "queued", "human requested continuation via chat",
+                            token=None, lease_expires_at=None, worker_pid=None,
+                            generation=work["generation"] + 1, requeue_requested=0)
+            self.connection.executemany("INSERT INTO inbox(item_id,body,created_at) VALUES(?,?,?)",
+                                        [(work["id"], m["body"], self.clock()) for m in messages])
+            self._audit(work["id"], "resume_request", details={"chat_item": item_id, "message_id": message_id})
+            return self._view(self._row(work["id"]))
+
     def prepare_comment(self, item_id, token, kind, body):
         """Claim the one outbox row for this issue, claimed input, generation and kind, and say plainly
         whether it is this item's own or one another item already posted.
@@ -1196,15 +1235,26 @@ class Ledger:
                             evidence=_json(evidence), generation=row["generation"] + int(state == "queued"))
             return self._view(self._row(row["id"]))
 
-    def push_inbox(self, item_id, body):
+    def push_inbox(self, item_id, body, *, resume_waiting=False):
         _text(body, "body")
         with self._transaction():
             row = self._row(item_id)
+            # A receiver may have selected the chat just before resume_work handed it
+            # off. Follow the recorded handoff under this same write transaction.
+            if row["state"] == "delivered" and row["skill"] == "chat":
+                resumed = json.loads(row["evidence"]).get("resumed_item")
+                if resumed:
+                    target = self._row(resumed)
+                    if target["issue_id"] == row["issue_id"]:
+                        row = target
             if row["state"] not in ACTIVE_STATES:
                 raise LedgerError("cannot steer a terminal work item")
             self.connection.execute("INSERT INTO inbox(item_id,body,created_at) VALUES(?,?,?)", (row["id"], body, self.clock()))
             self._audit(row["id"], "inbox", "steering message")
-            return {"item_id": row["id"], "pending": self.connection.execute(
+            if resume_waiting and row["state"] == "awaiting_input":
+                self._set_state(row["id"], "queued", "human answered in Linear", token=None,
+                                lease_expires_at=None, worker_pid=None, resume_authorized=1)
+            return {"item_id": row["id"], "state": self._row(row["id"])["state"], "pending": self.connection.execute(
                 "SELECT count(*) FROM inbox WHERE item_id=? AND consumed_at IS NULL", (row["id"],)).fetchone()[0]}
 
     def pop_inbox(self, item_id, token):
@@ -1229,6 +1279,10 @@ class Ledger:
         view = self._view(row)
         coordination = {key: view[key] for key in ("id", "identifier", "skill", "state", "stage", "generation", "target")}
         return {"issue": json.loads(issue_row["metadata"]), "coordination": coordination, "handoff": handoff,
+                "resumable_work": (self._view(candidate) if row["skill"] == "chat"
+                                   and (candidate := self._resumable_work(row["issue_id"], row["session_id"])) else None),
+                "session_messages": [dict(r) for r in self.connection.execute(
+                    "SELECT id,body FROM inbox WHERE item_id=? ORDER BY id", (item_id,))],
                 "pending_question": checkpoint.get("pending_question"),
                 "published_prs": [r["url"] for r in self.connection.execute(
                     "SELECT url FROM published_prs WHERE issue_id=? ORDER BY url", (row["issue_id"],))],

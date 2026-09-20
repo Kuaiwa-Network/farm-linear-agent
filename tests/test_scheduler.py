@@ -1,6 +1,8 @@
 import contextlib
 import io
 import json
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -8,7 +10,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock
 
-from agent.launcher import Finished, Handle, RUNTIMES
+from agent.launcher import Finished, Handle, Launcher, RUNTIMES
 from agent.ledger import Ledger
 from agent.scheduler import Scheduler
 from agent.skills import load_skills
@@ -223,7 +225,7 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(counts["launched"], 1)
         launched = self.launcher.spawned[0]
         payload = json.loads(launched[1].split("\n\n", 1)[1])
-        self.assertEqual(set(payload["worktrees"]), {"Farm-Client", "farm-hive", "farmgui", "common"})
+        self.assertEqual(set(payload["worktrees"]), {"Farm-Client", "farm-hive", "farmgui", "common", "Farm-Contract"})
         self.assertEqual(launched[2], {})
         self.assertEqual(launched[3], 8 * 3600)
         self.assertEqual(self.ledger.item(item["id"])["worker_pid"], 101)
@@ -236,7 +238,7 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(payload["state_dir"], str(self.launcher.state_dir(item["id"])))
         self.assertTrue(self.launcher.spawn_env["PYTHONPATH"].split(":")[0] == str(ROOT))
         self.assertEqual(self.launcher.spawn_env["FARMBOT_DB"], str(Path(self.tmp.name) / "ledger.sqlite3"))
-        repos = ("Farm-Client", "farm-hive", "farmgui", "common")
+        repos = ("Farm-Client", "farm-hive", "farmgui", "common", "Farm-Contract")
         worktrees = [str(self.trees.root / item["id"] / repo) for repo in repos]
         clones = [str(self.trees.root / "repos" / f"{repo}.git") for repo in repos]  # commits land in the bare clone
         self.assertEqual(self.launcher.spawn_writable[0], str(Path(self.tmp.name)))  # the ledger's directory
@@ -466,6 +468,160 @@ class SchedulerTests(unittest.TestCase):
         self.scheduler.stop(item["id"], "Linear stop")
         self.assertEqual(self.launcher.stopped, [item["id"]])
         self.assertEqual(self.ledger.item(item["id"])["state"], "cancelled")
+
+    def cancel_with_cli(self, item_id):
+        result = subprocess.run(
+            [sys.executable, "-B", "-W", "error", "-m", "agent", "--db", str(self.scheduler.db_path),
+             "cancel", "--item", item_id, "--reason", "operator cancellation"],
+            cwd=ROOT, capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["state"], "cancelled")
+
+    def retry_with_cli(self, item_id):
+        result = subprocess.run(
+            [sys.executable, "-B", "-m", "agent", "--db", str(self.scheduler.db_path),
+             "retry", "--item", item_id, "--reason", "operator retry"],
+            cwd=ROOT, capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["state"], "queued")
+
+    def test_cli_cancel_then_retry_before_tick_replaces_the_old_worker(self):
+        runtime = RUNTIMES["fake"]._replace(command=[
+            sys.executable, "-c", "import sys,time; sys.stdin.read(); time.sleep(120)"])
+        launcher = Launcher(Path(self.tmp.name) / "runs", runtime, host="h")
+        self.scheduler.launcher = launcher
+        item_id = self.item()["id"]
+        self.scheduler.tick()
+        old = self.scheduler.active[item_id]
+        self.addCleanup(launcher.poll)
+        self.addCleanup(launcher.stop, item_id)
+        self.cancel_with_cli(item_id)
+        self.retry_with_cli(item_id)
+        self.scheduler.tick()
+        self.assertIsNotNone(old.process.poll(), "retry hid the cancellation of the old worker")
+        fresh = self.scheduler.active[item_id]
+        self.assertNotEqual(fresh.pid, old.pid)
+        self.assertIsNone(fresh.process.poll())
+        self.assertEqual((self.api.activities, self.api.comments), ([], []))
+
+    def test_cli_retry_waits_for_the_cancelled_reservation_to_settle(self):
+        item_id = self.waiting_item(mode="batch")
+        self.ledger.ensure_slot("unity_slot:1", kind="unity_slot", host="h", folder=str(self.slot_folder))
+        reservation = self.ledger.acquire("unity_slot", owner="pool", host="h")
+        self.ledger.set_slot_state("unity_slot:1", "batch_busy")
+        launcher = Launcher(Path(self.tmp.name) / "runs", RUNTIMES["fake"], host="h")
+        self.scheduler.launcher = launcher
+        marker = Path(self.tmp.name) / "retry-batch.pid"
+        errors = []
+
+        def run():
+            try:
+                launcher.run_unsandboxed(
+                    [sys.executable, "-c", "import os,pathlib,sys,time; "
+                     "pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(120)", str(marker)],
+                    cwd=self.tmp.name, timeout=120, owner=item_id)
+            except BaseException as exc:
+                errors.append(exc)
+
+        runner = threading.Thread(target=run, daemon=True)
+        runner.start()
+        self.addCleanup(runner.join, 15)
+        self.addCleanup(launcher.stop_unsandboxed, item_id)
+        self.addCleanup(launcher.poll)
+        self.addCleanup(launcher.stop, item_id)
+        deadline = time.monotonic() + 10
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        self.assertTrue(marker.exists(), errors)
+        pid = int(marker.read_text())
+        self.cancel_with_cli(item_id)
+        self.retry_with_cli(item_id)
+        self.scheduler.tick()
+        runner.join(2)
+        self.assertFalse(runner.is_alive(), "retry hid the old batch reservation's cancellation")
+        self.assertFalse(launcher.alive(pid))
+        self.assertEqual(errors, [])
+        self.assertNotIn(item_id, self.scheduler.active, "retry launched before the old slot was settled")
+        self.assertEqual(self.ledger.item(item_id)["state"], "queued")
+        self.ledger.release(reservation["reservation_id"], reservation["token"], "pool verified quiescence")
+        self.ledger.set_slot_state("unity_slot:1", "idle_closed")
+        self.scheduler.tick()
+        self.assertIn(item_id, self.scheduler.active)
+        self.assertEqual((self.api.activities, self.api.comments), ([], []))
+
+    def test_cli_cancel_kills_a_batch_run_before_any_worker_is_resumed(self):
+        """A ledger-only cancellation must reach the service-owned batch subprocess on the next tick."""
+        item_id = self.waiting_item(mode="batch")
+        self.ledger.ensure_slot("unity_slot:1", kind="unity_slot", host="h", folder=str(self.slot_folder))
+        reservation = self.ledger.acquire("unity_slot", owner="pool", host="h")
+        self.ledger.set_slot_state("unity_slot:1", "batch_busy")
+        launcher = Launcher(Path(self.tmp.name) / "runs", RUNTIMES["fake"], host="h")
+        self.scheduler.launcher = launcher
+        marker = Path(self.tmp.name) / "batch.pid"
+        errors = []
+
+        def run():
+            try:
+                launcher.run_unsandboxed(
+                    [sys.executable, "-c", "import os,pathlib,sys,time; "
+                     "pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(120)", str(marker)],
+                    cwd=self.tmp.name, timeout=120, owner=item_id)
+            except BaseException as exc:
+                errors.append(exc)
+
+        runner = threading.Thread(target=run, daemon=True)
+        runner.start()
+        self.addCleanup(runner.join, 15)
+        self.addCleanup(launcher.stop_unsandboxed, item_id)
+        deadline = time.monotonic() + 10
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        self.assertTrue(marker.exists(), errors)
+        pid = int(marker.read_text())
+        self.assertTrue(launcher.alive(pid))
+        self.assertNotIn(item_id, self.scheduler.active)
+        self.cancel_with_cli(item_id)
+        self.scheduler.tick()
+        runner.join(2)
+        self.assertFalse(runner.is_alive(), "CLI cancellation left the batch process running")
+        self.assertFalse(launcher.alive(pid))
+        self.assertEqual(errors, [])
+        # Cancellation does not release a slot; only the pool's quiescence probe can do that.
+        self.assertEqual(self.ledger.reservation(reservation["reservation_id"])["state"], "cancel_requested")
+        self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "batch_busy")
+        self.scheduler.tick()
+        self.assertEqual((self.api.activities, self.api.comments), ([], []))
+
+    def test_cli_cancel_kills_an_owned_worker_before_sweeping_its_worktrees(self):
+        """Clearing worker_pid in the external CLI must not let a live worker outlast its worktree."""
+        runtime = RUNTIMES["fake"]._replace(command=[
+            sys.executable, "-c", "import sys,time; sys.stdin.read(); time.sleep(120)"])
+        launcher = Launcher(Path(self.tmp.name) / "runs", runtime, host="h")
+        self.scheduler.launcher = launcher
+        item_id = self.item()["id"]
+        self.scheduler.tick()
+        handle = self.scheduler.active[item_id]
+        self.addCleanup(launcher.poll)
+        self.addCleanup(launcher.stop, item_id)
+        self.ledger.claim(item_id, worker_id="test-worker")
+        self.assertIsNone(handle.process.poll())
+        self.cancel_with_cli(item_id)
+        self.assertIsNone(self.ledger.item(item_id)["worker_pid"])
+        removed = []
+        original_remove = self.trees.remove
+
+        def remove(item):
+            removed.append((item, handle.process.poll()))
+            original_remove(item)
+
+        self.trees.remove = remove
+        self.scheduler.tick()
+        self.assertIsNotNone(handle.process.poll(), "CLI cancellation left the worker alive")
+        self.assertTrue(removed)
+        self.assertTrue(all(code is not None for _, code in removed), "worktrees were swept before the worker died")
+        self.assertNotIn(item_id, self.scheduler.active)
+        self.scheduler.tick()
+        self.assertEqual((self.api.activities, self.api.comments), ([], []))
 
     def test_stop_cancels_the_reservation_before_it_kills_the_worker(self):
         """Ordering is asserted, not implied: both orders leave the same end state, so the fake launcher

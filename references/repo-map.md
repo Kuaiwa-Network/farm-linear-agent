@@ -7,6 +7,14 @@ write authority for FarmBot come from each skill's `skill.json` manifest, which 
 `fix` skill may change designer tables there through the documented `designer/configgen`
 toolchain, as draft PRs. Generated artifacts are still never hand-edited.
 
+Current `common/README.md` documents a headless producer:
+`bash designer/tools/gen-config.sh generate --profile farm-hive --profile unity-client --out /absolute/absent/artifact`
+and `verify` against that artifact. Read the checked-out README and toolchain pins before using it.
+This can validate/generate both profiles without starting Unity. Consumer import is a separate step:
+follow the consumer repo's documented importer and do not replace generated client files by hand.
+Do not infer that all configuration fixes require Unity executeMethod merely from the older menu
+description below. Report the specific missing consumer step if one remains unavailable.
+
 This file holds the world facts the sweep depends on: which repositories exist,
 who may write where, and which generator owns which artifact. When the
 architecture moves again, update THIS file; `SKILL.md` holds only the durable
@@ -21,7 +29,7 @@ process and should not need edits for repository changes. Last grounded:
 | Farm-Client | Read/write | Unity client: HotUpdate/AOT code, tests, generated protobuf artifacts (network + config), published FGUI descriptors |
 | farmgui | Read/write | FairyGUI source (XML), source tests/contracts, authorized GUI publishing |
 | farm-hive | Read/write | The Go game server (`modules/<feature>/`). The only server fix surface |
-| Farm-Contract | Evidence + handoff target | Behavior contracts (`openspec/specs/`) and network proto (`proto/`). The sweep never writes here; contract changes happen in sessions rooted in this repo |
+| Farm-Contract | Read/write for `fix` in its own worktree | Behavior contracts (`openspec/specs/`) and network proto (`proto/`); follow repo instructions and record confirmed decisions |
 | common (`Kuaiwa-Network/common`, local checkout often `farm-common`) | Read/write for `fix`: designer-owned config tables corrected at their source and regenerated through `designer/configgen`, as draft PRs | Designer-owned config tables and the `designer/configgen` Go toolchain |
 | farm-server | RETIRED — never a fix target | Old C++ stack, frozen at the 2026-08-11 pivot. Read it only as porting reference when an issue is explicitly a porting batch (Farm-Contract CLAUDE.md §三); never route work, worktrees, builds, or `wsl-server-build` at it |
 | farm-hive-server | Out of sweep scope | Deployment/ops repo; deployment needs are recorded gaps, not sweep work |
@@ -59,40 +67,15 @@ restart, and end-to-end verification are recorded verification gaps, never
 blockers and never justification for a client-side workaround. Never start or
 kill server runtimes.
 
-## Farm-Contract handoff discipline
+## Farm-Contract workflow for FarmBot
 
-Message semantics — cache-merge rules (full replacement / per-id increment /
-clear sentinels), ordering dependencies, error-code user-visible behavior — are
-decided in Farm-Contract's `openspec/specs/<module>.md` (客户端侧要求), never
-re-derived from observed server behavior: observation pins one build, not the
-contract, and enshrining it creates silent drift.
-
-- `[CLIENT-PENDING]` items are the client side's debt to claim, and open
-  questions are adjudicated — but both happen in a session rooted in
-  Farm-Contract, because contract deltas land in that repo's in-flight change.
-  The sweep's move is a concrete handoff to a **separate Claude Code task
-  rooted in Farm-Contract**, not only a Linear comment. Its standalone prompt
-  gives the resolved absolute contract root and spec path, exact spec entry/open
-  decisions, and the issue's Linear identifier plus URL; it instructs the new
-  task to read Farm-Contract's own `AGENTS.md`/`CLAUDE.md` and does not restate
-  consumer conclusions. Order matters: keep Backlog/Todo with `needs-more-info`,
-  post and read back the complete Chinese dependency comment, persist the
-  checkpoint, and only then — with explicit user authority — dispatch the task
-  and ledger its exact prompt plus task ID/link as `task-dispatched`, then
-  continue unrelated issues. Task dispatch is not
-  `handoff-complete`; only the Farm-Contract PR/write-back recorded in both the
-  ledger and Linear proves completion (形如「契约回账已发：Farm-Contract PR
-  #NN」). Without authority/capability, execute the main skill's complete
-  six-step `authority-blocked` sequence: create no task, ask once, keep
-  Backlog/Todo + `needs-more-info`, post/read back the Chinese authority
-  blocker, persist the checkpoint, and continue unrelated issues.
-- The `openspec` CLI resolves by cwd. Run from a consumer repo it prints
-  vacuous empty results with exit code 0 (`No active changes found.`); that
-  output is about the directory searched, not the contract, and is never
-  evidence.
-- A contract not yet landed is bridged client-side only via
-  `ContractPendingException` (`Assets/Scripts/HotUpdate/Core/NetWork/PendingContract.cs`),
-  never by guessing semantics.
+The fix manifest grants an isolated Farm-Contract worktree. Read its `AGENTS.md`/`CLAUDE.md`
+and use its openspec process from that worktree; cwd matters. For the delegated bug, resolve
+uncertain behaviour by asking in Linear with `await-input` (which adds `needs-more-info`).
+Once the human decision is clear, update the relevant contract first, then the affected client,
+server and configuration sources. Link draft PRs and record dependencies and the decision's
+source. Do not invent `DECIDED` attribution, merge, deploy, or open another task just to edit
+this contract. Missing generators remain explicit verification gaps or blockers.
 
 ## Environment bindings (Claude Code)
 

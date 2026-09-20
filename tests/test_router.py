@@ -39,6 +39,7 @@ class RouterTests(unittest.TestCase):
     def test_prompt_into_waiting_item_resumes_with_the_answer(self):
         self.assertEqual(go(action="prompted", text="公共测试服", active_state="awaiting_input"), Decision("resume", None, "公共测试服"))
 
-    def test_retry_word_after_terminal_item_requeues(self):
-        self.assertEqual(go(action="prompted", text="重试", terminal_exists=True).kind, "retry")
+    def test_terminal_prompts_are_interpreted_by_chat_not_a_keyword_match(self):
+        for text in ("重试", "Please pick this back up", "先别重试", "Can you explain how to restart?"):
+            self.assertEqual(go(action="prompted", text=text, terminal_exists=True), Decision("chat", "chat", text))
         self.assertEqual(go(action="prompted", text="重试").kind, "chat")

@@ -64,7 +64,8 @@ def configure(path=None):
             "repos": {"Farm-Client": "https://github.com/Kuaiwa-Network/Farm-Client.git",
                       "farm-hive": "https://github.com/Kuaiwa-Network/farm-hive.git",
                       "farmgui": "https://github.com/Kuaiwa-Network/farmgui.git",
-                      "common": "https://github.com/Kuaiwa-Network/common.git"}}
+                      "common": "https://github.com/Kuaiwa-Network/common.git",
+                      "Farm-Contract": "https://github.com/Kuaiwa-Network/Farm-Contract.git"}}
     if not all(data[k] for k in REQUIRED):
         raise ValueError("client id, client secret and webhook secret are required")
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -105,6 +106,9 @@ class StubLinear:
     def create_activity(self, session_id, content, activity_id=None):
         self._record("create_activity", session_id=session_id, content=content, activity_id=activity_id)
         return {"success": True, "agentActivity": {"id": f"stub-activity-{activity_id or 'x'}"}}
+
+    def needs_more_info(self, issue_id):
+        self._record("needs_more_info", issue_id=issue_id)
 
 
 def linear_api(config=None):

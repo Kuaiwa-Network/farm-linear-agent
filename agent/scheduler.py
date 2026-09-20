@@ -273,8 +273,24 @@ class Scheduler:
             if row["state"] in TERMINAL and row["id"] not in self.active:
                 self._retire(row["id"], row["state"])
 
+    def _stop_cancelled(self):
+        # The operator CLI has its own ledger connection and cannot access this launcher's handles.
+        # Reconcile before reaping or sweeping: cancel clears worker_pid, and a batch run has no active
+        # worker at all until the pool resumes it. Only the launcher knows which processes we still own.
+        # Leave reservations to the pool's quiescence probe and send no second cancellation notification.
+        cancelling = {row["item_id"] for row in self.ledger.reservations(states=("cancel_requested",))}
+        for row in self.ledger.status()["items"]:
+            # retry can replace 'cancelled' with 'queued' before this tick. The old reservation still
+            # carries cancellation, and a live worker whose recorded pid was cleared is an old attempt.
+            stale_worker = row["state"] == "queued" and row["worker_pid"] is None and row["id"] in self.active
+            if row["state"] == "cancelled" or row["id"] in cancelling or stale_worker:
+                self.launcher.stop_unsandboxed(row["id"])
+                self.launcher.stop(row["id"])
+                self.active.pop(row["id"], None)
+
     def tick(self):
         with self.lock:
+            self._stop_cancelled()
             reaped = self._reap()
             recovered = self._recover()
             self._sweep_worktrees()
@@ -283,6 +299,11 @@ class Scheduler:
                 if len(self.active) >= self.max_concurrent:
                     break
                 if item["skill"] not in self.skills or item["id"] in self.active:
+                    continue
+                reservation = self.ledger.active_reservation(item["id"])
+                if reservation is not None and reservation["state"] == "cancel_requested":
+                    # The old pool hand-over may still be unwinding after Stop. Do not give a retried
+                    # worker its cancelled token or let it race cleanup of the preceding attempt.
                     continue
                 try:
                     self.launch(item)

@@ -40,6 +40,8 @@ def parser():
     activity = cmd("activity", "--item", "--body-file", token=True)
     activity.add_argument("--type", required=True, choices=["thought", "action", "response", "error", "elicitation"])
     cmd("await-input", "--item", "--question", token=True)
+    resume = cmd("resume-work", "--item", token=True)
+    resume.add_argument("--message-id", type=int, required=True)
     resource = cmd("await-resource", "--item", "--resource", token=True)
     resource.add_argument("--mode", required=True, choices=["interactive", "batch"])
     release = cmd("release-resource", "--item", token=True)
@@ -181,13 +183,32 @@ def run(args, ledger, api_factory):
     if c == "activity":
         item = ledger.item(args.item)
         ledger.renew(args.item, resolve_token(args))  # proves ownership before speaking for the item
-        return api_factory().create_activity(item["session_id"], {"type": args.type, "body": read_text(args.body_file)})
+        api = api_factory()
+        if args.type == "elicitation":
+            api.needs_more_info(item["issue_id"])
+        return api.create_activity(item["session_id"], {"type": args.type, "body": read_text(args.body_file)})
     if c == "await-input":
         token = resolve_token(args)
         item = ledger.item(args.item)
         ledger.renew(args.item, token)
-        api_factory().create_activity(item["session_id"], {"type": "elicitation", "body": args.question})
+        api = api_factory()
+        api.needs_more_info(item["issue_id"])
+        api.create_activity(item["session_id"], {"type": "elicitation", "body": args.question})
         return ledger.await_input(args.item, token, args.question)
+    if c == "resume-work":
+        token = resolve_token(args)
+        ledger.renew(args.item, token)
+        item = ledger.item(args.item)
+        api = api_factory()
+        ledger.observe_issue(api.fetch_issue(item["issue_id"]))
+        resumed = ledger.resume_work(args.item, token, args.message_id, api.app_user_id)
+        try:
+            api.create_activity(item["session_id"], {
+                "type": "thought" if item["session_id"] == resumed["session_id"] else "response",
+                "body": "已恢复原修复任务，你的回复会交给新的 worker；后续进展会记录在原任务会话和 issue 下。"})
+        except Exception as exc:
+            print(json.dumps({"warning": "work resumed; acknowledgment failed", "error": type(exc).__name__}), file=sys.stderr)
+        return resumed
     if c == "await-resource":
         return ledger.await_resource(args.item, resolve_token(args), args.resource, args.mode)
     if c == "release-resource":

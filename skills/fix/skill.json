@@ -2,7 +2,7 @@
   "name": "fix",
   "trigger": ["delegation"],
   "intents": ["label:Bug"],
-  "writes": ["Farm-Client", "farm-hive", "farmgui", "common"],
+  "writes": ["Farm-Client", "farm-hive", "farmgui", "common", "Farm-Contract"],
   "resources": ["unity_slot"],
   "gates": ["pr_review"],
   "mcp": [],

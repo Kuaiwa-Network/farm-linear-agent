@@ -92,6 +92,41 @@ class LinearAPI:
         delegate = (data.get("issue") or {}).get("delegate")
         return delegate["id"] if delegate else None
 
+    def needs_more_info(self, issue_id):
+        """Add the clarification label without replacing any existing labels."""
+        after, labels = None, []
+        while True:
+            data = self.graphql("""query FarmBotInfoLabel($id: String!, $after: String) {
+                issue(id: $id) { team { id } labels { nodes { name } } }
+                issueLabels(filter: {name: {eq: "needs-more-info"}}, first: 100, after: $after) {
+                    nodes { id team { id } } pageInfo { hasNextPage endCursor }
+                } }""", {"id": issue_id, "after": after})
+            issue = data["issue"]
+            if issue is None:
+                raise RuntimeError("Issue not found")
+            if any(label["name"] == "needs-more-info" for label in issue["labels"]["nodes"]):
+                return
+            labels.extend(data["issueLabels"]["nodes"])
+            page = data["issueLabels"]["pageInfo"]
+            if not page["hasNextPage"]:
+                break
+            after = page["endCursor"]
+        team = issue["team"]["id"]
+        label = next((v for v in labels if (v.get("team") or {}).get("id") == team), None)
+        label = label or next((v for v in labels if v.get("team") is None), None)
+        if label is None:
+            created = self.graphql("""mutation FarmBotCreateInfoLabel($input: IssueLabelCreateInput!) {
+                issueLabelCreate(input: $input) { success issueLabel { id } } }""",
+                {"input": {"name": "needs-more-info", "teamId": team}})["issueLabelCreate"]
+            if not created.get("success") or not created.get("issueLabel", {}).get("id"):
+                raise RuntimeError("Linear did not confirm label creation")
+            label = created["issueLabel"]
+        result = self.graphql("""mutation FarmBotAddLabel($id: String!, $label: String!) {
+            issueAddLabel(id: $id, labelId: $label) { success } }""",
+            {"id": issue_id, "label": label["id"]})["issueAddLabel"]
+        if result.get("success") is not True:
+            raise RuntimeError("Linear did not confirm needs-more-info label")
+
     def fetch_issue(self, issue_ref):
         """Complete detail plus every comment page, shaped for Ledger.observe_issue."""
         if self.app_user_id is None:

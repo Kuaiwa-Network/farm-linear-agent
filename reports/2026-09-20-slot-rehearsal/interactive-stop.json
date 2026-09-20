@@ -1,0 +1,56 @@
+[
+  {
+    "event": "requested",
+    "time": 1789906335.375106,
+    "item": "afa96e2e-0a03-4125-a134-9fd313314cb8"
+  },
+  {
+    "event": "running",
+    "time": 1789906362.908919,
+    "pid": 35514,
+    "ps": "35514 26897 /Applications/Unity/Hub/Editor/2022.3.62f3/Unity.app/Contents/MacOS/Unity -projectPath .local/editors/slot-1 -logFile .local/editors/slot-1/Logs/farmbot-editor.log",
+    "lock": true
+  },
+  {
+    "event": "stopped",
+    "time": 1789906365.390087,
+    "seconds": 2.4453436250005325,
+    "pid_after": 35514,
+    "slot": [
+      {
+        "slot_id": "unity_slot:1",
+        "kind": "unity_slot",
+        "host": "mac",
+        "folder": ".local/editors/slot-1",
+        "state": "switching",
+        "parked_commit": "381a825709379fa1cab5aed7b1b405129203aa35",
+        "instance": "slot-1@e7fe013d9909e41a",
+        "mcp_address": "http://127.0.0.1:8080/mcp",
+        "account": null,
+        "last_switch_at": 1789906362.783867
+      }
+    ],
+    "lock": true,
+    "item_state": "cancelled"
+  },
+  {
+    "event": "settled",
+    "time": 1789906369.086719,
+    "slot": [
+      {
+        "slot_id": "unity_slot:1",
+        "kind": "unity_slot",
+        "host": "mac",
+        "folder": ".local/editors/slot-1",
+        "state": "idle_open",
+        "parked_commit": "381a825709379fa1cab5aed7b1b405129203aa35",
+        "instance": "slot-1@e7fe013d9909e41a",
+        "mcp_address": "http://127.0.0.1:8080/mcp",
+        "account": null,
+        "last_switch_at": 1789906368.996178
+      }
+    ],
+    "reservations": [],
+    "lock": true
+  }
+]

@@ -16,7 +16,7 @@ from test_slots import FakeMcp, FakeUnity
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
-REPOS = ("Farm-Client", "farm-hive", "farmgui", "common")
+REPOS = ("Farm-Client", "farm-hive", "farmgui", "common", "Farm-Contract")
 SLOT = "unity_slot:1"
 
 

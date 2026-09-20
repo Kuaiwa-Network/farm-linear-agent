@@ -530,8 +530,15 @@ class SlotPool:
         # owner=: the only thread that could otherwise reach this Editor is this one, and it is about to
         # block in wait() for up to batch_timeout. Registering it under the item is what lets Scheduler.stop
         # and a service shutdown kill it.
+        def cancelled():
+            # An operator retry can clear the item's Stop fence while this old pool
+            # invocation is still pending. Validate this reservation at the spawn
+            # boundary, on the pool thread and its own SQLite connection.
+            current = self.ledger.reservation(reservation["reservation_id"])
+            return current is None or current["state"] != "active"
+
         run = self.run_unsandboxed(argv, cwd=slot["folder"], timeout=entry["batch_timeout"], log=None,
-                                   owner=reservation["item_id"])
+                                   owner=reservation["item_id"], cancelled=cancelled)
         summary = {"state": "ran", "exit_code": run.returncode, "seconds": round(run.seconds, 1),
                    "results_file": str(results), "log_file": str(log),
                    "total": None, "passed": None, "failed": None, "result": None}

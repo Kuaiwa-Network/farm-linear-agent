@@ -132,6 +132,7 @@ class Receiver:
         if len(guidance) > 32000:
             raise ValueError("oversized guidance")
         return {"action": event["action"], "session_id": session["id"], "issue_id": issue_id, "text": text,
+                "is_mention": bool(session.get("comment") or session.get("commentId") or session.get("sourceCommentId")),
                 "guidance": guidance}
 
     def _receive_stop(self, event):
@@ -176,7 +177,8 @@ class Receiver:
         self.ledger.observe_issue(issue)
         session = self.ledger.session(prepared["session_id"])
         is_delegation = (session["delegation"] if session else
-                         prepared["action"] == "created" and issue.get("delegate_id") == self.identity["appUserId"])
+                         prepared["action"] == "created" and not prepared.get("is_mention")
+                         and issue.get("delegate_id") == self.identity["appUserId"])
         session = self.ledger.ensure_session(prepared["session_id"], issue["id"], is_delegation, prepared["guidance"])
         pin = ""
         if session.get("target") is None and self.worktrees is not None:
@@ -205,6 +207,8 @@ class Receiver:
             """One event, one activity — and the pin rides in whichever branch sends it. Echoing only from the
             work and chat branches would let a session that first elicits or steers store its pin in silence
             and never announce it, because every later event sees a target that is no longer None (spec §6)."""
+            if kind == "elicitation":
+                self.api.needs_more_info(issue["id"])
             self._send(session_id, ack_id, {"type": kind, "body": body + pin})
 
         elsewhere = self.ledger.active_item_for_issue(issue["id"])
@@ -214,8 +218,11 @@ class Receiver:
                                         "请在原会话继续，或等它完成后再委派。")
                 return
             if decision.kind == "chat":
-                self.ledger.push_inbox(elsewhere["id"], prepared["text"] or "（无正文）")
+                can_resume = elsewhere["skill"] == "chat" or issue.get("delegate_id") == self.identity["appUserId"]
+                delivered = self.ledger.push_inbox(elsewhere["id"], prepared["text"] or "（无正文）", resume_waiting=can_resume)
                 notice = "该 issue 正在处理中，你的消息已转给正在处理的 worker。"
+                if elsewhere["state"] == "awaiting_input" and delivered["state"] == "queued":
+                    notice = "收到回复，原工作项已恢复，worker 会先读取你的回答。"
                 if decision.text and decision.text != prepared["text"]:
                     notice = decision.text + "\n" + notice
                 acknowledge("thought", notice)
@@ -237,12 +244,9 @@ class Receiver:
             self.ledger.push_inbox(active["id"], decision.text)
             acknowledge("thought", "已转给正在处理的 worker，会在下一次检查点读取。")
         elif decision.kind == "resume":
-            self.ledger.push_inbox(active["id"], decision.text)
-            self.ledger.resume(active["id"], "human answered in session")
-            acknowledge("thought", "收到回复，继续处理。")
-        elif decision.kind == "retry":
-            self.ledger.retry(history[-1]["id"], "human asked 重试 in session")
-            acknowledge("thought", "已重新排队。")
+            can_resume = active["skill"] == "chat" or issue.get("delegate_id") == self.identity["appUserId"]
+            self.ledger.push_inbox(active["id"], decision.text, resume_waiting=can_resume)
+            acknowledge("thought", "收到回复，继续处理。" if can_resume else "已保存回复；issue 已不再委派给 FarmBot，暂不继续修复。")
         elif decision.kind == "elicit":
             acknowledge("elicitation", decision.text)
 

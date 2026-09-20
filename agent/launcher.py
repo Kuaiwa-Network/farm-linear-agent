@@ -79,6 +79,8 @@ class Launcher:
         # Scheduler.stop and serve()'s shutdown read from theirs.
         self._unsandboxed = {}
         self._unsandboxed_lock = threading.Lock()
+        self._cancelled_runs = set()
+        self._shutdown = False
 
     def running(self):
         return dict(self._handles)
@@ -96,6 +98,10 @@ class Launcher:
         return self.runs_root / item_id
 
     def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None, writable=()):
+        # A fresh worker is also a new attempt after an operator retry. Stop fences from
+        # its previous attempt must not prevent this worker requesting another batch.
+        with self._unsandboxed_lock:
+            self._cancelled_runs.discard(item_id)
         if item_id in self._handles:
             raise RuntimeError(f"worker already running for {item_id}")
         run_dir = self.state_dir(item_id) / time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(self.clock()))
@@ -145,7 +151,7 @@ class Launcher:
         self._handles[item_id] = handle
         return handle
 
-    def run_unsandboxed(self, argv, *, cwd, timeout, log=None, env=None, owner=None):
+    def run_unsandboxed(self, argv, *, cwd, timeout, log=None, env=None, owner=None, cancelled=None):
         """Run one process OUTSIDE the worker seatbelt. This is the only method in FarmBot that does.
 
         Task 0's sandbox addendum: `Unity -batchmode -runTests` under [sandbox_workspace_write] hangs for
@@ -167,18 +173,23 @@ class Launcher:
         kwargs = ({"start_new_session": True} if os.name != "nt"
                   else {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP})
         try:
-            process = subprocess.Popen([str(part) for part in argv], cwd=str(cwd), env=env,
-                                       stdin=subprocess.DEVNULL, stdout=handle, stderr=subprocess.STDOUT,
-                                       **kwargs)
+            # Spawn and registration share the Stop lock. A cancellation before this
+            # section prevents spawning; one after it always sees the registered child.
+            with self._unsandboxed_lock:
+                if (self._shutdown or owner in self._cancelled_runs
+                        or (cancelled is not None and cancelled())):
+                    return Unsandboxed(-signal.SIGTERM, False, time.monotonic() - start)
+                process = subprocess.Popen([str(part) for part in argv], cwd=str(cwd), env=env,
+                                           stdin=subprocess.DEVNULL, stdout=handle, stderr=subprocess.STDOUT,
+                                           **kwargs)
+                if owner is not None:
+                    self._unsandboxed[owner] = process
             # Registered under the item, because this process is the one thing in FarmBot that nothing else
             # can reach. The worker that asked for the run has already exited; the Editor is a direct child
             # of `serve`, not a descendant of any worker, so `Launcher.stop`'s handle lookup and its
             # `descendants` walk both miss it entirely. Without this line a Stop leaves a real Editor running
             # for the rest of `batch_timeout` on a cancelled item, and a `serve` shutdown orphans it holding
             # the slot folder.
-            if owner is not None:
-                with self._unsandboxed_lock:
-                    self._unsandboxed[owner] = process
             try:
                 return Unsandboxed(process.wait(timeout=timeout), False, time.monotonic() - start)
             except subprocess.TimeoutExpired:
@@ -213,7 +224,6 @@ class Launcher:
         `reap` is the Popen when the caller is the thread that owns the wait; without it the child becomes an
         unreaped zombie whose pid still answers `os.kill(pid, 0)`, so `alive` would never go False.
         """
-        gone = (lambda: reap.poll() is not None) if reap is not None else (lambda: not self.alive(pid))
         if os.name == "nt":
             subprocess.run(["taskkill", "/T", "/F", "/PID", str(int(pid))], capture_output=True)
             if reap is not None:
@@ -226,6 +236,16 @@ class Launcher:
             group = os.getpgid(pid)
         except (ProcessLookupError, PermissionError):
             return
+        def gone():
+            if reap is not None:
+                reap.poll()
+            try:
+                os.killpg(group, 0)
+            except ProcessLookupError:
+                return True
+            except PermissionError:
+                pass
+            return False
         for sig in (signal.SIGTERM, signal.SIGKILL):
             try:
                 os.killpg(group, sig)
@@ -246,6 +266,7 @@ class Launcher:
         hour on the pool thread. Both callers reach it through here.
         """
         with self._unsandboxed_lock:
+            self._cancelled_runs.add(owner)
             process = self._unsandboxed.get(owner)
         if process is None or process.poll() is not None:
             return False
@@ -260,6 +281,7 @@ class Launcher:
         this an Editor outlives the process that started it and keeps the slot folder open across a
         restart — which the next `ensure` then reads as a slot another Editor already holds."""
         with self._unsandboxed_lock:
+            self._shutdown = True
             owners = list(self._unsandboxed)
         return [owner for owner in owners if self.stop_unsandboxed(owner)]
 

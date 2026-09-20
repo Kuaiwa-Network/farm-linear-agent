@@ -1,0 +1,35 @@
+PASS 67c53107-7db7-43d2-854b-7793f3bf825a reservations
+PASS 67c53107-7db7-43d2-854b-7793f3bf825a/32ebd7c8-fea5-4448-8d9e-bdb5ebcfa75c transitions: queued → acquired → interactive_busy → released → idle_open
+PASS 67c53107-7db7-43d2-854b-7793f3bf825a/32ebd7c8-fea5-4448-8d9e-bdb5ebcfa75c identity: aggregate=match
+PASS 2274bf8f-86a2-4e66-926c-c06d8e1f2634 reservations
+PASS 2274bf8f-86a2-4e66-926c-c06d8e1f2634/9bcbf559-d50d-4f6d-bfde-bab5eca71eb6 transitions: queued → acquired → interactive_busy → released → idle_open
+PASS 2274bf8f-86a2-4e66-926c-c06d8e1f2634/9bcbf559-d50d-4f6d-bfde-bab5eca71eb6 identity: aggregate=match
+PASS b2cdd891-1268-4afb-8ee1-2bf80dbeb30d reservations
+PASS b2cdd891-1268-4afb-8ee1-2bf80dbeb30d/3a1b3932-2b35-4fae-92c9-62377eff4f2e transitions: queued → acquired → batch_busy → released → idle_closed
+BASELINE b2cdd891-1268-4afb-8ee1-2bf80dbeb30d: total=4414 failed=26 known baseline=26
+PASS b2cdd891-1268-4afb-8ee1-2bf80dbeb30d batch: summary=ran, XML total>0
+PASS e3b5af71-a2ae-44c5-9e28-b209bd8d019d reservations
+PASS e3b5af71-a2ae-44c5-9e28-b209bd8d019d/99ecbafb-a415-4e61-b079-de3fc8118922 transitions: queued → acquired → batch_busy → released → idle_closed
+BASELINE e3b5af71-a2ae-44c5-9e28-b209bd8d019d: total=4414 failed=26 known baseline=26
+PASS e3b5af71-a2ae-44c5-9e28-b209bd8d019d batch: summary=ran, XML total>0
+PASS 2879a17b-58b3-413e-adea-1c6cae2d81f9 reservations
+PASS 2879a17b-58b3-413e-adea-1c6cae2d81f9/f097681c-c63b-466f-ab0b-4b9f77b989f2 transitions: queued → acquired → interactive_busy → released → idle_open
+PASS 2879a17b-58b3-413e-adea-1c6cae2d81f9/f097681c-c63b-466f-ab0b-4b9f77b989f2 identity: aggregate=match
+PASS cb26396e-74a4-4dff-9b2e-12a75b32b6de reservations
+PASS cb26396e-74a4-4dff-9b2e-12a75b32b6de cancellation: cancelled audit present; kill latency requires external stopwatch and process evidence
+PASS cb26396e-74a4-4dff-9b2e-12a75b32b6de/f5274c15-8be9-4a59-8c25-b69233ee7ea1 transitions: queued → acquired → batch_busy → cancelled → idle_closed
+INTERRUPTED cb26396e-74a4-4dff-9b2e-12a75b32b6de: cancelled batch; no complete XML result is required
+PASS cb26396e-74a4-4dff-9b2e-12a75b32b6de batch
+PASS 4d0f7abb-1f5f-477f-8738-22233b3b2767 reservations
+PASS 4d0f7abb-1f5f-477f-8738-22233b3b2767 cancellation: cancelled audit present; kill latency requires external stopwatch and process evidence
+PASS 4d0f7abb-1f5f-477f-8738-22233b3b2767/40734d60-c140-4a21-ab27-d9ca61bb9a0b transitions: queued → acquired → batch_busy → cancelled → idle_closed
+INTERRUPTED 4d0f7abb-1f5f-477f-8738-22233b3b2767: cancelled batch; no complete XML result is required
+PASS 4d0f7abb-1f5f-477f-8738-22233b3b2767 batch
+PASS afa96e2e-0a03-4125-a134-9fd313314cb8 reservations
+PASS afa96e2e-0a03-4125-a134-9fd313314cb8 cancellation: cancelled audit present; kill latency requires external stopwatch and process evidence
+PASS afa96e2e-0a03-4125-a134-9fd313314cb8/6843d95f-a99d-4f4f-9669-d15513e8afc9 transitions: queued → acquired → interactive_busy → cancelled → idle_open
+PASS afa96e2e-0a03-4125-a134-9fd313314cb8/6843d95f-a99d-4f4f-9669-d15513e8afc9 identity: aggregate=match
+PASS no acquisition overlap
+PASS pair 2274bf8f-86a2-4e66-926c-c06d8e1f2634 → b2cdd891-1268-4afb-8ee1-2bf80dbeb30d: interactive → batch
+PASS pair e3b5af71-a2ae-44c5-9e28-b209bd8d019d → 2879a17b-58b3-413e-adea-1c6cae2d81f9: batch → interactive
+PASS unity_slot:1 parked: idle_open, parked_commit=HEAD=381a825709379fa1cab5aed7b1b405129203aa35 (local origin/main; no fetch)

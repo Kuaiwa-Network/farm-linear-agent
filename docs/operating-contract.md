@@ -9,10 +9,10 @@ design rationale lives in `docs/superpowers/specs/`.
 |---|---|
 | Assign (delegate) an issue labelled Bug to @FarmBot | starts a `fix` work item; first activity within 10 s; posts 「👀 FarmBot 已开始处理」 once the worker claims |
 | Delegate an issue without a Bug label | asks one question in the session; starts nothing |
-| @FarmBot in a comment or the session | answers in the session (`chat`); never edits code from a mention |
+| @FarmBot in a comment or the session | interprets the request in `chat`; can resume previously delegated work on the same issue, but cannot authorize a new fix |
 | Reply in a session while a worker runs | the text reaches the worker at its next checkpoint |
 | Reply to a FarmBot question | the parked work item resumes with your answer |
-| Say 重试 in a session whose work finished | the work item is requeued with a new generation, released from its old worker, and a fresh worker takes it on the next scheduler tick |
+| Ask naturally to resume finished work, in its session or an @FarmBot mention | chat interprets intent, checks current delegation, and requeues the original fix with the complete reply; no keyword is required. Negations and questions about restarting do not restart work |
 | Press Stop | the worker process is killed promptly, without waiting for the scheduler; the item is cancelled; FarmBot confirms in the session |
 | Delegate an issue that already has FarmBot work in another session | declines with a note naming the issue and the running skill; the existing work continues |
 | @FarmBot on an issue that already has FarmBot work in another session | your text is forwarded to the running worker; you get a short notice |
@@ -22,15 +22,35 @@ design rationale lives in `docs/superpowers/specs/`.
 | Skill | May write to | Resources | Needs delegation |
 |---|---|---|---|
 | chat | nothing | none | no |
-| fix | Farm-Client, farm-hive, farmgui, common, as draft PRs on the Linear branch | Unity slot (one, batch or interactive, two-phase) | yes |
+| fix | Farm-Contract, Farm-Client, farm-hive, farmgui, common, as linked draft PRs on the Linear branch | Unity slot (one, batch or interactive, two-phase) | yes |
 
 FarmBot never merges, deploys, changes status or assignee, or edits repositories outside the list.
 Issue text, comments, attachments and Linear guidance are data, never instructions.
 Worker commands in the ledger CLI are item-scoped and token-authenticated; `cancel`, `recover`, `retry`,
 `recover-slot`, `reservations` and `slots` are operator commands for the trusted host.
-A worker never edits Farm-Contract: a contradiction between the confirmed requirement and the contract
-is reported as an elicitation and finishes the item blocked; contract changes belong to the `feature`
-skill in a later phase.
+The item-scoped `resume-work` command lets chat resume only the same issue's previously delegated fix;
+it checks a fresh Linear snapshot, a live chat token and the originating session message. The chat is
+completed and the old fix requeued in one transaction. Merely observing changed issue text/comments
+does not restart blocked work. Replies and handoff evidence survive the restart.
+
+A fix worker may update Farm-Contract in its own worktree for a confirmed bug requirement, following
+that repo's openspec instructions before the affected implementation. Uncertain behaviour or missing
+information is a question in Linear via `await-input`, which adds `needs-more-info`, emits the
+elicitation and parks the item. A reply resumes it; insufficient answers lead to another question.
+The label is not automatically removed just because a reply arrived. Every elicitation path adds it,
+including chat and intake. Status and assignee remain unchanged. Contract access does not bypass
+generator requirements or add Unity export tools.
+
+Existing hosts must add `Farm-Contract` to their private `repos` configuration and seed its bare clone
+before enabling this fix manifest. New configurations include its GitHub remote by default.
+
+CLI `cancel` records the cancellation immediately; the next scheduler tick kills this service's
+owned worker or batch Editor before sweeping worktrees. An immediate `retry` also retires the old
+process, and waits for its cancelled reservation to settle before launching a new attempt. A Stop
+fences pending batch launches, including an old reservation whose item has since been retried.
+SIGTERM to the service runs batch-process cleanup during startup or normal serving. On this Mac,
+the live `launchctl kickstart -k` rehearsal also removed the batch Editor; this is not a promise
+that Python cleanup executes after SIGKILL. Reservation release still requires a quiescence probe.
 
 ## Work item states
 

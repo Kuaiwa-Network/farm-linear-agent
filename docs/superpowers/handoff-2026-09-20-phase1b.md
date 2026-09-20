@@ -15,66 +15,64 @@ needed to resume is here or in git; nothing important is left in that conversati
 
 ## State
 
-**Updated 2026-09-20, end of the Claude Code session.** Everything below supersedes the older text.
+**Later operator-approved workflow update:** fix now includes Farm-Contract; unresolved questions
+use Linear `await-input` with `needs-more-info`. Natural-language continuation is interpreted by
+chat, then a scoped command resumes the original delegated fix with its replies. This supersedes
+the earlier contract-handoff blocker. See `reports/2026-09-20-conversation-resume/report.md`.
+These changes are on the same branch and are not installed in the original service yet. The
+host Farm-Contract remote and isolated bare clone are now prepared. The final combined suite
+passed 347 tests, warning-free; four real chat-worker smoke cases passed against a stub Linear API.
 
-Branch **`task-13-readiness-gate`**, pushed. **PR #5 is open against `main`, ready for review, not a
-draft**: https://github.com/Kuaiwa-Network/farm-linear-agent/pull/5
+Lifecycle continuation committed as `94a6eaf` on `codex/phase1b-live-rehearsal`.
+Final offline suite: **331 tests, green and warning-free** outside the Codex sandbox.
 
-| Task | Status |
-|---|---|
-| 1-4 | merged, PR #1 |
-| 5-10 | merged. **Criterion 3 proved offline**, both arrival orders |
-| 12 outbox dedup + swept evidence | merged, PR #4. Not in the plan; forced by the live rehearsal |
-| 11 live rehearsal | **Steps 1-3 PROVED live. Step 4 halted twice, both defects now fixed. Steps 5-9 owed** |
-| 13 readiness gate | complete, two review verdicts + scoped re-review, **in PR #5** |
+**Updated by Codex on 2026-09-20.** PR #5 is merged (`328cc80`). Task 11's live
+resource rehearsal now passes. See `reports/2026-09-20-slot-rehearsal/report.md`
+and its machine-checked evidence, which supersede the previously halted Step 4.
 
-Suite: **306 tests, green and warning-free** under `python3 -W error -m unittest discover -s tests`.
+- Tasks 1-10, 12 and 13 were already complete; none was repeated.
+- Task 11: live identity aggregate `match`, both serialization orders, same-Editor
+  reuse, 4414-test batch run with the known 26 failures, CLI batch Stop in 0.329 s,
+  interactive probe/release in 2.445 s, and `launchctl kickstart -k` batch cleanup in
+  0.151 s. Both process checks were repeated after Unity acquired its project lock.
+- Stop/restart rehearsal exposed Python gaps. This continuation fixes CLI process
+  reconciliation, SIGTERM cleanup, late batch spawn races, group escalation, and
+  cancel-then-retry races, with failing-then-passing real-subprocess regressions.
+- `scripts/check-rehearsal.py` now checks audit ordering, overlapping ownership,
+  identity, batch XML, both arrival orders, and actual HEAD/parked commit against main.
+- Phase 1 criterion 5: the operator selected **FARM-1247** (task 410 completes after
+  unlocking one table instead of two), delegated it in Linear, updated the tunnel URL,
+  then re-delegated. The real webhook created work item
+  `9440b065-87da-4494-8dc0-95713c6c0ef1`, session
+  `9641da61-238d-4ff2-9470-36e094854a95`. The worker finished **blocked** on a contract/configuration conflict; no code changes or PR.
+  See `reports/2026-09-20-FARM-1247/report.md`. The operator confirmed **zero initially unlocked tables; count only explicit unlocks**.
+  The remaining prerequisite is updating Farm-Contract shelf.md §3, then correcting
+  stat 3004 and exporting/releasing the configuration through its approved path.
 
-PR #5 carries six commits: two from Task 11 (`52b2b92` Step 3 write-up, `b5964d6` the probe fix),
-three from Task 13, and a refreshed workspace archive. It is based on `main` because
-`task-11-live-rehearsal` was never pushed.
+### Installed service after rehearsal
 
-### What Task 11 proved, and where it stopped
+The temporary worktree-backed service was removed after the run. The installed service
+is running from the original checkout again, with `ProcessType`
+corrected to `Standard`. Its private config now additionally names Farm-Contract; credentials and
+other settings were preserved. The slot is closed, clean, parked at main, with no active
+reservations; its MCP server was reaped. The lifecycle fixes remain on this branch
+pending PR integration, so they are not yet the installed service's code.
 
-**Steps 1-3 are real.** The launcher genuinely runs Unity — pid 46016 as a child of `serve` — the
-slot switches, and a batch run produced **4414 tests in 130.9 s with 26 failures matching Task 0's
-baseline exactly**. The sha1 instance rule holds in production, the MCP server self-starts as a
-`uvx` child of the Editor on port 8080, and the hold/recover path is sound.
+### Runtime locations
 
-**Step 4 (the interactive path) halted twice, on two defects the test suite is structurally
-incapable of catching** — it substitutes a fake MCP returning canned JSON, so nothing executes C#.
-Both are now fixed in PR #5. Full detail:
-`docs/superpowers/spikes/2026-09-20-live-rehearsal-findings.md`, section "Step 4 result".
+Code/evidence for this continuation live in the Codex worktree. The original checkout
+at `/Users/elendil/WorkSpaces/Farm/farm-linear-agent` still owns `.local/` (real ledger,
+clones, runs and slot). Do not create or import a second slot in this worktree.
 
-### RESUME HERE — re-run Step 4 against a live Editor
+The resource rehearsal used operator claims and deliberately disabled autonomous
+workers. It did not post comments or claim a new Codex delivery. Raw Unity logs and
+XML remain under the original checkout's `.local/runs/<item>/`; committed evidence
+contains the identity observation, process timing and checker output.
 
-**This is the single most important thing outstanding, and nothing in PR #5 has been verified
-against a real Editor.** Both fixes are reasoning from source plus mutation and differential
-evidence. This codebase has already shipped an identity probe that passed three review rounds and
-could not work against a real Editor; the failure mode was identical. Only a live run settles it.
-
-Merge PR #5 first, then:
-
-```
-python3 -m agent.service serve --config <config>          # the service; it launches Unity itself
-python3 -m agent.service enqueue --issue <FARM-xxxx> --skill fix
-python3 -m agent.service slots                             # watch state transitions
-```
-
-Drive it through `enqueue` rather than the webhook — a quick tunnel takes a new hostname on every
-restart, and the user has asked to be told when it needs re-pasting rather than worked around.
-
-**When it halts, clean up in this order** (the slot is held on purpose, which is spec §7 working):
-
-```
-pkill -f 'Unity.app/Contents/MacOS/Unity'                  # or kill the pid from `slots`
-lsof -ti :8080 | xargs kill                                # reap the MCP server
-rm -f .local/editors/slot-1/Temp/UnityLockfile
-python3 -m agent --db .local/agent/ledger.sqlite3 recover-slot --slot unity_slot:1
-```
-
-The slot is currently **`idle_closed`**, instance `slot-1@e7fe013d9909e41a`, clean. Confirm with
-`python3 -m agent.service slots` before and after any run.
+The failed quick tunnel was restarted. The current URL is
+`https://release-montgomery-incomplete-suzuki.trycloudflare.com/webhook` and the
+operator confirmed it was pasted into Linear; real delivery to the receiver is verified.
+A later tunnel restart changes that URL again.
 
 ## A trap that will bite you
 
@@ -112,7 +110,7 @@ Rules that earned their place here:
 ## Global constraints
 
 - Python 3.11+, **standard library only** in `agent/`.
-- Suite green AND warning-free under `python3 -W error`. Currently 195.
+- Suite green AND warning-free under `python3 -W error`; see the latest report for the current count.
 - `unittest`'s `-k` is a plain substring with **no boolean operators**. `-k "a or b"` matches
   nothing, prints `NO TESTS RAN` and exits 5 — which silently satisfies an "expected: FAIL" gate.
   Repeated `-k` flags are ORed. Always run a selection and count what it really matches.
@@ -232,20 +230,14 @@ None blocks execution. The final whole-branch review triages which must be fixed
 
 ## What is left
 
-1. **Task 11 Steps 4-9** — re-run Step 4 (above), then: Stop against a live batch run verified with
-   `pgrep` rather than the ledger's own opinion, a service restart mid-run proving
-   `stop_all_unsandboxed` does not orphan an Editor, the `check-rehearsal.py` script, the report,
-   and the commit.
-2. **Phase 1 criterion 5** — one real bug delivered end to end as a draft PR. Still the only
-   unproven criterion. Not blocked by this plan. Needs the quick tunnel restarted and its new
-   hostname pasted into the Linear app settings, then a delegated bug that genuinely needs a code
-   change. Webhook delivery itself is **proven** — Linear delivered to this Mac on 2026-09-18 and
-   FarmBot's comments from that run are still on FARM-1127 and FARM-1227. Only the hostname rotates.
-3. **The Windows plan, last**, by the user's explicit ordering: no Windows host has been assigned.
-   Runtime spike re-run, supervisor port, retiring both prototypes.
-4. **A config-export capability** (`-executeMethod`) is deferred to Phase 3+. `batch_test_command`
-   hardcodes `-runTests`; `grep -rn executeMethod agent/ skills/` returns nothing.
-5. **~35 deferred minor findings** across Tasks 1-13, listed above, for a final whole-branch review.
+1. Integrate the reviewed branch (Farm-Contract is configured), then resume FARM-1247 with the
+   confirmed zero-unlock decision. The updated worker can correct the contract itself. Check the
+   headless common generator and consumer importer before declaring export unavailable.
+   A draft PR delivery is still owed for Phase 1 criterion 5; the webhook itself worked.
+2. Windows deployment remains last by the user's explicit ordering; no host assigned.
+3. Config export (`-executeMethod`) remains Phase 3+, not part of this continuation.
+4. Historical deferred minors below remain recorded; this continuation addressed
+   important lifecycle defects found by live rehearsal and independent review.
 
 ## If you continue in Codex rather than Claude Code
 

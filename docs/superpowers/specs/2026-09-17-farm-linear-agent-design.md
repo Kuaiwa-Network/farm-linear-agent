@@ -5,6 +5,23 @@ spec for review before an implementation plan is drafted. Agent name: **@FarmBot
 chosen by the user on 2026-09-17. The existing Linear OAuth application FarmQA is
 renamed to FarmBot; its app user id is unchanged, so existing sessions keep working.
 
+## Approved amendment — 2026-09-20
+
+The operator approved extending `fix` to Farm-Contract, then affected implementation repos,
+within the same delegated issue and isolated worktrees. Contract uncertainty is asked in Linear
+and waits for an answer; confirmed answers may drive linked draft contract and implementation
+PRs. Cross-repo handoff-only restrictions are superseded for this workflow.
+
+Restart requests are natural language interpreted by the existing chat worker, not a keyword
+router. A narrow `resume-work` command checks current delegation and resumes prior fix work on
+the same issue, preferring the original session and preserving replies. New mentions do not
+authorize new fixes. Observing new comments alone does not restart blocked work. Every question
+or request for missing information adds `needs-more-info` before its Linear elicitation.
+
+These amendments supersede conflicting phase boundaries/routing below. Current behavior and
+host migration requirements are in `docs/operating-contract.md`; evidence is in
+`reports/2026-09-20-conversation-resume/report.md`.
+
 ## 1. Purpose
 
 One Linear agent for the 农场 team. A human gives it work by delegating an issue, or
