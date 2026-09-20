@@ -118,9 +118,19 @@ def complete_session(api_factory, item, outcome, evidence):
 
 
 def owned_action(ledger, item_id, action_id, token):
-    """Only a live claim on the item that prepared a comment may act on it."""
+    """Only a live claim on the issue a comment speaks for may act on it.
+
+    Scoped by the item's own issue, claimed input and generation instead of by the row's item id. That is
+    the same authority — a running worker may speak for its issue at the input it claimed — and it is what
+    the outbox key is built from, so a second item on an unchanged issue, which prepare_comment hands the
+    row the first item prepared, can still drive post-comment. A row from another issue is still refused,
+    and a confirmed row makes post_comment a no-op, so this cannot post anything twice.
+    """
     ledger.renew(item_id, token)
-    row = ledger.connection.execute("SELECT * FROM outbox WHERE action_id=? AND item_id=?", (action_id, item_id)).fetchone()
+    row = ledger.connection.execute(
+        """SELECT o.* FROM outbox o JOIN work_items w ON w.id=?
+           WHERE o.action_id=? AND o.issue_id=w.issue_id AND o.fingerprint=w.claimed_fingerprint
+                 AND o.generation=w.generation""", (item_id, action_id)).fetchone()
     if row is None:
         raise LedgerError("unknown comment action for this work item")
     return dict(row)

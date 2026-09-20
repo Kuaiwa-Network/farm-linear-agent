@@ -1,4 +1,5 @@
 """Behavioural tests on real SQLite files, in the style of the BugAgent prototype."""
+import json
 import sqlite3
 import tempfile
 import threading
@@ -422,6 +423,120 @@ class OutboxTests(LedgerBase):
             self.ledger.finish(item["id"], token, "delivered",
                                {"summary": "空交付", "comment_action_id": action["action_id"],
                                 "verification": "dotnet test", "prs": []})
+
+
+class SecondItemOnOneIssueTests(LedgerBase):
+    """The live rehearsal's Finding 2: `agent.service enqueue` on an issue that already carried a work item.
+
+    `one_active_item_per_issue` means the second item always starts after the first is terminal, and on an
+    issue nothing has changed on it claims the same fingerprint at the same generation — which is the whole
+    outbox key, so the two items collide on one outbox row.
+    """
+
+    FIRST_BODY = "缺少客户端导出产物，需要发布决策。"
+
+    def blocked_first_item(self, body=FIRST_BODY):
+        """A delegated run that went the whole way: a started marker, a blocker comment, then blocked."""
+        item = self.new_item()
+        token = self.ledger.claim(item["id"], worker_id="w1")["token"]
+        started = self.ledger.prepare_comment(item["id"], token, "started", "👀 FarmBot 已开始处理。")
+        self.ledger.confirm_comment(started["action_id"], "remote-0")
+        action = self.ledger.prepare_comment(item["id"], token, "blocker", body)
+        self.ledger.confirm_comment(action["action_id"], "remote-1")
+        self.ledger.finish(item["id"], token, "blocked", {"summary": "阻塞", "comment_action_id": action["action_id"]})
+        return item["id"], action["action_id"]
+
+    def second_item(self):
+        item = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix", target=PIN)
+        return item["id"], self.ledger.claim(item["id"], worker_id="w2")["token"]
+
+    def audit_details(self, item_id, kind):
+        return [json.loads(row["details"]) for row in self.ledger.connection.execute(
+            "SELECT details FROM audit WHERE item_id=? AND kind=? ORDER BY id", (item_id, kind))]
+
+    def test_a_second_item_reaching_the_same_verdict_finishes_instead_of_stalling(self):
+        first, first_action = self.blocked_first_item()
+        second, token = self.second_item()
+        action = self.ledger.prepare_comment(second, token, "blocker", self.FIRST_BODY)
+        self.assertEqual(action["action_id"], first_action)
+        self.assertTrue(action["deduplicated"])
+        self.assertEqual(action["item_id"], first)
+        self.assertEqual(len(self.ledger.connection.execute(
+            "SELECT action_id FROM outbox WHERE issue_id=? AND kind='blocker'", (ISSUE,)).fetchall()), 1)
+        view = self.ledger.finish(second, token, "blocked", {"summary": "同一结论", "comment_action_id": first_action})
+        self.assertEqual(view["state"], "blocked")
+        self.assertEqual(self.ledger.item(first)["state"], "blocked")
+
+    def test_a_suppressed_second_conclusion_is_kept_in_the_audit_trail(self):
+        """`kind` is only 'started', 'blocker' or 'delivery', so two items can reach the same kind with
+        materially different text. The issue must not collect both, but the ledger must not lose the second."""
+        first, _ = self.blocked_first_item()
+        second, token = self.second_item()
+        self.ledger.prepare_comment(second, token, "blocker", "无法复现，需要设备日志。")
+        details = self.audit_details(second, "prepare_comment")
+        self.assertEqual(len(details), 1)
+        self.assertEqual(details[0]["prepared_by"], first)
+        self.assertIn("无法复现", details[0]["suppressed_body"])
+
+    def test_a_started_marker_and_an_identical_conclusion_keep_no_suppressed_body(self):
+        self.blocked_first_item()
+        second, token = self.second_item()
+        self.ledger.prepare_comment(second, token, "started", "👀 第二个工作项开始处理。")
+        self.ledger.prepare_comment(second, token, "blocker", self.FIRST_BODY)
+        details = self.audit_details(second, "prepare_comment")
+        self.assertEqual(len(details), 2)
+        self.assertNotIn("suppressed_body", details[0])  # a started marker states no conclusion
+        self.assertNotIn("suppressed_body", details[1])  # and this blocker says what the first one said
+
+    def test_an_unposted_row_from_a_dead_item_is_handed_to_the_item_that_can_still_post_it(self):
+        item = self.new_item()
+        token = self.ledger.claim(item["id"], worker_id="w1")["token"]
+        stranded = self.ledger.prepare_comment(item["id"], token, "blocker", "第一份措辞。")
+        self.ledger.fail(item["id"], "worker exited without finishing")
+        second, second_token = self.second_item()
+        action = self.ledger.prepare_comment(second, second_token, "blocker", "第二份措辞。")
+        self.assertEqual(action["action_id"], stranded["action_id"])
+        self.assertFalse(action["deduplicated"])
+        self.assertEqual(action["item_id"], second)
+        self.assertIn("第二份措辞。", action["body"])
+        self.assertEqual(self.ledger.outbox(item["id"]), [])
+        self.ledger.confirm_comment(action["action_id"], "remote-2")
+        view = self.ledger.finish(second, second_token, "blocked",
+                                  {"summary": "完成", "comment_action_id": action["action_id"]})
+        self.assertEqual(view["state"], "blocked")
+
+    def test_finish_still_refuses_a_confirmed_comment_from_another_issue(self):
+        """Two issues can share a fingerprint — it is hashed from title, description, attachments and
+        comments, never from the issue id — so dropping the item check without adding an issue check would
+        let one issue's comment close another issue's work item."""
+        _, first_action = self.blocked_first_item()
+        self.ledger.observe_issue(issue(id=OTHER, identifier="FARM-2", url="https://linear.app/x/issue/FARM-2"))
+        self.ledger.ensure_session("session-2", OTHER, delegation=True)
+        other = self.ledger.create_work_item(issue_id=OTHER, session_id="session-2", skill="fix", target=PIN)
+        token = self.ledger.claim(other["id"], worker_id="w3")["token"]
+        with self.assertRaises(LedgerError):
+            self.ledger.finish(other["id"], token, "blocked", {"summary": "借用", "comment_action_id": first_action})
+
+    def test_finish_still_refuses_a_confirmed_comment_from_an_earlier_generation(self):
+        first, first_action = self.blocked_first_item()
+        self.ledger.retry(first, "operator 重试")
+        token = self.ledger.claim(first, worker_id="w4")["token"]
+        self.assertEqual(self.ledger.item(first)["generation"], 1)
+        with self.assertRaises(LedgerError):
+            self.ledger.finish(first, token, "blocked", {"summary": "旧世代", "comment_action_id": first_action})
+
+    def test_finish_still_refuses_a_comment_of_the_wrong_kind_or_one_never_posted(self):
+        item = self.new_item()
+        token = self.ledger.claim(item["id"], worker_id="w1")["token"]
+        unposted = self.ledger.prepare_comment(item["id"], token, "blocker", "未发出。")
+        with self.assertRaises(LedgerError):
+            self.ledger.finish(item["id"], token, "blocked",
+                               {"summary": "未确认", "comment_action_id": unposted["action_id"]})
+        self.ledger.confirm_comment(unposted["action_id"], "remote-9")
+        with self.assertRaises(LedgerError):
+            self.ledger.finish(item["id"], token, "delivered",
+                               {"summary": "错误种类", "comment_action_id": unposted["action_id"],
+                                "verification": "dotnet test", "no_change": "无需改动", "prs": []})
 
 
 class ReservationTests(unittest.TestCase):

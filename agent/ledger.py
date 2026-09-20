@@ -1025,6 +1025,24 @@ class Ledger:
             return self._view(self._row(row["id"]))
 
     def prepare_comment(self, item_id, token, kind, body):
+        """Claim the one outbox row for this issue, claimed input, generation and kind, and say plainly
+        whether it is this item's own or one another item already posted.
+
+        The key excludes the item id on purpose: an unchanged issue must not collect two identical blocker
+        comments. An operator `enqueue` on an issue that already carried a work item makes a second item
+        land on the same key, and the old code returned the other item's row as though it were this one's,
+        which was a silent stall (2026-09-20 rehearsal, Finding 2). Three cases now:
+
+        - the row is this item's, or there is none: as before, idempotent in the item's own body.
+        - the row exists, belongs to another item and was never posted: nothing is on the issue, so it is
+          handed to the live item with its own wording. Safe because `one_active_item_per_issue` means the
+          other item is necessarily terminal; the guard re-states that rather than trusting it.
+        - the row exists, belongs to another item and was confirmed: the comment is genuinely on the issue,
+          so this item borrows it and posts nothing. `kind` is only 'started', 'blocker' or 'delivery', so
+          a second item can reach the same kind with materially different words; those words must not
+          reach the issue twice, but losing them is what Finding 1 was about, so a diverging body is kept
+          in `audit`.
+        """
         if kind not in ("started", "blocker", "delivery"):
             raise LedgerError("comment kind must be started, blocker or delivery")
         _text(body, "comment body")
@@ -1037,12 +1055,33 @@ class Ledger:
             marker = f"[farmbot:{action_id}]"
             clean_body = MARKER.sub("", body).rstrip()
             _text(clean_body, "comment body")
-            if self.connection.execute("SELECT 1 FROM outbox WHERE action_id=?", (action_id,)).fetchone() is None:
+            existing = self.connection.execute("SELECT * FROM outbox WHERE action_id=?", (action_id,)).fetchone()
+            deduplicated = False
+            if existing is None:
                 self.connection.execute("""INSERT INTO outbox(action_id,item_id,issue_id,fingerprint,generation,kind,marker,body,created_at)
                     VALUES(?,?,?,?,?,?,?,?,?)""", (action_id, row["id"], row["issue_id"], row["claimed_fingerprint"],
                                                    row["generation"], kind, marker, f"{clean_body}\n\n{marker}", self.clock()))
                 self._audit(row["id"], "prepare_comment", kind, {"action_id": action_id})
-            return dict(self.connection.execute("SELECT * FROM outbox WHERE action_id=?", (action_id,)).fetchone())
+            elif existing["item_id"] != row["id"]:
+                owner = self.connection.execute("SELECT state FROM work_items WHERE id=?",
+                                                (existing["item_id"],)).fetchone()
+                if existing["remote_id"] is None and (owner is None or owner["state"] not in ACTIVE_STATES):
+                    self.connection.execute("UPDATE outbox SET item_id=?,body=?,created_at=? WHERE action_id=?",
+                                            (row["id"], f"{clean_body}\n\n{marker}", self.clock(), action_id))
+                    self._audit(row["id"], "prepare_comment", kind,
+                                {"action_id": action_id, "taken_over_from": existing["item_id"]})
+                else:
+                    deduplicated = True
+                    details = {"action_id": action_id, "prepared_by": existing["item_id"]}
+                    if kind != "started" and clean_body != MARKER.sub("", existing["body"]).rstrip():
+                        # The conclusion this item reached, in its own words. It is not posted — the issue
+                        # already carries a comment of this kind at this input — but an operator asking
+                        # what the second worker actually concluded must not be told nothing. A 'started'
+                        # marker states no conclusion, so its wording is not worth keeping.
+                        details["suppressed_body"] = clean_body[:2000]
+                    self._audit(row["id"], "prepare_comment", f"{kind} deduplicated", details)
+            return {**dict(self.connection.execute("SELECT * FROM outbox WHERE action_id=?", (action_id,)).fetchone()),
+                    "deduplicated": deduplicated}
 
     def confirm_comment(self, action_id, remote_id):
         _text(action_id, "action_id")
@@ -1097,9 +1136,22 @@ class Ledger:
                             raise LedgerError("each PR URL must be a canonical HTTPS pull request URL")
                 action = self.connection.execute("SELECT * FROM outbox WHERE action_id=?", (evidence["comment_action_id"],)).fetchone()
                 kind = "blocker" if outcome == "blocked" else "delivery"
-                if (action is None or action["item_id"] != row["id"] or action["fingerprint"] != row["claimed_fingerprint"]
+                # Scoped by the issue rather than by the item. What an outbox row asserts is "the comment
+                # for this issue, at this claimed input and generation and of this kind, exists and was
+                # posted", and that is exactly what a terminal state needs to be true. A second item on an
+                # unchanged issue is handed that row by prepare_comment and has no way to obtain one of its
+                # own, so requiring item_id here is what left it with no path to a terminal state at all.
+                # `issue_id` replaces it rather than simply going: a fingerprint is hashed from title,
+                # description, attachments and comments and never from the issue id, so two issues can
+                # share one, and without this clause a comment posted on one issue could close a work item
+                # on another.
+                if (action is None or action["issue_id"] != row["issue_id"]
+                        or action["fingerprint"] != row["claimed_fingerprint"]
                         or action["generation"] != row["generation"] or action["kind"] != kind or not action["remote_id"]):
-                    raise LedgerError("finish requires a confirmed comment for this item, claimed input and outcome")
+                    raise LedgerError("finish requires a confirmed comment for this issue, claimed input and outcome")
+                if action["item_id"] != row["id"]:
+                    self._audit(row["id"], "finish", "cited a comment another item posted",
+                                {"action_id": action["action_id"], "prepared_by": action["item_id"]})
             current = self._issue_row(row["issue_id"])["fingerprint"]
             changed = current != row["claimed_fingerprint"] or row["requeue_requested"]
             state = "queued" if changed else outcome
