@@ -280,6 +280,13 @@ class TwoPhaseTests(unittest.TestCase, Fixture):
             time.sleep(0.1)
         self.fail(f"the loops did not reach a terminal state within {timeout}s")
 
+    def launch_payloads(self, item_id):
+        """Every launch message the launcher really wrote for this item, oldest first. Each run directory
+        is named for its launch time, so the last one is the worker the pool resumed once it held the
+        slot — the one whose `resource` block carries what the pool did on the slot's behalf."""
+        prompts = sorted(Path(self.c.launcher.state_dir(item_id)).glob("*/prompt.md"))
+        return [json.loads(path.read_text(encoding="utf-8").split("\n\n", 1)[1]) for path in prompts]
+
     def terminal(self, item_id):
         return self.c.ledger.item(item_id)["state"] in ("blocked", "delivered", "failed", "cancelled")
 
@@ -361,6 +368,29 @@ class TwoPhaseTests(unittest.TestCase, Fixture):
         # request existed while the first still held the slot, and was granted only once it was given back.
         self.assertLess(acquired[1]["created_at"], acquired[0]["released_at"])
         self.assertEqual({r["resource"] for r in acquired}, {SLOT})
+        # Both items really needed *Unity*, and each in the way its mode means. Criterion 3 is not satisfied
+        # by two items that merely held a reservation: the batch half's whole point is that the pool runs
+        # the Editor itself, outside the worker's sandbox, and hands the worker the results.
+        self.assertEqual(len(self.pool.run_unsandboxed.argv), 1)   # one batch run, for the batch item only
+        self.assertEqual(self.pool.run_unsandboxed.owners, [first])
+        argv = self.pool.run_unsandboxed.argv[0]
+        self.assertEqual(argv[argv.index("-projectPath") + 1], str(self.folder))
+        batch = self.launch_payloads(first)[-1]["resource"]
+        # `total`, not the exit code: Task 0 Step 4 measured exit 0 meaning *nothing ran*, so a zero-total
+        # result reaching a worker as evidence is the verification gap this plan has guarded against since
+        # then. Asserting the measured 4388 closes that case as well as the no-run-at-all case.
+        self.assertEqual((batch["mode"], batch["batch_result"]["state"], batch["batch_result"]["exit_code"]),
+                         ("batch", "ran", 2))
+        self.assertEqual((batch["batch_result"]["total"], batch["batch_result"]["passed"],
+                          batch["batch_result"]["failed"]), (4388, 4362, 26))
+        self.assertTrue(Path(batch["batch_result"]["results_file"]).is_file())
+        # No argv and no Editor path for either worker (spec §8): the run was done for them.
+        self.assertNotIn("unity", batch)
+        # The interactive worker gets no batch result at all — run_tests over MCP is its verify path — and
+        # the Editor it addresses is the one the pool started and pinned to this slot.
+        interactive = self.launch_payloads(second)[-1]["resource"]
+        self.assertEqual((interactive["mode"], interactive["batch_result"]), ("interactive", None))
+        self.assertEqual(interactive["slot"], SLOT)
 
     def test_the_slot_visits_each_pinned_commit_and_is_parked_back_on_main(self):
         first, second = self.queue_two_requests()

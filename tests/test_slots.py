@@ -840,6 +840,72 @@ class PoolTests(SlotFixture):
                 self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "held")
                 self.assertEqual([r["state"] for r in self.ledger.reservations()], ["active"])
 
+    def test_a_grant_that_fails_gives_the_slot_back_through_park_and_never_asserts_its_state(self):
+        """The same lie park_idle was fixed not to write, on the give-back path. A compile failure is
+        reached *after* open_editor, so the Editor really is on the folder and the checkout really did move
+        it to the failed pin. `_switch_failed` used to force the slot to idle_closed from here, which said
+        no Editor was open on a folder that had one and left parked_commit naming a commit the folder was
+        not on. The slot goes back through park() instead: folder to main, state decided by the departing
+        mode and a live process rather than asserted."""
+        self.pool().ensure()
+        pinned = self.commit("does-not-build")
+        self.commit("main-moved-on")   # so "back on main" is observable in the folder's own head
+        item = self.waiting(ISSUE, pinned, "interactive")
+        mcp = FakeMcp(console_errors=["Assets/A.cs(3,1): error CS1002: ; expected"])
+        pool = self.pool(mcp=mcp)
+        self.assertEqual(pool.tick()["granted"], 0)
+        self.assertEqual(self.ledger.item(item)["state"], "failed")   # the commit's problem, not the slot's
+        main = self.trees.resolve_commit("Farm-Client")
+        self.assertNotEqual(main, pinned)
+        slot = self.ledger.slot("unity_slot:1")
+        self.assertEqual(slot["state"], "idle_open")        # open_editor started it and park never closes one
+        self.assertEqual(slot["parked_commit"], main)       # the row agrees with the folder
+        self.assertEqual(self.trees.head(self.root / "editors" / "slot-1"), main)
+        # Still in the pool and still grantable: a commit that does not build is not a broken slot.
+        self.assertIn(slot["state"], Ledger.FREE_SLOT_STATES)
+
+    def test_an_interactive_slot_whose_editor_died_is_parked_closed_and_its_lock_cleared(self):
+        """The other half of the same question, and the reason the state is not simply the mode: an Editor
+        that crashed leaves the folder closed and its lock behind, so `editor_is_open` decides and spec §7
+        removes that lock only after confirming the process is gone. Without this, a helper that answered
+        idle_open for every interactive departure would pass every other test in this file."""
+        self.pool().ensure()
+        item = self.waiting(ISSUE, self.commit("fix"), "interactive")
+        mcp = FakeMcp()
+        pool = self.pool(mcp=mcp)
+        self.assertEqual(pool.tick()["granted"], 1)
+        lock = self.root / "editors" / "slot-1" / "Temp" / "UnityLockfile"
+        self.assertTrue(lock.is_file())     # open_editor wrote it, exactly as the real Editor does
+        mcp.open_folders.clear()            # the Editor died; the lock is the litter it left behind
+        self.ledger.release(self.ledger.active_reservation(item)["reservation_id"],
+                            pool.token_path(item).read_text(encoding="utf-8"), "worker reported quiescent")
+        self.assertEqual(pool.tick()["parked"], 1)
+        self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "idle_closed")
+        self.assertFalse(lock.exists())
+
+    def test_a_git_failure_on_an_open_interactive_slot_still_records_the_editor_that_is_there(self):
+        """The give-back's fallback, reached only when park() cannot move the folder either — the git stage,
+        whose own checkout is what just failed. The slot stays in the pool for the one retry spec §7 allows,
+        but the state it records is asked and not asserted: an Editor an earlier interactive run left open
+        is still on the folder, and writing idle_closed over it is the defect this round removed."""
+        self.pool().ensure()
+        mcp = FakeMcp()
+        first = self.waiting(ISSUE, self.commit("first"), "interactive")
+        pool = self.pool(mcp=mcp)
+        self.assertEqual(pool.tick()["granted"], 1)          # opens the Editor on the slot
+        self.ledger.release(self.ledger.active_reservation(first)["reservation_id"],
+                            pool.token_path(first).read_text(encoding="utf-8"), "worker reported quiescent")
+        pool.tick()
+        self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "idle_open")
+        self.waiting(OTHER, self.commit("second"), "interactive")
+        broken = self.pool(mcp=mcp, worktrees=BrokenCheckout(self.trees))
+        self.assertEqual(broken.tick()["granted"], 0)
+        slot = self.ledger.slot("unity_slot:1")
+        self.assertEqual(slot["state"], "idle_open")
+        self.assertIn(slot["state"], Ledger.FREE_SLOT_STATES)   # still grantable, so the retry can happen
+        self.assertEqual([r["state"] for r in self.ledger.reservations()],
+                         ["released", "released", "queued"])
+
     def test_a_slot_the_worker_gave_back_itself_is_parked_by_its_own_departing_mode(self):
         """The ordinary way a slot comes back is the worker's own `release-resource`, which runs in the
         worker's process against its own connection. settle() never sees that reservation, so a note this

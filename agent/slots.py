@@ -306,7 +306,21 @@ class SlotPool:
             self.ledger.fail_queued(reservation["item_id"], f"slot held after a failed probe: {reason}")
             return
         self.ledger.release(reservation["reservation_id"], reservation["token"], reason)
-        self.ledger.set_slot_state(reservation["resource"], "idle_closed")
+        try:
+            # Through park(), never a direct set_slot_state(..., "idle_closed"). By the time a switch fails
+            # the checkout has already moved the folder to the failed pin, and on an interactive grant
+            # open_editor may already have started the Editor — so asserting "idle_closed" here writes the
+            # same lie park_idle was fixed not to write: a row saying no Editor is open on a folder that has
+            # one, with parked_commit still naming a commit the folder is not on. park() answers both
+            # questions instead of assuming them, and returns the folder to main on the way.
+            self.park(reservation["resource"], reservation["mode"])
+        except SlotError:
+            # Only the git stage reaches here, and its own checkout is what just failed, so the folder
+            # cannot be returned to main. Spec §7 keeps a git or editor failure retryable at the tail, so
+            # the slot stays in the pool rather than being held: the retry is what finds out whether the
+            # failure was transient. The state is still asked rather than asserted.
+            slot = self.ledger.slot(reservation["resource"])
+            self.ledger.set_slot_state(reservation["resource"], self._idle_state(slot, reservation["mode"]))
         if exc.stage == "compile":
             # The slot is fine; this commit does not build. Fail the item and leave the slot in the pool.
             self.ledger.fail_queued(reservation["item_id"], f"compile errors at the pinned commit: {reason}")
@@ -679,13 +693,20 @@ class SlotPool:
                 self.worktrees.checkout_commit(folder, commit)
         except WorktreeError as exc:
             raise SlotError(f"{slot_id}: could not park on the default branch: {exc}", stage="git") from exc
-        state = "idle_open" if mode == "interactive" and self.editor_is_open(slot) else "idle_closed"
+        state = self._idle_state(slot, mode)
         if state == "idle_closed":
             # Never `lambda: False`. spec §7 removes the lock "only after confirming the process is gone",
             # and a departing mode of "batch" says nothing about the host: park(slot, "batch") against a
             # live Editor would delete the very file that enforces Unity's one-Editor-per-folder guarantee.
             self.clear_stale_lock(folder, lambda: self.editor_is_open(slot))
         return self.ledger.set_slot_state(slot_id, state, parked_commit=commit, last_switch_at=self.clock())
+
+    def _idle_state(self, slot, mode):
+        """What an idle slot's row should say, asked and never assumed: idle_open only when an interactive
+        run left an Editor that is really still on the folder. One spelling, because park() and the
+        give-back in _switch_failed must not disagree about it — they used to, and the disagreement was
+        `idle_closed` written over a live Editor."""
+        return "idle_open" if mode == "interactive" and self.editor_is_open(slot) else "idle_closed"
 
     @staticmethod
     def clear_stale_lock(folder, alive):
