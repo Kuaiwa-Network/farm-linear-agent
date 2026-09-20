@@ -26,6 +26,10 @@ MVID = "00000000-0000-4000-8000-0000000000%02d"
 class Handler(BaseHTTPRequestHandler):
     replies = {}
     seen = []
+    # key -> callable, run *after* that request has been answered. This is how a test makes the world move
+    # between two of collect()'s reads: a checkout that shifts under the probe, or an Editor that starts
+    # compiling while the probe runs. Nothing else in the suite can express "and then, mid-observation".
+    hooks = {}
     sse = False
 
     def log_message(self, *args):
@@ -37,8 +41,9 @@ class Handler(BaseHTTPRequestHandler):
         params = body.get("params") or {}
         # `seen` is what makes "refused before any request" and "the gate stopped the probe" checkable:
         # without it those tests assert an exception that a hundred other bugs would also raise.
-        self.seen.append(f"tools/call:{params.get('name')}" if method == "tools/call" else
-                         f"resources/read:{params.get('uri')}" if method == "resources/read" else method)
+        key = (f"tools/call:{params.get('name')}" if method == "tools/call" else
+               f"resources/read:{params.get('uri')}" if method == "resources/read" else method)
+        self.seen.append(key)
         if method == "initialize":
             result = {"protocolVersion": "2024-11-05", "capabilities": {},
                       "serverInfo": {"name": "u", "version": "1"}}
@@ -51,12 +56,15 @@ class Handler(BaseHTTPRequestHandler):
             reply = self.replies.get(f"{method}:{params.get('name')}", self.replies.get(method, {}))
             result = {"content": [{"type": "text", "text": json.dumps(reply)}]}
         payload = json.dumps({"jsonrpc": "2.0", "id": body["id"], "result": result})
-        if self.sse:
-            data = f"event: message\ndata: {payload}\n\n".encode()
-            self.send_response(200); self.send_header("Content-Type", "text/event-stream")
-        else:
-            data = payload.encode()
-            self.send_response(200); self.send_header("Content-Type", "application/json")
+        data = (f"event: message\ndata: {payload}\n\n".encode() if self.sse else payload.encode())
+        # The reply is composed from the world as it was, then the hook moves the world, and only then is
+        # the reply released. Running the hook after the write instead races the client, which is already
+        # free to send its next request: the first draft of this lost that race and saw no change at all.
+        hook = self.hooks.get(key)
+        if hook:
+            hook()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream" if self.sse else "application/json")
         self.send_header("Mcp-Session-Id", "session-1")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
@@ -72,6 +80,7 @@ class Loopback(unittest.TestCase):
                            "mcpforunity://project/info": {"projectRoot": "/e/slot-1",
                                                           "platform": "StandaloneOSX"}}
         Handler.seen = []
+        Handler.hooks = {}
         Handler.sse = False
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
@@ -258,13 +267,56 @@ class CollectTests(Loopback):
         self.assertEqual(set(result["checks"].values()), {"unknown"})
         self.assertNotIn("tools/call:execute_code", Handler.seen)
 
-    def test_a_dirty_or_moving_checkout_is_caught_by_the_two_source_snapshots(self):
+    def test_a_checkout_that_was_already_dirty_fails_source_clean(self):
         snapshot = source_snapshot(str(self.repository))
         self.assertEqual((snapshot["commit_sha"], snapshot["dirty"]), (self.head, []))
         (self.repository / "Assets" / "b.cs").write_text("// b", encoding="utf-8")
         result = self.run_collect()
         self.assertEqual(result["checks"]["source_clean"], "mismatch")
         self.assertEqual(result["aggregate"], "mismatch")
+
+    def test_a_checkout_that_moves_while_the_probe_runs_fails_source_stable(self):
+        """The two snapshots exist for exactly this, and nothing else in the suite could see it: the dirty
+        test above makes both snapshots *equally* dirty, so only source_clean flips and source_stable could
+        be hardcoded to 'match' unnoticed. Here the slot is committed clean on both sides and still moves
+        underneath the probe — which is what a second FarmBot, or an operator running git in the folder,
+        would do to an interactive run."""
+        def commit_during_the_probe():
+            (self.repository / "Assets" / "c.cs").write_text("// c", encoding="utf-8")
+            git("add", ".", cwd=self.repository)
+            git("commit", "-qm", "moved under the probe", cwd=self.repository)
+
+        Handler.hooks["tools/call:execute_code"] = commit_during_the_probe
+        result = self.run_collect()
+        self.assertNotEqual(result["source_before"]["commit_sha"], result["source_after"]["commit_sha"])
+        # Both snapshots are clean, so source_clean cannot see this and source_stable is the only witness.
+        self.assertEqual(result["checks"]["source_clean"], "match")
+        self.assertEqual(result["checks"]["source_stable"], "mismatch")
+        self.assertEqual(result["aggregate"], "mismatch")
+
+    def test_an_editor_that_stops_being_the_same_idle_editor_mid_probe_fails_editor_ready(self):
+        """`collect` re-reads editor/state after the probe and compares it with the read before, so that a
+        probe which finished against an Editor that had started compiling — or against a different Editor —
+        is not trusted. Only the `before` read was covered: the not-ready test above never reaches the
+        second one, so both halves of that clause could be deleted with the suite still green."""
+        fresh = state(observed_at_unix_ms=int(time.time() * 1000))
+        for name, after in (
+                ("it started compiling",
+                 state(observed_at_unix_ms=int(time.time() * 1000),
+                       compilation={"is_compiling": True, "is_domain_reload_pending": False})),
+                ("it is a different Editor under the same instance id",
+                 state(observed_at_unix_ms=int(time.time() * 1000),
+                       unity={"instance_id": INSTANCE, "unity_version": "2022.3.63f1"}))):
+            with self.subTest(after=name):
+                Handler.replies["mcpforunity://editor/state"] = fresh
+                Handler.hooks["resources/read:mcpforunity://editor/state"] = (
+                    lambda after=after: Handler.replies.__setitem__("mcpforunity://editor/state", after))
+                result = self.run_collect()
+                self.assertEqual(result["checks"]["editor_ready"], "unknown")
+                self.assertEqual(result["aggregate"], "unknown")
+                # Everything the probe itself reported still matched; only the re-read refused it.
+                self.assertEqual(result["checks"]["loaded_assemblies"], "match")
+                self.assertEqual(result["checks"]["source_commit"], "match")
 
 
 class UnityIdentityTests(Loopback):
@@ -280,6 +332,14 @@ class UnityIdentityTests(Loopback):
         self.slot = {"slot_id": "unity_slot:1", "folder": str(self.folder), "instance": None,
                      "mcp_address": self.endpoint}
         self.identity = UnityIdentity(Path(self.tmp.name) / "probe.cs.txt")
+        # Every call goes through `_client`, which pins the session, so an Editor this folder can be matched
+        # to has to be connected for any of them. The discovery tests below override this reply.
+        Handler.replies.update({
+            "mcpforunity://instances": {"instances": [{"id": INSTANCE,
+                                                       "dataPath": str(self.folder / "Assets")}]},
+            "mcpforunity://editor/state": state(observed_at_unix_ms=int(time.time() * 1000)),
+            "tools/call:read_console": {"success": True, "data": []},
+        })
 
     def test_the_instance_is_read_from_the_server_and_matched_by_the_folder_it_reports(self):
         Handler.replies["mcpforunity://instances"] = {"instances": [
@@ -314,6 +374,22 @@ class UnityIdentityTests(Loopback):
         self.assertEqual((caught.exception.stage, caught.exception.fault), ("editor", "external"))
         self.assertIn(str(self.folder), str(caught.exception))
 
+    def test_every_editor_call_pins_the_instance_even_before_the_slot_row_records_it(self):
+        """The pin in `_client` had no coverage: deleting it left the whole suite green, because collect()
+        does its own selection and nothing else asked. It also used to no-op exactly when it mattered —
+        `switch()` writes slots.instance only after the console read, so on a fresh slot's first interactive
+        switch these three calls all run with a NULL row, and the compile gate would talk to whatever the
+        server routed to by default."""
+        calls = {"refresh": lambda slot: self.identity.refresh(slot),
+                 "wait_quiet": lambda slot: self.identity.wait_quiet(slot, 5),
+                 "console_errors_since": lambda slot: self.identity.console_errors_since(slot, "deadbeef")}
+        for name, call in calls.items():
+            for recorded in (INSTANCE, None):
+                with self.subTest(call=name, row_instance=recorded):
+                    Handler.seen = []
+                    call({**self.slot, "instance": recorded})
+                    self.assertIn("tools/call:set_active_instance", Handler.seen)
+
     def test_the_console_is_read_in_every_shape_the_installed_plugin_actually_returns(self):
         """ReadConsole.cs returns the entries as a bare list under `data` when `count` is given and paging
         is not, and as `items` under a paging envelope when it is; an entry is a string in the default
@@ -335,7 +411,9 @@ class UnityIdentityTests(Loopback):
                                                       "data": {"total": 0, "surprise": "a future server"}}
         with self.assertRaises(SlotError) as caught:
             self.identity.console_errors_since(self.slot, "deadbeef")
-        self.assertEqual(caught.exception.stage, "probe")
+        # Unity answered; this reader did not understand it. That is a FarmBot gap, and recover-slot cannot
+        # fix it, which is the whole distinction `fault` carries.
+        self.assertEqual((caught.exception.stage, caught.exception.fault), ("probe", "farmbot"))
 
     def test_the_server_pidfile_is_derived_from_the_slots_own_port_and_a_missing_one_is_no_error(self):
         """A second slot answers on another port; reaping the hardcoded 8080 pidfile would kill the *first*

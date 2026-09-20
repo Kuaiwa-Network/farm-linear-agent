@@ -388,9 +388,20 @@ class UnityIdentity:
         self.sleep = sleep
 
     def _client(self, slot):
+        """One MCP session, pinned to this slot's Editor before anything else is asked of it.
+
+        The pin is never skipped, and that is the whole point of the method. `SlotPool.switch` writes
+        slots.instance only *after* the console read, so on a fresh slot's first interactive switch
+        `refresh`, `wait_quiet` and `console_errors_since` all arrive with a NULL row — precisely the three
+        calls that decide whether the pinned commit compiled. Skipping the pin there, as an earlier draft
+        did, lets the compile gate read whichever Editor the server routes to by default. Refusing instead
+        would be no better: it would break that first switch outright, because the id genuinely is not in the
+        row yet. So a missing id is resolved from the live server exactly as `start` resolved it, and the
+        session is pinned either way. `another_editor_running` bounds what a default route could reach; it
+        does not make an unpinned compile gate correct.
+        """
         client = UnityMcp(slot["mcp_address"], timeout=self.timeout)
-        if slot.get("instance"):
-            client.select_instance(slot["instance"])
+        client.select_instance(slot.get("instance") or self.discover_instance(slot))
         return client
 
     def discover_instance(self, slot):
@@ -534,10 +545,15 @@ class UnityIdentity:
             entries = next((result[key] for key in self.CONSOLE_KEYS if isinstance(result.get(key), list)), None)
             if entries is None:
                 raise SlotError(f"{slot['slot_id']}: read_console returned no recognisable entry list "
-                                f"({sorted(result)}); the Console cannot be certified clean", stage="probe")
+                                f"({sorted(result)}); FarmBot cannot certify the Console clean and must be "
+                                f"taught this shape — recover-slot will not help", stage="probe",
+                                fault="farmbot")
         else:
+            # Both raises are "farmbot", not "external". Unity answered; it is this reader that does not
+            # understand the answer, and that is precisely the distinction `fault` exists to draw: sending
+            # an operator to recover-slot for a payload FarmBot has not been taught wastes their time.
             raise SlotError(f"{slot['slot_id']}: read_console returned {type(result).__name__}, not entries",
-                            stage="probe")
+                            stage="probe", fault="farmbot")
         lines = [entry if isinstance(entry, str) else str(entry.get("message", entry))
                  for entry in entries if isinstance(entry, (str, dict))]
         return [line for line in lines if "error CS" in line or "Exception" in line]
