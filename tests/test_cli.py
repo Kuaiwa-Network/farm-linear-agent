@@ -189,6 +189,39 @@ class CliTests(unittest.TestCase):
         self.assertIn("unknown comment action", process.stderr)
         self.assertNotIn("create_comment", [c["method"] for c in self.calls()])
 
+    def test_a_second_item_on_one_unchanged_issue_finishes_without_posting_twice(self):
+        """The live rehearsal's Finding 2, end to end through the CLI a worker actually drives: the second
+        item's prepare/post/finish must reach a terminal state and leave Linear with one comment."""
+        first = self.seeded_item()
+        token = self.run_cli("claim", "--item", first, "--worker-id", "w")["token"]
+        body = self.root / "blocker.md"
+        body.write_text("缺少客户端导出产物，需要发布决策。", encoding="utf-8")
+        action = self.run_cli("prepare-comment", "--item", first, "--token", token, "--kind", "blocker",
+                              "--body-file", str(body))
+        self.run_cli("post-comment", "--item", first, "--token", token, "--action-id", action["action_id"])
+        self.run_cli("finish", "--item", first, "--token", token, "--outcome", "blocked", "--input",
+                     self.json_file("first.json", {"summary": "阻塞", "comment_action_id": action["action_id"]}))
+        second = self.seeded_item()
+        self.assertNotEqual(second, first)
+        second_token = self.run_cli("claim", "--item", second, "--worker-id", "w2")["token"]
+        again = self.run_cli("prepare-comment", "--item", second, "--token", second_token, "--kind", "blocker",
+                             "--body-file", str(body))
+        self.assertEqual(again["action_id"], action["action_id"])
+        self.assertTrue(again["deduplicated"])
+        posted = self.run_cli("post-comment", "--item", second, "--token", second_token,
+                              "--action-id", again["action_id"])
+        self.assertEqual(posted["remote_id"], "stub-comment-1")
+        finished = self.run_cli("finish", "--item", second, "--token", second_token, "--outcome", "blocked",
+                                "--input", self.json_file("second.json", {"summary": "同一结论",
+                                                                          "comment_action_id": again["action_id"]}))
+        self.assertEqual(finished["state"], "blocked")
+        self.assertEqual([c["method"] for c in self.calls()].count("create_comment"), 1)
+        # An enqueued item's only reporting surface is the issue comment, and it posted none. The operator
+        # command that is already run has to be the one that says so.
+        borrowed = self.run_cli("status")["borrowed_comments"]
+        self.assertEqual([row["item_id"] for row in borrowed], [second])
+        self.assertEqual(borrowed[0]["prepared_by"], first)
+
     def write_config(self, repos):
         config = self.root / "config.json"
         config.write_text(json.dumps({"client_id": "c", "client_secret": "s", "webhook_secret": "w", "repos": repos,

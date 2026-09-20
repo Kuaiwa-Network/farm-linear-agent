@@ -23,6 +23,11 @@ TRANSFER_FAILURE = re.compile(r"lfs|smudge|connect|resolve|timed out|timeout|una
                               r"could not read|not found|access denied", re.I)
 
 
+def _branch_safe(name):
+    """A ref name git will accept, from an identifier this module did not choose."""
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", str(name)).strip("-.") or "item"
+
+
 def _transfer_kind(exc):
     if CREDENTIAL_FAILURE.search(str(exc)):
         return "credentials"
@@ -155,6 +160,55 @@ class Worktrees:
 
     def head(self, path):
         return _git("rev-parse", "HEAD", cwd=path)
+
+    # A failed item's worktrees are swept, so anything only in them is gone; the commit below is what keeps
+    # it. FarmBot commits as itself rather than as the operator, and never relies on a global git identity,
+    # which a launchd service does not necessarily have.
+    WIP_IDENTITY = ("-c", "user.name=FarmBot", "-c", "user.email=farmbot@localhost")
+
+    def commit_wip(self, item_id, message):
+        """Commit whatever a failed item left in its worktrees, before `remove` takes it with the folder.
+
+        A failure is exactly when an operator most wants to see what the worker did, and on 2026-09-20 a
+        worker claimed a farm-hive fix with three passing tests that left no commit anywhere; the sweep had
+        already removed the worktree, so the claim could not be adjudicated even in principle (Finding 1
+        and Finding 3).
+
+        Commit, never push: publishing is a side effect the failure path has no mandate for. An untouched
+        worktree produces no commit, and a repository that cannot be committed is reported rather than
+        raised, because nothing here may mask the failure that brought us here or stop the sweep.
+
+        Returns {"committed": {repo: sha}, "errors": {repo: message}}.
+        """
+        if not isinstance(message, str) or not message.strip():
+            raise WorktreeError("a work-in-progress commit needs a message")
+        report = {"committed": {}, "errors": {}}
+        item_root = self.worktrees_root / item_id
+        if not item_root.exists():
+            return report
+        for path in sorted(item_root.iterdir()):
+            if not path.is_dir():
+                continue
+            try:
+                # Two guards against an empty commit, and either alone would do: the first so a clean
+                # worktree never pays for `git add --all`, which walks the whole index and a Farm-Client
+                # worktree is gigabytes; the second because the two calls are not one atomic act and the
+                # worker's own processes have only just been killed.
+                if _git("status", "--porcelain=v1", cwd=path) == "":
+                    continue
+                _git("add", "--all", "--", ".", cwd=path)
+                if _git("diff", "--cached", "--name-only", cwd=path) == "":
+                    continue
+                if _git("rev-parse", "--abbrev-ref", "HEAD", cwd=path) == "HEAD":
+                    # A commit on a detached head is referenced by nothing, so `worktree prune` would sweep
+                    # it as surely as the files. Read-only skills get detached worktrees (add_detached).
+                    # After the staged-diff guard, so a worktree with nothing to keep leaves no stray ref.
+                    _git("checkout", "--quiet", "-b", f"farmbot/wip/{_branch_safe(item_id)}", cwd=path)
+                _git(*self.WIP_IDENTITY, "commit", "--no-verify", "--quiet", "-m", message, cwd=path)
+                report["committed"][path.name] = _git("rev-parse", "HEAD", cwd=path)
+            except (WorktreeError, subprocess.SubprocessError, OSError) as exc:
+                report["errors"][path.name] = f"{type(exc).__name__}: {exc}"[:500]
+        return report
 
     def remove(self, item_id):
         item_root = self.worktrees_root / item_id

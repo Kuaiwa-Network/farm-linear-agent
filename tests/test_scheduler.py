@@ -1,3 +1,5 @@
+import contextlib
+import io
 import json
 import tempfile
 import threading
@@ -124,6 +126,7 @@ class FakeWorktrees:
         self.root = Path(root)
         self.added = []
         self.fail_on = None
+        self.commit_fails = False
 
     def clone_path(self, repo):
         return self.root / "repos" / f"{repo}.git"
@@ -138,6 +141,12 @@ class FakeWorktrees:
 
     def add_detached(self, repo, item_id):
         return self.add(repo, item_id, "detached")
+
+    def commit_wip(self, item_id, message):
+        if self.commit_fails:
+            raise RuntimeError("git is unwell")
+        self.added.append(("committed", item_id, message))
+        return {"committed": {}, "errors": {}}
 
     def remove(self, item_id):
         self.added.append(("removed", item_id, None))
@@ -268,6 +277,74 @@ class SchedulerTests(unittest.TestCase):
         self.scheduler.tick()
         self.assertEqual(self.ledger.item(item["id"])["state"], "failed")
         self.assertIn(("removed", item["id"], None), self.trees.added)
+
+    def failed_item(self):
+        item = self.item()
+        self.scheduler.tick()
+        self.ledger.claim(item["id"], worker_id="w")
+        self.launcher.finished.append(Finished(item["id"], 0, "", False, "exited"))
+        self.scheduler.tick()
+        return item["id"]
+
+    def test_a_failed_items_work_is_committed_before_its_worktrees_are_swept(self):
+        """The live rehearsal's Finding 3: a failure is exactly when an operator wants to see what the
+        worker did, and remove() is destructive."""
+        item_id = self.failed_item()
+        self.assertEqual(self.ledger.item(item_id)["state"], "failed")
+        self.assert_committed_before_removal(item_id)
+
+    def test_a_delivered_item_is_swept_without_a_work_in_progress_commit(self):
+        item = self.item()
+        self.scheduler.tick()
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        action = self.ledger.prepare_comment(item["id"], token, "delivery", "已修复。")
+        self.ledger.confirm_comment(action["action_id"], "remote-1")
+        self.ledger.finish(item["id"], token, "delivered",
+                           {"summary": "done", "comment_action_id": action["action_id"],
+                            "verification": "dotnet test", "prs": ["https://github.com/o/r/pull/1"]})
+        self.launcher.finished.append(Finished(item["id"], 0, "", False, "exited"))
+        self.scheduler.tick()
+        self.assertIn(("removed", item["id"], None), self.trees.added)
+        self.assertEqual([row for row in self.trees.added if row[0] == "committed"], [])
+
+    def assert_committed_before_removal(self, item_id):
+        message = f"wip({item_id[:8]}): worker exited without finishing"
+        self.assertIn(("committed", item_id, message), self.trees.added)
+        self.assertLess(self.trees.added.index(("committed", item_id, message)),
+                        self.trees.added.index(("removed", item_id, None)))
+
+    def test_a_worker_that_never_claims_has_its_work_committed_before_the_sweep(self):
+        """_recover's claim-timeout branch retires the item itself; nothing else in the tick would."""
+        item = self.item()
+        self.scheduler.tick()
+        self.launcher.alive_pids.add(self.ledger.item(item["id"])["worker_pid"])
+        self.now += self.scheduler.claim_timeout + 1
+        self.scheduler.tick()
+        self.assertEqual(self.ledger.item(item["id"])["state"], "failed")
+        self.assert_committed_before_removal(item["id"])
+
+    def test_a_lease_that_expired_under_a_live_worker_commits_before_the_sweep(self):
+        """_recover kills and fails this one but removes nothing, so _sweep_worktrees is the only retirer."""
+        item = self.item()
+        self.scheduler.tick()
+        pid = self.ledger.item(item["id"])["worker_pid"]
+        self.ledger.claim(item["id"], worker_id="w")
+        self.scheduler.active.clear()
+        self.launcher.alive_pids.add(pid)
+        self.now += FIX_LEASE + 1
+        self.scheduler.tick()
+        self.assertEqual((self.ledger.item(item["id"])["state"], self.launcher.killed), ("failed", [pid]))
+        self.assert_committed_before_removal(item["id"])
+
+    def test_a_failing_work_in_progress_commit_is_logged_and_still_sweeps(self):
+        self.trees.commit_fails = True
+        log = io.StringIO()
+        with contextlib.redirect_stdout(log):
+            item_id = self.failed_item()
+        self.assertEqual(self.ledger.item(item_id)["state"], "failed")
+        self.assertIn(("removed", item_id, None), self.trees.added)
+        self.assertIn("wip_commit_failed", log.getvalue())
+        self.assertIn("RuntimeError", log.getvalue())
 
     def test_reaped_worker_in_waiting_state_keeps_worktrees(self):
         item = self.item()

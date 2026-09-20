@@ -125,6 +125,11 @@ issue, describe the observed problem, the change, the checks that ran and the on
   `finish --outcome delivered` with `{"summary", "comment_action_id", "verification", "no_change", "prs": []}`,
   where `no_change` states in one sentence why nothing needed changing, naming the commit or PR that
   already covers it. Never open an empty PR to satisfy the ledger, and never report this as blocked.
+- `prepare-comment` answers `"deduplicated": true` when the issue already carries a FarmBot comment of that
+  kind at the same claimed input, because another work item on this unchanged issue got there first. The
+  comment is already posted, so `post-comment` does nothing and `finish` accepts its `action_id`: finish
+  normally. Say in your returned report that your comment was deduplicated against an existing one, and
+  never describe it as a comment you posted.
 - Run `fetch-issue` right before `finish`; if the ledger answers `queued`, a human changed the issue while
   you were finishing and a fresh worker will take it, so exit.
 - `finish` itself posts the final `response` that completes the Linear session (已交付／已暂停 plus the
