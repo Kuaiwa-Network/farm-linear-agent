@@ -59,6 +59,24 @@ def _timestamp(value, name):
     return value
 
 
+COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
+TARGET_KEYS = ("repository", "requested_ref", "commit_sha", "server_environment", "selected_at")
+
+
+def checked_target(raw):
+    """Validate then reproject: only target metadata reaches the ledger, the dispatch payload and the slot."""
+    if not isinstance(raw, dict):
+        raise LedgerError("target must be an object")
+    _text(raw.get("repository"), "target repository")
+    _text(raw.get("requested_ref"), "target requested_ref")
+    _text(raw.get("server_environment"), "target server_environment")
+    commit = raw.get("commit_sha")
+    if not isinstance(commit, str) or not COMMIT_SHA.match(commit):
+        raise LedgerError("target commit_sha must be a full lowercase 40-character hex commit")
+    _timestamp(raw.get("selected_at"), "target selected_at")
+    return {key: raw[key] for key in TARGET_KEYS}
+
+
 def _normalize(raw):
     if not isinstance(raw, dict):
         raise LedgerError("issue must be an object")
@@ -240,6 +258,59 @@ class Ledger:
                     created_at REAL NOT NULL,
                     consumed_at REAL
                 );
+                CREATE TABLE IF NOT EXISTS slots (
+                    slot_id TEXT PRIMARY KEY,
+                    kind TEXT NOT NULL,
+                    host TEXT NOT NULL,
+                    folder TEXT NOT NULL,
+                    state TEXT NOT NULL CHECK(state IN ('idle_closed','idle_open','switching',
+                        'interactive_busy','batch_busy','held')),
+                    parked_commit TEXT,
+                    instance TEXT,
+                    mcp_address TEXT,
+                    account TEXT,
+                    last_switch_at REAL,
+                    updated_at REAL NOT NULL,
+                    UNIQUE(host, folder)
+                );
+                CREATE TABLE IF NOT EXISTS reservations (
+                    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                    reservation_id TEXT NOT NULL UNIQUE,
+                    item_id TEXT NOT NULL REFERENCES work_items(id),
+                    generation INTEGER NOT NULL,
+                    kind TEXT NOT NULL,
+                    mode TEXT NOT NULL CHECK(mode IN ('interactive','batch')),
+                    resource TEXT,
+                    host TEXT,
+                    commit_sha TEXT NOT NULL,
+                    state TEXT NOT NULL CHECK(state IN ('queued','active','cancel_requested','cancelled','released')),
+                    owner TEXT,
+                    token_hash TEXT,
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    created_at REAL NOT NULL,
+                    acquired_at REAL,
+                    released_at REAL,
+                    release_reason TEXT,
+                    CHECK ((owner IS NULL) = (token_hash IS NULL)),
+                    CHECK (state NOT IN ('active','cancel_requested')
+                           OR (token_hash IS NOT NULL AND resource IS NOT NULL))
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS one_active_owner_per_resource
+                    ON reservations(resource)
+                    WHERE state IN ('active','cancel_requested');
+                CREATE UNIQUE INDEX IF NOT EXISTS one_open_reservation_per_item
+                    ON reservations(item_id)
+                    WHERE state IN ('queued','active','cancel_requested');
+                CREATE INDEX IF NOT EXISTS reservations_queue ON reservations(kind, state, sequence);
+                CREATE TABLE IF NOT EXISTS identity_observations (
+                    observation_id TEXT PRIMARY KEY,
+                    item_id TEXT NOT NULL REFERENCES work_items(id),
+                    reservation_id TEXT NOT NULL,
+                    slot_id TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    result_json TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS identity_by_item ON identity_observations(item_id, created_at);
                 CREATE TABLE IF NOT EXISTS audit (
                     id INTEGER PRIMARY KEY,
                     item_id TEXT NOT NULL,
@@ -341,6 +412,16 @@ class Ledger:
                 VALUES(?,?,?,?,?)""", (session_id, issue_id, int(bool(delegation)), guidance, self.clock()))
             if isinstance(guidance, str) and guidance.strip():
                 self.connection.execute("UPDATE sessions SET guidance=? WHERE session_id=?", (guidance, session_id))
+        return self.session(session_id)
+
+    def set_session_target(self, session_id, target):
+        """The pin for later items in this session. An accepted item keeps the target it snapshotted (spec §6)."""
+        target = checked_target(target)
+        with self._transaction():
+            if self.session(session_id) is None:
+                raise LedgerError(f"unknown session: {session_id}")
+            self.connection.execute("UPDATE sessions SET target_json=? WHERE session_id=?",
+                                    (_json(target), session_id))
         return self.session(session_id)
 
     def session(self, session_id):
@@ -465,6 +546,71 @@ class Ledger:
             self._audit(row["id"], "worker", f"pid {pid} on {host}")
             return self._view(self._row(row["id"]))
 
+    SLOT_STATES = ("idle_closed", "idle_open", "switching", "interactive_busy", "batch_busy", "held")
+    FREE_SLOT_STATES = ("idle_closed", "idle_open")
+
+    def _slot_row(self, slot_id):
+        row = self.connection.execute("SELECT * FROM slots WHERE slot_id=?", (slot_id,)).fetchone()
+        if row is None:
+            raise LedgerError(f"unknown slot: {slot_id}")
+        return row
+
+    @staticmethod
+    def _slot_view(row):
+        return {key: row[key] for key in ("slot_id", "kind", "host", "folder", "state", "parked_commit",
+                                          "instance", "mcp_address", "account", "last_switch_at")}
+
+    def ensure_slot(self, slot_id, *, kind, host, folder, instance=None, mcp_address=None, account=None):
+        """Upsert a slot from the host configuration. Discovered values are never cleared by a later None."""
+        for value, name in ((slot_id, "slot_id"), (kind, "kind"), (host, "host"), (folder, "folder")):
+            _text(value, name)
+        with self._transaction():
+            self.connection.execute(
+                """INSERT INTO slots(slot_id,kind,host,folder,state,mcp_address,account,instance,updated_at)
+                   VALUES(?,?,?,?,'idle_closed',?,?,?,?)
+                   ON CONFLICT(slot_id) DO UPDATE SET kind=excluded.kind, host=excluded.host,
+                       folder=excluded.folder,
+                       mcp_address=COALESCE(excluded.mcp_address, slots.mcp_address),
+                       account=COALESCE(excluded.account, slots.account),
+                       instance=COALESCE(excluded.instance, slots.instance),
+                       updated_at=excluded.updated_at""",
+                (slot_id, kind, host, str(folder), mcp_address, account, instance, self.clock()))
+        return self.slot(slot_id)
+
+    def slot(self, slot_id):
+        row = self.connection.execute("SELECT * FROM slots WHERE slot_id=?", (slot_id,)).fetchone()
+        return self._slot_view(row) if row else None
+
+    def slots(self, kind=None, host=None):
+        clauses, values = [], []
+        if kind:
+            clauses.append("kind=?")
+            values.append(kind)
+        if host:
+            clauses.append("host=?")
+            values.append(host)
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        return [self._slot_view(row) for row in
+                self.connection.execute(f"SELECT * FROM slots{where} ORDER BY slot_id", values)]
+
+    _UNSET = object()
+
+    def set_slot_state(self, slot_id, state, *, parked_commit=_UNSET, instance=_UNSET, last_switch_at=_UNSET):
+        if state not in self.SLOT_STATES:
+            raise LedgerError(f"slot state must be one of {self.SLOT_STATES}")
+        with self._transaction():
+            row = self._slot_row(slot_id)
+            columns, values = ["state=?"], [state]
+            for name, value in (("parked_commit", parked_commit), ("instance", instance),
+                                ("last_switch_at", last_switch_at)):
+                if value is not self._UNSET:
+                    columns.append(f"{name}=?")
+                    values.append(value)
+            self.connection.execute(f"UPDATE slots SET {','.join(columns)},updated_at=? WHERE slot_id=?",
+                                    (*values, self.clock(), row["slot_id"]))
+            self._audit(slot_id, "slot", state)
+        return self.slot(slot_id)
+
     def checkpoint(self, item_id, token, progress):
         if not isinstance(progress, dict):
             raise LedgerError("checkpoint input must be an object")
@@ -518,14 +664,212 @@ class Ledger:
                             worker_pid=None, checkpoint=_json(checkpoint))
             return self._view(self._row(row["id"]))
 
+    RESERVATION_OPEN = ("queued", "active", "cancel_requested")
+
+    @staticmethod
+    def _reservation_view(row):
+        return {key: row[key] for key in ("reservation_id", "sequence", "item_id", "generation", "kind", "mode",
+                                          "resource", "host", "commit_sha", "state", "attempts", "created_at",
+                                          "acquired_at", "released_at", "release_reason")}
+
     def await_resource(self, item_id, token, resource, mode):
         _text(resource, "resource")
-        _text(mode, "mode")
+        if mode not in ("interactive", "batch"):
+            raise LedgerError("mode must be interactive or batch")
         with self._transaction():
             row = self._owned(item_id, token)
+            target = json.loads(row["target_json"]) if row["target_json"] else None
+            if not target or not COMMIT_SHA.match(target.get("commit_sha") or ""):
+                raise LedgerError("a resource request needs a pinned commit; this item has none")
+            open_row = self.connection.execute(
+                f"""SELECT reservation_id FROM reservations WHERE item_id=? AND state IN
+                    ({','.join('?' * len(self.RESERVATION_OPEN))})""",
+                (row["id"], *self.RESERVATION_OPEN)).fetchone()
+            if open_row:
+                raise LedgerError("release the resource this item already holds before requesting another")
+            reservation_id = str(uuid4())
+            self.connection.execute(
+                """INSERT INTO reservations(reservation_id,item_id,generation,kind,mode,commit_sha,state,created_at)
+                   VALUES(?,?,?,?,?,?,'queued',?)""",
+                (reservation_id, row["id"], row["generation"], resource, mode, target["commit_sha"], self.clock()))
             self._set_state(row["id"], "awaiting_resource", f"needs {resource}:{mode}", token=None,
                             lease_expires_at=None, worker_pid=None, needs_resource=f"{resource}:{mode}")
+            self._audit(row["id"], "reservation", "queued", details={"reservation_id": reservation_id, "mode": mode})
             return self._view(self._row(row["id"]))
+
+    def acquire(self, kind, *, owner, host):
+        """Grant the oldest queued request of this kind a free slot. FIFO by arrival, never by item priority.
+
+        There is deliberately no kind-wide "is anything active?" pre-check. It would read as an optimisation
+        and behave as a restriction: with a second slot it would refuse to grant slot 2 while slot 1 was busy,
+        and with a second host it would starve one host behind the other. A busy slot is not in
+        FREE_SLOT_STATES, which is the whole gate; the partial unique index is the fence behind it. Because
+        the body runs inside BEGIN IMMEDIATE, two connections racing here serialize: the loser reads the slot
+        this transaction already moved to 'switching' and returns None, so the index never has to fire.
+        """
+        _text(kind, "kind")
+        _text(owner, "owner")
+        _text(host, "host")
+        with self._transaction():
+            row = self.connection.execute(
+                "SELECT * FROM reservations WHERE kind=? AND state='queued' ORDER BY sequence LIMIT 1",
+                (kind,)).fetchone()
+            if row is None:
+                return None
+            # Spec §7 scheduling preference: interactive wants an Editor already open, batch wants none.
+            order = ("idle_open", "idle_closed") if row["mode"] == "interactive" else ("idle_closed", "idle_open")
+            free = [s for s in self.slots(kind=kind, host=host) if s["state"] in self.FREE_SLOT_STATES]
+            free.sort(key=lambda s: (order.index(s["state"]), s["slot_id"]))
+            if not free:
+                return None
+            slot = free[0]
+            token = "res_" + secrets.token_urlsafe(32)
+            self.connection.execute(
+                """UPDATE reservations SET state='active',resource=?,host=?,owner=?,token_hash=?,acquired_at=?
+                   WHERE reservation_id=?""",
+                (slot["slot_id"], host, owner, _hash_token(token), self.clock(), row["reservation_id"]))
+            self.connection.execute("UPDATE slots SET state='switching',updated_at=? WHERE slot_id=?",
+                                    (self.clock(), slot["slot_id"]))
+            self._audit(row["item_id"], "reservation", "acquired",
+                        details={"reservation_id": row["reservation_id"], "slot": slot["slot_id"]})
+            granted = self._reservation_view(self.connection.execute(
+                "SELECT * FROM reservations WHERE reservation_id=?", (row["reservation_id"],)).fetchone())
+            granted["folder"] = slot["folder"]
+            granted["token"] = token  # the only time the raw token exists outside the pool
+            return granted
+
+    def reservation(self, reservation_id):
+        row = self.connection.execute("SELECT * FROM reservations WHERE reservation_id=?", (reservation_id,)).fetchone()
+        return self._reservation_view(row) if row else None
+
+    def reservations(self, states=None):
+        states = tuple(states) if states else None
+        sql = "SELECT * FROM reservations"
+        values = ()
+        if states:
+            sql += f" WHERE state IN ({','.join('?' * len(states))})"
+            values = states
+        return [self._reservation_view(row) for row in self.connection.execute(sql + " ORDER BY sequence", values)]
+
+    def active_reservation(self, item_id):
+        row = self.connection.execute(
+            "SELECT * FROM reservations WHERE item_id=? AND state IN ('active','cancel_requested')",
+            (item_id,)).fetchone()
+        return self._reservation_view(row) if row else None
+
+    def reservations_to_settle(self):
+        """A slot is only useful to a running worker: anything else is the pool's to probe and release.
+
+        A slot in 'held' is excluded. hold() leaves the reservation 'active' and only changes the slot, so
+        without this clause the same reservation would come back on every two-second pool tick: the pool
+        would re-probe a slot the operator has been told to recover, write an audit row each time, and — if a
+        probe happened to pass later — release and park a slot spec §7 says must wait for recover-slot.
+        """
+        rows = self.connection.execute(
+            """SELECT r.* FROM reservations r JOIN work_items w ON w.id=r.item_id
+               LEFT JOIN slots s ON s.slot_id=r.resource
+               WHERE r.state IN ('active','cancel_requested')
+                 AND COALESCE(s.state,'') <> 'held'
+                 AND (r.state='cancel_requested' OR w.state NOT IN ('queued','running','awaiting_resource'))
+               ORDER BY r.sequence""")
+        return [self._reservation_view(row) for row in rows]
+
+    def _reservation_owned(self, reservation_id, token):
+        row = self.connection.execute("SELECT * FROM reservations WHERE reservation_id=?", (reservation_id,)).fetchone()
+        if row is None:
+            raise LedgerError(f"unknown reservation: {reservation_id}")
+        presented = _hash_token(token) if isinstance(token, str) and token.isascii() and token else ""
+        if not presented or not secrets.compare_digest(row["token_hash"] or "", presented):
+            raise LedgerError("reservation token required")
+        return row
+
+    def release(self, reservation_id, token, reason):
+        """FarmQA's rule: cancel_requested resolves to cancelled, active to released.
+
+        The slot is left 'switching', not free: the folder is the pool's to park or close before anyone else
+        may take it, and only the pool knows what commit it ends up on.
+        """
+        _text(reason, "reason")
+        with self._transaction():
+            row = self._reservation_owned(reservation_id, token)
+            if row["state"] in ("released", "cancelled"):
+                return row["state"]
+            state = "cancelled" if row["state"] == "cancel_requested" else "released"
+            self.connection.execute(
+                "UPDATE reservations SET state=?,released_at=?,release_reason=? WHERE reservation_id=?",
+                (state, self.clock(), reason[:500], reservation_id))
+            if row["resource"]:
+                self.connection.execute("UPDATE slots SET state='switching',updated_at=? WHERE slot_id=?",
+                                        (self.clock(), row["resource"]))
+            self._audit(row["item_id"], "reservation", state, details={"reservation_id": reservation_id,
+                                                                      "reason": reason[:200]})
+            return state
+
+    def hold(self, reservation_id, reason):
+        """A failing quiescence probe keeps the reservation open and takes the slot out of the pool (spec §7)."""
+        _text(reason, "reason")
+        with self._transaction():
+            row = self.connection.execute("SELECT * FROM reservations WHERE reservation_id=?",
+                                          (reservation_id,)).fetchone()
+            if row is None or row["state"] not in ("active", "cancel_requested"):
+                raise LedgerError("only an active reservation can be held")
+            self.connection.execute("UPDATE slots SET state='held',updated_at=? WHERE slot_id=?",
+                                    (self.clock(), row["resource"]))
+            self._audit(row["item_id"], "reservation", "held", details={"reservation_id": reservation_id,
+                                                                       "reason": reason[:200]})
+            return self._reservation_view(row)
+
+    def recover_slot(self, slot_id, reason):
+        """The operator's way out of held: force-release whatever holds the slot and return it to the pool.
+
+        parked_commit is cleared, not kept. Whatever the slot was doing when it was held, the ledger no longer
+        knows what commit the folder is on, and park_idle will not correct it because the state is no longer
+        'switching'. A NULL says "unknown", and the pool's next grant does a full switch rather than trusting
+        a stale value.
+        """
+        _text(reason, "reason")
+        with self._transaction():
+            row = self._slot_row(slot_id)
+            self.connection.execute(
+                """UPDATE reservations SET state=CASE WHEN state='cancel_requested' THEN 'cancelled' ELSE 'released' END,
+                   released_at=?,release_reason=? WHERE resource=? AND state IN ('active','cancel_requested')""",
+                (self.clock(), f"recover-slot: {reason}"[:500], slot_id))
+            self.connection.execute(
+                "UPDATE slots SET state='idle_closed',parked_commit=NULL,updated_at=? WHERE slot_id=?",
+                (self.clock(), slot_id))
+            self._audit(slot_id, "slot", "recovered", details={"reason": reason[:200]})
+            return self._slot_view(self._slot_row(row["slot_id"]))
+
+    def cancel_reservations(self, item_id, reason):
+        """Stop: queued requests die, an active one keeps the slot and is marked for the probe (spec §7)."""
+        _text(reason, "reason")
+        with self._transaction():
+            self.connection.execute(
+                """UPDATE reservations
+                   SET state=CASE WHEN state='queued' THEN 'cancelled' ELSE 'cancel_requested' END,
+                       released_at=CASE WHEN state='queued' THEN ? ELSE released_at END,
+                       release_reason=CASE WHEN state='queued' THEN ? ELSE release_reason END
+                   WHERE item_id=? AND state IN ('queued','active')""",
+                (self.clock(), reason[:500], item_id))
+            self._audit(item_id, "reservation", "cancel requested", details={"reason": reason[:200]})
+        return [r for r in self.reservations() if r["item_id"] == item_id]
+
+    def record_identity(self, item_id, reservation_id, slot_id, result):
+        observation_id = str(uuid4())
+        with self._transaction():
+            self.connection.execute(
+                """INSERT INTO identity_observations(observation_id,item_id,reservation_id,slot_id,created_at,result_json)
+                   VALUES(?,?,?,?,?,?)""",
+                (observation_id, item_id, reservation_id, slot_id, self.clock(), _json(result)))
+            self._audit(item_id, "identity", str(result.get("aggregate", "unknown")))
+        return observation_id
+
+    def identity_observations(self, item_id):
+        rows = self.connection.execute(
+            "SELECT * FROM identity_observations WHERE item_id=? ORDER BY created_at", (item_id,))
+        return [{"observation_id": r["observation_id"], "reservation_id": r["reservation_id"],
+                 "slot_id": r["slot_id"], "created_at": r["created_at"],
+                 "result": json.loads(r["result_json"])} for r in rows]
 
     def resume(self, item_id, reason):
         _text(reason, "reason")
@@ -542,6 +886,15 @@ class Ledger:
             row = self._row(item_id)
             if row["state"] not in ACTIVE_STATES:
                 raise LedgerError("work item is already terminal")
+            # The operator CLI path must not orphan a slot: a queued request dies with the item, an active one
+            # keeps the slot until the pool has probed and released it.
+            self.connection.execute(
+                """UPDATE reservations
+                   SET state=CASE WHEN state='queued' THEN 'cancelled' ELSE 'cancel_requested' END,
+                       released_at=CASE WHEN state='queued' THEN ? ELSE released_at END,
+                       release_reason=CASE WHEN state='queued' THEN ? ELSE release_reason END
+                   WHERE item_id=? AND state IN ('queued','active')""",
+                (self.clock(), reason[:500], row["id"]))
             self._set_state(row["id"], "cancelled", reason, token=None, lease_expires_at=None, worker_pid=None,
                             needs_resource=None)
             return self._view(self._row(row["id"]))

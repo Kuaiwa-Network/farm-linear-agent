@@ -1,5 +1,5 @@
 """Verified Linear agent-session webhooks -> ledger work items (spec §3, §4, §15)."""
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import hmac
 import json
@@ -7,6 +7,7 @@ import math
 import os
 import socket
 import sqlite3
+import subprocess
 import threading
 import time
 import uuid
@@ -14,14 +15,18 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .ledger import LedgerError
 from .router import WRITE_SKILLS, route
+from .worktrees import WorktreeError
 
 MAX_BODY = 1024 * 1024
+TARGET_REPO = "Farm-Client"
+PIN_TIMEOUT = 8
 ACK = {"fix": "FarmBot 已收到委派，正在排队处理这个缺陷。进展和草稿 PR 会更新在这里。",
        "chat": "FarmBot 已收到，正在查看。", "qa": "FarmBot 已收到测试请求，正在排队。"}
 
 
 class Receiver:
-    def __init__(self, db_path, secret, identity, api, ledger_factory, skills, scheduler, clock=time.time):
+    def __init__(self, db_path, secret, identity, api, ledger_factory, skills, scheduler, clock=time.time,
+                 worktrees=None, default_server_environment="公共测试服"):
         self.secret = secret.encode()
         self.identity = identity
         self.api = api
@@ -29,6 +34,8 @@ class Receiver:
         self.skills = set(skills)
         self.scheduler = scheduler
         self.clock = clock
+        self.worktrees = worktrees
+        self.default_server_environment = default_server_environment
         self.lock = threading.Lock()
         self.db = sqlite3.connect(db_path, check_same_thread=False, timeout=10)
         self.db.row_factory = sqlite3.Row
@@ -170,25 +177,48 @@ class Receiver:
         session = self.ledger.session(prepared["session_id"])
         is_delegation = (session["delegation"] if session else
                          prepared["action"] == "created" and issue.get("delegate_id") == self.identity["appUserId"])
-        self.ledger.ensure_session(prepared["session_id"], issue["id"], is_delegation, prepared["guidance"])
+        session = self.ledger.ensure_session(prepared["session_id"], issue["id"], is_delegation, prepared["guidance"])
+        pin = ""
+        if session.get("target") is None and self.worktrees is not None:
+            try:
+                commit = self.worktrees.remote_head(TARGET_REPO, timeout=PIN_TIMEOUT)
+                session = self.ledger.set_session_target(prepared["session_id"], {
+                    "repository": TARGET_REPO, "requested_ref": "default", "commit_sha": commit,
+                    "server_environment": self.default_server_environment,
+                    "selected_at": datetime.now(timezone.utc).isoformat()})
+                pin = f"\n目标已锁定：{TARGET_REPO}@{commit[:7]}（{self.default_server_environment}）。"
+            except (WorktreeError, subprocess.TimeoutExpired, OSError):
+                # An origin we cannot reach must not stop the session; the item runs unpinned and any Unity
+                # rung will refuse it, which is a recorded gap rather than a silent wrong-commit run. Only
+                # that failure is absorbed: a LedgerError here is a fault in our own store, and reporting it
+                # as an unreachable origin would hide it from a human and from the event's own status, so it
+                # is left to process_one, which marks the event uncertain and says so in the session.
+                pin = "\n暂时无法锁定客户端提交，本次将不做 Unity 验证。"
         active = self.ledger.active_item_for_session(prepared["session_id"])
         history = self.ledger.items_for_session(prepared["session_id"])
         decision = route(action=prepared["action"], is_delegation=is_delegation, text=prepared["text"], labels=issue["labels"],
                          active_state=active["state"] if active else None, terminal_exists=bool(history) and active is None,
                          available_skills=self.skills)
         session_id = prepared["session_id"]
+
+        def acknowledge(kind, body):
+            """One event, one activity — and the pin rides in whichever branch sends it. Echoing only from the
+            work and chat branches would let a session that first elicits or steers store its pin in silence
+            and never announce it, because every later event sees a target that is no longer None (spec §6)."""
+            self._send(session_id, ack_id, {"type": kind, "body": body + pin})
+
         elsewhere = self.ledger.active_item_for_issue(issue["id"])
         if elsewhere is not None and elsewhere["session_id"] != session_id:
             if decision.kind == "work":
-                self._send(session_id, ack_id, {"type": "response", "body":
-                    f"{issue['identifier']} 已有进行中的工作（{elsewhere['skill']}），请在原会话继续，或等它完成后再委派。"})
+                acknowledge("response", f"{issue['identifier']} 已有进行中的工作（{elsewhere['skill']}），"
+                                        "请在原会话继续，或等它完成后再委派。")
                 return
             if decision.kind == "chat":
                 self.ledger.push_inbox(elsewhere["id"], prepared["text"] or "（无正文）")
                 notice = "该 issue 正在处理中，你的消息已转给正在处理的 worker。"
                 if decision.text and decision.text != prepared["text"]:
                     notice = decision.text + "\n" + notice
-                self._send(session_id, ack_id, {"type": "thought", "body": notice})
+                acknowledge("thought", notice)
                 return
         if decision.kind == "work":
             if decision.skill in WRITE_SKILLS and not is_delegation:
@@ -197,24 +227,24 @@ class Receiver:
                                                 target=(session or {}).get("target"))
             if prepared["text"]:
                 self.ledger.push_inbox(item["id"], prepared["text"])
-            self._send(session_id, ack_id, {"type": "thought", "body": ACK.get(decision.skill, ACK["chat"])})
+            acknowledge("thought", ACK.get(decision.skill, ACK["chat"]))
         elif decision.kind == "chat":
             item = self.ledger.create_work_item(issue_id=issue["id"], session_id=session_id, skill="chat")
             self.ledger.push_inbox(item["id"], prepared["text"] or "（无正文）")
             body = decision.text if decision.text and decision.text != prepared["text"] else ACK["chat"]
-            self._send(session_id, ack_id, {"type": "thought", "body": body})
+            acknowledge("thought", body)
         elif decision.kind == "steer":
             self.ledger.push_inbox(active["id"], decision.text)
-            self._send(session_id, ack_id, {"type": "thought", "body": "已转给正在处理的 worker，会在下一次检查点读取。"})
+            acknowledge("thought", "已转给正在处理的 worker，会在下一次检查点读取。")
         elif decision.kind == "resume":
             self.ledger.push_inbox(active["id"], decision.text)
             self.ledger.resume(active["id"], "human answered in session")
-            self._send(session_id, ack_id, {"type": "thought", "body": "收到回复，继续处理。"})
+            acknowledge("thought", "收到回复，继续处理。")
         elif decision.kind == "retry":
             self.ledger.retry(history[-1]["id"], "human asked 重试 in session")
-            self._send(session_id, ack_id, {"type": "thought", "body": "已重新排队。"})
+            acknowledge("thought", "已重新排队。")
         elif decision.kind == "elicit":
-            self._send(session_id, ack_id, {"type": "elicitation", "body": decision.text})
+            acknowledge("elicitation", decision.text)
 
     def process_one(self):
         if self._process_stop():

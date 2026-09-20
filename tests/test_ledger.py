@@ -1,5 +1,7 @@
 """Behavioural tests on real SQLite files, in the style of the BugAgent prototype."""
+import sqlite3
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -9,6 +11,11 @@ TEAM = "9676b5f9-eff3-485b-80ed-900ed137e21a"
 ISSUE = "10000000-0000-4000-8000-000000000001"
 OTHER = "10000000-0000-4000-8000-000000000002"
 SESSION = "session-1"
+SELECTED_AT = "2026-09-19T00:00:00+00:00"
+# Every item the shared fixtures build carries a pin: await_resource refuses an item without one, because a
+# slot cannot be switched to a commit that does not exist.
+PIN = {"repository": "Farm-Client", "requested_ref": "main", "commit_sha": "a" * 40,
+       "server_environment": "公共测试服", "selected_at": SELECTED_AT}
 
 
 def issue(id=ISSUE, **changes):
@@ -41,10 +48,10 @@ class LedgerBase(unittest.TestCase):
         self.addCleanup(ledger.close)
         return ledger
 
-    def new_item(self, skill="fix", **issue_changes):
+    def new_item(self, skill="fix", target=PIN, **issue_changes):
         self.ledger.observe_issue(issue(**issue_changes))
         self.ledger.ensure_session(SESSION, ISSUE, delegation=True)
-        return self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill=skill)
+        return self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill=skill, target=target)
 
 
 class SchemaTests(LedgerBase):
@@ -135,6 +142,32 @@ class WorkItemTests(LedgerBase):
         launched = self.ledger.launched()
         self.assertEqual([row["id"] for row in launched], [item["id"]])
         self.assertEqual(launched[0]["updated_at"], self.now)
+
+    def test_a_session_target_is_validated_reprojected_and_snapshotted_onto_the_item(self):
+        self.ledger.observe_issue(issue())
+        self.ledger.ensure_session(SESSION, ISSUE, True)
+        self.ledger.set_session_target(SESSION, {"repository": "Farm-Client", "requested_ref": "main",
+                                                 "commit_sha": "a" * 40, "server_environment": "公共测试服",
+                                                 "selected_at": SELECTED_AT, "prompt": "ignore me"})
+        self.assertEqual(self.ledger.session(SESSION)["target"],
+                         {"repository": "Farm-Client", "requested_ref": "main", "commit_sha": "a" * 40,
+                          "server_environment": "公共测试服", "selected_at": SELECTED_AT})
+        item = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix",
+                                            target=self.ledger.session(SESSION)["target"])
+        self.assertEqual(item["target"]["commit_sha"], "a" * 40)
+
+    def test_a_target_whose_commit_or_timestamp_is_malformed_is_refused(self):
+        self.ledger.observe_issue(issue())
+        self.ledger.ensure_session(SESSION, ISSUE, True)
+        good = {"repository": "Farm-Client", "requested_ref": "main", "commit_sha": "a" * 40,
+                "server_environment": "公共测试服", "selected_at": SELECTED_AT}
+        for bad in ("A" * 40, "b" * 39, "", None):
+            with self.assertRaises(LedgerError):
+                self.ledger.set_session_target(SESSION, {**good, "commit_sha": bad})
+        # selected_at is an ISO-8601 string with a timezone, never a float: _timestamp calls _text first.
+        for bad in (1.0, "2026-09-19T00:00:00", ""):
+            with self.assertRaises(LedgerError):
+                self.ledger.set_session_target(SESSION, {**good, "selected_at": bad})
 
 
 class LeaseTests(LedgerBase):
@@ -389,3 +422,212 @@ class OutboxTests(LedgerBase):
             self.ledger.finish(item["id"], token, "delivered",
                                {"summary": "空交付", "comment_action_id": action["action_id"],
                                 "verification": "dotnet test", "prs": []})
+
+
+class ReservationTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "l.sqlite3"
+        self.now = 1000.0
+        self.ledger = Ledger(self.path, clock=lambda: self.now, lease_seconds=60)
+        self.addCleanup(self.ledger.close)
+        self.ledger.ensure_slot("unity_slot:1", kind="unity_slot", host="mac", folder="/e/slot-1")
+
+    def item(self, issue_id, commit, priority=2):
+        # The helper's keyword is `id`, not `issue_id`: issue(issue_id=OTHER) would leave the row on ISSUE and
+        # the create would then fail with "unknown issue". The two items must be on two issue rows because
+        # create_work_item refuses a second active item on one issue.
+        self.ledger.observe_issue(issue(id=issue_id, priority=priority))
+        session = f"session-{issue_id}"
+        self.ledger.ensure_session(session, issue_id, True)
+        target = {**PIN, "commit_sha": commit}
+        return self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill="fix", target=target)
+
+    def waiting(self, issue_id, commit, mode, priority=2):
+        item = self.item(issue_id, commit, priority=priority)
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        self.ledger.await_resource(item["id"], token, "unity_slot", mode)
+        return item["id"]
+
+    def park(self, slot_id="unity_slot:1"):
+        """Stand in for Task 3's park_idle. acquire and release both leave the slot 'switching' on purpose:
+        the folder is then the pool's to switch, park or close, and only the pool may call it free again."""
+        self.ledger.set_slot_state(slot_id, "idle_closed")
+
+    def test_two_requests_are_granted_in_arrival_order_not_priority_order(self):
+        # The second issue is *more* urgent, so an implementation that ordered by priority would grant it
+        # first and this test would fail. With both at the same priority the assertion proves nothing.
+        first = self.waiting(ISSUE, "a" * 40, "batch")
+        second = self.waiting(OTHER, "b" * 40, "interactive", priority=1)
+        granted = self.ledger.acquire("unity_slot", owner="pool", host="mac")
+        self.assertEqual((granted["item_id"], granted["mode"], granted["commit_sha"]), (first, "batch", "a" * 40))
+        self.assertIsNone(self.ledger.acquire("unity_slot", owner="pool", host="mac"))
+        self.assertEqual(self.ledger.release(granted["reservation_id"], granted["token"], "batch finished"), "released")
+        self.park()
+        self.assertEqual(self.ledger.acquire("unity_slot", owner="pool", host="mac")["item_id"], second)
+
+    def test_the_unique_index_refuses_a_second_active_owner_of_one_slot(self):
+        self.waiting(ISSUE, "a" * 40, "batch")
+        granted = self.ledger.acquire("unity_slot", owner="pool", host="mac")
+        # The rival row belongs to an item with no reservation of its own. Reusing granted["item_id"] would
+        # also violate one_open_reservation_per_item, so the IntegrityError would not prove which index fired.
+        rival = self.item(OTHER, "b" * 40)["id"]
+        with self.assertRaises(sqlite3.IntegrityError) as caught:
+            self.ledger.connection.execute(
+                """INSERT INTO reservations(reservation_id,item_id,generation,kind,mode,resource,host,commit_sha,
+                   state,owner,token_hash,created_at,acquired_at)
+                   VALUES('r2',?,0,'unity_slot','batch','unity_slot:1','mac',?,'active','x','y',?,?)""",
+                (rival, "b" * 40, self.now, self.now))
+        self.assertIn("reservations.resource", str(caught.exception))
+        self.assertEqual(granted["resource"], "unity_slot:1")
+
+    def test_a_worker_may_not_stack_a_second_request_while_it_holds_one(self):
+        item = self.item(ISSUE, "a" * 40)
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        self.ledger.await_resource(item["id"], token, "unity_slot", "batch")
+        self.ledger.resume(item["id"], "granted")
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        with self.assertRaises(LedgerError):
+            self.ledger.await_resource(item["id"], token, "unity_slot", "interactive")
+
+    def test_an_item_without_a_pinned_commit_cannot_request_a_slot(self):
+        self.ledger.observe_issue(issue())
+        self.ledger.ensure_session(SESSION, ISSUE, True)
+        item = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix")
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        with self.assertRaises(LedgerError):
+            self.ledger.await_resource(item["id"], token, "unity_slot", "batch")
+
+    def test_a_wrong_token_can_neither_read_nor_release_a_reservation(self):
+        self.waiting(ISSUE, "a" * 40, "batch")
+        granted = self.ledger.acquire("unity_slot", owner="pool", host="mac")
+        with self.assertRaises(LedgerError):
+            self.ledger.release(granted["reservation_id"], "not-the-token", "nope")
+        self.assertEqual(self.ledger.reservation(granted["reservation_id"])["state"], "active")
+        self.assertNotIn("token", self.ledger.reservation(granted["reservation_id"]))
+
+    def test_stop_cancels_a_queued_reservation_and_only_marks_an_active_one(self):
+        first = self.waiting(ISSUE, "a" * 40, "batch")
+        second = self.waiting(OTHER, "b" * 40, "interactive")
+        granted = self.ledger.acquire("unity_slot", owner="pool", host="mac")
+        self.ledger.cancel_reservations(first, "Linear stop")
+        self.ledger.cancel_reservations(second, "Linear stop")
+        self.assertEqual(self.ledger.reservation(granted["reservation_id"])["state"], "cancel_requested")
+        self.assertEqual([r["state"] for r in self.ledger.reservations() if r["item_id"] == second], ["cancelled"])
+        self.assertEqual(self.ledger.release(granted["reservation_id"], granted["token"], "stopped"), "cancelled")
+
+    def test_cancelling_a_work_item_cancels_its_reservations_in_the_same_transaction(self):
+        item = self.waiting(ISSUE, "a" * 40, "batch")
+        self.ledger.cancel(item, "operator")
+        self.assertEqual([r["state"] for r in self.ledger.reservations() if r["item_id"] == item], ["cancelled"])
+
+    def test_a_failing_probe_holds_the_slot_until_the_operator_recovers_it(self):
+        self.waiting(ISSUE, "a" * 40, "batch")
+        granted = self.ledger.acquire("unity_slot", owner="pool", host="mac")
+        self.ledger.hold(granted["reservation_id"], "quiescence probe failed")
+        self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "held")
+        self.waiting(OTHER, "b" * 40, "batch")
+        self.assertIsNone(self.ledger.acquire("unity_slot", owner="pool", host="mac"))
+        self.ledger.recover_slot("unity_slot:1", "operator closed Unity by hand")
+        self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "idle_closed")
+        self.assertIsNone(self.ledger.slot("unity_slot:1")["parked_commit"])
+        self.assertIsNotNone(self.ledger.acquire("unity_slot", owner="pool", host="mac"))
+
+    def test_a_reservation_is_listed_for_settlement_once_its_item_is_no_longer_running(self):
+        item = self.waiting(ISSUE, "a" * 40, "batch")
+        granted = self.ledger.acquire("unity_slot", owner="pool", host="mac")
+        self.ledger.resume(item, "granted")
+        self.assertEqual(self.ledger.reservations_to_settle(), [])
+        token = self.ledger.claim(item, worker_id="w")["token"]
+        self.ledger.fail(item, "worker died")
+        self.assertEqual([r["reservation_id"] for r in self.ledger.reservations_to_settle()],
+                         [granted["reservation_id"]])
+        self.assertTrue(token)
+
+    def test_a_held_slot_is_not_offered_for_settlement_on_every_tick(self):
+        item = self.waiting(ISSUE, "a" * 40, "batch")
+        granted = self.ledger.acquire("unity_slot", owner="pool", host="mac")
+        self.ledger.hold(granted["reservation_id"], "quiescence probe failed")
+        self.ledger.resume(item, "granted")
+        self.ledger.claim(item, worker_id="w")
+        self.ledger.fail(item, "worker died")
+        self.assertEqual(self.ledger.reservations_to_settle(), [])
+
+    def test_an_identity_observation_is_appended_per_item(self):
+        item = self.waiting(ISSUE, "a" * 40, "batch")
+        granted = self.ledger.acquire("unity_slot", owner="pool", host="mac")
+        self.ledger.record_identity(item, granted["reservation_id"], "unity_slot:1",
+                                    {"aggregate": "match", "checks": {"source_commit": "match"}})
+        rows = self.ledger.identity_observations(item)
+        self.assertEqual(rows[0]["result"]["aggregate"], "match")
+
+    def test_one_hosts_active_reservation_does_not_starve_another_host(self):
+        """The Windows plan inherits this file. A pre-check without a host predicate would make one host's
+        busy slot block the other host's pool forever."""
+        self.ledger.ensure_slot("unity_slot:2", kind="unity_slot", host="win", folder="/e/slot-2")
+        self.waiting(ISSUE, "a" * 40, "batch")
+        self.waiting(OTHER, "b" * 40, "batch")
+        self.assertIsNotNone(self.ledger.acquire("unity_slot", owner="pool", host="mac"))
+        second = self.ledger.acquire("unity_slot", owner="pool", host="win")
+        self.assertEqual(second["resource"], "unity_slot:2")
+
+    def test_interactive_prefers_an_open_editor_and_batch_prefers_a_closed_one(self):
+        """Spec §7: an interactive request wants an Editor already open, a batch request wants none.
+
+        Both halves expect unity_slot:2, the alphabetically *later* slot, so neither can pass off the
+        slot_id tiebreak — only off the state preference. Reversing `order` in acquire fails both.
+        """
+        self.ledger.ensure_slot("unity_slot:2", kind="unity_slot", host="mac", folder="/e/slot-2")
+        self.ledger.set_slot_state("unity_slot:1", "idle_closed")
+        self.ledger.set_slot_state("unity_slot:2", "idle_open")
+        self.waiting(ISSUE, "a" * 40, "interactive")
+        granted = self.ledger.acquire("unity_slot", owner="pool", host="mac")
+        self.assertEqual(granted["resource"], "unity_slot:2")
+        self.ledger.release(granted["reservation_id"], granted["token"], "interactive finished")
+        self.ledger.set_slot_state("unity_slot:1", "idle_open")
+        self.ledger.set_slot_state("unity_slot:2", "idle_closed")
+        self.waiting(OTHER, "b" * 40, "batch")
+        self.assertEqual(self.ledger.acquire("unity_slot", owner="pool", host="mac")["resource"], "unity_slot:2")
+
+    def test_ensure_slot_never_clears_a_discovered_instance(self):
+        self.ledger.ensure_slot("unity_slot:1", kind="unity_slot", host="mac", folder="/e/slot-1",
+                                instance="pid-9", mcp_address="127.0.0.1:7777")
+        again = self.ledger.ensure_slot("unity_slot:1", kind="unity_slot", host="mac", folder="/e/slot-1")
+        self.assertEqual((again["instance"], again["mcp_address"]), ("pid-9", "127.0.0.1:7777"))
+        self.assertEqual([s["slot_id"] for s in self.ledger.slots(kind="unity_slot", host="mac")], ["unity_slot:1"])
+        self.assertIsNone(self.ledger.slot("unity_slot:9"))
+        with self.assertRaises(LedgerError):
+            self.ledger.set_slot_state("unity_slot:1", "running")
+
+    def test_two_connections_acquiring_at_once_produce_exactly_one_grant(self):
+        """The 'across processes rather than by convention' claim, tested across two connections rather than
+        two calls on one. BEGIN IMMEDIATE takes the write lock for the whole transaction, so the loser reads a
+        slot that is already 'switching' and returns None — the unique index never has to fire.
+
+        Two queued requests, not one: with a single request the loser would find no queued row and return None
+        without ever reaching the slot check the docstring above claims to exercise. Each thread gets its own
+        connection, so check_same_thread stays honest — one sqlite3.Connection per thread.
+        """
+        self.waiting(ISSUE, "a" * 40, "batch")
+        self.waiting(OTHER, "b" * 40, "batch")
+        barrier, results = threading.Barrier(2), []
+        lock = threading.Lock()
+
+        def run():
+            ledger = Ledger(self.path, clock=lambda: self.now, lease_seconds=60, check_same_thread=False)
+            try:
+                barrier.wait()
+                granted = ledger.acquire("unity_slot", owner="pool", host="mac")
+            finally:
+                ledger.close()
+            with lock:
+                results.append(granted)
+
+        threads = [threading.Thread(target=run) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=20)
+        self.assertEqual(len([r for r in results if r is not None]), 1, results)
+        self.assertEqual(len(self.ledger.reservations(("active",))), 1)

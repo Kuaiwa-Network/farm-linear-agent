@@ -10,7 +10,7 @@ from agent.launcher import Finished, Handle
 from agent.ledger import Ledger
 from agent.scheduler import Scheduler
 from agent.skills import load_skills
-from test_ledger import ISSUE, OTHER, SESSION, comment, issue
+from test_ledger import ISSUE, OTHER, PIN, SESSION, comment, issue
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = load_skills(ROOT / "skills")
@@ -135,7 +135,8 @@ class SchedulerTests(unittest.TestCase):
     def item(self, issue_id=ISSUE, session=SESSION, skill="fix", **changes):
         self.ledger.observe_issue(issue(id=issue_id, **changes))
         self.ledger.ensure_session(session, issue_id, delegation=True)
-        return self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill=skill)
+        # The pin travels with the item: await_resource refuses a slot request from an unpinned one.
+        return self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill=skill, target=PIN)
 
     def test_tick_launches_fix_with_write_worktrees_and_records_pid(self):
         item = self.item()

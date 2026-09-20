@@ -9,9 +9,11 @@ import agent.worktrees
 from agent.worktrees import WorktreeError, Worktrees
 
 
-def git(*args, cwd):
-    return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=cwd, check=True,
-                          capture_output=True, text=True).stdout.strip()
+def git(*args, cwd, allow_failure=False):
+    """allow_failure lets a caller read the stdout of a command whose non-zero exit is the answer, such as
+    `symbolic-ref -q HEAD` on a detached head, which exits 1 and prints nothing."""
+    return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=cwd,
+                          check=not allow_failure, capture_output=True, text=True).stdout.strip()
 
 
 class WorktreeTests(unittest.TestCase):
@@ -159,3 +161,138 @@ class WorktreeTests(unittest.TestCase):
             self.trees.ensure_clone("Farm-Client", seed_from=os.path.relpath(checkout))
         seed_fetch = next(a for a in calls if a[0] == "fetch" and "origin" not in a)
         self.assertIn(str(checkout.resolve()), seed_fetch)
+
+    def test_resolve_commit_returns_the_remote_default_head_as_forty_hex(self):
+        commit = self.trees.resolve_commit("Farm-Client")
+        self.assertRegex(commit, r"^[0-9a-f]{40}$")
+        self.assertEqual(commit, git("rev-parse", "HEAD", cwd=self.origin))
+
+    def test_resolve_commit_refuses_a_ref_that_does_not_exist(self):
+        with self.assertRaises(WorktreeError):
+            self.trees.resolve_commit("Farm-Client", "origin/no-such-branch")
+
+    def test_remote_head_resolves_without_cloning_or_fetching(self):
+        trees = Worktrees(Path(self.tmp.name) / "empty-repos", self.trees.worktrees_root,
+                          {"Farm-Client": str(self.origin)})
+        self.assertEqual(trees.remote_head("Farm-Client"), git("rev-parse", "HEAD", cwd=self.origin))
+        self.assertFalse((Path(self.tmp.name) / "empty-repos" / "Farm-Client.git" / "HEAD").exists())
+
+    def test_a_slot_worktree_is_detached_at_the_commit_and_lives_where_it_is_told(self):
+        # Unity rewrites .vscode/settings.json with the *folder* name on every Editor run (Task 0 Step 3), so
+        # the slot must stop tracking it or every switch fails its clean check. The file is created on the
+        # origin here because the fixture's repository does not carry one.
+        (self.origin / ".vscode").mkdir()
+        (self.origin / ".vscode" / "settings.json").write_text(
+            '{"dotnet.defaultSolution": "Farm-Client.slnx"}\n', encoding="utf-8")
+        git("add", ".", cwd=self.origin)
+        git("commit", "-qm", "vscode", cwd=self.origin)
+        commit = self.trees.resolve_commit("Farm-Client")
+        slot = Path(self.tmp.name) / "editors" / "slot-1"
+        self.assertEqual(self.trees.add_slot("Farm-Client", slot, commit), slot)
+        self.assertEqual(git("rev-parse", "HEAD", cwd=slot), commit)
+        self.assertEqual(git("symbolic-ref", "-q", "HEAD", cwd=slot, allow_failure=True), "")
+        self.assertTrue(self.trees.slot_clean(slot))
+        # 'S' in ls-files -v is the skip-worktree bit; the lowercase letters are assume-unchanged (-v) and
+        # fsmonitor-clean (-f), which are different bits this task does not set.
+        self.assertIn("S .vscode/settings.json", git("ls-files", "-v", ".vscode/settings.json", cwd=slot))
+        (slot / ".vscode" / "settings.json").write_text('{"dotnet.defaultSolution": "slot-1.slnx"}\n',
+                                                        encoding="utf-8")
+        self.assertTrue(self.trees.slot_clean(slot))   # the Editor's rewrite no longer dirties the slot
+
+    def test_slot_git_runs_without_the_pointer_preserving_environment(self):
+        seen = []
+        real = subprocess.run
+
+        def record(args, **kwargs):
+            seen.append((args[1] if args[0] == "git" else args[0], dict(kwargs.get("env") or {})))
+            return real(args, **kwargs)
+
+        commit = self.trees.resolve_commit("Farm-Client")
+        # Both calls must be inside the patch, or the second list is empty and the comparison is [] == ['1'].
+        with patch("agent.worktrees.subprocess.run", record):
+            self.trees.add_slot("Farm-Client", Path(self.tmp.name) / "editors" / "slot-2", commit)
+            slot_calls = [env for name, env in seen if name == "worktree"]
+            self.trees.add("Farm-Client", "item-1", "farmbot/x")
+            task_calls = [env for name, env in seen if name == "worktree"][len(slot_calls):]
+        self.assertTrue(slot_calls and task_calls)
+        # _git merges os.environ, so the slot map must set the value to "0" rather than leave the key out:
+        # an operator shell exporting GIT_LFS_SKIP_SMUDGE=1 would otherwise win and Unity would get pointers.
+        self.assertEqual({env.get("GIT_LFS_SKIP_SMUDGE") for env in slot_calls}, {"0"})
+        self.assertEqual({env.get("GIT_LFS_SKIP_SMUDGE") for env in task_calls}, {"1"})
+
+    def test_a_slot_that_cannot_be_built_tells_credentials_from_reachability(self):
+        """With smudge on the LFS download happens inside `git worktree add`, so that is where a 401 or an
+        unreachable origin surfaces on a fresh host — not inside materialize's `git lfs fetch`."""
+        real = agent.worktrees._git
+        slot = Path(self.tmp.name) / "editors" / "slot-3"
+        commit = self.trees.resolve_commit("Farm-Client")
+
+        def failing(message):
+            def fake(*args, cwd, **kwargs):
+                if args[0] == "worktree":
+                    raise WorktreeError(f"git worktree failed: {message}")
+                return real(*args, cwd=cwd, **kwargs)
+            return fake
+
+        for message, kind in (("HTTP 401 Authorization required", "credentials"),
+                              ("Failed to connect to git.kuaiwa.com port 443: Connection refused", "reachability")):
+            with self.subTest(kind=kind), patch("agent.worktrees._git", failing(message)):
+                with self.assertRaises(WorktreeError) as caught:
+                    self.trees.add_slot("Farm-Client", slot, commit)
+                self.assertIn(f"({kind})", str(caught.exception))
+                self.assertIn(message, str(caught.exception))
+        # A failure that is neither is not dressed up as one: a bad reference is the operator's third problem.
+        with patch("agent.worktrees._git", failing("fatal: invalid reference")):
+            with self.assertRaises(WorktreeError) as caught:
+                self.trees.add_slot("Farm-Client", slot, commit)
+        self.assertNotIn("(credentials)", str(caught.exception))
+        self.assertNotIn("(reachability)", str(caught.exception))
+
+    def test_remote_head_caches_a_failure_so_a_burst_of_events_pays_one_timeout(self):
+        """The receiver drains events serially: an unreachable origin must cost one ls-remote, not one each."""
+        root = Path(self.tmp.name)
+        trees = Worktrees(root / "repos-unreachable", self.trees.worktrees_root,
+                          {"Farm-Client": str(root / "no-such-origin.git")})
+        calls = []
+        real = agent.worktrees._git
+
+        def recording(*args, **kwargs):
+            calls.append(args)
+            return real(*args, **kwargs)
+
+        with patch("agent.worktrees._git", recording):
+            for _ in range(3):
+                with self.assertRaises(WorktreeError):
+                    trees.remote_head("Farm-Client")
+        self.assertEqual([a[0] for a in calls], ["ls-remote"])
+
+    def test_a_slot_that_cannot_be_moved_tells_credentials_from_reachability_too(self):
+        """checkout_commit is smudge-on exactly as add_slot is, so a 401 or an unreachable origin surfaces
+        here on every switch after the first — and Task 4's switch wraps it in a SlotError the operator
+        reads. Unlabelled, it says only "git checkout failed", which is the one message that does not tell
+        the operator which of their two problems they have."""
+        slot = Path(self.tmp.name) / "editors" / "slot-4"
+        commit = self.trees.resolve_commit("Farm-Client")
+        self.trees.add_slot("Farm-Client", slot, commit)
+        real = agent.worktrees._git
+
+        def failing(message):
+            def fake(*args, cwd, **kwargs):
+                if args[0] == "checkout":
+                    raise WorktreeError(f"git checkout failed: {message}")
+                return real(*args, cwd=cwd, **kwargs)
+            return fake
+
+        for message, kind in (("HTTP 401 Authorization required", "credentials"),
+                              ("Failed to connect to git.kuaiwa.com port 443: Connection refused", "reachability")):
+            with self.subTest(kind=kind), patch("agent.worktrees._git", failing(message)):
+                with self.assertRaises(WorktreeError) as caught:
+                    self.trees.checkout_commit(slot, commit)
+                self.assertIn(f"({kind})", str(caught.exception))
+                self.assertIn(message, str(caught.exception))
+        # A bad reference is the operator's third problem and is re-raised exactly as git worded it.
+        with patch("agent.worktrees._git", failing("fatal: reference is not a tree: deadbeef")):
+            with self.assertRaises(WorktreeError) as caught:
+                self.trees.checkout_commit(slot, commit)
+        self.assertNotIn("(credentials)", str(caught.exception))
+        self.assertNotIn("(reachability)", str(caught.exception))

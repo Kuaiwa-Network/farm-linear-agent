@@ -288,7 +288,11 @@ Each slot binds four things: its folder under `.local/editors/slot-<n>`, the Edi
 instance identity the Unity MCP derives from that folder's path (`Name@hash`), the MCP
 address the worker is given, and a dedicated test account on 公共测试服. Accounts are
 per slot because two logins on one account kick each other and scenario runs mutate
-account state. Slot 1 is FarmQA's existing isolated client copy on the Windows host.
+account state. Slot 1 is built fresh on whichever host runs FarmBot first: a detached worktree of FarmBot's own clone
+under `.local/editors/slot-1`, with its LFS objects materialized and its `Library/` imported once. Measured
+on the Mac on 2026-09-19: about 45 seconds for the tree and its 918 MB of LFS objects, then 170 seconds and
+5.1 GB for the first import — roughly six gigabytes and three and a half minutes in all. FarmQA's isolated
+client copy on the Windows host is a candidate seed for that host's slot, not a prerequisite for slot 1.
 
 **Scheduling preferences.** An interactive request prefers a slot whose Editor is already
 open. A batch request prefers a slot with no Editor open, and closes an idle open Editor
