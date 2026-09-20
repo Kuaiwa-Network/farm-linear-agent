@@ -1,0 +1,28 @@
+// Read-only Editor identity probe. Does not enter Play Mode or invoke game code.
+var result = new System.Collections.Generic.Dictionary<string, object>();
+result["isPlaying"] = UnityEngine.Application.isPlaying;
+result["isPlayingOrWillChangePlaymode"] = UnityEditor.EditorApplication.isPlayingOrWillChangePlaymode;
+result["isCompiling"] = UnityEditor.EditorApplication.isCompiling;
+result["isUpdating"] = UnityEditor.EditorApplication.isUpdating;
+result["unityVersion"] = UnityEngine.Application.unityVersion;
+result["platform"] = UnityEngine.Application.platform.ToString();
+result["buildTarget"] = UnityEditor.EditorUserBuildSettings.activeBuildTarget.ToString();
+result["dataPath"] = UnityEngine.Application.dataPath;
+var scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene();
+result["scene"] = new { name = scene.name, path = scene.path, isDirty = scene.isDirty };
+var assemblies = new System.Collections.Generic.List<object>();
+foreach (var assembly in System.AppDomain.CurrentDomain.GetAssemblies())
+{
+    var name = assembly.GetName().Name;
+    // Every loaded assembly is returned; agent/identity.py's collect() filters against expected.assemblies,
+    // so another project or another platform is a configuration change and not an edit to this file.
+    assemblies.Add(new {
+        name = name,
+        fullName = assembly.FullName,
+        moduleMvid = assembly.ManifestModule.ModuleVersionId.ToString(),
+        location = assembly.Location,
+        hasGameTestDriver = assembly.GetType("Farm.Core.TestDriver.GameTestDriver", false) != null
+    });
+}
+result["assemblies"] = assemblies;
+return result;

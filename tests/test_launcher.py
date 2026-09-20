@@ -2,12 +2,13 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agent.launcher import Launcher, RUNTIMES
+from agent.launcher import Launcher, RUNTIMES, write_mcp_config
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -124,6 +125,88 @@ class LauncherTests(unittest.TestCase):
         self.assertTrue(self.launcher.stop("item-9", grace=2.0))
         self.wait_finished()
         self.assertFalse(self.launcher.owned_pid(handle.pid, "item-9"))
+
+    def test_an_unsandboxed_run_is_the_only_way_out_of_the_seatbelt_and_carries_no_sandbox_config(self):
+        """Task 0's addendum: `Unity -batchmode -runTests` inside sandbox_workspace_write hangs for ever on a
+        denied Mach lookup — 25 min at 0.0% CPU, no results file — with zero file-permission denials, while
+        the same command unsandboxed exits 2 in 19 s. So the batch Editor is started here, not by the worker.
+        This asserts the two halves of that: the run really happens, and it writes none of the isolated home,
+        CODEX_HOME or sandbox_workspace_write machinery that would put it back inside the seatbelt."""
+        launcher = Launcher(Path(self.tmp.name) / "unsandboxed-runs", RUNTIMES["fake"], host="test")
+        log = Path(self.tmp.name) / "unity-editor.log"
+        result = launcher.run_unsandboxed([sys.executable, "-c", "import sys; sys.stderr.write('hi'); "
+                                           "sys.exit(2)"], cwd=self.tmp.name, timeout=30, log=log)
+        self.assertEqual((result.returncode, result.timed_out), (2, False))
+        self.assertIn("hi", log.read_text(encoding="utf-8"))
+        # Nothing under the runs root at all: no isolated home, so no config.toml and no writable_roots.
+        self.assertEqual(list((Path(self.tmp.name) / "unsandboxed-runs").rglob("*")), [])
+        # The 25-minute hang must end at a deadline, not at an operator — and the deadline has to KILL, not
+        # merely return: a run_unsandboxed that gave up waiting and walked away would leave the Editor on the
+        # slot folder for ever, which is the orphan this whole task exists to prevent.
+        marker = Path(self.tmp.name) / "slow.pid"
+        slow = launcher.run_unsandboxed(
+            [sys.executable, "-c", "import os, pathlib, sys, time; "
+             "pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(30)", str(marker)],
+            cwd=self.tmp.name, timeout=1.5)
+        self.assertEqual((slow.timed_out, slow.returncode), (True, None))
+        self.assertLess(slow.seconds, 20)
+        self.assertTrue(marker.exists(), "the slow child never started")
+        self.assertFalse(Launcher.alive(int(marker.read_text())),
+                         "the deadline expired and the process was left running")
+
+    def test_an_owned_unsandboxed_run_can_be_killed_by_item_and_takes_its_children_with_it(self):
+        """The reachability hole the redesign opened. The batch Editor is a direct child of `serve`, not a
+        descendant of any worker — the worker asked for the reservation and exited — so `stop()`'s handle
+        lookup and its `descendants` walk both miss it, and `run_batch` is meanwhile blocked in `wait()` for
+        up to `batch_timeout`. This asserts the two things that close it: the run is reachable by item id,
+        and the kill takes the process GROUP, so a child that outlived its parent dies too. That child is
+        the case that matters — it is what would still be holding the slot folder open."""
+        launcher = Launcher(Path(self.tmp.name) / "runs", RUNTIMES["fake"], host="test")
+        marker = Path(self.tmp.name) / "child.pid"
+        # The parent spawns a grandchild that survives it, then sleeps; killing only the parent would leave
+        # the grandchild alive, which is precisely the wedged-Editor shape Task 0 measured.
+        script = ("import subprocess, sys, time, pathlib;"
+                  "c = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']);"
+                  "pathlib.Path(sys.argv[1]).write_text(str(c.pid));"
+                  "time.sleep(60)")
+        result = {}
+
+        def run():
+            result["run"] = launcher.run_unsandboxed([sys.executable, "-c", script, str(marker)],
+                                                     cwd=self.tmp.name, timeout=60, owner="itm_batch")
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 20)                       # never leave the run thread behind
+        self.addCleanup(launcher.stop_unsandboxed, "itm_batch")
+        deadline = time.monotonic() + 15
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertTrue(marker.exists(), "the owned run never reached its grandchild")
+        grandchild = int(marker.read_text())
+
+        self.assertTrue(launcher.stop_unsandboxed("itm_batch"))
+        thread.join(15)
+        self.assertFalse(thread.is_alive())
+        gone = time.monotonic() + 10
+        while Launcher.alive(grandchild) and time.monotonic() < gone:
+            time.sleep(0.05)
+        self.assertFalse(Launcher.alive(grandchild))               # the group, not just the pid
+        self.assertFalse(launcher.stop_unsandboxed("itm_batch"))   # deregistered; idempotent for Stop
+        self.assertEqual(launcher.stop_all_unsandboxed(), [])      # and nothing is left for shutdown to find
+
+    def test_an_injected_http_server_is_written_in_each_runtime_s_own_shape(self):
+        """§19's first risk is that the default runtime changes after Task 0, so the one server the scheduler
+        injects has to survive both writers. write_mcp_config's JSON writer emits `mcpServers`, where an
+        entry carrying a bare url and no type is not a valid HTTP server definition."""
+        home = Path(self.tmp.name) / "home"
+        home.mkdir()
+        toml = write_mcp_config(home, "toml", {"unity": {"url": "http://127.0.0.1:8080/mcp"}}).read_text(encoding="utf-8")
+        self.assertIn("[mcp_servers.unity]", toml)
+        self.assertIn('url = "http://127.0.0.1:8080/mcp"', toml)
+        written = json.loads(write_mcp_config(
+            home, "json", {"unity": {"type": "http", "url": "http://127.0.0.1:8080/mcp"}}).read_text(encoding="utf-8"))
+        self.assertEqual(written["mcpServers"]["unity"], {"type": "http", "url": "http://127.0.0.1:8080/mcp"})
 
     def test_a_runtime_with_a_writable_flag_gets_one_flag_per_root(self):
         runtime = RUNTIMES["claude"]._replace(command=RUNTIMES["fake"].command)

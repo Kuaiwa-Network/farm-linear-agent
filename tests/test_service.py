@@ -5,7 +5,9 @@ import hmac
 import io
 import json
 import os
+import sqlite3
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -13,10 +15,14 @@ import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from agent.config import Config
-from agent.service import Components, build, seed_clones, serve
+from agent.config import Config, Paths
+from agent.launcher import Launcher
+from agent.ledger import Ledger
+from agent.service import Components, build, enqueue, main, seed_clones, serve
+from agent.slots import SlotError
 from test_ledger import ISSUE, issue
 
 APP = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
@@ -50,6 +56,7 @@ class ServeTests(unittest.TestCase):
                         repos=remotes, max_concurrent=2, port=0, local_root=root / "local")
         self.c = build(config)
         self.addCleanup(self.drain_workers)
+        self.addCleanup(self.c.pool.close)
         self.addCleanup(self.c.receiver.close)
         self.addCleanup(self.c.ledger.close)
         self.addCleanup(self.c.server.server_close)
@@ -104,6 +111,215 @@ class ServeTests(unittest.TestCase):
         self.assertEqual(failures, [])
         self.assertIs(self.c.scheduler.api, self.c.api)  # worker deaths reach the session through the same client
 
+    def test_build_gives_the_pool_its_own_connection_and_never_the_schedulers(self):
+        """The rule this whole task exists for, asserted on the production wiring rather than on a SlotPool
+        a test constructed. serve() runs pool.tick() on a third thread while the scheduler ticks on its own
+        connection, and Ledger._transaction is a bare BEGIN IMMEDIATE/COMMIT: two threads sharing one
+        connection do not get two transactions — one thread's BEGIN lands inside the other's and either
+        COMMIT applies to the other's half-written work. build() passes check_same_thread=False, so sharing
+        would not raise anything at all; nothing else in the suite calls build(), so without this the
+        one-line change from a factory to `ledger` here is a silent, green regression.
+        """
+        self.assertIsNot(self.c.pool.ledger, self.c.ledger)
+        self.assertIsNot(self.c.pool.ledger.connection, self.c.ledger.connection)
+        # And the pool owns what it opened: close() closes its connection and leaves the scheduler's alone,
+        # which is the other half of "the pool was handed a factory" and is what serve()'s finally relies on.
+        self.c.pool.close()
+        with self.assertRaises(sqlite3.ProgrammingError):
+            self.c.pool.ledger.connection.execute("SELECT 1")
+        self.assertEqual(self.c.ledger.connection.execute("SELECT 1").fetchone()[0], 1)
+
+    def test_build_hands_the_pool_the_launchers_runner_and_the_scheduler_the_same_slot_entries(self):
+        """The production wiring of Task 7's two injections, asserted on build() rather than on objects a
+        test constructed. A pool with no runner refuses every batch grant, and a scheduler with no entries
+        silently drops `build_target` out of every resource block — both are green in the direct tests."""
+        self.assertEqual(self.c.pool.run_unsandboxed, self.c.launcher.run_unsandboxed)
+        config = Config(client_id="client", client_secret="s", webhook_secret="signing-secret", host="test",
+                        runtime="fake", repos=dict(self.c.config.repos), max_concurrent=2, port=0,
+                        local_root=Path(self.tmp.name) / "slotted",
+                        slots=[{"id": "unity_slot:1", "repo": "Farm-Client", "build_target_argument": "OSXUniversal"}])
+        components = build(config)
+        self.addCleanup(components.server.server_close)
+        self.addCleanup(components.ledger.close)
+        self.addCleanup(components.receiver.close)
+        self.addCleanup(components.pool.close)
+        self.assertEqual(components.scheduler.slot_entries, components.pool.entries)
+        self.assertEqual(components.scheduler.slot_entries["unity_slot:1"]["build_target_argument"], "OSXUniversal")
+        self.assertEqual(components.pool.run_unsandboxed, components.launcher.run_unsandboxed)
+
+    def test_shutdown_kills_an_unsandboxed_run_instead_of_orphaning_it_on_the_slot(self):
+        """The batch Editor is a direct child of `serve` and the pool thread that waits on it is a daemon, so
+        without a kill in serve()'s finally a restart leaves a real Unity holding the slot folder — which the
+        next ensure() then reads as a slot some other Editor already has."""
+        marker = Path(self.tmp.name) / "unsandboxed.pid"
+        script = ("import os, pathlib, sys, time;"
+                  "pathlib.Path(sys.argv[1]).write_text(str(os.getpid()));"
+                  "time.sleep(120)")
+        finished = threading.Event()
+
+        def run():
+            try:
+                self.c.launcher.run_unsandboxed([sys.executable, "-c", script, str(marker)],
+                                                cwd=self.tmp.name, timeout=120, owner="itm_batch")
+            finally:
+                finished.set()
+
+        runner = threading.Thread(target=run, daemon=True)
+        problems = []
+
+        def serve_once():
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    serve(components=self.c)
+            except BaseException as exc:
+                problems.append(exc)
+
+        thread = threading.Thread(target=serve_once, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 20)
+        self.assertTrue(self.wait_for_health(), problems)
+        self.addCleanup(self.c.server.shutdown)
+        runner.start()
+        self.addCleanup(runner.join, 20)
+        self.addCleanup(self.c.launcher.stop_unsandboxed, "itm_batch")
+        deadline = time.time() + 15
+        while not marker.exists() and time.time() < deadline:
+            time.sleep(0.05)
+        self.assertTrue(marker.exists(), "the unsandboxed run never started")
+        pid = int(marker.read_text())
+        self.c.server.shutdown()
+        thread.join(timeout=20)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(problems, [])
+        self.assertTrue(finished.wait(15), "serve's finally left the pool's Editor running")
+        gone = time.time() + 10
+        while Launcher.alive(pid) and time.time() < gone:
+            time.sleep(0.05)
+        self.assertFalse(Launcher.alive(pid))
+
+    def wait_for_health(self, timeout=20):
+        url = f"http://127.0.0.1:{self.c.server.server_address[1]}/health"
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                with urllib.request.urlopen(url, timeout=5) as response:
+                    return response.status == 200
+            except (urllib.error.URLError, OSError):
+                time.sleep(0.05)
+        return False
+
+    def test_serve_still_starts_and_keeps_ticking_when_the_slot_pool_cannot_be_prepared(self):
+        """A host whose one slot is unusable must still answer Linear. `ensure()` raising at start-up would
+        otherwise take the whole service down, and the pool thread — the third one `serve` starts — must run
+        regardless, because that is what eventually settles and parks whatever the operator recovers."""
+        ticks = threading.Event()
+        failed = []
+
+        def ensure():
+            failed.append(True)
+            raise SlotError("unity_slot:1: still holds git-lfs pointer files")
+
+        pool = SimpleNamespace(ensure=ensure, tick=lambda: ticks.set(), close=lambda: None)
+        components = self.c._replace(pool=pool)   # Components is a namedtuple; attribute assignment refuses
+        out = io.StringIO()
+        problems = []
+
+        def run():
+            try:
+                with contextlib.redirect_stdout(out):
+                    serve(components=components)
+            except BaseException as exc:
+                problems.append(exc)
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 20)
+        self.assertTrue(self.wait_for_health(), problems)
+        self.addCleanup(self.c.server.shutdown)
+        self.assertTrue(ticks.wait(20), "serve never started the pool thread")
+        self.c.server.shutdown()
+        thread.join(timeout=20)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(problems, [])
+        self.assertEqual(failed, [True])
+        self.assertIn("slot_pool_unavailable", out.getvalue())
+
+
+class EnqueueTests(unittest.TestCase):
+    """The operator's way in on a host whose webhook cannot be delivered (spec §11)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        self.stub = root / "stub"
+        self.stub.mkdir()
+        (self.stub / "issue.json").write_text(json.dumps(issue(labels=["Bug"], delegate_id=APP)), encoding="utf-8")
+        patcher = patch.dict(os.environ, {"FARMBOT_LINEAR_STUB_DIR": str(self.stub),
+                                          "FARMBOT_CONFIG": str(root / "none.json")})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        # No repos: every test here passes an explicit commit, so nothing ever reaches git or the network.
+        self.config = Config(client_id="c", client_secret="s", webhook_secret="w", host="test",
+                             runtime="fake", repos={}, local_root=root / "local")
+
+    def test_enqueue_creates_a_pinned_work_item_without_any_webhook(self):
+        item_id = enqueue(self.config, issue_ref=ISSUE, skill="fix", commit="a" * 40)["id"]
+        ledger = Ledger(Paths(self.config).ledger)
+        self.addCleanup(ledger.close)
+        item = ledger.item(item_id)
+        self.assertEqual((item["state"], item["skill"]), ("queued", "fix"))
+        self.assertEqual(item["target"]["commit_sha"], "a" * 40)
+        # The session is synthetic and says so: Linear has no agent session with this id, which is what
+        # the scheduler and the skill both read to report through an issue comment instead.
+        self.assertTrue(item["session_id"].startswith("local-"), item["session_id"])
+        self.assertEqual([row["kind"] for row in ledger.connection.execute(
+            "SELECT kind FROM audit WHERE item_id=?", (item_id,))].count("enqueue"), 1)
+
+    def test_enqueue_refuses_a_write_capable_skill_on_an_issue_nobody_delegated(self):
+        """spec §4: fix, fgui and feature start only from delegation, so that every code change traces back
+        to an explicit human act on the issue. enqueue is an operator shortcut past the webhook, not past
+        the rule of authority."""
+        (self.stub / "issue.json").write_text(json.dumps(issue(labels=["Bug"], delegate_id=None)),
+                                              encoding="utf-8")
+        with self.assertRaises(RuntimeError) as caught:
+            enqueue(self.config, issue_ref=ISSUE, skill="fix", commit="a" * 40)
+        self.assertIn("delegate", str(caught.exception).lower())
+        ledger = Ledger(Paths(self.config).ledger)
+        self.addCleanup(ledger.close)
+        self.assertIsNone(ledger.active_item_for_issue(ISSUE))
+
+    def test_the_enqueue_and_slots_subcommands_run_the_way_the_operating_contract_prints_them(self):
+        """The contract now tells an operator to create work with `agent.service enqueue` and to watch the
+        pool with `agent.service slots`. enqueue() and Ledger.slots() are tested directly above and in
+        test_ledger; what is untested without this is `main`'s own dispatch — the two lines a typo in a
+        `choices` list or a missing flag would break, silently, on the host that has no webhook."""
+        config_path = Path(self.tmp.name) / "config.json"
+        config_path.write_text(json.dumps({"client_id": "c", "client_secret": "s", "webhook_secret": "w",
+                                           "host": "test", "runtime": "fake", "repos": {},
+                                           "local_root": str(Path(self.tmp.name) / "local")}), encoding="utf-8")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(main(["enqueue", "--config", str(config_path), "--issue", ISSUE,
+                                   "--commit", "a" * 40]), 0)
+        created = json.loads(out.getvalue())
+        self.assertEqual(created["state"], "queued")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(main(["slots", "--config", str(config_path)]), 0)
+        view = json.loads(out.getvalue())
+        self.assertEqual((view["slots"], view["reservations"]), ([], []))  # nothing registered, nothing queued
+        with self.assertRaises(SystemExit):
+            main(["enqueue", "--config", str(config_path)])  # an enqueue with no issue names nothing
+
+    def test_enqueue_allows_a_read_only_skill_on_an_undelegated_issue(self):
+        """chat writes nothing, so the rule of authority does not apply to it; refusing it would make the
+        refusal above a test of `enqueue` refusing everything."""
+        (self.stub / "issue.json").write_text(json.dumps(issue(labels=["Bug"], delegate_id=None)),
+                                              encoding="utf-8")
+        item = enqueue(self.config, issue_ref=ISSUE, skill="chat", commit="a" * 40)
+        self.assertEqual((item["state"], item["skill"]), ("queued", "chat"))
+
 
 class LoopGuardTests(unittest.TestCase):
     def test_a_raising_loop_body_is_logged_and_the_loop_keeps_running(self):
@@ -121,7 +337,8 @@ class LoopGuardTests(unittest.TestCase):
         server.serve_forever.side_effect = lambda: released.wait(20)
         launcher = Mock(); launcher.runtime.name = "fake"
         config = Mock(); config.host = "test"
-        components = Components(config, None, None, Mock(), {"chat"}, None, launcher, Mock(), receiver, server)
+        components = Components(config, None, None, Mock(), {"chat"}, None, launcher, Mock(), receiver, server,
+                                Mock())
         out = io.StringIO()
         failures = []
 

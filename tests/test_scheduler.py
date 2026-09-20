@@ -6,10 +6,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock
 
-from agent.launcher import Finished, Handle
+from agent.launcher import Finished, Handle, RUNTIMES
 from agent.ledger import Ledger
 from agent.scheduler import Scheduler
 from agent.skills import load_skills
+from agent.slots import SlotPool, slot_entry
 from test_ledger import ISSUE, OTHER, PIN, SESSION, comment, issue
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,7 +19,12 @@ FIX_LEASE = SKILLS["fix"].budget["lease_seconds"]  # the launcher records it, so
 
 
 class FakeLauncher:
-    def __init__(self):
+    # The scheduler builds an injected MCP server entry in the runtime's own shape, so a double that did not
+    # carry a runtime would make the codex/claude distinction untestable here.
+    runtime = RUNTIMES["fake"]
+
+    def __init__(self, runs="/fake/runs"):
+        self.runs = Path(runs)
         self.spawned = []
         self.finished = []
         self.stopped = []
@@ -26,9 +32,14 @@ class FakeLauncher:
         self.next_pid = 100
         self.alive_pids = set()
         self.killed = []
+        # The ordering mechanism. Both orders leave the same end state, so the only way to assert that
+        # Stop cancels before it kills is to sample the ledger at the instant stop() reaches the fake.
+        self.on_stop = None
+        self.unsandboxed_stopped = []
+        self.order = []
 
     def state_dir(self, item_id):
-        return Path("/fake/runs") / item_id
+        return self.runs / item_id
 
     def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None, writable=()):
         self.next_pid += 1
@@ -42,8 +53,17 @@ class FakeLauncher:
         return finished
 
     def stop(self, item_id, grace=5.0):
+        self.on_stop and self.on_stop(item_id)
+        self.order.append(("worker", item_id))
         self.stopped.append(item_id)
         self.stop_times.append(time.monotonic())
+        return True
+
+    def stop_unsandboxed(self, owner):
+        """The batch Editor's kill. Present on the real Launcher since Task 7; without it here the double
+        stops matching the collaborator and Scheduler.stop raises AttributeError in every Stop test."""
+        self.unsandboxed_stopped.append(owner)
+        self.order.append(("unsandboxed", owner))
         return True
 
     def running(self):
@@ -83,6 +103,7 @@ class HandleAwareLauncher(FakeLauncher):
 class FakeAPI:
     def __init__(self, fail=False):
         self.activities = []
+        self.comments = []
         self.fail = fail
 
     def create_activity(self, session_id, content, activity_id=None):
@@ -90,6 +111,12 @@ class FakeAPI:
             raise RuntimeError("linear down")
         self.activities.append((session_id, content["type"], content["body"]))
         return {"success": True}
+
+    def create_comment(self, issue_id, body):
+        if self.fail:
+            raise RuntimeError("linear down")
+        self.comments.append((issue_id, body))
+        return f"stub-comment-{len(self.comments)}"
 
 
 class FakeWorktrees:
@@ -123,12 +150,25 @@ class SchedulerTests(unittest.TestCase):
         self.now = 1000.0
         self.ledger = Ledger(Path(self.tmp.name) / "ledger.sqlite3", clock=lambda: self.now, lease_seconds=60)
         self.addCleanup(self.ledger.close)
-        self.launcher = FakeLauncher()
+        # A real runs root, not a fictional one: the scheduler reads the pool's batch summary out of the
+        # item's state directory, so a path nothing can be written to would make that unreadable by design.
+        self.launcher = FakeLauncher(Path(self.tmp.name) / "runs")
         self.trees = FakeWorktrees(Path(self.tmp.name) / "wt")
         self.api = FakeAPI()
+        # A real folder and a real (empty) file: after this task the scheduler resolves no Editor at all, but
+        # a slot entry that named neither would let a later change quietly reach into /Applications.
+        self.slot_folder = Path(self.tmp.name) / "editors" / "slot-1"
+        (self.slot_folder / "ProjectSettings").mkdir(parents=True)
+        (self.slot_folder / "ProjectSettings" / "ProjectVersion.txt").write_text(
+            "m_EditorVersion: 2022.3.62f1\n", encoding="utf-8")
+        self.unity_binary = Path(self.tmp.name) / "unity-binary"
+        self.unity_binary.touch()
+        self.slot_entry = slot_entry({"id": "unity_slot:1", "repo": "Farm-Client", "unity": str(self.unity_binary),
+                                      "folder": str(self.slot_folder), "build_target_argument": "OSXUniversal"})
         self.scheduler = Scheduler(self.ledger, self.launcher, SKILLS, self.trees,
                                    skill_root=ROOT / "skills", db_path=Path(self.tmp.name) / "ledger.sqlite3",
                                    runtime_name="fake", host="h", max_concurrent=1,
+                                   slot_entries={self.slot_entry["id"]: self.slot_entry},
                                    guidance_for=lambda item: (self.ledger.session(item["session_id"]) or {}).get("guidance") or "",
                                    api=self.api)
 
@@ -137,6 +177,36 @@ class SchedulerTests(unittest.TestCase):
         self.ledger.ensure_session(session, issue_id, delegation=True)
         # The pin travels with the item: await_resource refuses a slot request from an unpinned one.
         return self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill=skill, target=PIN)
+
+    def waiting_item(self, mode="batch", issue_id=ISSUE, session=SESSION):
+        """An item whose slot request is still queued: nothing has been acquired, so no slot is held."""
+        item = self.item(issue_id=issue_id, session=session)
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        self.ledger.await_resource(item["id"], token, "unity_slot", mode)
+        return item["id"]
+
+    def granted_item(self, mode="batch", issue_id=ISSUE, session=SESSION):
+        """The state the pool leaves behind: the item is queued again, its reservation is active, and the
+        slot is in the mode's busy state.
+
+        set_slot_state stands in for SlotPool.switch, which is what writes the busy state in production —
+        acquire alone leaves the slot 'switching', and no pool thread runs in this module. In batch mode it
+        also leaves the summary run_batch wrote, which is the only reason a fresh batch worker has evidence.
+        """
+        item_id = self.waiting_item(mode, issue_id=issue_id, session=session)
+        self.ledger.ensure_slot("unity_slot:1", kind="unity_slot", host="h", folder=str(self.slot_folder),
+                                mcp_address="http://127.0.0.1:8080/mcp", instance="slot-1@0123456789abcdef")
+        self.ledger.acquire("unity_slot", owner="pool", host="h")
+        self.ledger.set_slot_state("unity_slot:1", SlotPool.BUSY_FOR[mode])
+        if mode == "batch":
+            state_dir = Path(self.launcher.state_dir(item_id))
+            state_dir.mkdir(parents=True, exist_ok=True)
+            (state_dir / "unity-batch.json").write_text(json.dumps(
+                {"state": "ran", "exit_code": 2, "seconds": 19.0, "total": 4388, "passed": 4362, "failed": 26,
+                 "result": "Failed(Child)", "results_file": str(state_dir / "unity-tests.xml"),
+                 "log_file": str(state_dir / "unity-editor.log")}), encoding="utf-8")
+        self.ledger.resume(item_id, "unity_slot:1 acquired")
+        return item_id
 
     def test_tick_launches_fix_with_write_worktrees_and_records_pid(self):
         item = self.item()
@@ -154,7 +224,7 @@ class SchedulerTests(unittest.TestCase):
         item = self.item()
         self.scheduler.tick()
         payload = json.loads(self.launcher.spawned[0][1].split("\n\n", 1)[1])
-        self.assertEqual(payload["state_dir"], f"/fake/runs/{item['id']}")
+        self.assertEqual(payload["state_dir"], str(self.launcher.state_dir(item["id"])))
         self.assertTrue(self.launcher.spawn_env["PYTHONPATH"].split(":")[0] == str(ROOT))
         self.assertEqual(self.launcher.spawn_env["FARMBOT_DB"], str(Path(self.tmp.name) / "ledger.sqlite3"))
         repos = ("Farm-Client", "farm-hive", "farmgui", "common")
@@ -219,7 +289,12 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(self.ledger.item(item["id"])["worker_pid"], 102)
         self.assertEqual(len(self.launcher.spawned), 2)
 
-    def test_awaiting_resource_stays_parked_in_phase_1a(self):
+    def test_awaiting_resource_is_never_the_schedulers_to_launch(self):
+        """The brief said to delete this with Task 6, on the grounds that the behaviour was Phase 1a's on
+        purpose and stops being true here. It does not: the pool thread resumes a granted item to 'queued'
+        and the scheduler picks it up from `ledger.queue()` exactly as before, so the scheduler still must
+        not launch an item that is waiting for a slot. Deleting the test would drop that guard; only the
+        name was Phase 1a's."""
         item = self.item()
         self.scheduler.tick()
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
@@ -229,12 +304,140 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(self.ledger.item(item["id"])["state"], "awaiting_resource")
         self.assertEqual(len(self.launcher.spawned), 1)
 
+    def test_a_batch_reservation_gives_the_worker_results_and_neither_an_argv_nor_the_slot(self):
+        """The worker does not run Unity: under the Codex seatbelt the Editor hangs for ever on a denied Mach
+        lookup (Task 0's addendum), so the pool ran it already and this is the evidence. Two absences matter
+        as much as the presence — no argv to execute, and no write access to the slot folder."""
+        item = self.granted_item(mode="batch")
+        self.scheduler.tick()
+        item_id, message, servers, _, _ = self.launcher.spawned[-1]
+        self.assertEqual((item_id, servers), (item, {}))
+        self.assertNotIn(str(self.slot_folder), self.launcher.spawn_writable)
+        payload = json.loads(message.split("\n\n", 1)[1])
+        self.assertNotIn("batch_command", payload["resource"])
+        self.assertNotIn("unity", payload["resource"])   # nor the binary it would have run
+        self.assertNotIn(str(self.unity_binary), message)
+        self.assertEqual(payload["resource"]["mode"], "batch")
+        self.assertEqual(payload["resource"]["slot"], "unity_slot:1")
+        self.assertEqual(payload["resource"]["batch_result"]["total"], 4388)
+        self.assertTrue(payload["resource"]["batch_result"]["results_file"].endswith("unity-tests.xml"))
+
+    def test_a_batch_worker_whose_run_left_no_summary_is_told_it_has_no_evidence(self):
+        """Missing is itself a verification gap and has to be represented rather than dropped: a batch worker
+        with no batch_result key at all reads as "no slot" instead of "no evidence", and rung 4 of the skill
+        tells it to report a gap as neither a pass nor a failure."""
+        item = self.granted_item(mode="batch")
+        (Path(self.launcher.state_dir(item)) / "unity-batch.json").unlink()
+        self.scheduler.tick()
+        payload = json.loads(self.launcher.spawned[-1][1].split("\n\n", 1)[1])
+        self.assertEqual(payload["resource"]["batch_result"]["state"], "gap")
+        self.assertIsNone(payload["resource"]["batch_result"]["results_file"])
+
+    def test_an_interactive_reservation_injects_the_slot_address_and_not_its_folder(self):
+        item = self.granted_item(mode="interactive")
+        self.scheduler.tick()
+        _, message, servers, _, _ = self.launcher.spawned[-1]
+        self.assertEqual(servers, {"unity": {"url": "http://127.0.0.1:8080/mcp"}})
+        self.assertNotIn(str(self.slot_folder), self.launcher.spawn_writable)
+        payload = json.loads(message.split("\n\n", 1)[1])
+        self.assertEqual(payload["resource"]["mode"], "interactive")
+        self.assertEqual(payload["resource"]["instance"], "slot-1@0123456789abcdef")
+        self.assertEqual(payload["resource"]["commit"], "a" * 40)
+        self.assertTrue(payload["resource"]["token_file"].endswith("reservation.token"))
+        self.assertNotIn("res_", message)  # the token itself never reaches the prompt on disk
+        # No run happened and none is offered: an Editor is live on that folder and run_tests over MCP is
+        # the verify path (Task 0 Step 5).
+        self.assertIsNone(payload["resource"]["batch_result"])
+        self.assertNotIn("batch_command", payload["resource"])
+
+    def test_the_injected_server_takes_the_shape_the_claude_runtime_needs(self):
+        """§19's first risk is that the default runtime switches after Task 0. write_mcp_config's JSON writer
+        emits mcpServers, where an entry with a bare url and no type is not an HTTP server at all, so an
+        interactive slot under `claude -p` would silently lose its only tool."""
+        self.launcher.runtime = RUNTIMES["claude"]
+        self.granted_item(mode="interactive")
+        self.scheduler.tick()
+        self.assertEqual(self.launcher.spawned[-1][2],
+                         {"unity": {"type": "http", "url": "http://127.0.0.1:8080/mcp"}})
+
+    def test_an_item_with_no_reservation_is_launched_with_no_tools_and_no_resource_block(self):
+        """Enforcement is tool injection (spec §7): a fix worker that holds no slot must not reach the Unity
+        MCP, and the manifest's own `resources`/`mcp` fields must never be what decides that."""
+        self.waiting_item(mode="interactive")   # queued, never acquired: this item holds nothing
+        self.item(issue_id=OTHER, session="s2", identifier="FARM-2")
+        self.scheduler.tick()
+        item_id, message, servers, _, _ = self.launcher.spawned[-1]
+        self.assertEqual(servers, {})
+        self.assertIsNone(json.loads(message.split("\n\n", 1)[1])["resource"])
+
+    def test_a_skill_whose_manifest_claims_no_slot_is_given_none_even_holding_one(self):
+        """The manifest is not the authority on tools — the reservation is — but it is the second gate, and
+        without it a skill that never declared `unity_slot` would still be handed the Editor by the mere
+        presence of a row. `chat` declares `resources: []`, so it gets nothing whatever the ledger says."""
+        item_id = self.granted_item(mode="interactive")
+        self.ledger.connection.execute("UPDATE work_items SET skill='chat' WHERE id=?", (item_id,))
+        self.ledger.connection.commit()
+        self.assertEqual(SKILLS["chat"].resources, ())
+        self.scheduler.tick()
+        spawned_id, message, servers, _, _ = self.launcher.spawned[-1]
+        self.assertEqual((spawned_id, servers), (item_id, {}))
+        self.assertIsNone(json.loads(message.split("\n\n", 1)[1])["resource"])
+
     def test_stop_kills_and_cancels(self):
         item = self.item()
         self.scheduler.tick()
         self.scheduler.stop(item["id"], "Linear stop")
         self.assertEqual(self.launcher.stopped, [item["id"]])
         self.assertEqual(self.ledger.item(item["id"])["state"], "cancelled")
+
+    def test_stop_cancels_the_reservation_before_it_kills_the_worker(self):
+        """Ordering is asserted, not implied: both orders leave the same end state, so the fake launcher
+        samples the reservation at the moment stop() reaches it. A wall-clock assertion here would prove
+        nothing — FakeLauncher.stop appends to a list and returns, so it is fast whatever the real one does.
+        Done-criterion 2's five-second budget is defended by the rule that stop() only touches SQLite and
+        signals, which this ordering assertion is the test of."""
+        item = self.granted_item(mode="interactive")
+        self.scheduler.tick()
+        seen = []
+        self.launcher.on_stop = lambda i: seen.append(self.ledger.active_reservation(i)["state"])
+        self.scheduler.stop(item, "Linear stop")
+        self.assertEqual(seen, ["cancel_requested"])
+        reservation = self.ledger.active_reservation(item)
+        self.assertEqual(reservation["state"], "cancel_requested")
+        self.assertEqual(self.ledger.item(item)["state"], "cancelled")
+        # Still held: stop() never touches the slot row. granted_item leaves it in the busy state the pool's
+        # switch would have written, so this asserts that stop left it alone rather than releasing it — the
+        # release is the pool's, on its next tick, after a quiescence probe that does not fit five seconds.
+        self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "interactive_busy")
+
+    def test_stop_on_an_item_that_is_only_waiting_kills_its_queued_request(self):
+        """The end state alone is not the coverage: Ledger.cancel already cancels a queued request, so the
+        last two assertions passed before this task. What is new is *when* — stop() defers its cancel until
+        it holds the scheduler lock, which an in-flight tick can hold for as long as a launch takes, and for
+        that whole window the pool is free to acquire this request and pay for a multi-minute slot switch on
+        behalf of a worker that is already dead. So the queued request must be gone by the time of the kill,
+        which is what the sampled assertion, and only it, says."""
+        item = self.waiting_item(mode="batch")
+        states = lambda: [r["state"] for r in self.ledger.reservations() if r["item_id"] == item]
+        seen = []
+        self.launcher.on_stop = lambda _: seen.append(states())
+        self.scheduler.stop(item, "Linear stop")
+        self.assertEqual(seen, [["cancelled"]])
+        self.assertEqual(states(), ["cancelled"])
+        self.assertEqual(self.ledger.item(item)["state"], "cancelled")
+
+    def test_stop_reaches_the_batch_editor_the_worker_no_longer_owns(self):
+        """This task is named 'Stop and recovery never orphan a slot', and the sandbox redesign put the one
+        process that can orphan one outside everything Stop used to reach. The Editor is started by the
+        launcher on the pool thread, the worker that asked for it has already exited, and `launcher.stop`
+        resolves a `spawn` handle that was never written for it. So Stop must kill it explicitly, and it
+        must do so BEFORE the worker kill, for the same reason the cancel comes first: the pool thread is
+        sitting in `wait()` and the sooner it is released the sooner the slot can settle."""
+        item = self.waiting_item(mode="batch")
+        self.scheduler.stop(item, "Linear stop")
+        self.assertEqual(self.launcher.unsandboxed_stopped, [item])
+        self.assertLess(self.launcher.order.index(("unsandboxed", item)),
+                        self.launcher.order.index(("worker", item)))
 
     def test_item_requeued_by_finish_is_relaunched_not_failed(self):
         item = self.item()
@@ -338,6 +541,20 @@ class SchedulerTests(unittest.TestCase):
         self.scheduler.tick()
         self.assertEqual(self.ledger.item(other["id"])["state"], "failed")
         self.assertEqual(self.api.activities[-1][:2], ("session-2", "error"))
+
+    def test_a_locally_enqueued_item_reports_by_issue_comment_because_it_has_no_linear_session(self):
+        """`agent.service enqueue` mints a synthetic `local-` session id: no Linear agent session exists for
+        it, so every create_activity for such an item would fail against the real API and §9's reporting
+        surface would be silently dead for exactly the items the live rehearsal creates."""
+        item = self.item(session=f"local-{ISSUE}")
+        self.scheduler.tick()
+        self.ledger.claim(item["id"], worker_id="w")
+        self.launcher.finished.append(Finished(item["id"], 1, "", False, "exited"))
+        self.scheduler.tick()
+        self.assertEqual(self.ledger.item(item["id"])["state"], "failed")
+        self.assertEqual(self.api.activities, [])
+        self.assertEqual(self.api.comments[-1][0], ISSUE)
+        self.assertIn("重试", self.api.comments[-1][1])
 
     def test_a_failing_linear_api_never_breaks_the_tick(self):
         self.scheduler.api = FakeAPI(fail=True)

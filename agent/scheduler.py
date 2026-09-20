@@ -1,4 +1,5 @@
 """Turn queued work items into running workers and reap them back into ledger states (spec §6, §8)."""
+import json
 import os
 import re
 import threading
@@ -14,7 +15,8 @@ READ_REPO = "Farm-Client"
 
 class Scheduler:
     def __init__(self, ledger, launcher, skills, worktrees, *, skill_root, db_path, runtime_name, host,
-                 max_concurrent=2, guidance_for=lambda item: "", claim_timeout=600, api=None):
+                 max_concurrent=2, guidance_for=lambda item: "", claim_timeout=600, api=None,
+                 slot_entries=None):
         self.api = api
         self.ledger = ledger
         self.launcher = launcher
@@ -27,6 +29,9 @@ class Scheduler:
         self.max_concurrent = max_concurrent
         self.guidance_for = guidance_for
         self.claim_timeout = claim_timeout
+        # {slot_id: entry}, the same entries service.build hands the pool. The only thing read out of them
+        # here is the -buildTarget spelling a worker is told about; the Editor itself is the pool's to run.
+        self.slot_entries = slot_entries or {}
         self.active = {}
         self.lock = threading.RLock()
 
@@ -43,21 +48,70 @@ class Scheduler:
             paths[READ_REPO] = self.worktrees.add_detached(READ_REPO, item["id"])
         return paths
 
+    @staticmethod
+    def _batch_result(state_dir):
+        """What the pool's own run left behind. Missing is itself a verification gap the worker must report,
+        so it is represented rather than dropped — a batch worker with no `batch_result` key at all would
+        read as "no slot" instead of "no evidence"."""
+        try:
+            return json.loads((Path(state_dir) / "unity-batch.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {"state": "gap", "exit_code": None, "results_file": None,
+                    "result": "the pool recorded no batch run for this reservation"}
+
     def launch(self, item):
         skill = self.skills[item["skill"]]
         issue = self.ledger.issue(item["issue_id"])
         paths = self._worktrees_for(skill, item, issue)
         repo_root = Path(self.skill_root).parent
+        # Enforcement is tool injection (spec §7): what a worker can reach is decided here, from the
+        # reservation it actually holds, and never from the skill manifest — which would give every fix
+        # worker the Unity MCP whether or not it holds a slot — and never from a repository-local
+        # .codex/config.toml, which the isolated home makes inert.
+        reservation = self.ledger.active_reservation(item["id"])
+        servers, resource = {}, None
+        if reservation is not None and reservation["kind"] in skill.resources:
+            slot = self.ledger.slot(reservation["resource"])
+            entry = self.slot_entries.get(slot["slot_id"], {})
+            state_dir = self.launcher.state_dir(item["id"])
+            resource = {"kind": reservation["kind"], "mode": reservation["mode"], "slot": slot["slot_id"],
+                        "folder": slot["folder"], "instance": slot["instance"], "account": slot["account"],
+                        "mcp_address": slot["mcp_address"], "commit": reservation["commit_sha"],
+                        "token_file": str(Path(state_dir) / "reservation.token"),
+                        # No `unity` key. A worker that may never start the Editor has no use for its path,
+                        # and handing it one would be an instruction the AUTHORITY block then has to argue
+                        # against. Resolving the binary is the pool's job, in run_batch and open_editor.
+                        "build_target": entry.get("build_target_argument"),
+                        # The outcome of the run the POOL already performed through the launcher, outside
+                        # this worker's sandbox — never an argv for the worker to execute. Unity cannot run
+                        # inside sandbox_workspace_write at all: it hangs on a denied Mach lookup with no
+                        # file-permission denial to fix (Task 0's addendum). None on an interactive slot,
+                        # where run_tests over MCP is the verify path (Task 0 Step 5).
+                        "batch_result": (self._batch_result(state_dir)
+                                         if reservation["mode"] == "batch" else None),
+                        "results_dir": str(state_dir)}
+            if reservation["mode"] == "interactive":
+                # The server exists for this worker only while the reservation is held, and the worker pins
+                # its own MCP session with set_active_instance because HTTP selection is per session. The
+                # shape is the runtime's, not one guess for both: write_mcp_config's JSON writer emits
+                # mcpServers, where an entry without a type is not an HTTP server at all.
+                servers["unity"] = ({"url": slot["mcp_address"]}
+                                    if self.launcher.runtime.mcp_format == "toml"
+                                    else {"type": "http", "url": slot["mcp_address"]})
         message = dispatch_message(item=item, issue=issue, skill_path=self.skill_root / skill.name / "SKILL.md",
                                    worktrees=paths, db_path=self.db_path, runtime=self.runtime_name,
                                    guidance=self.guidance_for(item), budget=skill.budget,
-                                   repo_root=repo_root, state_dir=self.launcher.state_dir(item["id"]))
+                                   repo_root=repo_root, state_dir=self.launcher.state_dir(item["id"]),
+                                   resource=resource)
         primary = paths.get(READ_REPO) or next(iter(paths.values()))
         # `python3 -m agent` must resolve from any worktree, so FarmBot's root leads the worker's PYTHONPATH.
         pythonpath = os.pathsep.join(p for p in (str(repo_root), os.environ.get("PYTHONPATH", "")) if p)
         # A worktree's commits land in FarmBot's bare clone, so the clone must be writable too.
         clones = [self.worktrees.clone_path(repo) for repo in paths]
-        handle = self.launcher.spawn(item["id"], message, {}, int(skill.budget["max_hours"] * 3600), cwd=primary,
+        # `writable` is deliberately unchanged: no slot folder and no Unity host path is ever added to a
+        # worker's roots, in either mode. The worker reads the results XML in its own state directory, which
+        # Launcher.spawn already makes writable, and writes nothing in the slot.
+        handle = self.launcher.spawn(item["id"], message, servers, int(skill.budget["max_hours"] * 3600), cwd=primary,
                                      extra_env={"FARMBOT_DB": str(self.db_path), "PYTHONPATH": pythonpath},
                                      writable=[Path(self.db_path).parent, *paths.values(), *clones])
         try:
@@ -69,11 +123,20 @@ class Scheduler:
         return handle
 
     def _notify(self, item_id, kind, body):
-        """Best-effort session activity for outcomes the worker cannot report itself: it is dead or never ran."""
+        """Best-effort session activity for outcomes the worker cannot report itself: it is dead or never ran.
+
+        A `local-` session id was minted by `agent.service enqueue`, not by Linear, and names no agent
+        session: create_activity against the real API would fail on every one of these notices and leave the
+        operator with nothing. The issue comment is the only reporting surface such an item has.
+        """
         if self.api is None:
             return
         try:
-            self.api.create_activity(self.ledger.item(item_id)["session_id"], {"type": kind, "body": body})
+            item = self.ledger.item(item_id)
+            if str(item["session_id"]).startswith("local-"):
+                self.api.create_comment(item["issue_id"], body)
+            else:
+                self.api.create_activity(item["session_id"], {"type": kind, "body": body})
         except Exception:
             pass
 
@@ -89,6 +152,30 @@ class Scheduler:
         self._notify(item_id, "error", f"FarmBot 无法启动工作进程（{type(exc).__name__}），工作项已标记失败；可回复「重试」。")
 
     def stop(self, item_id, reason):
+        # First, so a worker polling its reservation sees cancel_requested and so the pool can no longer hand
+        # a slot to an item whose worker is about to be dead. Ledger.cancel below does the same UPDATE, but
+        # only once this thread owns the lock — and an in-flight tick can hold that for as long as a launch
+        # takes, a window in which the pool would happily acquire a queued request and pay for a multi-minute
+        # slot switch on behalf of a worker that is already dead. All three steps here are SQLite and
+        # signals; the quiescence probe belongs to the pool thread and would not fit the 5-second budget
+        # (spec §7, §17), so an active reservation is only marked, never released.
+        try:
+            self.ledger.cancel_reservations(item_id, reason)
+        except LedgerError:
+            pass
+        # The batch Editor is not a worker and never went through `spawn`, so `launcher.stop` below cannot
+        # see it: its handle lookup and its `descendants` walk both start from a worker pid, and by now that
+        # worker has already exited — it asked for the reservation and quit. Killing the group here is what
+        # keeps this task's title true. Be honest about its cost: `kill_group` polls for up to 5s after
+        # SIGTERM and 1s more after SIGKILL, so on the batch path Stop itself can take about six seconds,
+        # and a wedged Editor is exactly Task 0's measured case. What that cannot touch is done-criterion
+        # 2's budget, which is five seconds to kill the *worker*: a batch Editor runs inside the pool's
+        # hand-over window, before `resume` puts the item back in the queue, so the Editor and a worker for
+        # the same item are never alive at once. In every other case — interactive slots, fix workers, no
+        # batch run in flight — this is one dict lookup that returns False. Killing it first also releases
+        # the pool thread from `process.wait()` sooner, and the sooner that returns the sooner the slot can
+        # settle. `SlotPool.run_batch` closes the other half: the window before the Editor is registered.
+        self.launcher.stop_unsandboxed(item_id)
         # Killing the worker must not wait for an in-flight tick: a human pressed Stop.
         killed = self.launcher.stop(item_id)
         with self.lock:

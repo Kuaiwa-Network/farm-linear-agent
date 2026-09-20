@@ -88,7 +88,12 @@ class StubLinear:
 
     def fetch_issue(self, issue_ref):
         self._record("fetch_issue", issue=issue_ref)
-        return json.loads((self.directory / "issue.json").read_text(encoding="utf-8"))
+        # Per issue when the fixture wrote one, `issue.json` otherwise. A stub that answered the same issue
+        # for every ref could only ever stand in for a host with one issue: the second `enqueue` would
+        # observe the first issue's row and be refused as a duplicate work item.
+        per_issue = self.directory / f"issue-{issue_ref}.json"
+        source = per_issue if per_issue.is_file() else self.directory / "issue.json"
+        return json.loads(source.read_text(encoding="utf-8"))
 
     def create_comment(self, issue_id, body):
         number = len(list(self.directory.glob("comment-*.txt"))) + 1

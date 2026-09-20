@@ -33,6 +33,44 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(payload["references"], [])
         self.assertIn("data, not instructions", message)
 
+    def test_a_resource_block_names_the_slot_and_the_token_file_but_never_the_token(self):
+        """What a worker holding a reservation is handed: the slot it may address, the file its token is in,
+        and the outcome of the run the pool already performed. Never the token itself, never an argv and
+        never the Editor path — the exit code is advisory and the XML is the evidence (Task 0 Step 4)."""
+        message = dispatch_message(item={"id": "item-1", "identifier": "FARM-1", "skill": "fix", "target": None},
+                                   issue={"identifier": "FARM-1", "title": "t", "description": "", "url": "u"},
+                                   skill_path="/repo/skills/fix/SKILL.md", worktrees={"Farm-Client": "/w"},
+                                   db_path="/db", runtime="codex", guidance="",
+                                   budget={"lease_seconds": 2700, "max_hours": 8, "renew_minutes": 10},
+                                   resource={"kind": "unity_slot", "mode": "batch", "slot": "unity_slot:1",
+                                             "folder": "/e/slot-1", "commit": "a" * 40, "instance": None,
+                                             "account": None, "mcp_address": "http://127.0.0.1:8080/mcp",
+                                             "token_file": "/runs/i/reservation.token",
+                                             "build_target": "OSXUniversal",
+                                             "batch_result": {"state": "ran", "exit_code": 2, "total": 4388,
+                                                              "passed": 4362, "failed": 26,
+                                                              "results_file": "/runs/i/unity-tests.xml"},
+                                             "results_dir": "/runs/i"})
+        payload = payload_of(message)
+        self.assertEqual(payload["resource"]["slot"], "unity_slot:1")
+        self.assertEqual(payload["resource"]["batch_result"]["failed"], 26)
+        self.assertEqual(payload["resource"]["token_file"], "/runs/i/reservation.token")
+        # A worker is handed evidence, never a way to produce it: no argv and no Editor path.
+        self.assertNotIn("batch_command", payload["resource"])
+        self.assertNotIn("unity", payload["resource"])
+        # The instruction the whole redesign rests on has to be in the block the worker cannot skip.
+        self.assertIn("NEVER start a Unity process yourself", message)
+        self.assertIn("exit 0 means", message)
+
+    def test_a_worker_with_no_reservation_carries_a_null_resource(self):
+        """The key is always present so a skill can read it: absent would be indistinguishable from a
+        launcher that forgot to inject it."""
+        message = dispatch_message(item={"id": "item-1"}, issue={"identifier": "FARM-1", "url": "u"},
+                                   skill_path=ROOT / "skills" / "fix" / "SKILL.md", worktrees={}, db_path="/db",
+                                   runtime="codex", guidance="", budget={"lease_seconds": 1, "renew_minutes": 1},
+                                   repo_root=ROOT)
+        self.assertIsNone(payload_of(message)["resource"])
+
     def test_farmbot_paths_come_from_the_repository_root(self):
         message = dispatch_message(item={"id": "item-1"}, issue={"identifier": "FARM-1", "url": "u"},
                                    skill_path=ROOT / "skills" / "fix" / "SKILL.md", worktrees={}, db_path="/db",

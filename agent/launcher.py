@@ -6,6 +6,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -13,6 +14,7 @@ RuntimeConfig = namedtuple("RuntimeConfig", "name command home_env mcp_format se
                            defaults=(None,))
 Handle = namedtuple("Handle", "item_id pid started_at deadline run_dir process last_message_path")
 Finished = namedtuple("Finished", "item_id returncode last_message killed reason")
+Unsandboxed = namedtuple("Unsandboxed", "returncode timed_out seconds")
 
 RUNTIMES = {
     "codex": RuntimeConfig(
@@ -73,6 +75,10 @@ class Launcher:
         self.clock = clock
         self._handles = {}
         self._stopping = {}
+        # Touched from two threads at once: run_unsandboxed registers from the pool thread while
+        # Scheduler.stop and serve()'s shutdown read from theirs.
+        self._unsandboxed = {}
+        self._unsandboxed_lock = threading.Lock()
 
     def running(self):
         return dict(self._handles)
@@ -138,6 +144,124 @@ class Launcher:
         handle = Handle(item_id, process.pid, self.clock(), self.clock() + budget_seconds, run_dir, process, last_message)
         self._handles[item_id] = handle
         return handle
+
+    def run_unsandboxed(self, argv, *, cwd, timeout, log=None, env=None, owner=None):
+        """Run one process OUTSIDE the worker seatbelt. This is the only method in FarmBot that does.
+
+        Task 0's sandbox addendum: `Unity -batchmode -runTests` under [sandbox_workspace_write] hangs for
+        ever — 25 minutes at 0.0% CPU, log frozen at 2,289 bytes, no results file — because the seatbelt
+        denies a Mach lookup for com.apple.hiservices-xpcservice and the Editor blocks instead of exiting.
+        There were zero file-permission denials, and Mach service access is not expressible through
+        sandbox_workspace_write, so no writable_roots entry can fix it. The same command unsandboxed exits 2
+        in 19 s. Hence: the launcher runs the Editor, the worker never does.
+
+        The argv is the caller's, composed from configuration — never anything a worker supplied. Nothing
+        here writes an isolated home, a CODEX_HOME or a sandbox table; this is a plain subprocess, and the
+        deadline exists because the thing it runs is the thing that was watched hang.
+
+        env=None on purpose: the Editor inherits the service's own environment, including the real HOME, and
+        Task 0 Steps 3 and 6 measured licensing resolving under exactly that — foreground and under launchd.
+        """
+        start = time.monotonic()
+        handle = open(log, "w", encoding="utf-8") if log else subprocess.DEVNULL
+        kwargs = ({"start_new_session": True} if os.name != "nt"
+                  else {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP})
+        try:
+            process = subprocess.Popen([str(part) for part in argv], cwd=str(cwd), env=env,
+                                       stdin=subprocess.DEVNULL, stdout=handle, stderr=subprocess.STDOUT,
+                                       **kwargs)
+            # Registered under the item, because this process is the one thing in FarmBot that nothing else
+            # can reach. The worker that asked for the run has already exited; the Editor is a direct child
+            # of `serve`, not a descendant of any worker, so `Launcher.stop`'s handle lookup and its
+            # `descendants` walk both miss it entirely. Without this line a Stop leaves a real Editor running
+            # for the rest of `batch_timeout` on a cancelled item, and a `serve` shutdown orphans it holding
+            # the slot folder.
+            if owner is not None:
+                with self._unsandboxed_lock:
+                    self._unsandboxed[owner] = process
+            try:
+                return Unsandboxed(process.wait(timeout=timeout), False, time.monotonic() - start)
+            except subprocess.TimeoutExpired:
+                # Take the group, not the pid: a hung Editor has children, and leaving them holding the slot
+                # folder is what turns a gap into a held slot. `start_new_session=True` above made this pid a
+                # process-group leader precisely so this call can exist; `kill_pid` walks `ps` for
+                # descendants, which misses anything Unity re-parented on its way down.
+                #
+                # `reap=process`: this thread is the only one that can wait() on the child, so liveness here
+                # has to be asked of the Popen and not of `alive(pid)` — an unreaped child is a zombie, and
+                # os.kill(zombie, 0) succeeds, which would spin kill_group's whole grace on every timeout and
+                # then leave the corpse for the interpreter to warn about.
+                self.kill_group(process.pid, reap=process)
+                return Unsandboxed(None, True, time.monotonic() - start)
+        finally:
+            if owner is not None:
+                with self._unsandboxed_lock:
+                    self._unsandboxed.pop(owner, None)
+            if log:
+                handle.close()
+
+    def kill_group(self, pid, grace=5.0, reap=None):
+        """SIGTERM the whole process group, then SIGKILL what is left.
+
+        `kill_pid` exists beside this and is the wrong tool here: it walks `ps` for descendants, which sees
+        only processes still parented to `pid`. A Unity Editor that is wedged — the case Task 0 measured,
+        25 minutes at 0.0% CPU — leaves children that may have been re-parented, and those are exactly the
+        ones still holding the slot folder open. Every process this method exists to kill was started by
+        `run_unsandboxed` with `start_new_session=True`, so the pid is its own group leader and the group is
+        the honest unit. Mirrors the killpg pair `stop()` already uses.
+
+        `reap` is the Popen when the caller is the thread that owns the wait; without it the child becomes an
+        unreaped zombie whose pid still answers `os.kill(pid, 0)`, so `alive` would never go False.
+        """
+        gone = (lambda: reap.poll() is not None) if reap is not None else (lambda: not self.alive(pid))
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(int(pid))], capture_output=True)
+            if reap is not None:
+                try:
+                    reap.wait(timeout=grace)
+                except subprocess.TimeoutExpired:
+                    pass
+            return
+        try:
+            group = os.getpgid(pid)
+        except (ProcessLookupError, PermissionError):
+            return
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(group, sig)
+            except (ProcessLookupError, PermissionError):
+                return
+            deadline = time.monotonic() + (grace if sig is signal.SIGTERM else 1.0)
+            while time.monotonic() < deadline:
+                if gone():
+                    return
+                time.sleep(0.05)
+
+    def stop_unsandboxed(self, owner):
+        """Kill the unsandboxed run registered for this item, if one is in flight. Returns True if it was.
+
+        The reachability fix. `stop()` resolves `self._handles`, which `spawn` populates — and the batch
+        Editor never went through `spawn`. So Stop, service shutdown and `recover-slot` all had no way to
+        touch it, while `SlotPool.run_batch` sat in `process.wait(timeout=batch_timeout)` for up to half an
+        hour on the pool thread. Both callers reach it through here.
+        """
+        with self._unsandboxed_lock:
+            process = self._unsandboxed.get(owner)
+        if process is None or process.poll() is not None:
+            return False
+        # reap=None deliberately: the thread blocked in run_unsandboxed's own wait() owns this child and is
+        # the one that reaps it, after which `alive(pid)` goes False. Polling it from here would race that
+        # wait for the same waitpid.
+        self.kill_group(process.pid)
+        return True
+
+    def stop_all_unsandboxed(self):
+        """Every in-flight unsandboxed run, for service shutdown. The pool thread is a daemon, so without
+        this an Editor outlives the process that started it and keeps the slot folder open across a
+        restart — which the next `ensure` then reads as a slot another Editor already holds."""
+        with self._unsandboxed_lock:
+            owners = list(self._unsandboxed)
+        return [owner for owner in owners if self.stop_unsandboxed(owner)]
 
     @staticmethod
     def descendants(pid):

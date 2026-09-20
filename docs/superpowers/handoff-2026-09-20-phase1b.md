@@ -15,26 +15,37 @@ needed to resume is here or in git; nothing important is left in that conversati
 
 ## State
 
-Branch `phase1b-unity-slots`, cut from `main` at `7c88e0c`. **Not pushed.**
+Branch `phase1b-tasks-5-11`, cut from `main` at `b4efc61` (PR #1, Tasks 1-4, merged 2026-09-20).
 
 | Task | Commits | Tests | Status |
 |---|---|---|---|
-| 1 Every work item pins a commit | `3e52ce9`, `b9fb2b1` | 139 → 150 | complete, review clean |
-| 2 Ledger holds slots and reservations | `99c94e5`, `52e8ca6` | 150 → 165 | complete, review clean |
-| 3 Slot 1 as a detached worktree | `3eca690`, `2875ca9` | 165 → 173 | complete, review clean |
-| 4 The slot switch | `ff65051`, `4ce2390` | 173 → 195 | complete, review clean |
-| 5-11 | — | — | **not started — resume here** |
+| 1-4 | merged in PR #1 | 139 → 195 | complete |
+| 5 The identity probe | `e00ad8f`, `121c249` | 195 → 217 | complete, review clean |
+| 6 The pool thread | `8db579c`, `0d8e882` | 217 → 241 | complete, review clean |
+| 7 Tool injection | `bae5210` | 241 → 260 | complete, **no fix round needed** |
+| 8 Worker CLI and operator view | `880c430`, `63b4bcb` | 260 → 269 | complete, review clean |
+| 9 Stop and recovery | `a4f0130`, `d0eeb37` | 269 → 274 | complete, review clean |
+| 10 **Criterion 3 proof** | `a338fb9`, `dba9f34` | 274 → 280 | complete, review clean |
+| 11 The live rehearsal | — | — | **not started — resume here** |
 
-Suite: **195 tests, green and warning-free** under `python3 -W error -m unittest discover -s tests`.
+Suite: **280 tests, green and warning-free** under `python3 -W error -m unittest discover -s tests`.
 
-### Resume at Task 5
+**Phase 1 done-criterion 3 is proved offline.** Two items that both need Unity serialize on the
+single slot through the two-phase flow, one batch and one interactive, each switched to its own
+pinned commit and parked back on `origin/main` between them. Both arrival orders pass. The proof
+survived mutations designed to break it — including dropping the UNIQUE index *and* acquire's
+free-state gate so two owners were physically legal, and making `park()` skip the checkout when
+another request was queued.
 
-Tasks 1-4 are complete and reviewed clean. Task 4's scoped re-review of `ff65051..4ce2390` ran on
-2026-09-20 and returned all three findings ADDRESSED, verified by mutation at all four
-`clear_stale_lock` call sites. There is no unfinished loop to inherit.
+### Resume at Task 11
 
-Start with Task 5, the identity probe. Extract its brief, dispatch an implementer, review, fix,
-re-review — the loop is described below.
+Task 11 is different in kind from 1-10: it writes no code. It opens a **real Unity Editor** on the
+real 6.1 GB slot at `.local/editors/slot-1`, runs the real 4388-test suite against real commits,
+rehearses a Stop against a live batch run and checks with `pgrep` that the Editor actually died, and
+restarts the service mid-run via `launchctl kickstart` to prove a shutdown does not orphan an Editor.
+
+Those last two are the point. Every offline test uses a fake; only a live run can show the fakes are
+not lying. Expect 15-20 minutes of a busy machine and GUI windows opening.
 
 ## A trap that will bite you
 

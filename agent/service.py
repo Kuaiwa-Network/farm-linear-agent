@@ -1,5 +1,6 @@
 """Run FarmBot: receiver HTTP server plus scheduler loop in one process (spec §3)."""
 from collections import namedtuple
+from datetime import datetime, timezone
 import argparse
 import json
 import shutil
@@ -11,11 +12,14 @@ from .deploy import AGENTS, install, missing_tools
 from .launcher import RUNTIMES, Launcher
 from .ledger import Ledger
 from .receiver import Receiver, make_server
+from .router import WRITE_SKILLS
 from .scheduler import Scheduler
 from .skills import load_skills
+from .slots import SlotError, SlotPool, UnityIdentity, slot_entry
 from .worktrees import Worktrees
 
-Components = namedtuple("Components", "config paths api ledger skills worktrees launcher scheduler receiver server")
+Components = namedtuple("Components",
+                        "config paths api ledger skills worktrees launcher scheduler receiver server pool")
 
 
 def build(config, runtime_override=None):
@@ -28,8 +32,12 @@ def build(config, runtime_override=None):
     runtime = RUNTIMES[runtime_override or config.runtime]
     launcher = Launcher(paths.runs, runtime, config.host)
     ledger = Ledger(paths.ledger, check_same_thread=False)
+    # One list of entries, read by both: the pool switches and runs the slots it describes, and the
+    # scheduler tells the worker which -buildTarget that slot was switched to.
+    entries = [slot_entry(raw) for raw in config.slots]
     scheduler = Scheduler(ledger, launcher, skills, worktrees, skill_root=ROOT / "skills", db_path=paths.ledger,
                           runtime_name=runtime.name, host=config.host, max_concurrent=config.max_concurrent,
+                          slot_entries={entry["id"]: entry for entry in entries},
                           guidance_for=lambda item: (ledger.session(item["session_id"]) or {}).get("guidance") or "",
                           api=api)
     receiver = Receiver(paths.ledger, config.webhook_secret,
@@ -38,7 +46,16 @@ def build(config, runtime_override=None):
                         api, lambda: Ledger(paths.ledger, check_same_thread=False), set(skills), scheduler,
                         worktrees=worktrees, default_server_environment=config.default_server_environment)
     server = make_server(receiver, config.port)
-    return Components(config, paths, api, ledger, skills, worktrees, launcher, scheduler, receiver, server)
+    # A factory, not the scheduler's connection: the pool runs on its own thread and two threads on one
+    # sqlite3.Connection interleave their BEGIN IMMEDIATE blocks. The receiver already takes one of these.
+    pool = SlotPool(lambda: Ledger(paths.ledger, check_same_thread=False),
+                    worktrees, entries, host=config.host,
+                    editors_root=paths.editors, state_dir=launcher.state_dir,
+                    # The one process FarmBot starts outside the worker seatbelt, and the pool is what
+                    # composes its argv: Unity cannot run inside sandbox_workspace_write at all.
+                    run_unsandboxed=launcher.run_unsandboxed,
+                    mcp=UnityIdentity(ROOT / "agent" / "probes" / "editor-readiness.cs.txt"))
+    return Components(config, paths, api, ledger, skills, worktrees, launcher, scheduler, receiver, server, pool)
 
 
 def seed_clones(config, source_root=None):
@@ -61,6 +78,41 @@ def seed_clones(config, source_root=None):
         trees.ensure_clone(repo, seed_from=seed)
         report[repo] = f"seeded from {seed}" if seed else "created"
     return report
+
+
+def enqueue(config, *, issue_ref, skill, commit=None, session=None):
+    """Create a work item directly, for a host whose webhook cannot be delivered.
+
+    Two honesties. The delegation flag is read from the issue, never asserted: spec §4 says a write-capable
+    skill starts only from delegation, and the operator's invocation of this command is recorded in `audit`
+    as the human act rather than being disguised as one in Linear. And the session id is synthetic, prefixed
+    `local-` — no Linear agent session exists for it — so `create_activity` would fail on every call, and the
+    scheduler and the worker both read that prefix and report through an issue comment instead.
+    """
+    paths = Paths(config)
+    paths.config_dir.mkdir(parents=True, exist_ok=True)
+    api = linear_api(config)
+    ledger = Ledger(paths.ledger)
+    try:
+        issue = api.fetch_issue(issue_ref)
+        observed = ledger.observe_issue(issue)
+        delegated = issue.get("delegate_id") == api.app_user_id
+        if skill in WRITE_SKILLS and not delegated:
+            raise RuntimeError(f"{skill} is write-capable and this issue is not delegated to FarmBot; "
+                               f"delegate it in Linear first (spec §4)")
+        session = session or f"local-{observed['id']}"
+        ledger.ensure_session(session, observed["id"], delegated)
+        trees = Worktrees(paths.repos, paths.worktrees, config.repos)
+        target = {"repository": "Farm-Client", "requested_ref": "default",
+                  "commit_sha": commit or trees.resolve_commit("Farm-Client"),
+                  "server_environment": config.default_server_environment,
+                  "selected_at": datetime.now(timezone.utc).isoformat()}
+        ledger.set_session_target(session, target)
+        item = ledger.create_work_item(issue_id=observed["id"], session_id=session, skill=skill, target=target)
+        ledger.note(item["id"], "enqueue", f"operator enqueued {skill} for {observed['identifier']}")
+        return item
+    finally:
+        ledger.close()
 
 
 def serve(config_path=None, components=None):
@@ -86,8 +138,23 @@ def serve(config_path=None, components=None):
         components.scheduler.tick()
         stop.wait(1.0)
 
+    def pool_once():
+        # A slot switch is git checkout plus git lfs checkout on a multi-GB .git, an Editor refresh and a
+        # compile wait — minutes. Scheduler.tick() holds its lock for its whole body and runs every second,
+        # so running a switch inside one would freeze reaping, recovery and Stop.
+        components.pool.tick()
+        stop.wait(2.0)
+
+    try:
+        components.pool.ensure()
+    except SlotError as exc:
+        # A host whose slot cannot be prepared must still answer Linear: the pool is simply empty, every
+        # unity_slot request stays queued, and the operator has a line naming the folder to go and look at.
+        print(json.dumps({"event": "slot_pool_unavailable", "error": str(exc)}), flush=True)
+
     threads = [threading.Thread(target=guarded("receive", receive_once), daemon=True),
-               threading.Thread(target=guarded("schedule", schedule_once), daemon=True)]
+               threading.Thread(target=guarded("schedule", schedule_once), daemon=True),
+               threading.Thread(target=guarded("pool", pool_once), daemon=True)]
     for thread in threads:
         thread.start()
     print(json.dumps({"event": "ready", "listen": f"http://127.0.0.1:{components.server.server_address[1]}",
@@ -100,17 +167,28 @@ def serve(config_path=None, components=None):
     finally:
         components.server.server_close()
         stop.set()
+        # Before the joins, not after. The pool thread is a daemon and may be blocked in run_batch's
+        # wait() on a batch Editor for up to batch_timeout — half an hour — so joining first would time
+        # out and only then kill it, leaving that thread live while pool.close() shuts its ledger
+        # connection underneath it. Without this call at all, the Editor simply outlives the service and
+        # keeps the slot folder open, which the next ensure() reads as a slot another Editor holds.
+        components.launcher.stop_all_unsandboxed()
         for thread in threads:
             thread.join(timeout=20)
         components.receiver.close()
         components.ledger.close()
+        components.pool.close()
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="python3 -m agent.service")
-    parser.add_argument("command", choices=["configure", "serve", "status", "seed-clones", "install-launchd"])
+    parser.add_argument("command", choices=["configure", "serve", "status", "seed-clones", "install-launchd",
+                                            "enqueue", "slots"])
     parser.add_argument("--config")
     parser.add_argument("--from", dest="source_root", help="directory holding local checkouts to seed from")
+    parser.add_argument("--issue", help="Linear issue id or identifier to enqueue work for")
+    parser.add_argument("--skill", default="fix")
+    parser.add_argument("--commit", help="pin this commit instead of resolving the default branch")
     args = parser.parse_args(argv)
     if args.command == "configure":
         return configure(args.config)
@@ -136,6 +214,22 @@ def main(argv=None):
         ledger = Ledger(Paths(config).ledger)
         try:
             print(json.dumps(ledger.status(), ensure_ascii=False, indent=2))
+        finally:
+            ledger.close()
+        return 0
+    if args.command == "enqueue":
+        if not (args.issue or "").strip():
+            raise SystemExit("enqueue needs --issue: the Linear issue id or identifier to create work for")
+        config = load_config(args.config)
+        print(json.dumps(enqueue(config, issue_ref=args.issue, skill=args.skill, commit=args.commit),
+                         ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "slots":
+        config = load_config(args.config)
+        ledger = Ledger(Paths(config).ledger)
+        try:
+            print(json.dumps({"slots": ledger.slots(), "reservations": ledger.reservations(
+                ("queued", "active", "cancel_requested"))}, ensure_ascii=False, indent=2))
         finally:
             ledger.close()
         return 0

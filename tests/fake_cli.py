@@ -35,8 +35,19 @@ elif mode == "cli":
     item = payload["item_id"]
     token = None
     action_id = None
-    for step in json.loads(os.environ["FAKE_CLI_STEPS"]):
+    steps = json.loads(os.environ["FAKE_CLI_STEPS"])
+    if isinstance(steps, dict):
+        # One script per item, plus a second script for the worker the pool resumes once it has been
+        # granted the slot. The launch message is what says which of the two this run is — a resumed
+        # worker is the one that carries a `resource` block — exactly as it is for a real worker, which
+        # reads the same field to know whether it holds a reservation at all.
+        steps = steps[(item + ":resumed") if payload.get("resource") else item]
+    # The reservation token lives in a file the pool wrote; the launch message carries its path and never
+    # the secret, so this is the only spelling a worker can use to give the slot back.
+    token_file = (payload.get("resource") or {}).get("token_file") or ""
+    for step in steps:
         args = [a.replace("{token}", token or "").replace("{item}", item).replace("{action_id}", action_id or "")
+                .replace("{token_file}", token_file)
                 for a in step]
         attempts = 60 if args[0] == "finish" else 1
         for attempt in range(attempts):
