@@ -840,6 +840,27 @@ class PoolTests(SlotFixture):
                 self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "held")
                 self.assertEqual([r["state"] for r in self.ledger.reservations()], ["active"])
 
+    def test_a_slot_the_worker_gave_back_itself_is_parked_by_its_own_departing_mode(self):
+        """The ordinary way a slot comes back is the worker's own `release-resource`, which runs in the
+        worker's process against its own connection. settle() never sees that reservation, so a note this
+        object makes when *it* settles one cannot be what decides idle_open from idle_closed: park_idle
+        reads the departing mode from the ledger. Without that, every interactive slot a worker released
+        normally was recorded closed with its Editor still open, against spec §7."""
+        self.pool().ensure()
+        item = self.waiting(ISSUE, self.commit("fix"), "interactive")
+        pool = self.pool(mcp=FakeMcp())
+        self.assertEqual(pool.tick()["granted"], 1)
+        # Exactly what `python3 -m agent release-resource --outcome quiescent` does, presenting the token
+        # the pool wrote to the worker's state directory.
+        reservation = self.ledger.active_reservation(item)
+        self.ledger.release(reservation["reservation_id"], pool.token_path(item).read_text(encoding="utf-8"),
+                            "worker reported quiescent")
+        result = pool.tick()
+        self.assertEqual((result["settled"], result["parked"]), (0, 1))
+        slot = self.ledger.slot("unity_slot:1")
+        self.assertEqual(slot["state"], "idle_open")
+        self.assertEqual(slot["parked_commit"], self.trees.resolve_commit("Farm-Client"))
+
     def test_a_stop_between_the_grant_and_the_switch_does_not_kill_the_pool_thread(self):
         """resume() raises unless the item is awaiting; a Stop during the multi-minute switch cancels it, and
         an uncaught LedgerError there would take grant(), tick() and the pool thread down with the slot busy
@@ -858,7 +879,12 @@ class PoolTests(SlotFixture):
         self.assertEqual((result["granted"], result["parked"]), (0, 1))
         self.assertEqual(self.ledger.item(item)["state"], "cancelled")
         self.assertEqual([r["state"] for r in self.ledger.reservations()], ["cancelled"])
-        self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "idle_closed")
+        # idle_*open*, and that is the point rather than an incidental change: open_editor really did start
+        # an Editor on this folder before the Stop landed, and park() never closes one. This used to record
+        # idle_closed only because park_idle had no way to know the departing mode was interactive and
+        # defaulted to batch — a row claiming no Editor was open on a folder that had one, while the very
+        # next line of park() asked the process listing and was told otherwise.
+        self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "idle_open")
         self.assertFalse(pool.token_path(item).exists())
         self.assertEqual(pool.tick(), {"settled": 0, "granted": 0, "parked": 0})
 

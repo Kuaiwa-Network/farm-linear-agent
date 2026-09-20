@@ -783,6 +783,21 @@ class Ledger:
             (slot_id,)).fetchone()
         return self._reservation_view(row) if row else None
 
+    def last_reservation_on(self, slot_id):
+        """The reservation that most recently held this slot, whatever state it ended in.
+
+        SlotPool.park_idle needs the *departing* mode, and neither the slot row nor the pool's own memory
+        can supply it. The row cannot, because `release` has already overwritten the slot's state with the
+        transient 'switching'. An in-process note cannot either: the normal way a slot comes back is the
+        worker's own `release-resource`, which runs in the worker's process against its own connection, so
+        the pool never observes that release at all and would park every interactive slot as though a batch
+        run had just ended — closed, per spec §7, when the Editor is in fact still open.
+        """
+        row = self.connection.execute(
+            "SELECT * FROM reservations WHERE resource=? ORDER BY sequence DESC LIMIT 1",
+            (slot_id,)).fetchone()
+        return self._reservation_view(row) if row else None
+
     def reservations_to_settle(self):
         """A slot is only useful to a running worker: anything else is the pool's to probe and release.
 

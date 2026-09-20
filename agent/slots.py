@@ -115,10 +115,6 @@ class SlotPool:
         self.run_unsandboxed = run_unsandboxed
         self.owner = owner
         self.last_observation = None
-        # slot_id -> the mode that just let go of it. settle() writes it and park_idle() reads it, because
-        # Ledger.release has already overwritten the slot's state with 'switching' by then and the state
-        # that decides idle_open from idle_closed is no longer readable from the row.
-        self._departing = {}
 
     @staticmethod
     def _collaborator_error(slot_id, exc, *, stage, doing):
@@ -357,7 +353,6 @@ class SlotPool:
                 self.clear_stale_lock(slot["folder"], lambda: self.editor_is_open(slot))
             self.ledger.release(reservation["reservation_id"], token, reason)
             self.token_path(reservation["item_id"]).unlink(missing_ok=True)
-            self._departing[reservation["resource"]] = reservation["mode"]
             settled += 1
         return settled
 
@@ -368,12 +363,20 @@ class SlotPool:
         this moment being handed to a worker looks exactly like one on its way back. `active_reservation_on`
         is the question that tells them apart — without it park_idle would return a slot to the pool while a
         live reservation still owned it, and the next acquire would hit the partial unique index.
+
+        The departing mode comes from the ledger and never from a note this object made when it settled the
+        reservation itself. settle() is the exceptional path: the ordinary way a slot comes back is the
+        worker's own `release-resource`, which runs in the worker's process, so the pool sees no release to
+        take a note on and would park every interactive slot as `idle_closed` — spec §7 says the Editor
+        stays open after an interactive run, and the state that says so is what the next request's
+        scheduling preference and close-before-batch both read.
         """
         parked = 0
         for slot in self.ledger.slots(host=self.host):
             if slot["state"] != "switching" or self.ledger.active_reservation_on(slot["slot_id"]):
                 continue
-            mode = self._departing.pop(slot["slot_id"], "batch")
+            departing = self.ledger.last_reservation_on(slot["slot_id"])
+            mode = departing["mode"] if departing else "batch"
             try:
                 self.park(slot["slot_id"], mode)
             except SlotError:
