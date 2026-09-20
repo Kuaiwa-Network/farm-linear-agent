@@ -30,8 +30,12 @@ def build(config, runtime_override=None):
     runtime = RUNTIMES[runtime_override or config.runtime]
     launcher = Launcher(paths.runs, runtime, config.host)
     ledger = Ledger(paths.ledger, check_same_thread=False)
+    # One list of entries, read by both: the pool switches and runs the slots it describes, and the
+    # scheduler tells the worker which -buildTarget that slot was switched to.
+    entries = [slot_entry(raw) for raw in config.slots]
     scheduler = Scheduler(ledger, launcher, skills, worktrees, skill_root=ROOT / "skills", db_path=paths.ledger,
                           runtime_name=runtime.name, host=config.host, max_concurrent=config.max_concurrent,
+                          slot_entries={entry["id"]: entry for entry in entries},
                           guidance_for=lambda item: (ledger.session(item["session_id"]) or {}).get("guidance") or "",
                           api=api)
     receiver = Receiver(paths.ledger, config.webhook_secret,
@@ -43,8 +47,11 @@ def build(config, runtime_override=None):
     # A factory, not the scheduler's connection: the pool runs on its own thread and two threads on one
     # sqlite3.Connection interleave their BEGIN IMMEDIATE blocks. The receiver already takes one of these.
     pool = SlotPool(lambda: Ledger(paths.ledger, check_same_thread=False),
-                    worktrees, [slot_entry(raw) for raw in config.slots], host=config.host,
+                    worktrees, entries, host=config.host,
                     editors_root=paths.editors, state_dir=launcher.state_dir,
+                    # The one process FarmBot starts outside the worker seatbelt, and the pool is what
+                    # composes its argv: Unity cannot run inside sandbox_workspace_write at all.
+                    run_unsandboxed=launcher.run_unsandboxed,
                     mcp=UnityIdentity(ROOT / "agent" / "probes" / "editor-readiness.cs.txt"))
     return Components(config, paths, api, ledger, skills, worktrees, launcher, scheduler, receiver, server, pool)
 
@@ -123,6 +130,12 @@ def serve(config_path=None, components=None):
     finally:
         components.server.server_close()
         stop.set()
+        # Before the joins, not after. The pool thread is a daemon and may be blocked in run_batch's
+        # wait() on a batch Editor for up to batch_timeout — half an hour — so joining first would time
+        # out and only then kill it, leaving that thread live while pool.close() shuts its ledger
+        # connection underneath it. Without this call at all, the Editor simply outlives the service and
+        # keeps the slot folder open, which the next ensure() reads as a slot another Editor holds.
+        components.launcher.stop_all_unsandboxed()
         for thread in threads:
             thread.join(timeout=20)
         components.receiver.close()

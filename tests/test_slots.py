@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import subprocess
 import tempfile
@@ -6,6 +7,7 @@ import time
 import unittest
 from pathlib import Path
 
+from agent.launcher import Unsandboxed
 from agent.ledger import Ledger
 from agent.slots import SlotError, SlotPool, slot_entry
 from agent.worktrees import WorktreeError, Worktrees
@@ -31,7 +33,13 @@ class SlotFixture(unittest.TestCase):
         self.now = 1000.0
         self.ledger = Ledger(self.root / "ledger.sqlite3", clock=lambda: self.now, lease_seconds=60)
         self.addCleanup(self.ledger.close)
-        self.entry = slot_entry({"id": "unity_slot:1", "repo": "Farm-Client"})
+        # The slot folder is a git worktree of a README, not a Unity project, so `agent.unity.editor_path`
+        # would fall through to the per-host probe and reach /Applications, which no test may touch. The
+        # entry's own `unity` override is the configured escape hatch and is what a real host sets when the
+        # Editor is not where the probe looks; it keeps the batch argv honest without naming an install.
+        self.unity_binary = self.root / "unity-binary"
+        self.unity_binary.touch()
+        self.entry = slot_entry({"id": "unity_slot:1", "repo": "Farm-Client", "unity": str(self.unity_binary)})
 
     def advance(self, seconds):
         """The injected sleep, wired into pool() by Task 4 when SlotPool.__init__ grows a `sleep` argument.
@@ -45,6 +53,9 @@ class SlotFixture(unittest.TestCase):
         # editor_pid answers from the fake's open_folders, which is what makes it liveness rather than the
         # lock file — the whole point of Task 0 Step 5's +32 s finding.
         mcp = kwargs.get("mcp")
+        # Every pool in this suite gets a runner that never starts a process: a batch hand-over now performs
+        # the run itself, and a test that reached the real Launcher.run_unsandboxed would reach Unity.
+        kwargs.setdefault("run_unsandboxed", FakeUnity(total=4388, passed=4362, failed=26, code=2))
         kwargs.setdefault("editor_scan", lambda folder: None)
         kwargs.setdefault("editor_pid",
                           lambda folder: 4242 if mcp is not None and str(folder) in mcp.open_folders else None)
@@ -189,6 +200,28 @@ class FakeMcp:
     def quiescent(self, slot, mode):
         self.calls.append(("quiescent", slot["slot_id"]))
         return self.ready
+
+
+class FakeUnity:
+    """Stands in for `Launcher.run_unsandboxed`. It writes the results file the way the real Editor does —
+    before the exit code, and independently of it — because the whole contract is that the file and the code
+    disagree. `hang=True` reproduces the addendum's Editor: the deadline expires and nothing is written."""
+
+    def __init__(self, total=0, passed=0, failed=0, code=0, hang=False):
+        self.totals, self.code, self.hang, self.argv = (total, passed, failed), code, hang, []
+        self.owners = []
+
+    def __call__(self, argv, *, cwd, timeout, log=None, env=None, owner=None):
+        self.argv.append(list(argv))
+        self.owners.append(owner)
+        if self.hang:
+            return Unsandboxed(returncode=None, timed_out=True, seconds=timeout)
+        total, passed, failed = self.totals
+        results = Path(argv[argv.index("-testResults") + 1])
+        results.parent.mkdir(parents=True, exist_ok=True)
+        results.write_text(f'<test-run result="Failed(Child)" total="{total}" passed="{passed}" '
+                           f'failed="{failed}" />', encoding="utf-8")
+        return Unsandboxed(returncode=self.code, timed_out=False, seconds=1.0)
 
 
 class RaisingQuiescence(FakeMcp):
@@ -569,6 +602,86 @@ class PoolTests(SlotFixture):
         self.assertEqual(self.ledger.release(reservation, written, "the token on disk is the real one"),
                          "released")
 
+    def test_the_pool_runs_the_batch_itself_and_hands_the_worker_the_results(self):
+        """The worker never starts Unity; the launcher does, outside the sandbox. What the worker gets is
+        this summary, and the argv is built from the slot entry alone — nothing the worker supplied."""
+        self.pool().ensure()
+        item = self.waiting(ISSUE, self.commit("fix"), "batch")
+        pool = self.pool(mcp=FakeMcp(), run_unsandboxed=FakeUnity(total=4388, passed=4362, failed=26, code=2))
+        self.assertEqual(pool.tick()["granted"], 1)
+        argv = pool.run_unsandboxed.argv[-1]
+        self.assertNotIn("-quit", argv)
+        self.assertNotIn("-nographics", argv)
+        self.assertNotIn("-accept-apiupdate", argv)
+        self.assertEqual(argv[0], str(self.unity_binary))
+        self.assertEqual(argv[argv.index("-projectPath") + 1], str(self.root / "editors" / "slot-1"))
+        # Composed from the slot entry and the item's own state directory; no value a worker chose.
+        self.assertEqual(argv[argv.index("-assemblyNames") + 1], "HotUpdate.Tests")
+        self.assertEqual(argv[argv.index("-testResults") + 1], str(self.root / "runs" / item / "unity-tests.xml"))
+        self.assertEqual(pool.run_unsandboxed.owners[-1], item)   # reachable by item id for Stop and shutdown
+        summary = json.loads((self.root / "runs" / item / "unity-batch.json").read_text(encoding="utf-8"))
+        self.assertEqual((summary["state"], summary["exit_code"]), ("ran", 2))
+        self.assertEqual((summary["total"], summary["failed"]), (4388, 26))
+        self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "batch_busy")
+
+    def test_a_batch_run_with_no_results_is_a_verification_gap_and_not_a_slot_failure(self):
+        """Task 0 Step 4's trap: `-assemblyNames NoSuchAssembly` exits **0** and writes total="0". The slot is
+        fine, so it stays in the pool and the item stays alive; the worker is told it has no evidence."""
+        self.pool().ensure()
+        item = self.waiting(ISSUE, self.commit("fix"), "batch")
+        pool = self.pool(mcp=FakeMcp(), run_unsandboxed=FakeUnity(total=0, passed=0, failed=0, code=0))
+        self.assertEqual(pool.tick()["granted"], 1)
+        summary = json.loads((self.root / "runs" / item / "unity-batch.json").read_text(encoding="utf-8"))
+        self.assertEqual((summary["state"], summary["exit_code"]), ("gap", 0))
+        self.assertEqual(self.ledger.item(item)["state"], "queued")
+        self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "batch_busy")
+
+    def test_a_previous_runs_results_are_never_read_as_this_runs_evidence(self):
+        """A batch reservation is retried at the tail of the queue after a git or editor failure, and a
+        worker that met a gap may ask for another. If the stale XML survived, the second run would read the
+        first run's totals and a 4388-test pass would be reported for a run that wrote nothing at all."""
+        self.pool().ensure()
+        item = self.waiting(ISSUE, self.commit("fix"), "batch")
+        stale = self.root / "runs" / item / "unity-tests.xml"
+        stale.parent.mkdir(parents=True, exist_ok=True)
+        stale.write_text('<test-run result="Passed" total="4388" passed="4388" failed="0" />', encoding="utf-8")
+        pool = self.pool(mcp=FakeMcp(), run_unsandboxed=FakeUnity(hang=True), editor_pid=lambda folder: None)
+        self.assertEqual(pool.tick()["granted"], 1)   # a timeout is a gap, not a slot failure, once Unity is gone
+        summary = json.loads((self.root / "runs" / item / "unity-batch.json").read_text(encoding="utf-8"))
+        self.assertEqual((summary["state"], summary["total"]), ("timeout", None))
+        self.assertFalse(stale.exists())
+
+    def test_a_pool_with_no_unsandboxed_runner_refuses_a_batch_grant_rather_than_faking_it(self):
+        """SlotPool.__init__ accepts run_unsandboxed=None, so a wiring mistake in service.build is possible
+        and would otherwise hand a worker a `ran` reservation for a run that never happened. The slot never
+        misbehaved, so it goes back to the pool at the editor stage rather than being held."""
+        self.pool().ensure()
+        item = self.waiting(ISSUE, self.commit("fix"), "batch")
+        pool = self.pool(mcp=FakeMcp(), run_unsandboxed=None)
+        self.assertEqual(pool.tick()["granted"], 0)
+        self.assertFalse((self.root / "runs" / item / "unity-batch.json").exists())
+        # Still waiting, not failed: the reservation is re-queued at the tail for one more attempt, and
+        # requeue_reservation deliberately leaves the item where it was.
+        self.assertEqual(self.ledger.item(item)["state"], "awaiting_resource")
+        self.assertEqual([r["state"] for r in self.ledger.reservations()], ["released", "queued"])
+        self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "idle_closed")
+
+    def test_a_batch_editor_that_outlives_its_timeout_and_still_holds_the_folder_holds_the_slot(self):
+        """The 25-minute hang, as the pool would meet it. A deadline is not enough on its own: what decides
+        between "gap" and "hold" is whether the process is gone afterwards, which is the same liveness
+        question editor_is_open asks and never the lock file."""
+        self.pool().ensure()
+        item = self.waiting(ISSUE, self.commit("fix"), "batch")
+        pool = self.pool(mcp=FakeMcp(), run_unsandboxed=FakeUnity(hang=True),
+                         editor_pid=lambda folder: 4242)
+        self.assertEqual(pool.tick()["granted"], 0)
+        # The summary is written before the raise: the operator who reads a held slot needs the record of
+        # what happened on it, and it is also what separates this from a switch that failed before the run.
+        summary = json.loads((self.root / "runs" / item / "unity-batch.json").read_text(encoding="utf-8"))
+        self.assertEqual(summary["state"], "timeout")
+        self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "held")
+        self.assertEqual(self.ledger.item(item)["state"], "failed")
+
     def test_two_requests_serialize_on_the_one_slot_batch_first_then_interactive(self):
         self.pool().ensure()
         first_commit = self.commit("first")
@@ -768,6 +881,9 @@ class PoolTests(SlotFixture):
                         self.trees, [self.entry], host="test", editors_root=self.root / "editors",
                         clock=clock, sleep=self.advance, mcp=FakeMcp(),
                         state_dir=lambda item_id: self.root / "runs" / item_id,
+                        # Built by hand rather than through the fixture, so it needs the fixture's runner
+                        # too: a batch hand-over now performs the run, and a pool without one refuses it.
+                        run_unsandboxed=FakeUnity(total=4388, passed=4362, failed=26, code=2),
                         editor_scan=lambda folder: None, editor_pid=lambda folder: None)
         self.addCleanup(pool.close)
         outcome, started = {}, threading.Barrier(2)

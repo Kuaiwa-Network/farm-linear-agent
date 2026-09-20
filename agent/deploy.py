@@ -26,7 +26,11 @@ def plist(label, arguments, working_directory, log_dir, environment=None):
         "WorkingDirectory": str(working_directory),
         "RunAtLoad": True,
         "KeepAlive": True,
-        "ProcessType": "Background",
+        # Standard, not Background. A launchd job's scheduling band is inherited by everything it spawns,
+        # and Task 0 Step 6 measured the same EditMode suite at 105 s under Background against 14 s
+        # foreground with warm caches — 7.5x, against a warm-cache control, so it is the band and not the
+        # cache. A slot switch, an import and a test run each pay it.
+        "ProcessType": "Standard",
         "StandardOutPath": str(Path(log_dir) / f"{label}.out.log"),
         "StandardErrorPath": str(Path(log_dir) / f"{label}.err.log"),
     }

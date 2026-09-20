@@ -1,4 +1,5 @@
 """Turn queued work items into running workers and reap them back into ledger states (spec §6, §8)."""
+import json
 import os
 import re
 import threading
@@ -14,7 +15,8 @@ READ_REPO = "Farm-Client"
 
 class Scheduler:
     def __init__(self, ledger, launcher, skills, worktrees, *, skill_root, db_path, runtime_name, host,
-                 max_concurrent=2, guidance_for=lambda item: "", claim_timeout=600, api=None):
+                 max_concurrent=2, guidance_for=lambda item: "", claim_timeout=600, api=None,
+                 slot_entries=None):
         self.api = api
         self.ledger = ledger
         self.launcher = launcher
@@ -27,6 +29,9 @@ class Scheduler:
         self.max_concurrent = max_concurrent
         self.guidance_for = guidance_for
         self.claim_timeout = claim_timeout
+        # {slot_id: entry}, the same entries service.build hands the pool. The only thing read out of them
+        # here is the -buildTarget spelling a worker is told about; the Editor itself is the pool's to run.
+        self.slot_entries = slot_entries or {}
         self.active = {}
         self.lock = threading.RLock()
 
@@ -43,21 +48,70 @@ class Scheduler:
             paths[READ_REPO] = self.worktrees.add_detached(READ_REPO, item["id"])
         return paths
 
+    @staticmethod
+    def _batch_result(state_dir):
+        """What the pool's own run left behind. Missing is itself a verification gap the worker must report,
+        so it is represented rather than dropped — a batch worker with no `batch_result` key at all would
+        read as "no slot" instead of "no evidence"."""
+        try:
+            return json.loads((Path(state_dir) / "unity-batch.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {"state": "gap", "exit_code": None, "results_file": None,
+                    "result": "the pool recorded no batch run for this reservation"}
+
     def launch(self, item):
         skill = self.skills[item["skill"]]
         issue = self.ledger.issue(item["issue_id"])
         paths = self._worktrees_for(skill, item, issue)
         repo_root = Path(self.skill_root).parent
+        # Enforcement is tool injection (spec §7): what a worker can reach is decided here, from the
+        # reservation it actually holds, and never from the skill manifest — which would give every fix
+        # worker the Unity MCP whether or not it holds a slot — and never from a repository-local
+        # .codex/config.toml, which the isolated home makes inert.
+        reservation = self.ledger.active_reservation(item["id"])
+        servers, resource = {}, None
+        if reservation is not None and reservation["kind"] in skill.resources:
+            slot = self.ledger.slot(reservation["resource"])
+            entry = self.slot_entries.get(slot["slot_id"], {})
+            state_dir = self.launcher.state_dir(item["id"])
+            resource = {"kind": reservation["kind"], "mode": reservation["mode"], "slot": slot["slot_id"],
+                        "folder": slot["folder"], "instance": slot["instance"], "account": slot["account"],
+                        "mcp_address": slot["mcp_address"], "commit": reservation["commit_sha"],
+                        "token_file": str(Path(state_dir) / "reservation.token"),
+                        # No `unity` key. A worker that may never start the Editor has no use for its path,
+                        # and handing it one would be an instruction the AUTHORITY block then has to argue
+                        # against. Resolving the binary is the pool's job, in run_batch and open_editor.
+                        "build_target": entry.get("build_target_argument"),
+                        # The outcome of the run the POOL already performed through the launcher, outside
+                        # this worker's sandbox — never an argv for the worker to execute. Unity cannot run
+                        # inside sandbox_workspace_write at all: it hangs on a denied Mach lookup with no
+                        # file-permission denial to fix (Task 0's addendum). None on an interactive slot,
+                        # where run_tests over MCP is the verify path (Task 0 Step 5).
+                        "batch_result": (self._batch_result(state_dir)
+                                         if reservation["mode"] == "batch" else None),
+                        "results_dir": str(state_dir)}
+            if reservation["mode"] == "interactive":
+                # The server exists for this worker only while the reservation is held, and the worker pins
+                # its own MCP session with set_active_instance because HTTP selection is per session. The
+                # shape is the runtime's, not one guess for both: write_mcp_config's JSON writer emits
+                # mcpServers, where an entry without a type is not an HTTP server at all.
+                servers["unity"] = ({"url": slot["mcp_address"]}
+                                    if self.launcher.runtime.mcp_format == "toml"
+                                    else {"type": "http", "url": slot["mcp_address"]})
         message = dispatch_message(item=item, issue=issue, skill_path=self.skill_root / skill.name / "SKILL.md",
                                    worktrees=paths, db_path=self.db_path, runtime=self.runtime_name,
                                    guidance=self.guidance_for(item), budget=skill.budget,
-                                   repo_root=repo_root, state_dir=self.launcher.state_dir(item["id"]))
+                                   repo_root=repo_root, state_dir=self.launcher.state_dir(item["id"]),
+                                   resource=resource)
         primary = paths.get(READ_REPO) or next(iter(paths.values()))
         # `python3 -m agent` must resolve from any worktree, so FarmBot's root leads the worker's PYTHONPATH.
         pythonpath = os.pathsep.join(p for p in (str(repo_root), os.environ.get("PYTHONPATH", "")) if p)
         # A worktree's commits land in FarmBot's bare clone, so the clone must be writable too.
         clones = [self.worktrees.clone_path(repo) for repo in paths]
-        handle = self.launcher.spawn(item["id"], message, {}, int(skill.budget["max_hours"] * 3600), cwd=primary,
+        # `writable` is deliberately unchanged: no slot folder and no Unity host path is ever added to a
+        # worker's roots, in either mode. The worker reads the results XML in its own state directory, which
+        # Launcher.spawn already makes writable, and writes nothing in the slot.
+        handle = self.launcher.spawn(item["id"], message, servers, int(skill.budget["max_hours"] * 3600), cwd=primary,
                                      extra_env={"FARMBOT_DB": str(self.db_path), "PYTHONPATH": pythonpath},
                                      writable=[Path(self.db_path).parent, *paths.values(), *clones])
         try:

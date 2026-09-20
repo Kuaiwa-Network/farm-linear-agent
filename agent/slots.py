@@ -4,6 +4,7 @@ A slot is a detached worktree of FarmBot's own clone with a built Library/. Task
 never open Unity. Everything host-specific lives in the slot's configuration entry or in agent/unity.py.
 """
 import hashlib
+import json
 import os
 import signal
 import subprocess
@@ -13,7 +14,8 @@ from pathlib import Path
 
 from .identity import collect, quiet, ready
 from .ledger import Ledger, LedgerError
-from .unity import editor_holds_project, editor_path, other_editor_project
+from .unity import (UnityError, batch_test_command, editor_holds_project, editor_path, other_editor_project,
+                    read_results)
 from .unity_mcp import UnityMcp
 from .worktrees import WorktreeError
 
@@ -35,6 +37,10 @@ DEFAULTS = {
     # already extravagant — it was 120 when the close was expected to wait on a lockfile that never goes.
     "quiet_timeout": 300,
     "close_timeout": 60,
+    # Task 0 Step 4 measured the EditMode suite at 19 s, and Step 6 at 105 s for the same suite under
+    # launchd's Background band, so half an hour is two orders of magnitude of headroom — and still a
+    # deadline, which is what the addendum's Editor ran past for 25 minutes with nothing to stop it.
+    "batch_timeout": 1800,
 }
 
 
@@ -78,7 +84,8 @@ class SlotPool:
     BUSY_FOR = {"interactive": "interactive_busy", "batch": "batch_busy"}
 
     def __init__(self, ledger, worktrees, entries, *, host, editors_root, unity=None, mcp=None, clock=time.time,
-                 sleep=None, editor_scan=None, editor_pid=None, state_dir=None, owner="pool"):
+                 sleep=None, editor_scan=None, editor_pid=None, state_dir=None, owner="pool",
+                 run_unsandboxed=None):
         # `ledger` may be a Ledger or a zero-argument factory. The pool runs on its own thread beside the
         # receiver's and the scheduler's, and two threads on one sqlite3.Connection do not get two
         # transactions: _transaction() is a bare BEGIN IMMEDIATE/COMMIT, so one thread's BEGIN can land
@@ -102,6 +109,10 @@ class SlotPool:
         # A callable taking an item id and returning that item's private directory: Launcher.state_dir in
         # production. The reservation token is written there and nowhere else.
         self.state_dir = state_dir
+        # Launcher.run_unsandboxed in production, injected so no test in this suite starts a process it did
+        # not write. A pool built without one refuses a batch grant rather than silently handing a worker a
+        # run that never happened.
+        self.run_unsandboxed = run_unsandboxed
         self.owner = owner
         self.last_observation = None
         # slot_id -> the mode that just let go of it. settle() writes it and park_idle() reads it, because
@@ -229,6 +240,22 @@ class SlotPool:
         except SlotError as exc:
             self._switch_failed(reservation, exc)
             return False
+        if reservation["mode"] == "batch":
+            # The run itself, here and not in the worker. Under Codex's workspace-write seatbelt the Editor
+            # hangs for ever on a denied Mach lookup (Task 0's addendum), so the pool performs the run on
+            # this thread, outside the sandbox, and the fresh worker is handed the results file instead.
+            try:
+                self.run_batch(self.ledger.slot(slot_id), reservation)
+            except SlotError as exc:
+                self._switch_failed(reservation, exc)
+                return False
+            except Exception as exc:
+                # An unwritable state_dir, or a pool built with state_dir=None, which __init__ accepts. The
+                # slot never misbehaved, so it goes back to the pool by the same route the rest of the
+                # hand-over window uses rather than being held against an operator who cannot fix it there.
+                self._give_the_slot_back(reservation,
+                                         f"hand-over failed after the switch: {exc!r}"[:400], True)
+                return False
         handed = False
         # The defaults cover the one path that reaches the finally without passing an except arm: a
         # BaseException, which `guarded` does not catch either and which would otherwise take the pool
@@ -437,6 +464,65 @@ class SlotPool:
                             stage="probe")
         self.last_observation = observation
         return self.ledger.set_slot_state(slot_id, self.BUSY_FOR[mode], last_switch_at=self.clock())
+
+    def run_batch(self, slot, reservation):
+        """The batch run itself, performed by the launcher outside any sandbox and never by the worker.
+
+        The argv comes from the slot entry and the item's state directory only. That is the security
+        property this redesign rests on: exactly one process in FarmBot escapes the seatbelt, and no part of
+        its command line is a value a worker chose.
+        """
+        if self.run_unsandboxed is None:
+            raise SlotError(f"{slot['slot_id']}: no unsandboxed runner; a batch slot cannot be granted",
+                            stage="editor")
+        entry = self.entries.get(slot["slot_id"], DEFAULTS)
+        state_dir = Path(self.state_dir(reservation["item_id"]))
+        state_dir.mkdir(parents=True, exist_ok=True)
+        results, log = state_dir / "unity-tests.xml", state_dir / "unity-editor.log"
+        results.unlink(missing_ok=True)   # never let a previous run's file be read as this run's evidence
+        try:
+            editor = editor_path(slot["folder"], override=entry.get("unity"))
+        except UnityError as exc:
+            # The message names every path tried. One re-queue at the tail is wasted on a misconfigured
+            # host, and the second failure records the paths where an operator will read them.
+            raise SlotError(f"{slot['slot_id']}: {exc}", stage="editor") from exc
+        argv = batch_test_command(
+            editor, slot["folder"], results=results, log=log,
+            test_platform=entry.get("test_platform", "EditMode"),
+            assemblies=tuple(entry.get("test_assemblies", ())),
+            build_target=entry.get("build_target_argument"))
+        # log=None: the Editor's own -logFile already points at `log`, and a second capture of the same
+        # stream would give the worker two files that disagree about where the run stopped.
+        # owner=: the only thread that could otherwise reach this Editor is this one, and it is about to
+        # block in wait() for up to batch_timeout. Registering it under the item is what lets Scheduler.stop
+        # and a service shutdown kill it.
+        run = self.run_unsandboxed(argv, cwd=slot["folder"], timeout=entry["batch_timeout"], log=None,
+                                   owner=reservation["item_id"])
+        summary = {"state": "ran", "exit_code": run.returncode, "seconds": round(run.seconds, 1),
+                   "results_file": str(results), "log_file": str(log),
+                   "total": None, "passed": None, "failed": None, "result": None}
+        try:
+            # Task 0 Step 4, the contract: the exit code is advisory and actively misleading — exit 0 means
+            # *nothing ran*. The file decides, and total == 0 is a verification gap, not a pass.
+            summary.update(read_results(results))
+            if summary["total"] == 0:
+                summary["state"] = "gap"
+        except UnityError as exc:
+            summary.update({"state": "gap", "result": str(exc)[:200]})
+        if run.timed_out:
+            summary["state"] = "timeout"
+        # Written before the raise below, not after it: the operator who reads a held slot needs the record
+        # of what happened on it, and a summary that only exists on the happy path is the one nobody has.
+        (state_dir / "unity-batch.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        if run.timed_out:
+            self.clear_stale_lock(slot["folder"], lambda: self.editor_pid(slot["folder"]) is not None)
+            if self.editor_pid(slot["folder"]) is not None:
+                # A Unity the pool could not kill still holds the folder. Spec §7: a failing probe holds the
+                # slot for the operator's recover-slot; there is no second slot to try.
+                raise SlotError(f"{slot['slot_id']}: the batch Editor outlived its "
+                                f"{entry['batch_timeout']}s deadline and still holds the folder",
+                                stage="probe")
+        return summary
 
     def editor_is_open(self, slot):
         """A live Unity process on this folder — never Temp/UnityLockfile.

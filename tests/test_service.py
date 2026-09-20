@@ -7,6 +7,7 @@ import json
 import os
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -18,6 +19,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from agent.config import Config
+from agent.launcher import Launcher
 from agent.service import Components, build, seed_clones, serve
 from agent.slots import SlotError
 from test_ledger import ISSUE, issue
@@ -125,6 +127,74 @@ class ServeTests(unittest.TestCase):
         with self.assertRaises(sqlite3.ProgrammingError):
             self.c.pool.ledger.connection.execute("SELECT 1")
         self.assertEqual(self.c.ledger.connection.execute("SELECT 1").fetchone()[0], 1)
+
+    def test_build_hands_the_pool_the_launchers_runner_and_the_scheduler_the_same_slot_entries(self):
+        """The production wiring of Task 7's two injections, asserted on build() rather than on objects a
+        test constructed. A pool with no runner refuses every batch grant, and a scheduler with no entries
+        silently drops `build_target` out of every resource block — both are green in the direct tests."""
+        self.assertEqual(self.c.pool.run_unsandboxed, self.c.launcher.run_unsandboxed)
+        config = Config(client_id="client", client_secret="s", webhook_secret="signing-secret", host="test",
+                        runtime="fake", repos=dict(self.c.config.repos), max_concurrent=2, port=0,
+                        local_root=Path(self.tmp.name) / "slotted",
+                        slots=[{"id": "unity_slot:1", "repo": "Farm-Client", "build_target_argument": "OSXUniversal"}])
+        components = build(config)
+        self.addCleanup(components.server.server_close)
+        self.addCleanup(components.ledger.close)
+        self.addCleanup(components.receiver.close)
+        self.addCleanup(components.pool.close)
+        self.assertEqual(components.scheduler.slot_entries, components.pool.entries)
+        self.assertEqual(components.scheduler.slot_entries["unity_slot:1"]["build_target_argument"], "OSXUniversal")
+        self.assertEqual(components.pool.run_unsandboxed, components.launcher.run_unsandboxed)
+
+    def test_shutdown_kills_an_unsandboxed_run_instead_of_orphaning_it_on_the_slot(self):
+        """The batch Editor is a direct child of `serve` and the pool thread that waits on it is a daemon, so
+        without a kill in serve()'s finally a restart leaves a real Unity holding the slot folder — which the
+        next ensure() then reads as a slot some other Editor already has."""
+        marker = Path(self.tmp.name) / "unsandboxed.pid"
+        script = ("import os, pathlib, sys, time;"
+                  "pathlib.Path(sys.argv[1]).write_text(str(os.getpid()));"
+                  "time.sleep(120)")
+        finished = threading.Event()
+
+        def run():
+            try:
+                self.c.launcher.run_unsandboxed([sys.executable, "-c", script, str(marker)],
+                                                cwd=self.tmp.name, timeout=120, owner="itm_batch")
+            finally:
+                finished.set()
+
+        runner = threading.Thread(target=run, daemon=True)
+        problems = []
+
+        def serve_once():
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    serve(components=self.c)
+            except BaseException as exc:
+                problems.append(exc)
+
+        thread = threading.Thread(target=serve_once, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 20)
+        self.assertTrue(self.wait_for_health(), problems)
+        self.addCleanup(self.c.server.shutdown)
+        runner.start()
+        self.addCleanup(runner.join, 20)
+        self.addCleanup(self.c.launcher.stop_unsandboxed, "itm_batch")
+        deadline = time.time() + 15
+        while not marker.exists() and time.time() < deadline:
+            time.sleep(0.05)
+        self.assertTrue(marker.exists(), "the unsandboxed run never started")
+        pid = int(marker.read_text())
+        self.c.server.shutdown()
+        thread.join(timeout=20)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(problems, [])
+        self.assertTrue(finished.wait(15), "serve's finally left the pool's Editor running")
+        gone = time.time() + 10
+        while Launcher.alive(pid) and time.time() < gone:
+            time.sleep(0.05)
+        self.assertFalse(Launcher.alive(pid))
 
     def wait_for_health(self, timeout=20):
         url = f"http://127.0.0.1:{self.c.server.server_address[1]}/health"

@@ -27,6 +27,18 @@ class DeployTests(unittest.TestCase):
         self.assertEqual(parsed["WorkingDirectory"], str(self.root))
         self.assertTrue(parsed["StandardErrorPath"].endswith("com.example.job.err.log"))
 
+    def test_the_serve_agent_runs_in_the_standard_band_so_unity_is_not_throttled(self):
+        """Task 0 Step 6: the same EditMode suite took 105 s under launchd's Background band against 14 s
+        foreground with warm caches — 7.5x, against a warm-cache control — and a launchd job's band is
+        inherited by every process it spawns, which here means the worker and the batch Editor the pool
+        starts beside it."""
+        job = plistlib.loads(plist("com.kuaiwa.farmbot.serve", ["/bin/true"], "/tmp", "/tmp").encode("utf-8"))
+        self.assertEqual(job["ProcessType"], "Standard")
+        target = self.root / "LaunchAgents"
+        install(self.config, target, python="/usr/bin/python3", cloudflared="/usr/bin/cloudflared")
+        installed = plistlib.loads((target / f"{AGENTS['serve']}.plist").read_bytes())
+        self.assertEqual(installed["ProcessType"], "Standard")
+
     def test_a_quick_tunnel_is_the_default_and_a_named_tunnel_is_one_config_key(self):
         self.assertEqual(tunnel_arguments(self.config, cloudflared="/usr/bin/cloudflared")[:4],
                          ["/usr/bin/cloudflared", "tunnel", "--url", "http://127.0.0.1:8765"])

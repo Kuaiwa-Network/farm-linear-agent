@@ -6,10 +6,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock
 
-from agent.launcher import Finished, Handle
+from agent.launcher import Finished, Handle, RUNTIMES
 from agent.ledger import Ledger
 from agent.scheduler import Scheduler
 from agent.skills import load_skills
+from agent.slots import SlotPool, slot_entry
 from test_ledger import ISSUE, OTHER, PIN, SESSION, comment, issue
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,7 +19,12 @@ FIX_LEASE = SKILLS["fix"].budget["lease_seconds"]  # the launcher records it, so
 
 
 class FakeLauncher:
-    def __init__(self):
+    # The scheduler builds an injected MCP server entry in the runtime's own shape, so a double that did not
+    # carry a runtime would make the codex/claude distinction untestable here.
+    runtime = RUNTIMES["fake"]
+
+    def __init__(self, runs="/fake/runs"):
+        self.runs = Path(runs)
         self.spawned = []
         self.finished = []
         self.stopped = []
@@ -28,7 +34,7 @@ class FakeLauncher:
         self.killed = []
 
     def state_dir(self, item_id):
-        return Path("/fake/runs") / item_id
+        return self.runs / item_id
 
     def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None, writable=()):
         self.next_pid += 1
@@ -123,12 +129,25 @@ class SchedulerTests(unittest.TestCase):
         self.now = 1000.0
         self.ledger = Ledger(Path(self.tmp.name) / "ledger.sqlite3", clock=lambda: self.now, lease_seconds=60)
         self.addCleanup(self.ledger.close)
-        self.launcher = FakeLauncher()
+        # A real runs root, not a fictional one: the scheduler reads the pool's batch summary out of the
+        # item's state directory, so a path nothing can be written to would make that unreadable by design.
+        self.launcher = FakeLauncher(Path(self.tmp.name) / "runs")
         self.trees = FakeWorktrees(Path(self.tmp.name) / "wt")
         self.api = FakeAPI()
+        # A real folder and a real (empty) file: after this task the scheduler resolves no Editor at all, but
+        # a slot entry that named neither would let a later change quietly reach into /Applications.
+        self.slot_folder = Path(self.tmp.name) / "editors" / "slot-1"
+        (self.slot_folder / "ProjectSettings").mkdir(parents=True)
+        (self.slot_folder / "ProjectSettings" / "ProjectVersion.txt").write_text(
+            "m_EditorVersion: 2022.3.62f1\n", encoding="utf-8")
+        self.unity_binary = Path(self.tmp.name) / "unity-binary"
+        self.unity_binary.touch()
+        self.slot_entry = slot_entry({"id": "unity_slot:1", "repo": "Farm-Client", "unity": str(self.unity_binary),
+                                      "folder": str(self.slot_folder), "build_target_argument": "OSXUniversal"})
         self.scheduler = Scheduler(self.ledger, self.launcher, SKILLS, self.trees,
                                    skill_root=ROOT / "skills", db_path=Path(self.tmp.name) / "ledger.sqlite3",
                                    runtime_name="fake", host="h", max_concurrent=1,
+                                   slot_entries={self.slot_entry["id"]: self.slot_entry},
                                    guidance_for=lambda item: (self.ledger.session(item["session_id"]) or {}).get("guidance") or "",
                                    api=self.api)
 
@@ -137,6 +156,36 @@ class SchedulerTests(unittest.TestCase):
         self.ledger.ensure_session(session, issue_id, delegation=True)
         # The pin travels with the item: await_resource refuses a slot request from an unpinned one.
         return self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill=skill, target=PIN)
+
+    def waiting_item(self, mode="batch", issue_id=ISSUE, session=SESSION):
+        """An item whose slot request is still queued: nothing has been acquired, so no slot is held."""
+        item = self.item(issue_id=issue_id, session=session)
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        self.ledger.await_resource(item["id"], token, "unity_slot", mode)
+        return item["id"]
+
+    def granted_item(self, mode="batch", issue_id=ISSUE, session=SESSION):
+        """The state the pool leaves behind: the item is queued again, its reservation is active, and the
+        slot is in the mode's busy state.
+
+        set_slot_state stands in for SlotPool.switch, which is what writes the busy state in production —
+        acquire alone leaves the slot 'switching', and no pool thread runs in this module. In batch mode it
+        also leaves the summary run_batch wrote, which is the only reason a fresh batch worker has evidence.
+        """
+        item_id = self.waiting_item(mode, issue_id=issue_id, session=session)
+        self.ledger.ensure_slot("unity_slot:1", kind="unity_slot", host="h", folder=str(self.slot_folder),
+                                mcp_address="http://127.0.0.1:8080/mcp", instance="slot-1@0123456789abcdef")
+        self.ledger.acquire("unity_slot", owner="pool", host="h")
+        self.ledger.set_slot_state("unity_slot:1", SlotPool.BUSY_FOR[mode])
+        if mode == "batch":
+            state_dir = Path(self.launcher.state_dir(item_id))
+            state_dir.mkdir(parents=True, exist_ok=True)
+            (state_dir / "unity-batch.json").write_text(json.dumps(
+                {"state": "ran", "exit_code": 2, "seconds": 19.0, "total": 4388, "passed": 4362, "failed": 26,
+                 "result": "Failed(Child)", "results_file": str(state_dir / "unity-tests.xml"),
+                 "log_file": str(state_dir / "unity-editor.log")}), encoding="utf-8")
+        self.ledger.resume(item_id, "unity_slot:1 acquired")
+        return item_id
 
     def test_tick_launches_fix_with_write_worktrees_and_records_pid(self):
         item = self.item()
@@ -154,7 +203,7 @@ class SchedulerTests(unittest.TestCase):
         item = self.item()
         self.scheduler.tick()
         payload = json.loads(self.launcher.spawned[0][1].split("\n\n", 1)[1])
-        self.assertEqual(payload["state_dir"], f"/fake/runs/{item['id']}")
+        self.assertEqual(payload["state_dir"], str(self.launcher.state_dir(item["id"])))
         self.assertTrue(self.launcher.spawn_env["PYTHONPATH"].split(":")[0] == str(ROOT))
         self.assertEqual(self.launcher.spawn_env["FARMBOT_DB"], str(Path(self.tmp.name) / "ledger.sqlite3"))
         repos = ("Farm-Client", "farm-hive", "farmgui", "common")
@@ -233,6 +282,85 @@ class SchedulerTests(unittest.TestCase):
         self.scheduler.tick()
         self.assertEqual(self.ledger.item(item["id"])["state"], "awaiting_resource")
         self.assertEqual(len(self.launcher.spawned), 1)
+
+    def test_a_batch_reservation_gives_the_worker_results_and_neither_an_argv_nor_the_slot(self):
+        """The worker does not run Unity: under the Codex seatbelt the Editor hangs for ever on a denied Mach
+        lookup (Task 0's addendum), so the pool ran it already and this is the evidence. Two absences matter
+        as much as the presence — no argv to execute, and no write access to the slot folder."""
+        item = self.granted_item(mode="batch")
+        self.scheduler.tick()
+        item_id, message, servers, _, _ = self.launcher.spawned[-1]
+        self.assertEqual((item_id, servers), (item, {}))
+        self.assertNotIn(str(self.slot_folder), self.launcher.spawn_writable)
+        payload = json.loads(message.split("\n\n", 1)[1])
+        self.assertNotIn("batch_command", payload["resource"])
+        self.assertNotIn("unity", payload["resource"])   # nor the binary it would have run
+        self.assertNotIn(str(self.unity_binary), message)
+        self.assertEqual(payload["resource"]["mode"], "batch")
+        self.assertEqual(payload["resource"]["slot"], "unity_slot:1")
+        self.assertEqual(payload["resource"]["batch_result"]["total"], 4388)
+        self.assertTrue(payload["resource"]["batch_result"]["results_file"].endswith("unity-tests.xml"))
+
+    def test_a_batch_worker_whose_run_left_no_summary_is_told_it_has_no_evidence(self):
+        """Missing is itself a verification gap and has to be represented rather than dropped: a batch worker
+        with no batch_result key at all reads as "no slot" instead of "no evidence", and rung 4 of the skill
+        tells it to report a gap as neither a pass nor a failure."""
+        item = self.granted_item(mode="batch")
+        (Path(self.launcher.state_dir(item)) / "unity-batch.json").unlink()
+        self.scheduler.tick()
+        payload = json.loads(self.launcher.spawned[-1][1].split("\n\n", 1)[1])
+        self.assertEqual(payload["resource"]["batch_result"]["state"], "gap")
+        self.assertIsNone(payload["resource"]["batch_result"]["results_file"])
+
+    def test_an_interactive_reservation_injects_the_slot_address_and_not_its_folder(self):
+        item = self.granted_item(mode="interactive")
+        self.scheduler.tick()
+        _, message, servers, _, _ = self.launcher.spawned[-1]
+        self.assertEqual(servers, {"unity": {"url": "http://127.0.0.1:8080/mcp"}})
+        self.assertNotIn(str(self.slot_folder), self.launcher.spawn_writable)
+        payload = json.loads(message.split("\n\n", 1)[1])
+        self.assertEqual(payload["resource"]["mode"], "interactive")
+        self.assertEqual(payload["resource"]["instance"], "slot-1@0123456789abcdef")
+        self.assertEqual(payload["resource"]["commit"], "a" * 40)
+        self.assertTrue(payload["resource"]["token_file"].endswith("reservation.token"))
+        self.assertNotIn("res_", message)  # the token itself never reaches the prompt on disk
+        # No run happened and none is offered: an Editor is live on that folder and run_tests over MCP is
+        # the verify path (Task 0 Step 5).
+        self.assertIsNone(payload["resource"]["batch_result"])
+        self.assertNotIn("batch_command", payload["resource"])
+
+    def test_the_injected_server_takes_the_shape_the_claude_runtime_needs(self):
+        """§19's first risk is that the default runtime switches after Task 0. write_mcp_config's JSON writer
+        emits mcpServers, where an entry with a bare url and no type is not an HTTP server at all, so an
+        interactive slot under `claude -p` would silently lose its only tool."""
+        self.launcher.runtime = RUNTIMES["claude"]
+        self.granted_item(mode="interactive")
+        self.scheduler.tick()
+        self.assertEqual(self.launcher.spawned[-1][2],
+                         {"unity": {"type": "http", "url": "http://127.0.0.1:8080/mcp"}})
+
+    def test_an_item_with_no_reservation_is_launched_with_no_tools_and_no_resource_block(self):
+        """Enforcement is tool injection (spec §7): a fix worker that holds no slot must not reach the Unity
+        MCP, and the manifest's own `resources`/`mcp` fields must never be what decides that."""
+        self.waiting_item(mode="interactive")   # queued, never acquired: this item holds nothing
+        self.item(issue_id=OTHER, session="s2", identifier="FARM-2")
+        self.scheduler.tick()
+        item_id, message, servers, _, _ = self.launcher.spawned[-1]
+        self.assertEqual(servers, {})
+        self.assertIsNone(json.loads(message.split("\n\n", 1)[1])["resource"])
+
+    def test_a_skill_whose_manifest_claims_no_slot_is_given_none_even_holding_one(self):
+        """The manifest is not the authority on tools — the reservation is — but it is the second gate, and
+        without it a skill that never declared `unity_slot` would still be handed the Editor by the mere
+        presence of a row. `chat` declares `resources: []`, so it gets nothing whatever the ledger says."""
+        item_id = self.granted_item(mode="interactive")
+        self.ledger.connection.execute("UPDATE work_items SET skill='chat' WHERE id=?", (item_id,))
+        self.ledger.connection.commit()
+        self.assertEqual(SKILLS["chat"].resources, ())
+        self.scheduler.tick()
+        spawned_id, message, servers, _, _ = self.launcher.spawned[-1]
+        self.assertEqual((spawned_id, servers), (item_id, {}))
+        self.assertIsNone(json.loads(message.split("\n\n", 1)[1])["resource"])
 
     def test_stop_kills_and_cancels(self):
         item = self.item()
