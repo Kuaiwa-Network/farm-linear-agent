@@ -166,12 +166,15 @@ class Scheduler:
         # The batch Editor is not a worker and never went through `spawn`, so `launcher.stop` below cannot
         # see it: its handle lookup and its `descendants` walk both start from a worker pid, and by now that
         # worker has already exited — it asked for the reservation and quit. Killing the group here is what
-        # keeps this task's title true. It is one `killpg` plus a bounded wait, and it cannot eat the kill's
-        # 5-second budget: a batch Editor only runs inside the pool's hand-over window, before `resume` puts
-        # the item back in the queue, so there is never a worker of this item alive at the same time. It is
-        # idempotent — a no-op returning False — when no batch run is in flight, which is every other case.
-        # Killing it first also releases the pool thread from `process.wait()` sooner, and the sooner that
-        # returns the sooner the slot can settle.
+        # keeps this task's title true. Be honest about its cost: `kill_group` polls for up to 5s after
+        # SIGTERM and 1s more after SIGKILL, so on the batch path Stop itself can take about six seconds,
+        # and a wedged Editor is exactly Task 0's measured case. What that cannot touch is done-criterion
+        # 2's budget, which is five seconds to kill the *worker*: a batch Editor runs inside the pool's
+        # hand-over window, before `resume` puts the item back in the queue, so the Editor and a worker for
+        # the same item are never alive at once. In every other case — interactive slots, fix workers, no
+        # batch run in flight — this is one dict lookup that returns False. Killing it first also releases
+        # the pool thread from `process.wait()` sooner, and the sooner that returns the sooner the slot can
+        # settle. `SlotPool.run_batch` closes the other half: the window before the Editor is registered.
         self.launcher.stop_unsandboxed(item_id)
         # Killing the worker must not wait for an in-flight tick: a human pressed Stop.
         killed = self.launcher.stop(item_id)

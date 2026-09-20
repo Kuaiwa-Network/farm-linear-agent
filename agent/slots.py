@@ -491,6 +491,23 @@ class SlotPool:
             test_platform=entry.get("test_platform", "EditMode"),
             assemblies=tuple(entry.get("test_assemblies", ())),
             build_target=entry.get("build_target_argument"))
+        # The last moment at which not starting is still free. Scheduler.stop can only kill an Editor that
+        # has been registered, and the window before that registration is not the microsecond between Popen
+        # and the dict write — it is `acquire` to here, and it contains the whole of switch(): a detached
+        # checkout of a 3.7 GB repository, `git lfs checkout`, and on an open slot a graceful close. That is
+        # minutes, on the normal path of every batch grant. A Stop landing in it used to find nothing to
+        # kill and the Editor would then grind for up to batch_timeout — half an hour — on the host's only
+        # slot, for an item nobody is waiting for any more.
+        #
+        # Returns rather than raises, deliberately: every arm of _switch_failed is wrong for a Stop. "probe"
+        # would hold the slot until an operator ran recover-slot, and the others would either requeue the
+        # reservation — handing the pool a second multi-minute switch for the same dead item — or fail an
+        # item that is already terminal. Returning lets the hand-over reach resume()'s LedgerError, which is
+        # the path that already handles a Stop landing mid-switch: release the reservation, fail nothing,
+        # and park_idle returns the slot on the same tick.
+        current = self.ledger.reservation(reservation["reservation_id"])
+        if current is None or current["state"] != "active":
+            return None
         # log=None: the Editor's own -logFile already points at `log`, and a second capture of the same
         # stream would give the worker two files that disagree about where the run stopped.
         # owner=: the only thread that could otherwise reach this Editor is this one, and it is about to

@@ -242,6 +242,33 @@ class CancellingMcp(FakeMcp):
         self.ledger.cancel(self.item_id, "Linear stop")
 
 
+class CancellingCheckout:
+    """Everything the real Worktrees does, except that the git stage is where the Linear Stop lands.
+
+    CancellingMcp cannot stand in for this: the batch branch of switch() returns before it ever touches the
+    MCP client, so on a batch grant that double never fires. The checkout is also the honest place — it is
+    the minutes-long part of a batch switch, a detached checkout of a 3.7 GB repository plus git lfs.
+
+    It fires once. park_idle checks the slot back out to main through this same object, and a second cancel
+    would raise LedgerError from a ledger that has already marked the item terminal.
+    """
+
+    def __init__(self, trees, ledger, item_id):
+        self._trees, self.ledger, self.pending = trees, ledger, item_id
+
+    def __getattr__(self, name):
+        return getattr(self._trees, name)
+
+    def checkout_commit(self, folder, commit):
+        result = self._trees.checkout_commit(folder, commit)
+        if self.pending is not None:
+            item, self.pending = self.pending, None
+            # Exactly what Scheduler.stop does, in its order.
+            self.ledger.cancel_reservations(item, "Linear stop")
+            self.ledger.cancel(item, "Linear stop")
+        return result
+
+
 class UnreachableOrigin:
     """Everything the real Worktrees does, except that the default branch can never be resolved."""
 
@@ -704,10 +731,39 @@ class PoolTests(SlotFixture):
         self.assertEqual([row["result"]["aggregate"] for row in observations], ["match"])
         self.assertEqual(observations[0]["slot_id"], "unity_slot:1")
 
+    def test_a_stop_during_the_switch_means_the_batch_editor_is_never_started(self):
+        """Scheduler.stop can only kill an Editor the launcher has registered, and the window before that
+        registration is the whole of switch() — minutes, on every batch grant. Without run_batch's own
+        re-check a Stop there starts an Editor nothing can reach, which then holds the host's only slot for
+        up to batch_timeout on an item that is already cancelled. The slot did come back afterwards, so the
+        old behaviour was a wasted half hour rather than an orphan; the assertion that matters is that no
+        Editor is started at all."""
+        self.pool().ensure()
+        item = self.waiting(ISSUE, self.commit("fix"), "batch")
+        unity = FakeUnity(total=4388, passed=4362, failed=26, code=2)
+        pool = self.pool(mcp=FakeMcp(), run_unsandboxed=unity,
+                         worktrees=CancellingCheckout(self.trees, self.ledger, item))
+        result = pool.tick()
+        self.assertEqual(unity.argv, [])      # nothing was ever handed to the launcher
+        self.assertEqual(unity.owners, [])    # so there was nothing for stop_unsandboxed to find, either
+        # And the slot still comes back by itself on the one tick, by the existing cancelled-mid-switch path.
+        self.assertEqual((result["granted"], result["parked"]), (0, 1))
+        self.assertEqual(self.ledger.item(item)["state"], "cancelled")
+        self.assertEqual([r["state"] for r in self.ledger.reservations()], ["cancelled"])
+        self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "idle_closed")
+        self.assertFalse(pool.token_path(item).exists())
+        self.assertEqual(pool.tick(), {"settled": 0, "granted": 0, "parked": 0})
+
     def test_the_pool_settles_a_cancel_requested_reservation_as_cancelled_and_parks(self):
-        """The other half of Stop: the scheduler leaves the reservation cancel_requested and the slot busy,
-        and it is the pool's next tick — never a timer — that probes, releases and parks. This is the
-        characterisation of the state Scheduler.stop hands over, so the two halves cannot drift apart."""
+        """The pool half of a Stop that lands *after* the hand-over: the scheduler leaves the reservation
+        cancel_requested and the slot busy, and it is the pool's next tick — never a timer — that probes,
+        releases and parks.
+
+        Characterisation, not new coverage: it passed before Task 9's change, because reservations_to_settle
+        already selects cancel_requested and release() already resolves it to cancelled. The setup calls
+        cancel_reservations for shape only — Ledger.cancel below would mark the reservation cancel_requested
+        on its own, so deleting that line leaves this test green. What it pins is the contract between the
+        two halves of Stop, which now live in different files and run on different threads."""
         self.pool().ensure()
         item = self.waiting(ISSUE, self.commit("fix"), "interactive")
         pool = self.pool(mcp=FakeMcp())
