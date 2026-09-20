@@ -181,8 +181,9 @@ def run(args, ledger, api_factory):
         return ledger.await_resource(args.item, resolve_token(args), args.resource, args.mode)
     if c == "release-resource":
         # The worker's own verdict, not the pool's: the pool re-checks quiescence before acting on a slot
-        # this worker may have wedged (spec §7). A token is required for both outcomes so the verb has one
-        # contract, and `release` verifies it against the reservation.
+        # this worker may have wedged (spec §7). Both outcomes are verified against the reservation's own
+        # hashed token, never the claim token: this is a worker command, and `unclean` — which takes the
+        # host's only slot out of the pool until an operator runs recover-slot — is the consequential one.
         token = resolve_token(args)
         reservation = ledger.active_reservation(args.item)
         if reservation is None:
@@ -190,7 +191,7 @@ def run(args, ledger, api_factory):
         if args.outcome == "unclean":
             # The worker says it left the Editor in a state it could not settle; the slot waits for an
             # operator's recover-slot rather than going to the next worker wedged.
-            return ledger.hold(reservation["reservation_id"], "worker reported an unclean release")
+            return ledger.hold_owned(reservation["reservation_id"], token, "worker reported an unclean release")
         ledger.release(reservation["reservation_id"], token, "worker reported quiescent")
         return ledger.reservation(reservation["reservation_id"])
     if c == "reservations":

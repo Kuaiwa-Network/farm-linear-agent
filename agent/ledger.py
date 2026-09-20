@@ -845,6 +845,20 @@ class Ledger:
                                                                        "reason": reason[:200]})
             return self._reservation_view(row)
 
+    def hold_owned(self, reservation_id, token, reason):
+        """A worker's own `--outcome unclean`: the same hold, but the caller must prove it holds the slot.
+
+        `hold` itself stays token-free on purpose and this is a wrapper rather than a parameter on it,
+        because SlotPool.settle holds *precisely when the token file is gone* and so can never present one;
+        requiring a token there would break the backstop spec §7 relies on. A worker is the opposite case:
+        it is sandboxed, the pool wrote it the token for this reason, and taking the host's only slot out of
+        the pool until an operator runs `recover-slot` is the most consequential thing it can do. The
+        `quiescent` path is authenticated by `release`, and leaving the worse outcome open to any non-empty
+        string — including the claim token `release` correctly refuses — had the asymmetry backwards.
+        """
+        self._reservation_owned(reservation_id, token)
+        return self.hold(reservation_id, reason)
+
     def requeue_reservation(self, reservation_id, reason):
         """One more chance at the tail of the queue after a retryable failure, never a third.
 

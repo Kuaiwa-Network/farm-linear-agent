@@ -259,6 +259,39 @@ class CliTests(unittest.TestCase):
         self.run_cli("recover-slot", "--slot", SLOT, "--reason", "operator closed Unity")
         self.assertEqual(self.run_cli("slots")[0]["state"], "idle_closed")
 
+    def test_neither_outcome_acts_on_a_reservation_the_caller_cannot_prove_it_holds(self):
+        """The test above passes the right token to both outcomes, so it would pass against a `hold` that
+        checked nothing. `unclean` is the consequential outcome — it takes the host's only slot out of the
+        pool until an operator runs `recover-slot` — so it is the one that must not be open to any string.
+        The fresh worker's own claim token is the realistic wrong one: the skill tells a worker to carry it
+        on every other call, and `release` already refuses it because the ledger stores a different hash.
+        """
+        from agent.ledger import Ledger
+        item, token_file = self.granted_item(mode="interactive")
+        ledger = Ledger(self.db)
+        ledger.resume(item, "the pool granted the slot")  # SlotPool.hand_over, so a fresh worker may claim
+        ledger.close()
+        claim_token = self.run_cli("claim", "--item", item, "--worker-id", "fresh")["token"]
+        claim_file = self.root / "claim.token"
+        claim_file.write_text(claim_token, encoding="utf-8")
+        nonsense = self.root / "nonsense.token"
+        nonsense.write_text("res_not-the-one-the-pool-wrote", encoding="utf-8")
+        for label, wrong in (("the claim token", claim_file), ("a made-up token", nonsense)):
+            for outcome in ("quiescent", "unclean"):
+                with self.subTest(token=label, outcome=outcome):
+                    process = self.run_cli("release-resource", "--item", item, "--token-file", str(wrong),
+                                           "--outcome", outcome, success=False)
+                    self.assertIn("reservation token required", process.stderr)
+                    self.assertEqual(process.stdout, "")
+                    # Nothing moved: the slot is neither back in the pool nor out of it.
+                    self.assertEqual(self.run_cli("slots")[0]["state"], "interactive_busy")
+                    self.assertEqual(self.run_cli("reservations")[0]["state"], "active")
+        # The token the pool actually wrote still works, so the refusals above are about the token and not
+        # about the verb having been broken.
+        self.assertEqual(self.run_cli("release-resource", "--item", item, "--token-file", str(token_file),
+                                      "--outcome", "unclean")["state"], "active")
+        self.assertEqual(self.run_cli("slots")[0]["state"], "held")
+
     def test_release_resource_refuses_an_item_that_holds_nothing(self):
         item = self.seeded_item(target=PIN)
         token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
