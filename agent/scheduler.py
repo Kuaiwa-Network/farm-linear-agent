@@ -210,7 +210,7 @@ class Scheduler:
                 self._notify(finished.item_id, "error", "工作进程在认领工作项前退出，工作项已标记失败；可回复「重试」。")
                 state = "failed"
             if state in TERMINAL:
-                self.worktrees.remove(finished.item_id)
+                self._retire(finished.item_id, state)
             reaped += 1
         return reaped
 
@@ -245,14 +245,33 @@ class Scheduler:
                 self.launcher.kill_pid(row["worker_pid"])
             self.ledger.fail_queued(row["id"], "worker did not claim within the timeout" if owned else "worker process gone before claiming")
             self._notify(row["id"], "error", "工作进程未在时限内认领工作项，工作项已标记失败；可回复「重试」。")
-            self.worktrees.remove(row["id"])
+            self._retire(row["id"], "failed")
             recovered += 1
         return recovered
+
+    def _retire(self, item_id, state):
+        """Sweep a terminal item's worktrees, committing first when it failed.
+
+        A `delivered` or `blocked` item has already published what it meant to; a `failed` one published
+        nothing and is about to have its worktrees deleted, which on 2026-09-20 destroyed the only evidence
+        for a fix a worker claimed to have made and tested. Commit, never push. Nothing here may mask the
+        failure or stop the sweep, so the commit is best effort and its outcome is logged.
+        """
+        if state == "failed":
+            try:
+                report = self.worktrees.commit_wip(item_id, f"wip({item_id[:8]}): worker exited without finishing")
+                if report["committed"] or report["errors"]:
+                    print(json.dumps({"event": "wip_commit", "item": item_id, **report}, ensure_ascii=False),
+                          flush=True)
+            except Exception as exc:
+                print(json.dumps({"event": "wip_commit_failed", "item": item_id, "error": type(exc).__name__,
+                                  "detail": str(exc)[:200]}, ensure_ascii=False), flush=True)
+        self.worktrees.remove(item_id)
 
     def _sweep_worktrees(self):
         for row in self.ledger.status()["items"]:
             if row["state"] in TERMINAL and row["id"] not in self.active:
-                self.worktrees.remove(row["id"])
+                self._retire(row["id"], row["state"])
 
     def tick(self):
         with self.lock:

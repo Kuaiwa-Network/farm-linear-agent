@@ -70,6 +70,52 @@ class WorktreeTests(unittest.TestCase):
         self.assertFalse(path.exists())
         self.assertNotIn(str(path), git("worktree", "list", cwd=self.trees.ensure_clone("Farm-Client")))
 
+    WIP = "wip(item-1): worker exited without finishing"
+
+    def test_commit_wip_commits_a_failed_items_work_to_its_branch(self):
+        path = self.trees.add("Farm-Client", "item-1", "farmbot/farm-1")
+        before = git("rev-parse", "HEAD", cwd=path)
+        (path / "fix.txt").write_text("hive fix\n", encoding="utf-8")
+        report = self.trees.commit_wip("item-1", self.WIP)
+        self.assertEqual(report["errors"], {})
+        self.assertEqual(list(report["committed"]), ["Farm-Client"])
+        self.assertNotEqual(git("rev-parse", "HEAD", cwd=path), before)
+        self.assertEqual(git("rev-parse", "--abbrev-ref", "HEAD", cwd=path), "farmbot/farm-1")
+        self.assertIn(self.WIP, git("log", "-1", "--pretty=%B", cwd=path))
+        self.assertIn("fix.txt", git("show", "--name-only", "--pretty=format:", "HEAD", cwd=path))
+        clone = self.trees.clone_path("Farm-Client")
+        self.trees.remove("item-1")  # the evidence must outlive the sweep, in FarmBot's own clone
+        self.assertEqual(git("rev-parse", "farmbot/farm-1", cwd=clone), report["committed"]["Farm-Client"])
+
+    def test_commit_wip_makes_no_commit_without_work_and_none_at_all_without_a_worktree(self):
+        path = self.trees.add("Farm-Client", "item-1", "farmbot/farm-1")
+        before = git("rev-parse", "HEAD", cwd=path)
+        self.assertEqual(self.trees.commit_wip("item-1", self.WIP), {"committed": {}, "errors": {}})
+        self.assertEqual(git("rev-parse", "HEAD", cwd=path), before)
+        self.assertEqual(git("rev-list", "--count", "HEAD", cwd=path), "1")
+        self.assertEqual(self.trees.commit_wip("never-launched", self.WIP), {"committed": {}, "errors": {}})
+
+    def test_commit_wip_puts_a_detached_worktrees_work_on_a_branch_of_its_own(self):
+        """A commit on a detached head is referenced by nothing once the worktree is pruned, so it would be
+        swept exactly as surely as the files it was meant to preserve."""
+        path = self.trees.add_detached("Farm-Client", "item-1")
+        (path / "notes.md").write_text("what I found\n", encoding="utf-8")
+        report = self.trees.commit_wip("item-1", self.WIP)
+        clone = self.trees.clone_path("Farm-Client")
+        self.trees.remove("item-1")
+        self.assertEqual(git("rev-parse", "farmbot/wip/item-1", cwd=clone), report["committed"]["Farm-Client"])
+
+    def test_commit_wip_reports_a_broken_worktree_and_still_commits_the_others(self):
+        good = self.trees.add("Farm-Client", "item-1", "farmbot/farm-1")
+        (good / "fix.txt").write_text("hive fix\n", encoding="utf-8")
+        broken = self.trees.worktrees_root / "item-1" / "Broken"
+        broken.mkdir()
+        (broken / ".git").write_text("gitdir: /nonexistent\n", encoding="utf-8")
+        report = self.trees.commit_wip("item-1", self.WIP)
+        self.assertEqual(list(report["committed"]), ["Farm-Client"])
+        self.assertIn("Broken", report["errors"])
+        self.assertTrue(report["errors"]["Broken"])
+
     def test_detached_worktree_for_read_only_skills(self):
         path = self.trees.add_detached("Farm-Client", "item-9")
         self.assertEqual(git("rev-parse", "--abbrev-ref", "HEAD", cwd=path), "HEAD")
