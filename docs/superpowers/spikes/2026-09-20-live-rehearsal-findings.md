@@ -23,7 +23,9 @@ assumption that only breaks in contact with reality.
 - **Criterion 2** — Stop acknowledged in **0.133 s** against a five-second budget; full round trip
   from Linear 1.09 s; the worker died; no worktree orphaned.
 
-**Still unproven, and this is the important one:** the launcher has **never actually run Unity**.
+**Resolved 2026-09-20 — see "Step 3 result" at the end of this document.** The text below records what was true when the rehearsal was halted.
+
+**Was unproven, and this was the important one:** the launcher had **never actually run Unity**.
 `slots.last_switch_at` is `None`, and there are zero `unity-batch.json`, zero `unity-tests.xml` and
 zero `identity_observations` on this host. Task 7 tested `run_unsandboxed` with a plain subprocess,
 Task 10 proved serialization against a `FakeUnity` double, and the Task 0 spike drove Unity by hand
@@ -162,3 +164,56 @@ Steps 3 through 9. Specifically, and in this order once Finding 2 is fixed:
    commit.
 4. Stop against a live batch run, verified with `pgrep` rather than the ledger's own opinion.
 5. A service restart mid-run, proving `stop_all_unsandboxed` does not orphan an Editor.
+
+
+---
+
+# Step 3 result — the launcher runs Unity (2026-09-20)
+
+Recorded after PR #4 unblocked the `enqueue` path. **Everything in this system that rested on
+`FakeUnity` is now proved against a real Editor.**
+
+Driven by hand, because three real delegations produced zero slot requests (Finding 6): service
+stopped, `enqueue` then `claim` then `await-resource --mode batch`, then the service restarted and
+the pool did the rest unassisted.
+
+```
+16:47:29  awaiting_resource  needs unity_slot:batch
+16:47:58  reservation        acquired            <- pool granted
+16:50:17  queued             unity_slot:1 acquired (batch)
+16:50:45  worker             pid 46405 on mac    <- FRESH worker, not the operator's claim
+16:51:52  deduplicated       started             <- PR #4's fix, in production
+16:54:11  reservation        released
+16:55:25  prepare_comment    delivery
+          delivered
+```
+
+| Claim | Evidence |
+|---|---|
+| Two-phase acquisition | the asking claim exited; a fresh worker (pid 46405) resumed |
+| The slot switch | `7d886c72e` to `6d5b46fbe`; `last_switch_at` no longer `None` |
+| **The launcher runs Unity, the worker never does** | Unity pid 46016, **parent 45779 = `serve`** |
+| The batch run produces real evidence | 2.55 MB `unity-tests.xml`, 834 KB editor log, 130.9 s |
+| The exit-code contract | exit **2** with `total=4414` recorded as `"state": "ran"`, not `"gap"` |
+| Handover | the fresh worker's `prompt.md` carried `batch_result` with `"state": "ran"` |
+| No worker started Unity | violation grep over every worker `stdout.log` came back clean |
+| The slot returns clean | `idle_closed`, parked `6d5b46fbe`, 0 reservations, 0 dirty files |
+
+**The known-red baseline matched exactly.** Task 0 measured **26 failures of 4388** on `7d886c72e`.
+This run on `6d5b46fbe` gives **26 of 4414** — twenty-six tests were added in between, all passing,
+and the same twenty-six still fail. That is not a number you get by coincidence, and it is the
+strongest single indication the run was genuine.
+
+**`identity_observations` remains 0, correctly.** The identity probe runs on *interactive* switches;
+a batch run needs no MCP at all, which is why `agent.unity.batch_test_command` carries no Editor
+path. Step 4 is what exercises the probe.
+
+**A check that looked wrong and was not.** `borrowed_comments()` reported 0 while the audit trail
+showed `deduplicated started`. That is deliberate — its docstring says a `started` marker states no
+conclusion and is not listed, and the trail keeps it either way. Correct behaviour, not a gap.
+
+## Still owed from Task 11
+
+Steps 4 through 9: an interactive run with the identity probe proving the Editor loaded the pinned
+commit; Stop against a live batch run, verified with `pgrep` rather than the ledger's own opinion;
+and a service restart mid-run proving `stop_all_unsandboxed` does not orphan an Editor.
