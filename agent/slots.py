@@ -32,12 +32,19 @@ DEFAULTS = {
 
 class SlotError(RuntimeError):
     STAGES = ("git", "editor", "compile", "probe")
+    # A mistake in FarmBot's own code reaches the collaborator handlers below as an ordinary exception — an
+    # AttributeError on an mcp that was never wired, say — and would otherwise be reported to the operator
+    # as "the Editor never went quiet". The stage, and therefore the hold, is the same either way; only the
+    # blame changes, because `recover-slot` cannot fix a bug in this file.
+    FARMBOT_FAULTS = (AttributeError, TypeError, NameError, KeyError, IndexError, ImportError)
 
-    def __init__(self, message, stage="git"):
+    def __init__(self, message, stage="git", fault="external"):
         super().__init__(message)
         # "git" and "editor" may be retried once at the tail of the queue; "compile" fails the item and leaves
         # the slot in the pool; "probe" holds the slot for the operator's recover-slot (spec §7).
         self.stage = stage
+        # "external" is git, Unity, the host or the operator; "farmbot" is this codebase's own bug.
+        self.fault = fault
 
 
 def slot_entry(raw):
@@ -73,6 +80,22 @@ class SlotPool:
         self.editor_scan = editor_scan or other_editor_project
         self.editor_pid = editor_pid or editor_holds_project
         self.last_observation = None
+
+    @staticmethod
+    def _collaborator_error(slot_id, exc, *, stage, doing):
+        """Turn a collaborator's failure into the SlotError the operator reads.
+
+        The stage — and therefore the hold — is the same whichever side misbehaved: releasing a slot whose
+        state is unknown risks a second Editor on the folder, which is the corruption slots exist to
+        prevent. What changes is the blame. A programming error in FarmBot's own code arrives here as an
+        ordinary exception, and calling it "the Editor never went quiet" sends an operator to `recover-slot`
+        for something recover-slot cannot fix. The exception is repr'd rather than str'd because its *type*
+        is the diagnostic that separates the two cases.
+        """
+        fault = "farmbot" if isinstance(exc, SlotError.FARMBOT_FAULTS) else "external"
+        lead = (f"FarmBot bug while {doing}; this is not a Unity fault and recover-slot will not fix it"
+                if fault == "farmbot" else f"{doing} failed")
+        return SlotError(f"{slot_id}: {lead}: {exc!r}", stage=stage, fault=fault)
 
     def folder(self, entry):
         """<editors_root>/slot-<n> for the id unity_slot:<n>. The `folder` key is the escape hatch; the
@@ -151,11 +174,19 @@ class SlotPool:
             raise SlotError(f"{slot_id}: git stage failed: {exc}", stage="git") from exc
         if mode == "batch":
             # A batch run needs no MCP at all; its result is a results file and an exit code (spec §7). The
-            # only thing it needs from the pool is a folder no dead Editor still claims.
-            self.clear_stale_lock(folder, lambda: False)
+            # only thing it needs from the pool is a folder no dead Editor still claims. The liveness check
+            # is the process listing and never `lambda: False`: spec §7 removes the lock "only after
+            # confirming the process is gone", and `was_open` above is guarded by `self.mcp is not None`, so
+            # a pool built without an MCP client would otherwise assert "gone" without ever asking.
+            self.clear_stale_lock(folder, lambda: self.editor_is_open(slot))
             return self.ledger.set_slot_state(slot_id, self.BUSY_FOR[mode], last_switch_at=self.clock())
         instance = slot.get("instance")
         if not was_open:
+            # A crash or an unreaped close leaves Unity's lock behind (Task 0 Step 5: still present at
+            # +32 s). Nothing holds this folder, so the litter goes before the new Editor can meet it —
+            # otherwise a surviving lock blocks the start and holds the only slot at the probe stage after
+            # any crash. Same guard as everywhere else: the process listing decides, not an assertion.
+            self.clear_stale_lock(folder, lambda: self.editor_is_open(slot))
             instance = self.open_editor(slot, entry)
         try:
             self.mcp.refresh(slot)
@@ -163,8 +194,8 @@ class SlotPool:
         except SlotError:
             raise
         except Exception as exc:
-            raise SlotError(f"{slot_id}: the Editor never went quiet after the refresh: {exc}",
-                            stage="probe") from exc
+            raise self._collaborator_error(slot_id, exc, stage="probe",
+                                           doing="waiting for the Editor to go quiet after the refresh") from exc
         errors = self.mcp.console_errors_since(slot, commit)
         if errors:
             # Not a probe failure: the slot is fine, the commit does not compile. Keep the slot in the pool.
@@ -178,7 +209,8 @@ class SlotPool:
                                                 "build_target": entry.get("build_target"),
                                                 "repository": str(folder)})
         except Exception as exc:
-            raise SlotError(f"{slot_id}: identity probe failed: {exc}", stage="probe") from exc
+            raise self._collaborator_error(slot_id, exc, stage="probe",
+                                           doing="running the identity probe") from exc
         if observation.get("aggregate") != "match":
             raise SlotError(f"{slot_id}: identity probe did not match: {observation.get('checks')}",
                             stage="probe")
@@ -204,7 +236,8 @@ class SlotPool:
         try:
             return self.mcp.start(slot, entry)
         except Exception as exc:
-            raise SlotError(f"{slot['slot_id']}: the Editor did not come up: {exc}", stage="editor") from exc
+            raise self._collaborator_error(slot["slot_id"], exc, stage="editor",
+                                           doing="starting the Editor") from exc
 
     def close_editor(self, slot, timeout=None):
         """Close the Editor and leave the folder and the port fit for the next run. Three parts, all measured
@@ -228,14 +261,20 @@ class SlotPool:
         try:
             self.mcp.terminate(slot, timeout)
         except Exception as exc:
-            raise SlotError(f"{slot['slot_id']}: the Editor did not stop within {timeout}s of SIGTERM: {exc}",
-                            stage="editor") from exc
-        self.clear_stale_lock(folder, lambda: False)   # the pid is confirmed gone; Unity left the lock behind
+            raise self._collaborator_error(slot["slot_id"], exc, stage="editor",
+                                           doing=f"stopping the Editor within {timeout}s of SIGTERM") from exc
+        # terminate() is supposed to have confirmed the pid is gone, but it is asked again rather than
+        # asserted: `lambda: False` here would delete a live Editor's lock whenever terminate returned
+        # without actually killing anything, and that file is what enforces one Editor per folder.
+        self.clear_stale_lock(folder, lambda: self.editor_is_open(slot))
         if (folder / "Temp" / "UnityLockfile").exists():
-            # Deliberately the file, not editor_is_open: the process question was already answered by
-            # terminate(). What is checked here is that the litter Unity leaves is actually gone, because
-            # the next `Unity -batchmode` on a folder whose lock survives is the corruption slots prevent.
-            raise SlotError(f"{slot['slot_id']}: Temp/UnityLockfile could not be removed", stage="editor")
+            # Deliberately the file and not editor_is_open: what is checked here is that the litter Unity
+            # leaves behind is actually gone, because the next `Unity -batchmode` on a folder whose lock
+            # survives is the corruption slots prevent. Either the unlink failed or the Editor is still
+            # alive, and the operator has to look at the folder in both cases.
+            raise SlotError(f"{slot['slot_id']}: Temp/UnityLockfile is still there after the close; either "
+                            f"the Editor survived the SIGTERM or the file could not be removed",
+                            stage="editor")
         try:
             self.mcp.reap_server(slot)
         except Exception as exc:
@@ -243,8 +282,9 @@ class SlotPool:
             # "not worth failing the close over", which contradicted the raise below it. It IS worth it —
             # the next open_editor would attach to a server whose Editor is gone and read somebody else's
             # state, and the failure is far clearer here, where the slot id and the address are in hand.
-            raise SlotError(f"{slot['slot_id']}: the MCP server on {slot['mcp_address']} outlived the Editor "
-                            f"and could not be reaped: {exc}", stage="editor") from exc
+            raise self._collaborator_error(
+                slot["slot_id"], exc, stage="editor",
+                doing=f"reaping the MCP server on {slot['mcp_address']} that outlived the Editor") from exc
         return True
 
     def wait_for_quiet(self, slot, timeout):
@@ -298,15 +338,23 @@ class SlotPool:
             raise SlotError(f"{slot_id}: could not park on the default branch: {exc}", stage="git") from exc
         state = "idle_open" if mode == "interactive" and self.editor_is_open(slot) else "idle_closed"
         if state == "idle_closed":
-            self.clear_stale_lock(folder, lambda: False)
+            # Never `lambda: False`. spec §7 removes the lock "only after confirming the process is gone",
+            # and a departing mode of "batch" says nothing about the host: park(slot, "batch") against a
+            # live Editor would delete the very file that enforces Unity's one-Editor-per-folder guarantee.
+            self.clear_stale_lock(folder, lambda: self.editor_is_open(slot))
         return self.ledger.set_slot_state(slot_id, state, parked_commit=commit, last_switch_at=self.clock())
 
     @staticmethod
     def clear_stale_lock(folder, alive):
-        """An Editor that died mid-run leaves Unity's lock file behind; it is removed only after the process is
-        confirmed gone (spec §7). Callers: the batch branch of switch(), park() on the closed path, and
-        settle() in Task 6 — each of which has already established that no process holds the folder, which is
-        why each passes `lambda: False` rather than guessing a second time. Not dead code and not untested."""
+        """An Editor that died mid-run leaves Unity's lock file behind; it is removed only after the process
+        is confirmed gone (spec §7 line 353).
+
+        `alive` is a real check at every call site and never `lambda: False`. Asserting it instead of asking
+        deletes a *live* Editor's lock, and that file is what enforces Unity's one-Editor-per-folder
+        guarantee — losing it risks two Editors on one folder, the corruption slots exist to prevent. The
+        callers are the batch branch of switch(), the start path of switch() before open_editor(),
+        close_editor() after its SIGTERM, park() on the closed path, and settle() in Task 6; every one of
+        them passes `lambda: self.editor_is_open(slot)`, so the process listing decides each time."""
         lock = Path(folder) / "Temp" / "UnityLockfile"
         if not lock.exists() or alive():
             return False

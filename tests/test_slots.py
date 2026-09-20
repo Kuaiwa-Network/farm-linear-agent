@@ -229,9 +229,21 @@ class SwitchTests(SlotFixture):
         lock = self.root / "editors" / "slot-1" / "Temp" / "UnityLockfile"
         lock.parent.mkdir(parents=True, exist_ok=True)
         lock.write_text("1", encoding="utf-8")   # litter from a crashed Editor; no process holds the folder
-        pool = self.pool(mcp=FakeMcp())
+        class NotesTheLock(FakeMcp):
+            """Unity's own start is what would meet a surviving lock, so the fake records what it saw."""
+            lock_at_start = None
+
+            def start(self, slot, entry):
+                self.lock_at_start = self._lock(slot).exists()
+                return super().start(slot, entry)
+
+        pool = self.pool(mcp=NotesTheLock())
         pool.switch("unity_slot:1", self.commit("fix"), "interactive")
         self.assertEqual([name for name, _ in pool.mcp.calls][0], "start")
+        # And the litter is gone *before* the Editor meets it: a surviving lock blocks the start, which
+        # would be a probe-stage hold on the only slot after any crash. (start() writes a fresh one, so
+        # asserting on the file after the switch would prove nothing.)
+        self.assertIs(pool.mcp.lock_at_start, False)
 
     def test_a_batch_switch_on_an_open_slot_closes_the_editor_gracefully_first(self):
         """All three parts of Task 0 Step 5's close, in one assertion: the Editor is signalled rather than
@@ -323,6 +335,76 @@ class SwitchTests(SlotFixture):
             pool.switch("unity_slot:1", "0" * 40, "batch")
         self.assertEqual(caught.exception.stage, "probe")
         self.assertIn("/Users/x/Farm-Client", str(caught.exception))
+
+    def test_a_live_editors_lock_is_never_deleted_by_a_park_or_a_batch_switch(self):
+        """spec §7 line 353: the lock is removed "only after confirming the process is gone". `lambda: False`
+        asserts that rather than checking, and the lock file is what enforces Unity's one-Editor-per-folder
+        guarantee — deleting a live one risks two Editors on one folder. Two ways in: a departing mode of
+        "batch" says nothing about the host, and `was_open` is guarded by `self.mcp is not None`, so a pool
+        with no MCP client never asks the process question at all."""
+        self.pool().ensure()
+        lock = self.root / "editors" / "slot-1" / "Temp" / "UnityLockfile"
+        pool = self.pool(mcp=FakeMcp())
+        pool.switch("unity_slot:1", self.commit("one"), "interactive")   # the Editor is open and holds it
+        self.assertTrue(lock.exists())
+        slot = pool.park("unity_slot:1", "batch")     # the departing mode disagrees with the process listing
+        self.assertEqual(slot["state"], "idle_closed")
+        self.assertTrue(lock.exists(), "park deleted the lock of an Editor that is still running")
+
+        # The second way in: no MCP client at all, so was_open is False however alive the Editor is.
+        headless = self.pool(editor_pid=lambda folder: 4242)
+        headless.switch("unity_slot:1", self.commit("two"), "batch")
+        self.assertTrue(lock.exists(), "the batch branch deleted the lock of an Editor that is still running")
+
+    def test_a_terminate_that_kills_nothing_fails_the_close_instead_of_freeing_the_lock(self):
+        """The third way `lambda: False` gets in: close_editor used to treat its own terminate() as proof.
+        A SIGTERM that returns without killing anything would then have the pool delete a live Editor's
+        lock and hand the folder to `Unity -batchmode`. The process listing is asked again, so the lock
+        survives and the close fails loudly at the editor stage instead."""
+        self.pool().ensure()
+
+        class LyingTerminate(FakeMcp):
+            def terminate(self, slot, timeout):
+                self.calls.append(("terminate", slot["slot_id"]))   # claims success, kills nothing
+
+        pool = self.pool(mcp=LyingTerminate())
+        pool.switch("unity_slot:1", self.commit("one"), "interactive")
+        pool.park("unity_slot:1", "interactive")
+        lock = self.root / "editors" / "slot-1" / "Temp" / "UnityLockfile"
+        with self.assertRaises(SlotError) as caught:
+            pool.switch("unity_slot:1", self.commit("two"), "batch")
+        self.assertEqual(caught.exception.stage, "editor")
+        self.assertTrue(lock.exists(), "close_editor deleted the lock of an Editor it never killed")
+
+    def test_a_farmbot_bug_still_holds_the_slot_but_is_not_blamed_on_unity(self):
+        """Ruling B: keep holding — releasing a slot whose state is unknown risks a second Editor on the
+        folder — but an AttributeError in FarmBot's own code must not reach the operator as "the Editor
+        never went quiet". `recover-slot` cannot fix a bug in this file, and the operator reading the hold
+        has to know which of the two misbehaved."""
+        self.pool().ensure()
+
+        class Buggy(FakeMcp):
+            def refresh(self, slot):
+                raise AttributeError("'NoneType' object has no attribute 'call_tool'")
+
+        pool = self.pool(mcp=Buggy())
+        with self.assertRaises(SlotError) as caught:
+            pool.switch("unity_slot:1", self.commit("fix"), "interactive")
+        self.assertEqual(caught.exception.stage, "probe")        # still held, which is the safe direction
+        self.assertEqual(caught.exception.fault, "farmbot")      # but not Unity's fault
+        self.assertIn("AttributeError", str(caught.exception))
+        self.assertIn("recover-slot will not fix it", str(caught.exception))
+
+        # The distinction is only worth anything if a genuine Editor failure keeps the other label.
+        class Unreachable(FakeMcp):
+            def refresh(self, slot):
+                raise ConnectionRefusedError("nothing is listening on 127.0.0.1:8080")
+
+        pool = self.pool(mcp=Unreachable())
+        with self.assertRaises(SlotError) as caught:
+            pool.switch("unity_slot:1", self.commit("more"), "interactive")
+        self.assertEqual((caught.exception.stage, caught.exception.fault), ("probe", "external"))
+        self.assertNotIn("FarmBot bug", str(caught.exception))
 
     def test_park_returns_a_batch_slot_to_main_closed_and_an_interactive_slot_to_main_open(self):
         self.pool().ensure()
