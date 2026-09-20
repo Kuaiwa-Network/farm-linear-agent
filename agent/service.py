@@ -213,7 +213,8 @@ def main(argv=None):
         config = load_config(args.config)
         ledger = Ledger(Paths(config).ledger)
         try:
-            print(json.dumps(ledger.status(), ensure_ascii=False, indent=2))
+            print(json.dumps({**ledger.status(), "borrowed_comments": ledger.borrowed_comments()},
+                             ensure_ascii=False, indent=2))
         finally:
             ledger.close()
         return 0

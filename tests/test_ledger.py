@@ -446,6 +446,19 @@ class SecondItemOnOneIssueTests(LedgerBase):
         self.ledger.finish(item["id"], token, "blocked", {"summary": "阻塞", "comment_action_id": action["action_id"]})
         return item["id"], action["action_id"]
 
+    PR = "https://github.com/o/r/pull/9"
+
+    def delivered_first_item(self, pr=PR):
+        """A delegated run that delivered, with the PR named in the comment the issue actually carries."""
+        item = self.new_item()
+        token = self.ledger.claim(item["id"], worker_id="w1")["token"]
+        action = self.ledger.prepare_comment(item["id"], token, "delivery", f"已修复，见 {pr}")
+        self.ledger.confirm_comment(action["action_id"], "remote-1")
+        self.ledger.finish(item["id"], token, "delivered",
+                           {"summary": "交付", "comment_action_id": action["action_id"],
+                            "verification": "dotnet test", "prs": [pr]})
+        return item["id"], action["action_id"]
+
     def second_item(self):
         item = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix", target=PIN)
         return item["id"], self.ledger.claim(item["id"], worker_id="w2")["token"]
@@ -466,6 +479,10 @@ class SecondItemOnOneIssueTests(LedgerBase):
         view = self.ledger.finish(second, token, "blocked", {"summary": "同一结论", "comment_action_id": first_action})
         self.assertEqual(view["state"], "blocked")
         self.assertEqual(self.ledger.item(first)["state"], "blocked")
+        # the substitution is recorded against the item that made it, not left to be inferred
+        cited = self.audit_details(second, "borrowed_comment")
+        self.assertEqual(len(cited), 1)
+        self.assertEqual(cited[0], {"action_id": first_action, "prepared_by": first})
 
     def test_a_suppressed_second_conclusion_is_kept_in_the_audit_trail(self):
         """`kind` is only 'started', 'blocker' or 'delivery', so two items can reach the same kind with
@@ -473,7 +490,7 @@ class SecondItemOnOneIssueTests(LedgerBase):
         first, _ = self.blocked_first_item()
         second, token = self.second_item()
         self.ledger.prepare_comment(second, token, "blocker", "无法复现，需要设备日志。")
-        details = self.audit_details(second, "prepare_comment")
+        details = self.audit_details(second, "deduplicated")
         self.assertEqual(len(details), 1)
         self.assertEqual(details[0]["prepared_by"], first)
         self.assertIn("无法复现", details[0]["suppressed_body"])
@@ -483,7 +500,7 @@ class SecondItemOnOneIssueTests(LedgerBase):
         second, token = self.second_item()
         self.ledger.prepare_comment(second, token, "started", "👀 第二个工作项开始处理。")
         self.ledger.prepare_comment(second, token, "blocker", self.FIRST_BODY)
-        details = self.audit_details(second, "prepare_comment")
+        details = self.audit_details(second, "deduplicated")
         self.assertEqual(len(details), 2)
         self.assertNotIn("suppressed_body", details[0])  # a started marker states no conclusion
         self.assertNotIn("suppressed_body", details[1])  # and this blocker says what the first one said
@@ -504,6 +521,64 @@ class SecondItemOnOneIssueTests(LedgerBase):
         view = self.ledger.finish(second, second_token, "blocked",
                                   {"summary": "完成", "comment_action_id": action["action_id"]})
         self.assertEqual(view["state"], "blocked")
+
+    def test_a_delivery_borrow_refuses_a_pr_the_posted_comment_never_named(self):
+        """The borrowed comment is the only thing a human reads. A `prs` array it does not mention would
+        put a pull request in the ledger that was announced nowhere — the shape of Finding 1, one door along.
+        """
+        _, first_action = self.delivered_first_item()
+        second, token = self.second_item()
+        action = self.ledger.prepare_comment(second, token, "delivery", "我也修复了，见另一个 PR。")
+        self.assertTrue(action["deduplicated"])
+        with self.assertRaises(LedgerError) as caught:
+            self.ledger.finish(second, token, "delivered",
+                               {"summary": "另一个 PR", "comment_action_id": first_action,
+                                "verification": "dotnet test", "prs": ["https://github.com/o/r/pull/10"]})
+        self.assertIn("pull/10", str(caught.exception))
+        self.assertEqual(self.ledger.item(second)["state"], "running")
+
+    def test_a_delivery_borrow_accepts_the_pr_the_posted_comment_does_name(self):
+        _, first_action = self.delivered_first_item()
+        second, token = self.second_item()
+        self.ledger.prepare_comment(second, token, "delivery", "同一个 PR。")
+        view = self.ledger.finish(second, token, "delivered",
+                                  {"summary": "同一个 PR", "comment_action_id": first_action,
+                                   "verification": "dotnet test", "prs": [self.PR]})
+        self.assertEqual(view["state"], "delivered")
+
+    def test_a_delivery_borrow_is_not_fooled_by_a_pr_number_that_is_only_a_prefix(self):
+        _, first_action = self.delivered_first_item(pr="https://github.com/o/r/pull/99")
+        second, token = self.second_item()
+        self.ledger.prepare_comment(second, token, "delivery", "看起来像。")
+        with self.assertRaises(LedgerError):
+            self.ledger.finish(second, token, "delivered",
+                               {"summary": "前缀", "comment_action_id": first_action,
+                                "verification": "dotnet test", "prs": ["https://github.com/o/r/pull/9"]})
+
+    def test_a_no_change_delivery_borrows_cleanly_because_it_carries_no_pr(self):
+        _, first_action = self.delivered_first_item()
+        second, token = self.second_item()
+        self.ledger.prepare_comment(second, token, "delivery", "主干已修复，无需改动。")
+        view = self.ledger.finish(second, token, "delivered",
+                                  {"summary": "无需改动", "comment_action_id": first_action,
+                                   "verification": "对比主干", "no_change": "已由第一个工作项交付", "prs": []})
+        self.assertEqual(view["state"], "delivered")
+
+    def test_an_operator_reader_shows_which_items_borrowed_a_comment_and_what_they_had_said(self):
+        """`audit` had exactly one writer and no readers at all, so a borrowed conclusion was recorded
+        where nothing would ever show it."""
+        first, _ = self.blocked_first_item()
+        second, token = self.second_item()
+        self.ledger.prepare_comment(second, token, "started", "👀 第二个工作项开始处理。")
+        self.ledger.prepare_comment(second, token, "blocker", "无法复现，需要设备日志。")
+        borrowed = self.ledger.borrowed_comments()
+        self.assertEqual(len(borrowed), 1)  # a deduplicated started marker states no conclusion
+        self.assertEqual(borrowed[0]["item_id"], second)
+        self.assertEqual(borrowed[0]["prepared_by"], first)
+        self.assertEqual((borrowed[0]["identifier"], borrowed[0]["kind"]), ("FARM-1", "blocker"))
+        self.assertIn("无法复现", borrowed[0]["suppressed_body"])
+        # the scheduler calls status() twice a second; this scan stays out of it
+        self.assertNotIn("borrowed_comments", self.ledger.status())
 
     def test_finish_still_refuses_a_confirmed_comment_from_another_issue(self):
         """Two issues can share a fingerprint — it is hashed from title, description, attachments and

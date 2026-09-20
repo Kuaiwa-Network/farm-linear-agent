@@ -151,7 +151,8 @@ def post_comment(ledger, api, action):
 def run(args, ledger, api_factory):
     c = args.command
     if c == "status":
-        return ledger.status()
+        # Merged here rather than inside Ledger.status(), which the scheduler calls twice a second.
+        return {**ledger.status(), "borrowed_comments": ledger.borrowed_comments()}
     if c == "queue":
         return ledger.queue()
     if c == "fetch-issue":

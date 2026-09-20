@@ -493,6 +493,32 @@ class Ledger:
         return {"counts": counts, "items": compact,
                 "recovery_required": [row["id"] for row in rows if row["state"] == "running" and row["lease_expires_at"] <= self.clock()]}
 
+    def borrowed_comments(self, limit=20):
+        """Items whose conclusion never reached the issue, because another item had already posted one.
+
+        Deliberately not part of status(): the scheduler calls that twice a second and this scans `audit`,
+        which has no index and only grows. The operator readers merge it in instead.
+
+        This exists because the alternative was silence. An item created by `agent.service enqueue` has a
+        `local-` session and no Linear agent session at all, so spec §6's reporting surface for it is the
+        issue comment — and a deduplicated item posts none. Its own words went to `audit`, which until now
+        had one writer and no readers anywhere in the codebase. A `started` marker states no conclusion and
+        is not listed; the trail keeps it either way.
+        """
+        rows = self.connection.execute(
+            """SELECT a.item_id, a.reason, a.details, a.created_at, w.issue_id
+               FROM audit a JOIN work_items w ON w.id = a.item_id
+               WHERE a.kind='deduplicated' AND a.reason IN ('blocker','delivery')
+               ORDER BY a.id DESC LIMIT ?""", (limit,))
+        listed = []
+        for row in rows:
+            details = json.loads(row["details"])
+            listed.append({"item_id": row["item_id"], "kind": row["reason"], "created_at": row["created_at"],
+                           "identifier": json.loads(self._issue_row(row["issue_id"])["metadata"])["identifier"],
+                           "prepared_by": details.get("prepared_by"), "action_id": details.get("action_id"),
+                           "suppressed_body": details.get("suppressed_body")})
+        return listed
+
     PR_URL = re.compile(r"https://[A-Za-z0-9.-]+(?::[0-9]+)?/[^/?#\s]+/[^/?#\s]+/pull/[1-9][0-9]*")
 
     def _set_state(self, item_id, state, reason, **columns):
@@ -1079,7 +1105,9 @@ class Ledger:
                         # what the second worker actually concluded must not be told nothing. A 'started'
                         # marker states no conclusion, so its wording is not worth keeping.
                         details["suppressed_body"] = clean_body[:2000]
-                    self._audit(row["id"], "prepare_comment", f"{kind} deduplicated", details)
+                    # Its own audit kind, not a reason on `prepare_comment`: borrowed_comments() reads this
+                    # back for the operator, and a reason string is not something to build a reader on.
+                    self._audit(row["id"], "deduplicated", kind, details)
             return {**dict(self.connection.execute("SELECT * FROM outbox WHERE action_id=?", (action_id,)).fetchone()),
                     "deduplicated": deduplicated}
 
@@ -1150,7 +1178,16 @@ class Ledger:
                         or action["generation"] != row["generation"] or action["kind"] != kind or not action["remote_id"]):
                     raise LedgerError("finish requires a confirmed comment for this issue, claimed input and outcome")
                 if action["item_id"] != row["id"]:
-                    self._audit(row["id"], "finish", "cited a comment another item posted",
+                    # The borrowed comment is the only account of this work a human ever reads, and unlike
+                    # a blocker's wording a PR URL is a fact that comment either states or does not. A
+                    # delivery citing a pull request it does not name would put work in the ledger that was
+                    # announced nowhere. A no_change delivery carries no `prs`, so it borrows freely, and
+                    # an item that really has something unannounced to say still has its own blocker key.
+                    for pr in (evidence.get("prs") or []):
+                        if not re.search(re.escape(pr) + r"(?![0-9])", action["body"]):
+                            raise LedgerError(f"the posted comment does not mention {pr}; a borrowed "
+                                              "delivery may only claim pull requests it announced")
+                    self._audit(row["id"], "borrowed_comment", kind,
                                 {"action_id": action["action_id"], "prepared_by": action["item_id"]})
             current = self._issue_row(row["issue_id"])["fingerprint"]
             changed = current != row["claimed_fingerprint"] or row["requeue_requested"]

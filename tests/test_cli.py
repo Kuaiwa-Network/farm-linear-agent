@@ -216,6 +216,11 @@ class CliTests(unittest.TestCase):
                                                                           "comment_action_id": again["action_id"]}))
         self.assertEqual(finished["state"], "blocked")
         self.assertEqual([c["method"] for c in self.calls()].count("create_comment"), 1)
+        # An enqueued item's only reporting surface is the issue comment, and it posted none. The operator
+        # command that is already run has to be the one that says so.
+        borrowed = self.run_cli("status")["borrowed_comments"]
+        self.assertEqual([row["item_id"] for row in borrowed], [second])
+        self.assertEqual(borrowed[0]["prepared_by"], first)
 
     def write_config(self, repos):
         config = self.root / "config.json"

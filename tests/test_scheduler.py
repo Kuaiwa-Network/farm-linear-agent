@@ -291,10 +291,7 @@ class SchedulerTests(unittest.TestCase):
         worker did, and remove() is destructive."""
         item_id = self.failed_item()
         self.assertEqual(self.ledger.item(item_id)["state"], "failed")
-        message = f"wip({item_id[:8]}): worker exited without finishing"
-        self.assertIn(("committed", item_id, message), self.trees.added)
-        self.assertLess(self.trees.added.index(("committed", item_id, message)),
-                        self.trees.added.index(("removed", item_id, None)))
+        self.assert_committed_before_removal(item_id)
 
     def test_a_delivered_item_is_swept_without_a_work_in_progress_commit(self):
         item = self.item()
@@ -309,6 +306,35 @@ class SchedulerTests(unittest.TestCase):
         self.scheduler.tick()
         self.assertIn(("removed", item["id"], None), self.trees.added)
         self.assertEqual([row for row in self.trees.added if row[0] == "committed"], [])
+
+    def assert_committed_before_removal(self, item_id):
+        message = f"wip({item_id[:8]}): worker exited without finishing"
+        self.assertIn(("committed", item_id, message), self.trees.added)
+        self.assertLess(self.trees.added.index(("committed", item_id, message)),
+                        self.trees.added.index(("removed", item_id, None)))
+
+    def test_a_worker_that_never_claims_has_its_work_committed_before_the_sweep(self):
+        """_recover's claim-timeout branch retires the item itself; nothing else in the tick would."""
+        item = self.item()
+        self.scheduler.tick()
+        self.launcher.alive_pids.add(self.ledger.item(item["id"])["worker_pid"])
+        self.now += self.scheduler.claim_timeout + 1
+        self.scheduler.tick()
+        self.assertEqual(self.ledger.item(item["id"])["state"], "failed")
+        self.assert_committed_before_removal(item["id"])
+
+    def test_a_lease_that_expired_under_a_live_worker_commits_before_the_sweep(self):
+        """_recover kills and fails this one but removes nothing, so _sweep_worktrees is the only retirer."""
+        item = self.item()
+        self.scheduler.tick()
+        pid = self.ledger.item(item["id"])["worker_pid"]
+        self.ledger.claim(item["id"], worker_id="w")
+        self.scheduler.active.clear()
+        self.launcher.alive_pids.add(pid)
+        self.now += FIX_LEASE + 1
+        self.scheduler.tick()
+        self.assertEqual((self.ledger.item(item["id"])["state"], self.launcher.killed), ("failed", [pid]))
+        self.assert_committed_before_removal(item["id"])
 
     def test_a_failing_work_in_progress_commit_is_logged_and_still_sweeps(self):
         self.trees.commit_fails = True
