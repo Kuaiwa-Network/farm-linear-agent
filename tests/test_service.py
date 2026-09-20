@@ -5,6 +5,7 @@ import hmac
 import io
 import json
 import os
+import sqlite3
 import subprocess
 import tempfile
 import threading
@@ -106,6 +107,24 @@ class ServeTests(unittest.TestCase):
         self.assertFalse(thread.is_alive())
         self.assertEqual(failures, [])
         self.assertIs(self.c.scheduler.api, self.c.api)  # worker deaths reach the session through the same client
+
+    def test_build_gives_the_pool_its_own_connection_and_never_the_schedulers(self):
+        """The rule this whole task exists for, asserted on the production wiring rather than on a SlotPool
+        a test constructed. serve() runs pool.tick() on a third thread while the scheduler ticks on its own
+        connection, and Ledger._transaction is a bare BEGIN IMMEDIATE/COMMIT: two threads sharing one
+        connection do not get two transactions — one thread's BEGIN lands inside the other's and either
+        COMMIT applies to the other's half-written work. build() passes check_same_thread=False, so sharing
+        would not raise anything at all; nothing else in the suite calls build(), so without this the
+        one-line change from a factory to `ledger` here is a silent, green regression.
+        """
+        self.assertIsNot(self.c.pool.ledger, self.c.ledger)
+        self.assertIsNot(self.c.pool.ledger.connection, self.c.ledger.connection)
+        # And the pool owns what it opened: close() closes its connection and leaves the scheduler's alone,
+        # which is the other half of "the pool was handed a factory" and is what serve()'s finally relies on.
+        self.c.pool.close()
+        with self.assertRaises(sqlite3.ProgrammingError):
+            self.c.pool.ledger.connection.execute("SELECT 1")
+        self.assertEqual(self.c.ledger.connection.execute("SELECT 1").fetchone()[0], 1)
 
     def wait_for_health(self, timeout=20):
         url = f"http://127.0.0.1:{self.c.server.server_address[1]}/health"

@@ -828,3 +828,34 @@ class PoolTests(SlotFixture):
         result = stranded.tick()
         self.assertEqual((result["settled"], result["parked"]), (1, 0))
         self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "held")
+
+    def test_a_hand_over_that_fails_after_the_switch_gives_the_slot_back_instead_of_wedging_it(self):
+        """The window between a successful switch and resume() is the one place a raise wedges the only
+        slot for good. By then the slot is `*_busy` and the reservation `active` while the item is still
+        `awaiting_resource`, and reservations_to_settle excludes that state: an exception escaping grant()
+        into serve()'s guarded loop would be logged as `loop_error`, retried every two seconds, and settle
+        nothing — no slot would ever go `held`, so the operator would never be told to run recover-slot.
+
+        Both cases are real rather than monkeypatched. `state_dir=None` is what SlotPool.__init__ accepts
+        today, and a state_dir under a plain file is what a mis-provisioned runs root looks like.
+        """
+        for label, state_dir in (("state_dir cannot be created",
+                                  lambda item_id: self.root / "not-a-dir" / item_id),
+                                 ("pool built without a state_dir", None)):
+            with self.subTest(label):
+                self.setUp()
+                self.pool().ensure()
+                (self.root / "not-a-dir").write_text("a file where a directory must go", encoding="utf-8")
+                item = self.waiting(ISSUE, self.commit("fix"), "batch")
+                pool = self.pool(mcp=FakeMcp(), state_dir=state_dir)
+                self.assertEqual(pool.tick(), {"settled": 0, "granted": 0, "parked": 1})
+                self.assertEqual(self.ledger.item(item)["state"], "failed")
+                self.assertEqual([r["state"] for r in self.ledger.reservations()], ["released"])
+                slot = self.ledger.slot("unity_slot:1")
+                # Back in the pool and back on main, not held: the slot never misbehaved, the host did.
+                self.assertEqual((slot["state"], slot["parked_commit"]),
+                                 ("idle_closed", self.trees.resolve_commit("Farm-Client")))
+                reasons = [row["reason"] for row in self.ledger.connection.execute(
+                    "SELECT reason FROM audit WHERE item_id=?", (item,))]
+                self.assertTrue(any("hand-over failed after the switch" in r for r in reasons), reasons)
+                self.assertEqual(pool.tick(), {"settled": 0, "granted": 0, "parked": 0})

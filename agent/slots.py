@@ -211,8 +211,17 @@ class SlotPool:
 
     def _hand_over(self, reservation):
         """True when the item really has the slot: the switch succeeded, the token is on disk and resume()
-        put the item back in the queue, where the existing launch loop picks it up on the next tick. False
-        on every path that gave the slot back."""
+        put the item back in the queue, where the existing launch loop picks it up on the next tick.
+
+        Everything after the switch is inside one try/finally, and that is the point rather than a tidy-up.
+        Once switch() returns, the slot is `*_busy` and the reservation is `active` while the item is still
+        `awaiting_resource` — and `reservations_to_settle` excludes `awaiting_resource`. So anything raising
+        in this window and escaping into serve()'s guarded loop leaves a state the pool cannot recover from
+        by itself: nothing ever settles that reservation, no slot ever goes `held`, and the operator gets a
+        `loop_error` line every two seconds and no `recover-slot` signal at all — on the only slot there is.
+        The window is small but every step in it can really fail: an unwritable or full `state_dir`, or a
+        pool built with `state_dir=None`, which __init__ accepts.
+        """
         item_id, slot_id = reservation["item_id"], reservation["resource"]
         self.last_observation = None
         try:
@@ -220,18 +229,48 @@ class SlotPool:
         except SlotError as exc:
             self._switch_failed(reservation, exc)
             return False
-        if self.last_observation is not None:
-            self.ledger.record_identity(item_id, reservation["reservation_id"], slot_id, self.last_observation)
-        self._write_token(item_id, reservation)
+        handed = False
+        # The defaults cover the one path that reaches the finally without passing an except arm: a
+        # BaseException, which `guarded` does not catch either and which would otherwise take the pool
+        # thread down with the slot held by a live reservation.
+        reason, fail_item = "hand-over abandoned after the switch", True
         try:
-            self.ledger.resume(item_id, f"{slot_id} acquired ({reservation['mode']})")
-        except LedgerError:
-            # A Stop landed during the multi-minute switch, so the item is already cancelled and resume()
-            # refuses it. Uncaught, that LedgerError would come out of grant(), out of tick() and take the
-            # pool thread down with the slot busy and the reservation open. Give the slot back instead;
-            # park_idle returns it to main on the same pass.
+            if self.last_observation is not None:
+                self.ledger.record_identity(item_id, reservation["reservation_id"], slot_id,
+                                            self.last_observation)
+            self._write_token(item_id, reservation)
+            try:
+                self.ledger.resume(item_id, f"{slot_id} acquired ({reservation['mode']})")
+            except LedgerError:
+                # A Stop landed during the multi-minute switch, so the item is already cancelled and
+                # resume() refuses it. The item needs nothing here: it is already terminal.
+                reason, fail_item = "item cancelled mid-switch", False
+            else:
+                handed = True
+        except Exception as exc:
+            reason = f"hand-over failed after the switch: {exc!r}"[:400]
+        finally:
+            if not handed:
+                self._give_the_slot_back(reservation, reason, fail_item)
+        return handed
+
+    def _give_the_slot_back(self, reservation, reason, fail_item):
+        """Every exit from the hand-over window that is not a hand-over. park_idle returns the slot to main
+        on the same pass, so the pool is whole again by the end of the tick that broke it."""
+        self._forget_token(reservation["item_id"])
+        self.ledger.release(reservation["reservation_id"], reservation["token"], reason)
+        if fail_item:
+            # The slot is fine and goes back to the pool, but the item must not be left waiting: nothing
+            # re-queues its reservation, and reservations_to_settle cannot see an `awaiting_resource` item,
+            # so it would wait for a slot that is never handed to it and no report would ever be owed.
+            self.ledger.fail_queued(reservation["item_id"], reason)
+
+    def _forget_token(self, item_id):
+        """Best effort, because the give-back path runs after a failure that may be the very reason the
+        token path cannot be computed (`state_dir=None`) or the file cannot be removed."""
+        try:
             self.token_path(item_id).unlink(missing_ok=True)
-            self.ledger.release(reservation["reservation_id"], reservation["token"], "item cancelled mid-switch")
+        except Exception:
             return False
         return True
 
