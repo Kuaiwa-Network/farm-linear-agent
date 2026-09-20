@@ -37,8 +37,17 @@ and its machine-checked evidence, which supersede the previously halted Step 4.
   then re-delegated. The real webhook created work item
   `9440b065-87da-4494-8dc0-95713c6c0ef1`, session
   `9641da61-238d-4ff2-9470-36e094854a95`. The worker finished **blocked** on a contract/configuration conflict; no code changes or PR.
-  See `reports/2026-09-20-FARM-1247/report.md`. The operator was asked whether new
-  accounts should start with zero or one unlocked table; that decision is pending.
+  See `reports/2026-09-20-FARM-1247/report.md`. The operator confirmed **zero initially unlocked tables; count only explicit unlocks**.
+  The remaining prerequisite is updating Farm-Contract shelf.md §3, then correcting
+  stat 3004 and exporting/releasing the configuration through its approved path.
+
+### Installed service after rehearsal
+
+The temporary worktree-backed service was removed after the run. The installed service
+is running from the original checkout again, with its config unchanged and `ProcessType`
+corrected to `Standard`. The slot is closed, clean, parked at main, with no active
+reservations; its MCP server was reaped. The lifecycle fixes remain on this branch
+pending PR integration, so they are not yet the installed service's code.
 
 ### Runtime locations
 

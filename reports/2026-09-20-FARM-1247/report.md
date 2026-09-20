@@ -34,11 +34,12 @@ the real webhook-to-worker-to-blocker path, not delivery of a fix.
 
 [FarmBot's blocker comment](https://linear.app/kuaiwagames/issue/FARM-1247#comment-14186678-72ee-4749-8649-9a3469624749)
 records the exact conflict and proposed next steps in Chinese. The issue's status
-and assignee were not changed. The operator was asked to choose the intended initial
-table count before retrying. If zero is intended, the contract must first be corrected,
-then statistic 3004's initial/minimum values and exported configuration must follow
-the approved release path. If one is intended, clarify and restore the default-table
-configuration instead. The config-export capability remains deferred in Plan 1b.
+and assignee were not changed. After this run, the operator confirmed **zero initially unlocked tables; count only
+explicit unlocks**. That settles the gameplay decision. Farm-Contract shelf.md §3 must
+now be updated, then statistic 3004's initial/minimum values and exported configuration
+must follow the approved release path. The fix worker cannot edit Farm-Contract or
+perform config export with its current tool set; it was not retried into the same known
+blocker. The config-export capability remains deferred in Plan 1b.
 
 Raw worker logs, checkpoint and outcome remain in the original checkout at
 `.local/runs/9440b065-87da-4494-8dc0-95713c6c0ef1/`. This report was recorded by the
