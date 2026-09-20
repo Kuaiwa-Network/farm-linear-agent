@@ -1,0 +1,262 @@
+{
+  "aggregate": "match",
+  "checks": {
+    "build_target": "match",
+    "editor_ready": "match",
+    "loaded_assemblies": "match",
+    "project": "match",
+    "source_clean": "match",
+    "source_commit": "match",
+    "source_stable": "match"
+  },
+  "editor": {
+    "assemblies": [
+      {
+        "has_game_test_driver": true,
+        "module_mvid": "86a7203e-045e-4c2f-a7ff-14e81dae43b8",
+        "name": "HotUpdate"
+      },
+      {
+        "has_game_test_driver": false,
+        "module_mvid": "a135afa4-9c74-4aea-8a0e-f2f1e3e37f31",
+        "name": "MCPForUnity.Editor"
+      },
+      {
+        "has_game_test_driver": false,
+        "module_mvid": "1e499a3c-60f6-4a0d-9c85-1b51290b5ccf",
+        "name": "AOTScripts"
+      },
+      {
+        "has_game_test_driver": false,
+        "module_mvid": "5ba93c22-d372-4448-93fd-87b46c6e9dbe",
+        "name": "Nova.Runtime"
+      }
+    ],
+    "buildTarget": "StandaloneOSX",
+    "dataPath": ".local/editors/slot-1/Assets",
+    "instance": "slot-1@e7fe013d9909e41a",
+    "observed_after_ms": 1789905756703,
+    "observed_before_ms": 1789905755498,
+    "platform": "OSXEditor",
+    "play_mode_off": true,
+    "unityVersion": "2022.3.62f3"
+  },
+  "expected": {
+    "assemblies": [
+      "AOTScripts",
+      "HotUpdate",
+      "MCPForUnity.Editor",
+      "Nova.Runtime"
+    ],
+    "build_target": "StandaloneOSX",
+    "commit_sha": "381a825709379fa1cab5aed7b1b405129203aa35"
+  },
+  "instance": "slot-1@e7fe013d9909e41a",
+  "observed_at": 1789905757.082283,
+  "samples": {
+    "editor_state_after": {
+      "activity": {
+        "phase": "idle",
+        "reasons": [
+          "tick"
+        ],
+        "since_unix_ms": 1789905748812
+      },
+      "advice": {
+        "blocking_reasons": [],
+        "ready_for_tools": true,
+        "recommended_next_action": "none",
+        "recommended_retry_after_ms": 0
+      },
+      "assets": {
+        "external_changes_dirty": false,
+        "external_changes_dirty_since_unix_ms": null,
+        "external_changes_last_cleared_unix_ms": 1789905754609,
+        "external_changes_last_seen_unix_ms": null,
+        "is_updating": false,
+        "refresh": {
+          "is_refresh_in_progress": false,
+          "last_refresh_finished_unix_ms": null,
+          "last_refresh_requested_unix_ms": null
+        }
+      },
+      "compilation": {
+        "is_compiling": false,
+        "is_domain_reload_pending": false,
+        "last_compile_finished_unix_ms": null,
+        "last_compile_started_unix_ms": null,
+        "last_domain_reload_after_unix_ms": 1789905745384,
+        "last_domain_reload_before_unix_ms": null
+      },
+      "editor": {
+        "active_scene": {
+          "guid": null,
+          "name": "",
+          "path": null
+        },
+        "is_focused": false,
+        "play_mode": {
+          "is_changing": false,
+          "is_paused": false,
+          "is_playing": false
+        }
+      },
+      "observed_at_unix_ms": 1789905756703,
+      "schema_version": "unity-mcp/editor_state@2",
+      "sequence": 3,
+      "settings": {
+        "batch_execute_max_commands": 25
+      },
+      "staleness": {
+        "age_ms": 229,
+        "is_stale": false
+      },
+      "tests": {
+        "current_job_id": null,
+        "is_running": false,
+        "last_run": null,
+        "mode": null,
+        "started_by": "unknown",
+        "started_unix_ms": null
+      },
+      "transport": {
+        "last_message_unix_ms": null,
+        "unity_bridge_connected": null
+      },
+      "unity": {
+        "instance_id": "slot-1@e7fe013d9909e41a",
+        "is_batch_mode": false,
+        "platform": "OSXEditor",
+        "project_id": null,
+        "unity_version": "2022.3.62f3"
+      }
+    },
+    "editor_state_before": {
+      "activity": {
+        "phase": "idle",
+        "reasons": [
+          "tick"
+        ],
+        "since_unix_ms": 1789905748812
+      },
+      "advice": {
+        "blocking_reasons": [],
+        "ready_for_tools": true,
+        "recommended_next_action": "none",
+        "recommended_retry_after_ms": 0
+      },
+      "assets": {
+        "external_changes_dirty": false,
+        "external_changes_dirty_since_unix_ms": null,
+        "external_changes_last_cleared_unix_ms": 1789905754609,
+        "external_changes_last_seen_unix_ms": null,
+        "is_updating": false,
+        "refresh": {
+          "is_refresh_in_progress": false,
+          "last_refresh_finished_unix_ms": null,
+          "last_refresh_requested_unix_ms": null
+        }
+      },
+      "compilation": {
+        "is_compiling": false,
+        "is_domain_reload_pending": false,
+        "last_compile_finished_unix_ms": null,
+        "last_compile_started_unix_ms": null,
+        "last_domain_reload_after_unix_ms": 1789905745384,
+        "last_domain_reload_before_unix_ms": null
+      },
+      "editor": {
+        "active_scene": {
+          "guid": null,
+          "name": "",
+          "path": null
+        },
+        "is_focused": false,
+        "play_mode": {
+          "is_changing": false,
+          "is_paused": false,
+          "is_playing": false
+        }
+      },
+      "observed_at_unix_ms": 1789905755498,
+      "schema_version": "unity-mcp/editor_state@2",
+      "sequence": 3,
+      "settings": {
+        "batch_execute_max_commands": 25
+      },
+      "staleness": {
+        "age_ms": 102,
+        "is_stale": false
+      },
+      "tests": {
+        "current_job_id": null,
+        "is_running": false,
+        "last_run": null,
+        "mode": null,
+        "started_by": "unknown",
+        "started_unix_ms": null
+      },
+      "transport": {
+        "last_message_unix_ms": null,
+        "unity_bridge_connected": null
+      },
+      "unity": {
+        "instance_id": "slot-1@e7fe013d9909e41a",
+        "is_batch_mode": false,
+        "platform": "OSXEditor",
+        "project_id": null,
+        "unity_version": "2022.3.62f3"
+      }
+    },
+    "instances": {
+      "instance_count": 1,
+      "instances": [
+        {
+          "connected_at": "2026-09-20T12:02:30.786492+00:00",
+          "hash": "e7fe013d9909e41a",
+          "id": "slot-1@e7fe013d9909e41a",
+          "name": "slot-1",
+          "session_id": "09258607-c033-4bc6-9f8b-0d09fde91253",
+          "unity_version": "2022.3.62f3"
+        }
+      ],
+      "success": true,
+      "transport": "http"
+    },
+    "probe": {
+      "buildTarget": "StandaloneOSX",
+      "dataPath": ".local/editors/slot-1/Assets",
+      "isCompiling": false,
+      "isPlaying": false,
+      "isPlayingOrWillChangePlaymode": false,
+      "isUpdating": false,
+      "platform": "OSXEditor",
+      "scene": {
+        "isDirty": false,
+        "name": "",
+        "path": ""
+      },
+      "unityVersion": "2022.3.62f3"
+    },
+    "project_info": {
+      "assetsPath": ".local/editors/slot-1/Assets",
+      "platform": "StandaloneOSX",
+      "projectName": "slot-1",
+      "projectRoot": ".local/editors/slot-1",
+      "unityVersion": "2022.3.62f3"
+    }
+  },
+  "source_after": {
+    "commit_sha": "381a825709379fa1cab5aed7b1b405129203aa35",
+    "dirty": [],
+    "index_sha256": "2f7442521858d7fbe4a71f2d39d971df20cc1ef339c91ab7f955486a9ed42664",
+    "repository": ".local/editors/slot-1"
+  },
+  "source_before": {
+    "commit_sha": "381a825709379fa1cab5aed7b1b405129203aa35",
+    "dirty": [],
+    "index_sha256": "2f7442521858d7fbe4a71f2d39d971df20cc1ef339c91ab7f955486a9ed42664",
+    "repository": ".local/editors/slot-1"
+  },
+  "started_at": 1789905755.15125
+}

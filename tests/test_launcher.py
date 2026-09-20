@@ -1,5 +1,7 @@
 import json
 import os
+import signal
+import subprocess
 import sys
 import tempfile
 import threading
@@ -207,6 +209,52 @@ class LauncherTests(unittest.TestCase):
         written = json.loads(write_mcp_config(
             home, "json", {"unity": {"type": "http", "url": "http://127.0.0.1:8080/mcp"}}).read_text(encoding="utf-8"))
         self.assertEqual(written["mcpServers"]["unity"], {"type": "http", "url": "http://127.0.0.1:8080/mcp"})
+
+    def test_stop_before_registration_prevents_a_late_batch_start(self):
+        marker = Path(self.tmp.name) / "should-not-start"
+        self.launcher.stop_unsandboxed("cancelled-item")
+        result = self.launcher.run_unsandboxed(
+            [sys.executable, "-c", "import pathlib,sys; pathlib.Path(sys.argv[1]).touch()", str(marker)],
+            cwd=self.tmp.name, timeout=5, owner="cancelled-item")
+        self.assertFalse(marker.exists(), "Stop lost the race before process registration")
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_shutdown_prevents_late_owned_and_unowned_batch_starts(self):
+        self.launcher.stop_all_unsandboxed()
+        for owner in ("late-item", None):
+            with self.subTest(owner=owner):
+                marker = Path(self.tmp.name) / str(owner)
+                result = self.launcher.run_unsandboxed(
+                    [sys.executable, "-c", "import pathlib,sys; pathlib.Path(sys.argv[1]).touch()", str(marker)],
+                    cwd=self.tmp.name, timeout=5, owner=owner)
+                self.assertFalse(marker.exists(), "shutdown allowed a new batch process")
+                self.assertNotEqual(result.returncode, 0)
+
+    @unittest.skipIf(os.name == "nt", "POSIX process group semantics")
+    def test_group_kill_escalates_when_only_the_child_ignores_term(self):
+        marker = Path(self.tmp.name) / "stubborn.pid"
+        child = ("import os,pathlib,signal,sys,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); "
+                 "pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(60)")
+        parent = subprocess.Popen([sys.executable, "-c",
+                                   "import subprocess,sys,time; subprocess.Popen(sys.argv[1:]); time.sleep(60)",
+                                   sys.executable, "-c", child, str(marker)], start_new_session=True)
+        def cleanup():
+            try:
+                os.killpg(parent.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            parent.wait(timeout=10)
+        self.addCleanup(cleanup)
+        deadline = time.monotonic() + 10
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        self.assertTrue(marker.exists(), "child did not install its signal handler")
+        pid = int(marker.read_text())
+        self.launcher.kill_group(parent.pid, grace=0.2, reap=parent)
+        deadline = time.monotonic() + 5
+        while Launcher.alive(pid) and time.monotonic() < deadline:
+            time.sleep(0.02)
+        self.assertFalse(Launcher.alive(pid), "group leader died but its TERM-ignoring child survived")
 
     def test_a_runtime_with_a_writable_flag_gets_one_flag_per_root(self):
         runtime = RUNTIMES["claude"]._replace(command=RUNTIMES["fake"].command)

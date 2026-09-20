@@ -5,10 +5,12 @@ import hmac
 import io
 import json
 import os
+import signal
 import sqlite3
 import subprocess
 import sys
 import tempfile
+import textwrap
 import threading
 import time
 import unittest
@@ -243,6 +245,102 @@ class ServeTests(unittest.TestCase):
         self.assertEqual(problems, [])
         self.assertEqual(failed, [True])
         self.assertIn("slot_pool_unavailable", out.getvalue())
+
+
+@unittest.skipIf(os.name == "nt", "POSIX service termination contract")
+class SignalShutdownTests(unittest.TestCase):
+    def test_sigterm_reaps_the_batch_child_and_closes_a_running_service(self):
+        self.check_sigterm("serving")
+
+    def test_sigterm_during_pool_ensure_also_cleans_up_and_restores_the_handler(self):
+        self.check_sigterm("startup")
+
+    def check_sigterm(self, phase):
+        """Removing the signal handler or placing ensure outside finally orphans this real child."""
+        script = textwrap.dedent('''
+            import signal, sqlite3, sys, threading
+            from pathlib import Path
+            from agent.config import Config
+            from agent.service import build, serve
+
+            root, phase = Path(sys.argv[1]), sys.argv[2]
+            components = build(Config(client_id="c", client_secret="s", webhook_secret="w",
+                                      host="signal-test", runtime="fake", repos={}, port=0,
+                                      local_root=root / "local"))
+            original_pool = components.pool
+            child = ("import os,pathlib,sys,time;"
+                     "pathlib.Path(sys.argv[1]).write_text(str(os.getpid()));time.sleep(120)")
+
+            class Pool:
+                def ensure(self):
+                    if phase == "startup":
+                        self.runner = threading.Thread(target=self.tick, daemon=True)
+                        self.runner.start()
+                        threading.Event().wait(120)
+
+                def tick(self):
+                    components.launcher.run_unsandboxed(
+                        [sys.executable, "-c", child, str(root / "child.pid")],
+                        cwd=root, timeout=120, owner="temporary-batch")
+
+                def close(self):
+                    if phase == "startup":
+                        self.runner.join(10)
+                        assert not self.runner.is_alive()
+                    original_pool.close()
+
+            components = components._replace(pool=Pool())
+            (root / "port").write_text(str(components.server.server_address[1]))
+            previous = signal.getsignal(signal.SIGTERM)
+            serve(components=components)
+            assert components.server.socket.fileno() == -1
+            assert signal.getsignal(signal.SIGTERM) == previous
+            for ledger in (components.ledger, original_pool.ledger):
+                try:
+                    ledger.connection.execute("SELECT 1")
+                except sqlite3.ProgrammingError:
+                    pass
+                else:
+                    raise AssertionError("service left a ledger connection open")
+            (root / "closed").write_text("closed")
+        ''')
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            stub = root / "stub"
+            stub.mkdir()
+            env = dict(os.environ, FARMBOT_LINEAR_STUB_DIR=str(stub),
+                       FARMBOT_CONFIG=str(root / "unused.json"))
+            child_pid = None
+            with (root / "service.log").open("w+") as output:
+                process = subprocess.Popen([sys.executable, "-W", "error", "-c", script,
+                                            str(root), phase], env=env, stdout=output, stderr=output)
+                try:
+                    deadline = time.monotonic() + 15
+                    marker = root / "child.pid"
+                    while ((not marker.exists() or not marker.read_text()) and process.poll() is None
+                           and time.monotonic() < deadline):
+                        time.sleep(0.02)
+                    self.assertTrue(marker.exists(), (root / "service.log").read_text())
+                    child_pid = int(marker.read_text())
+                    self.assertTrue(Launcher.alive(child_pid))
+                    if phase == "serving":
+                        port = int((root / "port").read_text())
+                        with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=5) as response:
+                            self.assertEqual(response.status, 200)
+                    process.send_signal(signal.SIGTERM)
+                    process.wait(timeout=20)
+                    self.assertEqual(process.returncode, 0, (root / "service.log").read_text())
+                    self.assertFalse(Launcher.alive(child_pid), "SIGTERM orphaned the batch process")
+                    self.assertTrue((root / "closed").exists(), "service skipped resource cleanup")
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                    process.wait(timeout=10)
+                    if child_pid is not None and Launcher.alive(child_pid):
+                        try:
+                            os.killpg(child_pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
 
 
 class EnqueueTests(unittest.TestCase):

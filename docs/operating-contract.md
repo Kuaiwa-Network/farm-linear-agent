@@ -32,6 +32,14 @@ A worker never edits Farm-Contract: a contradiction between the confirmed requir
 is reported as an elicitation and finishes the item blocked; contract changes belong to the `feature`
 skill in a later phase.
 
+CLI `cancel` records the cancellation immediately; the next scheduler tick kills this service's
+owned worker or batch Editor before sweeping worktrees. An immediate `retry` also retires the old
+process, and waits for its cancelled reservation to settle before launching a new attempt. A Stop
+fences pending batch launches, including an old reservation whose item has since been retried.
+SIGTERM to the service runs batch-process cleanup during startup or normal serving. On this Mac,
+the live `launchctl kickstart -k` rehearsal also removed the batch Editor; this is not a promise
+that Python cleanup executes after SIGKILL. Reservation release still requires a quiescence probe.
+
 ## Work item states
 
 queued → running → delivered | blocked | failed; running ↔ awaiting_input (human gate);

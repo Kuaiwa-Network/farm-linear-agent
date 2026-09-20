@@ -1,13 +1,14 @@
 import json
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import threading
 import time
 import unittest
 from pathlib import Path
 
-from agent.launcher import Unsandboxed
+from agent.launcher import Launcher, RUNTIMES, Unsandboxed
 from agent.ledger import Ledger
 from agent.slots import SlotError, SlotPool, slot_entry
 from agent.worktrees import WorktreeError, Worktrees
@@ -211,7 +212,7 @@ class FakeUnity:
         self.totals, self.code, self.hang, self.argv = (total, passed, failed), code, hang, []
         self.owners = []
 
-    def __call__(self, argv, *, cwd, timeout, log=None, env=None, owner=None):
+    def __call__(self, argv, *, cwd, timeout, log=None, env=None, owner=None, cancelled=None):
         self.argv.append(list(argv))
         self.owners.append(owner)
         if self.hang:
@@ -753,6 +754,28 @@ class PoolTests(SlotFixture):
         self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "idle_closed")
         self.assertFalse(pool.token_path(item).exists())
         self.assertEqual(pool.tick(), {"settled": 0, "granted": 0, "parked": 0})
+
+    def test_a_cancelled_reservation_cannot_start_after_the_item_is_retried(self):
+        self.pool().ensure()
+        item = self.waiting(ISSUE, self.commit("fix"), "batch")
+        launcher = Launcher(self.root / "runs", RUNTIMES["fake"], host="test")
+        marker = self.root / "stale-batch-started"
+
+        def runner(argv, **kwargs):
+            # Cancellation lands after run_batch's first active check. A retry is a
+            # new item attempt, but must never revive this old reservation's invocation.
+            self.ledger.cancel(item, "operator stop")
+            self.ledger.retry(item, "operator retry")
+            return launcher.run_unsandboxed(
+                [sys.executable, "-c", "import pathlib,sys; pathlib.Path(sys.argv[1]).touch()", str(marker)],
+                **kwargs)
+
+        pool = self.pool(mcp=FakeMcp(), run_unsandboxed=runner)
+        self.assertEqual(pool.tick()["granted"], 0)
+        self.assertFalse(marker.exists(), "a retried item revived its cancelled reservation")
+        self.assertEqual(self.ledger.item(item)["state"], "queued")
+        self.assertEqual(self.ledger.reservations()[0]["state"], "cancelled")
+        self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "idle_closed")
 
     def test_the_pool_settles_a_cancel_requested_reservation_as_cancelled_and_parks(self):
         """The pool half of a Stop that lands *after* the hand-over: the scheduler leaves the reservation

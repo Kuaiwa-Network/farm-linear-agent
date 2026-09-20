@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import argparse
 import json
 import shutil
+import signal
 import threading
 from pathlib import Path
 
@@ -145,39 +146,51 @@ def serve(config_path=None, components=None):
         components.pool.tick()
         stop.wait(2.0)
 
-    try:
-        components.pool.ensure()
-    except SlotError as exc:
-        # A host whose slot cannot be prepared must still answer Linear: the pool is simply empty, every
-        # unity_slot request stays queued, and the operator has a line naming the folder to go and look at.
-        print(json.dumps({"event": "slot_pool_unavailable", "error": str(exc)}), flush=True)
-
     threads = [threading.Thread(target=guarded("receive", receive_once), daemon=True),
                threading.Thread(target=guarded("schedule", schedule_once), daemon=True),
                threading.Thread(target=guarded("pool", pool_once), daemon=True)]
-    for thread in threads:
-        thread.start()
-    print(json.dumps({"event": "ready", "listen": f"http://127.0.0.1:{components.server.server_address[1]}",
-                      "runtime": components.launcher.runtime.name, "host": components.config.host,
-                      "skills": sorted(components.skills)}), flush=True)
+    main_thread = threading.current_thread() is threading.main_thread()
+    previous_sigterm = signal.getsignal(signal.SIGTERM) if main_thread else None
+
+    def terminate(signum, frame):
+        # Unwind the main thread, including ensure() at startup. Calling server.shutdown() here
+        # would deadlock: serve_forever() cannot finish while its own thread waits in shutdown().
+        if not stop.is_set():
+            raise KeyboardInterrupt
+
     try:
+        if main_thread:
+            signal.signal(signal.SIGTERM, terminate)
+        try:
+            components.pool.ensure()
+        except SlotError as exc:
+            # A host whose slot cannot be prepared must still answer Linear: the pool is simply empty,
+            # every unity_slot request stays queued, and the operator gets the folder to inspect.
+            print(json.dumps({"event": "slot_pool_unavailable", "error": str(exc)}), flush=True)
+        for thread in threads:
+            thread.start()
+        print(json.dumps({"event": "ready", "listen": f"http://127.0.0.1:{components.server.server_address[1]}",
+                          "runtime": components.launcher.runtime.name, "host": components.config.host,
+                          "skills": sorted(components.skills)}), flush=True)
         components.server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
-        components.server.server_close()
         stop.set()
-        # Before the joins, not after. The pool thread is a daemon and may be blocked in run_batch's
-        # wait() on a batch Editor for up to batch_timeout — half an hour — so joining first would time
-        # out and only then kill it, leaving that thread live while pool.close() shuts its ledger
-        # connection underneath it. Without this call at all, the Editor simply outlives the service and
-        # keeps the slot folder open, which the next ensure() reads as a slot another Editor holds.
-        components.launcher.stop_all_unsandboxed()
-        for thread in threads:
-            thread.join(timeout=20)
-        components.receiver.close()
-        components.ledger.close()
-        components.pool.close()
+        try:
+            components.server.server_close()
+            # Before joins: a pool thread waiting on a batch Editor must be released before its
+            # ledger closes, and the Editor must not outlive the service holding the slot folder.
+            components.launcher.stop_all_unsandboxed()
+            for thread in threads:
+                if thread.ident is not None:  # ensure() may have been interrupted before threads start
+                    thread.join(timeout=20)
+            components.receiver.close()
+            components.ledger.close()
+            components.pool.close()
+        finally:
+            if main_thread:
+                signal.signal(signal.SIGTERM, previous_sigterm)
 
 
 def main(argv=None):
