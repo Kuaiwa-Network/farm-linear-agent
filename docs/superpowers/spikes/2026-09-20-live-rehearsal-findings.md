@@ -275,7 +275,8 @@ executes C#. The fix is therefore committed without one, which is stated here ra
 > the freshness clause had to go. `staleness.is_stale` and `advice.ready_for_tools` went with it — both
 > are the server's own arithmetic on this same timestamp, so both were circular. See `identity.ready`.
 
-`agent/identity.py:61` requires the editor state to be recent:
+As first written, `agent/identity.py:61` required the editor state to be recent (the clause is gone as of
+Task 13, 2026-09-20 — it no longer appears anywhere in `agent/`; the line number below is the pre-fix file):
 
 ```python
 and 0 <= now_ms-observed <= 10000
@@ -316,6 +317,24 @@ FarmBot's Editor sits idle between operations, which is exactly when the assumpt
 
 Direction 1 looks stronger: it removes a dependency on a third-party cache's optimisation policy,
 which is the kind of coupling that broke here in the first place.
+
+### Deferred: a `sequence`-based liveness signal (2026-09-20, Task 13 review)
+
+Task 13's review proposed replacing what the freshness bound approximated with a comparison of
+`sequence` across `collect()`'s two `editor/state` reads. **Deferred, not adopted**, for two reasons.
+
+The obvious form of it is backwards. Requiring `before['sequence'] != after['sequence']` would demand
+that the Editor's tracked state *move* during the probe window — but a correctly idle Editor is exactly
+the one whose `sequence` does not move (measured here: frozen at 3 for 117 s), so that condition
+re-creates the defect this section records, in a form that no longer even mentions a clock. The useful
+form is the opposite: `before['sequence'] == after['sequence']`, proving the tracked state did **not**
+change across the probe, which is the Editor-side analogue of `collect()`'s existing `source_stable`
+check on the checkout.
+
+Even in that form it stays deferred, because adding a gate condition that has never been checked against
+a live Editor is precisely how both defects on this page arrived. `collect()` already stores both
+snapshots in the ledger row as evidence, so the next live re-run of Step 4 produces the `sequence` data
+needed to decide this on measurements instead of reasoning. Revisit it then.
 
 ## What both defects have in common
 

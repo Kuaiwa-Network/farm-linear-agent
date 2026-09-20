@@ -2310,6 +2310,7 @@ Port `FarmTestAgent/tools/farmqa_unity_identity.py` and `farmqa_identity.py`. Co
   - `agent.unity_mcp.UnityMcp(endpoint, timeout=30)` with `read_resource(uri)`, `call_tool(name, arguments)` and `select_instance(instance)`. The constructor raises `ValueError` unless the endpoint is `http`, host exactly `127.0.0.1`, an explicit port, path exactly `/mcp`, and no userinfo, query or fragment.
   - `agent.identity.source_snapshot(repository) -> dict` with `repository`, `commit_sha`, `dirty`, `index_sha256`.
   - `agent.identity.ready(state, instance) -> bool`, the Editor-state gate, unchanged clause for clause.
+    > **Superseded 2026-09-20 (Task 13).** No longer true: the FarmQA freshness bound, `staleness.is_stale` and `advice.ready_for_tools` were all removed, because `observed_at_unix_ms` records the last state *change* and the bound refused precisely the idle Editors it was meant to admit. See `agent.identity.ready`'s docstring and `docs/superpowers/spikes/2026-09-20-live-rehearsal-findings.md` (Defect 2). The prose below is the plan as written and is kept as the record.
   - `agent.identity.collect(client, *, repository, instance, expected, probe_source) -> dict` with `checks`, `aggregate`, `observed_at` and the raw samples.
   - `agent.slots.UnityIdentity(probe_path, timeout=120, start_timeout=120, clock=time.time, sleep=time.sleep)`, the pool's `mcp` collaborator in production. The endpoint is **not** a constructor argument: it is read per call from the slot row's `mcp_address`, so one instance serves every slot. It implements the whole surface `SlotPool` and `FakeMcp` share — the probe half (`refresh`, `wait_quiet`, `console_errors_since`, `probe`, `quiescent`) and the Editor life cycle `switch` and `close_editor` drive (`discover_instance`, `start`, `terminate`, `reap_server`).
 
@@ -2658,7 +2659,11 @@ class UnityIdentity:
         return ready(state, slot.get("instance"))
 ```
 
+> **Superseded 2026-09-20 (Task 13).** The `quiescent` docstring above still ends "and the state sample is fresh". That sentence is the one Task 13 deleted from `agent/slots.py`: `ready` no longer has a freshness bound at all, so the release predicate no longer requires a recent sample either — the liveness it stood in for comes from the read itself, which an Editor that cannot reach its main thread never answers. See `agent.identity.ready` and `docs/superpowers/spikes/2026-09-20-live-rehearsal-findings.md` (Defect 2). The block is left as written, as the record of the plan.
+
 One small addition comes with it. `quiet(state)` is a new two-line helper in `agent/identity.py` beside `ready`: the same four clauses (`compilation.is_compiling`, `compilation.is_domain_reload_pending`, `assets.is_updating`, `tests.is_running`) with neither the instance comparison nor the staleness bound, because during a refresh the instance is what we are waiting to hear from; `ready` keeps both. `agent.unity.editor_holds_project` needs nothing here — Task 4 already added it, because `SlotPool.editor_is_open` asks it the same question `terminate` and `quiescent` do. `import os`, `import signal` and `import urllib.parse` go at the top of `agent/slots.py` for `terminate` and `reap_server`.
+
+> **Superseded 2026-09-20 (Task 13).** "`ready` keeps both" is now half true: `ready` still compares the instance, but the staleness bound is gone, and `staleness.is_stale` and `advice.ready_for_tools` went with it — all three are arithmetic on `observed_at_unix_ms`, which records the last state *change*, not a heartbeat. The only difference left between `quiet` and `ready` is the instance comparison, the schema check and the play-mode flags. See `agent.identity.ready` and `docs/superpowers/spikes/2026-09-20-live-rehearsal-findings.md` (Defect 2).
 
 - [ ] **Step 6: Run the tests to verify they pass**
 

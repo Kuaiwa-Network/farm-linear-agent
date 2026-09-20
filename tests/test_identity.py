@@ -123,23 +123,70 @@ class McpTests(Loopback):
         self.assertIn("tools/call:set_active_instance", Handler.seen)
 
 
+def enrich(sample):
+    """The MCP server's own `_enrich_advice_and_staleness`, mirrored clause for clause.
+
+    `staleness` and `advice` are not plugin fields. The plugin never sends them: the server computes both
+    from `observed_at_unix_ms` at read time, on every read, and staples them onto the snapshot
+    (mcpforunityserver services/resources/editor_state.py:178-216). So they are a *function* of the
+    timestamp, and a fixture that sets them independently describes a snapshot the real server cannot emit.
+
+    This fixture used to do exactly that — a hardcoded `is_stale: False` and `ready_for_tools: True`
+    alongside whatever timestamp a test asked for. Two costs. The tests named for the live defect asserted
+    an impossible payload: a two-minute-old sample that the server had nonetheless called fresh. And
+    `ready()` could have kept `state['staleness']['is_stale'] is False` or `advice.ready_for_tools` with
+    the whole suite still green, because the fixture satisfied both by construction — a tighter copy
+    (`age_ms > 2000`) of the very bound Task 13 removed, re-armed at a quarter of the threshold.
+    """
+    now_ms = int(time.time() * 1000)
+    try:
+        observed_ms = int(sample["observed_at_unix_ms"])
+    except Exception:   # the server's own fallback: an absent or unusable field is read as *now* (:180-184)
+        observed_ms = now_ms
+    age_ms = max(0, now_ms - observed_ms)   # a clock-skewed Editor reporting the future clamps to 0 (:186)
+    is_stale = age_ms > 2000                # the server's conservative default, not the plugin's (:188)
+    compilation = sample.get("compilation") or {}
+    assets = sample.get("assets") if isinstance(sample.get("assets"), dict) else {}
+    refresh = assets.get("refresh") or {}
+    # Same reasons in the same order the server appends them (:195-205); `stale_status` is last.
+    blocking = [reason for reason, blocked in (
+        ("compiling", compilation.get("is_compiling") is True),
+        ("domain_reload", compilation.get("is_domain_reload_pending") is True),
+        ("running_tests", (sample.get("tests") or {}).get("is_running") is True),
+        ("asset_refresh", refresh.get("is_refresh_in_progress") is True),
+        ("stale_status", is_stale)) if blocked]
+    ready_for_tools = len(blocking) == 0
+    sample["advice"] = {"ready_for_tools": ready_for_tools, "blocking_reasons": blocking,
+                        "recommended_retry_after_ms": 0 if ready_for_tools else 500,
+                        "recommended_next_action": "none" if ready_for_tools else "retry_later"}
+    sample["staleness"] = {"age_ms": age_ms, "is_stale": is_stale}
+    return sample
+
+
 def state(**overrides):
-    """One `unity-mcp/editor_state@2` sample.
+    """One `unity-mcp/editor_state@2` sample, with `staleness` and `advice` derived exactly as the server
+    derives them — see `enrich`. Neither is accepted as an override: they are the server's arithmetic on
+    `observed_at_unix_ms`, so letting a test dictate them is how a snapshot no Editor can produce gets into
+    the suite, and how a gate clause reading them stays pinned by nothing.
 
     `play_mode` is nested under `editor`, where the live plugin puts it (live-editor.json). The brief's
     fixture had it at the top level, which would have made the ready() clause unreachable: the fresh-idle
     test would fail on the missing `editor` key and the playing test would pass for that same reason
     instead of for the flag it names.
     """
+    if {"staleness", "advice"} & set(overrides):
+        raise TypeError("staleness and advice are derived from observed_at_unix_ms, not inputs")
     play_mode = overrides.pop("play_mode", {"is_playing": False, "is_paused": False, "is_changing": False})
     base = {"schema_version": "unity-mcp/editor_state@2", "observed_at_unix_ms": 0,
-            "unity": {"instance_id": INSTANCE}, "staleness": {"is_stale": False},
-            "advice": {"ready_for_tools": True},
+            "unity": {"instance_id": INSTANCE},
             "editor": {"is_focused": False, "play_mode": play_mode},
             "compilation": {"is_compiling": False, "is_domain_reload_pending": False},
-            "assets": {"is_updating": False}, "tests": {"is_running": False}}
+            # `refresh` is the fourth reason the server can block on, and the installed plugin hardcodes it
+            # false (EditorStateCache.cs:473-478); it is here so the mirror above reads the live shape.
+            "assets": {"is_updating": False, "refresh": {"is_refresh_in_progress": False}},
+            "tests": {"is_running": False}}
     base.update(overrides)
-    return base
+    return enrich(base)
 
 
 class ReadyTests(unittest.TestCase):
@@ -162,11 +209,20 @@ class ReadyTests(unittest.TestCase):
         nothing a client can call reaches the private ForceUpdate. So the more reliably idle the Editor, the
         older its sample grows; the live rehearsal measured 117 seconds with `sequence` frozen at 3 while
         `execute_code` worked throughout, and the ten-second bound this replaces turned that into a
-        probe-stage hold. 1970 is the extreme: the value a server that had to default the field would emit."""
+        probe-stage hold. 1970 is the extreme, and it is not a default: a server filling in a field the
+        plugin omitted stamps it with *now* (editor_state.py:241), so an epoch timestamp can only be an
+        Editor whose tracked state has genuinely not moved since.
+
+        The `staleness`/`advice` assertions are the point of the fixture change. Past two seconds the
+        server's own verdict on this sample is "not ready", and the gate admits it anyway, on the flags.
+        Without them re-adding either clause to `ready()` leaves the suite green."""
         now_ms = int(time.time() * 1000)
         for age_ms in (0, 500, 10_001, 117_000, now_ms):
             with self.subTest(age_ms=age_ms):
-                self.assertTrue(ready(state(observed_at_unix_ms=now_ms - age_ms), INSTANCE))
+                sample = state(observed_at_unix_ms=now_ms - age_ms)
+                self.assertIs(sample["staleness"]["is_stale"], age_ms > 2000)
+                self.assertIs(sample["advice"]["ready_for_tools"], age_ms <= 2000)
+                self.assertTrue(ready(sample, INSTANCE))
 
     def test_a_snapshot_that_reports_any_kind_of_busy_is_refused_fresh_or_frozen(self):
         """The safety property that had to survive losing the clock. It survives because every flag here has
@@ -204,10 +260,13 @@ class ReadyTests(unittest.TestCase):
         """A sample taken half a second ago is still ready. Removing the upper bound removed the lower one
         too, so a clock-skewed Editor reporting the future is no longer refused for that alone — the server's
         own staleness arithmetic never saw it either, since it clamps a negative age to zero
-        (editor_state.py:186)."""
+        (editor_state.py:186) — so the fixture's mirror of it calls a minute-in-the-future sample fresh,
+        exactly as the live server would."""
         now_ms = int(time.time() * 1000)
         self.assertTrue(ready(state(observed_at_unix_ms=now_ms - 500), INSTANCE))
-        self.assertTrue(ready(state(observed_at_unix_ms=now_ms + 60_000), INSTANCE))
+        skewed = state(observed_at_unix_ms=now_ms + 60_000)
+        self.assertEqual(skewed["staleness"], {"age_ms": 0, "is_stale": False})
+        self.assertTrue(ready(skewed, INSTANCE))
 
     def test_the_aggregate_is_match_only_when_every_check_matches_and_unknown_is_never_match(self):
         self.assertEqual(aggregate({"a": "match", "b": "match"}), "match")
@@ -312,9 +371,17 @@ class CollectTests(Loopback):
         and demonstrably usable — every busy flag False, `execute_code` answering throughout — and the gate
         refused it purely because `observed_at_unix_ms` had not moved for 117 seconds. Every check came back
         `unknown`, so the aggregate was `unknown`, so the pool held the slot: a permanent hold on exactly the
-        Editors that are behaving best."""
-        Handler.replies["mcpforunity://editor/state"] = state(
-            observed_at_unix_ms=int(time.time() * 1000) - 117_000)
+        Editors that are behaving best.
+
+        The payload below is the whole snapshot the live server emits at that age, not just its timestamp:
+        `is_stale` True and `ready_for_tools` False, blocked on `stale_status` alone. So this is the gate
+        overruling the server's advice on the evidence of the flags and the probe — which is the decision
+        Task 13 actually made, and which the old fixture could not express."""
+        frozen = state(observed_at_unix_ms=int(time.time() * 1000) - 117_000)
+        self.assertIs(frozen["staleness"]["is_stale"], True)
+        self.assertIs(frozen["advice"]["ready_for_tools"], False)
+        self.assertEqual(frozen["advice"]["blocking_reasons"], ["stale_status"])
+        Handler.replies["mcpforunity://editor/state"] = frozen
         result = self.run_collect()
         self.assertEqual(result["aggregate"], "match", result["checks"])
         self.assertEqual(result["checks"]["editor_ready"], "match")
