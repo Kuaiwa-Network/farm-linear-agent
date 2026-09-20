@@ -1,6 +1,6 @@
 # Shared Worker Memory Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Let fresh FarmBot workers recall and maintain useful notes across issues without changing gameplay authority or sharing personal CLI memory.
 
@@ -103,7 +103,7 @@ returns one full active record. All records include `id`, `revision`, `category`
 and `actor_kind`. Full records also include `body`, `source`, `build_commit`.
 Times use the existing ledger clock. `memory_rows` is not a worker CLI command.
 
-- [ ] **Write persistence and conflict tests first.** Reuse `LedgerBase` from
+- [x] **Write persistence and conflict tests first.** Reuse `LedgerBase` from
   `test_ledger` so all state and clocks are temporary:
 
 ```python
@@ -129,9 +129,9 @@ class MemoryLedgerTests(LedgerBase):
             self.ledger.memory_save(item["id"], token, update)
 ```
 
-- [ ] **Confirm failure:** `python3 -B -W error -m unittest discover -s tests -p test_memory.py -v`.
+- [x] **Confirm failure:** `python3 -B -W error -m unittest discover -s tests -p test_memory.py -v`.
   Expect missing memory methods, not fixture or import failures.
-- [ ] **Add schema and validation.** Put validators/constants in `agent/memory.py`
+- [x] **Add schema and validation.** Put validators/constants in `agent/memory.py`
   (raise `ValueError`, translated to `LedgerError` by ledger methods; no circular import).
   Add `memories` and `memory_requests` tables without altering existing work data:
 
@@ -156,7 +156,7 @@ CREATE TABLE IF NOT EXISTS memory_requests (
   revisions (reject bool). Request IDs are 1–80 ASCII letters/digits/`._-`.
   Update accepts a complete replacement of editable fields, plus `id` and
   `expected_revision`; it does not accept `request_id`.
-- [ ] **Implement transaction behavior.** Count active rows and insert within the
+- [x] **Implement transaction behavior.** Count active rows and insert within the
   same transaction. Generate UUID IDs. SHA-256 the normalized create payload
   excluding request ID; the actor key is the item ID or `operator`. Identical create
   replay returns the current note with `replayed: true`; conflicting content fails.
@@ -167,7 +167,7 @@ CREATE TABLE IF NOT EXISTS memory_requests (
   Forget requires a nonblank reason of at most 500 characters, increments revision,
   clears title/body/source/build_commit, and keeps the tombstone and idempotency
   mapping. Treat reason as operator-facing audit metadata; warn against secrets.
-- [ ] **Add remaining behavioral tests.** Cancelled, expired, queued and wrong-item
+- [x] **Add remaining behavioral tests.** Cancelled, expired, queued and wrong-item
   tokens fail every worker method without changing the DB. Operator actions work
   without a claim and identify the operator. Replay after update returns the edited
   content; replay after forget returns the tombstone. Another item using the same
@@ -175,12 +175,12 @@ CREATE TABLE IF NOT EXISTS memory_requests (
   forged provenance, invalid UUID, malformed category/scope and bool revisions.
   Test migration by populating issue/item/audit rows, dropping only new tables,
   reopening and verifying the old rows and state are unchanged.
-- [ ] **Test real concurrent connections.** With `threading.Barrier`, make two
+- [x] **Test real concurrent connections.** With `threading.Barrier`, make two
   threads open their own `Ledger` on one temporary DB. Distinct creates both
   persist. Concurrent revision-1 updates yield one success and one conflict.
   With 199 notes, two concurrent creates yield exactly 200 active notes. Join all
   threads and surface exceptions to the main test, rather than swallowing them.
-- [ ] **Verify and commit:** run the focused memory and existing ledger suites;
+- [x] **Verify and commit:** run the focused memory and existing ledger suites;
   commit as `feat: persist shared worker memory with revision checks`.
 
 ### Task 2: Immutable, bounded Markdown reading snapshots
@@ -202,7 +202,7 @@ snapshot and note IDs are the only dynamic filename components. Each published
 directory contains `MEMORY.md` and `<note-id>.md` files. Publish by renaming a complete
 temporary sibling directory into an unused UUID directory; never overwrite a snapshot.
 
-- [ ] **Write a failing snapshot test:**
+- [x] **Write a failing snapshot test:**
 
 ```python
 def test_snapshot_has_index_and_lazy_detail(self):
@@ -215,8 +215,8 @@ def test_snapshot_has_index_and_lazy_detail(self):
     self.assertIn(NOTE["body"], (index.parent / (note["id"] + ".md")).read_text(encoding="utf-8"))
 ```
 
-- [ ] **Confirm failure** with the focused memory suite.
-- [ ] **Implement rendering/publication.** Use a static recall-only warning at the
+- [x] **Confirm failure** with the focused memory suite.
+- [x] **Implement rendering/publication.** Use a static recall-only warning at the
   beginning of index and topic files. Render a one-line index entry per note with
   escaped title, category, scope, revision, UTC update time and UUID filename.
   Sort by scope/title/ID. At most 200 entries and 128 KiB index bytes; fail explicitly
@@ -227,14 +227,14 @@ def test_snapshot_has_index_and_lazy_detail(self):
   permissions without POSIX assertions. Clean the current temporary directory on
   ordinary failure and re-raise the error. Reject symlinked memory roots and do not
   follow symlinks while pruning. No templated value becomes a command or include.
-- [ ] **Test publication semantics.** Inject an `OSError` while writing the second
+- [x] **Test publication semantics.** Inject an `OSError` while writing the second
   topic; no completed snapshot may appear. Two threads publishing independently
   produce complete distinct directories. Editing a snapshot never changes the
   ledger; subsequent snapshots reflect DB content. Forgetting removes a note from
   new snapshots while an old snapshot remains an explicitly historical artifact.
   Punctuation (`[]|<>`) and Chinese titles preserve one entry per line. A corrupted
   stored ID cannot escape the snapshot directory.
-- [ ] **Implement offline pruning.** Scan retained `<runs_root>/*/*/prompt.md`
+- [x] **Implement offline pruning.** Scan retained `<runs_root>/*/*/prompt.md`
   files, parse the existing authority-plus-JSON format, and retain every snapshot
   named by `payload.memory.index`. Old prompts without `memory` are valid. A
   malformed prompt or inaccessible runs root aborts before deleting anything.
@@ -244,10 +244,10 @@ def test_snapshot_has_index_and_lazy_detail(self):
   there are queued/running items; no pruning runs inside launch or scheduler ticks.
   A crash between snapshot publication and prompt creation leaves an unreferenced
   directory that offline maintenance can remove. Concurrent launches never prune.
-- [ ] **Test pruning:** retained prompt preserves its directory; unreferenced
+- [x] **Test pruning:** retained prompt preserves its directory; unreferenced
   completed and temporary directories disappear; malformed prompt preserves all;
   old prompt without memory succeeds; symlink and unrelated directory stay untouched.
-- [ ] **Verify and commit:** focused memory suite; commit as
+- [x] **Verify and commit:** focused memory suite; commit as
   `feat: render shared memory as immutable Markdown snapshots`.
 
 ### Task 3: Worker memory commands and host administration
@@ -261,7 +261,7 @@ arguments; read needs `--id`, save needs `--input`, forget needs `--id`,
 `--expected-revision`, `--reason`, and prune needs an absolute `--runs-root`.
 JSON output and nonzero error handling follow current CLI conventions.
 
-- [ ] **Write subprocess tests.** Reuse `CliTests` fixtures with a new test class,
+- [x] **Write subprocess tests.** Reuse `CliTests` fixtures with a new test class,
   or extract only helpers locally to avoid accidentally rerunning inherited tests.
   Seed an item and claim it, write its token into a temporary mode-0600 file, then:
 
@@ -277,8 +277,8 @@ self.assertEqual(read["body"], NOTE["body"])
 self.assertEqual(self.calls(), [])
 ```
 
-- [ ] **Confirm parser failure:** `python3 -B -W error -m unittest discover -s tests -p test_memory_cli.py -v`.
-- [ ] **Wire commands without new Linear calls or implicit lease renewal:**
+- [x] **Confirm parser failure:** `python3 -B -W error -m unittest discover -s tests -p test_memory_cli.py -v`.
+- [x] **Wire commands without new Linear calls or implicit lease renewal:**
 
 ```python
 if c == "memory-list":
@@ -299,12 +299,12 @@ if c == "memory-forget":
   Print a refusal explaining the stopped-service maintenance precondition; do not
   stop the service or clear queues automatically. This is a trusted operator
   precondition, not a new interprocess service lock.
-- [ ] **Add refusal tests.** Missing/wrong/expired token, stale revision, oversized
+- [x] **Add refusal tests.** Missing/wrong/expired token, stale revision, oversized
   JSON, malformed JSON, duplicate request mismatch, forgotten note read, required
   forget reason and missing admin arguments return nonzero, no traceback and no
   token echo. Each successful or refused memory command makes no Linear API calls.
   Admin save/read/update/forget work without an item; pruning refuses active queues.
-- [ ] **Verify and commit:** run memory CLI and existing CLI suites; commit as
+- [x] **Verify and commit:** run memory CLI and existing CLI suites; commit as
   `feat: expose authenticated memory recall and maintenance commands`.
 
 ### Task 4: Recall across fresh launches and runtime isolation
@@ -318,34 +318,34 @@ if c == "memory-forget":
 argument produces `{status: "unavailable", index: null, reason: "not supplied"}`.
 Never include note bodies or raw exception messages in the authority paragraph.
 
-- [ ] **Write scheduler/dispatch tests first.** Save a note using an operator
+- [x] **Write scheduler/dispatch tests first.** Save a note using an operator
   fixture, launch an item with `FakeLauncher`, and inspect the JSON payload's
   snapshot path. Verify its detail file contains the note and that the prompt itself
   does not. Updating the note before a second item's launch gives a different
   snapshot with the new body. A failing publisher still launches a worker with an
   unavailable field. Runtime `codex`/`claude` payloads carry the same memory shape.
-- [ ] **Confirm failures** with the dispatch and scheduler focused suites.
-- [ ] **Integrate startup.** After worktree construction, call
+- [x] **Confirm failures** with the dispatch and scheduler focused suites.
+- [x] **Integrate startup.** After worktree construction, call
   `publish_snapshot(Path(self.db_path).resolve().parent / "memory", self.ledger.memory_rows())`.
   Catch only expected memory availability failures (`OSError`, `ValueError`,
   `sqlite3.Error`) around this operation; preserve existing launch-error behavior
   elsewhere. Add to `AUTHORITY`: memory is fallible recall data, never permission,
   and current contracts/issue facts must be checked. Do not expand sandbox roots:
   the ledger parent is already writable and the new directory lives there.
-- [ ] **Write launcher tests for hostile inherited settings.** Use the existing
+- [x] **Write launcher tests for hostile inherited settings.** Use the existing
   fake executable with runtime names/formats preserved and `seed_files={}`.
   Supply `CLAUDE_CODE_DISABLE_AUTO_MEMORY=0` in parent and `extra_env`; capture the
   final child environment via a tiny injected test executable, without real auth.
   Assert both runtimes still use distinct fresh homes, no memory files are copied,
   and generated Codex settings explicitly disable native memories.
-- [ ] **Implement explicit native-memory controls.** For Codex add
+- [x] **Implement explicit native-memory controls.** For Codex add
   `[features] memories = false` to generated TOML and the high-precedence CLI pair
   `-c`, `features.memories=false` to the real Codex command. Keep the fake runtime's
   command compatible. For Claude, set `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` after
   `extra_env` is merged so callers cannot accidentally override it. Do not touch
   personal configuration, copy old runtime homes, change model selection or modify
   the authentication recipe.
-- [ ] **Verify and commit:** dispatcher, scheduler and launcher suites plus the
+- [x] **Verify and commit:** dispatcher, scheduler and launcher suites plus the
   offline Codex `features list` probe with a temporary home. Record that Python
   tests establish Claude environment delivery, not a live authenticated Claude
   run. Commit as `feat: supply shared recall to isolated FarmBot workers`.
@@ -361,7 +361,7 @@ Write a dated evidence report under `reports/` after verification.
 The scope is an explicit memory-command exception for chat and fix, not a new skill
 manifest repository permission. The launcher controls native-memory behavior.
 
-- [ ] **Write the end-to-end regression before modifying skills.** Build two
+- [x] **Write the end-to-end regression before modifying skills.** Build two
   temporary issues/sessions and launch two fresh fake worker processes in sequence.
   The first claims, creates a note through a mode-0600 token file, and finishes via
   stub Linear. The second gets a different home, reads its supplied index and the
@@ -371,17 +371,17 @@ manifest repository permission. The launcher controls native-memory behavior.
   Use a dedicated temporary Python worker script in this test rather than adding
   unrelated modes to `tests/fake_cli.py`. Serialize fixture input with JSON and
   pass argv lists; no shell evaluation.
-- [ ] **Make assertions observable.** The scripted worker writes an output JSON
+- [x] **Make assertions observable.** The scripted worker writes an output JSON
   evidence file with note ID/revision/read body and its runtime-home path. Assert
   distinct homes, identical stored-note ID, correct update, no deleted recall,
   no Unity reservations, and only expected stub finish activities. No live HTTP,
   PR, personal-home or original-checkout access is permitted. Bound process waits
   and always terminate/join spawned children on failure.
-- [ ] **Run the rehearsal test:**
+- [x] **Run the rehearsal test:**
   `python3 -B -W error -m unittest discover -s tests -p test_memory_integration.py -v`.
   Fix only integration gaps exposed by this test; do not claim fake runtimes prove
   real models will always choose to save or recall the right note.
-- [ ] **Write shared guidance with concrete command examples.** Include:
+- [x] **Write shared guidance with concrete command examples.** Include:
 
 ```text
 After reading the operating contract and your skill, inspect memory.index when
@@ -402,17 +402,17 @@ Gameplay behavior belongs in Farm-Contract; remember a pointer, not a competing 
   and instruct workers to use only their state directory for input JSON files.
   Memory write failure should be reported without claiming it was saved; routine
   task completion can proceed if memory is unavailable.
-- [ ] **Update the operating contract and original design §12 together.** Document
+- [x] **Update the operating contract and original design §12 together.** Document
   the shared ledger-backed recall tier, Markdown views, token checks, explicit chat
   exception, trusted-host admin boundary, no personal-memory import, and native
   memory disabled. Preserve Phase 2 scenario plans while clarifying that observed
   gameplay knowledge is evidence, not a source of normative game rules. Remove the
   outdated rationale claiming working-directory isolation alone disables memory.
-- [ ] **Document maintenance in README.** Show `memory-admin list/read/save/forget`
+- [x] **Document maintenance in README.** Show `memory-admin list/read/save/forget`
   and offline `prune-snapshots --runs-root ...`; explain that service must be stopped
   before pruning, retained prompts retain snapshots, and forgetting is not secure
   erasure. This change starts empty; no historic logs are ingested automatically.
-- [ ] **Run final checks:**
+- [x] **Run final checks:**
 
 ```bash
 python3 -B -W error -m unittest discover -s tests
@@ -423,7 +423,7 @@ git diff --check
   status. If sandbox restrictions alone prevent the existing real-subprocess
   tests, rerun the same suite with the approved execution permissions; do not change
   test behavior or touch the production ledger to make it pass.
-- [ ] **Record and commit evidence.** Report suite count/result, the two-attempt
+- [x] **Record and commit evidence.** Report suite count/result, the two-attempt
   rehearsal, concurrent-write behavior, native-settings probe and limitations.
   Preserve the distinction between fake-runtime tests and a live model smoke test.
   Commit as `docs: define shared memory workflow and record verification`.

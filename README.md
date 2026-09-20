@@ -41,3 +41,41 @@ changes at every restart and must be pasted into the Linear app settings again; 
 `"tunnel": {"name": "<tunnel>"}` once a named Cloudflare tunnel exists and the hostname stops moving.
 
 Behaviour: `docs/operating-contract.md`. Plans: `docs/superpowers/plans/`.
+
+## Shared worker memory
+
+FarmBot starts with an empty memory store. Workers may save reusable corrections,
+operational lessons and source pointers across issues. Gameplay rules stay in
+Farm-Contract. Memory is recall data and never grants permission to act. See
+[worker memory guidance](references/memory.md) for the JSON format and commands.
+
+The ledger is authoritative; `.local/agent/memory/<snapshot>/MEMORY.md` and topic
+files are generated historical reading views. Edit notes using the CLI, not those
+files. Worker calls require a live item claim. Host administration requires no claim:
+
+```bash
+python3 -m agent --db .local/agent/ledger.sqlite3 memory-admin list
+python3 -m agent --db .local/agent/ledger.sqlite3 memory-admin read --id NOTE_ID
+python3 -m agent --db .local/agent/ledger.sqlite3 memory-admin save --input note.json
+python3 -m agent --db .local/agent/ledger.sqlite3 memory-admin forget --id NOTE_ID --expected-revision 2 --reason "Obsolete observation"
+```
+
+Create input requires `request_id`; update input requires `id` and the current
+`expected_revision`. Both use the same validated content format. Admin commands
+are trusted-host operations, never a worker fallback. Do not store secrets in
+notes or forget reasons. Forget clears current content but does not erase old
+snapshots, backups, or a running worker's already-loaded context.
+
+For snapshot maintenance, stop the service first and settle queued/running work.
+Use the actual absolute runs directory belonging to this ledger:
+
+```bash
+python3 -m agent --db .local/agent/ledger.sqlite3 memory-admin prune-snapshots --runs-root /absolute/farm-linear-agent/.local/runs
+```
+
+Retained run prompts preserve their referenced snapshots. Only unreferenced generated
+snapshot directories and abandoned staging directories are removed. Malformed prompts
+abort pruning before deletion. The command does not stop the service for you; the
+stopped-service requirement is an operator precondition. No snapshots are pruned during
+ordinary worker launches. Native Codex/Claude memory is disabled in workers, and no
+personal memory or historic run logs are automatically imported.

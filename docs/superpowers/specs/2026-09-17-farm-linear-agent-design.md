@@ -487,27 +487,39 @@ One SQLite file at `.local/agent/ledger.sqlite3`:
 ## 12. Memory
 
 FarmBot has no memory inside the model. Every worker starts with an empty context, and
-everything it must remember lives in one of four places outside the model, each with a
+everything it must remember lives in one of five places outside the model, each with a
 clear owner and a clear reader.
 
 | Tier | Holds | Lives in | Written by | Read by a worker through |
 |---|---|---|---|---|
 | Conversation | what humans said and what the agent answered | Linear: the agent session and the issue's comments | humans and the agent | `fetch-issue` at the start of every run, plus `previousComments` and `guidance` in the webhook |
 | Work item | facts with evidence, hypotheses, checks run, worktree heads, next actions, PR URLs, comment markers | the ledger: bounded handoff, checkpoints, outbox | the worker, through the CLI | the dispatch message, then `issue-context` |
-| Knowledge | how to do things and how to play: skills, repo map, evidence format, comment templates, gameplay knowledge, scenarios, gotchas from real runs | versioned files in this repo (`skills/`, `references/`, `knowledge/gameplay/`, `knowledge/metrics.md`, `scenarios/`, `docs/operating-contract.md`) and the target repos' own CLAUDE.md and AGENTS.md | humans for skills and references, by PR; workers directly for gameplay facts, scenarios and metrics | read at worker start; each skill names the references it needs |
+| Knowledge | how to do things and how to play: skills, repo map, evidence format, comment templates, gameplay knowledge, scenarios, gotchas from real runs | versioned files in this repo (`skills/`, `references/`, `knowledge/gameplay/`, `knowledge/metrics.md`, `scenarios/`, `docs/operating-contract.md`) and the target repos' own CLAUDE.md and AGENTS.md | humans for skills and references, by PR; workers directly for Phase 2 gameplay observations, scenarios and metrics | read at worker start; each skill names the references it needs |
+| Recall | fallible corrections, operational lessons and source pointers | ledger memory tables; generated immutable Markdown reading snapshots | chat/fix through live-claim CLI; operator through memory-admin | launch memory.index, relevant topic files, then memory-list/read for current notes |
 | Environment | slot and host state, parked commits, bound accounts, identity observations, the PlayMode known-red baseline per main commit | ledger tables | the launcher and batch runs | CLI queries |
 
 **Start-of-run reading list.** A worker reads, in order: `docs/operating-contract.md`,
 its skill's `SKILL.md`, the references that skill names, the instruction files of each
 repository in its worktrees, the issue through `fetch-issue`, and its handoff through
-`issue-context`. Nothing else is implied. Skills keep this list short by pointing at
+`issue-context`. After claim, also read the supplied recall index and only relevant
+topic files, as described by `references/memory.md`. Skills keep this list short by pointing at
 references instead of copying them.
 
-**Gameplay facts and scenarios learn automatically; how the agent works stays reviewed.**
+**Shared operational recall.** The approved shared-memory design in
+`2026-09-20-shared-worker-memory-design.md` adds bounded ledger-backed notes. Concurrent
+writes use revision checks and creates use item-scoped request IDs. Both chat and fix
+may maintain recall through the CLI without permission to edit shared files or new
+repositories. Current contracts and observations must be checked; remembered notes
+never grant authority. No historic log ingestion is automatic.
+
+**Phase 2 observations and scenarios are future work; how the agent works stays reviewed.**
+Gameplay rules belong in Farm-Contract. The gameplay knowledge discussed below records
+observations and how to verify behavior, not a competing specification. Its confirmation
+status describes evidence from recorded builds, not permission to override the contract.
 
 | Learns automatically, written by workers into this repository | Changes only through a reviewed PR |
 |---|---|
-| Gameplay facts in `knowledge/gameplay/<system>.md`: claim, evidence, build commit, date, status | Skill files, references, routing rules, authority, the operating contract |
+| Gameplay observations in `knowledge/gameplay/<system>.md`: claim, evidence, build commit, date, status | Skill files, references, routing rules, authority, the operating contract |
 | Scenario lifecycle in `scenarios/`: draft after exploration, verified after passing on two different builds, regression when linked to a fixed issue | Anything that widens what a skill may write to |
 | `knowledge/metrics.md`, recomputed from verified scenarios | |
 
@@ -527,12 +539,15 @@ Safeguards that make unattended learning safe:
 - **Own repository only.** Automatic writes land in this repository's `knowledge/` and
   `scenarios/`, never in the game repositories, so a wrong fact has no blast radius beyond
   FarmBot's next run.
-- **Skills read `confirmed` entries as facts and `observed` entries as hints to verify.**
+- **Skills read both statuses as build-scoped evidence to recheck; Farm-Contract defines intended behavior.**
 
-**CLI memory features stay off.** Workers run in a fresh isolated home every time, so
-neither runtime accumulates per-user memory by accident. Claude Code's auto-memory keys
-on the working directory, which differs per task worktree, and Codex reads `AGENTS.md`
-from the checkout; both are therefore inert here by construction.
+**CLI memory features stay off explicitly.** Fresh isolated runtime homes remain,
+with Codex `features.memories=false` and Claude `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`.
+Personal CLI memories are not imported. FarmBot's runtime-independent recall path
+is its own ledger and Markdown snapshots. Losing or failing to publish a snapshot
+is a recall availability gap, not permission to change authority or block all work.
+The operating contract and `references/memory.md` document commands, limits,
+provenance, forgetting and trusted-host maintenance.
 
 **Linear guidance is a steering surface.** Workspace and team agent guidance arrives in
 every webhook as the `guidance` field and is handed to workers as data. Product and QA
