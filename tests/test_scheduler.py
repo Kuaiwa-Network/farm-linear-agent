@@ -32,6 +32,11 @@ class FakeLauncher:
         self.next_pid = 100
         self.alive_pids = set()
         self.killed = []
+        # The ordering mechanism. Both orders leave the same end state, so the only way to assert that
+        # Stop cancels before it kills is to sample the ledger at the instant stop() reaches the fake.
+        self.on_stop = None
+        self.unsandboxed_stopped = []
+        self.order = []
 
     def state_dir(self, item_id):
         return self.runs / item_id
@@ -48,8 +53,17 @@ class FakeLauncher:
         return finished
 
     def stop(self, item_id, grace=5.0):
+        self.on_stop and self.on_stop(item_id)
+        self.order.append(("worker", item_id))
         self.stopped.append(item_id)
         self.stop_times.append(time.monotonic())
+        return True
+
+    def stop_unsandboxed(self, owner):
+        """The batch Editor's kill. Present on the real Launcher since Task 7; without it here the double
+        stops matching the collaborator and Scheduler.stop raises AttributeError in every Stop test."""
+        self.unsandboxed_stopped.append(owner)
+        self.order.append(("unsandboxed", owner))
         return True
 
     def running(self):
@@ -375,6 +389,55 @@ class SchedulerTests(unittest.TestCase):
         self.scheduler.stop(item["id"], "Linear stop")
         self.assertEqual(self.launcher.stopped, [item["id"]])
         self.assertEqual(self.ledger.item(item["id"])["state"], "cancelled")
+
+    def test_stop_cancels_the_reservation_before_it_kills_the_worker(self):
+        """Ordering is asserted, not implied: both orders leave the same end state, so the fake launcher
+        samples the reservation at the moment stop() reaches it. A wall-clock assertion here would prove
+        nothing — FakeLauncher.stop appends to a list and returns, so it is fast whatever the real one does.
+        Done-criterion 2's five-second budget is defended by the rule that stop() only touches SQLite and
+        signals, which this ordering assertion is the test of."""
+        item = self.granted_item(mode="interactive")
+        self.scheduler.tick()
+        seen = []
+        self.launcher.on_stop = lambda i: seen.append(self.ledger.active_reservation(i)["state"])
+        self.scheduler.stop(item, "Linear stop")
+        self.assertEqual(seen, ["cancel_requested"])
+        reservation = self.ledger.active_reservation(item)
+        self.assertEqual(reservation["state"], "cancel_requested")
+        self.assertEqual(self.ledger.item(item)["state"], "cancelled")
+        # Still held: stop() never touches the slot row. granted_item leaves it in the busy state the pool's
+        # switch would have written, so this asserts that stop left it alone rather than releasing it — the
+        # release is the pool's, on its next tick, after a quiescence probe that does not fit five seconds.
+        self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "interactive_busy")
+
+    def test_stop_on_an_item_that_is_only_waiting_kills_its_queued_request(self):
+        """The end state alone is not the coverage: Ledger.cancel already cancels a queued request, so the
+        last two assertions passed before this task. What is new is *when* — stop() defers its cancel until
+        it holds the scheduler lock, which an in-flight tick can hold for as long as a launch takes, and for
+        that whole window the pool is free to acquire this request and pay for a multi-minute slot switch on
+        behalf of a worker that is already dead. So the queued request must be gone by the time of the kill,
+        which is what the sampled assertion, and only it, says."""
+        item = self.waiting_item(mode="batch")
+        states = lambda: [r["state"] for r in self.ledger.reservations() if r["item_id"] == item]
+        seen = []
+        self.launcher.on_stop = lambda _: seen.append(states())
+        self.scheduler.stop(item, "Linear stop")
+        self.assertEqual(seen, [["cancelled"]])
+        self.assertEqual(states(), ["cancelled"])
+        self.assertEqual(self.ledger.item(item)["state"], "cancelled")
+
+    def test_stop_reaches_the_batch_editor_the_worker_no_longer_owns(self):
+        """This task is named 'Stop and recovery never orphan a slot', and the sandbox redesign put the one
+        process that can orphan one outside everything Stop used to reach. The Editor is started by the
+        launcher on the pool thread, the worker that asked for it has already exited, and `launcher.stop`
+        resolves a `spawn` handle that was never written for it. So Stop must kill it explicitly, and it
+        must do so BEFORE the worker kill, for the same reason the cancel comes first: the pool thread is
+        sitting in `wait()` and the sooner it is released the sooner the slot can settle."""
+        item = self.waiting_item(mode="batch")
+        self.scheduler.stop(item, "Linear stop")
+        self.assertEqual(self.launcher.unsandboxed_stopped, [item])
+        self.assertLess(self.launcher.order.index(("unsandboxed", item)),
+                        self.launcher.order.index(("worker", item)))
 
     def test_item_requeued_by_finish_is_relaunched_not_failed(self):
         item = self.item()

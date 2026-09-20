@@ -704,6 +704,21 @@ class PoolTests(SlotFixture):
         self.assertEqual([row["result"]["aggregate"] for row in observations], ["match"])
         self.assertEqual(observations[0]["slot_id"], "unity_slot:1")
 
+    def test_the_pool_settles_a_cancel_requested_reservation_as_cancelled_and_parks(self):
+        """The other half of Stop: the scheduler leaves the reservation cancel_requested and the slot busy,
+        and it is the pool's next tick — never a timer — that probes, releases and parks. This is the
+        characterisation of the state Scheduler.stop hands over, so the two halves cannot drift apart."""
+        self.pool().ensure()
+        item = self.waiting(ISSUE, self.commit("fix"), "interactive")
+        pool = self.pool(mcp=FakeMcp())
+        pool.tick()
+        self.ledger.cancel_reservations(item, "Linear stop")
+        self.ledger.cancel(item, "Linear stop")
+        self.assertEqual(pool.tick()["settled"], 1)
+        self.assertEqual([r["state"] for r in self.ledger.reservations()], ["cancelled"])
+        self.assertEqual(self.ledger.slot("unity_slot:1")["parked_commit"],
+                         self.trees.resolve_commit("Farm-Client"))
+
     def test_two_requests_serialize_in_the_other_order_interactive_first_then_batch(self):
         """The steady state once spec §7's 'after an interactive run the Editor stays open' is real. The
         batch-first ordering never exercises the graceful close, so on its own it would sign off a system

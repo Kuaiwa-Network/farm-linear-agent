@@ -152,6 +152,27 @@ class Scheduler:
         self._notify(item_id, "error", f"FarmBot 无法启动工作进程（{type(exc).__name__}），工作项已标记失败；可回复「重试」。")
 
     def stop(self, item_id, reason):
+        # First, so a worker polling its reservation sees cancel_requested and so the pool can no longer hand
+        # a slot to an item whose worker is about to be dead. Ledger.cancel below does the same UPDATE, but
+        # only once this thread owns the lock — and an in-flight tick can hold that for as long as a launch
+        # takes, a window in which the pool would happily acquire a queued request and pay for a multi-minute
+        # slot switch on behalf of a worker that is already dead. All three steps here are SQLite and
+        # signals; the quiescence probe belongs to the pool thread and would not fit the 5-second budget
+        # (spec §7, §17), so an active reservation is only marked, never released.
+        try:
+            self.ledger.cancel_reservations(item_id, reason)
+        except LedgerError:
+            pass
+        # The batch Editor is not a worker and never went through `spawn`, so `launcher.stop` below cannot
+        # see it: its handle lookup and its `descendants` walk both start from a worker pid, and by now that
+        # worker has already exited — it asked for the reservation and quit. Killing the group here is what
+        # keeps this task's title true. It is one `killpg` plus a bounded wait, and it cannot eat the kill's
+        # 5-second budget: a batch Editor only runs inside the pool's hand-over window, before `resume` puts
+        # the item back in the queue, so there is never a worker of this item alive at the same time. It is
+        # idempotent — a no-op returning False — when no batch run is in flight, which is every other case.
+        # Killing it first also releases the pool thread from `process.wait()` sooner, and the sooner that
+        # returns the sooner the slot can settle.
+        self.launcher.stop_unsandboxed(item_id)
         # Killing the worker must not wait for an in-flight tick: a human pressed Stop.
         killed = self.launcher.stop(item_id)
         with self.lock:
