@@ -131,11 +131,19 @@ def prune_snapshots(root, runs_root):
     root, runs_root = _root(root), _root(runs_root)
     retained = set()
     # scandir propagates read errors instead of glob silently returning an incomplete set.
-    def directories(path):
+    def directories(path, *, retention=False):
+        result = []
         with os.scandir(path) as entries:
-            return [Path(e.path) for e in entries if e.is_dir(follow_symlinks=False)]
-    for item in directories(runs_root):
-        for run in directories(item):
+            for entry in entries:
+                # Skipping a linked retained run would falsely declare its snapshots
+                # unreferenced. Refuse the entire scan before the deletion phase.
+                if retention and entry.is_symlink():
+                    raise ValueError("refusing symlink in retained run directories")
+                if entry.is_dir(follow_symlinks=False):
+                    result.append(Path(entry.path))
+        return result
+    for item in directories(runs_root, retention=True):
+        for run in directories(item, retention=True):
             prompt = run / "prompt.md"
             if prompt.is_symlink():
                 raise ValueError("refusing symlinked run prompt")

@@ -430,11 +430,11 @@ git diff --check
 
 ## Completion and review
 
-- [ ] Review the complete branch against the approved spec, especially claims that
+- [x] Review the complete branch against the approved spec, especially claims that
   memory changes authority, is verified fact, or erases historical artifacts.
-- [ ] Verify all commits are confined to FarmBot and all temporary fixtures are
+- [x] Verify all commits are confined to FarmBot and all temporary fixtures are
   cleaned up. No live service restart, game repository edit, or Linear post.
-- [ ] Report implementation/test results and branch state. Integrate via the
+- [x] Report implementation/test results and branch state. Integrate via the
   user's chosen development-branch workflow; creating/merging a PR or deploying
   the service is a separate action from this plan's local implementation.
 

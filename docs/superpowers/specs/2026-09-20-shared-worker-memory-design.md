@@ -1,6 +1,6 @@
 # Shared worker memory
 
-Date: 2026-09-20. Status: approved and implemented on the feature branch; final review pending.
+Date: 2026-09-20. Status: approved, implemented and independently reviewed; review fix verified.
 
 ## Purpose and agreed boundaries
 

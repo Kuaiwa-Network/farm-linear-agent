@@ -301,3 +301,29 @@ class MemorySnapshotTests(LedgerBase):
             with self.assertRaises(ValueError): memory.prune_snapshots(self.root, self.runs)
             self.assertTrue(Path(view["index"]).exists())
         with self.assertRaises(OSError): memory.prune_snapshots(self.root, self.runs / "missing")
+
+    def assert_symlinked_retention_refused(self, level):
+        import json
+        from agent import memory
+        referenced, unreferenced = self.publish(), self.publish()
+        outside = Path(self.tmp.name) / "retained"
+        run = outside / "attempt" if level == "item" else outside
+        run.mkdir(parents=True)
+        (run / "prompt.md").write_text("authority\n\n" + json.dumps({"memory": referenced}))
+        if level == "item":
+            (self.runs / "item").symlink_to(outside, target_is_directory=True)
+        else:
+            (self.runs / "item").mkdir()
+            (self.runs / "item" / "attempt").symlink_to(outside, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "symlink"):
+            memory.prune_snapshots(self.root, self.runs)
+        # Even unrelated snapshots must survive a retention scan that cannot be trusted.
+        self.assertTrue(Path(referenced["index"]).exists())
+        self.assertTrue(Path(unreferenced["index"]).exists())
+        self.assertTrue((run / "prompt.md").exists())
+
+    def test_symlinked_retained_item_aborts_pruning_before_deletion(self):
+        self.assert_symlinked_retention_refused("item")
+
+    def test_symlinked_retained_attempt_aborts_pruning_before_deletion(self):
+        self.assert_symlinked_retention_refused("attempt")

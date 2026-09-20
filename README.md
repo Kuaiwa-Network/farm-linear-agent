@@ -75,7 +75,7 @@ python3 -m agent --db .local/agent/ledger.sqlite3 memory-admin prune-snapshots -
 
 Retained run prompts preserve their referenced snapshots. Only unreferenced generated
 snapshot directories and abandoned staging directories are removed. Malformed prompts
-abort pruning before deletion. The command does not stop the service for you; the
-stopped-service requirement is an operator precondition. No snapshots are pruned during
+or symlinked retained-run directories abort pruning before deletion. The command does
+not stop the service for you; the stopped-service requirement is an operator precondition. No snapshots are pruned during
 ordinary worker launches. Native Codex/Claude memory is disabled in workers, and no
 personal memory or historic run logs are automatically imported.
