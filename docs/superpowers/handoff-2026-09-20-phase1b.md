@@ -15,6 +15,9 @@ needed to resume is here or in git; nothing important is left in that conversati
 
 ## State
 
+Lifecycle continuation committed as `94a6eaf` on `codex/phase1b-live-rehearsal`.
+Final offline suite: **331 tests, green and warning-free** outside the Codex sandbox.
+
 **Updated by Codex on 2026-09-20.** PR #5 is merged (`328cc80`). Task 11's live
 resource rehearsal now passes. See `reports/2026-09-20-slot-rehearsal/report.md`
 and its machine-checked evidence, which supersede the previously halted Step 4.
@@ -33,7 +36,9 @@ and its machine-checked evidence, which supersede the previously halted Step 4.
   unlocking one table instead of two), delegated it in Linear, updated the tunnel URL,
   then re-delegated. The real webhook created work item
   `9440b065-87da-4494-8dc0-95713c6c0ef1`, session
-  `9641da61-238d-4ff2-9470-36e094854a95`. Delivery is still in progress.
+  `9641da61-238d-4ff2-9470-36e094854a95`. The worker finished **blocked** on a contract/configuration conflict; no code changes or PR.
+  See `reports/2026-09-20-FARM-1247/report.md`. The operator was asked whether new
+  accounts should start with zero or one unlocked table; that decision is pending.
 
 ### Runtime locations
 
@@ -207,8 +212,8 @@ None blocks execution. The final whole-branch review triages which must be fixed
 
 ## What is left
 
-1. Finish Phase 1 criterion 5 on FARM-1247: a real code change, draft PR and delivery
-   comment. Inspect the work item above before creating anything; the webhook worked.
+1. Resolve FARM-1247’s contract/configuration conflict before retrying its existing work
+   item. A draft PR delivery is still owed for Phase 1 criterion 5; the webhook itself worked.
 2. Windows deployment remains last by the user's explicit ordering; no host assigned.
 3. Config export (`-executeMethod`) remains Phase 3+, not part of this continuation.
 4. Historical deferred minors below remain recorded; this continuation addressed

@@ -105,6 +105,8 @@ retry races; both have failing-then-passing regressions. No new minor findings r
   missing evidence and correlates slot events with reservations rather than trusting
   final states. Regression tests cover its false-positive failure modes.
 - Rehearsal completion claims concern resource lifecycle only. FARM-1247 was selected
-  by the operator for the separate real-delivery criterion.
+  by the operator for the separate real-delivery criterion; its worker finished blocked
+  on a contract/configuration conflict, with no code change or PR. See
+  `reports/2026-09-20-FARM-1247/report.md`.
 - Windows, config export, player builds, multiple slots, PlayMode account identity,
   and the previously deferred sequence-based readiness condition remain out of scope.
