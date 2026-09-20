@@ -19,7 +19,7 @@ Unsandboxed = namedtuple("Unsandboxed", "returncode timed_out seconds")
 RUNTIMES = {
     "codex": RuntimeConfig(
         name="codex",
-        command=["codex", "exec", "--cd", "{cwd}", "--approve-for-me", "--skip-git-repo-check",
+        command=["codex", "exec", "-c", "features.memories=false", "--cd", "{cwd}", "--approve-for-me", "--skip-git-repo-check",
                  "--output-last-message", "{last_message}", "-"],
         home_env="CODEX_HOME", mcp_format="toml",
         seed_files={os.path.expanduser("~/.codex/auth.json"): "auth.json"}),
@@ -116,6 +116,8 @@ class Launcher:
         # worker also writes its other worktrees, the ledger and its state dir, and talks to Linear and GitHub.
         roots = [str(self.state_dir(item_id)), *(str(path) for path in writable)]
         settings = {"sandbox_workspace_write": {"writable_roots": roots, "network_access": True}}
+        if self.runtime.name == "codex":
+            settings["features"] = {"memories": False}
         mcp_config = write_mcp_config(home, self.runtime.mcp_format, mcp_servers, settings)
         last_message = run_dir / "last_message.txt"
         (run_dir / "prompt.md").write_text(message, encoding="utf-8")
@@ -129,6 +131,8 @@ class Launcher:
         env[self.runtime.home_env] = str(home)
         env["FARMBOT_ITEM_ID"] = item_id
         env.update(extra_env or {})
+        if self.runtime.name == "claude":
+            env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
         stdout = open(run_dir / "stdout.log", "w", encoding="utf-8")
         stderr = open(run_dir / "stderr.log", "w", encoding="utf-8")
         kwargs = {"start_new_session": True} if os.name != "nt" else {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}

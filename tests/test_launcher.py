@@ -32,6 +32,43 @@ class LauncherTests(unittest.TestCase):
             time.sleep(0.05)
         self.fail("worker did not finish")
 
+    def test_native_memory_is_disabled_and_personal_homes_are_not_imported(self):
+        import tomllib
+        personal = Path(self.tmp.name) / "personal"
+        (personal / "memories").mkdir(parents=True)
+        (personal / "memories" / "private.md").write_text("PRIVATE MEMORY")
+        script = ("import json,os,pathlib,sys;sys.stdin.read();"
+                  "pathlib.Path(sys.argv[1]).write_text(json.dumps({{k:os.environ.get(k) for k in "
+                  "['CODEX_HOME','CLAUDE_CONFIG_DIR','CLAUDE_CODE_DISABLE_AUTO_MEMORY']}}))")
+        homes = []
+        for name in ("codex", "claude"):
+            runtime = RUNTIMES[name]._replace(command=[sys.executable, "-c", script, "{last_message}"], seed_files={})
+            launcher = Launcher(self.runs, runtime, host="test")
+            with patch.dict(os.environ, {"CODEX_HOME": str(personal), "CLAUDE_CONFIG_DIR": str(personal),
+                                         "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "0"}):
+                handle = launcher.spawn("memory-" + name, self.message, {}, 30, self.tmp.name,
+                                        extra_env={"CLAUDE_CODE_DISABLE_AUTO_MEMORY": "0"})
+            self.addCleanup(launcher.stop, "memory-" + name)
+            deadline = time.monotonic() + 10
+            finished = []
+            while time.monotonic() < deadline and not finished:
+                finished = launcher.poll()
+                if not finished: time.sleep(0.02)
+            self.assertTrue(finished)
+            env = json.loads(finished[0].last_message)
+            home = handle.run_dir / "home"
+            homes.append(home)
+            self.assertEqual(env[runtime.home_env], str(home))
+            self.assertFalse((home / "memories" / "private.md").exists())
+            if name == "codex":
+                config = tomllib.loads((home / "config.toml").read_text())
+                self.assertFalse(config["features"]["memories"])
+                self.assertIn("features.memories=false", RUNTIMES[name].command)
+            else:
+                self.assertEqual(env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1")
+        self.assertNotEqual(*homes)
+        self.assertEqual((personal / "memories" / "private.md").read_text(), "PRIVATE MEMORY")
+
     def test_spawn_uses_isolated_home_and_captures_last_message(self):
         with patch.dict(os.environ, {"CODEX_HOME": "/decoy/codex", "CLAUDE_CONFIG_DIR": "/decoy/claude"}):
             handle = self.launcher.spawn("item-1", self.message, {}, budget_seconds=60, cwd=self.tmp.name,

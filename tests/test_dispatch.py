@@ -12,6 +12,17 @@ def payload_of(message):
 
 
 class DispatchTests(unittest.TestCase):
+    def test_memory_is_runtime_neutral_and_explicit_when_unavailable(self):
+        view = {"status": "ready", "index": "/state/memory/snapshot/MEMORY.md", "count": 1}
+        for runtime in ("codex", "claude"):
+            kwargs = dict(item={"id": "i"}, issue={"identifier": "FARM-1", "url": "u"},
+                          skill_path=ROOT / "skills/chat/SKILL.md", worktrees={}, db_path="/db",
+                          runtime=runtime, guidance="", budget={"lease_seconds": 1, "renew_minutes": 1})
+            message = dispatch_message(**kwargs, memory=view)
+            self.assertEqual(payload_of(message)["memory"], view)
+            self.assertIn("fallible recall", message)
+            self.assertEqual(payload_of(dispatch_message(**kwargs))["memory"]["status"], "unavailable")
+
     def test_message_is_self_contained_and_carries_no_issue_prose(self):
         item = {"id": "item-1", "identifier": "FARM-1", "skill": "fix", "target": {"commit_sha": "a" * 40}}
         issue = {"identifier": "FARM-1", "url": "https://linear.app/k/issue/FARM-1", "description": "SECRET PROSE", "title": "T"}
