@@ -13,6 +13,12 @@ result["scene"] = new { name = scene.name, path = scene.path, isDirty = scene.is
 var assemblies = new System.Collections.Generic.List<object>();
 foreach (var assembly in System.AppDomain.CurrentDomain.GetAssemblies())
 {
+    // execute_code compiles THIS probe into a dynamic assembly, and Reflection.Emit throws
+    // NotSupportedException from AssemblyBuilder.get_Location. FarmQA never hit it because it
+    // filtered to four named assemblies first; this file returns them all, so it must skip
+    // dynamic modules explicitly or every check comes back unknown and the slot is held.
+    if (assembly.IsDynamic)
+        continue;
     var name = assembly.GetName().Name;
     // Every loaded assembly is returned; agent/identity.py's collect() filters against expected.assemblies,
     // so another project or another platform is a configuration change and not an edit to this file.

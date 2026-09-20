@@ -214,6 +214,109 @@ conclusion and is not listed, and the trail keeps it either way. Correct behavio
 
 ## Still owed from Task 11
 
-Steps 4 through 9: an interactive run with the identity probe proving the Editor loaded the pinned
-commit; Stop against a live batch run, verified with `pgrep` rather than the ledger's own opinion;
-and a service restart mid-run proving `stop_all_unsandboxed` does not orphan an Editor.
+Steps 5 through 9, and the second half of Step 4. See "Step 4 result" below.
+
+
+---
+
+# Step 4 result — the interactive path, halted (2026-09-20)
+
+Two real defects, both in the identity probe, both invisible to the test suite. **One is fixed. One
+needs a design decision.** The slot was `held` on both attempts, which is spec §7 working correctly —
+a failing probe holds for the operator's `recover-slot` rather than releasing in an unknown state.
+
+Proved along the way, and worth keeping:
+
+- **The sha1 instance rule holds in production.** `sha1("<slot>/Assets")[:16]` computed
+  `e7fe013d9909e41a`, matching the live instance id exactly. `discover_instance` — the method Task 5
+  found could never have worked as briefed, because it matched a `path` field the HTTP transport
+  never emits — works against a real server.
+- **The MCP server self-starts**, as a `uvx` child of the Editor, no operator action, port 8080 up
+  within about a minute of the Editor starting.
+- **The failure path is sound.** Held rather than released; reservation preserved; no orphan;
+  `recover-slot` returned the slot clean both times.
+
+## Defect 1 — the probe read `.Location` on a dynamic assembly (FIXED)
+
+```
+Runtime error: The invoked member is not supported in a dynamic module.
+NotSupportedException at System.Reflection.Emit.AssemblyBuilder.get_Location()
+                     at MCPDynamicCode.Execute()
+```
+
+`execute_code` compiles the probe into a **dynamic assembly**. The probe enumerates
+`AppDomain.CurrentDomain.GetAssemblies()` and reads `.Location` on each — and reaches the
+`MCPDynamicCode` assembly it just created, where `Location` throws. Every check then returned
+`unknown` and the slot was held.
+
+FarmQA never hit this because its probe filtered first:
+
+```csharp
+if (name != "HotUpdate" && name != "AOTScripts" && name != "Nova.Runtime" && name != "MCPForUnity.Editor")
+    continue;
+```
+
+Task 5 removed that filter deliberately and for good reasons — pushing project-specific names out of
+C# and into Python config, so another project or platform is a configuration change rather than an
+edit to the probe. Two reviewers approved it. **The reasoning was right and the result was broken**,
+because the unfiltered loop now reaches the dynamic assembly. There are 270 loaded assemblies in this
+project; FarmQA touched four.
+
+Fixed by skipping dynamic modules before reading `Location`. Verified against a live Editor: the
+probe returns 270 assemblies with `HotUpdate`'s `moduleMvid` and `hasGameTestDriver: true`.
+
+**No test can cover this.** The suite substitutes a fake MCP that returns canned JSON and never
+executes C#. The fix is therefore committed without one, which is stated here rather than hidden.
+
+## Defect 2 — `ready()` misreads a change-triggered snapshot (NEEDS A DECISION)
+
+`agent/identity.py:61` requires the editor state to be recent:
+
+```python
+and 0 <= now_ms-observed <= 10000
+```
+
+But `observed_at_unix_ms` is not a heartbeat. `EditorStateCache.cs` subscribes to
+`EditorApplication.update` and then **deliberately skips rebuilding when nothing changed**:
+
+```
+:303   // This avoids the expensive BuildSnapshot() call entirely when nothing changed.
+:348   // No state change - skip the expensive BuildSnapshot entirely.
+```
+
+So the field means *when the state last changed*. A stable idle Editor legitimately keeps an old
+timestamp — and the more reliably idle it is, the more certainly the gate fails. Measured: age
+climbed past **117 seconds** with `sequence` frozen at **3**, while `is_compiling`,
+`is_domain_reload_pending`, `is_updating` and `is_running` were all `False` — an Editor that was
+demonstrably idle and demonstrably usable, since `execute_code` worked throughout.
+
+`advice.ready_for_tools` goes `False` for the same reason, which makes it circular rather than
+independent evidence.
+
+**Nothing a client can call forces a rebuild.** `refresh_unity` (0.5 s, returned fine),
+`execute_code` and `manage_editor` all left `sequence` at 3.
+
+This gate came from FarmQA, where it presumably held because that tool drove the Editor continuously.
+FarmBot's Editor sits idle between operations, which is exactly when the assumption breaks.
+
+**Two candidate directions**, both design changes deserving a review loop rather than a patch:
+
+1. **Derive readiness from the probe's own output.** `execute_code` returns live `isCompiling`,
+   `isUpdating` and `isPlaying`, and it demonstrably executes on the main thread. This makes the gate
+   independent of the cache's rebuild policy, at the cost of reordering `collect()` so the probe runs
+   before the gate rather than after it.
+2. **Find a force-rebuild path.** `ForceUpdate(reason)` exists inside `EditorStateCache` and
+   `playModeStateChanged` calls it, but no MCP tool appears to expose it. If one does, the gate stays
+   as written.
+
+Direction 1 looks stronger: it removes a dependency on a third-party cache's optimisation policy,
+which is the kind of coupling that broke here in the first place.
+
+## What both defects have in common
+
+**The test harness is structurally incapable of catching either.** It substitutes a fake MCP that
+returns canned JSON, so no test executes C# or exercises a change-triggered snapshot. Three
+document-review passes, per-task reviews and adversarial mutation testing all approved an identity
+probe that could not work against a real Editor.
+
+That is the argument for this rehearsal existing, made concrete twice in one step.
