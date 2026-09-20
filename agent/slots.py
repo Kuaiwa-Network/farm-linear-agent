@@ -3,10 +3,17 @@
 A slot is a detached worktree of FarmBot's own clone with a built Library/. Task worktrees are for code and
 never open Unity. Everything host-specific lives in the slot's configuration entry or in agent/unity.py.
 """
-from pathlib import Path
+import hashlib
+import os
+import signal
+import subprocess
 import time
+import urllib.parse
+from pathlib import Path
 
-from .unity import editor_holds_project, other_editor_project
+from .identity import collect, quiet, ready
+from .unity import editor_holds_project, editor_path, other_editor_project
+from .unity_mcp import UnityMcp
 from .worktrees import WorktreeError
 
 DEFAULTS = {
@@ -360,3 +367,202 @@ class SlotPool:
             return False
         lock.unlink()
         return True
+
+
+class UnityIdentity:
+    """The pool's `mcp` collaborator in production: one MCP session per call, pinned to the slot's instance,
+    plus the Editor's own life cycle, because starting and closing it is what the state table in spec §7
+    requires and nothing else in FarmBot does it.
+
+    The endpoint is not a constructor argument: it is read per call from the slot row's `mcp_address`, so
+    one instance serves every slot.
+    """
+
+    def __init__(self, probe_path, timeout=120, start_timeout=120, clock=time.time, sleep=time.sleep):
+        self.probe_path = Path(probe_path)
+        self.timeout = timeout
+        # Task 0 Step 5 measured cold Editor start to a usable MCP endpoint at 16 s. 120 is generous headroom
+        # over a measured number; the 600 an earlier draft carried was a guess at an unmeasured one.
+        self.start_timeout = start_timeout
+        self.clock = clock
+        self.sleep = sleep
+
+    def _client(self, slot):
+        client = UnityMcp(slot["mcp_address"], timeout=self.timeout)
+        if slot.get("instance"):
+            client.select_instance(slot["instance"])
+        return client
+
+    def discover_instance(self, slot):
+        """The instance id for this folder, read from the live server rather than assumed.
+
+        Nothing else writes slots.instance, and without it the whole interactive path is dead: collect()
+        passes the instance to ready(), which compares it against unity.instance_id, so a NULL instance makes
+        ready() False, the aggregate unknown and every interactive switch a probe-stage hold. The plugin
+        derives the id as SHA1(Application.dataPath) truncated to 16 hex characters
+        (Editor/Helpers/ProjectIdentityUtility.cs) and Task 0 Step 5 settled the exact input:
+        sha1("<folder>/Assets")[:16] — no trailing slash — reproduced the live slot-1@54462c1bfe7b5261
+        exactly, while sha1("<folder>") and sha1("<folder>/Assets/") did not.
+
+        A reported path is still preferred over that rule, because a folder that is moved or symlinked would
+        make a recomputed hash confidently wrong. But the installed server settles it: in
+        mcpforunityserver 10.1.0's services/resources/unity_instances.py the HTTP branch — the transport
+        FarmBot uses — builds each entry as id/name/hash/unity_version/connected_at/session_id, and its own
+        docstring marks `path` "stdio only". A path match alone would therefore never fire here, and every
+        interactive switch would spin out `start`'s deadline. The hash is the documented fallback, and
+        it stays safe because it is only ever used to pick an id out of the list the server itself returned:
+        a folder the Editor does not actually hold produces no match and raises, rather than addressing
+        somebody else's Editor.
+        """
+        folder = Path(slot["folder"]).resolve()
+        listed = UnityMcp(slot["mcp_address"], timeout=self.timeout)\
+            .read_resource("mcpforunity://instances").get("instances", [])
+        for entry in listed:
+            for key in ("projectPath", "dataPath", "path"):
+                value = entry.get(key)
+                if value and Path(value).resolve() in (folder, folder / "Assets"):
+                    return entry.get("id")
+        # Both spellings, because the Editor hashes its own Application.dataPath: that is the -projectPath
+        # `start` handed it, which is the slot row's text, but a host whose slot path runs through a symlink
+        # (/var -> /private/var on this Mac) would have Unity report the resolved one.
+        digests = {hashlib.sha1(f"{path}/Assets".encode("utf-8")).hexdigest()[:16]
+                   for path in (Path(slot["folder"]), folder)}
+        for entry in listed:
+            if entry.get("hash") in digests or str(entry.get("id", "")).rpartition("@")[2] in digests:
+                return entry.get("id")
+        raise SlotError(f"no connected Editor instance reports {folder}", stage="editor")
+
+    def start(self, slot, entry):
+        """Start the Editor for an interactive run and wait until the MCP server reports this folder.
+
+        The endpoint is served by a uvx process, not by the Editor itself, but Task 0 Step 5 established that
+        the Editor **starts it** — with --project-scoped-tools and a per-slot pidfile — so no operator action
+        and no separate agent is needed. What must still read as an editor-stage failure rather than an
+        identity mismatch is the other direction: a server left behind by a previous Editor still answers on
+        that address, which is why close_editor reaps it and why the message below names both possibilities.
+        """
+        command = [str(editor_path(slot["folder"], override=entry.get("unity"))), "-projectPath",
+                   str(slot["folder"]), "-logFile", str(Path(slot["folder"]) / "Logs" / "farmbot-editor.log")]
+        subprocess.Popen(command, start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        deadline = self.clock() + self.start_timeout
+        while True:
+            try:
+                return self.discover_instance(slot)
+            except Exception:
+                if self.clock() >= deadline:
+                    raise SlotError(f"{slot['slot_id']}: no MCP instance after {self.start_timeout}s "
+                                    f"(measured cold start is 16s); either the Editor did not come up, or a "
+                                    f"stale server from a previous Editor still holds {slot['mcp_address']}",
+                                    stage="editor")
+                self.sleep(5.0)
+
+    def terminate(self, slot, timeout):
+        """Task 0 Step 5 settled this: `EditorApplication.Exit(0)` through execute_code returns "exiting" and
+        the Editor keeps running, so it is not used at all. SIGTERM the pid that holds the folder — measured
+        gone in 1 s — and confirm it. Removing Temp/UnityLockfile is the pool's job, not this method's,
+        because Unity leaves it behind even here."""
+        pid = editor_holds_project(slot["folder"])
+        if pid is None:
+            return
+        os.kill(pid, signal.SIGTERM)
+        deadline = self.clock() + timeout
+        while editor_holds_project(slot["folder"]) is not None:
+            if self.clock() >= deadline:
+                raise SlotError(f"Unity pid {pid} still holds {slot['folder']} {timeout}s after SIGTERM",
+                                stage="editor")
+            self.sleep(1.0)
+
+    def reap_server(self, slot):
+        """The uvx MCP server is a child of the Editor but outlives it: after the kill it still held port
+        8080 and answered HTTP 200 (Task 0 Step 5). Its pid is in the slot's own RunState pidfile, which is
+        also why one host can eventually run two slots. A missing or stale pidfile is not an error.
+
+        The pidfile's name is **derived from the port**, not hardcoded: the spike saw
+        `--pidfile <slot>/Library/MCPForUnity/RunState/mcp_http_8080.pid` beside
+        `--http-url http://127.0.0.1:8080`, and `mcp_address` is a configuration key (DEFAULTS, Task 3). A
+        second slot on another port would otherwise never be reaped, and a stale server holding that port
+        is exactly what this method exists to prevent."""
+        port = urllib.parse.urlsplit(slot["mcp_address"]).port or 8080
+        pidfile = (Path(slot["folder"]) / "Library" / "MCPForUnity" / "RunState"
+                   / f"mcp_http_{port}.pid")
+        try:
+            pid = int(pidfile.read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            return
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        pidfile.unlink(missing_ok=True)
+
+    def refresh(self, slot):
+        self._client(slot).call_tool("refresh_unity", {})
+
+    def wait_quiet(self, slot, timeout):
+        """One sample of editor/state. The pool's wait_for_quiet owns the loop and the deadline; this raises
+        TimeoutError when the Editor is still compiling, reloading, importing or running tests."""
+        if not quiet(self._client(slot).read_resource("mcpforunity://editor/state")):
+            raise TimeoutError("editor is not quiet")
+
+    CONSOLE_KEYS = ("lines", "items", "entries")
+
+    def console_errors_since(self, slot, marker):
+        """spec §7's 'zero Console errors'. Reads the Editor's error entries and returns the offending ones.
+
+        The payload shape is the installed plugin's rather than a guess. With `count` and no paging, the C#
+        handler returns the formatted entries as a **bare list** under `data`
+        (com.coplaydev.unity-mcp/Editor/Tools/ReadConsole.cs), so the brief's `result.get("lines", [])`
+        would have raised AttributeError on a list at the first interactive switch — and `SlotPool.switch`
+        does not wrap this call, so it would not even have become a SlotError with a stage. Under paging the
+        same entries arrive as `items`, and the server's own stacktrace stripper also knows `lines`, so all
+        three spellings are accepted. An entry is a string in the default 'plain' format and a dict with a
+        `message` in 'json'/'detailed'.
+
+        A shape none of that covers raises rather than returning []: silently reporting a clean console is
+        how a commit that does not compile reaches a worker with the pool's blessing.
+
+        `marker` is accepted and deliberately unused. Nothing clears the Console between switches, so this
+        cannot yet be "since" anything; it reads the most recent 50 errors. Making it truly incremental
+        needs a `read_console` clear before the refresh, which belongs with the tool injection in Task 7.
+        """
+        result = self._client(slot).call_tool("read_console",
+                                              {"action": "get", "types": ["error"], "count": 50})
+        if isinstance(result, list):
+            entries = result
+        elif isinstance(result, dict):
+            entries = next((result[key] for key in self.CONSOLE_KEYS if isinstance(result.get(key), list)), None)
+            if entries is None:
+                raise SlotError(f"{slot['slot_id']}: read_console returned no recognisable entry list "
+                                f"({sorted(result)}); the Console cannot be certified clean", stage="probe")
+        else:
+            raise SlotError(f"{slot['slot_id']}: read_console returned {type(result).__name__}, not entries",
+                            stage="probe")
+        lines = [entry if isinstance(entry, str) else str(entry.get("message", entry))
+                 for entry in entries if isinstance(entry, (str, dict))]
+        return [line for line in lines if "error CS" in line or "Exception" in line]
+
+    def probe(self, slot, target):
+        client = self._client(slot)
+        return collect(client, repository=target["repository"], instance=slot.get("instance"),
+                       expected={"build_target": target.get("build_target"),
+                                 "commit_sha": target["commit_sha"],
+                                 "assemblies": ("HotUpdate", "AOTScripts", "Nova.Runtime", "MCPForUnity.Editor")},
+                       probe_source=self.probe_path.read_text(encoding="utf-8"))
+
+    def quiescent(self, slot, mode):
+        """Spec §7's release predicate.
+
+        In interactive mode: the Editor is back in Edit Mode, nothing is compiling, importing or running
+        tests, and the state sample is fresh. In batch mode it is **not** a constant True — the batch release
+        is defined as the Editor process being gone and its results file written, and returning True
+        regardless would let park_idle run `git checkout --force` and `git lfs checkout` over a folder that
+        still held Temp/UnityLockfile and a half-written Library/. That is precisely the corruption slots
+        exist to avoid, and it would read as a project problem rather than a pool bug.
+        """
+        if mode == "batch":
+            # A live Unity on this folder holds the slot; a dead one leaves only a stale lock, which
+            # SlotPool.settle clears through clear_stale_lock before anything checks the folder out.
+            return not editor_holds_project(slot["folder"])
+        state = self._client(slot).read_resource("mcpforunity://editor/state")
+        return ready(state, slot.get("instance"))
