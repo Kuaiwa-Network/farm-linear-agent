@@ -178,6 +178,10 @@ def state(**overrides):
         raise TypeError("staleness and advice are derived from observed_at_unix_ms, not inputs")
     play_mode = overrides.pop("play_mode", {"is_playing": False, "is_paused": False, "is_changing": False})
     base = {"schema_version": "unity-mcp/editor_state@2", "observed_at_unix_ms": 0,
+            # Required on the wire and always emitted (editor_state.py:242 setdefaults it), so it belongs
+            # in the base shape even though nothing reads it yet. The deferred sequence-based liveness
+            # signal in the Task 13 write-up needs a fixture that can express it.
+            "sequence": 3,
             "unity": {"instance_id": INSTANCE},
             "editor": {"is_focused": False, "play_mode": play_mode},
             "compilation": {"is_compiling": False, "is_domain_reload_pending": False},
@@ -213,9 +217,11 @@ class ReadyTests(unittest.TestCase):
         plugin omitted stamps it with *now* (editor_state.py:241), so an epoch timestamp can only be an
         Editor whose tracked state has genuinely not moved since.
 
-        The `staleness`/`advice` assertions are the point of the fixture change. Past two seconds the
-        server's own verdict on this sample is "not ready", and the gate admits it anyway, on the flags.
-        Without them re-adding either clause to `ready()` leaves the suite green."""
+        Past two seconds the server's own verdict on this sample is "not ready", and the gate admits it
+        anyway, on the flags. What pins that is `enrich` DERIVING `staleness`/`advice` from the timestamp
+        the way the server does -- re-adding either clause to `ready()` fails this test with the two
+        assertions below deleted, and passes against a fixture that hardcodes the pair however loudly the
+        assertions are written. They document the derivation; they do not substitute for it."""
         now_ms = int(time.time() * 1000)
         for age_ms in (0, 500, 10_001, 117_000, now_ms):
             with self.subTest(age_ms=age_ms):
