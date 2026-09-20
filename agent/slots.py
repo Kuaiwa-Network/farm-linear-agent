@@ -12,6 +12,7 @@ import urllib.parse
 from pathlib import Path
 
 from .identity import collect, quiet, ready
+from .ledger import Ledger, LedgerError
 from .unity import editor_holds_project, editor_path, other_editor_project
 from .unity_mcp import UnityMcp
 from .worktrees import WorktreeError
@@ -47,6 +48,11 @@ class SlotError(RuntimeError):
 
     def __init__(self, message, stage="git", fault="external"):
         super().__init__(message)
+        if stage not in self.STAGES:
+            # SlotPool._switch_failed routes on this string by equality, so a typo at a raise site would fall
+            # through the probe arm and *release* a slot spec §7 says to hold — silently, on the only slot
+            # there is. Construction is the one place that can catch it, and it is what STAGES is for.
+            raise ValueError(f"stage must be one of {self.STAGES}, not {stage!r}")
         # "git" and "editor" may be retried once at the tail of the queue; "compile" fails the item and leaves
         # the slot in the pool; "probe" holds the slot for the operator's recover-slot (spec §7).
         self.stage = stage
@@ -72,8 +78,15 @@ class SlotPool:
     BUSY_FOR = {"interactive": "interactive_busy", "batch": "batch_busy"}
 
     def __init__(self, ledger, worktrees, entries, *, host, editors_root, unity=None, mcp=None, clock=time.time,
-                 sleep=None, editor_scan=None, editor_pid=None):
-        self.ledger = ledger
+                 sleep=None, editor_scan=None, editor_pid=None, state_dir=None, owner="pool"):
+        # `ledger` may be a Ledger or a zero-argument factory. The pool runs on its own thread beside the
+        # receiver's and the scheduler's, and two threads on one sqlite3.Connection do not get two
+        # transactions: _transaction() is a bare BEGIN IMMEDIATE/COMMIT, so one thread's BEGIN can land
+        # inside the other's and either COMMIT would apply to the other's half-written work. The receiver
+        # already takes a factory for exactly this, and service.build passes the pool one too. A pool handed
+        # a Ledger *object* borrows it and must not close it — that one belongs to the scheduler.
+        self._owns_ledger = callable(ledger) and not isinstance(ledger, Ledger)
+        self.ledger = ledger() if self._owns_ledger else ledger
         self.worktrees = worktrees
         self.entries = {entry["id"]: entry for entry in entries}
         self.host = host
@@ -86,7 +99,15 @@ class SlotPool:
         self.sleep = sleep or time.sleep
         self.editor_scan = editor_scan or other_editor_project
         self.editor_pid = editor_pid or editor_holds_project
+        # A callable taking an item id and returning that item's private directory: Launcher.state_dir in
+        # production. The reservation token is written there and nowhere else.
+        self.state_dir = state_dir
+        self.owner = owner
         self.last_observation = None
+        # slot_id -> the mode that just let go of it. settle() writes it and park_idle() reads it, because
+        # Ledger.release has already overwritten the slot's state with 'switching' by then and the state
+        # that decides idle_open from idle_closed is no longer readable from the row.
+        self._departing = {}
 
     @staticmethod
     def _collaborator_error(slot_id, exc, *, stage, doing):
@@ -144,6 +165,160 @@ class SlotPool:
                 record = self.ledger.set_slot_state(slot_id, "idle_closed", parked_commit=parked)
             views.append(record)
         return views
+
+    def token_path(self, item_id):
+        return Path(self.state_dir(item_id)) / "reservation.token"
+
+    def _write_token(self, item_id, reservation):
+        """The token goes to a file, never onto a command line: arguments are visible to every process on
+        the host (spec §15). The dispatch payload carries this path, never the secret."""
+        path = self.token_path(item_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with os.fdopen(os.open(path, os.O_CREAT | os.O_TRUNC | os.O_WRONLY, 0o600), "w", encoding="utf-8") as handle:
+            handle.write(reservation["token"])
+        return path
+
+    def _read_token(self, item_id):
+        try:
+            return self.token_path(item_id).read_text(encoding="utf-8").strip()
+        except OSError:
+            return None
+
+    def tick(self):
+        """The pool thread's whole loop body. Everything slow lives here and nothing here holds a ledger
+        transaction across a git command, a subprocess or an MCP call.
+
+        The three run in this order on purpose: a slot a finished worker has let go is settled and parked
+        before the next request is considered, so one tick can hand the slot straight on.
+        """
+        return {"settled": self.settle(), "granted": self.grant(), "parked": self.park_idle()}
+
+    def grant(self):
+        """`granted` counts hand-overs that reached a worker, not acquisitions that were attempted. A
+        switch that failed and a Stop that landed mid-switch both give the slot back, so counting them
+        would make tick()'s own report disagree with the ledger.
+
+        One acquire per kind per tick, deliberately: a switch is minutes, so there is nothing to gain from
+        looping here, and a requeued request would otherwise be retried in the tick that failed it.
+        """
+        granted = 0
+        for kind in sorted({entry["kind"] for entry in self.entries.values()}):
+            reservation = self.ledger.acquire(kind, owner=self.owner, host=self.host)
+            if reservation is None:
+                continue
+            granted += 1 if self._hand_over(reservation) else 0
+        return granted
+
+    def _hand_over(self, reservation):
+        """True when the item really has the slot: the switch succeeded, the token is on disk and resume()
+        put the item back in the queue, where the existing launch loop picks it up on the next tick. False
+        on every path that gave the slot back."""
+        item_id, slot_id = reservation["item_id"], reservation["resource"]
+        self.last_observation = None
+        try:
+            self.switch(slot_id, reservation["commit_sha"], reservation["mode"])
+        except SlotError as exc:
+            self._switch_failed(reservation, exc)
+            return False
+        if self.last_observation is not None:
+            self.ledger.record_identity(item_id, reservation["reservation_id"], slot_id, self.last_observation)
+        self._write_token(item_id, reservation)
+        try:
+            self.ledger.resume(item_id, f"{slot_id} acquired ({reservation['mode']})")
+        except LedgerError:
+            # A Stop landed during the multi-minute switch, so the item is already cancelled and resume()
+            # refuses it. Uncaught, that LedgerError would come out of grant(), out of tick() and take the
+            # pool thread down with the slot busy and the reservation open. Give the slot back instead;
+            # park_idle returns it to main on the same pass.
+            self.token_path(item_id).unlink(missing_ok=True)
+            self.ledger.release(reservation["reservation_id"], reservation["token"], "item cancelled mid-switch")
+            return False
+        return True
+
+    def _switch_failed(self, reservation, exc):
+        reason = str(exc)[:400]
+        if exc.stage == "probe":
+            # Spec §7: a failing probe holds the slot for the operator's recover command. With one slot there
+            # is nowhere to retry, so the item records the gap instead of waiting for a human.
+            self.ledger.hold(reservation["reservation_id"], reason)
+            self.ledger.fail_queued(reservation["item_id"], f"slot held after a failed probe: {reason}")
+            return
+        self.ledger.release(reservation["reservation_id"], reservation["token"], reason)
+        self.ledger.set_slot_state(reservation["resource"], "idle_closed")
+        if exc.stage == "compile":
+            # The slot is fine; this commit does not build. Fail the item and leave the slot in the pool.
+            self.ledger.fail_queued(reservation["item_id"], f"compile errors at the pinned commit: {reason}")
+        elif reservation["attempts"] >= 1:
+            self.ledger.fail_queued(reservation["item_id"], f"verification gap: {reason}")
+        else:
+            self.ledger.requeue_reservation(reservation["reservation_id"], reason)
+
+    def settle(self):
+        """A slot is only useful to a running worker. Anything else is probed and then released or held.
+
+        Nothing here is on a timer (global constraint). Three things make the gate fail and all three hold the
+        slot: the quiescence check says no, the quiescence check raises, or the token file is gone. A batch
+        reservation's quiescence is not a constant — it is the confirmation that no Unity process holds the
+        folder — and only once that passes may the stale lock be cleared and the slot checked out, because
+        `git checkout --force` plus `git lfs checkout` over a live Editor's Library/ is the corruption slots
+        exist to prevent.
+        """
+        settled = 0
+        for reservation in self.ledger.reservations_to_settle():
+            slot = self.ledger.slot(reservation["resource"])
+            token = self._read_token(reservation["item_id"])
+            if token is None:
+                self.ledger.hold(reservation["reservation_id"], "reservation token file is missing")
+                continue
+            try:
+                # `is_quiet`, not `quiet`: agent.identity.quiet is imported at module level and read by
+                # UnityIdentity.wait_quiet, and a local of that name here reads as the predicate itself.
+                is_quiet = self.mcp.quiescent(slot, reservation["mode"]) if self.mcp is not None else True
+            except Exception as exc:
+                is_quiet = False
+                reason = f"quiescence probe raised {type(exc).__name__}"
+            else:
+                reason = "quiescent" if is_quiet else "not quiescent"
+            if not is_quiet:
+                self.ledger.hold(reservation["reservation_id"], reason)
+                continue
+            if reservation["mode"] == "batch":
+                # Never `lambda: False`, however convincing the quiescence check above looks. That check is
+                # `True` by default when the pool has no MCP client at all, so asserting "gone" here would
+                # delete the lock of a live Editor and hand the folder to the next `Unity -batchmode` — the
+                # corruption slots exist to prevent, and the same hole clear_stale_lock's docstring already
+                # closes in the batch branch of switch(), in close_editor and in park.
+                self.clear_stale_lock(slot["folder"], lambda: self.editor_is_open(slot))
+            self.ledger.release(reservation["reservation_id"], token, reason)
+            self.token_path(reservation["item_id"]).unlink(missing_ok=True)
+            self._departing[reservation["resource"]] = reservation["mode"]
+            settled += 1
+        return settled
+
+    def park_idle(self):
+        """After the last release, the slot goes back to main so Library/ tracks main in small steps (spec §7).
+
+        `switching` alone is not enough to say a slot is free: `acquire` sets it too, so a slot that is at
+        this moment being handed to a worker looks exactly like one on its way back. `active_reservation_on`
+        is the question that tells them apart — without it park_idle would return a slot to the pool while a
+        live reservation still owned it, and the next acquire would hit the partial unique index.
+        """
+        parked = 0
+        for slot in self.ledger.slots(host=self.host):
+            if slot["state"] != "switching" or self.ledger.active_reservation_on(slot["slot_id"]):
+                continue
+            mode = self._departing.pop(slot["slot_id"], "batch")
+            try:
+                self.park(slot["slot_id"], mode)
+            except SlotError:
+                self.ledger.set_slot_state(slot["slot_id"], "held")
+                continue
+            parked += 1
+        return parked
+
+    def close(self):
+        if self._owns_ledger:
+            self.ledger.close()
 
     def switch(self, slot_id, commit, mode):
         """Spec §7's sequence, in order. The caller has already marked the slot 'switching' by acquiring it.
@@ -302,16 +477,32 @@ class SlotPool:
         Task 0 Step 5 measured three unfocused forced recompiles at 9.6 / 7.7 / 5.7 s, so the deadline is the
         only thing that decides: a sample is 'stalled' when it crosses the absolute timeout, never because it
         differs from another sample by some ratio. A no-op refresh is legitimately sub-second and would make
-        any ratio rule fire on a healthy Editor. App Nap does not stall an unfocused Editor on this Mac."""
+        any ratio rule fire on a healthy Editor. App Nap does not stall an unfocused Editor on this Mac.
+
+        The loop polls on *any* collaborator failure and not only on TimeoutError, because `wait_quiet` is a
+        listing call on a fresh slot: `switch` writes slots.instance only after the console read, so
+        `UnityIdentity._client` re-discovers the instance from `mcpforunity://instances` on every sample, and
+        an Editor is briefly absent from that listing during the domain reload `refresh_unity` triggers.
+        `discover_instance` raises SlotError(stage="editor") there, which used to abort the switch on the one
+        thing this loop exists to wait out — a requeue, or a failed item on the second try, per domain reload
+        on the single-slot host. A bug in FarmBot's own code is not polled for: it answers the same way every
+        second, and the operator needs its type rather than a 300-second "never went quiet".
+        """
         deadline = self.clock() + timeout
         while True:
             try:
                 self.mcp.wait_quiet(slot, max(1.0, deadline - self.clock()))
                 return
-            except TimeoutError:
-                if self.clock() >= deadline:
-                    raise SlotError(f"{slot['slot_id']}: still not quiet after {timeout}s", stage="probe")
-                self.sleep(1.0)
+            except SlotError.FARMBOT_FAULTS:
+                raise
+            except Exception as exc:
+                if self.clock() < deadline:
+                    self.sleep(1.0)
+                    continue
+                if isinstance(exc, TimeoutError):
+                    raise SlotError(f"{slot['slot_id']}: still not quiet after {timeout}s", stage="probe") from exc
+                raise self._collaborator_error(slot["slot_id"], exc, stage="probe",
+                                               doing=f"waiting for the Editor to go quiet within {timeout}s") from exc
 
     def another_editor_running(self, folder):
         """A Unity Editor on this host that is not this slot's. Returns the other project path, or None.
@@ -360,8 +551,10 @@ class SlotPool:
         deletes a *live* Editor's lock, and that file is what enforces Unity's one-Editor-per-folder
         guarantee — losing it risks two Editors on one folder, the corruption slots exist to prevent. The
         callers are the batch branch of switch(), the start path of switch() before open_editor(),
-        close_editor() after its SIGTERM, park() on the closed path, and settle() in Task 6; every one of
-        them passes `lambda: self.editor_is_open(slot)`, so the process listing decides each time."""
+        close_editor() after its SIGTERM, park() on the closed path, and settle() after a batch release;
+        every one of them passes `lambda: self.editor_is_open(slot)`, so the process listing decides each
+        time. settle() is the one that looks like an exception and is not: its quiescence check has just
+        asked the same question, but that check is `True` by default when the pool has no MCP client."""
         lock = Path(folder) / "Temp" / "UnityLockfile"
         if not lock.exists() or alive():
             return False

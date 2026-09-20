@@ -13,10 +13,12 @@ import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from agent.config import Config
 from agent.service import Components, build, seed_clones, serve
+from agent.slots import SlotError
 from test_ledger import ISSUE, issue
 
 APP = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
@@ -50,6 +52,7 @@ class ServeTests(unittest.TestCase):
                         repos=remotes, max_concurrent=2, port=0, local_root=root / "local")
         self.c = build(config)
         self.addCleanup(self.drain_workers)
+        self.addCleanup(self.c.pool.close)
         self.addCleanup(self.c.receiver.close)
         self.addCleanup(self.c.ledger.close)
         self.addCleanup(self.c.server.server_close)
@@ -104,6 +107,53 @@ class ServeTests(unittest.TestCase):
         self.assertEqual(failures, [])
         self.assertIs(self.c.scheduler.api, self.c.api)  # worker deaths reach the session through the same client
 
+    def wait_for_health(self, timeout=20):
+        url = f"http://127.0.0.1:{self.c.server.server_address[1]}/health"
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                with urllib.request.urlopen(url, timeout=5) as response:
+                    return response.status == 200
+            except (urllib.error.URLError, OSError):
+                time.sleep(0.05)
+        return False
+
+    def test_serve_still_starts_and_keeps_ticking_when_the_slot_pool_cannot_be_prepared(self):
+        """A host whose one slot is unusable must still answer Linear. `ensure()` raising at start-up would
+        otherwise take the whole service down, and the pool thread — the third one `serve` starts — must run
+        regardless, because that is what eventually settles and parks whatever the operator recovers."""
+        ticks = threading.Event()
+        failed = []
+
+        def ensure():
+            failed.append(True)
+            raise SlotError("unity_slot:1: still holds git-lfs pointer files")
+
+        pool = SimpleNamespace(ensure=ensure, tick=lambda: ticks.set(), close=lambda: None)
+        components = self.c._replace(pool=pool)   # Components is a namedtuple; attribute assignment refuses
+        out = io.StringIO()
+        problems = []
+
+        def run():
+            try:
+                with contextlib.redirect_stdout(out):
+                    serve(components=components)
+            except BaseException as exc:
+                problems.append(exc)
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 20)
+        self.assertTrue(self.wait_for_health(), problems)
+        self.addCleanup(self.c.server.shutdown)
+        self.assertTrue(ticks.wait(20), "serve never started the pool thread")
+        self.c.server.shutdown()
+        thread.join(timeout=20)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(problems, [])
+        self.assertEqual(failed, [True])
+        self.assertIn("slot_pool_unavailable", out.getvalue())
+
 
 class LoopGuardTests(unittest.TestCase):
     def test_a_raising_loop_body_is_logged_and_the_loop_keeps_running(self):
@@ -121,7 +171,8 @@ class LoopGuardTests(unittest.TestCase):
         server.serve_forever.side_effect = lambda: released.wait(20)
         launcher = Mock(); launcher.runtime.name = "fake"
         config = Mock(); config.host = "test"
-        components = Components(config, None, None, Mock(), {"chat"}, None, launcher, Mock(), receiver, server)
+        components = Components(config, None, None, Mock(), {"chat"}, None, launcher, Mock(), receiver, server,
+                                Mock())
         out = io.StringIO()
         failures = []
 

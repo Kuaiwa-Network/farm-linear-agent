@@ -219,7 +219,12 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(self.ledger.item(item["id"])["worker_pid"], 102)
         self.assertEqual(len(self.launcher.spawned), 2)
 
-    def test_awaiting_resource_stays_parked_in_phase_1a(self):
+    def test_awaiting_resource_is_never_the_schedulers_to_launch(self):
+        """The brief said to delete this with Task 6, on the grounds that the behaviour was Phase 1a's on
+        purpose and stops being true here. It does not: the pool thread resumes a granted item to 'queued'
+        and the scheduler picks it up from `ledger.queue()` exactly as before, so the scheduler still must
+        not launch an item that is waiting for a slot. Deleting the test would drop that guard; only the
+        name was Phase 1a's."""
         item = self.item()
         self.scheduler.tick()
         token = self.ledger.claim(item["id"], worker_id="w")["token"]

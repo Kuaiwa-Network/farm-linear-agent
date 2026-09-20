@@ -600,6 +600,84 @@ class ReservationTests(unittest.TestCase):
         with self.assertRaises(LedgerError):
             self.ledger.set_slot_state("unity_slot:1", "running")
 
+    def test_a_mode_preference_is_a_sort_and_never_a_filter(self):
+        """Spec §7 states a preference, not a requirement, and with one slot in the pool the difference is
+        the whole system: an interactive request that refused a closed slot — or a batch request that refused
+        an open one — would never run at all on this Mac. The sibling test above pins the preference when
+        both states are available; this one pins what happens when only the unwanted one is."""
+        for state, mode in (("idle_closed", "interactive"), ("idle_open", "batch")):
+            with self.subTest(state=state, mode=mode):
+                self.ledger.set_slot_state("unity_slot:1", state)
+                item = self.waiting(ISSUE if mode == "interactive" else OTHER, "a" * 40, mode)
+                granted = self.ledger.acquire("unity_slot", owner="pool", host="mac")
+                self.assertEqual(granted["resource"], "unity_slot:1")
+                self.ledger.release(granted["reservation_id"], granted["token"], "done")
+                self.ledger.fail_queued(item, "finished with the fixture")
+
+    def test_acquiring_a_slot_a_reservation_still_holds_refuses_as_a_ledger_error(self):
+        """The partial unique index is the fence and it fires correctly; what was unclean was the surfacing.
+        A slot returned to the pool while a reservation still held it made the next acquire raise a raw
+        sqlite3.IntegrityError out of the index rather than the ledger's own error, which no caller can tell
+        apart from a corrupt database. SlotPool.park_idle refuses to create this state; the ledger refuses
+        to act on it."""
+        self.waiting(ISSUE, "a" * 40, "batch")
+        self.waiting(OTHER, "b" * 40, "batch")
+        first = self.ledger.acquire("unity_slot", owner="pool", host="mac")
+        self.park()   # the bug this guards: a slot called free while a reservation still holds it
+        with self.assertRaises(LedgerError):
+            self.ledger.acquire("unity_slot", owner="pool", host="mac")
+        # And the rollback left the first reservation alone: it still owns the slot it never gave up.
+        self.assertEqual(self.ledger.active_reservation_on("unity_slot:1")["reservation_id"],
+                         first["reservation_id"])
+        self.assertEqual([r["state"] for r in self.ledger.reservations()], ["active", "queued"])
+
+    def test_active_reservation_on_reads_the_holder_of_a_slot_rather_than_of_an_item(self):
+        """park_idle asks the question the other way round from active_reservation: it has a slot in hand and
+        needs to know whether anyone still holds it, because Ledger.release leaves the slot 'switching' and
+        so does acquire."""
+        self.assertIsNone(self.ledger.active_reservation_on("unity_slot:1"))
+        self.waiting(ISSUE, "a" * 40, "batch")
+        granted = self.ledger.acquire("unity_slot", owner="pool", host="mac")
+        self.assertEqual(self.ledger.active_reservation_on("unity_slot:1")["reservation_id"],
+                         granted["reservation_id"])
+        self.ledger.cancel_reservations(granted["item_id"], "Linear stop")
+        self.assertIsNotNone(self.ledger.active_reservation_on("unity_slot:1"))   # cancel_requested still holds
+        self.ledger.release(granted["reservation_id"], granted["token"], "settled")
+        self.assertIsNone(self.ledger.active_reservation_on("unity_slot:1"))
+
+    def test_requeue_reservation_puts_one_more_attempt_at_the_tail_and_refuses_an_open_one(self):
+        """A retryable switch failure gets one more chance behind everything already waiting, never a third
+        and never a queue-jump. The new row carries the same item, generation, kind, mode and commit."""
+        first = self.waiting(ISSUE, "a" * 40, "batch")
+        granted = self.ledger.acquire("unity_slot", owner="pool", host="mac")
+        with self.assertRaises(LedgerError):
+            self.ledger.requeue_reservation(granted["reservation_id"], "still active")
+        with self.assertRaises(LedgerError):
+            self.ledger.requeue_reservation("no-such-reservation", "unknown")
+        self.ledger.release(granted["reservation_id"], granted["token"], "git stage failed")
+        self.park()
+        second = self.waiting(OTHER, "b" * 40, "batch")   # arrived while the first was failing
+        fresh = self.ledger.requeue_reservation(granted["reservation_id"], "git stage failed")
+        self.assertEqual([(r["item_id"], r["attempts"], r["state"]) for r in self.ledger.reservations()],
+                         [(first, 0, "released"), (second, 0, "queued"), (first, 1, "queued")])
+        original, again = self.ledger.reservation(granted["reservation_id"]), self.ledger.reservation(fresh)
+        self.assertEqual([again[key] for key in ("item_id", "generation", "kind", "mode", "commit_sha")],
+                         [original[key] for key in ("item_id", "generation", "kind", "mode", "commit_sha")])
+        # The queue is FIFO by sequence, so the later arrival is served before the second attempt.
+        self.assertEqual(self.ledger.acquire("unity_slot", owner="pool", host="mac")["item_id"], second)
+
+    def test_fail_queued_accepts_a_waiting_item_and_still_refuses_a_claimed_one(self):
+        """A failed switch has to fail an item that is 'awaiting_resource', not 'queued' — it never reached
+        resume(). The guard's two existing callers in agent/scheduler.py pass queued items and are
+        unaffected, and a running item still belongs to fail()."""
+        item = self.waiting(ISSUE, "a" * 40, "batch")
+        self.assertEqual(self.ledger.item(item)["state"], "awaiting_resource")
+        self.assertEqual(self.ledger.fail_queued(item, "slot held after a failed probe")["state"], "failed")
+        running = self.item(OTHER, "b" * 40)["id"]
+        self.ledger.claim(running, worker_id="w")
+        with self.assertRaises(LedgerError):
+            self.ledger.fail_queued(running, "a running item is fail()'s, not fail_queued()'s")
+
     def test_two_connections_acquiring_at_once_produce_exactly_one_grant(self):
         """The 'across processes rather than by convention' claim, tested across two connections rather than
         two calls on one. BEGIN IMMEDIATE takes the write lock for the whole transaction, so the loser reads a

@@ -13,9 +13,11 @@ from .ledger import Ledger
 from .receiver import Receiver, make_server
 from .scheduler import Scheduler
 from .skills import load_skills
+from .slots import SlotError, SlotPool, UnityIdentity, slot_entry
 from .worktrees import Worktrees
 
-Components = namedtuple("Components", "config paths api ledger skills worktrees launcher scheduler receiver server")
+Components = namedtuple("Components",
+                        "config paths api ledger skills worktrees launcher scheduler receiver server pool")
 
 
 def build(config, runtime_override=None):
@@ -38,7 +40,13 @@ def build(config, runtime_override=None):
                         api, lambda: Ledger(paths.ledger, check_same_thread=False), set(skills), scheduler,
                         worktrees=worktrees, default_server_environment=config.default_server_environment)
     server = make_server(receiver, config.port)
-    return Components(config, paths, api, ledger, skills, worktrees, launcher, scheduler, receiver, server)
+    # A factory, not the scheduler's connection: the pool runs on its own thread and two threads on one
+    # sqlite3.Connection interleave their BEGIN IMMEDIATE blocks. The receiver already takes one of these.
+    pool = SlotPool(lambda: Ledger(paths.ledger, check_same_thread=False),
+                    worktrees, [slot_entry(raw) for raw in config.slots], host=config.host,
+                    editors_root=paths.editors, state_dir=launcher.state_dir,
+                    mcp=UnityIdentity(ROOT / "agent" / "probes" / "editor-readiness.cs.txt"))
+    return Components(config, paths, api, ledger, skills, worktrees, launcher, scheduler, receiver, server, pool)
 
 
 def seed_clones(config, source_root=None):
@@ -86,8 +94,23 @@ def serve(config_path=None, components=None):
         components.scheduler.tick()
         stop.wait(1.0)
 
+    def pool_once():
+        # A slot switch is git checkout plus git lfs checkout on a multi-GB .git, an Editor refresh and a
+        # compile wait — minutes. Scheduler.tick() holds its lock for its whole body and runs every second,
+        # so running a switch inside one would freeze reaping, recovery and Stop.
+        components.pool.tick()
+        stop.wait(2.0)
+
+    try:
+        components.pool.ensure()
+    except SlotError as exc:
+        # A host whose slot cannot be prepared must still answer Linear: the pool is simply empty, every
+        # unity_slot request stays queued, and the operator has a line naming the folder to go and look at.
+        print(json.dumps({"event": "slot_pool_unavailable", "error": str(exc)}), flush=True)
+
     threads = [threading.Thread(target=guarded("receive", receive_once), daemon=True),
-               threading.Thread(target=guarded("schedule", schedule_once), daemon=True)]
+               threading.Thread(target=guarded("schedule", schedule_once), daemon=True),
+               threading.Thread(target=guarded("pool", pool_once), daemon=True)]
     for thread in threads:
         thread.start()
     print(json.dumps({"event": "ready", "listen": f"http://127.0.0.1:{components.server.server_address[1]}",
@@ -104,6 +127,7 @@ def serve(config_path=None, components=None):
             thread.join(timeout=20)
         components.receiver.close()
         components.ledger.close()
+        components.pool.close()
 
 
 def main(argv=None):

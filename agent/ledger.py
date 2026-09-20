@@ -724,10 +724,18 @@ class Ledger:
                 return None
             slot = free[0]
             token = "res_" + secrets.token_urlsafe(32)
-            self.connection.execute(
-                """UPDATE reservations SET state='active',resource=?,host=?,owner=?,token_hash=?,acquired_at=?
-                   WHERE reservation_id=?""",
-                (slot["slot_id"], host, owner, _hash_token(token), self.clock(), row["reservation_id"]))
+            try:
+                self.connection.execute(
+                    """UPDATE reservations SET state='active',resource=?,host=?,owner=?,token_hash=?,acquired_at=?
+                       WHERE reservation_id=?""",
+                    (slot["slot_id"], host, owner, _hash_token(token), self.clock(), row["reservation_id"]))
+            except sqlite3.IntegrityError as exc:
+                # one_active_owner_per_resource fired: the slot says it is free while a reservation still
+                # holds it. The index is the fence and it is doing its job; what a caller cannot act on is a
+                # raw sqlite3.IntegrityError, which is indistinguishable from a corrupt database. The
+                # transaction rolls back, so the holder keeps the slot it never gave up.
+                raise LedgerError(f"{slot['slot_id']} is in {slot['state']} but a reservation still holds it; "
+                                  f"the slot was returned to the pool early") from exc
             self.connection.execute("UPDATE slots SET state='switching',updated_at=? WHERE slot_id=?",
                                     (self.clock(), slot["slot_id"]))
             self._audit(row["item_id"], "reservation", "acquired",
@@ -755,6 +763,19 @@ class Ledger:
         row = self.connection.execute(
             "SELECT * FROM reservations WHERE item_id=? AND state IN ('active','cancel_requested')",
             (item_id,)).fetchone()
+        return self._reservation_view(row) if row else None
+
+    def active_reservation_on(self, slot_id):
+        """The holder of a slot, asked from the slot's side rather than the item's.
+
+        SlotPool.park_idle needs this: `release` leaves the slot 'switching' and so does `acquire`, so the
+        state alone cannot tell a slot that is on its way back to the pool from one that is at that moment
+        being handed to a worker. Parking the second would return to the pool a slot a live reservation
+        still owns.
+        """
+        row = self.connection.execute(
+            "SELECT * FROM reservations WHERE resource=? AND state IN ('active','cancel_requested')",
+            (slot_id,)).fetchone()
         return self._reservation_view(row) if row else None
 
     def reservations_to_settle(self):
@@ -818,6 +839,30 @@ class Ledger:
             self._audit(row["item_id"], "reservation", "held", details={"reservation_id": reservation_id,
                                                                        "reason": reason[:200]})
             return self._reservation_view(row)
+
+    def requeue_reservation(self, reservation_id, reason):
+        """One more chance at the tail of the queue after a retryable failure, never a third.
+
+        A new row rather than a reset of the old one: the queue is FIFO by `sequence`, so re-opening the
+        original would put a failed attempt back at the *head*, ahead of everything that arrived while it
+        was failing. `attempts` carries over incremented, which is what the pool reads to decide there is no
+        second retry.
+        """
+        _text(reason, "reason")
+        with self._transaction():
+            row = self.connection.execute("SELECT * FROM reservations WHERE reservation_id=?",
+                                          (reservation_id,)).fetchone()
+            if row is None or row["state"] not in ("released", "cancelled"):
+                raise LedgerError("only a closed reservation can be re-queued")
+            fresh = str(uuid4())
+            self.connection.execute(
+                """INSERT INTO reservations(reservation_id,item_id,generation,kind,mode,commit_sha,state,
+                   attempts,created_at) VALUES(?,?,?,?,?,?,'queued',?,?)""",
+                (fresh, row["item_id"], row["generation"], row["kind"], row["mode"], row["commit_sha"],
+                 row["attempts"] + 1, self.clock()))
+            self._audit(row["item_id"], "reservation", "requeued", details={"reservation_id": fresh,
+                                                                            "reason": reason[:200]})
+            return fresh
 
     def recover_slot(self, slot_id, reason):
         """The operator's way out of held: force-release whatever holds the slot and return it to the pool.
@@ -909,11 +954,13 @@ class Ledger:
             return self._view(self._row(row["id"]))
 
     def fail_queued(self, item_id, reason):
+        """Fail an item no worker owns. 'awaiting_resource' is accepted beside 'queued' because a switch
+        that fails never reaches resume(): the item is still waiting for the slot it will not get."""
         _text(reason, "reason")
         with self._transaction():
             row = self._row(item_id)
-            if row["state"] != "queued":
-                raise LedgerError("only a queued work item can fail before claim")
+            if row["state"] not in ("queued", "awaiting_resource"):
+                raise LedgerError("only a queued or waiting work item can fail before claim")
             self._set_state(row["id"], "failed", reason, worker_pid=None)
             return self._view(self._row(row["id"]))
 
