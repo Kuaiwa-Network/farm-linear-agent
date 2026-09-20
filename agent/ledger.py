@@ -16,6 +16,8 @@ import sqlite3
 import time
 from uuid import UUID, uuid4
 
+from . import memory
+
 MARKER = re.compile(r"\[farmbot:[0-9a-f]{64}\]")
 STATES = ("queued", "running", "awaiting_input", "awaiting_resource",
           "delivered", "blocked", "cancelled", "failed")
@@ -311,6 +313,17 @@ class Ledger:
                     result_json TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS identity_by_item ON identity_observations(item_id, created_at);
+                CREATE TABLE IF NOT EXISTS memories (
+                    id TEXT PRIMARY KEY, title TEXT NOT NULL, category TEXT NOT NULL,
+                    scope TEXT NOT NULL, body TEXT NOT NULL, source TEXT NOT NULL,
+                    build_commit TEXT, created_by_item TEXT, updated_by_item TEXT,
+                    actor_kind TEXT NOT NULL, created_at REAL NOT NULL, updated_at REAL NOT NULL,
+                    revision INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE TABLE IF NOT EXISTS memory_requests (
+                    actor TEXT NOT NULL, request_id TEXT NOT NULL, payload_hash TEXT NOT NULL,
+                    note_id TEXT NOT NULL REFERENCES memories(id), PRIMARY KEY(actor, request_id)
+                );
                 CREATE TABLE IF NOT EXISTS audit (
                     id INTEGER PRIMARY KEY,
                     item_id TEXT NOT NULL,
@@ -1288,3 +1301,114 @@ class Ledger:
                     "SELECT url FROM published_prs WHERE issue_id=? ORDER BY url", (row["issue_id"],))],
                 "inbox_pending": self.connection.execute(
                     "SELECT count(*) FROM inbox WHERE item_id=? AND consumed_at IS NULL", (row["id"],)).fetchone()[0]}
+
+    # Memory is shared recall data. These operations never widen work-item authority.
+    def memory_rows(self):
+        """Trusted scheduler read: one statement gives a coherent full snapshot."""
+        return [dict(row) for row in self.connection.execute(
+            "SELECT * FROM memories WHERE deleted=0 ORDER BY scope,title,id")]
+
+    def _memory_read(self, note_id, *, include_deleted=False):
+        try:
+            memory.note_id(note_id)
+        except ValueError as exc:
+            raise LedgerError(str(exc)) from exc
+        row = self.connection.execute("SELECT * FROM memories WHERE id=?", (note_id,)).fetchone()
+        if row is None or (row["deleted"] and not include_deleted):
+            raise LedgerError("unknown or forgotten memory")
+        return dict(row)
+
+    def _memory_list(self):
+        return [{k: v for k, v in row.items() if k not in ("body", "source", "build_commit", "deleted")}
+                for row in self.memory_rows()]
+
+    def memory_list(self, item_id, token):
+        with self._transaction():
+            self._owned(item_id, token)
+            return self._memory_list()
+
+    def memory_read(self, item_id, token, note_id):
+        with self._transaction():
+            self._owned(item_id, token)
+            return self._memory_read(note_id)
+
+    def memory_save(self, item_id, token, value):
+        with self._transaction():
+            self._owned(item_id, token)
+            return self._memory_save(value, item_id)
+
+    def memory_forget(self, item_id, token, note_id, expected_revision, reason):
+        with self._transaction():
+            self._owned(item_id, token)
+            return self._memory_forget(note_id, expected_revision, reason, item_id)
+
+    def memory_admin(self, action, *, value=None, note_id=None, expected_revision=None, reason=""):
+        """Trusted-host convention, like retry/cancel; not a boundary against direct DB access."""
+        with self._transaction():
+            if action == "list":
+                return self._memory_list()
+            if action == "read":
+                return self._memory_read(note_id)
+            if action == "save":
+                return self._memory_save(value, None)
+            if action == "forget":
+                return self._memory_forget(note_id, expected_revision, reason, None)
+            raise LedgerError("unknown memory administration action")
+
+    def _memory_save(self, value, item_id):
+        try:
+            value = memory.validate_note(value)
+        except ValueError as exc:
+            raise LedgerError(str(exc)) from exc
+        actor = item_id or "operator"
+        actor_kind = "worker" if item_id else "operator"
+        now = self.clock()
+        if "id" in value:
+            old = self._memory_read(value["id"])
+            if old["revision"] != value["expected_revision"]:
+                raise LedgerError(f"memory revision conflict: current revision is {old['revision']}")
+            self.connection.execute("""UPDATE memories SET title=?,category=?,scope=?,body=?,source=?,
+                build_commit=?,updated_by_item=?,actor_kind=?,updated_at=?,revision=revision+1 WHERE id=?""",
+                tuple(value[k] for k in ("title", "category", "scope", "body", "source", "build_commit")) +
+                (item_id, actor_kind, now, old["id"]))
+            note_id, action = old["id"], "update"
+        else:
+            payload_hash = hashlib.sha256(_json({k: v for k, v in value.items() if k != "request_id"}).encode()).hexdigest()
+            previous = self.connection.execute("SELECT * FROM memory_requests WHERE actor=? AND request_id=?",
+                                               (actor, value["request_id"])).fetchone()
+            if previous:
+                if previous["payload_hash"] != payload_hash:
+                    raise LedgerError("memory request_id reused with different content")
+                current = self._memory_read(previous["note_id"], include_deleted=True)
+                if current["deleted"]:
+                    return {"id": current["id"], "revision": current["revision"], "deleted": True, "replayed": True}
+                return {**current, "replayed": True}
+            if self.connection.execute("SELECT count(*) FROM memories WHERE deleted=0").fetchone()[0] >= memory.MAX_NOTES:
+                raise LedgerError("memory capacity reached; consolidate or forget an entry first")
+            note_id, action = str(uuid4()), "create"
+            self.connection.execute("""INSERT INTO memories
+                (id,title,category,scope,body,source,build_commit,created_by_item,updated_by_item,
+                 actor_kind,created_at,updated_at,revision) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1)""",
+                (note_id,) + tuple(value[k] for k in ("title", "category", "scope", "body", "source", "build_commit")) +
+                (item_id, item_id, actor_kind, now, now))
+            self.connection.execute("INSERT INTO memory_requests VALUES(?,?,?,?)",
+                                    (actor, value["request_id"], payload_hash, note_id))
+        result = self._memory_read(note_id)
+        self._audit(actor, "memory_" + action, details={"id": note_id, "revision": result["revision"], "actor": actor_kind})
+        return {**result, "replayed": False}
+
+    def _memory_forget(self, note_id, expected_revision, reason, item_id):
+        try:
+            memory.revision(expected_revision)
+            memory.text(reason, "forget reason", limit=500)
+        except ValueError as exc:
+            raise LedgerError(str(exc)) from exc
+        old = self._memory_read(note_id)
+        if old["revision"] != expected_revision:
+            raise LedgerError(f"memory revision conflict: current revision is {old['revision']}")
+        self.connection.execute("""UPDATE memories SET title='',body='',source='',build_commit=NULL,
+            deleted=1,revision=revision+1,updated_by_item=?,actor_kind=?,updated_at=? WHERE id=?""",
+            (item_id, "worker" if item_id else "operator", self.clock(), note_id))
+        self._audit(item_id or "operator", "memory_forget", reason,
+                    {"id": note_id, "revision": old["revision"] + 1, "actor": "worker" if item_id else "operator"})
+        return {"id": note_id, "revision": old["revision"] + 1, "deleted": True}

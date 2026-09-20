@@ -21,6 +21,8 @@ outside your worktree list.
    STATE_DIR/token` on every later call, including `post-comment` and `confirm-comment`: every
    worker command is scoped to your own item. Never put `--token` on a command line: arguments are
    visible to every process on the host. If the claim fails, stop and exit 2.
+   After claiming, follow `<repo_root>/references/memory.md`: read `memory.index` when ready,
+   then only relevant topic files. Refresh potentially stale notes through the CLI.
 3. `python3 -m agent --db DATABASE fetch-issue --item ITEM_ID` refreshes the issue and all comments from
    Linear into the ledger. Then `issue-context --item ITEM_ID` gives you the issue, your handoff if a
    previous worker left one, pending steering messages and registered PRs.
@@ -128,6 +130,11 @@ Checkpoint often: `checkpoint --input CHECKPOINT.json` with `stage`, an optional
 issue, describe the observed problem, the change, the checks that ran and the ones that did not.
 
 ## Outcomes
+
+Before retiring your claim, save a useful reusable correction or operational lesson through the
+item-authenticated memory CLI (`references/memory.md`). Keep input JSON in STATE_DIR. Skip saving
+when there is nothing useful; never treat a failed save as successful. Do not directly edit memory
+snapshots or the database, or use operator-only `memory-admin`. Gameplay rules remain in Farm-Contract.
 
 - Blocked: write the blocker body from the template, `prepare-comment --kind blocker`, `post-comment`, then
   `finish --outcome blocked --input OUTCOME.json` with `{"summary", "comment_action_id"}`.

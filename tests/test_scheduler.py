@@ -219,6 +219,32 @@ class SchedulerTests(unittest.TestCase):
         self.ledger.resume(item_id, "unity_slot:1 acquired")
         return item_id
 
+    def test_new_launch_gets_current_memory_snapshot(self):
+        from test_memory import NOTE, replacement
+        note = self.ledger.memory_admin("save", value=NOTE)
+        first = self.item()
+        self.scheduler.launch(first)
+        payload = json.loads(self.launcher.spawned[-1][1].split("\n\n", 1)[1])
+        index = Path(payload["memory"]["index"])
+        self.assertTrue(index.is_file())
+        self.assertIn(NOTE["body"], (index.parent / (note["id"] + ".md")).read_text())
+        self.assertNotIn(NOTE["body"], self.launcher.spawned[-1][1])
+        self.ledger.memory_admin("save", value=replacement(note, body="new observation"))
+        second = self.item(issue_id=OTHER, session="second")
+        self.scheduler.launch(second)
+        newer = json.loads(self.launcher.spawned[-1][1].split("\n\n", 1)[1])["memory"]
+        self.assertNotEqual(newer["index"], str(index))
+        self.assertIn("new observation", (Path(newer["index"]).parent / (note["id"] + ".md")).read_text())
+
+    def test_memory_publication_failure_does_not_prevent_work(self):
+        from unittest.mock import patch
+        with patch("agent.scheduler.publish_snapshot", side_effect=OSError("private path detail")):
+            self.scheduler.launch(self.item())
+        message = self.launcher.spawned[-1][1]
+        view = json.loads(message.split("\n\n", 1)[1])["memory"]
+        self.assertEqual(view, {"status": "unavailable", "index": None, "reason": "OSError"})
+        self.assertNotIn("private path detail", message)
+
     def test_tick_launches_fix_with_write_worktrees_and_records_pid(self):
         item = self.item()
         counts = self.scheduler.tick()

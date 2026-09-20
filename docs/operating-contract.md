@@ -21,7 +21,7 @@ design rationale lives in `docs/superpowers/specs/`.
 
 | Skill | May write to | Resources | Needs delegation |
 |---|---|---|---|
-| chat | nothing | none | no |
+| chat | shared memory through item-authenticated CLI only; no repositories | none | no |
 | fix | Farm-Contract, Farm-Client, farm-hive, farmgui, common, as linked draft PRs on the Linear branch | Unity slot (one, batch or interactive, two-phase) | yes |
 
 FarmBot never merges, deploys, changes status or assignee, or edits repositories outside the list.
@@ -51,6 +51,35 @@ fences pending batch launches, including an old reservation whose item has since
 SIGTERM to the service runs batch-process cleanup during startup or normal serving. On this Mac,
 the live `launchctl kickstart -k` rehearsal also removed the batch Editor; this is not a promise
 that Python cleanup executes after SIGKILL. Reservation release still requires a quiescence probe.
+
+## Shared memory
+
+Workers share bounded recall notes in the ledger, with an immutable Markdown index and topic files
+under `.local/agent/memory/` for each launch. Both chat and fix may save corrections, operational
+lessons and source pointers using `memory-list`, `memory-read`, `memory-save`, and `memory-forget`.
+All worker commands check a live claim. This is an explicit memory-only exception for chat, not
+permission to edit repositories or shared files. See `references/memory.md` for the input schema.
+
+Notes are fallible context. Gameplay rules belong in Farm-Contract, and memory never authorizes
+work, changes repository access, or overrides contracts and skills. Sources and build references
+are attributed evidence, not independent verification. Notes are not automatically extracted from
+old runs. Keep secrets, tokens, personal account details and raw issue transcripts out of memory.
+
+Updates and forgetting require the current revision; concurrent writes cannot silently overwrite
+one another. Creates use an item-scoped request ID for retries. Limits: 200 active notes, 120-character
+titles, 8 KiB bodies and 1 KiB sources. Forgetting removes current recall and clears active content;
+old run snapshots, already-loaded contexts and backups may retain it. It is not secure erasure.
+
+The trusted host uses `memory-admin` to inspect, correct and forget notes; workers must not use it.
+Like other operator commands, this is a convention, not a security boundary against direct DB access.
+Snapshot pruning requires stopped service and no queued/running work; retained run prompts retain
+their snapshots. Ordinary launches never prune. An unavailable snapshot is reported in the launch
+payload and does not block work; claim-authenticated CLI recall remains available.
+
+Native runtime memory is explicitly disabled: Codex `features.memories=false`, Claude
+`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`. Isolated runtime homes and authentication remain unchanged;
+FarmBot does not import the operator's personal memories. Saving is optional and must happen before
+a claim ends; memory operations do not renew the lease.
 
 ## Work item states
 

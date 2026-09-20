@@ -2,11 +2,13 @@
 import json
 import os
 import re
+import sqlite3
 import threading
 from pathlib import Path
 
 from .dispatch import dispatch_message
 from .ledger import LedgerError
+from .memory import publish_snapshot
 
 TERMINAL = ("delivered", "blocked", "cancelled", "failed")
 WAITING = ("awaiting_input", "awaiting_resource")
@@ -98,11 +100,15 @@ class Scheduler:
                 servers["unity"] = ({"url": slot["mcp_address"]}
                                     if self.launcher.runtime.mcp_format == "toml"
                                     else {"type": "http", "url": slot["mcp_address"]})
+        try:
+            memory = publish_snapshot(Path(self.db_path).resolve().parent / "memory", self.ledger.memory_rows())
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            memory = {"status": "unavailable", "index": None, "reason": type(exc).__name__}
         message = dispatch_message(item=item, issue=issue, skill_path=self.skill_root / skill.name / "SKILL.md",
                                    worktrees=paths, db_path=self.db_path, runtime=self.runtime_name,
                                    guidance=self.guidance_for(item), budget=skill.budget,
                                    repo_root=repo_root, state_dir=self.launcher.state_dir(item["id"]),
-                                   resource=resource)
+                                   resource=resource, memory=memory)
         primary = paths.get(READ_REPO) or next(iter(paths.values()))
         # `python3 -m agent` must resolve from any worktree, so FarmBot's root leads the worker's PYTHONPATH.
         pythonpath = os.pathsep.join(p for p in (str(repo_root), os.environ.get("PYTHONPATH", "")) if p)
