@@ -18,9 +18,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from agent.config import Config
+from agent.config import Config, Paths
 from agent.launcher import Launcher
-from agent.service import Components, build, seed_clones, serve
+from agent.ledger import Ledger
+from agent.service import Components, build, enqueue, main, seed_clones, serve
 from agent.slots import SlotError
 from test_ledger import ISSUE, issue
 
@@ -242,6 +243,82 @@ class ServeTests(unittest.TestCase):
         self.assertEqual(problems, [])
         self.assertEqual(failed, [True])
         self.assertIn("slot_pool_unavailable", out.getvalue())
+
+
+class EnqueueTests(unittest.TestCase):
+    """The operator's way in on a host whose webhook cannot be delivered (spec §11)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        self.stub = root / "stub"
+        self.stub.mkdir()
+        (self.stub / "issue.json").write_text(json.dumps(issue(labels=["Bug"], delegate_id=APP)), encoding="utf-8")
+        patcher = patch.dict(os.environ, {"FARMBOT_LINEAR_STUB_DIR": str(self.stub),
+                                          "FARMBOT_CONFIG": str(root / "none.json")})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        # No repos: every test here passes an explicit commit, so nothing ever reaches git or the network.
+        self.config = Config(client_id="c", client_secret="s", webhook_secret="w", host="test",
+                             runtime="fake", repos={}, local_root=root / "local")
+
+    def test_enqueue_creates_a_pinned_work_item_without_any_webhook(self):
+        item_id = enqueue(self.config, issue_ref=ISSUE, skill="fix", commit="a" * 40)["id"]
+        ledger = Ledger(Paths(self.config).ledger)
+        self.addCleanup(ledger.close)
+        item = ledger.item(item_id)
+        self.assertEqual((item["state"], item["skill"]), ("queued", "fix"))
+        self.assertEqual(item["target"]["commit_sha"], "a" * 40)
+        # The session is synthetic and says so: Linear has no agent session with this id, which is what
+        # the scheduler and the skill both read to report through an issue comment instead.
+        self.assertTrue(item["session_id"].startswith("local-"), item["session_id"])
+        self.assertEqual([row["kind"] for row in ledger.connection.execute(
+            "SELECT kind FROM audit WHERE item_id=?", (item_id,))].count("enqueue"), 1)
+
+    def test_enqueue_refuses_a_write_capable_skill_on_an_issue_nobody_delegated(self):
+        """spec §4: fix, fgui and feature start only from delegation, so that every code change traces back
+        to an explicit human act on the issue. enqueue is an operator shortcut past the webhook, not past
+        the rule of authority."""
+        (self.stub / "issue.json").write_text(json.dumps(issue(labels=["Bug"], delegate_id=None)),
+                                              encoding="utf-8")
+        with self.assertRaises(RuntimeError) as caught:
+            enqueue(self.config, issue_ref=ISSUE, skill="fix", commit="a" * 40)
+        self.assertIn("delegate", str(caught.exception).lower())
+        ledger = Ledger(Paths(self.config).ledger)
+        self.addCleanup(ledger.close)
+        self.assertIsNone(ledger.active_item_for_issue(ISSUE))
+
+    def test_the_enqueue_and_slots_subcommands_run_the_way_the_operating_contract_prints_them(self):
+        """The contract now tells an operator to create work with `agent.service enqueue` and to watch the
+        pool with `agent.service slots`. enqueue() and Ledger.slots() are tested directly above and in
+        test_ledger; what is untested without this is `main`'s own dispatch — the two lines a typo in a
+        `choices` list or a missing flag would break, silently, on the host that has no webhook."""
+        config_path = Path(self.tmp.name) / "config.json"
+        config_path.write_text(json.dumps({"client_id": "c", "client_secret": "s", "webhook_secret": "w",
+                                           "host": "test", "runtime": "fake", "repos": {},
+                                           "local_root": str(Path(self.tmp.name) / "local")}), encoding="utf-8")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(main(["enqueue", "--config", str(config_path), "--issue", ISSUE,
+                                   "--commit", "a" * 40]), 0)
+        created = json.loads(out.getvalue())
+        self.assertEqual(created["state"], "queued")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(main(["slots", "--config", str(config_path)]), 0)
+        view = json.loads(out.getvalue())
+        self.assertEqual((view["slots"], view["reservations"]), ([], []))  # nothing registered, nothing queued
+        with self.assertRaises(SystemExit):
+            main(["enqueue", "--config", str(config_path)])  # an enqueue with no issue names nothing
+
+    def test_enqueue_allows_a_read_only_skill_on_an_undelegated_issue(self):
+        """chat writes nothing, so the rule of authority does not apply to it; refusing it would make the
+        refusal above a test of `enqueue` refusing everything."""
+        (self.stub / "issue.json").write_text(json.dumps(issue(labels=["Bug"], delegate_id=None)),
+                                              encoding="utf-8")
+        item = enqueue(self.config, issue_ref=ISSUE, skill="chat", commit="a" * 40)
+        self.assertEqual((item["state"], item["skill"]), ("queued", "chat"))
 
 
 class LoopGuardTests(unittest.TestCase):

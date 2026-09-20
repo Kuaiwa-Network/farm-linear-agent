@@ -371,6 +371,11 @@ class Ledger:
         self.connection.execute("INSERT INTO audit(item_id,kind,reason,details,created_at) VALUES(?,?,?,?,?)",
                                 (item_id, kind, reason, _json(details or {}), self.clock()))
 
+    def note(self, item_id, kind, reason="", details=None):
+        """Record an operator action in `audit`, so a human act outside Linear leaves the trail a webhook would."""
+        with self._transaction():
+            self._audit(item_id, kind, reason, details)
+
     def _owned(self, item_id, token):
         row = self._row(item_id)
         presented = _hash_token(token) if isinstance(token, str) and token.isascii() and token else ""

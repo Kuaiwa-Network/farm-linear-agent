@@ -89,6 +89,7 @@ class HandleAwareLauncher(FakeLauncher):
 class FakeAPI:
     def __init__(self, fail=False):
         self.activities = []
+        self.comments = []
         self.fail = fail
 
     def create_activity(self, session_id, content, activity_id=None):
@@ -96,6 +97,12 @@ class FakeAPI:
             raise RuntimeError("linear down")
         self.activities.append((session_id, content["type"], content["body"]))
         return {"success": True}
+
+    def create_comment(self, issue_id, body):
+        if self.fail:
+            raise RuntimeError("linear down")
+        self.comments.append((issue_id, body))
+        return f"stub-comment-{len(self.comments)}"
 
 
 class FakeWorktrees:
@@ -471,6 +478,20 @@ class SchedulerTests(unittest.TestCase):
         self.scheduler.tick()
         self.assertEqual(self.ledger.item(other["id"])["state"], "failed")
         self.assertEqual(self.api.activities[-1][:2], ("session-2", "error"))
+
+    def test_a_locally_enqueued_item_reports_by_issue_comment_because_it_has_no_linear_session(self):
+        """`agent.service enqueue` mints a synthetic `local-` session id: no Linear agent session exists for
+        it, so every create_activity for such an item would fail against the real API and §9's reporting
+        surface would be silently dead for exactly the items the live rehearsal creates."""
+        item = self.item(session=f"local-{ISSUE}")
+        self.scheduler.tick()
+        self.ledger.claim(item["id"], worker_id="w")
+        self.launcher.finished.append(Finished(item["id"], 1, "", False, "exited"))
+        self.scheduler.tick()
+        self.assertEqual(self.ledger.item(item["id"])["state"], "failed")
+        self.assertEqual(self.api.activities, [])
+        self.assertEqual(self.api.comments[-1][0], ISSUE)
+        self.assertIn("重试", self.api.comments[-1][1])
 
     def test_a_failing_linear_api_never_breaks_the_tick(self):
         self.scheduler.api = FakeAPI(fail=True)

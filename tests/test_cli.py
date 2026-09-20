@@ -6,9 +6,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from test_ledger import ISSUE, OTHER, issue
+from test_ledger import ISSUE, OTHER, PIN, issue
 
 ROOT = Path(__file__).resolve().parents[1]
+SLOT = "unity_slot:1"
+HOST = "test-host"
 
 
 class CliTests(unittest.TestCase):
@@ -43,15 +45,52 @@ class CliTests(unittest.TestCase):
         text = (self.stub / "calls.jsonl").read_text(encoding="utf-8") if (self.stub / "calls.jsonl").exists() else ""
         return [json.loads(line) for line in text.splitlines()]
 
-    def seeded_item(self, issue_id=ISSUE, session="session-1", skill="fix"):
-        """Create a work item the way the receiver would, then return its id."""
+    def seeded_item(self, issue_id=ISSUE, session="session-1", skill="fix", target=None):
+        """Create a work item the way the receiver would, then return its id.
+
+        `target` is the pin the receiver snapshots onto the item. It defaults to None because most tests
+        here never ask for a resource, and `await_resource` is the one command that refuses an item without
+        one: a slot cannot be switched to a commit that does not exist.
+        """
         from agent.ledger import Ledger
         ledger = Ledger(self.db)
         ledger.observe_issue(issue(id=issue_id, labels=["Bug"]))
         ledger.ensure_session(session, issue_id, delegation=True)
-        item = ledger.create_work_item(issue_id=issue_id, session_id=session, skill=skill)
+        item = ledger.create_work_item(issue_id=issue_id, session_id=session, skill=skill, target=target)
         ledger.close()
         return item["id"]
+
+    def granted_item(self, mode="interactive", issue_id=ISSUE):
+        """Leave an item in exactly the state the pool leaves behind for a fresh worker: a granted
+        reservation, a slot in that mode's busy state, and the raw token on disk at 0600.
+
+        The two `set_slot_state` calls stand in for the pool, because no pool thread runs in this file:
+        `SlotPool.park_idle` is what returns a `switching` slot to the pool in production and
+        `SlotPool.switch` is what writes the busy state. Without the first, a second call here gets None
+        out of `Ledger.acquire` — `release` left the slot `switching`, which is not in FREE_SLOT_STATES.
+        """
+        from agent.ledger import Ledger
+        session = f"session-{issue_id[-1]}"
+        item = self.seeded_item(issue_id=issue_id, session=session, target=PIN)
+        claim_token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
+        self.run_cli("await-resource", "--item", item, "--token", claim_token,
+                     "--resource", "unity_slot", "--mode", mode)
+        ledger = Ledger(self.db)
+        try:
+            ledger.ensure_slot(SLOT, kind="unity_slot", host=HOST, folder=str(self.root / "slot-1"))
+            if ledger.slot(SLOT)["state"] not in Ledger.FREE_SLOT_STATES:
+                ledger.set_slot_state(SLOT, "idle_closed")          # SlotPool.park_idle
+            granted = ledger.acquire("unity_slot", owner="pool", host=HOST)
+            self.assertIsNotNone(granted, "the pool found no free slot to grant")
+            ledger.set_slot_state(SLOT, f"{mode}_busy")              # SlotPool.switch
+        finally:
+            ledger.close()
+        state_dir = self.root / "state" / item
+        state_dir.mkdir(parents=True, exist_ok=True)
+        token_file = state_dir / "reservation.token"
+        token_file.write_text(granted["token"], encoding="utf-8")
+        token_file.chmod(0o600)
+        return item, token_file
 
     def test_fix_round_trip_through_the_cli(self):
         item = self.seeded_item()
@@ -188,12 +227,46 @@ class CliTests(unittest.TestCase):
                                 self.json_file("ok.json", {"published_prs": ["https://github.com/Kuaiwa-Network/Farm-Client/pull/1"]}))
         self.assertEqual(accepted["state"], "running")
 
-    def test_await_resource_is_refused_without_slots_and_errors_are_clean(self):
+    def test_a_worker_requests_a_slot_and_the_request_is_queued(self):
+        item = self.seeded_item(target=PIN)
+        token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
+        view = self.run_cli("await-resource", "--item", item, "--token", token,
+                            "--resource", "unity_slot", "--mode", "batch")
+        self.assertEqual((view["state"], view["needs_resource"]), ("awaiting_resource", "unity_slot:batch"))
+        self.assertEqual(self.run_cli("reservations")[0]["mode"], "batch")
+        # Carried from the test this replaced: a parked item is not claimable, and the refusal is clean.
+        self.run_cli("claim", "--item", item, "--worker-id", "w2", success=False)
+
+    def test_an_unpinned_item_is_told_why_it_cannot_have_a_slot(self):
         item = self.seeded_item()
         token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
-        process = self.run_cli("await-resource", "--item", item, "--token", token, "--resource", "unity_slot", "--mode", "batch", success=False)
-        self.assertIn("no unity slots", process.stderr)
-        self.run_cli("claim", "--item", item, "--worker-id", "w2", success=False)
+        process = self.run_cli("await-resource", "--item", item, "--token", token,
+                               "--resource", "unity_slot", "--mode", "batch", success=False)
+        self.assertIn("pinned commit", process.stderr)
+        self.assertEqual(process.stdout, "")
+
+    def test_a_worker_releases_its_own_slot_and_an_unclean_one_is_held(self):
+        item, token_file = self.granted_item(mode="interactive")
+        view = self.run_cli("release-resource", "--item", item, "--token-file", str(token_file),
+                            "--outcome", "quiescent")
+        self.assertEqual(view["state"], "released")
+        self.assertEqual(self.run_cli("slots")[0]["state"], "switching")
+        # granted_item parks the slot first, because no pool thread runs in this file and Ledger.acquire
+        # only grants a slot in FREE_SLOT_STATES — release() left it 'switching'.
+        other, other_token = self.granted_item(mode="interactive", issue_id=OTHER)
+        self.run_cli("release-resource", "--item", other, "--token-file", str(other_token), "--outcome", "unclean")
+        self.assertEqual(self.run_cli("slots")[0]["state"], "held")
+        self.run_cli("recover-slot", "--slot", SLOT, "--reason", "operator closed Unity")
+        self.assertEqual(self.run_cli("slots")[0]["state"], "idle_closed")
+
+    def test_release_resource_refuses_an_item_that_holds_nothing(self):
+        item = self.seeded_item(target=PIN)
+        token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
+        path = self.root / "t"
+        path.write_text(token, encoding="utf-8")
+        process = self.run_cli("release-resource", "--item", item, "--token-file", str(path),
+                               "--outcome", "quiescent", success=False)
+        self.assertIn("holds no resource", process.stderr)
 
     def test_a_no_change_delivery_completes_the_session_as_no_change(self):
         item = self.seeded_item()

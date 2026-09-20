@@ -123,11 +123,20 @@ class Scheduler:
         return handle
 
     def _notify(self, item_id, kind, body):
-        """Best-effort session activity for outcomes the worker cannot report itself: it is dead or never ran."""
+        """Best-effort session activity for outcomes the worker cannot report itself: it is dead or never ran.
+
+        A `local-` session id was minted by `agent.service enqueue`, not by Linear, and names no agent
+        session: create_activity against the real API would fail on every one of these notices and leave the
+        operator with nothing. The issue comment is the only reporting surface such an item has.
+        """
         if self.api is None:
             return
         try:
-            self.api.create_activity(self.ledger.item(item_id)["session_id"], {"type": kind, "body": body})
+            item = self.ledger.item(item_id)
+            if str(item["session_id"]).startswith("local-"):
+                self.api.create_comment(item["issue_id"], body)
+            else:
+                self.api.create_activity(item["session_id"], {"type": kind, "body": body})
         except Exception:
             pass
 

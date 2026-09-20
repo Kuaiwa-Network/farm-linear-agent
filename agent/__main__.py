@@ -42,6 +42,10 @@ def parser():
     cmd("await-input", "--item", "--question", token=True)
     resource = cmd("await-resource", "--item", "--resource", token=True)
     resource.add_argument("--mode", required=True, choices=["interactive", "batch"])
+    release = cmd("release-resource", "--item", token=True)
+    release.add_argument("--outcome", required=True, choices=["quiescent", "unclean"])
+    cmd("reservations"); cmd("slots")  # operator readers: no item, no token, nothing to authorise
+    cmd("recover-slot", "--slot", "--reason")
     finish = cmd("finish", "--item", "--input", token=True)
     finish.add_argument("--outcome", required=True, choices=["blocked", "delivered"])
     for name in ("cancel", "recover", "retry"):
@@ -174,13 +178,27 @@ def run(args, ledger, api_factory):
         api_factory().create_activity(item["session_id"], {"type": "elicitation", "body": args.question})
         return ledger.await_input(args.item, token, args.question)
     if c == "await-resource":
-        try:
-            slots = load_config().slots
-        except (OSError, ValueError):
-            slots = []
-        if not slots:
-            raise LedgerError("no unity slots configured on this host; record the verification gap instead")
         return ledger.await_resource(args.item, resolve_token(args), args.resource, args.mode)
+    if c == "release-resource":
+        # The worker's own verdict, not the pool's: the pool re-checks quiescence before acting on a slot
+        # this worker may have wedged (spec §7). A token is required for both outcomes so the verb has one
+        # contract, and `release` verifies it against the reservation.
+        token = resolve_token(args)
+        reservation = ledger.active_reservation(args.item)
+        if reservation is None:
+            raise LedgerError("this item holds no resource")
+        if args.outcome == "unclean":
+            # The worker says it left the Editor in a state it could not settle; the slot waits for an
+            # operator's recover-slot rather than going to the next worker wedged.
+            return ledger.hold(reservation["reservation_id"], "worker reported an unclean release")
+        ledger.release(reservation["reservation_id"], token, "worker reported quiescent")
+        return ledger.reservation(reservation["reservation_id"])
+    if c == "reservations":
+        return ledger.reservations()
+    if c == "slots":
+        return ledger.slots()
+    if c == "recover-slot":
+        return ledger.recover_slot(args.slot, args.reason)
     if c == "finish":
         evidence = read_json(args.input)
         if isinstance(evidence, dict):

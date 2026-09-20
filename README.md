@@ -14,6 +14,8 @@ replaces (`FarmTestAgent` and `BugAgent`), and the phased plan.
 python3 -m unittest discover -s tests -v          # all offline tests
 python3 -m agent.service configure                 # once per host; writes .local/agent/config.json
 python3 -m agent.service serve                     # receiver on 127.0.0.1:8765 plus scheduler
+python3 -m agent.service enqueue --issue FARM-1    # create work with no webhook; still needs delegation
+python3 -m agent.service slots                     # the pool: slot states, parked commits, open reservations
 python3 -m agent --db .local/agent/ledger.sqlite3 status
 ```
 
