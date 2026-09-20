@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .config import linear_api, load_config
 from .ledger import Ledger, LedgerError
+from .memory import prune_snapshots
 
 
 def parser():
@@ -26,6 +27,21 @@ def parser():
             p.add_argument("--token-file")
         return p
 
+    cmd("memory-list", "--item", token=True)
+    cmd("memory-read", "--item", "--id", token=True)
+    cmd("memory-save", "--item", "--input", token=True)
+    forget = cmd("memory-forget", "--item", "--id", "--reason", token=True)
+    forget.add_argument("--expected-revision", required=True, type=int)
+    admin = sub.add_parser("memory-admin", help="trusted host only; never a worker command")
+    actions = admin.add_subparsers(dest="memory_action", required=True)
+    actions.add_parser("list")
+    actions.add_parser("read").add_argument("--id", required=True)
+    actions.add_parser("save").add_argument("--input", required=True)
+    af = actions.add_parser("forget")
+    af.add_argument("--id", required=True)
+    af.add_argument("--expected-revision", required=True, type=int)
+    af.add_argument("--reason", required=True)
+    actions.add_parser("prune-snapshots", help="stop the service before pruning").add_argument("--runs-root", required=True)
     cmd("status"); cmd("queue")
     cmd("fetch-issue", "--item")
     cmd("claim", "--item", "--worker-id")
@@ -57,6 +73,14 @@ def parser():
 
 def read_json(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def read_memory_json(path):
+    with Path(path).open("rb") as handle:
+        raw = handle.read(16 * 1024 + 1)
+    if len(raw) > 16 * 1024:
+        raise LedgerError("memory input exceeds 16 KiB")
+    return json.loads(raw.decode("utf-8"))
 
 
 def read_text(path):
@@ -152,6 +176,27 @@ def post_comment(ledger, api, action):
 
 def run(args, ledger, api_factory):
     c = args.command
+    if c == "memory-list":
+        return ledger.memory_list(args.item, resolve_token(args))
+    if c == "memory-read":
+        return ledger.memory_read(args.item, resolve_token(args), args.id)
+    if c == "memory-save":
+        return ledger.memory_save(args.item, resolve_token(args), read_memory_json(args.input))
+    if c == "memory-forget":
+        return ledger.memory_forget(args.item, resolve_token(args), args.id, args.expected_revision, args.reason)
+    if c == "memory-admin":
+        action = args.memory_action
+        if action == "prune-snapshots":
+            if ledger.connection.execute("SELECT 1 FROM work_items WHERE state IN ('queued','running') LIMIT 1").fetchone():
+                raise LedgerError("stop the service and settle queued/running work before pruning snapshots")
+            runs = Path(args.runs_root)
+            if not runs.is_absolute() or not runs.is_dir():
+                raise LedgerError("stop the service; --runs-root must name its existing absolute runs directory")
+            return prune_snapshots(Path(args.db).resolve().parent / "memory", runs)
+        return ledger.memory_admin(action, value=read_memory_json(args.input) if action == "save" else None,
+                                   note_id=getattr(args, "id", None),
+                                   expected_revision=getattr(args, "expected_revision", None),
+                                   reason=getattr(args, "reason", ""))
     if c == "status":
         # Merged here rather than inside Ledger.status(), which the scheduler calls twice a second.
         return {**ledger.status(), "borrowed_comments": ledger.borrowed_comments()}
