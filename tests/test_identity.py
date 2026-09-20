@@ -143,33 +143,82 @@ def state(**overrides):
 
 
 class ReadyTests(unittest.TestCase):
-    def setUp(self):
-        self.now_ms = 1_700_000_000_000
+    # Every way the snapshot can positively report busy, one flag at a time, so that no single clause of the
+    # gate can be deleted with the suite still green. `CollectTests` reuses the list against the collector.
+    BUSY = (
+        ("playing", {"play_mode": {"is_playing": True, "is_paused": False, "is_changing": False}}),
+        ("paused in play mode", {"play_mode": {"is_playing": False, "is_paused": True, "is_changing": False}}),
+        ("entering or leaving play mode",
+         {"play_mode": {"is_playing": False, "is_paused": False, "is_changing": True}}),
+        ("compiling", {"compilation": {"is_compiling": True, "is_domain_reload_pending": False}}),
+        ("reloading the domain", {"compilation": {"is_compiling": False, "is_domain_reload_pending": True}}),
+        ("importing assets", {"assets": {"is_updating": True}}),
+        ("running tests", {"tests": {"is_running": True}}),
+    )
+
+    def test_an_explicitly_idle_editor_is_ready_however_old_its_snapshot_is(self):
+        """`observed_at_unix_ms` is when the state last *changed*, not a heartbeat: EditorStateCache.OnUpdate
+        returns before BuildSnapshot whenever nothing it tracks has moved (EditorStateCache.cs:346-351) and
+        nothing a client can call reaches the private ForceUpdate. So the more reliably idle the Editor, the
+        older its sample grows; the live rehearsal measured 117 seconds with `sequence` frozen at 3 while
+        `execute_code` worked throughout, and the ten-second bound this replaces turned that into a
+        probe-stage hold. 1970 is the extreme: the value a server that had to default the field would emit."""
+        now_ms = int(time.time() * 1000)
+        for age_ms in (0, 500, 10_001, 117_000, now_ms):
+            with self.subTest(age_ms=age_ms):
+                self.assertTrue(ready(state(observed_at_unix_ms=now_ms - age_ms), INSTANCE))
+
+    def test_a_snapshot_that_reports_any_kind_of_busy_is_refused_fresh_or_frozen(self):
+        """The safety property that had to survive losing the clock. It survives because every flag here has
+        a change trigger that rebuilds the snapshot — the compilation edge bypasses even the one-second
+        throttle (EditorStateCache.cs:295-300), playModeStateChanged and beforeAssemblyReload call ForceUpdate
+        directly (:260, :268-273), and is_updating, tests-running and the activity phase are all in the
+        hasChanges set (:336-344) — so an old sample saying idle means nothing has become busy since."""
+        now_ms = int(time.time() * 1000)
+        for name, busy in self.BUSY:
+            for age_ms in (0, 117_000):
+                with self.subTest(busy=name, age_ms=age_ms):
+                    self.assertFalse(ready(state(observed_at_unix_ms=now_ms - age_ms, **busy), INSTANCE))
+
+    def test_a_missing_flag_a_foreign_instance_and_an_unusable_timestamp_never_pass(self):
+        """Dropping the freshness bound must not drop the well-formedness checks around it. A missing boolean
+        still fails, because `unknown` beats a guess; the instance comparison is the only thing standing
+        between a worker and somebody else's Editor; and `observed_at_unix_ms` is still required to be a
+        finite number, because `collect` records it as evidence in the ledger row."""
+        now_ms = int(time.time() * 1000)
+        self.assertFalse(ready(state(observed_at_unix_ms=now_ms), "other@ffffffffffffffff"))
+        self.assertFalse(ready(state(observed_at_unix_ms=now_ms), None))
+        self.assertFalse(ready(state(observed_at_unix_ms=now_ms, schema_version="unity-mcp/editor_state@3"),
+                               INSTANCE))
+        for absent in ({"play_mode": {"is_playing": False, "is_paused": False}},
+                       {"compilation": {"is_domain_reload_pending": False}},
+                       {"assets": {}},
+                       {"tests": {"is_running": None}}):
+            with self.subTest(absent=absent):
+                self.assertFalse(ready(state(observed_at_unix_ms=now_ms, **absent), INSTANCE))
+        for unusable in (None, True, "1700000000000", float("nan"), float("inf")):
+            with self.subTest(observed_at_unix_ms=unusable):
+                self.assertFalse(ready(state(observed_at_unix_ms=unusable), INSTANCE))
 
     def test_a_fresh_idle_editor_of_the_expected_instance_is_ready(self):
-        self.assertTrue(ready(state(observed_at_unix_ms=self.now_ms - 500), INSTANCE, now_ms=self.now_ms))
-
-    def test_a_stale_a_future_a_playing_and_a_compiling_editor_are_all_refused(self):
-        self.assertFalse(ready(state(observed_at_unix_ms=self.now_ms - 10_001), INSTANCE, now_ms=self.now_ms))
-        self.assertFalse(ready(state(observed_at_unix_ms=self.now_ms + 1), INSTANCE, now_ms=self.now_ms))
-        self.assertFalse(ready(state(observed_at_unix_ms=self.now_ms,
-                                     play_mode={"is_playing": True, "is_paused": False, "is_changing": False}),
-                               INSTANCE, now_ms=self.now_ms))
-        self.assertFalse(ready(state(observed_at_unix_ms=self.now_ms,
-                                     compilation={"is_compiling": True, "is_domain_reload_pending": False}),
-                               INSTANCE, now_ms=self.now_ms))
-        self.assertFalse(ready(state(observed_at_unix_ms=self.now_ms), "other@ffffffffffffffff",
-                               now_ms=self.now_ms))
+        """A sample taken half a second ago is still ready. Removing the upper bound removed the lower one
+        too, so a clock-skewed Editor reporting the future is no longer refused for that alone — the server's
+        own staleness arithmetic never saw it either, since it clamps a negative age to zero
+        (editor_state.py:186)."""
+        now_ms = int(time.time() * 1000)
+        self.assertTrue(ready(state(observed_at_unix_ms=now_ms - 500), INSTANCE))
+        self.assertTrue(ready(state(observed_at_unix_ms=now_ms + 60_000), INSTANCE))
 
     def test_the_aggregate_is_match_only_when_every_check_matches_and_unknown_is_never_match(self):
         self.assertEqual(aggregate({"a": "match", "b": "match"}), "match")
         self.assertEqual(aggregate({"a": "match", "b": "unknown"}), "unknown")
         self.assertEqual(aggregate({"a": "mismatch", "b": "unknown"}), "mismatch")
 
-    def test_quiet_ignores_the_instance_and_the_clock_but_not_the_four_busy_flags(self):
+    def test_quiet_ignores_the_instance_and_play_mode_but_not_the_four_busy_flags(self):
         """The refresh wait cannot compare instances — hearing from the instance is what it is waiting for —
-        and cannot bound staleness, because a compiling Editor stops publishing fresh samples."""
-        self.assertTrue(quiet(state(observed_at_unix_ms=0, unity={"instance_id": "anything"})))
+        and must not mind play mode, because what it is waiting out is a compile or an import."""
+        self.assertTrue(quiet(state(observed_at_unix_ms=0, unity={"instance_id": "anything"},
+                                    play_mode={"is_playing": True, "is_paused": False, "is_changing": False})))
         for busy in ({"compilation": {"is_compiling": True, "is_domain_reload_pending": False}},
                      {"compilation": {"is_compiling": False, "is_domain_reload_pending": True}},
                      {"assets": {"is_updating": True}},
@@ -258,14 +307,50 @@ class CollectTests(Loopback):
         android = self.run_collect(build_target="Android")
         self.assertEqual(android["checks"]["build_target"], "mismatch")
 
-    def test_an_editor_that_is_not_ready_never_reaches_the_probe_and_aggregates_to_unknown(self):
-        """`unknown` is not `match`, so this holds the slot rather than producing evidence about an Editor
-        that was still compiling. Running the probe anyway is the failure that matters here."""
-        Handler.replies["mcpforunity://editor/state"] = state(observed_at_unix_ms=0)  # 1970: hopelessly stale
+    def test_an_idle_editor_whose_snapshot_stopped_changing_minutes_ago_still_certifies(self):
+        """Task 13, and the thing that halted Step 4 of the live rehearsal. The Editor was demonstrably idle
+        and demonstrably usable — every busy flag False, `execute_code` answering throughout — and the gate
+        refused it purely because `observed_at_unix_ms` had not moved for 117 seconds. Every check came back
+        `unknown`, so the aggregate was `unknown`, so the pool held the slot: a permanent hold on exactly the
+        Editors that are behaving best."""
+        Handler.replies["mcpforunity://editor/state"] = state(
+            observed_at_unix_ms=int(time.time() * 1000) - 117_000)
         result = self.run_collect()
-        self.assertEqual(result["aggregate"], "unknown")
-        self.assertEqual(set(result["checks"].values()), {"unknown"})
-        self.assertNotIn("tools/call:execute_code", Handler.seen)
+        self.assertEqual(result["aggregate"], "match", result["checks"])
+        self.assertEqual(result["checks"]["editor_ready"], "match")
+        self.assertIn("tools/call:execute_code", Handler.seen)
+
+    def test_an_editor_that_reports_busy_never_reaches_the_probe_and_aggregates_to_unknown(self):
+        """`unknown` is not `match`, so this holds the slot rather than producing evidence about an Editor
+        that was still compiling. Running the probe anyway is the failure that matters here. Each sample is
+        frozen 117 seconds back as well — the age the rehearsal measured — so the refusal is the busy flag
+        and can never again be the clock."""
+        frozen = int(time.time() * 1000) - 117_000
+        for name, busy in ReadyTests.BUSY:
+            with self.subTest(busy=name):
+                Handler.seen = []
+                Handler.replies["mcpforunity://editor/state"] = state(observed_at_unix_ms=frozen, **busy)
+                result = self.run_collect()
+                self.assertEqual(result["aggregate"], "unknown")
+                self.assertEqual(set(result["checks"].values()), {"unknown"})
+                self.assertNotIn("tools/call:execute_code", Handler.seen)
+
+    def test_the_probes_own_live_flags_are_what_certify_editor_ready(self):
+        """With the freshness bound gone this is the whole of the live evidence, so every conjunct of it has
+        to be load-bearing. `execute_code` runs on the main thread, which is the thread a compile, an import
+        or a play-mode transition occupies, so these five cannot be stale by construction — and a main thread
+        wedged badly enough to make the snapshot meaningless cannot answer here at all, which is what the old
+        ten-second bound was really catching."""
+        for key in ("isPlaying", "isPlayingOrWillChangePlaymode", "isCompiling", "isUpdating"):
+            with self.subTest(probe_flag=key):
+                Handler.replies["tools/call:execute_code"] = {"result": {**self.probe, key: True}}
+                result = self.run_collect()
+                self.assertEqual(result["checks"]["editor_ready"], "unknown")
+                self.assertEqual(result["aggregate"], "unknown")
+        with self.subTest(probe_flag="scene.isDirty"):
+            Handler.replies["tools/call:execute_code"] = {
+                "result": {**self.probe, "scene": {**self.probe["scene"], "isDirty": True}}}
+            self.assertEqual(self.run_collect()["checks"]["editor_ready"], "unknown")
 
     def test_a_checkout_that_was_already_dirty_fails_source_clean(self):
         snapshot = source_snapshot(str(self.repository))

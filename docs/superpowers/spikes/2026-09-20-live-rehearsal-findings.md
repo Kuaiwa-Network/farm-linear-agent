@@ -268,7 +268,12 @@ probe returns 270 assemblies with `HotUpdate`'s `moduleMvid` and `hasGameTestDri
 **No test can cover this.** The suite substitutes a fake MCP that returns canned JSON and never
 executes C#. The fix is therefore committed without one, which is stated here rather than hidden.
 
-## Defect 2 — `ready()` misreads a change-triggered snapshot (NEEDS A DECISION)
+## Defect 2 — `ready()` misreads a change-triggered snapshot (FIXED, Task 13)
+
+> Resolved on branch `task-13-readiness-gate` by direction 1 below, minus the reordering it assumed:
+> `collect()` keeps FarmQA's order, because `editor_ready` already ANDs the probe's live flags and only
+> the freshness clause had to go. `staleness.is_stale` and `advice.ready_for_tools` went with it — both
+> are the server's own arithmetic on this same timestamp, so both were circular. See `identity.ready`.
 
 `agent/identity.py:61` requires the editor state to be recent:
 

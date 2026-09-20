@@ -5,11 +5,12 @@ the only thing that can tell a worker the Editor it is talking to really loaded 
 interactive run without it can produce confident evidence about the wrong build, which is worse than no
 evidence at all.
 
-Three things differ from FarmQA. `ready` takes the clock as an argument so the gate is testable without
-sleeping. The observation is returned rather than written: `Ledger.record_identity` owns that table now, and
-no SQLite transaction is ever held across an MCP call. And the verdict is an aggregate over the checks
-instead of the constant BLOCKED, which also means FarmQA's two permanently-unknown checks are gone — see
-`collect`.
+Three things differ from FarmQA. `ready` has no clock at all: the timestamp FarmQA bounded records the last
+state *change* rather than a heartbeat, so the bound refused precisely the idle Editors it was meant to
+admit — see `ready`. The observation is returned rather than written: `Ledger.record_identity` owns that
+table now, and no SQLite transaction is ever held across an MCP call. And the verdict is an aggregate over
+the checks instead of the constant BLOCKED, which also means FarmQA's two permanently-unknown checks are
+gone — see `collect`.
 """
 import hashlib
 import math
@@ -47,21 +48,52 @@ def source_snapshot(repository):
             'index_sha256':index_hash}
 
 
-def ready(state, instance, now_ms=None):
-    """Require current, explicitly idle Edit Mode; missing booleans never pass.
+def ready(state, instance):
+    """Require the expected instance, explicitly idle Edit Mode; missing booleans never pass. No clock.
 
-    `now_ms` is an argument only so the gate can be tested without sleeping ten seconds; production leaves
-    it None and reads the wall clock exactly as FarmQA did.
+    There is deliberately no freshness bound. `observed_at_unix_ms` is not a heartbeat: the plugin's
+    `EditorStateCache.OnUpdate` returns before `BuildSnapshot` whenever nothing it tracks has moved — its
+    own comment is "No state change - skip the expensive BuildSnapshot entirely" (EditorStateCache.cs:348)
+    — `ForceUpdate("tick")` sits after that guard, and `ForceUpdate` is private with no MCP tool reaching
+    it. The field therefore says *when the state last changed*, so the more reliably idle an Editor is, the
+    older its sample grows. FarmQA never hit this because a human clicking around an Editor flips
+    `isFocused`, which is in the change set. Live rehearsal Step 4 measured an age past 117 seconds with
+    `sequence` frozen at 3, every busy flag False and `execute_code` answering throughout, and FarmQA's
+    ten-second bound made that a permanent probe-stage hold on the best-behaved Editors there are.
+
+    The bound was worse than useless, because it was inverted. `GetSnapshot` re-stamps
+    `observed_at_unix_ms` to the read time whenever the Editor is *not* the active application
+    (EditorStateCache.cs:529-532) while leaving the flags exactly as the last rebuild left them. So a
+    backgrounded Editor always looked fresh no matter how old its flags were, and a foregrounded one — a
+    slot this pool launched and left alone, which is every slot — was refused for flags that were current.
+    The clause admitted precisely the case it could not vouch for and rejected the one it could.
+
+    Losing the bound does not lose the safety property, because a frozen timestamp is the stronger signal
+    here, not the weaker one: every flag below has a change trigger that forces a rebuild. The compilation
+    edge bypasses even the one-second throttle (:295-300); `playModeStateChanged` and `beforeAssemblyReload`
+    call `ForceUpdate` directly (:260, :268-273); and `is_updating`, tests-running and the derived activity
+    phase are all in the `hasChanges` set (:336-344). So "this sample is old and says idle" means "nothing
+    has become busy since it was taken". What the bound really caught — a main thread wedged badly enough
+    that the cache cannot tick — is caught instead by the `execute_code` probe `collect` runs next, which
+    cannot return without that thread, and whose live flags are what actually certify `editor_ready`.
+
+    `staleness.is_stale` and `advice.ready_for_tools` went with it because both are the server's own
+    arithmetic on this same timestamp, not independent evidence: `is_stale = age_ms > 2000`, and `is_stale`
+    appends "stale_status" to `blocking_reasons`, whose emptiness *is* `ready_for_tools`
+    (mcpforunityserver services/resources/editor_state.py:186-207). They were a tighter copy of the clause
+    above, which is why `ready_for_tools` was observed going False on an idle Editor. Every other reason
+    they can block — compiling, domain reload, running tests — is checked directly below, and the fourth,
+    `assets.refresh.is_refresh_in_progress`, is hardcoded `false` by the installed plugin
+    (EditorStateCache.cs:473-478).
+
+    `observed_at_unix_ms` must still be a finite number. That is well-formedness, not freshness: `collect`
+    records it on both sides of the probe as evidence in the ledger row.
     """
-    now_ms = time.time()*1000 if now_ms is None else now_ms
     try:
         observed = state['observed_at_unix_ms']
         return (state['schema_version'] == 'unity-mcp/editor_state@2'
                 and type(observed) in (int,float) and math.isfinite(observed)
-                and 0 <= now_ms-observed <= 10000
                 and state['unity']['instance_id'] == instance
-                and state['staleness']['is_stale'] is False
-                and state['advice']['ready_for_tools'] is True
                 and all(state['editor']['play_mode'][key] is False
                         for key in ('is_playing','is_paused','is_changing'))
                 and state['compilation']['is_compiling'] is False
@@ -73,11 +105,11 @@ def ready(state, instance, now_ms=None):
 
 
 def quiet(state):
-    """`ready`'s four busy flags, without the instance comparison and without the staleness bound.
+    """`ready`'s four busy flags, without the schema check, the play-mode flags or the instance comparison.
 
-    Both omissions are deliberate. The refresh wait cannot compare instances, because hearing from the
-    instance is the thing it is waiting for, and it cannot bound staleness, because a compiling Editor stops
-    publishing fresh samples — a freshness rule would turn every long recompile into a timeout.
+    The omissions are deliberate. The refresh wait cannot compare instances, because hearing from the
+    instance is the thing it is waiting for, and it must not mind play mode, because what it is waiting out
+    is a compile or an import and nothing else.
     """
     try:
         return (state['compilation']['is_compiling'] is False

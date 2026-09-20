@@ -928,12 +928,16 @@ class UnityIdentity:
     def quiescent(self, slot, mode):
         """Spec §7's release predicate.
 
-        In interactive mode: the Editor is back in Edit Mode, nothing is compiling, importing or running
-        tests, and the state sample is fresh. In batch mode it is **not** a constant True — the batch release
-        is defined as the Editor process being gone and its results file written, and returning True
-        regardless would let park_idle run `git checkout --force` and `git lfs checkout` over a folder that
-        still held Temp/UnityLockfile and a half-written Library/. That is precisely the corruption slots
-        exist to avoid, and it would read as a project problem rather than a pool bug.
+        In interactive mode: the Editor is the one this slot pinned, it is back in Edit Mode, and nothing is
+        compiling, reloading, importing or running tests. The sample is no longer required to be recent — see
+        `identity.ready`, where that bound refused idle Editors — and the liveness it was standing in for is
+        supplied by the read itself, which an Editor that cannot reach its main thread never answers at all.
+
+        In batch mode it is **not** a constant True — the batch release is defined as the Editor process
+        being gone and its results file written, and returning True regardless would let park_idle run
+        `git checkout --force` and `git lfs checkout` over a folder that still held Temp/UnityLockfile and a
+        half-written Library/. That is precisely the corruption slots exist to avoid, and it would read as a
+        project problem rather than a pool bug.
         """
         if mode == "batch":
             # A live Unity on this folder holds the slot; a dead one leaves only a stale lock, which
