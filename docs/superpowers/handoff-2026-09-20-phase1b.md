@@ -22,27 +22,19 @@ Branch `phase1b-unity-slots`, cut from `main` at `7c88e0c`. **Not pushed.**
 | 1 Every work item pins a commit | `3e52ce9`, `b9fb2b1` | 139 → 150 | complete, review clean |
 | 2 Ledger holds slots and reservations | `99c94e5`, `52e8ca6` | 150 → 165 | complete, review clean |
 | 3 Slot 1 as a detached worktree | `3eca690`, `2875ca9` | 165 → 173 | complete, review clean |
-| 4 The slot switch | `ff65051`, `4ce2390` | 173 → 195 | **implemented + fixed, RE-REVIEW OWED** |
-| 5-11 | — | — | not started |
+| 4 The slot switch | `ff65051`, `4ce2390` | 173 → 195 | complete, review clean |
+| 5-11 | — | — | **not started — resume here** |
 
 Suite: **195 tests, green and warning-free** under `python3 -W error -m unittest discover -s tests`.
 
-### Do this first
+### Resume at Task 5
 
-Task 4's fix round (`4ce2390`) never got its scoped re-review, so Task 4 is not complete.
-Re-review the range `ff65051..4ce2390` against these three findings before starting Task 5:
+Tasks 1-4 are complete and reviewed clean. Task 4's scoped re-review of `ff65051..4ce2390` ran on
+2026-09-20 and returned all three findings ADDRESSED, verified by mutation at all four
+`clear_stale_lock` call sites. There is no unfinished loop to inherit.
 
-1. (Critical) `clear_stale_lock` was handed `lambda: False`, so a `park(..., "batch")` against a
-   live Editor would delete a LIVE lock. Spec §7: the launcher removes the lock file "only after
-   confirming the process is gone". The lock is what enforces Unity's one-Editor-per-folder
-   guarantee; losing it risks two Editors on one folder.
-2. (Critical) Broad `except Exception` in `switch` labelled FarmBot bugs as Unity `probe`
-   failures while holding the only slot. Holding is correct; the label was not.
-3. (Important) The interactive start path never cleared a stale lock before `open_editor`.
-
-The implementer reports all three fixed at four call sites (it found a fourth beyond the ruling:
-`close_editor` treated its own `terminate()` as proof of death). Verify by mutation, with
-`python3 -B`.
+Start with Task 5, the identity probe. Extract its brief, dispatch an implementer, review, fix,
+re-review — the loop is described below.
 
 ## A trap that will bite you
 
