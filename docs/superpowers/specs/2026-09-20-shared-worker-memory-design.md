@@ -1,6 +1,6 @@
 # Shared worker memory
 
-Date: 2026-09-20. Status: proposed; implementation has not started.
+Date: 2026-09-20. Status: approved by the operator; implementation has not started.
 
 ## Purpose and agreed boundaries
 
