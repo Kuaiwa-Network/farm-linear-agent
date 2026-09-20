@@ -33,6 +33,34 @@ def issue_page(cursor, has_next, comments):
 
 
 class LinearAPITests(unittest.TestCase):
+    def test_needs_more_info_adds_only_matching_label_without_replacing_labels(self):
+        api = self.api({
+            "FarmBotInfoLabel": [{"data": {"issue": {"team": {"id": "team"}, "labels": {"nodes": [{"name": "Bug"}]}},
+                "issueLabels": {"nodes": [{"id": "wrong", "team": {"id": "other"}}, {"id": "right", "team": {"id": "team"}}],
+                                "pageInfo": {"hasNextPage": False, "endCursor": None}}}}],
+            "FarmBotAddLabel": [{"data": {"issueAddLabel": {"success": True}}}]})
+        api.needs_more_info("issue")
+        sent = self.http.calls[-1][2]
+        self.assertEqual(sent["variables"], {"id": "issue", "label": "right"})
+        self.assertIn("issueAddLabel", sent["query"])
+
+    def test_needs_more_info_is_idempotent(self):
+        api = self.api({"FarmBotInfoLabel": [{"data": {
+            "issue": {"team": {"id": "team"}, "labels": {"nodes": [{"name": "needs-more-info"}]}},
+            "issueLabels": {"nodes": [], "pageInfo": {"hasNextPage": False, "endCursor": None}}}}]})
+        api.needs_more_info("issue")
+        self.assertEqual(len(self.http.calls), 2)  # authenticate and read; no mutation
+
+    def test_needs_more_info_creates_missing_team_label_and_requires_confirmation(self):
+        api = self.api({"FarmBotInfoLabel": [{"data": {
+            "issue": {"team": {"id": "team"}, "labels": {"nodes": []}},
+            "issueLabels": {"nodes": [], "pageInfo": {"hasNextPage": False, "endCursor": None}}}}],
+            "FarmBotCreateInfoLabel": [{"data": {"issueLabelCreate": {"success": True, "issueLabel": {"id": "new"}}}}],
+            "FarmBotAddLabel": [{"data": {"issueAddLabel": {"success": False}}}]})
+        with self.assertRaises(RuntimeError):
+            api.needs_more_info("issue")
+        self.assertEqual(self.http.calls[-2][2]["variables"]["input"], {"name": "needs-more-info", "teamId": "team"})
+
     def api(self, answers):
         self.http = FakeHTTP(answers)
         return LinearAPI("client", "secret", request=self.http)

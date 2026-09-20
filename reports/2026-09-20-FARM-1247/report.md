@@ -1,5 +1,13 @@
 # FARM-1247 — end-to-end attempt, blocked
 
+**Subsequent operator decision:** zero initially unlocked tables; count only explicit unlocks.
+The operator also approved extending the fix workflow to update Farm-Contract and resume through
+natural language in Linear. Those changes are implemented on the continuation branch, pending
+integration/configuration; the historical run below has not been retried yet. The old claim that
+configuration export necessarily needs a deferred Unity capability was too broad: common's README
+documents a headless producer for both profiles. The consumer import path still needs checking
+against current repository instructions. See `../2026-09-20-conversation-resume/report.md`.
+
 The operator selected [FARM-1247](https://linear.app/kuaiwagames/issue/FARM-1247)
 for Phase 1's real-delivery criterion. The issue says task 410, “累计解锁2个桌子”,
 completed after only one table was unlocked.

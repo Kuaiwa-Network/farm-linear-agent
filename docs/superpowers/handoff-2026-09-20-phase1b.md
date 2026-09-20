@@ -15,6 +15,14 @@ needed to resume is here or in git; nothing important is left in that conversati
 
 ## State
 
+**Later operator-approved workflow update:** fix now includes Farm-Contract; unresolved questions
+use Linear `await-input` with `needs-more-info`. Natural-language continuation is interpreted by
+chat, then a scoped command resumes the original delegated fix with its replies. This supersedes
+the earlier contract-handoff blocker. See `reports/2026-09-20-conversation-resume/report.md`.
+These changes are on the same branch and are not installed in the original service yet. The
+host Farm-Contract remote and isolated bare clone are now prepared. The final combined suite
+passed 347 tests, warning-free; four real chat-worker smoke cases passed against a stub Linear API.
+
 Lifecycle continuation committed as `94a6eaf` on `codex/phase1b-live-rehearsal`.
 Final offline suite: **331 tests, green and warning-free** outside the Codex sandbox.
 
@@ -44,8 +52,9 @@ and its machine-checked evidence, which supersede the previously halted Step 4.
 ### Installed service after rehearsal
 
 The temporary worktree-backed service was removed after the run. The installed service
-is running from the original checkout again, with its config unchanged and `ProcessType`
-corrected to `Standard`. The slot is closed, clean, parked at main, with no active
+is running from the original checkout again, with `ProcessType`
+corrected to `Standard`. Its private config now additionally names Farm-Contract; credentials and
+other settings were preserved. The slot is closed, clean, parked at main, with no active
 reservations; its MCP server was reaped. The lifecycle fixes remain on this branch
 pending PR integration, so they are not yet the installed service's code.
 
@@ -221,8 +230,10 @@ None blocks execution. The final whole-branch review triages which must be fixed
 
 ## What is left
 
-1. Resolve FARM-1247’s contract/configuration conflict before retrying its existing work
-   item. A draft PR delivery is still owed for Phase 1 criterion 5; the webhook itself worked.
+1. Integrate the reviewed branch (Farm-Contract is configured), then resume FARM-1247 with the
+   confirmed zero-unlock decision. The updated worker can correct the contract itself. Check the
+   headless common generator and consumer importer before declaring export unavailable.
+   A draft PR delivery is still owed for Phase 1 criterion 5; the webhook itself worked.
 2. Windows deployment remains last by the user's explicit ordering; no host assigned.
 3. Config export (`-executeMethod`) remains Phase 3+, not part of this continuation.
 4. Historical deferred minors below remain recorded; this continuation addressed

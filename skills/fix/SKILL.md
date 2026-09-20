@@ -36,12 +36,27 @@ the issue changed since it was written. Recheck repository heads, branches and t
 ## Contract consistency before implementation
 
 Before changing code, compare the intended behaviour with the relevant Farm-Contract clauses. You have
-no Farm-Contract worktree and never edit the contract. If the contract contradicts the confirmed
-requirement, post `activity --type elicitation --body-file Q.md` naming the clause and the contract
-change it needs, write the same thing as the blocker comment, and finish blocked with it; contract
-changes are the `feature` skill's job in a later phase. If the intended behaviour itself is undecided,
-ask the same way, then `await-input --question TEXT`, and exit. Record the contradiction and its status
-in every checkpoint.
+an isolated Farm-Contract worktree and may update the contract for this delegated bug, then fix the
+affected client, server or configuration repositories. Read Farm-Contract's own instructions and run
+its openspec workflow from that worktree. Keep contract and implementation PRs linked and in draft;
+record their dependency order. Never merge or deploy them.
+The operator explicitly approved this cross-repository fix workflow on 2026-09-20. It supersedes the
+older consumer/contract rules that require separate human-created sessions solely to cross that
+boundary. Use the appropriate repository cwd for its tools and follow its remaining validation and
+decision rules; do not reintroduce the handoff-only blocker.
+
+If intended behaviour is unclear, the issue lacks necessary detail, or you cannot decide whether the
+contract or implementation is wrong, checkpoint the exact clause, evidence and pending question, then
+run `await-input --question TEXT` and exit. This command adds `needs-more-info` and posts the question
+in the Linear session. Do not separately post an elicitation first, and do not finish blocked merely
+because a human answer is needed. A reply in the session or an @FarmBot mention resumes this item;
+read the answer from your inbox before proceeding. If it is still insufficient, ask again. Never ask
+the operator to move the discussion to Codex or create a separate contract task.
+
+An explicit human decision can resolve a contract conflict: record the answer and its source in the
+checkpoint and contract change, then implement it. Do not invent decisions or attribution. A missing
+generator/tool or external dependency is still a real blocker; name it precisely. Contract access alone
+does not supply a config-export capability. Record the contradiction and its resolution in checkpoints.
 
 ## Verification ladder
 

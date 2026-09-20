@@ -164,6 +164,26 @@ class CliTests(unittest.TestCase):
         parked = self.run_cli("await-input", "--item", item, "--token", token, "--question", "需要哪个环境？")
         self.assertEqual(parked["state"], "awaiting_input")
         self.assertEqual(self.calls()[-1]["content"]["type"], "elicitation")
+        self.assertTrue(any(c["method"] == "needs_more_info" and c["issue_id"] == ISSUE for c in self.calls()))
+
+    def test_resume_work_refreshes_delegation_and_hands_message_to_original_fix(self):
+        from agent.ledger import Ledger
+        app = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
+        fix = self.seeded_item()
+        self.run_cli("cancel", "--item", fix, "--reason", "stopped")
+        chat = self.seeded_item(session="mention", skill="chat")
+        ledger = Ledger(self.db)
+        try:
+            ledger.push_inbox(chat, "请接着做，初始为零，只计算主动解锁")
+            message = ledger.connection.execute("select id from inbox where item_id=?", (chat,)).fetchone()[0]
+        finally:
+            ledger.close()
+        token = self.run_cli("claim", "--item", chat, "--worker-id", "chat")["token"]
+        self.run_cli("resume-work", "--item", chat, "--token", token, "--message-id", str(message), success=False)
+        (self.stub / "issue.json").write_text(json.dumps(issue(labels=["Bug"], delegate_id=app)))
+        resumed = self.run_cli("resume-work", "--item", chat, "--token", token, "--message-id", str(message))
+        self.assertEqual((resumed["id"], resumed["state"]), (fix, "queued"))
+        self.assertEqual(self.calls()[-1]["content"]["type"], "response")
 
     def test_token_file_authorizes_a_renew_and_a_missing_token_is_refused(self):
         item = self.seeded_item()

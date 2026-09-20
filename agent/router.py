@@ -2,7 +2,6 @@
 from dataclasses import dataclass
 
 QA_WORDS = ("测试", "复现", "冒烟", "qa")
-RETRY_WORDS = ("重试",)
 WRITE_SKILLS = ("fix", "fgui", "feature")
 ELICIT_TEXT = ("这个 issue 需要我做什么？请回复「修复」让我处理缺陷，或改为 @FarmBot 提问。"
                "没有 Bug 标签的委派我不会自动开工。")
@@ -28,8 +27,10 @@ def route(*, action, is_delegation, text, labels, active_state, terminal_exists,
         if active_state == "awaiting_input":
             return Decision("resume", None, text)
         return Decision("steer", None, text)
-    if action == "prompted" and terminal_exists and _contains(text, RETRY_WORDS):
-        return Decision("retry")
+    if action == "prompted" and terminal_exists:
+        # The chat worker interprets intent in context; a word inside a question or a
+        # negation must never restart work. Its resume-work tool enforces authority.
+        return Decision("chat", "chat", text)
     if is_delegation and action == "created":
         if "Bug" in labels and "fix" in available_skills:
             return Decision("work", "fix")

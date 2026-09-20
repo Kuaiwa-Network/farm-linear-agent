@@ -28,7 +28,7 @@ from agent.slots import SlotError
 from test_ledger import ISSUE, issue
 
 APP = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
-REPOS = ("Farm-Client", "farm-hive", "farmgui", "common")
+REPOS = ("Farm-Client", "farm-hive", "farmgui", "common", "Farm-Contract")
 
 
 def git(*args, cwd):

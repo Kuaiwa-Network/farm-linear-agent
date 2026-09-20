@@ -225,7 +225,7 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(counts["launched"], 1)
         launched = self.launcher.spawned[0]
         payload = json.loads(launched[1].split("\n\n", 1)[1])
-        self.assertEqual(set(payload["worktrees"]), {"Farm-Client", "farm-hive", "farmgui", "common"})
+        self.assertEqual(set(payload["worktrees"]), {"Farm-Client", "farm-hive", "farmgui", "common", "Farm-Contract"})
         self.assertEqual(launched[2], {})
         self.assertEqual(launched[3], 8 * 3600)
         self.assertEqual(self.ledger.item(item["id"])["worker_pid"], 101)
@@ -238,7 +238,7 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(payload["state_dir"], str(self.launcher.state_dir(item["id"])))
         self.assertTrue(self.launcher.spawn_env["PYTHONPATH"].split(":")[0] == str(ROOT))
         self.assertEqual(self.launcher.spawn_env["FARMBOT_DB"], str(Path(self.tmp.name) / "ledger.sqlite3"))
-        repos = ("Farm-Client", "farm-hive", "farmgui", "common")
+        repos = ("Farm-Client", "farm-hive", "farmgui", "common", "Farm-Contract")
         worktrees = [str(self.trees.root / item["id"] / repo) for repo in repos]
         clones = [str(self.trees.root / "repos" / f"{repo}.git") for repo in repos]  # commits land in the bare clone
         self.assertEqual(self.launcher.spawn_writable[0], str(Path(self.tmp.name)))  # the ledger's directory
