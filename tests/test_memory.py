@@ -177,3 +177,127 @@ class MemoryLedgerTests(LedgerBase):
         self.assertEqual(reopened.item(item)["state"], "running")
         self.assertEqual(reopened.issue(ISSUE)["title"], issue()["title"])
         self.assertEqual(before, [tuple(r) for r in reopened.connection.execute("SELECT * FROM audit")])
+
+
+class MemorySnapshotTests(LedgerBase):
+    def setUp(self):
+        super().setUp()
+        self.root = Path(self.tmp.name) / "memory"
+        self.runs = Path(self.tmp.name) / "runs"
+        self.runs.mkdir()
+
+    def publish(self):
+        from agent import memory
+        return memory.publish_snapshot(self.root, self.ledger.memory_rows())
+
+    def prompt(self, name, payload):
+        import json
+        path = self.runs / name / "attempt" / "prompt.md"
+        path.parent.mkdir(parents=True)
+        path.write_text("authority\n\n" + json.dumps(payload), encoding="utf-8")
+        return path
+
+    def test_index_is_lazy_safe_and_snapshots_are_historical(self):
+        import os
+        note = self.ledger.memory_admin("save", value={**NOTE, "title": "桌子 [test]|<x>"})
+        first = self.publish()
+        index = Path(first["index"])
+        self.assertTrue(index.is_absolute())
+        content = index.read_text()
+        self.assertNotIn(NOTE["body"], content)
+        self.assertIn(note["id"] + ".md", content)
+        self.assertIn("recall", content)
+        self.assertEqual(sum(line.startswith("- ") for line in content.splitlines()), 1)
+        topic = index.parent / (note["id"] + ".md")
+        self.assertIn(NOTE["body"], topic.read_text())
+        self.assertIn(NOTE["source"], topic.read_text())
+        if os.name != "nt":
+            self.assertEqual(index.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(index.parent.stat().st_mode & 0o777, 0o700)
+        topic.write_text("invented rule")
+        second = self.publish()
+        self.assertNotEqual(first["index"], second["index"])
+        self.assertIn(NOTE["body"], (Path(second["index"]).parent / topic.name).read_text())
+        self.ledger.memory_admin("forget", note_id=note["id"], expected_revision=1, reason="outdated")
+        third = self.publish()
+        self.assertEqual(third["count"], 0)
+        self.assertNotIn(note["id"], Path(third["index"]).read_text())
+        self.assertTrue(topic.exists())
+
+    def test_partial_failure_never_publishes(self):
+        from unittest.mock import patch
+        self.ledger.memory_admin("save", value=NOTE)
+        self.ledger.memory_admin("save", value={**NOTE, "request_id": "second"})
+        original = Path.write_text
+        count = [0]
+        def failing(path, *args, **kwargs):
+            count[0] += 1
+            if count[0] == 2: raise OSError("disk full")
+            return original(path, *args, **kwargs)
+        with patch.object(Path, "write_text", failing), self.assertRaises(OSError):
+            self.publish()
+        self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_two_publishers_do_not_overwrite_each_other(self):
+        from agent import memory
+        self.ledger.memory_admin("save", value=NOTE)
+        rows = self.ledger.memory_rows()
+        results = []
+        def worker():
+            try: results.append(memory.publish_snapshot(self.root, rows))
+            except BaseException as exc: results.append(exc)
+        threads = [threading.Thread(target=worker) for _ in range(2)]
+        for t in threads: t.start()
+        for t in threads:
+            t.join(5)
+            self.assertFalse(t.is_alive())
+        self.assertTrue(all(isinstance(r, dict) for r in results), results)
+        self.assertNotEqual(results[0]["index"], results[1]["index"])
+        self.assertTrue(all(Path(r["index"]).is_file() for r in results))
+
+    def test_invalid_stored_ids_and_symlink_root_are_refused(self):
+        from agent import memory
+        row = self.ledger.memory_admin("save", value=NOTE)
+        with self.assertRaises(ValueError):
+            memory.publish_snapshot(self.root, [{**row, "id": "../../outside"}])
+        other = Path(self.tmp.name) / "other"
+        other.mkdir()
+        linked = Path(self.tmp.name) / "linked"
+        linked.symlink_to(other, target_is_directory=True)
+        with self.assertRaises(ValueError): memory.publish_snapshot(linked, [])
+        self.assertEqual(list(other.iterdir()), [])
+
+    def test_prune_preserves_references_and_ignores_unrelated_paths(self):
+        import json
+        from uuid import uuid4
+        from agent import memory
+        keep, remove = self.publish(), self.publish()
+        self.prompt("kept", {"memory": keep})
+        self.prompt("old", {"item_id": "before-memory"})
+        temp = self.root / (".tmp-" + str(uuid4()))
+        temp.mkdir()
+        unrelated = self.root / "other"
+        unrelated.mkdir()
+        outside = Path(self.tmp.name) / "outside"
+        outside.mkdir()
+        link = self.root / str(uuid4())
+        link.symlink_to(outside, target_is_directory=True)
+        result = memory.prune_snapshots(self.root, self.runs)
+        self.assertTrue(Path(keep["index"]).exists())
+        self.assertFalse(Path(remove["index"]).exists())
+        self.assertFalse(temp.exists())
+        self.assertTrue(unrelated.exists())
+        self.assertTrue(link.is_symlink())
+        self.assertTrue(outside.exists())
+        self.assertIn(keep["snapshot_id"], result["retained"])
+
+    def test_prune_validates_all_prompts_before_deleting(self):
+        from agent import memory
+        view = self.publish()
+        bad = self.prompt("bad", {})
+        for text in ("not JSON", 'authority\n\n{"memory":{"status":"ready"}}',
+                     'authority\n\n{"memory":{"status":"ready","index":"/outside/MEMORY.md"}}'):
+            bad.write_text(text)
+            with self.assertRaises(ValueError): memory.prune_snapshots(self.root, self.runs)
+            self.assertTrue(Path(view["index"]).exists())
+        with self.assertRaises(OSError): memory.prune_snapshots(self.root, self.runs / "missing")
