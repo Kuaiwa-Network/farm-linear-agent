@@ -265,3 +265,34 @@ class WorktreeTests(unittest.TestCase):
                 with self.assertRaises(WorktreeError):
                     trees.remote_head("Farm-Client")
         self.assertEqual([a[0] for a in calls], ["ls-remote"])
+
+    def test_a_slot_that_cannot_be_moved_tells_credentials_from_reachability_too(self):
+        """checkout_commit is smudge-on exactly as add_slot is, so a 401 or an unreachable origin surfaces
+        here on every switch after the first — and Task 4's switch wraps it in a SlotError the operator
+        reads. Unlabelled, it says only "git checkout failed", which is the one message that does not tell
+        the operator which of their two problems they have."""
+        slot = Path(self.tmp.name) / "editors" / "slot-4"
+        commit = self.trees.resolve_commit("Farm-Client")
+        self.trees.add_slot("Farm-Client", slot, commit)
+        real = agent.worktrees._git
+
+        def failing(message):
+            def fake(*args, cwd, **kwargs):
+                if args[0] == "checkout":
+                    raise WorktreeError(f"git checkout failed: {message}")
+                return real(*args, cwd=cwd, **kwargs)
+            return fake
+
+        for message, kind in (("HTTP 401 Authorization required", "credentials"),
+                              ("Failed to connect to git.kuaiwa.com port 443: Connection refused", "reachability")):
+            with self.subTest(kind=kind), patch("agent.worktrees._git", failing(message)):
+                with self.assertRaises(WorktreeError) as caught:
+                    self.trees.checkout_commit(slot, commit)
+                self.assertIn(f"({kind})", str(caught.exception))
+                self.assertIn(message, str(caught.exception))
+        # A bad reference is the operator's third problem and is re-raised exactly as git worded it.
+        with patch("agent.worktrees._git", failing("fatal: reference is not a tree: deadbeef")):
+            with self.assertRaises(WorktreeError) as caught:
+                self.trees.checkout_commit(slot, commit)
+        self.assertNotIn("(credentials)", str(caught.exception))
+        self.assertNotIn("(reachability)", str(caught.exception))

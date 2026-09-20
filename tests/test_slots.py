@@ -36,10 +36,17 @@ class SlotFixture(unittest.TestCase):
         self.now += seconds
 
     def pool(self, worktrees=None, **kwargs):
-        # Task 4 extends this with the collaborators its constructor adds (sleep, editor_scan, editor_pid);
-        # here it passes only what Task 3's constructor accepts, or every case below raises TypeError.
+        # editor_scan and editor_pid are both stubbed: a developer with their own Unity Editor open would
+        # otherwise fail every switch test on their machine, and neither test may shell out to pgrep.
+        # editor_pid answers from the fake's open_folders, which is what makes it liveness rather than the
+        # lock file — the whole point of Task 0 Step 5's +32 s finding.
+        mcp = kwargs.get("mcp")
+        kwargs.setdefault("editor_scan", lambda folder: None)
+        kwargs.setdefault("editor_pid",
+                          lambda folder: 4242 if mcp is not None and str(folder) in mcp.open_folders else None)
         return SlotPool(self.ledger, worktrees or self.trees, [self.entry], host="test",
-                        editors_root=self.root / "editors", clock=lambda: self.now, **kwargs)
+                        editors_root=self.root / "editors", clock=lambda: self.now,
+                        sleep=self.advance, **kwargs)
 
     def commit(self, message="more"):
         (self.origin / f"{message}.txt").write_text(message, encoding="utf-8")
@@ -115,3 +122,218 @@ class EnsureTests(SlotFixture):
                              {"Farm-Client": str(self.origin)})).ensure()
         self.assertIn("unity_slot:1", str(caught.exception))
         self.assertIn("ls-files", str(caught.exception))
+
+
+INSTANCE = "slot-1@0123456789abcdef"
+
+
+class FakeMcp:
+    """Stands in for the Unity MCP client: records what the pool asked the Editor to do, and stands in for
+    the Editor *process* by keeping `open_folders` — which is what the injected `editor_pid` reads, exactly
+    as `agent.unity.editor_holds_project` reads the real process listing.
+
+    It also writes the lock file on start and deliberately does **not** remove it on terminate, because the
+    real Editor does not either (Task 0 Step 5: still present at +32 s after the process was gone). The two
+    are kept apart on purpose: `open_folders` is liveness, the lock file is the litter Unity leaves. The
+    pool's own removal of that litter is what the close test proves, and a double that tidied up after
+    itself would hide the bug the spike found."""
+
+    def __init__(self, ready=True, quiet=True, console_errors=(), instance=INSTANCE):
+        self.ready = ready
+        self.quiet = quiet
+        self.console_errors = list(console_errors)
+        self.instance = instance
+        self.calls = []
+        self.open_folders = set()
+
+    def _lock(self, slot):
+        return Path(slot["folder"]) / "Temp" / "UnityLockfile"
+
+    def start(self, slot, entry):
+        self.calls.append(("start", slot["slot_id"]))
+        self._lock(slot).parent.mkdir(parents=True, exist_ok=True)
+        self._lock(slot).write_text("1", encoding="utf-8")
+        self.open_folders.add(slot["folder"])
+        return self.instance
+
+    def terminate(self, slot, timeout):
+        """SIGTERM and confirm the pid is gone. The lock file is left exactly where Unity leaves it."""
+        self.calls.append(("terminate", slot["slot_id"]))
+        self.open_folders.discard(slot["folder"])
+
+    def reap_server(self, slot):
+        """The uvx MCP server outlives the Editor and keeps port 8080 bound; the pool kills it by pidfile."""
+        self.calls.append(("reap_server", slot["slot_id"]))
+
+    def refresh(self, slot):
+        self.calls.append(("refresh", slot["slot_id"]))
+
+    def wait_quiet(self, slot, timeout):
+        self.calls.append(("wait_quiet", slot["slot_id"]))
+        if not self.quiet:
+            raise TimeoutError("still compiling")
+
+    def console_errors_since(self, slot, marker):
+        self.calls.append(("console", slot["slot_id"]))
+        return list(self.console_errors)
+
+    def probe(self, slot, target):
+        self.calls.append(("probe", slot["slot_id"]))
+        return {"aggregate": "match" if self.ready else "mismatch",
+                "checks": {"source_commit": "match" if self.ready else "mismatch"}}
+
+    def quiescent(self, slot, mode):
+        self.calls.append(("quiescent", slot["slot_id"]))
+        return self.ready
+
+
+class SwitchTests(SlotFixture):
+    def test_a_batch_switch_moves_the_slot_to_the_commit_and_marks_it_busy(self):
+        self.pool().ensure()
+        commit = self.commit("fix")          # made on the origin *after* ensure: the switch must fetch
+        pool = self.pool(mcp=FakeMcp())
+        slot = pool.switch("unity_slot:1", commit, "batch")
+        self.assertEqual(slot["state"], "batch_busy")
+        self.assertEqual(self.trees.head(self.root / "editors" / "slot-1"), commit)
+        self.assertEqual(pool.mcp.calls, [])  # a batch run on a closed slot needs no MCP at all (spec §7)
+
+    def test_an_interactive_switch_on_a_closed_slot_starts_the_editor_before_it_probes(self):
+        self.pool().ensure()
+        commit = self.commit("fix")
+        pool = self.pool(mcp=FakeMcp())
+        slot = pool.switch("unity_slot:1", commit, "interactive")
+        self.assertEqual(slot["state"], "interactive_busy")
+        self.assertEqual([name for name, _ in pool.mcp.calls],
+                         ["start", "refresh", "wait_quiet", "console", "probe"])
+        # The instance the Editor reported is recorded, so the worker and the next probe can address it.
+        self.assertEqual(self.ledger.slot("unity_slot:1")["instance"], INSTANCE)
+
+    def test_an_interactive_switch_on_an_open_slot_does_not_restart_the_editor(self):
+        self.pool().ensure()
+        pool = self.pool(mcp=FakeMcp())
+        pool.switch("unity_slot:1", self.commit("one"), "interactive")
+        pool.park("unity_slot:1", "interactive")
+        self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "idle_open")
+        pool.mcp.calls.clear()
+        pool.switch("unity_slot:1", self.commit("two"), "interactive")
+        self.assertNotIn("start", [name for name, _ in pool.mcp.calls])
+
+    def test_a_stale_lock_file_never_makes_a_dead_editor_look_open(self):
+        """The brief argues at length that editor_is_open must be a process question and never a file one,
+        and then gives no test that can fail if it is a file one: everywhere else in this class the pool
+        removes the lock itself, so the file and the live process agree. This is the case Task 0 Step 5
+        actually measured — the lock still present 32 s after the process was gone. Read as liveness it
+        would say "open", switch() would skip open_editor, refresh() would hit an endpoint with no Editor
+        behind it, and the one slot would end held at the probe stage after any crash or unreaped close."""
+        self.pool().ensure()
+        lock = self.root / "editors" / "slot-1" / "Temp" / "UnityLockfile"
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        lock.write_text("1", encoding="utf-8")   # litter from a crashed Editor; no process holds the folder
+        pool = self.pool(mcp=FakeMcp())
+        pool.switch("unity_slot:1", self.commit("fix"), "interactive")
+        self.assertEqual([name for name, _ in pool.mcp.calls][0], "start")
+
+    def test_a_batch_switch_on_an_open_slot_closes_the_editor_gracefully_first(self):
+        """All three parts of Task 0 Step 5's close, in one assertion: the Editor is signalled rather than
+        asked (EditorApplication.Exit(0) does not close it), the lock file is removed by the *pool* because
+        Unity leaves it behind, and the uvx MCP server is reaped because it outlives the Editor and would
+        otherwise still be holding port 8080 when the next open_editor runs."""
+        self.pool().ensure()
+        pool = self.pool(mcp=FakeMcp())
+        pool.switch("unity_slot:1", self.commit("one"), "interactive")
+        pool.park("unity_slot:1", "interactive")
+        pool.mcp.calls.clear()
+        pool.switch("unity_slot:1", self.commit("two"), "batch")
+        self.assertEqual([name for name, _ in pool.mcp.calls], ["terminate", "reap_server"])
+        self.assertFalse((self.root / "editors" / "slot-1" / "Temp" / "UnityLockfile").exists())
+
+    def test_a_dirty_slot_refuses_to_switch_and_says_which_stage_failed(self):
+        self.pool().ensure()
+        (self.root / "editors" / "slot-1" / "README.md").write_text("edited by hand", encoding="utf-8")
+        with self.assertRaises(SlotError) as caught:
+            self.pool(mcp=FakeMcp()).switch("unity_slot:1", self.commit("fix"), "batch")
+        self.assertEqual(caught.exception.stage, "git")
+
+    def test_a_failing_identity_probe_fails_at_the_probe_stage_not_the_git_stage(self):
+        self.pool().ensure()
+        with self.assertRaises(SlotError) as caught:
+            self.pool(mcp=FakeMcp(ready=False)).switch("unity_slot:1", self.commit("fix"), "interactive")
+        self.assertEqual(caught.exception.stage, "probe")
+
+    def test_a_refresh_that_never_goes_quiet_fails_at_the_probe_stage_before_any_probe(self):
+        self.pool().ensure()
+        pool = self.pool(mcp=FakeMcp(quiet=False))
+        with self.assertRaises(SlotError) as caught:
+            pool.switch("unity_slot:1", self.commit("fix"), "interactive")
+        self.assertEqual(caught.exception.stage, "probe")
+        self.assertNotIn("probe", [name for name, _ in pool.mcp.calls])
+
+    def test_an_editor_that_is_still_compiling_is_waited_for_rather_than_failed(self):
+        """The deadline loop is why Task 0 Step 5's 5.7-9.6 s recompiles do not fail an item: the first
+        sample after a refresh normally observes is_compiling. Nothing else in this class can fail if
+        wait_for_quiet gives up on its first TimeoutError, and a one-shot version would turn every genuine
+        recompile into a probe-stage hold on the only slot there is."""
+        class SlowToSettle(FakeMcp):
+            def wait_quiet(self, slot, timeout):
+                super().wait_quiet(slot, timeout)          # records the sample
+                if sum(name == "wait_quiet" for name, _ in self.calls) < 3:
+                    raise TimeoutError("still compiling")
+
+        self.pool().ensure()
+        pool = self.pool(mcp=SlowToSettle())
+        started = self.now
+        slot = pool.switch("unity_slot:1", self.commit("fix"), "interactive")
+        self.assertEqual(slot["state"], "interactive_busy")
+        self.assertEqual(sum(name == "wait_quiet" for name, _ in pool.mcp.calls), 3)
+        self.assertGreater(self.now, started)   # the injected sleep, not a real one, paced the samples
+
+    def test_a_compile_error_fails_the_item_at_its_own_stage_and_leaves_the_slot_usable(self):
+        """spec §7 asks for 'zero Console errors'. A project that does not compile is the item's problem: it
+        must not take the one slot out of the pool until a human runs recover-slot."""
+        self.pool().ensure()
+        pool = self.pool(mcp=FakeMcp(console_errors=["Assets/A.cs(3,1): error CS1002: ; expected"]))
+        with self.assertRaises(SlotError) as caught:
+            pool.switch("unity_slot:1", self.commit("fix"), "interactive")
+        self.assertEqual(caught.exception.stage, "compile")
+        self.assertIn("CS1002", str(caught.exception))
+
+    def test_a_stale_lockfile_is_cleared_and_a_live_one_is_kept(self):
+        self.pool().ensure()
+        lock = self.root / "editors" / "slot-1" / "Temp" / "UnityLockfile"
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        lock.write_text("1", encoding="utf-8")
+        self.assertFalse(SlotPool.clear_stale_lock(lock.parent.parent, lambda: True))
+        self.assertTrue(lock.exists())
+        self.assertTrue(SlotPool.clear_stale_lock(lock.parent.parent, lambda: False))
+        self.assertFalse(lock.exists())
+        self.assertFalse(SlotPool.clear_stale_lock(lock.parent.parent, lambda: False))
+
+    def test_another_editor_on_the_host_holds_the_slot_before_any_git_runs(self):
+        """The contention preflight is not decoration: it must refuse *before* the fetch and the checkout,
+        and it must hold the slot (probe) rather than offer a retry (git), because a second Editor losing a
+        licence race reports as something that reads like project corruption."""
+        class Untouchable(Worktrees):
+            def fetch(self, repo):
+                raise AssertionError("switch() ran git before the contention preflight")
+
+        self.pool().ensure()
+        spy = Untouchable(self.root / "repos", self.root / "worktrees", {"Farm-Client": str(self.origin)})
+        pool = self.pool(spy, mcp=FakeMcp(), editor_scan=lambda folder: "/Users/x/Farm-Client")
+        with self.assertRaises(SlotError) as caught:
+            pool.switch("unity_slot:1", "0" * 40, "batch")
+        self.assertEqual(caught.exception.stage, "probe")
+        self.assertIn("/Users/x/Farm-Client", str(caught.exception))
+
+    def test_park_returns_a_batch_slot_to_main_closed_and_an_interactive_slot_to_main_open(self):
+        self.pool().ensure()
+        pool = self.pool(mcp=FakeMcp())
+        pool.switch("unity_slot:1", self.commit("fix"), "batch")
+        main = self.trees.resolve_commit("Farm-Client")
+        slot = pool.park("unity_slot:1", "batch")
+        self.assertEqual((slot["state"], slot["parked_commit"]), ("idle_closed", main))
+        self.assertEqual(self.trees.head(self.root / "editors" / "slot-1"), main)
+        pool.switch("unity_slot:1", self.commit("more"), "interactive")
+        main = self.trees.resolve_commit("Farm-Client")
+        slot = pool.park("unity_slot:1", "interactive")
+        # spec §7: "After an interactive run the Editor stays open, parked on main."
+        self.assertEqual((slot["state"], slot["parked_commit"]), ("idle_open", main))

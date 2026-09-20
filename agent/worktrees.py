@@ -202,7 +202,18 @@ class Worktrees:
     def checkout_commit(self, path, commit):
         if not self.COMMIT.match(commit or ""):
             raise WorktreeError("a slot is only ever moved to a full commit")
-        _git("checkout", "--detach", "--force", commit, cwd=path, env=SLOT_ENV, timeout=3600)
+        try:
+            _git("checkout", "--detach", "--force", commit, cwd=path, env=SLOT_ENV, timeout=3600)
+        except WorktreeError as exc:
+            # Smudge is on here exactly as it is in add_slot, so the LFS download for the incoming commit
+            # happens inside this checkout: a 401 or an unreachable origin surfaces here on every switch
+            # after the first. The switch wraps this in a SlotError the operator reads, and an unlabelled
+            # "git checkout failed" is the one message that does not say which of their two problems it is.
+            # A failure that is neither is re-raised as it came: `reference is not a tree` is a third problem.
+            kind = _transfer_kind(exc)
+            if kind is None:
+                raise
+            raise WorktreeError(f"git checkout failed ({kind}): {exc}") from exc
         self.materialize(path)
         self.skip_generated(path)   # idempotent; a forced checkout is the one thing that could drop the bit
         return commit
