@@ -15,37 +15,66 @@ needed to resume is here or in git; nothing important is left in that conversati
 
 ## State
 
-Branch `phase1b-tasks-5-11`, cut from `main` at `b4efc61` (PR #1, Tasks 1-4, merged 2026-09-20).
+**Updated 2026-09-20, end of the Claude Code session.** Everything below supersedes the older text.
 
-| Task | Commits | Tests | Status |
-|---|---|---|---|
-| 1-4 | merged in PR #1 | 139 → 195 | complete |
-| 5 The identity probe | `e00ad8f`, `121c249` | 195 → 217 | complete, review clean |
-| 6 The pool thread | `8db579c`, `0d8e882` | 217 → 241 | complete, review clean |
-| 7 Tool injection | `bae5210` | 241 → 260 | complete, **no fix round needed** |
-| 8 Worker CLI and operator view | `880c430`, `63b4bcb` | 260 → 269 | complete, review clean |
-| 9 Stop and recovery | `a4f0130`, `d0eeb37` | 269 → 274 | complete, review clean |
-| 10 **Criterion 3 proof** | `a338fb9`, `dba9f34` | 274 → 280 | complete, review clean |
-| 11 The live rehearsal | — | — | **not started — resume here** |
+Branch **`task-13-readiness-gate`**, pushed. **PR #5 is open against `main`, ready for review, not a
+draft**: https://github.com/Kuaiwa-Network/farm-linear-agent/pull/5
 
-Suite: **280 tests, green and warning-free** under `python3 -W error -m unittest discover -s tests`.
+| Task | Status |
+|---|---|
+| 1-4 | merged, PR #1 |
+| 5-10 | merged. **Criterion 3 proved offline**, both arrival orders |
+| 12 outbox dedup + swept evidence | merged, PR #4. Not in the plan; forced by the live rehearsal |
+| 11 live rehearsal | **Steps 1-3 PROVED live. Step 4 halted twice, both defects now fixed. Steps 5-9 owed** |
+| 13 readiness gate | complete, two review verdicts + scoped re-review, **in PR #5** |
 
-**Phase 1 done-criterion 3 is proved offline.** Two items that both need Unity serialize on the
-single slot through the two-phase flow, one batch and one interactive, each switched to its own
-pinned commit and parked back on `origin/main` between them. Both arrival orders pass. The proof
-survived mutations designed to break it — including dropping the UNIQUE index *and* acquire's
-free-state gate so two owners were physically legal, and making `park()` skip the checkout when
-another request was queued.
+Suite: **306 tests, green and warning-free** under `python3 -W error -m unittest discover -s tests`.
 
-### Resume at Task 11
+PR #5 carries six commits: two from Task 11 (`52b2b92` Step 3 write-up, `b5964d6` the probe fix),
+three from Task 13, and a refreshed workspace archive. It is based on `main` because
+`task-11-live-rehearsal` was never pushed.
 
-Task 11 is different in kind from 1-10: it writes no code. It opens a **real Unity Editor** on the
-real 6.1 GB slot at `.local/editors/slot-1`, runs the real 4388-test suite against real commits,
-rehearses a Stop against a live batch run and checks with `pgrep` that the Editor actually died, and
-restarts the service mid-run via `launchctl kickstart` to prove a shutdown does not orphan an Editor.
+### What Task 11 proved, and where it stopped
 
-Those last two are the point. Every offline test uses a fake; only a live run can show the fakes are
-not lying. Expect 15-20 minutes of a busy machine and GUI windows opening.
+**Steps 1-3 are real.** The launcher genuinely runs Unity — pid 46016 as a child of `serve` — the
+slot switches, and a batch run produced **4414 tests in 130.9 s with 26 failures matching Task 0's
+baseline exactly**. The sha1 instance rule holds in production, the MCP server self-starts as a
+`uvx` child of the Editor on port 8080, and the hold/recover path is sound.
+
+**Step 4 (the interactive path) halted twice, on two defects the test suite is structurally
+incapable of catching** — it substitutes a fake MCP returning canned JSON, so nothing executes C#.
+Both are now fixed in PR #5. Full detail:
+`docs/superpowers/spikes/2026-09-20-live-rehearsal-findings.md`, section "Step 4 result".
+
+### RESUME HERE — re-run Step 4 against a live Editor
+
+**This is the single most important thing outstanding, and nothing in PR #5 has been verified
+against a real Editor.** Both fixes are reasoning from source plus mutation and differential
+evidence. This codebase has already shipped an identity probe that passed three review rounds and
+could not work against a real Editor; the failure mode was identical. Only a live run settles it.
+
+Merge PR #5 first, then:
+
+```
+python3 -m agent.service serve --config <config>          # the service; it launches Unity itself
+python3 -m agent.service enqueue --issue <FARM-xxxx> --skill fix
+python3 -m agent.service slots                             # watch state transitions
+```
+
+Drive it through `enqueue` rather than the webhook — a quick tunnel takes a new hostname on every
+restart, and the user has asked to be told when it needs re-pasting rather than worked around.
+
+**When it halts, clean up in this order** (the slot is held on purpose, which is spec §7 working):
+
+```
+pkill -f 'Unity.app/Contents/MacOS/Unity'                  # or kill the pid from `slots`
+lsof -ti :8080 | xargs kill                                # reap the MCP server
+rm -f .local/editors/slot-1/Temp/UnityLockfile
+python3 -m agent --db .local/agent/ledger.sqlite3 recover-slot --slot unity_slot:1
+```
+
+The slot is currently **`idle_closed`**, instance `slot-1@e7fe013d9909e41a`, clean. Confirm with
+`python3 -m agent.service slots` before and after any run.
 
 ## A trap that will bite you
 
@@ -203,27 +232,20 @@ None blocks execution. The final whole-branch review triages which must be fixed
 
 ## What is left
 
-Tasks 5-11. Task 10 is the point of the whole plan — it discharges **Phase 1 done-criterion 3**,
-"two delegated items that both need Unity serialize on the single slot through the two-phase flow,
-one in batch mode and one interactive, with the slot switched to each pinned commit and parked back
-on main afterwards". Task 11 then rehearses it live against the real slot and a real Editor.
-
-| Task | What it does |
-|---|---|
-| 5 | The identity probe — proves the Editor really loaded the pinned commit |
-| 6 | The pool grants a slot on its own thread and settles it afterwards |
-| 7 | A worker is launched with exactly the tools its reservation allows (also flips `ProcessType` to `Standard`) |
-| 8 | The worker asks for a slot, gives it back; the operator can see the pool |
-| 9 | Stop and recovery never orphan a slot |
-| 10 | **Two items serialize on the one slot, offline** — criterion 3 |
-| 11 | The live rehearsal on this Mac, with no webhook |
-
-After Task 11, Phase 1 still owes **criterion 5** — one real bug delivered end to end as a draft
-PR. That is not blocked by this plan. It needs the Cloudflare quick tunnel restarted and its new
-hostname pasted into the Linear app settings, then a delegated bug that genuinely needs a code
-change. Webhook delivery itself is proven: Linear delivered to this Mac on 2026-09-18 and FarmBot's
-comments from that run are still on FARM-1127 and FARM-1227. The only recurring breakage is that a
-quick tunnel takes a new random hostname on every restart.
+1. **Task 11 Steps 4-9** — re-run Step 4 (above), then: Stop against a live batch run verified with
+   `pgrep` rather than the ledger's own opinion, a service restart mid-run proving
+   `stop_all_unsandboxed` does not orphan an Editor, the `check-rehearsal.py` script, the report,
+   and the commit.
+2. **Phase 1 criterion 5** — one real bug delivered end to end as a draft PR. Still the only
+   unproven criterion. Not blocked by this plan. Needs the quick tunnel restarted and its new
+   hostname pasted into the Linear app settings, then a delegated bug that genuinely needs a code
+   change. Webhook delivery itself is **proven** — Linear delivered to this Mac on 2026-09-18 and
+   FarmBot's comments from that run are still on FARM-1127 and FARM-1227. Only the hostname rotates.
+3. **The Windows plan, last**, by the user's explicit ordering: no Windows host has been assigned.
+   Runtime spike re-run, supervisor port, retiring both prototypes.
+4. **A config-export capability** (`-executeMethod`) is deferred to Phase 3+. `batch_test_command`
+   hardcodes `-runTests`; `grep -rn executeMethod agent/ skills/` returns nothing.
+5. **~35 deferred minor findings** across Tasks 1-13, listed above, for a final whole-branch review.
 
 ## If you continue in Codex rather than Claude Code
 
@@ -235,3 +257,24 @@ loop described above has to be followed by hand or approximated; and if you run 
 rather than dispatching implementers, keep the review step anyway — every task in this plan so far
 has contained at least one real defect, and several were found only by mutation-testing a test that
 looked fine.
+
+**Three hard-won rules from the 2026-09-20 session, worth carrying over:**
+
+- **Green tests on the Unity boundary are evidence about Python only.** The suite fakes MCP and
+  never executes C#. Two defects reached a live Editor after passing three document reviews,
+  per-task reviews and adversarial mutation testing. Do not treat a green suite as proof that
+  anything works against Unity.
+- **Do not add a gate condition you cannot verify live.** That is exactly how both Step 4 defects
+  arrived. A `sequence`-based liveness check was proposed during Task 13's review and deliberately
+  deferred for this reason; the rationale is recorded in the findings write-up.
+- **Write blast radius by grepping, not from memory.** The Task 13 brief claimed `ready()` had two
+  call sites. It has three, and the third was the interactive *release* predicate with the same
+  failure mode. And never mutate a working tree while a reviewer is reading it — from the outside it
+  is indistinguishable from a silent revert, and it cost one false CRITICAL.
+
+**Codex-specific gotchas already measured** (detail in the spike): `codex exec --approve-for-me` uses
+`sandbox_workspace_write`, and **Unity hangs inside that seatbelt** on a denied Mach lookup for
+`com.apple.hiservices-xpcservice`. Unity must be launched unsandboxed. The launchd job must carry
+`ProcessType=Standard` — `Background` measured 7.5x slower for a Unity batch run (105 s against
+14 s) because a job's scheduling band is inherited by everything it spawns; this is already fixed at
+`agent/deploy.py:33`.
