@@ -1,6 +1,16 @@
 # Issue closure, explicit continuation, and job retention
 
-Status: approved with the user’s correction to retain `awaiting_input`; implementation planning.
+Status: scope narrowed by the user; the broader design below is superseded where it conflicts with this notice. Do not implement it unchanged.
+
+## Current scope — latest user direction
+
+- Handle issue completion, cancellation and archival: stop active work, cancel waiting work, preserve unfinished source changes, and safely clean up owned worktrees/resources.
+- Keep logs. No automatic log expiry, run-history compaction, or memory-snapshot pruning is authorized by this change.
+- Keep `awaiting_input` and leave current reply/resume behavior unchanged for now. The explicit-continuation redesign is set aside while the user clarifies Linear message triggers.
+- A cancelled job remains cancelled; explicit reactivation uses a fresh job as previously agreed. Reopening alone does not launch work.
+- Preserve recovery evidence and existing Linear/GitHub history. Do not broaden this cleanup into conversation routing or retention changes.
+
+The detailed sections below describe the earlier broader proposal, not an executable implementation scope. They must be rewritten around the scope above before implementation.
 
 ## Intent and agreed behavior
 

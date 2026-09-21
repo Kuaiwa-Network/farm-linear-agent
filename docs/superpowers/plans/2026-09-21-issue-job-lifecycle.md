@@ -1,5 +1,7 @@
 # Issue Job Lifecycle Implementation Plan
 
+> **WITHDRAWN FOR SCOPE REVISION — do not execute this version.** The user narrowed this change to closed/cancelled/archived issue processing, safe source preservation and resource/worktree cleanup, with fresh jobs for explicit reactivation of cancelled work. Keep all logs. Keep the paused state and leave ordinary reply/resume behavior unchanged for now. The explicit-resume redesign, log expiry, history compaction and online snapshot pruning in this earlier plan are out of scope. Rewrite the affected tasks before implementation; the current scope is recorded at the top of the linked spec.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Cancel and clean up work on closed issues safely, keep paused jobs, require explicit continuation, and create fresh jobs when cancelled work is reactivated.
