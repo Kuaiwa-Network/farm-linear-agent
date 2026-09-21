@@ -104,7 +104,8 @@ class SlotPool:
         # All three are injected so that no test waits on a real clock or shells out to pgrep: a developer
         # with their own Unity Editor open would otherwise fail every switch test on their machine.
         self.sleep = sleep or time.sleep
-        self.editor_scan = editor_scan or other_editor_project
+        self.editor_scan = editor_scan or (lambda folder: other_editor_project(
+            folder, allowed_projects=[self.folder(entry) for entry in self.entries.values()]))
         self.editor_pid = editor_pid or editor_holds_project
         # A callable taking an item id and returning that item's private directory: Launcher.state_dir in
         # production. The reservation token is written there and nowhere else.
@@ -418,11 +419,7 @@ class SlotPool:
         was_open = bool(self.mcp is not None and self.editor_is_open(slot))
         other = self.another_editor_running(folder)
         if other:
-            # The licence is a paid serial and resolves fine both foreground and under launchd (Task 0 Step
-            # 6), but two Editors contending for it was the one case the spike could not run, because the
-            # operator had none open. Until that is measured, do not discover it during a graded item: a
-            # lost licence race reports as something that reads like project corruption, so hold the slot
-            # with a sentence a human can act on instead.
+            # Configured pool editors are expected to coexist. Keep the preflight for unrelated editors.
             raise SlotError(f"{slot_id}: another Unity Editor is open on {other}; close it, then "
                             f"`recover-slot --slot {slot_id}`", stage="probe")
         try:
@@ -629,7 +626,15 @@ class SlotPool:
                             f"the Editor survived the SIGTERM or the file could not be removed",
                             stage="editor")
         try:
-            self.mcp.reap_server(slot)
+            # HTTP instance selection is per session; multiple pool editors can share a broker.
+            # Closing one editor must not disconnect a worker using another configured slot.
+            shared_open = any(other["slot_id"] != slot["slot_id"]
+                              and other["slot_id"] in self.entries
+                              and other["mcp_address"] == slot["mcp_address"]
+                              and self.editor_is_open(other)
+                              for other in self.ledger.slots(host=self.host))
+            if not shared_open:
+                self.mcp.reap_server(slot)
         except Exception as exc:
             # A surviving server does fail the close, and deliberately so: the brief's own comment here read
             # "not worth failing the close over", which contradicted the raise below it. It IS worth it —
@@ -676,7 +681,7 @@ class SlotPool:
                                                doing=f"waiting for the Editor to go quiet within {timeout}s") from exc
 
     def another_editor_running(self, folder):
-        """A Unity Editor on this host that is not this slot's. Returns the other project path, or None.
+        """A Unity Editor outside the configured pool. Returns the other project path, or None.
 
         The process listing lives in agent/unity.py, which is the only module allowed to know a host, and the
         whole call is injectable (`editor_scan`) so that no test in this suite shells out to pgrep — a

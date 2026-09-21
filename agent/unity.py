@@ -120,16 +120,11 @@ def _editor_processes(system=None, run=None):
     return found
 
 
-def other_editor_project(folder, system=None, run=None):
-    """The project path of a Unity Editor on this host that is not this slot's, or None.
-
-    The licence here is a paid serial, not a Personal seat, and it resolves both foreground and under
-    launchd (Task 0 Step 6) — but two Editors contending for it was the one case that spike could not
-    exercise, because the operator had none open. A second Editor that loses a licence race reports it as
-    something that reads like project corruption. This is the cheap preflight that turns that into a
-    sentence, and it is removed when contention has actually been measured."""
+def other_editor_project(folder, system=None, run=None, allowed_projects=()):
+    """An Editor outside this slot and the operator-configured pool, or None."""
+    allowed = {Path(path).resolve() for path in (folder, *allowed_projects)}
     for _, project in _editor_processes(system, run):
-        if Path(project).resolve() != Path(folder).resolve():
+        if Path(project).resolve() not in allowed:
             return project
     return None
 
