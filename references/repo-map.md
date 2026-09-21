@@ -27,7 +27,7 @@ process and should not need edits for repository changes. Last grounded:
 | Repository | Sweep access | Role |
 | --- | --- | --- |
 | Farm-Client | Read/write | Unity client: HotUpdate/AOT code, tests, generated protobuf artifacts (network + config), published FGUI descriptors |
-| farmgui | Read/write | FairyGUI source (XML), source tests/contracts, authorized GUI publishing |
+| farmgui | Read/write | FairyGUI source (XML), source tests/contracts, authorized paid-CLI publishing |
 | farm-hive | Read/write | The Go game server (`modules/<feature>/`). The only server fix surface |
 | Farm-Contract | Read/write for `fix` in its own worktree | Behavior contracts (`openspec/specs/`) and network proto (`proto/`); follow repo instructions and record confirmed decisions |
 | common (`Kuaiwa-Network/common`, local checkout often `farm-common`) | Read/write for `fix`: designer-owned config tables corrected at their source and regenerated through `designer/configgen`, as draft PRs | Designer-owned config tables and the `designer/configgen` Go toolchain |
@@ -90,11 +90,22 @@ this contract. Missing generators remain explicit verification gaps or blockers.
   resolve the tools by their suffix, not by a hardcoded prefix. If no Linear
   MCP tool is reachable, that is a system-wide failure: stop, do not
   substitute a saved list or a web read.
-- FairyGUI publishing: no supported CLI publisher exists, and this project's
-  Claude Code setup has no desktop-driving binding (the Codex copy of this
-  skill binds `computer-use:computer-use` here). Treat the FairyGUI Editor
-  publish as a user hand-off: prepare the farmgui XML change in its worktree,
-  state exactly which packages need republishing, and record the unpublished
-  descriptor as a verification gap rather than copying stale `_fui.bytes`.
+- FairyGUI publishing (operator instruction, 2026-09-21): the Windows editor at
+  `C:/FairyGUI-Editor/FairyGUI-Editor.exe` has a paid license and its batch export
+  has been verified. During an authorized FGUI bug fix, FarmBot may export the
+  affected packages directly without another permission request or human GUI
+  handoff. This applies to both Codex and Claude Code workers and supersedes the
+  earlier unpaid-license handoff and separate export-approval guidance.
+  Run `-batchmode -p <job-worktree/FGUIProject.fairy> -b <comma-separated-packages>
+  -o <absolute-job-staging-directory> -logFile <absolute-log-file>` with a timeout
+  and only one publisher per project/output directory. `-o` is literal and does
+  not expand `{publish_file_name}`. Verify exit, completion logs, fresh descriptor
+  identities, dependencies, atlas inventory and hashes; stage validated outputs
+  into the authorized client worktree's package directories, preserving `.meta`
+  GUIDs, then run the relevant Unity checks. Never hand-edit generated files or
+  substitute stale outputs. A failed export is a technical blocker to diagnose,
+  not a reason to request routine export permission. Use another host only after
+  verifying its paid-license activation. This authority covers local export and
+  issue-scoped client integration; existing PR, merge and deployment rules remain.
 - `wsl-server-build` is retired along with farm-server; never load it for
   sweep work.
