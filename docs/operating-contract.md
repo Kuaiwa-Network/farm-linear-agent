@@ -81,6 +81,30 @@ SIGTERM to the service runs batch-process cleanup during startup or normal servi
 the earlier live `launchctl kickstart -k` rehearsal also removed the batch Editor; this is not a promise
 that Python cleanup executes after SIGKILL. Reservation release still requires a quiescence probe.
 
+## UI source ownership
+
+For UI fixes, inspect the relevant farmgui source before choosing an implementation. When the
+problem is in the authored hierarchy, layout, relations, controllers or reusable components,
+change that FGUI source first, then adapt client bindings and behaviour as needed. Prefer one
+clear source of truth over runtime reparenting, hard-coded offsets, duplicate components or
+per-screen patches that compensate for an incorrect UI definition. Keep changes scoped to the
+issue and check other consumers of any shared component you change.
+
+Keep gameplay rules, data binding, event handling and genuinely dynamic UI behaviour in code.
+If the FGUI structure is already correct and the defect is in that logic, fix the code; do not
+rewrite FGUI just to satisfy a source-first preference. Record the chosen layer and its reason
+in the checkpoint and PR. Optimise for correctness, explicit ownership and maintainability for
+both humans and AI, rather than whichever tool is easiest for the current worker to use.
+
+Missing publishing automation does not justify a code workaround for a structural defect.
+Prepare the FGUI source change and identify the packages requiring publication and the checks
+still needed. Follow the publishing handoff in `references/repo-map.md`; never hand-edit generated
+`.bytes`/atlases or claim runtime verification against stale outputs. If the intended UI is unclear,
+ask in Linear using `await-input` (which adds `needs-more-info`).
+
+This is also a requirement for the future `fgui` and `feature` workers. It grants no additional
+repository, publishing or deployment authority and does not imply those workers exist today.
+
 ## Shared memory
 
 Workers share bounded recall notes in the ledger, with an immutable Markdown index and topic files
