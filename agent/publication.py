@@ -18,6 +18,10 @@ class PublicationError(RuntimeError):
     pass
 
 
+class PublicationUnavailable(PublicationError):
+    """A temporary transport failure, not a rejected publishing destination."""
+
+
 def github_repository(url):
     match = re.fullmatch(r'(?:https://github\.com/|ssh://git@github\.com/|git@github\.com:)'
                          r'([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?', str(url), re.IGNORECASE)
@@ -30,13 +34,24 @@ def github_api(endpoint, *, missing_ok=False):
     try:
         result = subprocess.run(['gh', 'api', '--hostname', 'github.com', '--method', 'GET', endpoint],
                                 capture_output=True, text=True, timeout=20)
-    except (OSError, subprocess.TimeoutExpired) as exc:
+    except subprocess.TimeoutExpired as exc:
+        raise PublicationUnavailable('GitHub verification timed out') from exc
+    except OSError as exc:
         raise PublicationError('GitHub verification unavailable') from exc
+    if result.returncode:
+        diagnostic = (result.stderr or "").lower()
+        status = re.search(r"http (\d{3})", diagnostic)
+        if ((status and int(status[1]) in (429, 500, 502, 503, 504))
+                or any(term in diagnostic for term in ("tls handshake timeout", "i/o timeout",
+                       "context deadline exceeded", "connection reset by peer", "unexpected eof"))):
+            raise PublicationUnavailable('GitHub metadata transport temporarily unavailable')
     try:
         data = json.loads(result.stdout)
     except ValueError as exc:
         raise PublicationError('GitHub verification returned no usable metadata') from exc
     if result.returncode:
+        if isinstance(data, dict) and str(data.get('status')) in ('429', '500', '502', '503', '504'):
+            raise PublicationUnavailable('GitHub metadata service temporarily unavailable')
         if missing_ok and isinstance(data, dict) and str(data.get('status')) == '404':
             return None
         # Never echo raw stderr: credentials and transport URLs do not belong in launch prompts.

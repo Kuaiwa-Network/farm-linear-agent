@@ -140,12 +140,16 @@ class Worktrees:
         self._head_cache[repo] = (time.monotonic(), commit, None)
         return commit
 
-    def add(self, repo, item_id, branch):
+    def add(self, repo, item_id, branch, *, refresh=True):
         if not branch or not SAFE_BRANCH.match(branch) or branch.startswith("-"):
             raise WorktreeError("unsafe branch name")
+        path = self.worktrees_root / item_id / repo
+        # A publication retry resumes the existing commits even while origin is offline.
+        # PublicationVerifier still checks the worktree and destination before any push.
+        if not refresh and path.exists():
+            return path
         clone = self.ensure_clone(repo)
         self.fetch(repo)
-        path = self.worktrees_root / item_id / repo
         if path.exists():
             return path
         path.parent.mkdir(parents=True, exist_ok=True)

@@ -49,7 +49,8 @@ class Scheduler:
         paths = {}
         if skill.writes:
             for repo in skill.writes:
-                paths[repo] = self.worktrees.add(repo, item["id"], self._branch(issue))
+                options = {"refresh": False} if item["publication_retries"] else {}
+                paths[repo] = self.worktrees.add(repo, item["id"], self._branch(issue), **options)
         else:
             paths[READ_REPO] = self.worktrees.add_detached(READ_REPO, item["id"])
         return paths

@@ -277,17 +277,25 @@ def run(args, ledger, api_factory):
         if (item['skill'] not in WRITE_SKILLS or not skill or args.repo not in skill.writes
                 or not session.get('delegation')):
             raise LedgerError("only a delegated write worker may verify an allowed publishing repository")
-        api = api_factory()
-        issue = api.fetch_issue(item['issue_id'])
-        ledger.observe_issue(issue)
-        if (not api.app_user_id or issue.get('delegate_id') != api.app_user_id or issue.get('archived')
-                or issue.get('status_type') in ('completed', 'canceled')):
-            raise LedgerError("issue must remain open and delegated to FarmBot")
-        trees = Worktrees(paths.repos, paths.worktrees, config.repos)
-        branch = _git('branch', '--show-current', cwd=paths.worktrees / args.item / args.repo)
-        result = PublicationVerifier(trees).verify(args.repo, args.item, issue['identifier'], branch)
-        ledger.renew(args.item, token)  # fence cancellation while network checks were in progress
-        return result
+        from .publication import PublicationUnavailable
+        from .publication_retry import verify_with_retries
+
+        def verify_current():
+            api = api_factory()
+            issue = api.fetch_issue(item['issue_id'])
+            ledger.observe_issue(issue)
+            if (not api.app_user_id or issue.get('delegate_id') != api.app_user_id or issue.get('archived')
+                    or issue.get('status_type') in ('completed', 'canceled')):
+                raise LedgerError("issue must remain open and delegated to FarmBot")
+            trees = Worktrees(paths.repos, paths.worktrees, config.repos)
+            branch = _git('branch', '--show-current', cwd=paths.worktrees / args.item / args.repo)
+            result = PublicationVerifier(trees).verify(args.repo, args.item, issue['identifier'], branch)
+            ledger.renew(args.item, token)  # fence cancellation while network checks were in progress
+            return result
+        try:
+            return verify_with_retries(verify_current, lambda: ledger.renew(args.item, token))
+        except PublicationUnavailable:
+            return ledger.defer_publication_retry(args.item, token, args.repo)
     if c == "await-resource":
         token = resolve_token(args)
         if args.commit is not None:
