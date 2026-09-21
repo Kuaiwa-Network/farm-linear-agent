@@ -76,6 +76,7 @@ class Launcher:
         self.clock = clock
         self._handles = {}
         self._stopping = {}
+        self._jobs = {}
         # Touched from two threads at once: run_unsandboxed registers from the pool thread while
         # Scheduler.stop and serve()'s shutdown read from theirs.
         self._unsandboxed = {}
@@ -88,6 +89,9 @@ class Launcher:
 
     @staticmethod
     def alive(pid):
+        if os.name == "nt":
+            from .windows_job import alive
+            return alive(pid)
         try:
             os.kill(pid, 0)
         except OSError:
@@ -145,6 +149,12 @@ class Launcher:
         stdout = open(run_dir / "stdout.log", "w", encoding="utf-8")
         stderr = open(run_dir / "stderr.log", "w", encoding="utf-8")
         kwargs = {"start_new_session": True} if os.name != "nt" else {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+        job = None
+        if os.name == "nt":
+            from .windows_job import WindowsJob
+            job = WindowsJob()
+            command = [sys.executable, "-I", str(Path(__file__).with_name("windows_worker_gate.py")),
+                       str(run_dir), *command]
         try:
             with self._unsandboxed_lock:
                 if self._shutdown or item_id in self._cancelled_runs or (cancelled and cancelled()):
@@ -152,13 +162,32 @@ class Launcher:
                     raise RuntimeError("launch cancelled before process creation")
                 process = subprocess.Popen(command, cwd=str(cwd), env=env, stdin=subprocess.PIPE, stdout=stdout, stderr=stderr,
                                            text=True, encoding="utf-8", **kwargs)
+                if job is not None:
+                    try:
+                        job.assign(process)
+                    except BaseException:
+                        process.kill()
+                        process.wait()
+                        process.stdin.close()
+                        process_record.write_text(json.dumps({"state": "not_started"}), encoding="utf-8")
+                        raise
                 handle = Handle(item_id, process.pid, self.clock(), self.clock() + budget_seconds, run_dir, process, last_message)
                 self._handles[item_id] = handle
-                (run_dir / "process.json").write_text(json.dumps({"pid": process.pid}), encoding="utf-8")
+                record = {"pid": process.pid}
+                if job is not None:
+                    self._jobs[item_id] = job
+                    record["windows_job"] = job.name
+                process_record.write_text(json.dumps(record), encoding="utf-8")
+        except BaseException:
+            if job is not None:
+                job.close()
+            raise
         finally:
             stdout.close()
             stderr.close()
         try:
+            if job is not None:
+                process.stdin.write("G")
             process.stdin.write(message)
         except (BrokenPipeError, OSError) as exc:
             (run_dir / "stdin-error.txt").write_text(f"{type(exc).__name__}: prompt not fully delivered\n", encoding="utf-8")
@@ -305,9 +334,10 @@ class Launcher:
 
     @staticmethod
     def descendants(pid):
-        """Pids below pid at this moment, deepest last. Empty on Windows, where taskkill /T walks the tree."""
+        """Pids below pid at this moment; diagnostics alone cannot prove an exited tree is empty."""
         if os.name == "nt":
-            return []
+            from .windows_job import descendants
+            return descendants(pid)
         try:
             out = subprocess.run(["ps", "-eo", "pid=,ppid="], capture_output=True, text=True, timeout=5).stdout
         except (OSError, subprocess.TimeoutExpired):
@@ -370,6 +400,10 @@ class Launcher:
 
     def _kill(self, handle, grace):
         process = handle.process
+        if handle.item_id in self._jobs:
+            self._finish_job(handle)
+            process.wait(timeout=max(grace, 1))
+            return
         if process.poll() is not None:
             return
         survivors = self.descendants(process.pid)
@@ -404,18 +438,35 @@ class Launcher:
                 self._signal_pid(pid, signal.SIGKILL)
         (handle.run_dir / "killed.json").write_text(json.dumps({"pid": process.pid, "descendants": survivors}), encoding="utf-8")
 
+    def _finish_job(self, handle):
+        job = self._jobs[handle.item_id]
+        job.terminate_and_wait()
+        # Evidence is written only after Windows reports zero active members.
+        (handle.run_dir / "killed.json").write_text(json.dumps({
+            "pid": handle.pid, "descendants": [], "windows_job": job.name, "empty": True}), encoding="utf-8")
+        job.close()
+        del self._jobs[handle.item_id]
+
     def assert_quiescent(self, item_id, pid, recorded_processes=()):
         """Dead parents do not prove detached children died. Missing evidence holds cleanup."""
         root = self.state_dir(item_id)
         pids = {pid} if pid else set()
+        contained = set()
         for path in root.glob("*/process.json"):
             attempt = json.loads(path.read_text(encoding="utf-8"))
             if attempt.get("state") == "not_started":
                 continue
             if not attempt.get("pid"):
                 raise RuntimeError("incomplete launch identity; operator investigation required")
+            if os.name == "nt" and attempt.get("windows_job"):
+                from .windows_job import WindowsJob
+                if not WindowsJob.empty(attempt["windows_job"]):
+                    raise RuntimeError("Windows worker job still has active processes")
+                contained.add(attempt["pid"])
             pids.add(attempt["pid"])
-        verified = set(recorded_processes)
+        # Job identity is independent of PID reuse; never signal a new owner of an old PID.
+        pids -= contained
+        verified = set(recorded_processes) | contained
         for path in root.glob("*/killed.json"):
             data = json.loads(path.read_text(encoding="utf-8"))
             verified.add(data["pid"])
@@ -454,6 +505,8 @@ class Launcher:
             code = handle.process.poll()
             if code is None:
                 continue
+            if item_id in self._jobs:
+                self._finish_job(handle)
             reason = self._stopping.pop(item_id, "exited")
             finished.append(Finished(item_id, code, self._read_last_message(handle), reason != "exited", reason))
             del self._handles[item_id]

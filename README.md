@@ -109,6 +109,28 @@ session resumes the waiting job even without an @mention. An ordinary issue comm
 session does not start a worker unless it mentions FarmBot. Reopening a cancelled issue starts nothing;
 an authorized continuation creates a fresh job linked to the cancelled job's recovery evidence.
 
+## Windows worker cleanup
+
+Windows worker attempts run in a host-owned Job Object with kill-on-close enabled.
+A startup gate prevents the CLI from creating children before containment is established.
+Normal exit, failure, timeout and Stop all drain the job before cleanup is recorded;
+receiver termination also closes the job. Shared Unity editors are launched separately
+by the slot pool and are not members of a worker job. The worker PID in the ledger is
+the gate process; the Codex/Claude CLI is its child.
+
+Old attempts created before containment may retain an unverified-descendant warning.
+A missing parent PID is insufficient evidence to remove their worktrees. After a planned
+machine restart, the trusted host operator can record boot evidence with:
+
+```powershell
+python -m agent.service recover-worker-cleanup --item ITEM_ID --reason "Planned restart completed"
+```
+
+This command refuses active jobs, unsettled reservations, another host, or a boot older
+than any launch/attempt record. It records an audit entry; the scheduler still preserves
+source and verifies cleanup normally. It neither restarts the machine nor retries the job.
+Do not edit `process.json`, `killed.json` or cleanup records to bypass missing evidence.
+
 ## Shared worker memory
 
 FarmBot starts with an empty memory store. Workers may save reusable corrections,
