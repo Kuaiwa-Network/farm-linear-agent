@@ -705,11 +705,15 @@ or name the exact gap.
 publishes under the `fgui_editor` reservation through the batchmode CLI if the Pro
 license has been bought by then and otherwise through the desktop actor, runs the
 client's atlas and dependency guard tests, and opens the PR.
+Its implementation must follow the UI source ownership rule in `docs/operating-contract.md`:
+correct authored UI structure at its source before adapting client behaviour.
 
 **Phase 5: feature.** The `feature` skill drafts the contract change with openspec in a
 Farm-Contract worktree, opens a draft PR, and waits at the contract-decision gate. On
 approval it spawns client and hive work items in parallel, then a QA verification, and
 delivers.
+UI features must also follow that rule: include farmgui source work when the feature needs a
+structural change, with publication and verification dependencies before claiming completion.
 
 **Phase 6: Android devices.** `DeviceAgent` reports build identity; the prepare-target
 stage gains the hot-update and full-player build tiers on a batch slot; `android_device`

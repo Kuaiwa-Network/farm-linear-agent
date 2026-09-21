@@ -40,6 +40,10 @@ work done there.
 
 ## Generated artifacts and their owning generators
 
+For UI changes, follow **UI source ownership** in `docs/operating-contract.md`: correct authored
+structure in farmgui before adapting client code; keep behaviour and data logic in code. An
+unavailable publisher is a handoff requirement, not a reason to patch around the UI structure.
+
 Never hand-edit any of these; each changes only as the fresh output of its
 documented generator run against a clean, manifest-valid source checkout.
 
