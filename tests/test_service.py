@@ -58,6 +58,7 @@ class ServeTests(unittest.TestCase):
                         repos=remotes, max_concurrent=2, port=0, local_root=root / "local")
         self.c = build(config)
         self.addCleanup(self.drain_workers)
+        self.addCleanup(self.c.lifecycle.ledger.close)
         self.addCleanup(self.c.pool.close)
         self.addCleanup(self.c.receiver.close)
         self.addCleanup(self.c.ledger.close)
@@ -131,6 +132,15 @@ class ServeTests(unittest.TestCase):
             self.c.pool.ledger.connection.execute("SELECT 1")
         self.assertEqual(self.c.ledger.connection.execute("SELECT 1").fetchone()[0], 1)
 
+    def test_lifecycle_owns_its_connection_and_launches_require_preflight(self):
+        self.assertIsNot(self.c.lifecycle.ledger.connection, self.c.ledger.connection)
+        self.assertTrue(callable(self.c.scheduler.preflight))
+        control = self.c.scheduler.control_ledger_factory()
+        try:
+            self.assertIsNot(control.connection, self.c.ledger.connection)
+        finally:
+            control.close()
+
     def test_build_hands_the_pool_the_launchers_runner_and_the_scheduler_the_same_slot_entries(self):
         """The production wiring of Task 7's two injections, asserted on build() rather than on objects a
         test constructed. A pool with no runner refuses every batch grant, and a scheduler with no entries
@@ -145,6 +155,7 @@ class ServeTests(unittest.TestCase):
         self.addCleanup(components.ledger.close)
         self.addCleanup(components.receiver.close)
         self.addCleanup(components.pool.close)
+        self.addCleanup(components.lifecycle.ledger.close)
         self.assertEqual(components.scheduler.slot_entries, components.pool.entries)
         self.assertEqual(components.scheduler.slot_entries["unity_slot:1"]["build_target_argument"], "OSXUniversal")
         self.assertEqual(components.pool.run_unsandboxed, components.launcher.run_unsandboxed)

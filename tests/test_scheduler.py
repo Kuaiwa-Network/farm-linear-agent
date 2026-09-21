@@ -46,7 +46,7 @@ class FakeLauncher:
     def state_dir(self, item_id):
         return self.runs / item_id
 
-    def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None, writable=()):
+    def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None, writable=(), cancelled=None):
         self.next_pid += 1
         self.spawned.append((item_id, message, mcp_servers, budget_seconds, str(cwd)))
         self.spawn_env = dict(extra_env or {})
@@ -96,7 +96,7 @@ class HandleAwareLauncher(FakeLauncher):
         super().__init__()
         self.handles = set()
 
-    def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None, writable=()):
+    def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None, writable=(), cancelled=None):
         handle = super().spawn(item_id, message, mcp_servers, budget_seconds, cwd, extra_env, writable)
         self.handles.add(item_id)
         return handle
@@ -792,7 +792,7 @@ class SchedulerTests(unittest.TestCase):
             self.scheduler.lock.release()
         thread.join(timeout=5)
         self.assertEqual(self.launcher.handles, set())  # killed once the lock was ours
-        self.assertEqual(self.launcher.stopped, [item["id"], item["id"]])
+        self.assertEqual(self.launcher.stopped, [item["id"]])
         self.assertNotIn(item["id"], self.scheduler.active)
         self.assertEqual(self.ledger.item(item["id"])["state"], "cancelled")
 

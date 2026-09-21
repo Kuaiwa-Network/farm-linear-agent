@@ -165,3 +165,14 @@ class CancellationCleanupTests(unittest.TestCase):
         with patch.object(self.launcher, 'descendants', return_value=[778], create=True), patch.object(self.launcher, 'kill_pid', side_effect=kill):
             self.scheduler.tick()
         self.assertTrue(self.ledger.cleanup_record(item['id'])['done'])
+
+    def test_live_descendant_recorded_in_attempt_directory_holds_cleanup(self):
+        item = self.item()
+        self.ledger.cancel(item['id'], 'closed')
+        attempt = self.launcher.state_dir(item['id']) / 'attempt-1'
+        attempt.mkdir(parents=True)
+        (attempt / 'killed.json').write_text(json.dumps({'pid': 777, 'descendants': [778]}))
+        self.launcher.alive_pids.add(778)
+        self.scheduler.tick()
+        self.assertFalse(self.ledger.cleanup_record(item['id'])['done'])
+        self.assertNotIn(('removed', item['id'], None), self.trees.added)

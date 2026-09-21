@@ -116,7 +116,7 @@ class ReceiverTests(ReceiverBase):
         self.assertEqual(self.receive(signature="bad")[0], 401)
         self.assertEqual(self.receive(self.event(webhookTimestamp=0))[0], 401)
         self.assertEqual(self.receive(self.event(appUserId="someone"))[0], 403)
-        self.assertEqual(self.receive({"type": "Issue", "action": "update", "webhookTimestamp": 100_000}), (200, "ignored"))
+        self.assertEqual(self.receive({"type": "Issue", "action": "update", "webhookTimestamp": 100_000}), (403, "identity mismatch"))
 
     def test_delegation_without_bug_label_elicits_without_creating_an_item(self):
         self.api.fetch_issue.return_value = issue(labels=["需求"], delegate_id=APP)
@@ -263,3 +263,23 @@ class HttpTests(ReceiverBase):
         self.assertNotIn("body", json.dumps(lines))  # outcomes only, never the payload
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=5) as response:
             self.assertEqual(json.load(response)["status"], "FarmBot ready")
+
+
+class IssueNotificationTests(ReceiverBase):
+    def notification(self, **changes):
+        return {'type': 'Issue', 'action': 'update', 'organizationId': 'org',
+                'webhookTimestamp': 100_000, 'data': {'id': ISSUE}, **changes}
+
+    def test_issue_notification_uses_organization_identity_and_queues_tracked_only(self):
+        self.assertEqual(self.receive(self.notification()), (200, 'ignored'))
+        self.ledger.observe_issue(issue())
+        self.assertEqual(self.receive(self.notification()), (200, 'accepted'))
+        self.assertEqual(self.receive(self.notification()), (200, 'accepted'))
+        self.assertTrue(self.ledger.status_check(ISSUE)['requested'])
+        self.api.fetch_issue.assert_not_called()
+        self.scheduler.stop.assert_not_called()
+
+    def test_issue_notification_rejects_foreign_invalid_and_unsigned_inputs(self):
+        self.assertEqual(self.receive(self.notification(organizationId='foreign'))[0], 403)
+        self.assertEqual(self.receive(self.notification(data={'id': '../unsafe'}))[0], 400)
+        self.assertEqual(self.receive(self.notification(), signature='bad')[0], 401)

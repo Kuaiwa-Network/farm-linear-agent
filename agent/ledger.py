@@ -92,6 +92,7 @@ def _normalize(raw):
         raise LedgerError("complete issue detail and all comment pages are required")
     value = {key: raw[key] for key in required}
     value["delegate_id"] = raw.get("delegate_id")
+    value["updated_at"] = _timestamp(raw["updated_at"], "updated_at") if raw.get("updated_at") else None
     for field in ["id", "team_id"]:
         value[field] = _uuid(value[field], field)
     for field in ["identifier", "title", "status", "status_type", "url"]:
@@ -196,6 +197,15 @@ class Ledger:
                     fingerprint TEXT NOT NULL,
                     observed_at REAL NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS issue_checks (
+                    issue_id TEXT PRIMARY KEY REFERENCES issues(id),
+                    due_at REAL NOT NULL DEFAULT 0,
+                    requested INTEGER NOT NULL DEFAULT 0,
+                    checked_at REAL NOT NULL DEFAULT 0,
+                    failures INTEGER NOT NULL DEFAULT 0,
+                    error TEXT
+                );
+                INSERT OR IGNORE INTO issue_checks(issue_id) SELECT id FROM issues;
                 CREATE TABLE IF NOT EXISTS sessions (
                     session_id TEXT PRIMARY KEY,
                     issue_id TEXT,
@@ -409,17 +419,78 @@ class Ledger:
         """Store one complete snapshot. Observing a comment is not authority to restart."""
         issue = _normalize(raw)
         with self._transaction():
+            previous = self.connection.execute("SELECT metadata FROM issues WHERE id=?", (issue["id"],)).fetchone()
+            if previous:
+                previous = json.loads(previous["metadata"])
+                if previous.get("updated_at") and (not issue.get("updated_at") or
+                        self._version(issue["updated_at"]) <= self._version(previous["updated_at"])):
+                    for key in ("status", "status_type", "archived", "delegate_id", "updated_at"):
+                        issue[key] = previous.get(key)
             own_bodies = {r["body"] for r in self.connection.execute("SELECT body FROM outbox WHERE issue_id=?", (issue["id"],))}
             own_prs = {r["url"] for r in self.connection.execute("SELECT url FROM published_prs WHERE issue_id=?", (issue["id"],))}
             fingerprint = _fingerprint(issue, own_bodies, own_prs)
             self.connection.execute("""INSERT INTO issues(id,metadata,fingerprint,observed_at) VALUES(?,?,?,?)
                 ON CONFLICT(id) DO UPDATE SET metadata=excluded.metadata,fingerprint=excluded.fingerprint,observed_at=excluded.observed_at""",
                                     (issue["id"], _json(issue), fingerprint, self.clock()))
+            self.connection.execute("INSERT OR IGNORE INTO issue_checks(issue_id) VALUES(?)", (issue["id"],))
         return {"id": issue["id"], "identifier": issue["identifier"], "fingerprint": fingerprint,
                 "in_scope": _in_scope(issue)}
 
     def issue(self, issue_id):
         return json.loads(self._issue_row(issue_id)["metadata"])
+
+    @staticmethod
+    def _version(value):
+        return datetime.fromisoformat(_timestamp(value, "updated_at").replace("Z", "+00:00")).timestamp()
+
+    def apply_issue_status(self, raw):
+        issue_id = _uuid(raw.get("id"), "issue")
+        version = self._version(raw.get("updated_at"))
+        for key in ("status", "status_type"):
+            _text(raw.get(key), key)
+        if type(raw.get("archived")) is not bool:
+            raise LedgerError("archived must be boolean")
+        if raw.get("delegate_id") is not None:
+            _uuid(raw["delegate_id"], "delegate_id")
+        with self._transaction():
+            current = self.issue(issue_id)
+            if current.get("updated_at") and version < self._version(current["updated_at"]):
+                return current
+            for key in ("status", "status_type", "archived", "delegate_id", "updated_at"):
+                current[key] = raw.get(key)
+            self.connection.execute("UPDATE issues SET metadata=?,observed_at=? WHERE id=?",
+                                    (_json(current), self.clock(), issue_id))
+        return current
+
+    def request_status_check(self, issue_id):
+        issue_id = _uuid(issue_id, "issue")
+        with self._transaction():
+            return bool(self.connection.execute("UPDATE issue_checks SET requested=1,due_at=0 WHERE issue_id=?",
+                                                (issue_id,)).rowcount)
+
+    def status_check(self, issue_id):
+        row = self.connection.execute("SELECT * FROM issue_checks WHERE issue_id=?", (issue_id,)).fetchone()
+        return dict(row) if row else None
+
+    def due_issue(self):
+        row = self.connection.execute("""SELECT c.issue_id FROM issue_checks c WHERE c.due_at<=?
+            AND (c.requested=1 OR EXISTS (SELECT 1 FROM work_items w WHERE w.issue_id=c.issue_id
+                AND w.state IN ('queued','running','awaiting_input','awaiting_resource','blocked')))
+            ORDER BY c.checked_at,c.due_at,c.issue_id LIMIT 1""", (self.clock(),)).fetchone()
+        return row["issue_id"] if row else None
+
+    def finish_status_check(self, issue_id, interval, error=None):
+        with self._transaction():
+            previous = self.status_check(issue_id)
+            failures = previous["failures"] + 1 if error else 0
+            delay = min(300, 5 * 2 ** min(failures - 1, 6)) if error else interval
+            self.connection.execute("""UPDATE issue_checks SET due_at=?,checked_at=?,requested=0,
+                failures=?,error=? WHERE issue_id=?""",
+                (self.clock() + delay, self.clock(), failures, error, issue_id))
+
+    def unfinished_for_issue(self, issue_id):
+        return [self._view(r) for r in self.connection.execute("""SELECT * FROM work_items WHERE issue_id=?
+            AND state IN ('queued','running','awaiting_input','awaiting_resource','blocked')""", (issue_id,))]
 
     def ensure_session(self, session_id, issue_id, delegation, guidance=None):
         """Guidance is Linear's operator text for this session; later events may add it."""

@@ -18,7 +18,9 @@ READ_REPO = "Farm-Client"
 class Scheduler:
     def __init__(self, ledger, launcher, skills, worktrees, *, skill_root, db_path, runtime_name, host,
                  max_concurrent=2, guidance_for=lambda item: "", claim_timeout=600, api=None,
-                 slot_entries=None):
+                 slot_entries=None, preflight=None, control_ledger_factory=None):
+        self.preflight = preflight
+        self.control_ledger_factory = control_ledger_factory
         self.api = api
         self.ledger = ledger
         self.launcher = launcher
@@ -119,9 +121,12 @@ class Scheduler:
         # `writable` is deliberately unchanged: no slot folder and no Unity host path is ever added to a
         # worker's roots, in either mode. The worker reads the results XML in its own state directory, which
         # Launcher.spawn already makes writable, and writes nothing in the slot.
+        if self.ledger.item(item["id"])["state"] != "queued":
+            return None
         handle = self.launcher.spawn(item["id"], message, servers, int(skill.budget["max_hours"] * 3600), cwd=primary,
                                      extra_env={"FARMBOT_DB": str(self.db_path), "PYTHONPATH": pythonpath},
-                                     writable=[Path(self.db_path).parent, *paths.values(), *clones])
+                                     writable=[Path(self.db_path).parent, *paths.values(), *clones],
+                                     cancelled=lambda: self.ledger.item(item["id"])["state"] != "queued")
         try:
             self.ledger.set_worker(item["id"], handle.pid, self.host, int(skill.budget["lease_seconds"]))
         except LedgerError:
@@ -149,22 +154,26 @@ class Scheduler:
             pass
 
     def _fail_launch(self, item_id, exc):
-        try:
-            self.worktrees.remove(item_id)
-        except Exception:
-            pass
+        if self.ledger.item(item_id)["state"] == "cancelled":
+            return
         try:
             self.ledger.fail_queued(item_id, f"launch failed: {type(exc).__name__}: {exc}"[:500])
         except LedgerError:
             return
+        self._retire(item_id, "failed")
         self._notify(item_id, "error", f"FarmBot 无法启动工作进程（{type(exc).__name__}），工作项已标记失败；可回复「重试」。")
 
     def stop(self, item_id, reason):
         # Revoke the claim durably before signalling; a late worker may no longer write the ledger.
+        control = self.control_ledger_factory() if self.control_ledger_factory else self.ledger
         try:
-            self.ledger.cancel(item_id, reason)
-        except LedgerError:
-            pass
+            try:
+                control.cancel(item_id, reason)
+            except LedgerError:
+                pass
+        finally:
+            if control is not self.ledger:
+                control.close()
         # The batch Editor is not a worker and never went through `spawn`, so `launcher.stop` below cannot
         # see it: its handle lookup and its `descendants` walk both start from a worker pid, and by now that
         # worker has already exited — it asked for the reservation and quit. Killing the group here is what
@@ -179,16 +188,7 @@ class Scheduler:
         # settle. `SlotPool.run_batch` closes the other half: the window before the Editor is registered.
         self.launcher.stop_unsandboxed(item_id)
         # Killing the worker must not wait for an in-flight tick: a human pressed Stop.
-        killed = self.launcher.stop(item_id)
-        with self.lock:
-            if not killed:
-                # The tick may have been mid-launch: its worker was registered after the first kill.
-                self.launcher.stop(item_id)
-            self.active.pop(item_id, None)
-            try:
-                self.ledger.cancel(item_id, reason)
-            except LedgerError:
-                pass
+        self.launcher.stop(item_id)
 
     def _reap(self):
         reaped = 0
@@ -270,8 +270,7 @@ class Scheduler:
                     self.launcher.kill_pid(pid)
                 if any(self.launcher.alive(p) for p in result.get("processes", [])):
                     raise RuntimeError("worker processes have not exited")
-                killed = self.launcher.state_dir(item_id) / "killed.json"
-                if killed.exists():
+                for killed in self.launcher.state_dir(item_id).glob("*/killed.json"):
                     data = json.loads(killed.read_text(encoding="utf-8"))
                     if any(self.launcher.alive(p) for p in data.get("descendants", [])):
                         raise RuntimeError("worker descendants have not exited")
@@ -322,8 +321,10 @@ class Scheduler:
             reaped = self._reap()
             recovered = self._recover()
             self._sweep_worktrees()
-            launched = 0
-            for item in self.ledger.queue():
+            queue = self.ledger.queue()
+        launched = 0
+        for item in queue:
+            with self.lock:
                 if len(self.active) >= self.max_concurrent:
                     break
                 if item["skill"] not in self.skills or item["id"] in self.active:
@@ -334,12 +335,16 @@ class Scheduler:
                         continue
                 reservation = self.ledger.active_reservation(item["id"])
                 if reservation is not None and reservation["state"] == "cancel_requested":
-                    # The old pool hand-over may still be unwinding after Stop. Do not give a retried
-                    # worker its cancelled token or let it race cleanup of the preceding attempt.
+                    continue
+            # Network calls never hold the scheduler lock. Stop uses its own SQLite connection.
+            if self.preflight and not self.preflight(item):
+                continue
+            with self.lock:
+                if self.ledger.item(item["id"])["state"] != "queued":
                     continue
                 try:
-                    self.launch(item)
-                    launched += 1
+                    if self.launch(item) is not None:
+                        launched += 1
                 except Exception as exc:
                     self._fail_launch(item["id"], exc)
-            return {"launched": launched, "reaped": reaped, "recovered": recovered}
+        return {"launched": launched, "reaped": reaped, "recovered": recovered}

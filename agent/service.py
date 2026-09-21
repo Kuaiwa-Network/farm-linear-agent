@@ -12,6 +12,7 @@ from .config import Paths, configure, linear_api, load_config, ROOT
 from .deploy import AGENTS, install, missing_tools
 from .launcher import RUNTIMES, Launcher
 from .ledger import Ledger
+from .lifecycle import Lifecycle
 from .receiver import Receiver, make_server
 from .router import WRITE_SKILLS
 from .scheduler import Scheduler
@@ -20,7 +21,8 @@ from .slots import SlotError, SlotPool, UnityIdentity, slot_entry
 from .worktrees import Worktrees
 
 Components = namedtuple("Components",
-                        "config paths api ledger skills worktrees launcher scheduler receiver server pool")
+                        "config paths api ledger skills worktrees launcher scheduler receiver server pool lifecycle",
+                        defaults=(None,))
 
 
 def build(config, runtime_override=None):
@@ -40,7 +42,17 @@ def build(config, runtime_override=None):
                           runtime_name=runtime.name, host=config.host, max_concurrent=config.max_concurrent,
                           slot_entries={entry["id"]: entry for entry in entries},
                           guidance_for=lambda item: (ledger.session(item["session_id"]) or {}).get("guidance") or "",
-                          api=api)
+                          api=api, control_ledger_factory=lambda: Ledger(paths.ledger))
+    lifecycle = Lifecycle(Ledger(paths.ledger, check_same_thread=False), api, scheduler,
+                          interval=config.reconcile_seconds)
+
+    def preflight(item):
+        current = Ledger(paths.ledger)
+        try:
+            return Lifecycle(current, api, scheduler, interval=config.reconcile_seconds).preflight(item)
+        finally:
+            current.close()
+    scheduler.preflight = preflight
     receiver = Receiver(paths.ledger, config.webhook_secret,
                         {"oauthClientId": config.client_id, "appUserId": identity["viewer"]["id"],
                          "organizationId": identity["organization"]["id"]},
@@ -56,7 +68,7 @@ def build(config, runtime_override=None):
                     # composes its argv: Unity cannot run inside sandbox_workspace_write at all.
                     run_unsandboxed=launcher.run_unsandboxed,
                     mcp=UnityIdentity(ROOT / "agent" / "probes" / "editor-readiness.cs.txt"))
-    return Components(config, paths, api, ledger, skills, worktrees, launcher, scheduler, receiver, server, pool)
+    return Components(config, paths, api, ledger, skills, worktrees, launcher, scheduler, receiver, server, pool, lifecycle)
 
 
 def seed_clones(config, source_root=None):
@@ -149,6 +161,11 @@ def serve(config_path=None, components=None):
     threads = [threading.Thread(target=guarded("receive", receive_once), daemon=True),
                threading.Thread(target=guarded("schedule", schedule_once), daemon=True),
                threading.Thread(target=guarded("pool", pool_once), daemon=True)]
+    if components.lifecycle is not None:
+        def reconcile_once():
+            result = components.lifecycle.tick()
+            stop.wait(0.1 if result["checked"] else 1.0)
+        threads.append(threading.Thread(target=guarded("lifecycle", reconcile_once), daemon=True))
     main_thread = threading.current_thread() is threading.main_thread()
     previous_sigterm = signal.getsignal(signal.SIGTERM) if main_thread else None
 
@@ -188,6 +205,8 @@ def serve(config_path=None, components=None):
             components.receiver.close()
             components.ledger.close()
             components.pool.close()
+            if components.lifecycle is not None:
+                components.lifecycle.ledger.close()
         finally:
             if main_thread:
                 signal.signal(signal.SIGTERM, previous_sigterm)
