@@ -359,6 +359,7 @@ class Launcher:
         if process.poll() is not None:
             return
         survivors = self.descendants(process.pid)
+        (handle.run_dir / "killed.json").write_text(json.dumps({"pid": process.pid, "descendants": survivors}), encoding="utf-8")
         try:
             if os.name == "nt":
                 subprocess.run(["taskkill", "/T", "/PID", str(process.pid)], capture_output=True)

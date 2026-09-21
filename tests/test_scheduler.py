@@ -1,6 +1,7 @@
 import contextlib
 import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -79,6 +80,9 @@ class FakeLauncher:
     def owned_pid(self, pid, item_id):
         return pid in self.alive_pids
 
+    def descendants(self, pid):
+        return []
+
     def kill_pid(self, pid, grace=5.0):
         self.killed.append(pid)
         self.alive_pids.discard(pid)
@@ -149,6 +153,15 @@ class FakeWorktrees:
             raise RuntimeError("git is unwell")
         self.added.append(("committed", item_id, message))
         return {"committed": {}, "errors": {}}
+
+    def preserve(self, item_id):
+        report = self.commit_wip(item_id, f"wip({item_id[:8]}): preserve ended work")
+        return {**report, "refs": {}}
+
+    def remove_preserved(self, item_id, evidence):
+        if evidence["errors"]:
+            raise RuntimeError("preservation incomplete")
+        self.remove(item_id)
 
     def remove(self, item_id):
         self.added.append(("removed", item_id, None))
@@ -504,12 +517,18 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(json.loads(result.stdout)["state"], "cancelled")
 
     def retry_with_cli(self, item_id):
+        stub = Path(self.tmp.name) / "stub"
+        stub.mkdir(exist_ok=True)
+        (stub / "issue.json").write_text(json.dumps({**self.ledger.issue(self.ledger.item(item_id)["issue_id"]),
+                                                    "delegate_id": "e5a8c16d-9f85-4123-acf5-94e41c3304d5"}))
         result = subprocess.run(
             [sys.executable, "-B", "-m", "agent", "--db", str(self.scheduler.db_path),
              "retry", "--item", item_id, "--reason", "operator retry"],
+            env={**os.environ, "FARMBOT_LINEAR_STUB_DIR": str(stub)},
             cwd=ROOT, capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["state"], "queued")
+        return json.loads(result.stdout)["id"]
 
     def test_cli_cancel_then_retry_before_tick_replaces_the_old_worker(self):
         runtime = RUNTIMES["fake"]._replace(command=[
@@ -522,10 +541,11 @@ class SchedulerTests(unittest.TestCase):
         self.addCleanup(launcher.poll)
         self.addCleanup(launcher.stop, item_id)
         self.cancel_with_cli(item_id)
-        self.retry_with_cli(item_id)
+        successor_id = self.retry_with_cli(item_id)
         self.scheduler.tick()
         self.assertIsNotNone(old.process.poll(), "retry hid the cancellation of the old worker")
-        fresh = self.scheduler.active[item_id]
+        fresh = self.scheduler.active[successor_id]
+        self.addCleanup(launcher.stop, successor_id)
         self.assertNotEqual(fresh.pid, old.pid)
         self.assertIsNone(fresh.process.poll())
         self.assertEqual((self.api.activities, self.api.comments), ([], []))
@@ -561,18 +581,19 @@ class SchedulerTests(unittest.TestCase):
         self.assertTrue(marker.exists(), errors)
         pid = int(marker.read_text())
         self.cancel_with_cli(item_id)
-        self.retry_with_cli(item_id)
+        successor_id = self.retry_with_cli(item_id)
         self.scheduler.tick()
         runner.join(2)
         self.assertFalse(runner.is_alive(), "retry hid the old batch reservation's cancellation")
         self.assertFalse(launcher.alive(pid))
         self.assertEqual(errors, [])
         self.assertNotIn(item_id, self.scheduler.active, "retry launched before the old slot was settled")
-        self.assertEqual(self.ledger.item(item_id)["state"], "queued")
+        self.assertEqual(self.ledger.item(successor_id)["state"], "queued")
         self.ledger.release(reservation["reservation_id"], reservation["token"], "pool verified quiescence")
         self.ledger.set_slot_state("unity_slot:1", "idle_closed")
         self.scheduler.tick()
-        self.assertIn(item_id, self.scheduler.active)
+        self.assertIn(successor_id, self.scheduler.active)
+        self.addCleanup(launcher.stop, successor_id)
         self.assertEqual((self.api.activities, self.api.comments), ([], []))
 
     def test_cli_cancel_kills_a_batch_run_before_any_worker_is_resumed(self):
@@ -743,7 +764,7 @@ class SchedulerTests(unittest.TestCase):
                 time.sleep(0.01)
             self.assertEqual(self.launcher.stopped, [item["id"]])
             self.assertLess(self.launcher.stop_times[0] - started, 1.0)
-            self.assertEqual(self.ledger.item(item["id"])["state"], "queued")  # cancel still waits for the lock
+            self.assertEqual(self.ledger.item(item["id"])["state"], "cancelled")  # claim revoked before signalling
         finally:
             self.scheduler.lock.release()
         thread.join(timeout=5)
@@ -766,7 +787,7 @@ class SchedulerTests(unittest.TestCase):
                 time.sleep(0.01)
             self.assertEqual(self.launcher.stopped, [item["id"]])  # nothing to kill yet
             self.scheduler.launch(item)  # the tick registers the worker while Stop waits for the lock
-            self.assertEqual(self.launcher.handles, {item["id"]})
+            self.assertEqual(self.launcher.handles, set())
         finally:
             self.scheduler.lock.release()
         thread.join(timeout=5)

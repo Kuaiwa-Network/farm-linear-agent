@@ -62,6 +62,8 @@ class Scheduler:
                     "result": "the pool recorded no batch run for this reservation"}
 
     def launch(self, item):
+        if self.ledger.item(item["id"])["state"] != "queued":
+            return None
         skill = self.skills[item["skill"]]
         issue = self.ledger.issue(item["issue_id"])
         paths = self._worktrees_for(skill, item, issue)
@@ -158,15 +160,9 @@ class Scheduler:
         self._notify(item_id, "error", f"FarmBot 无法启动工作进程（{type(exc).__name__}），工作项已标记失败；可回复「重试」。")
 
     def stop(self, item_id, reason):
-        # First, so a worker polling its reservation sees cancel_requested and so the pool can no longer hand
-        # a slot to an item whose worker is about to be dead. Ledger.cancel below does the same UPDATE, but
-        # only once this thread owns the lock — and an in-flight tick can hold that for as long as a launch
-        # takes, a window in which the pool would happily acquire a queued request and pay for a multi-minute
-        # slot switch on behalf of a worker that is already dead. All three steps here are SQLite and
-        # signals; the quiescence probe belongs to the pool thread and would not fit the 5-second budget
-        # (spec §7, §17), so an active reservation is only marked, never released.
+        # Revoke the claim durably before signalling; a late worker may no longer write the ledger.
         try:
-            self.ledger.cancel_reservations(item_id, reason)
+            self.ledger.cancel(item_id, reason)
         except LedgerError:
             pass
         # The batch Editor is not a worker and never went through `spawn`, so `launcher.stop` below cannot
@@ -256,13 +252,39 @@ class Scheduler:
         return recovered
 
     def _retire(self, item_id, state):
-        """Sweep a terminal item's worktrees, committing first when it failed.
-
-        A `delivered` or `blocked` item has already published what it meant to; a `failed` one published
-        nothing and is about to have its worktrees deleted, which on 2026-09-20 destroyed the only evidence
-        for a fix a worker claimed to have made and tested. Commit, never push. Nothing here may mask the
-        failure or stop the sweep, so the commit is best effort and its outcome is logged.
-        """
+        if state == "cancelled":
+            record = self.ledger.cleanup_record(item_id)
+            if record and record["done"]:
+                return
+            result = record["result"] if record else {}
+            try:
+                pid = record.get("worker_pid") if record else None
+                handle = self.launcher.running().get(item_id)
+                if handle and handle.process and handle.process.poll() is None:
+                    raise RuntimeError("worker has not exited")
+                if pid and self.launcher.alive(pid):
+                    if not self.launcher.owned_pid(pid, item_id):
+                        raise RuntimeError("live worker PID ownership cannot be verified")
+                    result["processes"] = [pid, *self.launcher.descendants(pid)]
+                    self.ledger.record_cleanup(item_id, result)
+                    self.launcher.kill_pid(pid)
+                if any(self.launcher.alive(p) for p in result.get("processes", [])):
+                    raise RuntimeError("worker processes have not exited")
+                killed = self.launcher.state_dir(item_id) / "killed.json"
+                if killed.exists():
+                    data = json.loads(killed.read_text(encoding="utf-8"))
+                    if any(self.launcher.alive(p) for p in data.get("descendants", [])):
+                        raise RuntimeError("worker descendants have not exited")
+                if self.ledger.active_reservation(item_id) is not None:
+                    raise RuntimeError("reservation awaits quiescence")
+                saved = self.worktrees.preserve(item_id)
+                result.update(saved)
+                self.ledger.record_cleanup(item_id, result)
+                self.worktrees.remove_preserved(item_id, saved)
+                self.ledger.record_cleanup(item_id, result, done=True)
+            except Exception as exc:
+                self.ledger.record_cleanup(item_id, result, error=str(exc)[:500])
+            return
         if state == "failed":
             try:
                 report = self.worktrees.commit_wip(item_id, f"wip({item_id[:8]}): worker exited without finishing")
@@ -306,6 +328,10 @@ class Scheduler:
                     break
                 if item["skill"] not in self.skills or item["id"] in self.active:
                     continue
+                if item.get("predecessor_id"):
+                    cleanup = self.ledger.cleanup_record(item["predecessor_id"])
+                    if not cleanup or not cleanup["done"]:
+                        continue
                 reservation = self.ledger.active_reservation(item["id"])
                 if reservation is not None and reservation["state"] == "cancel_requested":
                     # The old pool hand-over may still be unwinding after Stop. Do not give a retried

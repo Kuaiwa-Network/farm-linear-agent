@@ -210,6 +210,63 @@ class Worktrees:
                 report["errors"][path.name] = f"{type(exc).__name__}: {exc}"[:500]
         return report
 
+    def _managed_paths(self, item_id):
+        if not item_id or Path(item_id).name != item_id or item_id in (".", ".."):
+            raise WorktreeError("unsafe item path")
+        root = self.worktrees_root / item_id
+        if self.worktrees_root.is_symlink() or root.is_symlink():
+            raise WorktreeError("symlinked worktree root")
+        if not root.exists():
+            return []
+        paths = sorted(root.iterdir())
+        for path in paths:
+            if path.is_symlink() or not path.is_dir() or (path / ".git").is_symlink():
+                raise WorktreeError("unexpected managed worktree entry")
+            clone = self.clone_path(path.name)
+            common = Path(_git("rev-parse", "--git-common-dir", cwd=path))
+            if not common.is_absolute():
+                common = path / common
+            if common.resolve() != clone.resolve():
+                raise WorktreeError("worktree belongs to a different clone")
+        return paths
+
+    def preserve(self, item_id):
+        """Keep every HEAD reachable, including clean unpublished and detached commits."""
+        paths = self._managed_paths(item_id)
+        report = self.commit_wip(item_id, f"wip({item_id[:8]}): preserve ended work")
+        report["refs"] = {}
+        for path in paths:
+            try:
+                sha = self.head(path)
+                ref = f"refs/farmbot/recovery/{_branch_safe(item_id)}"
+                _git("update-ref", ref, sha, cwd=self.clone_path(path.name))
+                report["committed"][path.name] = sha
+                report["refs"][path.name] = ref
+            except (WorktreeError, subprocess.SubprocessError, OSError) as exc:
+                report["errors"][path.name] = str(exc)[:500]
+        return report
+
+    def remove_preserved(self, item_id, evidence):
+        if evidence.get("errors"):
+            raise WorktreeError("preservation incomplete")
+        paths = self._managed_paths(item_id)
+        # Validate every repository before removing any of them.
+        for path in paths:
+            sha = evidence.get("committed", {}).get(path.name)
+            ref = evidence.get("refs", {}).get(path.name)
+            if not sha or not ref or self.head(path) != sha:
+                raise WorktreeError("HEAD was not preserved")
+            if _git("rev-parse", "--verify", ref, cwd=self.clone_path(path.name)) != sha:
+                raise WorktreeError("recovery ref no longer matches")
+            if _git("status", "--porcelain=v1", cwd=path):
+                raise WorktreeError("worktree changed after preservation")
+        for path in paths:
+            # No --force: Git performs its own final dirty-worktree check.
+            _git("worktree", "remove", str(path), cwd=self.clone_path(path.name))
+        root = self.worktrees_root / item_id
+        if root.exists():
+            root.rmdir()
+
     def remove(self, item_id):
         item_root = self.worktrees_root / item_id
         if not item_root.exists():
