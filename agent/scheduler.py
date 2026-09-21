@@ -66,7 +66,8 @@ class Scheduler:
                     "result": "the pool recorded no batch run for this reservation"}
 
     def launch(self, item):
-        if self.ledger.item(item["id"])["state"] != "queued":
+        current = self.ledger.item(item["id"])
+        if current["state"] != "queued" or current["retry_not_before"] > self.ledger.clock():
             return None
         skill = self.skills[item["skill"]]
         issue = self.ledger.issue(item["issue_id"])
@@ -205,7 +206,22 @@ class Scheduler:
         reaped = 0
         for finished in self.launcher.poll():
             self.active.pop(finished.item_id, None)
-            state = self.ledger.item(finished.item_id)["state"]
+            item = self.ledger.item(finished.item_id)
+            state = item["state"]
+            if finished.failure_kind == "model_capacity" and not finished.killed:
+                retry = self.ledger.defer_capacity_retry(finished.item_id, finished.worker_pid)
+                if retry:
+                    self._notify(finished.item_id, "thought",
+                                 f"模型暂时容量不足，工作已保留，将在 {retry['delay_seconds']} 秒后重新排队尝试"
+                                 f"（自动重试 {retry['attempt']}/3，模型设置不变）。")
+                    reaped += 1
+                    continue
+                if (state in ("running", "queued") and item["worker_pid"] == finished.worker_pid
+                        and item["capacity_retries"] >= 3):
+                    fail = self.ledger.fail if state == "running" else self.ledger.fail_queued
+                    fail(finished.item_id, "model capacity automatic retries exhausted (3)")
+                    self._notify(finished.item_id, "error", "模型容量不足，3 次自动重试已用尽；工作已保留，可稍后回复「重试」。")
+                    state = "failed"
             if state == "running":
                 item = self.ledger.item(finished.item_id)
                 if item["lease_expires_at"] is not None and item["lease_expires_at"] <= self.ledger.clock():
