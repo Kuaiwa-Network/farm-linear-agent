@@ -150,6 +150,14 @@ class Launcher:
                 if self._shutdown or item_id in self._cancelled_runs or (cancelled and cancelled()):
                     process_record.write_text(json.dumps({"state": "not_started"}), encoding="utf-8")
                     raise RuntimeError("launch cancelled before process creation")
+                # A previous sandbox principal may own a restrictive Windows ACL on this file.
+                # Archive the now-obsolete claim so the fresh worker can create its own token file;
+                # never reuse a claim or alter the separate reservation token.
+                previous_token = self.state_dir(item_id) / "token"
+                if previous_token.is_symlink():
+                    raise RuntimeError("claim token must not be a symlink")
+                if previous_token.exists():
+                    previous_token.rename(run_dir / "previous-claim.token")
                 process = subprocess.Popen(command, cwd=str(cwd), env=env, stdin=subprocess.PIPE, stdout=stdout, stderr=stderr,
                                            text=True, encoding="utf-8", **kwargs)
                 handle = Handle(item_id, process.pid, self.clock(), self.clock() + budget_seconds, run_dir, process, last_message)

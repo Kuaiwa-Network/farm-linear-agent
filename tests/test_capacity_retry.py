@@ -125,6 +125,25 @@ class CapacityLauncherTests(unittest.TestCase):
                 time.sleep(0.02)
             self.fail("fake runtime did not exit")
 
+    def test_new_attempt_archives_protected_old_claim_token(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            launcher = Launcher(tmp, RUNTIMES["fake"], "test")
+            state = launcher.state_dir("item")
+            state.mkdir()
+            old = state / "token"
+            old.write_text("obsolete-test-token")
+            old.chmod(0o400)
+            handle = launcher.spawn("item", "{}", {}, 30, tmp)
+            try:
+                self.assertFalse(old.exists())
+                saved = handle.run_dir / "previous-claim.token"
+                self.assertEqual(saved.read_text(), "obsolete-test-token")
+                old.write_text("new-test-token")
+            finally:
+                handle.process.wait(timeout=10)
+                for token in state.rglob("*token*"):
+                    token.chmod(0o600)
+
     def test_terminal_capacity_error_is_classified(self):
         result = self.run_cli("ERROR: Selected model is at capacity. Please try a different model.\n\ntokens used\n245,179\n")
         self.assertEqual(result.failure_kind, "model_capacity")
