@@ -182,8 +182,21 @@ class CliTests(unittest.TestCase):
         self.run_cli("resume-work", "--item", chat, "--token", token, "--message-id", str(message), success=False)
         (self.stub / "issue.json").write_text(json.dumps(issue(labels=["Bug"], delegate_id=app)))
         resumed = self.run_cli("resume-work", "--item", chat, "--token", token, "--message-id", str(message))
-        self.assertEqual((resumed["id"], resumed["state"]), (fix, "queued"))
+        self.assertNotEqual(resumed["id"], fix)
+        self.assertEqual((resumed["predecessor_id"], resumed["state"]), (fix, "queued"))
         self.assertEqual(self.calls()[-1]["content"]["type"], "response")
+
+    def test_retry_checks_current_status_and_delegation_before_successor(self):
+        fix = self.seeded_item()
+        self.run_cli("cancel", "--item", fix, "--reason", "stopped")
+        (self.stub / "issue.json").write_text(json.dumps(issue(status_type="completed")))
+        self.run_cli("retry", "--item", fix, "--reason", "restart", success=False)
+        (self.stub / "issue.json").write_text(json.dumps(issue(delegate_id=None)))
+        self.run_cli("retry", "--item", fix, "--reason", "restart", success=False)
+        (self.stub / "issue.json").write_text(json.dumps(issue(delegate_id="e5a8c16d-9f85-4123-acf5-94e41c3304d5")))
+        resumed = self.run_cli("retry", "--item", fix, "--reason", "restart")
+        self.assertNotEqual(resumed["id"], fix)
+        self.assertEqual(resumed["predecessor_id"], fix)
 
     def test_token_file_authorizes_a_renew_and_a_missing_token_is_refused(self):
         item = self.seeded_item()

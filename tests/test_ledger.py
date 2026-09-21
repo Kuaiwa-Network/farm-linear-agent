@@ -254,8 +254,7 @@ class LeaseTests(LedgerBase):
     def test_cancel_from_any_active_state_and_fail_from_running(self):
         item = self.new_item()
         self.assertEqual(self.ledger.cancel(item["id"], "stop")["state"], "cancelled")
-        with self.assertRaises(LedgerError):
-            self.ledger.cancel(item["id"], "again")
+        self.assertEqual(self.ledger.cancel(item["id"], "again")["state"], "cancelled")
         self.ledger.observe_issue(issue(id=OTHER, identifier="FARM-2"))
         self.ledger.ensure_session("s2", OTHER, delegation=True)
         other = self.ledger.create_work_item(issue_id=OTHER, session_id="s2", skill="fix")
@@ -278,11 +277,12 @@ class LeaseTests(LedgerBase):
         self.assertIsNone(self.ledger.cancel(item["id"], "stop")["worker_pid"])
         self.assertIsNone(self.ledger.retry(item["id"], "human asked 重试")["worker_pid"])
 
-    def test_retry_requeues_terminal_items_with_new_generation(self):
+    def test_retry_cancelled_item_creates_fresh_generation_on_successor(self):
         item = self.new_item()
         self.ledger.cancel(item["id"], "stop")
         view = self.ledger.retry(item["id"], "human asked 重试")
-        self.assertEqual((view["state"], view["generation"]), ("queued", 1))
+        self.assertEqual((view["state"], view["generation"]), ("queued", 0))
+        self.assertNotEqual(view["id"], item["id"])
         with self.assertRaises(LedgerError):
             self.ledger.retry(item["id"], "already queued")
 
