@@ -45,12 +45,12 @@ class Paths:
         self.editors = Path(config.local_root) / "editors"
 
 
-def load_config(path=None):
+def load_config(path=None, *, secure_permissions=True):
     path = Path(path or os.environ.get("FARMBOT_CONFIG") or DEFAULT_CONFIG)
     data = json.loads(path.read_text(encoding="utf-8"))
-    if any(not isinstance(data.get(k), str) or not data[k].strip() for k in REQUIRED):
+    if not isinstance(data, dict) or any(not isinstance(data.get(k), str) or not data[k].strip() for k in REQUIRED):
         raise ValueError("configuration is incomplete")
-    if os.name != "nt":
+    if secure_permissions and os.name != "nt":
         os.chmod(path, 0o600)
     known = {f for f in Config.__dataclass_fields__}
     values = {k: v for k, v in data.items() if k in known}

@@ -215,13 +215,18 @@ def serve(config_path=None, components=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="python3 -m agent.service")
     parser.add_argument("command", choices=["configure", "serve", "status", "seed-clones", "install-launchd",
-                                            "enqueue", "slots"])
+                                            "enqueue", "slots", "doctor"])
     parser.add_argument("--config")
     parser.add_argument("--from", dest="source_root", help="directory holding local checkouts to seed from")
     parser.add_argument("--issue", help="Linear issue id or identifier to enqueue work for")
     parser.add_argument("--skill", default="fix")
     parser.add_argument("--commit", help="pin this commit instead of resolving the default branch")
     args = parser.parse_args(argv)
+    if args.command == "doctor":
+        from .doctor import run
+        report = run(args.config)
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return {"ok": 0, "attention": 1, "incomplete": 2}[report["status"]]
     if args.command == "configure":
         return configure(args.config)
     if args.command == "install-launchd":
