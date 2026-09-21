@@ -43,6 +43,20 @@ changes at every restart and must be pasted into the Linear app settings again; 
 
 Behaviour: `docs/operating-contract.md`. Plans: `docs/superpowers/plans/`.
 
+For a host-specific Codex model override, add `codex_workers` to private
+`.local/agent/config.json` and restart the drained receiver:
+
+```json
+"codex_workers": {
+  "fix": {"model": "gpt-5.6-sol", "reasoning_effort": "high"}
+}
+```
+
+Each new or resumed `fix` worker receives these settings in its isolated Codex
+home. Skills without an entry keep the runtime default; Claude workers are
+unaffected. The model must be available to the host's account. This setting does
+not change `max_concurrent` or the number of configured Unity slots.
+
 ## AI/operator diagnostics
 
 Run `python3 -m agent.service doctor --config /absolute/path/to/config.json` on the

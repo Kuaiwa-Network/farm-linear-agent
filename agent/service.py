@@ -41,6 +41,7 @@ def build(config, runtime_override=None):
     entries = [slot_entry(raw) for raw in config.slots]
     scheduler = Scheduler(ledger, launcher, skills, worktrees, skill_root=ROOT / "skills", db_path=paths.ledger,
                           runtime_name=runtime.name, host=config.host, max_concurrent=config.max_concurrent,
+                          codex_workers=config.codex_workers,
                           slot_entries={entry["id"]: entry for entry in entries},
                           guidance_for=lambda item: (ledger.session(item["session_id"]) or {}).get("guidance") or "",
                           api=api, control_ledger_factory=lambda: Ledger(paths.ledger),

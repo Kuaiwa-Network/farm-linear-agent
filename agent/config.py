@@ -28,11 +28,23 @@ class Config:
     default_server_environment: str = "公共测试服"
     slots: list = field(default_factory=list)
     tunnel: dict = field(default_factory=dict)
+    codex_workers: dict = field(default_factory=dict)
 
     def __post_init__(self):
         if (type(self.reconcile_seconds) not in (int, float) or not math.isfinite(self.reconcile_seconds)
                 or self.reconcile_seconds <= 0):
             raise ValueError("reconcile_seconds must be positive and finite")
+        if not isinstance(self.codex_workers, dict):
+            raise ValueError("codex_workers must map skill names to model settings")
+        for skill, settings in self.codex_workers.items():
+            if (not isinstance(skill, str) or not skill.strip() or not isinstance(settings, dict)
+                    or set(settings) - {"model", "reasoning_effort"}):
+                raise ValueError("codex_workers entries accept model and reasoning_effort only")
+            if "model" in settings and (not isinstance(settings["model"], str) or not settings["model"].strip()):
+                raise ValueError("codex worker model must be a nonempty string")
+            if "reasoning_effort" in settings and settings["reasoning_effort"] not in (
+                    "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"):
+                raise ValueError("invalid codex worker reasoning_effort")
 
 
 class Paths:
