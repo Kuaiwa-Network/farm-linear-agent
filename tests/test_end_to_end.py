@@ -71,6 +71,7 @@ class Fixture:
                         repos=remotes, max_concurrent=2, port=0, local_root=root / "local",
                         slots=[{"id": SLOT, "repo": "Farm-Client", "unity": str(self.unity_binary)}])
         self.c = build(config)
+        self.addCleanup(self.c.lifecycle.ledger.close)
         self.addCleanup(self.c.pool.close)   # build opens the pool's own connection; nothing else closes it
         self.addCleanup(self.c.receiver.close)
         self.addCleanup(self.c.ledger.close)

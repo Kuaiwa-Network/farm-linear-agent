@@ -60,6 +60,21 @@ class CliTests(unittest.TestCase):
         ledger.close()
         return item["id"]
 
+    def test_status_exposes_pending_cleanup_and_status_read_failures(self):
+        from agent.ledger import Ledger
+        item = self.seeded_item()
+        ledger = Ledger(self.db)
+        try:
+            ledger.cancel(item, "closed")
+            ledger.record_cleanup(item, {}, error="disk full")
+            ledger.finish_status_check(ISSUE, 60, "status API unavailable")
+        finally:
+            ledger.close()
+        view = self.run_cli("status")
+        self.assertEqual(view["cleanup_pending"][0]["item_id"], item)
+        self.assertEqual(view["cleanup_pending"][0]["error"], "disk full")
+        self.assertEqual(view["issue_status_errors"][0]["error"], "status API unavailable")
+
     def granted_item(self, mode="interactive", issue_id=ISSUE):
         """Leave an item in exactly the state the pool leaves behind for a fresh worker: a granted
         reservation, a slot in that mode's busy state, and the raw token on disk at 0600.

@@ -200,7 +200,7 @@ def run(args, ledger, api_factory):
                                    reason=getattr(args, "reason", ""))
     if c == "status":
         # Merged here rather than inside Ledger.status(), which the scheduler calls twice a second.
-        return {**ledger.status(), "borrowed_comments": ledger.borrowed_comments()}
+        return {**ledger.status(), **ledger.lifecycle_status(), "borrowed_comments": ledger.borrowed_comments()}
     if c == "queue":
         return ledger.queue()
     if c == "fetch-issue":

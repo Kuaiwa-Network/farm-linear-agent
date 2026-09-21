@@ -34,8 +34,10 @@ Everything you say to Linear goes through the ledger CLI.
    When the user wants to resume and `resumable_work` exists, call:
    `python3 -m agent --db DATABASE resume-work --item ITEM_ID --token-file STATE_DIR/token --message-id MESSAGE_ID`.
    Choose the actual session message expressing the request. The command checks current Linear
-   delegation, completes this chat and requeues the original fix atomically, preserving the whole chat's
-   messages for the fresh worker. On success exit immediately: your token is retired, so do not call
+   delegation, completes this chat and continues the fix atomically, preserving the whole chat's
+   messages for the fresh worker. A cancelled fix stays cancelled; the command creates a new linked job
+   that waits for safe cleanup and receives recovery evidence. Other terminal fixes retain their job ID.
+   On success exit immediately: your token is retired, so do not call
    `finish` or post another activity. On refusal, explain the concrete reason; never fall back to the
    operator-only `retry`, `enqueue`, direct SQLite writes, or a new fix. If no prior delegated fix exists,
    explain that a human must delegate the issue to FarmBot in Linear first.

@@ -176,3 +176,16 @@ class CancellationCleanupTests(unittest.TestCase):
         self.scheduler.tick()
         self.assertFalse(self.ledger.cleanup_record(item['id'])['done'])
         self.assertNotIn(('removed', item['id'], None), self.trees.added)
+
+    def test_paused_worker_pid_survives_restart_and_cancellation(self):
+        item = self.item()
+        self.ledger.set_worker(item['id'], 777, 'h')
+        token = self.ledger.claim(item['id'], worker_id='worker')['token']
+        self.ledger.await_input(item['id'], token, 'question?')
+        self.assertIsNone(self.ledger.item(item['id'])['worker_pid'])
+        self.ledger.cancel(item['id'], 'closed before old worker exited')
+        self.launcher.alive_pids.add(777)
+        with patch.object(self.launcher, 'owned_pid', return_value=False):
+            self.scheduler.tick()
+        self.assertEqual(self.ledger.cleanup_record(item['id'])['worker_pid'], 777)
+        self.assertFalse(self.ledger.cleanup_record(item['id'])['done'])

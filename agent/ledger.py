@@ -582,6 +582,13 @@ class Ledger:
         return {"counts": counts, "items": compact,
                 "recovery_required": [row["id"] for row in rows if row["state"] == "running" and row["lease_expires_at"] <= self.clock()]}
 
+    def lifecycle_status(self):
+        """Operator diagnostics; avoid serializing history on every scheduler tick."""
+        return {"cleanup_pending": [self.cleanup_record(r["item_id"]) for r in self.connection.execute(
+                    "SELECT item_id FROM job_cleanup WHERE done=0 ORDER BY updated_at")],
+                "issue_status_errors": [dict(r) for r in self.connection.execute(
+                    "SELECT * FROM issue_checks WHERE error IS NOT NULL ORDER BY checked_at")]}
+
     def borrowed_comments(self, limit=20):
         """Items whose conclusion never reached the issue, because another item had already posted one.
 
@@ -1087,9 +1094,17 @@ class Ledger:
                 return self._view(row)
             if row["state"] not in (*ACTIVE_STATES, "blocked"):
                 raise LedgerError("work item is already terminal")
+            pid = row["worker_pid"]
+            if pid is None:
+                # Parking clears the usable PID before the worker has necessarily exited. The worker
+                # audit survives restarts, including upgrades with already-paused jobs.
+                last = self.connection.execute("SELECT reason FROM audit WHERE item_id=? AND kind='worker' ORDER BY id DESC LIMIT 1",
+                                               (item_id,)).fetchone()
+                match = re.fullmatch(r"pid ([0-9]+) on .+", last["reason"]) if last else None
+                pid = int(match[1]) if match else None
             self.connection.execute(
                 "INSERT OR IGNORE INTO job_cleanup(item_id,worker_pid,updated_at) VALUES(?,?,?)",
-                (row["id"], row["worker_pid"], self.clock()))
+                (row["id"], pid, self.clock()))
             # The operator CLI path must not orphan a slot: a queued request dies with the item, an active one
             # keeps the slot until the pool has probed and released it.
             self.connection.execute(
@@ -1422,6 +1437,7 @@ class Ledger:
         view = self._view(row)
         coordination = {key: view[key] for key in ("id", "identifier", "skill", "state", "stage", "generation", "target")}
         return {"issue": json.loads(issue_row["metadata"]), "coordination": coordination, "handoff": handoff,
+                "cleanup": self.cleanup_record(item_id),
                 "recovery": self.recovery_context(item_id),
                 "resumable_work": (self._view(candidate) if row["skill"] == "chat"
                                    and (candidate := self._resumable_work(row["issue_id"], row["session_id"])) else None),

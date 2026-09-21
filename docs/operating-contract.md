@@ -1,6 +1,6 @@
 # FarmBot operating contract
 
-Current behaviour of the deployed agent. Rewritten in place whenever behaviour changes; the
+Current behaviour implemented in this repository. Closure cleanup requires deployment of this revision. Rewritten in place whenever behaviour changes; the
 design rationale lives in `docs/superpowers/specs/`.
 
 ## Triggers
@@ -12,7 +12,9 @@ design rationale lives in `docs/superpowers/specs/`.
 | @FarmBot in a comment or the session | interprets the request in `chat`; can resume previously delegated work on the same issue, but cannot authorize a new fix |
 | Reply in a session while a worker runs | the text reaches the worker at its next checkpoint |
 | Reply to a FarmBot question | the parked work item resumes with your answer |
-| Ask naturally to resume finished work, in its session or an @FarmBot mention | chat interprets intent, checks current delegation, and requeues the original fix with the complete reply; no keyword is required. Negations and questions about restarting do not restart work |
+| Ask naturally to resume finished work, in its session or an @FarmBot mention | chat interprets intent, checks current delegation, and continues the fix with the complete reply (a cancelled fix gets a fresh linked job); no keyword is required. Negations and questions about restarting do not restart work |
+| Close, cancel or archive an issue | cancels unfinished/blocked work after a current status read, stops owned processes, preserves source and safely cleans worktrees; keeps logs |
+| Reopen an issue | starts nothing; request continuation or delegate explicitly |
 | Press Stop | the worker process is killed promptly, without waiting for the scheduler; the item is cancelled; FarmBot confirms in the session |
 | Delegate an issue that already has FarmBot work in another session | declines with a note naming the issue and the running skill; the existing work continues |
 | @FarmBot on an issue that already has FarmBot work in another session | your text is forwarded to the running worker; you get a short notice |
@@ -30,7 +32,7 @@ Worker commands in the ledger CLI are item-scoped and token-authenticated; `canc
 `recover-slot`, `reservations` and `slots` are operator commands for the trusted host.
 The item-scoped `resume-work` command lets chat resume only the same issue's previously delegated fix;
 it checks a fresh Linear snapshot, a live chat token and the originating session message. The chat is
-completed and the old fix requeued in one transaction. Merely observing changed issue text/comments
+completed and the fix continued in one transaction. Cancelled fixes stay cancelled and receive a fresh successor ID; other terminal retries retain their ID. Merely observing changed issue text/comments
 does not restart blocked work. Replies and handoff evidence survive the restart.
 
 A fix worker may update Farm-Contract in its own worktree for a confirmed bug requirement, following
@@ -44,12 +46,37 @@ generator requirements or add Unity export tools.
 Existing hosts must add `Farm-Contract` to their private `repos` configuration and seed its bare clone
 before enabling this fix manifest. New configurations include its GitHub remote by default.
 
-CLI `cancel` records the cancellation immediately; the next scheduler tick kills this service's
-owned worker or batch Editor before sweeping worktrees. An immediate `retry` also retires the old
-process, and waits for its cancelled reservation to settle before launching a new attempt. A Stop
-fences pending batch launches, including an old reservation whose item has since been retried.
+CLI `cancel` revokes the claim immediately; the next scheduler tick stops owned worker/batch
+processes. Linear Stop and closure reconciliation revoke the claim before signalling. A pending
+batch launch is fenced. A cancelled job never becomes queued again: explicit authorized `retry`
+or `resume-work` creates a fresh linked job, which waits for predecessor cleanup and reservation
+settlement. Source recovery is stale evidence to inspect against current code and PR state.
+
+Enable **Issue** webhooks alongside AgentSessionEvent using the same endpoint and signing secret.
+Issue events require the configured organization, valid signature and timestamp; they only request
+fresh status for already-tracked issues. Their payload state never cancels work directly. A separate
+loop checks unfinished/blocked issues every `reconcile_seconds` (default 60); missed webhooks are
+covered by polling. With many issues, network latency can extend that interval. Status reads use
+source timestamps so older snapshots cannot undo a newer closure. Before every launch, a fresh
+status/delegation check must succeed. Errors defer launch with bounded retry delay; losing delegation
+prevents new write workers from launching. Polling makes no Linear writes.
+
+Cleanup records the old PID and preserves dirty tracked/non-ignored untracked source as local WIP
+commits. Every repository HEAD, including clean unpublished commits, gets a durable
+`refs/farmbot/recovery/<job-id>` ref in its bare clone. Ref/HEAD/path checks must pass before removing
+worktrees. A live unverifiable PID, surviving descendants, unsettled reservation or Git failure keeps
+files and records a cleanup error. The scheduler retries pending cleanup. Slots still require the
+existing quiescence probe; a held slot requires operator recovery. No log, ledger history or memory
+snapshot is removed by closure cleanup. Every worker attempt gets its own log directory.
+
+Inspect `cleanup_pending` and `issue_status_errors` with `python3 -m agent.service status`, or the
+ledger CLI's `status`. `issue-context --item JOB_ID` exposes that job's `cleanup` and, for successors,
+`recovery` evidence. Inspect saved source with `git --git-dir .local/repos/REPO.git show
+refs/farmbot/recovery/JOB_ID`; apply selected commits only after reviewing current requirements and
+repository history. Cleanup does not push, merge, close PRs, or undo already-issued external requests.
+
 SIGTERM to the service runs batch-process cleanup during startup or normal serving. On this Mac,
-the live `launchctl kickstart -k` rehearsal also removed the batch Editor; this is not a promise
+the earlier live `launchctl kickstart -k` rehearsal also removed the batch Editor; this is not a promise
 that Python cleanup executes after SIGKILL. Reservation release still requires a quiescence probe.
 
 ## Shared memory
@@ -84,7 +111,7 @@ a claim ends; memory operations do not renew the lease.
 ## Work item states
 
 queued → running → delivered | blocked | failed; running ↔ awaiting_input (human gate);
-running → awaiting_resource (Unity slot); any active state → cancelled (Stop). A waiting item
+running → awaiting_resource (Unity slot); any active state or blocked → cancelled (Stop or issue closure). A waiting item
 has no process. An item in awaiting_resource holds a queued reservation; only the pool's grant turns
 it back into queued work. A launched worker must claim its item within 10 minutes or it is stopped and the item fails; a worker that exits before claiming fails the item; a worker that dies with an expired lease requeues the item once for a fresh worker.
 The Linear session follows the item: `finish` posts the final response that completes the session (a chat
@@ -123,4 +150,4 @@ per item), blocker, delivery. Templates: `references/comment-templates.md`.
   (`max_hours`, `lease_seconds`, `renew_minutes`); the launcher records the lease on the work item and the
   launch message tells the worker its own numbers.
 - Worker runtime: Codex CLI (`codex exec --approve-for-me`), one isolated `CODEX_HOME` per work item seeded with `auth.json`; Claude Code is the fallback pending an isolated-auth recipe. Details: `docs/superpowers/spikes/2026-09-18-runtime-spike.md`.
-- Receiver: HMAC-SHA256, 60 s timestamp window, identity match on client, app user, organization.
+- Receiver: HMAC-SHA256 and 60 s timestamp window. AgentSessionEvent matches client, app user and organization; Issue events match organization.

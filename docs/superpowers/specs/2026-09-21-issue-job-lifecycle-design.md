@@ -1,6 +1,6 @@
 # Closed and cancelled issue cleanup
 
-Status: approved after scope corrections; implementation in progress.
+Status: implemented and tested; independent review and deployment pending.
 
 ## Scope
 
