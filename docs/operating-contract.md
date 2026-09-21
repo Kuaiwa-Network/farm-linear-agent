@@ -81,6 +81,21 @@ SIGTERM to the service runs batch-process cleanup during startup or normal servi
 the earlier live `launchctl kickstart -k` rehearsal also removed the batch Editor; this is not a promise
 that Python cleanup executes after SIGKILL. Reservation release still requires a quiescence probe.
 
+## Unity verification commits
+
+The issue target remains the immutable baseline for the job. A write worker can request
+`await-resource --resource unity_slot --mode batch --commit FULL_SHA` (or `--mode interactive`)
+to verify the current clean HEAD of its own Farm-Client worktree. The CLI authenticates the claim,
+checks the configured host/checkout and commit, then the ledger rechecks ownership before queuing.
+Omitting `--commit` retains baseline behaviour. Dirty files, abbreviated SHAs, refs, another
+checkout's commit and read-only chat requests cannot select a fix revision.
+
+Each reservation records its exact commit independently of the baseline. The slot loads that
+commit and the resumed worker sees it as `resource.commit`. Batch summaries additionally carry
+`commit_sha` and `reservation_id`; XML, Editor logs and a summary are retained in
+`runs/<job>/unity/<reservation-id>/`. The job-root summary points to the latest run. A baseline
+run cannot establish that a later fix works; reports must name the tested commit and any gaps.
+
 ## UI source ownership
 
 For UI fixes, inspect the relevant farmgui source before choosing an implementation. When the

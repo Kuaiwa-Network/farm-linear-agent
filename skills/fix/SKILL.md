@@ -66,14 +66,27 @@ does not supply a config-export capability. Record the contradiction and its res
 
 ## Verification ladder
 
+For post-fix Unity verification, first commit all intended Farm-Client changes and leave that
+worktree clean. Read its full HEAD SHA and request the slot with `--commit FIX_SHA` on
+`await-resource` (batch or interactive). The CLI verifies that SHA is the clean HEAD of your own
+Farm-Client worktree. The controller loads that exact commit, including commits not yet pushed.
+Without `--commit`, the request tests the original `target.commit_sha`: use that for baseline
+reproduction only, never as evidence for your fix. The original target remains the baseline.
+
+After resuming, `resource.commit` is the tested revision; compare it with the intended fix SHA.
+Batch evidence also records `commit_sha` and `reservation_id`, with separate logs/XML per reservation.
+Record the tested SHA and relevant test names in your checkpoint and delivery. If source changes
+after verification, commit them and request another run for the new revision. Do not skip a needed
+Unity check because the original target differs from your fix; use the explicit commit request.
+
 Cheapest sufficient check first, and say which rungs ran:
 
 1. Client typecheck: `tools/typecheck/hotupdate-typecheck.sh` in the Farm-Client worktree.
 2. dotnet unit tests: `dotnet test tests/Farm.Tests.Unit` in the Farm-Client worktree.
 3. hive: `go test ./...` in the farm-hive worktree.
 4. EditMode or PlayMode fixtures need a Unity slot in batch mode. Checkpoint your handoff, then
-   `await-resource --resource unity_slot --mode batch` and exit. **You are asking for a run, not for
-   permission to perform one.** While you are gone the pool switches the slot to your pinned commit and
+   `await-resource --resource unity_slot --mode batch --commit FIX_SHA` and exit. **You are asking for a run, not for
+   permission to perform one.** While you are gone the pool switches the slot to your requested commit and
    FarmBot runs the Editor itself, outside your sandbox, because Unity cannot run inside it: measured on
    2026-09-19, `Unity -batchmode -runTests` under the worker seatbelt hung for 25 minutes at 0.0% CPU and
    wrote nothing, dying on a denied Mach service lookup that no sandbox setting can grant. **Never start a
@@ -91,7 +104,7 @@ Cheapest sufficient check first, and say which rungs ran:
    so rather than treating them as a regression. If you need another run, `release-resource --outcome
    quiescent` and request a fresh batch reservation: one grant is one run. Otherwise release and move on.
 5. Behaviour no test covers needs an interactive slot: `await-resource --resource unity_slot --mode
-   interactive`. The fresh worker gets one MCP server named `unity`; call `set_active_instance` with the
+   interactive --commit FIX_SHA`. The fresh worker gets one MCP server named `unity`; call `set_active_instance` with the
    `resource.instance` from your launch message before anything else, because the server is shared per user
    and the selection is per MCP session. **`resource.batch_result` is `null` here and there is no argv and
    no Editor path anywhere in your `resource` block — never start a Unity process of your own.** An Editor

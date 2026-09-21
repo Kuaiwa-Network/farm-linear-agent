@@ -495,7 +495,9 @@ class SlotPool:
         entry = self.entries.get(slot["slot_id"], DEFAULTS)
         state_dir = Path(self.state_dir(reservation["item_id"]))
         state_dir.mkdir(parents=True, exist_ok=True)
-        results, log = state_dir / "unity-tests.xml", state_dir / "unity-editor.log"
+        evidence_dir = state_dir / "unity" / reservation["reservation_id"]
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+        results, log = evidence_dir / "unity-tests.xml", evidence_dir / "unity-editor.log"
         results.unlink(missing_ok=True)   # never let a previous run's file be read as this run's evidence
         try:
             editor = editor_path(slot["folder"], override=entry.get("unity"))
@@ -540,6 +542,7 @@ class SlotPool:
         run = self.run_unsandboxed(argv, cwd=slot["folder"], timeout=entry["batch_timeout"], log=None,
                                    owner=reservation["item_id"], cancelled=cancelled)
         summary = {"state": "ran", "exit_code": run.returncode, "seconds": round(run.seconds, 1),
+                   "commit_sha": reservation["commit_sha"], "reservation_id": reservation["reservation_id"],
                    "results_file": str(results), "log_file": str(log),
                    "total": None, "passed": None, "failed": None, "result": None}
         try:
@@ -554,7 +557,9 @@ class SlotPool:
             summary["state"] = "timeout"
         # Written before the raise below, not after it: the operator who reads a held slot needs the record
         # of what happened on it, and a summary that only exists on the happy path is the one nobody has.
-        (state_dir / "unity-batch.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        serialized = json.dumps(summary, indent=2)
+        (evidence_dir / "unity-batch.json").write_text(serialized, encoding="utf-8")
+        (state_dir / "unity-batch.json").write_text(serialized, encoding="utf-8")
         if run.timed_out:
             self.clear_stale_lock(slot["folder"], lambda: self.editor_pid(slot["folder"]) is not None)
             if self.editor_pid(slot["folder"]) is not None:

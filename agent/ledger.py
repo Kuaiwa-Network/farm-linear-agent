@@ -806,7 +806,7 @@ class Ledger:
                                           "resource", "host", "commit_sha", "state", "attempts", "created_at",
                                           "acquired_at", "released_at", "release_reason")}
 
-    def await_resource(self, item_id, token, resource, mode):
+    def await_resource(self, item_id, token, resource, mode, *, commit_sha=None):
         _text(resource, "resource")
         if mode not in ("interactive", "batch"):
             raise LedgerError("mode must be interactive or batch")
@@ -815,6 +815,13 @@ class Ledger:
             target = json.loads(row["target_json"]) if row["target_json"] else None
             if not target or not COMMIT_SHA.match(target.get("commit_sha") or ""):
                 raise LedgerError("a resource request needs a pinned commit; this item has none")
+            if commit_sha is not None:
+                if not isinstance(commit_sha, str) or not COMMIT_SHA.fullmatch(commit_sha):
+                    raise LedgerError("verification commit must be a full lowercase commit SHA")
+                if (row["skill"] not in ("fix", "fgui", "feature") or resource != "unity_slot"
+                        or target["repository"] != "Farm-Client"):
+                    raise LedgerError("only a write worker may select a Farm-Client Unity verification commit")
+            selected_commit = target["commit_sha"] if commit_sha is None else commit_sha
             open_row = self.connection.execute(
                 f"""SELECT reservation_id FROM reservations WHERE item_id=? AND state IN
                     ({','.join('?' * len(self.RESERVATION_OPEN))})""",
@@ -825,10 +832,11 @@ class Ledger:
             self.connection.execute(
                 """INSERT INTO reservations(reservation_id,item_id,generation,kind,mode,commit_sha,state,created_at)
                    VALUES(?,?,?,?,?,?,'queued',?)""",
-                (reservation_id, row["id"], row["generation"], resource, mode, target["commit_sha"], self.clock()))
+                (reservation_id, row["id"], row["generation"], resource, mode, selected_commit, self.clock()))
             self._set_state(row["id"], "awaiting_resource", f"needs {resource}:{mode}", token=None,
                             lease_expires_at=None, worker_pid=None, needs_resource=f"{resource}:{mode}")
-            self._audit(row["id"], "reservation", "queued", details={"reservation_id": reservation_id, "mode": mode})
+            self._audit(row["id"], "reservation", "queued", details={"reservation_id": reservation_id, "mode": mode,
+                        "commit_sha": selected_commit, "baseline_commit": target["commit_sha"]})
             return self._view(self._row(row["id"]))
 
     def acquire(self, kind, *, owner, host):
