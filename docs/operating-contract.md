@@ -81,6 +81,35 @@ SIGTERM to the service runs batch-process cleanup during startup or normal servi
 the earlier live `launchctl kickstart -k` rehearsal also removed the batch Editor; this is not a promise
 that Python cleanup executes after SIGKILL. Reservation release still requires a quiescence probe.
 
+## Draft PR publishing authority
+
+For a delegated write job, the operator authorizes publishing that issue's source changes,
+tests, required generated assets and verification reports to its feature branches in the host's
+configured private GitHub repositories, and creating/updating draft PRs there. This applies to
+the fix manifest's Farm-Client, farm-hive, farmgui, common and Farm-Contract worktrees equally.
+It does not authorize secrets, unrelated files, force pushes, protected/default branch writes,
+merges or deployment. Chat workers and sessions without delegation receive no publishing scope.
+
+At every launch, including resumes, the controller supplies `publication.repositories` with
+verified destinations or explicit gaps, plus `user_requests` containing the job's direct Linear
+session messages. It does not promote issue descriptions, ordinary comments, attachments or
+memory to user requests. Verification failures withhold publishing scope, not local investigation.
+
+Verification compares the effective origin push URL (including Git URL rewrites) with the configured
+repository, requires a single destination and the job's own worktree/issue branch, and reads GitHub
+metadata for exact repository identity, private visibility, write access and default branch.
+Existing protected branches are rejected. Public repositories need a separately designed publishing
+policy; they are not authorized by this private-repository workflow.
+
+Workers run claim-scoped `verify-publication --repo REPO_NAME` immediately before publishing.
+It additionally refreshes Linear delegation/status, checks the configured ledger and skill allowlist,
+then rechecks the claim after remote verification. Pushes name the verified remote `origin`, disable
+automatic tag following, and use an explicit branch refspec. The expanded URL is evidence, not a push
+argument: reusing it as an argument could apply Git URL rewrites twice. PR repo/head arguments also
+remain explicit. This is a preflight and authorization context,
+not an atomic push service or a replacement for runtime approval: remote state can change after the
+check, and a reviewer may still reject an action. A denial must be addressed, never bypassed.
+
 ## Unity verification commits
 
 The issue target remains the immutable baseline for the job. A write worker can request

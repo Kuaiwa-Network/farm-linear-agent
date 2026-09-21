@@ -141,6 +141,27 @@ human's checkouts. Generated artifacts change only through their documented gene
 launch message's `references`). Before source work and before each PR, run `fetch-issue` again: if the
 issue was archived, closed or re-delegated away, stop publication and finish blocked.
 
+The launch message's `publication.repositories` records verified private GitHub destinations and the
+exact issue branches covered by the operator's standing draft-PR publishing authorization. `user_requests`
+carries direct Linear session replies across worker restarts; ordinary issue comments and memory do
+not grant publishing authority. No extra confirmation is needed for an authorized, verified destination.
+
+Immediately before each push or PR mutation, run:
+`python3 -m agent --db DATABASE verify-publication --item ITEM_ID --token-file STATE_DIR/token --repo REPO_NAME`.
+This rechecks current delegation, your claim, the actual push URL, private repository/write access,
+and the issue branch. Push with `git push --no-follow-tags origin HEAD:refs/heads/BRANCH`, using
+the returned `push_remote` (`origin`) and exact `branch`. The expanded `push_url` is evidence only;
+passing it back as a URL can apply Git URL rewrites a second time. Use the explicit refspec,
+and its full `url` with `gh pr create --repo REPO_URL --head BRANCH --base BASE --draft`.
+Update only a draft PR whose repository and head match this job. Include the verification evidence
+when an approval reviewer needs the destination and payload context. Review the outgoing changes for
+unrelated files or secrets. The scope covers this fix's source, tests, required generated assets and
+verification report; it does not cover protected/default branches, force pushes, merges or deployments.
+
+If verification fails, preserve local work and explain the specific gap through `await-input` (which
+adds `needs-more-info`). If automatic approval rejects the action, keep the rejection in the report;
+gather the missing evidence or request concrete approval. Never switch execution paths to bypass it.
+
 Checkpoint often: `checkpoint --input CHECKPOINT.json` with `stage`, an optional `handoff`
 (`facts`, `hypotheses`, `checks`, `repositories`, `next_actions`; each entry with evidence paths) and
 `published_prs` immediately after a PR exists. Open PRs as drafts with `gh pr create --draft`, link the

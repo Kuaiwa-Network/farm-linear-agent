@@ -18,7 +18,8 @@ READ_REPO = "Farm-Client"
 class Scheduler:
     def __init__(self, ledger, launcher, skills, worktrees, *, skill_root, db_path, runtime_name, host,
                  max_concurrent=2, guidance_for=lambda item: "", claim_timeout=600, api=None,
-                 slot_entries=None, preflight=None, control_ledger_factory=None):
+                 slot_entries=None, preflight=None, control_ledger_factory=None, publication=None):
+        self.publication = publication
         self.preflight = preflight
         self.control_ledger_factory = control_ledger_factory
         self.api = api
@@ -108,11 +109,17 @@ class Scheduler:
             memory = publish_snapshot(Path(self.db_path).resolve().parent / "memory", self.ledger.memory_rows())
         except (OSError, ValueError, sqlite3.Error) as exc:
             memory = {"status": "unavailable", "index": None, "reason": type(exc).__name__}
+        session = self.ledger.session(item['session_id']) or {}
+        publication = (self.publication.scope(item=item, issue=issue, paths=paths,
+                                             delegated=bool(session.get('delegation')))
+                       if self.publication is not None else {'repositories': {}})
+        # Inbox entries are session requests; ordinary issue comments stay in issue-context.
+        requests = self.ledger.issue_context(item['id'])['session_messages']
         message = dispatch_message(item=item, issue=issue, skill_path=self.skill_root / skill.name / "SKILL.md",
                                    worktrees=paths, db_path=self.db_path, runtime=self.runtime_name,
                                    guidance=self.guidance_for(item), budget=skill.budget,
                                    repo_root=repo_root, state_dir=self.launcher.state_dir(item["id"]),
-                                   resource=resource, memory=memory)
+                                   resource=resource, memory=memory, publication=publication, user_requests=requests)
         primary = paths.get(READ_REPO) or next(iter(paths.values()))
         # `python3 -m agent` must resolve from any worktree, so FarmBot's root leads the worker's PYTHONPATH.
         pythonpath = os.pathsep.join(p for p in (str(repo_root), os.environ.get("PYTHONPATH", "")) if p)
