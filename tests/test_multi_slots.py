@@ -38,7 +38,8 @@ class MultipleSlotTests(unittest.TestCase):
         self.pool.close_editor(self.ledger.slot("unity_slot:1"))
         self.assertEqual(self.mcp.calls, [("terminate", "unity_slot:1")])
         self.pool.close_editor(self.ledger.slot("unity_slot:2"))
-        self.assertEqual(self.mcp.calls[-2:], [("terminate", "unity_slot:2"), ("reap_server", "unity_slot:2")])
+        self.assertEqual(self.mcp.calls[1], ("terminate", "unity_slot:2"))
+        self.assertCountEqual(self.mcp.calls[2:], [("reap_server", "unity_slot:1"), ("reap_server", "unity_slot:2")])
 
     def test_separate_broker_can_be_reaped_while_other_slot_is_open(self):
         self.ledger.ensure_slot("unity_slot:2", kind="unity_slot", host="h", folder=self.entries[1]["folder"],

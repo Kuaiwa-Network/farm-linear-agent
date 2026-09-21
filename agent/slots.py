@@ -628,13 +628,14 @@ class SlotPool:
         try:
             # HTTP instance selection is per session; multiple pool editors can share a broker.
             # Closing one editor must not disconnect a worker using another configured slot.
-            shared_open = any(other["slot_id"] != slot["slot_id"]
-                              and other["slot_id"] in self.entries
-                              and other["mcp_address"] == slot["mcp_address"]
-                              and self.editor_is_open(other)
-                              for other in self.ledger.slots(host=self.host))
+            peers = [other for other in self.ledger.slots(host=self.host)
+                     if other["slot_id"] != slot["slot_id"] and other["slot_id"] in self.entries
+                     and other["mcp_address"] == slot["mcp_address"]]
+            shared_open = any(self.editor_is_open(other) for other in peers)
             if not shared_open:
-                self.mcp.reap_server(slot)
+                # The first editor owns the pidfile even if another editor is last to close.
+                for owner in [slot, *peers]:
+                    self.mcp.reap_server(owner)
         except Exception as exc:
             # A surviving server does fail the close, and deliberately so: the brief's own comment here read
             # "not worth failing the close over", which contradicted the raise below it. It IS worth it —
