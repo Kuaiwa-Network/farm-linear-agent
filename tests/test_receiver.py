@@ -31,6 +31,7 @@ class ReceiverBase(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.db = Path(self.tmp.name) / "ledger.sqlite3"
         self.api = Mock()
+        self.api.session_has_artificial_root.return_value = False
         self.api.fetch_issue.return_value = issue(labels=["Bug"], delegate_id=APP)
         self.api.create_activity.return_value = {"success": True, "agentActivity": {"id": "act"}}
         self.scheduler = Mock()
@@ -61,6 +62,51 @@ class ReceiverBase(unittest.TestCase):
 
 
 class ReceiverTests(ReceiverBase):
+    def test_placeholder_comment_on_delegated_bug_starts_fix_without_placeholder_prompt(self):
+        event = self.event()
+        event["agentSession"]["comment"] = {
+            "id": "root", "body": "This thread is for an agent session with farmbot."}
+        self.api.session_has_artificial_root.return_value = True
+        self.receive(event)
+        self.receiver.process_one()
+        item = self.ledger.items_for_session("session-1")[0]
+        self.assertEqual((item["skill"], item["state"]), ("fix", "queued"))
+        self.assertTrue(self.ledger.session("session-1")["delegation"])
+        self.assertEqual(self.ledger.issue_context(item["id"])["inbox_pending"], 0)
+        self.api.session_has_artificial_root.assert_called_once_with("session-1", ISSUE, APP)
+
+    def test_real_mention_on_already_delegated_issue_does_not_start_fix(self):
+        event = self.event()
+        event["agentSession"]["comment"] = {"id": "human", "body": "@FarmBot explain this"}
+        self.receive(event)
+        self.receiver.process_one()
+        item = self.ledger.items_for_session("session-1")[0]
+        self.assertEqual(item["skill"], "chat")
+        self.assertFalse(self.ledger.session("session-1")["delegation"])
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        self.assertEqual(self.ledger.pop_inbox(item["id"], token), ["@FarmBot explain this"])
+
+    def test_source_comment_is_the_prompt_instead_of_the_placeholder(self):
+        event = self.event()
+        event["agentSession"].update({
+            "comment": {"id": "root", "body": "This thread is for an agent session with farmbot."},
+            "sourceComment": {"id": "human", "body": "@FarmBot explain this"}})
+        self.receive(event)
+        self.receiver.process_one()
+        item = self.ledger.items_for_session("session-1")[0]
+        self.assertEqual(item["skill"], "chat")
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        self.assertEqual(self.ledger.pop_inbox(item["id"], token), ["@FarmBot explain this"])
+
+    def test_unverifiable_comment_origin_does_not_start_work(self):
+        event = self.event()
+        event["agentSession"]["commentId"] = "root"
+        self.api.session_has_artificial_root.side_effect = RuntimeError("unavailable")
+        self.receive(event)
+        self.receiver.process_one()
+        self.assertEqual(self.ledger.items_for_session("session-1"), [])
+        self.assertEqual(self.receiver.results()[0]["status"], "uncertain")
+
     def test_delegated_bug_creates_fix_item_and_acknowledges(self):
         self.assertEqual(self.receive(), (200, "accepted"))
         self.assertTrue(self.receiver.process_one())

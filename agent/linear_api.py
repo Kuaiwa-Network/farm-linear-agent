@@ -92,6 +92,25 @@ class LinearAPI:
         delegate = (data.get("issue") or {}).get("delegate")
         return delegate["id"] if delegate else None
 
+    def session_has_artificial_root(self, session_id, issue_id, app_user_id):
+        """Distinguish Linear's synthetic session thread from a comment mention.
+
+        The flag is not always included in webhook comments. Read it from Linear;
+        never infer delegation authority from the placeholder's display text.
+        A source comment still indicates a mention, even with an artificial root.
+        """
+        session = self.graphql("""query FarmBotSessionOrigin($id: String!) {
+            agentSession(id: $id) {
+                issue { id } appUser { id }
+                comment { isArtificialAgentSessionRoot } sourceComment { id }
+            }
+        }""", {"id": session_id})["agentSession"]
+        if (not session or (session.get("issue") or {}).get("id") != issue_id
+                or (session.get("appUser") or {}).get("id") != app_user_id):
+            raise RuntimeError("Linear session context mismatch")
+        return ((session.get("comment") or {}).get("isArtificialAgentSessionRoot") is True
+                and not session.get("sourceComment"))
+
     def needs_more_info(self, issue_id):
         """Add the clarification label without replacing any existing labels."""
         after, labels = None, []

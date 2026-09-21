@@ -139,7 +139,7 @@ class Receiver:
         if event["action"] == "prompted":
             text = event["agentActivity"]["content"].get("body") or ""
         else:
-            text = (session.get("comment") or {}).get("body") or ""
+            text = (session.get("sourceComment") or session.get("comment") or {}).get("body") or ""
         if not isinstance(text, str) or len(text) > 32000:
             raise ValueError("oversized prompt")
         guidance = event.get("guidance")
@@ -147,7 +147,8 @@ class Receiver:
         if len(guidance) > 32000:
             raise ValueError("oversized guidance")
         return {"action": event["action"], "session_id": session["id"], "issue_id": issue_id, "text": text,
-                "is_mention": bool(session.get("comment") or session.get("commentId") or session.get("sourceCommentId")),
+                "is_mention": bool(session.get("comment") or session.get("commentId")
+                                   or session.get("sourceComment") or session.get("sourceCommentId")),
                 "guidance": guidance}
 
     def _receive_stop(self, event):
@@ -191,6 +192,12 @@ class Receiver:
         issue = self.api.fetch_issue(prepared["issue_id"])
         self.ledger.observe_issue(issue)
         session = self.ledger.session(prepared["session_id"])
+        if (session is None and prepared["action"] == "created" and prepared.get("is_mention")
+                and issue.get("delegate_id") == self.identity["appUserId"]):
+            # Delegations may include Linear's synthetic thread comment. Verify
+            # its origin off the webhook ACK path before granting write authority.
+            if self.api.session_has_artificial_root(prepared["session_id"], issue["id"], self.identity["appUserId"]):
+                prepared = {**prepared, "is_mention": False, "text": ""}
         is_delegation = (session["delegation"] if session else
                          prepared["action"] == "created" and not prepared.get("is_mention")
                          and issue.get("delegate_id") == self.identity["appUserId"])

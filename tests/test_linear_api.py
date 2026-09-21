@@ -33,6 +33,27 @@ def issue_page(cursor, has_next, comments):
 
 
 class LinearAPITests(unittest.TestCase):
+    def test_artificial_session_root_requires_matching_context_and_no_source_comment(self):
+        for root, source, expected in ((True, None, True), (False, None, False),
+                                       (True, {"id": "human"}, False), (None, None, False)):
+            with self.subTest(root=root, source=source):
+                api = self.api({"FarmBotSessionOrigin": [{"data": {"agentSession": {
+                    "issue": {"id": "issue"}, "appUser": {"id": APP},
+                    "comment": {"isArtificialAgentSessionRoot": root}, "sourceComment": source}}}]})
+                self.assertIs(api.session_has_artificial_root("session", "issue", APP), expected)
+                request = self.http.calls[-1][2]
+                self.assertEqual(request["variables"], {"id": "session"})
+                self.assertIn("isArtificialAgentSessionRoot", request["query"])
+                self.assertIn("sourceComment", request["query"])
+
+    def test_session_origin_rejects_missing_or_mismatched_session_context(self):
+        for session in (None, {"issue": {"id": "other"}, "appUser": {"id": APP}},
+                        {"issue": {"id": "issue"}, "appUser": {"id": "other"}}):
+            with self.subTest(session=session):
+                api = self.api({"FarmBotSessionOrigin": [{"data": {"agentSession": session}}]})
+                with self.assertRaises(RuntimeError):
+                    api.session_has_artificial_root("session", "issue", APP)
+
     def test_needs_more_info_adds_only_matching_label_without_replacing_labels(self):
         api = self.api({
             "FarmBotInfoLabel": [{"data": {"issue": {"team": {"id": "team"}, "labels": {"nodes": [{"name": "Bug"}]}},
