@@ -180,3 +180,17 @@ stopped workers and completed/cancelled jobs do not trigger this retry policy.
 After exhaustion the job fails with an explanation; an explicit operator retry
 starts a new retry allowance. Requeueing does not certify process cleanup or remove
 worktrees; existing retirement and Unity reservation safety checks remain in force.
+
+## Publication transport retries
+
+`verify-publication` retries temporary Linear/GitHub transport failures three times, waiting
+2 and 5 seconds between attempts. Every attempt rechecks the live claim, delegation and exact
+publishing destination. No push, PR creation or other mutation is retried by this mechanism.
+After those attempts fail, the same job is queued after 60, 180, then 600 seconds (at most three
+job retries), preserving its worktrees and checkpoint and retiring its old claim. The command
+returns `retry_queued`, never `verified`; the worker must exit. Exhaustion records an explicit
+infrastructure failure (`retry_exhausted`). An operator/chat retry resets the allowance.
+Authorization, destination and certificate validation failures are not treated as outages.
+Publication retries reuse existing worktrees without fetching from origin. The allowance counts
+launched worker attempts: if the host cannot refresh Linear delegation before launch, the job
+stays queued under the existing lifecycle backoff until that check recovers.

@@ -227,3 +227,17 @@ per item), blocker, delivery. Templates: `references/comment-templates.md`.
   launch message tells the worker its own numbers.
 - Worker runtime: Codex CLI (`codex exec --approve-for-me`), one isolated `CODEX_HOME` per work item seeded with `auth.json`; Claude Code is the fallback pending an isolated-auth recipe. Details: `docs/superpowers/spikes/2026-09-18-runtime-spike.md`.
 - Receiver: HMAC-SHA256 and 60 s timestamp window. AgentSessionEvent matches client, app user and organization; Issue events match organization.
+
+## Publication transport recovery
+
+Publication verification retries only transient read/authentication transport errors, never
+push/PR mutations. Each of three attempts (2/5 second delays) renews the claim and fetches fresh
+delegation, destination and branch evidence. After temporary exhaustion, the host revokes the
+claim and durably queues the same job after 60/180/600 seconds, preserving checkpoints and files.
+Only `status: verified` authorizes publication. `retry_queued` and `retry_exhausted` require worker
+exit; the latter records a failed infrastructure attempt after the three delayed retries.
+Permission/destination mismatches and certificate errors remain fail-closed and do not requeue.
+Missing initial Unity target pins remain recorded verification gaps, not publication blockers.
+Publication retries reuse preserved worktrees without an origin fetch. Their allowance counts
+launched attempts; a failed host Linear delegation preflight keeps the job queued under the
+existing lifecycle backoff without consuming another worker attempt.
