@@ -218,13 +218,21 @@ def serve(config_path=None, components=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="python3 -m agent.service")
     parser.add_argument("command", choices=["configure", "serve", "status", "seed-clones", "install-launchd",
-                                            "enqueue", "slots", "doctor"])
+                                            "enqueue", "slots", "doctor", "recover-worker-cleanup"])
     parser.add_argument("--config")
     parser.add_argument("--from", dest="source_root", help="directory holding local checkouts to seed from")
     parser.add_argument("--issue", help="Linear issue id or identifier to enqueue work for")
     parser.add_argument("--skill", default="fix")
     parser.add_argument("--commit", help="pin this commit instead of resolving the default branch")
+    parser.add_argument("--item", help="terminal work item whose legacy cleanup needs recovery")
+    parser.add_argument("--reason", help="operator explanation for cleanup recovery")
     args = parser.parse_args(argv)
+    if args.command == "recover-worker-cleanup":
+        from .cleanup_recovery import recover_after_boot
+        if not args.item or not args.reason:
+            parser.error("recover-worker-cleanup requires --item and --reason")
+        print(json.dumps(recover_after_boot(load_config(args.config), args.item, args.reason), indent=2))
+        return 0
     if args.command == "doctor":
         from .doctor import run
         report = run(args.config)

@@ -287,16 +287,20 @@ class Scheduler:
         result = record["result"] if record else {}
         try:
             pid = record.get("worker_pid") if record else self.ledger.last_worker_pid(item_id)
+            boot_proof = self.ledger.cleanup_boot_proof(item_id)
+            certified = (self.launcher.certified_pids(item_id, boot_proof)
+                         if hasattr(self.launcher, "certified_pids") else set())
             handle = self.launcher.running().get(item_id)
             if handle and handle.process and handle.process.poll() is None:
                 raise RuntimeError("worker has not exited")
-            if pid and self.launcher.alive(pid):
+            if pid and pid not in certified and self.launcher.alive(pid):
                 if not self.launcher.owned_pid(pid, item_id):
                     raise RuntimeError("live worker PID ownership cannot be verified")
                 result["processes"] = [pid, *self.launcher.descendants(pid)]
                 self.ledger.record_cleanup(item_id, result)
                 self.launcher.kill_pid(pid)
-            self.launcher.assert_quiescent(item_id, pid, result.get("processes", []))
+            extra = {"boot_proof": boot_proof} if boot_proof else {}
+            self.launcher.assert_quiescent(item_id, pid, result.get("processes", []), **extra)
             if self.ledger.active_reservation(item_id) is not None:
                 raise RuntimeError("reservation awaits quiescence")
             saved = self.worktrees.preserve(item_id)

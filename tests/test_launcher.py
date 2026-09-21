@@ -125,7 +125,8 @@ class LauncherTests(unittest.TestCase):
                                      writable=[Path("/w/item-3/Farm-Client"), Path("/repo/.local/agent")])
         self.wait_finished()
         config = (handle.run_dir / "home" / "config.toml").read_text(encoding="utf-8")
-        expected_roots = json.dumps([str(self.runs / "item-3"), "/w/item-3/Farm-Client", "/repo/.local/agent"])
+        expected_roots = json.dumps([str(self.runs / "item-3"), str(Path("/w/item-3/Farm-Client")),
+                                     str(Path("/repo/.local/agent"))])
         self.assertIn(f"[sandbox_workspace_write]\nwritable_roots = {expected_roots}\nnetwork_access = true\n", config)
         self.assertLess(config.index("[sandbox_workspace_write]"), config.index("[mcp_servers.unity]"))
         self.assertEqual(self.launcher.state_dir("item-3"), self.runs / "item-3")
@@ -330,7 +331,7 @@ class LauncherTests(unittest.TestCase):
                                 writable=[Path("/w/item-4/Farm-Client"), Path("/repo/.local/agent")])
         # The command line is fixed at spawn, so nothing here needs to wait for the worker to finish.
         self.assertEqual(handle.process.args[-6:], ["--add-dir", str(self.runs / "item-4"),
-                                                    "--add-dir", "/w/item-4/Farm-Client",
-                                                    "--add-dir", "/repo/.local/agent"])
+                                                    "--add-dir", str(Path("/w/item-4/Farm-Client")),
+                                                    "--add-dir", str(Path("/repo/.local/agent"))])
         self.assertEqual(RUNTIMES["claude"].writable_flag, "--add-dir")
         self.assertIsNone(RUNTIMES["codex"].writable_flag)

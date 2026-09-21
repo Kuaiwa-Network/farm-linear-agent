@@ -27,13 +27,14 @@ class WorkerModelConfigTests(unittest.TestCase):
 
     def test_launch_writes_model_and_effort_at_toml_root(self):
         with tempfile.TemporaryDirectory() as tmp:
-            runtime = RUNTIMES["codex"]._replace(seed_files={})
+            runtime = RUNTIMES["codex"]._replace(seed_files={}, command=RUNTIMES["fake"].command)
             launcher = Launcher(Path(tmp) / "runs", runtime, "test")
-            process = Mock(pid=123)
-            with patch("agent.launcher.subprocess.Popen", return_value=process):
-                handle = launcher.spawn("fix-job", "hello", {"unity": {"url": "http://localhost/mcp"}},
-                                        60, tmp, model_settings={"model": "gpt-5.6-sol",
-                                                                "reasoning_effort": "high"})
+            handle = launcher.spawn("fix-job", "hello", {"unity": {"url": "http://localhost/mcp"}},
+                                    60, tmp, model_settings={"model": "gpt-5.6-sol",
+                                                            "reasoning_effort": "high"})
+            self.addCleanup(launcher.stop, "fix-job")
+            handle.process.wait(timeout=10)
+            launcher.poll()
             config = tomllib.loads((handle.run_dir / "home/config.toml").read_text())
             self.assertEqual(config["model"], "gpt-5.6-sol")
             self.assertEqual(config["model_reasoning_effort"], "high")

@@ -1280,6 +1280,11 @@ class Ledger:
         row = self.connection.execute("SELECT * FROM job_cleanup WHERE item_id=?", (item_id,)).fetchone()
         return {**dict(row), "result": json.loads(row["result"]), "done": bool(row["done"])} if row else None
 
+    def cleanup_boot_proof(self, item_id):
+        row = self.connection.execute("SELECT details FROM audit WHERE item_id=? AND kind='cleanup_recovery' "
+                                      "ORDER BY id DESC LIMIT 1", (item_id,)).fetchone()
+        return json.loads(row["details"]) if row else None
+
     def record_cleanup(self, item_id, result, error=None, *, done=False):
         if not isinstance(result, dict):
             raise LedgerError("cleanup result must be an object")
