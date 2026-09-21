@@ -189,7 +189,7 @@ a claim ends; memory operations do not renew the lease.
 queued → running → delivered | blocked | failed; running ↔ awaiting_input (human gate);
 running → awaiting_resource (Unity slot); any active state or blocked → cancelled (Stop or issue closure). A waiting item
 has no process. An item in awaiting_resource holds a queued reservation; only the pool's grant turns
-it back into queued work. A launched worker must claim its item within 10 minutes or it is stopped and the item fails; a worker that exits before claiming fails the item; a worker that dies with an expired lease requeues the item once for a fresh worker.
+it back into queued work. A launched worker must claim its item within 10 minutes or it is stopped and the item fails. A confirmed terminal Codex model-capacity error returns the same queued or running item to the queue after 60, 180, then 600 seconds, with at most three automatic retries. The old claim is revoked; worktrees, checkpoints, model settings and reservations are retained. Retry timing is durable and all normal concurrency/delegation checks still apply. Cancelled, completed, waiting and deliberately stopped work is not automatically retried. Other pre-claim exits fail the item; a worker that dies with an expired lease requeues the item once for a fresh worker.
 The Linear session follows the item: `finish` posts the final response that completes the session (a chat
 answer is its own response); a worker that dies or never starts leaves an error activity naming 重试 as the
 way back, and a requeue leaves a thought.

@@ -14,7 +14,7 @@ from uuid import uuid4
 RuntimeConfig = namedtuple("RuntimeConfig", "name command home_env mcp_format seed_files writable_flag",
                            defaults=(None,))
 Handle = namedtuple("Handle", "item_id pid started_at deadline run_dir process last_message_path")
-Finished = namedtuple("Finished", "item_id returncode last_message killed reason")
+Finished = namedtuple("Finished", "item_id returncode last_message killed reason failure_kind worker_pid", defaults=(None, None))
 Unsandboxed = namedtuple("Unsandboxed", "returncode timed_out seconds")
 
 RUNTIMES = {
@@ -150,6 +150,14 @@ class Launcher:
                 if self._shutdown or item_id in self._cancelled_runs or (cancelled and cancelled()):
                     process_record.write_text(json.dumps({"state": "not_started"}), encoding="utf-8")
                     raise RuntimeError("launch cancelled before process creation")
+                # A previous sandbox principal may own a restrictive Windows ACL on this file.
+                # Archive the now-obsolete claim so the fresh worker can create its own token file;
+                # never reuse a claim or alter the separate reservation token.
+                previous_token = self.state_dir(item_id) / "token"
+                if previous_token.is_symlink():
+                    raise RuntimeError("claim token must not be a symlink")
+                if previous_token.exists():
+                    previous_token.rename(run_dir / "previous-claim.token")
                 process = subprocess.Popen(command, cwd=str(cwd), env=env, stdin=subprocess.PIPE, stdout=stdout, stderr=stderr,
                                            text=True, encoding="utf-8", **kwargs)
                 handle = Handle(item_id, process.pid, self.clock(), self.clock() + budget_seconds, run_dir, process, last_message)
@@ -445,6 +453,24 @@ class Launcher:
                 return ""
         return ""
 
+    def _failure_kind(self, handle, code, reason):
+        """Classify the CLI's final diagnostic, never arbitrary tool output earlier in its log."""
+        if self.runtime.name != "codex" or code == 0 or reason != "exited":
+            return None
+        try:
+            with (handle.run_dir / "stderr.log").open("rb") as log:
+                log.seek(0, 2)
+                log.seek(max(0, log.tell() - 4096))
+                tail = log.read().decode("utf-8", errors="replace")
+        except OSError:
+            return None
+        lines = [line.strip() for line in tail.splitlines() if line.strip()]
+        if len(lines) >= 2 and lines[-2] == "tokens used" and lines[-1].replace(",", "").isdigit():
+            lines = lines[:-2]
+        if lines and lines[-1] == "ERROR: Selected model is at capacity. Please try a different model.":
+            return "model_capacity"
+        return None
+
     def poll(self):
         finished = []
         for item_id, handle in list(self._handles.items()):
@@ -455,6 +481,7 @@ class Launcher:
             if code is None:
                 continue
             reason = self._stopping.pop(item_id, "exited")
-            finished.append(Finished(item_id, code, self._read_last_message(handle), reason != "exited", reason))
+            finished.append(Finished(item_id, code, self._read_last_message(handle), reason != "exited", reason,
+                                     self._failure_kind(handle, code, reason), handle.pid))
             del self._handles[item_id]
         return finished

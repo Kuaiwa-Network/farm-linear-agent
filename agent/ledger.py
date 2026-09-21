@@ -351,6 +351,8 @@ class Ledger:
             # Columns added after the first ledgers were written; CREATE TABLE IF NOT EXISTS leaves those files as they were.
             for table, column, declaration in (("sessions", "guidance", "TEXT"), ("work_items", "lease_seconds", "REAL"),
                                                 ("work_items", "predecessor_id", "TEXT"),
+                                                ("work_items", "capacity_retries", "INTEGER NOT NULL DEFAULT 0"),
+                                                ("work_items", "retry_not_before", "REAL NOT NULL DEFAULT 0"),
                                                 ("job_cleanup", "removing", "INTEGER NOT NULL DEFAULT 0")):
                 present = {row["name"] for row in self.connection.execute(f"PRAGMA table_info({table})")}
                 if column not in present:
@@ -391,7 +393,8 @@ class Ledger:
         issue = json.loads(self._issue_row(row["issue_id"])["metadata"])
         result = {key: row[key] for key in ["id", "issue_id", "session_id", "skill", "state", "stage",
                                             "priority", "host", "generation", "lease_expires_at",
-                                            "worker_pid", "needs_resource", "created_at", "predecessor_id"]}
+                                            "worker_pid", "needs_resource", "created_at", "predecessor_id",
+                                            "capacity_retries", "retry_not_before"]}
         result.update(identifier=issue["identifier"], target=json.loads(row["target_json"]) if row["target_json"] else None,
                       resume_authorized=bool(row["resume_authorized"]), checkpoint=json.loads(row["checkpoint"]),
                       evidence=json.loads(row["evidence"]))
@@ -564,7 +567,8 @@ class Ledger:
         return self._view(self._row(item_id))
 
     def queue(self):
-        rows = self.connection.execute("SELECT * FROM work_items WHERE state='queued' AND worker_pid IS NULL ORDER BY priority, created_at, id")
+        rows = self.connection.execute("SELECT * FROM work_items WHERE state='queued' AND worker_pid IS NULL "
+                                       "AND retry_not_before<=? ORDER BY priority, created_at, id", (self.clock(),))
         return [self._view(row) for row in rows]
 
     def launched(self):
@@ -633,6 +637,8 @@ class Ledger:
             row = self._row(item_id)
             if row["state"] != "queued":
                 raise LedgerError("only a queued work item can be claimed")
+            if row["retry_not_before"] > self.clock():
+                raise LedgerError("capacity retry delay has not elapsed")
             issue_row = self._issue_row(row["issue_id"])
             if not _in_scope(json.loads(issue_row["metadata"])):
                 raise LedgerError("issue left scope; cancel instead of claiming")
@@ -1152,6 +1158,27 @@ class Ledger:
             self._set_state(row["id"], "queued", reason, token=None, lease_expires_at=None, worker_pid=None, resume_authorized=1)
             return self._view(self._row(row["id"]))
 
+    def defer_capacity_retry(self, item_id, expected_pid):
+        """Host-only recovery for a confirmed capacity exit; keep all issue work and reservations.
+
+        This does not retire/remove a worktree or assert descendant cleanup. Like expired-lease
+        recovery it revokes the old claim, so only the next worker can write through the ledger.
+        """
+        delays = (60, 180, 600)
+        with self._transaction():
+            row = self._row(item_id)
+            if (row["state"] not in ("running", "queued") or not expected_pid
+                    or row["worker_pid"] != expected_pid or row["capacity_retries"] >= len(delays)):
+                return None
+            if not _in_scope(json.loads(self._issue_row(row["issue_id"])["metadata"])):
+                return None
+            delay = delays[row["capacity_retries"]]
+            self._set_state(item_id, "queued", "model capacity; delayed automatic retry",
+                            token=None, lease_expires_at=None, worker_pid=None,
+                            capacity_retries=row["capacity_retries"] + 1,
+                            retry_not_before=self.clock() + delay)
+            return {"attempt": row["capacity_retries"] + 1, "delay_seconds": delay}
+
     def retry(self, item_id, reason):
         _text(reason, "reason")
         with self._transaction():
@@ -1165,7 +1192,7 @@ class Ledger:
                     return self._view(self._row(self._cancelled_successor(row, reason)))
                 self._guard_cleanup_retry(row["id"])
                 self._set_state(row["id"], "queued", reason, worker_pid=None, generation=row["generation"] + 1,
-                                requeue_requested=0)
+                                requeue_requested=0, capacity_retries=0, retry_not_before=0)
             except sqlite3.IntegrityError:
                 raise LedgerError("another active work item exists for this issue")
             return self._view(self._row(row["id"]))
@@ -1207,7 +1234,8 @@ class Ledger:
                 self._guard_cleanup_retry(destination)
                 self._set_state(destination, "queued", "human requested continuation via chat",
                                 token=None, lease_expires_at=None, worker_pid=None,
-                                generation=work["generation"] + 1, requeue_requested=0)
+                                generation=work["generation"] + 1, requeue_requested=0,
+                                capacity_retries=0, retry_not_before=0)
             self.connection.execute("UPDATE work_items SET evidence=? WHERE id=?", (
                 _json({"summary": "Continued previously delegated work", "prs": [],
                        "resumed_item": destination, "message_id": message_id}), item_id))

@@ -146,3 +146,15 @@ or symlinked retained-run directories abort pruning before deletion. The command
 not stop the service for you; the stopped-service requirement is an operator precondition. No snapshots are pruned during
 ordinary worker launches. Native Codex/Claude memory is disabled in workers, and no
 personal memory or historic run logs are automatically imported.
+
+## Model capacity retries
+
+A Codex worker that exits with the terminal “Selected model is at capacity” error
+returns to the same job's queue after 60, 180, then 600 seconds (at most three
+automatic retries). Retry timing survives service restarts. The host preserves the
+worktrees and checkpoint, revokes the old claim, and uses the same model settings.
+The usual concurrency limit and fresh delegation checks still apply. Other errors,
+stopped workers and completed/cancelled jobs do not trigger this retry policy.
+After exhaustion the job fails with an explanation; an explicit operator retry
+starts a new retry allowance. Requeueing does not certify process cleanup or remove
+worktrees; existing retirement and Unity reservation safety checks remain in force.
