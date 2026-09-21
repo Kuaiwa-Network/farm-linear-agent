@@ -16,6 +16,7 @@ python3 -m agent.service configure                 # once per host; writes .loca
 python3 -m agent.service serve                     # receiver on 127.0.0.1:8765 plus scheduler
 python3 -m agent.service enqueue --issue FARM-1    # create work with no webhook; still needs delegation
 python3 -m agent.service slots                     # the pool: slot states, parked commits, open reservations
+python3 -m agent.service doctor                    # read-only JSON diagnostics for this host
 python3 -m agent --db .local/agent/ledger.sqlite3 status
 ```
 
@@ -41,6 +42,40 @@ changes at every restart and must be pasted into the Linear app settings again; 
 `"tunnel": {"name": "<tunnel>"}` once a named Cloudflare tunnel exists and the hostname stops moving.
 
 Behaviour: `docs/operating-contract.md`. Plans: `docs/superpowers/plans/`.
+
+## AI/operator diagnostics
+
+Run `python3 -m agent.service doctor --config /absolute/path/to/config.json` on the
+host you want to inspect. Omit `--config` to use `FARMBOT_CONFIG` or the checkout's
+`.local/agent/config.json`. The command prints one JSON report (`schema_version: 1`)
+with job/issue IDs, state and stage, leases, worker process checks, Unity slots,
+open reservations, pending cleanup, stored Linear status failures, and log paths.
+`findings` have stable codes, evidence and inspection hints so an AI can locate
+the relevant logs without scanning the entire ledger.
+`local_root` defaults to the checkout running the command, even when `--config`
+points elsewhere; set an absolute `local_root` when inspecting from another checkout.
+
+Exit codes are **0** (`ok`: no problems detected by these checks), **1** (`attention`:
+findings need inspection), and **2** (`incomplete`: a config, ledger, log or process
+check could not be completed). Incomplete takes precedence, retaining other findings.
+Jobs waiting for answers are normal. Cleanup and reservation cancellation may still
+be in progress; a finding is a reason to inspect, not an instruction to kill or retry.
+Counts include all historical jobs; job detail includes active jobs, failed/blocked
+jobs without successors, and jobs with pending cleanup. Retained run files are listed
+without reading their contents; credentials, claim tokens, issue prose, raw stored
+errors and process command lines are omitted. Detailed stored errors remain in
+`issue_checks.error` and `job_cleanup.error` in the ledger.
+
+This is a one-shot diagnostic snapshot, not a monitor or proof of overall service
+health. It does not probe the receiver, scheduler loop, tunnel, Linear, or Unity
+editor health. It checks recorded worker PIDs on the configured host using POSIX
+process inspection; foreign-host PIDs, Windows, denied inspection and unverified
+process ownership are reported as unknown. A live PID does not prove progress.
+Run it per machine; do not use another machine's config to probe local PIDs.
+No jobs, configuration permissions, logs or resource assignments are modified;
+the ledger is opened read-only without creating or migrating it.
+An older ledger reports `incomplete` and lists missing lifecycle schema entries;
+upgrading the running service applies its normal migrations separately.
 
 ## Issue closure and cancelled work
 
