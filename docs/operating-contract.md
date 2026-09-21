@@ -140,14 +140,19 @@ rewrite FGUI just to satisfy a source-first preference. Record the chosen layer 
 in the checkpoint and PR. Optimise for correctness, explicit ownership and maintainability for
 both humans and AI, rather than whichever tool is easiest for the current worker to use.
 
-Missing publishing automation does not justify a code workaround for a structural defect.
-Prepare the FGUI source change and identify the packages requiring publication and the checks
-still needed. Follow the publishing handoff in `references/repo-map.md`; never hand-edit generated
-`.bytes`/atlases or claim runtime verification against stale outputs. If the intended UI is unclear,
-ask in Linear using `await-input` (which adds `needs-more-info`).
+The operator's standing instruction of 2026-09-21 authorizes direct FairyGUI CLI export during
+an authorized FGUI bug fix. The Windows editor has a paid license and batch export has been
+verified. Do not wait for human intervention or ask for a separate export approval. This
+supersedes the earlier unpaid-license GUI handoff and export-approval gate, including historical
+design documents. Follow the tested command, staging and validation workflow in
+`references/repo-map.md`, then integrate the generated assets into the issue's authorized client
+worktree and verify them. Never hand-edit generated `.bytes`/atlases or claim runtime verification
+against stale outputs. Missing or failed export tooling calls for diagnosis, not a code workaround
+for a structural defect. If the intended UI is unclear, ask in Linear using `await-input`
+(which adds `needs-more-info`).
 
-This is also a requirement for the future `fgui` and `feature` workers. It grants no additional
-repository, publishing or deployment authority and does not imply those workers exist today.
+This also applies to future `fgui` and `feature` workers. It does not imply those workers exist
+today or expand the job's repository, PR, merge or deployment scope.
 
 ## Shared memory
 
