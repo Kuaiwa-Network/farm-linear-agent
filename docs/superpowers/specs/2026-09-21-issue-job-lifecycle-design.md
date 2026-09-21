@@ -1,6 +1,6 @@
 # Closed and cancelled issue cleanup
 
-Status: implemented and tested; independent review and deployment pending.
+Status: implemented, independently reviewed, and verified with 420 tests; not deployed.
 
 ## Scope
 

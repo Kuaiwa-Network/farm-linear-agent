@@ -31,7 +31,9 @@ evidence. Reopening by itself starts nothing.
 - Full suite after fixture cleanup: 413 tests passed in 93.034 s, no warnings.
 - Added one further RED→GREEN regression for a paused worker whose usable PID was
   cleared before it exited: cancellation now recovers the last PID from durable audit.
-- The final completion gate and independent review are recorded below before PR creation.
+- Final task completion gate: **414 tests passed in 94.396 s**, with no warnings.
+  `git diff --check` passed. The independent review found three consequential issues,
+  fixed in one regression-driven pass as detailed below.
 
 The initial integration run had a fixture field-name mismatch, corrected to the
 existing `push_inbox` result (`item_id`). Its production path required no change.
@@ -61,3 +63,45 @@ back off up to 300 seconds. Existing API scopes and delegation authority are unc
 Published PRs/messages and external requests already sent are not undone by cancellation.
 
 Reference: [Linear's webhook envelope and signature documentation](https://linear.app/developers/webhooks).
+
+## Independent review and fix pass
+
+The reviewer reproduced three Important findings: an exited worker could leave a
+live detached child while cleanup reported success; recovery and stale terminal
+snapshots could reach the old force-removal path; and retrying a partial removal
+could lose manifest entries for already-removed repositories.
+
+All three have failing-before/passing-after regressions. A real detached child now
+holds cleanup after its parent exits and the launcher restarts. Process identity is
+persisted per attempt; missing descendant teardown or interrupted launch evidence is
+an explicit cleanup gap. Recovery retains unverifiable live PIDs. Every terminal
+retirement uses the same process/resource/preservation checks, and a durable removal
+fence prevents same-ID retry from racing file deletion. Repository manifests merge
+across retries; a real two-repository removal-failure rehearsal retains both entries.
+No second review was requested; the final full-suite result follows below.
+
+Additional review rulings:
+
+- All terminal retirements use the safety gates. Cost: files from normally exited or
+  older attempts lacking teardown evidence remain until operator investigation;
+  cancelled successors stay queued while that cleanup is unresolved.
+- Live subscription/deployment testing remains deferred, as approved. Cost: deployment
+  must verify the real webhook subscription and status reads.
+- Unverifiable live PIDs retain files indefinitely. Cost: manual investigation and disk
+  use, chosen over killing unrelated processes or deleting potentially active files.
+- Logs/history have no automatic growth limit, as explicitly requested. Cost: operators
+  manage storage growth.
+
+No Minor findings were deferred. These were the review's only declined areas:
+live deployment, conservative PID retention and the user-requested unbounded history.
+
+## Final verification
+
+After the review fix pass, **420 tests passed in 95.051 seconds**, warning-free,
+using `python3 -B -W error -m unittest discover -s tests`. `git diff --check` passed.
+The older blocked-worker integration assertion was updated to verify retained files
+and a visible teardown gap instead of unconditional removal after parent exit.
+All three consequential review findings are covered by RED→GREEN regressions;
+no consequential findings remain unaddressed. No second review was run.
+
+Raw completion output: [verification.txt](verification.txt).

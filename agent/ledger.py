@@ -350,7 +350,8 @@ class Ledger:
             """)
             # Columns added after the first ledgers were written; CREATE TABLE IF NOT EXISTS leaves those files as they were.
             for table, column, declaration in (("sessions", "guidance", "TEXT"), ("work_items", "lease_seconds", "REAL"),
-                                                ("work_items", "predecessor_id", "TEXT")):
+                                                ("work_items", "predecessor_id", "TEXT"),
+                                                ("job_cleanup", "removing", "INTEGER NOT NULL DEFAULT 0")):
                 present = {row["name"] for row in self.connection.execute(f"PRAGMA table_info({table})")}
                 if column not in present:
                     self.connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
@@ -670,6 +671,7 @@ class Ledger:
             self.connection.execute(
                 "UPDATE work_items SET worker_pid=?,host=?,lease_seconds=COALESCE(?,lease_seconds),updated_at=? WHERE id=?",
                 (pid, host, lease_seconds, self.clock(), row["id"]))
+            self.connection.execute("UPDATE job_cleanup SET worker_pid=?,done=0 WHERE item_id=?", (pid, item_id))
             self._audit(row["id"], "worker", f"pid {pid} on {host}")
             return self._view(self._row(row["id"]))
 
@@ -1094,14 +1096,7 @@ class Ledger:
                 return self._view(row)
             if row["state"] not in (*ACTIVE_STATES, "blocked"):
                 raise LedgerError("work item is already terminal")
-            pid = row["worker_pid"]
-            if pid is None:
-                # Parking clears the usable PID before the worker has necessarily exited. The worker
-                # audit survives restarts, including upgrades with already-paused jobs.
-                last = self.connection.execute("SELECT reason FROM audit WHERE item_id=? AND kind='worker' ORDER BY id DESC LIMIT 1",
-                                               (item_id,)).fetchone()
-                match = re.fullmatch(r"pid ([0-9]+) on .+", last["reason"]) if last else None
-                pid = int(match[1]) if match else None
+            pid = self.last_worker_pid(item_id)
             self.connection.execute(
                 "INSERT OR IGNORE INTO job_cleanup(item_id,worker_pid,updated_at) VALUES(?,?,?)",
                 (row["id"], pid, self.clock()))
@@ -1160,6 +1155,7 @@ class Ledger:
             try:
                 if row["state"] == "cancelled":
                     return self._view(self._row(self._cancelled_successor(row, reason)))
+                self._guard_cleanup_retry(row["id"])
                 self._set_state(row["id"], "queued", reason, worker_pid=None, generation=row["generation"] + 1,
                                 requeue_requested=0)
             except sqlite3.IntegrityError:
@@ -1200,6 +1196,7 @@ class Ledger:
             if work["state"] == "cancelled":
                 destination = self._cancelled_successor(work, "human requested continuation via chat")
             else:
+                self._guard_cleanup_retry(destination)
                 self._set_state(destination, "queued", "human requested continuation via chat",
                                 token=None, lease_expires_at=None, worker_pid=None,
                                 generation=work["generation"] + 1, requeue_requested=0)
@@ -1222,6 +1219,27 @@ class Ledger:
         self._audit(item_id, "create", reason, {"predecessor_id": previous["id"]})
         return item_id
 
+    def _guard_cleanup_retry(self, item_id):
+        record = self.cleanup_record(item_id)
+        if record and record["removing"]:
+            raise LedgerError("worktree removal is in progress; retry shortly")
+        self.connection.execute("UPDATE job_cleanup SET done=0 WHERE item_id=?", (item_id,))
+
+    def begin_cleanup_removal(self, item_id):
+        with self._transaction():
+            if self._row(item_id)["state"] in ACTIVE_STATES:
+                raise LedgerError("active work cannot be removed")
+            self.connection.execute("UPDATE job_cleanup SET removing=1 WHERE item_id=?", (item_id,))
+
+    def last_worker_pid(self, item_id):
+        row = self._row(item_id)
+        if row["worker_pid"] is not None:
+            return row["worker_pid"]
+        last = self.connection.execute("SELECT reason FROM audit WHERE item_id=? AND kind='worker' ORDER BY id DESC LIMIT 1",
+                                       (item_id,)).fetchone()
+        match = re.fullmatch(r"pid ([0-9]+) on .+", last["reason"]) if last else None
+        return int(match[1]) if match else None
+
     def cleanup_record(self, item_id):
         row = self.connection.execute("SELECT * FROM job_cleanup WHERE item_id=?", (item_id,)).fetchone()
         return {**dict(row), "result": json.loads(row["result"]), "done": bool(row["done"])} if row else None
@@ -1235,8 +1253,8 @@ class Ledger:
                 raise LedgerError("active work cannot be cleaned up")
             self.connection.execute("""INSERT INTO job_cleanup(item_id,worker_pid,result,error,done,updated_at)
                 VALUES(?,?,?,?,?,?) ON CONFLICT(item_id) DO UPDATE SET result=excluded.result,
-                error=excluded.error,done=excluded.done,updated_at=excluded.updated_at""",
-                (item_id, row["worker_pid"], _json(result), error, int(done), self.clock()))
+                error=excluded.error,done=excluded.done,updated_at=excluded.updated_at,removing=0""",
+                (item_id, self.last_worker_pid(item_id), _json(result), error, int(done), self.clock()))
 
     def recovery_context(self, item_id):
         row = self._row(item_id)

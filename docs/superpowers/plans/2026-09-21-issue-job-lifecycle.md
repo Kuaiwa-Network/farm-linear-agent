@@ -38,7 +38,7 @@
 - Add `predecessor_id` to work items and expose it in item/context; cancelled `retry`/`resume_work` create a new row.
 - Existing non-cancelled retry, paused replies and resource resume semantics remain unchanged.
 
-- [ ] Write regression tests using `LedgerBase`:
+- [x] Write regression tests using `LedgerBase`:
 
 ```python
 job = self.new_item()
@@ -55,12 +55,12 @@ self.assertEqual(self.ledger.item(job['id'])['state'], 'cancelled')
 
 Also cover closed refusal, cancelled chat continuation, no token/PID/reservation copying, complete reply handoff, and unchanged paused reply behavior. Update only expectations invalidated by fresh cancelled IDs.
 
-- [ ] Run RED: `PYTHONPATH=tests python3 -B -W error -m unittest test_lifecycle_ledger -v`.
+- [x] Run RED: `PYTHONPATH=tests python3 -B -W error -m unittest test_lifecycle_ledger -v`.
 Expected: duplicate cancellation or successor-ID assertions fail.
-- [ ] Implement additive columns/cleanup table and a transaction-local cancelled-successor insertion helper. Complete the interpreter chat before inserting its successor in the same transaction; keep original cancelled row immutable. Existing one-active-item index prevents duplicate successors. Copy only checkpoint/provenance as stale evidence; initialize new execution fields from `create_work_item` defaults. Fetch current issue/delegation at CLI continuation boundaries.
-- [ ] Run GREEN: `PYTHONPATH=tests python3 -B -W error -m unittest test_lifecycle_ledger test_resume_work test_ledger test_cli -v`.
+- [x] Implement additive columns/cleanup table and a transaction-local cancelled-successor insertion helper. Complete the interpreter chat before inserting its successor in the same transaction; keep original cancelled row immutable. Existing one-active-item index prevents duplicate successors. Copy only checkpoint/provenance as stale evidence; initialize new execution fields from `create_work_item` defaults. Fetch current issue/delegation at CLI continuation boundaries.
+- [x] Run GREEN: `PYTHONPATH=tests python3 -B -W error -m unittest test_lifecycle_ledger test_resume_work test_ledger test_cli -v`.
 Expected: all pass.
-- [ ] Commit: `git add agent/ledger.py agent/__main__.py tests/test_lifecycle_ledger.py tests/test_resume_work.py tests/test_ledger.py tests/test_cli.py` then `git commit -m 'feat: retain cancelled history and create fresh successor jobs'`.
+- [x] Commit: `git add agent/ledger.py agent/__main__.py tests/test_lifecycle_ledger.py tests/test_resume_work.py tests/test_ledger.py tests/test_cli.py` then `git commit -m 'feat: retain cancelled history and create fresh successor jobs'`.
 
 ### Task 2: Preserve source before stopping and cleaning cancelled work
 
@@ -71,7 +71,7 @@ Expected: all pass.
 - Add `Worktrees.remove_preserved(item_id, evidence) -> None`, validating refs/path/clean HEAD immediately before removal.
 - Scheduler uses Task 1 cleanup records, invalidates claim before signalling, and defers cleanup while process/reservation ownership is unresolved.
 
-- [ ] Add failing real-Git tests: create an unpushed clean commit, preserve/remove the worktree, verify the saved ref still resolves; repeat for dirty tracked/untracked files and detached HEAD. Multi-repo failure, path symlink or ref mismatch must retain files. Example:
+- [x] Add failing real-Git tests: create an unpushed clean commit, preserve/remove the worktree, verify the saved ref still resolves; repeat for dirty tracked/untracked files and detached HEAD. Multi-repo failure, path symlink or ref mismatch must retain files. Example:
 
 ```python
 saved = self.trees.preserve('item-1')
@@ -82,12 +82,12 @@ self.assertEqual(git('rev-parse', saved['refs']['Farm-Client'], cwd=self.trees.c
 ```
 
 Add stop-order tests that attempt a claim mutation from inside the kill callback and expect refusal. Test restart with recorded owned PID, unverified live PID, pending/held reservation, preservation failure and logs still present.
-- [ ] Run RED: `PYTHONPATH=tests python3 -B -W error -m unittest test_cleanup test_worktrees -v`.
+- [x] Run RED: `PYTHONPATH=tests python3 -B -W error -m unittest test_cleanup test_worktrees -v`.
 Expected: missing preservation methods or old cleanup removes files after failure.
-- [ ] Implement local recovery refs for every worktree HEAD; reuse `commit_wip` identity but report errors before any removal. Reject symlinked managed directories and verify clone association. Record refs/checkpoint evidence before removing files; never push. Scheduler cancels first, stops owned worker/batch processes, checks they are gone, waits for reservation settlement, then preserves/removes. Inability to prove ownership/exit holds cleanup visibly. Same process/cleanup gates protect cancelled successors. Old terminal sweeps must not bypass these guards. No logs or snapshots are deleted.
-- [ ] Run GREEN: `PYTHONPATH=tests python3 -B -W error -m unittest test_cleanup test_worktrees test_scheduler test_launcher test_slots -v`.
+- [x] Implement local recovery refs for every worktree HEAD; reuse `commit_wip` identity but report errors before any removal. Reject symlinked managed directories and verify clone association. Record refs/checkpoint evidence before removing files; never push. Scheduler cancels first, stops owned worker/batch processes, checks they are gone, waits for reservation settlement, then preserves/removes. Inability to prove ownership/exit holds cleanup visibly. Same process/cleanup gates protect cancelled successors. Old terminal sweeps must not bypass these guards. No logs or snapshots are deleted.
+- [x] Run GREEN: `PYTHONPATH=tests python3 -B -W error -m unittest test_cleanup test_worktrees test_scheduler test_launcher test_slots -v`.
 Expected: pass, including real subprocess cleanup assertions.
-- [ ] Commit: `git add agent/worktrees.py agent/scheduler.py agent/launcher.py tests/test_worktrees.py tests/test_scheduler.py tests/test_launcher.py tests/test_cleanup.py` then `git commit -m 'fix: preserve cancelled work before safe cleanup'`.
+- [x] Commit: `git add agent/worktrees.py agent/scheduler.py agent/launcher.py tests/test_worktrees.py tests/test_scheduler.py tests/test_launcher.py tests/test_cleanup.py` then `git commit -m 'fix: preserve cancelled work before safe cleanup'`.
 
 ### Task 3: Reconcile closed issues and fence launch
 
@@ -99,10 +99,10 @@ Expected: pass, including real subprocess cleanup assertions.
 - `Lifecycle(ledger, api, scheduler, interval=60, clock=time.time).tick() -> dict`; dedicated service connection/thread.
 - Scheduler optional preflight callback defers launch on unavailable/currently unauthorized issue, outside its lock.
 
-- [ ] Add failing real-ledger tests with fake status API: all three closed conditions cancel queued/running/input/resource-waiting jobs; open and failed reads preserve jobs; reopen leaves old jobs cancelled; stale reads cannot overwrite newer state. Signed Issue events without AgentSessionEvent identity fields are accepted for configured organization, foreign/invalid/untracked inputs are refused/ignored, duplicates are harmless. Add launch preflight unavailable and closure-during-preparation regressions.
-- [ ] Run RED: `PYTHONPATH=tests python3 -B -W error -m unittest test_lifecycle test_receiver -v`.
+- [x] Add failing real-ledger tests with fake status API: all three closed conditions cancel queued/running/input/resource-waiting jobs; open and failed reads preserve jobs; reopen leaves old jobs cancelled; stale reads cannot overwrite newer state. Signed Issue events without AgentSessionEvent identity fields are accepted for configured organization, foreign/invalid/untracked inputs are refused/ignored, duplicates are harmless. Add launch preflight unavailable and closure-during-preparation regressions.
+- [x] Run RED: `PYTHONPATH=tests python3 -B -W error -m unittest test_lifecycle test_receiver -v`.
 Expected: no lifecycle coordinator and Issue events currently ignored.
-- [ ] Implement the lightweight query:
+- [x] Implement the lightweight query:
 
 ```graphql
 query FarmBotIssueStatus($id: String!) {
@@ -111,9 +111,9 @@ query FarmBotIssueStatus($id: String!) {
 ```
 
 Persist status versions so old full-detail reads cannot undo newer closure. Issue receipt only queues a durable refresh for already-tracked IDs after HMAC/timestamp/organization checks; use current fetched status, not payload state. Periodic fair reconciliation checks unfinished and blocked jobs, records bounded backoff on failure and invokes existing scheduler stop for closure. Dedicated network loop must not block Stop. Fresh preflight status gates initial/resumed launches and stale preparation must recheck cancellation before registering/spawning. Startup runs reconciliation; shutdown joins its loop/connection. Config `reconcile_seconds` defaults 60 and rejects invalid/nonpositive values. No Linear writes in polling.
-- [ ] Run GREEN: `PYTHONPATH=tests python3 -B -W error -m unittest test_lifecycle test_receiver test_linear_api test_service test_scheduler test_lifecycle_ledger -v`.
+- [x] Run GREEN: `PYTHONPATH=tests python3 -B -W error -m unittest test_lifecycle test_receiver test_linear_api test_service test_scheduler test_lifecycle_ledger -v`.
 Expected: all pass, including existing reply-resume tests unchanged.
-- [ ] Commit the files above with `git commit -m 'feat: cancel and reconcile work for closed Linear issues'`.
+- [x] Commit the files above with `git commit -m 'feat: cancel and reconcile work for closed Linear issues'`.
 
 ### Task 4: End-to-end verification and operating documentation
 
@@ -121,13 +121,13 @@ Expected: all pass, including existing reply-resume tests unchanged.
 
 **Interfaces:** production ledger/scheduler/lifecycle with temporary Git origins, real subprocesses and stub Linear; no alternate cancellation code in rehearsal.
 
-- [ ] Write failing integration cases: close while worker writes source, observe claim revoked/process exit, preserve source ref, remove only worktree, retain logs; reopen starts nothing; explicit cancelled restart yields new ID with recovery evidence. A paused open job keeps its ID and current reply-triggered resume behavior.
-- [ ] Run RED: `PYTHONPATH=tests python3 -B -W error -m unittest test_lifecycle_integration -v`.
+- [x] Write failing integration cases: close while worker writes source, observe claim revoked/process exit, preserve source ref, remove only worktree, retain logs; reopen starts nothing; explicit cancelled restart yields new ID with recovery evidence. A paused open job keeps its ID and current reply-triggered resume behavior.
+- [x] Run RED: `PYTHONPATH=tests python3 -B -W error -m unittest test_lifecycle_integration -v`.
 Expected: any remaining wiring defects are reproduced before fixing.
-- [ ] Fix only integration defects exposed, then run GREEN using the same command. Expected: pass.
-- [ ] Run full suite: `python3 -B -W error -m unittest discover -s tests`. Expected: all pass, warning-free; record actual count. Run `git diff --check`; expected exit 0.
-- [ ] Rewrite current operating contract/README around actual implemented closure polling, Issue webhook setup, same-ID paused resume, fresh cancelled restart, cleanup errors and recovery refs. State logs are retained. Record test evidence and live-deployment limits in report.
-- [ ] Commit docs/tests, request one independent whole-branch review, fix consequential findings with RED/GREEN regressions and full suite. Follow the established push/draft-PR preference; attach PR. No merge/deploy in this implementation step.
+- [x] Fix only integration defects exposed, then run GREEN using the same command. Expected: pass.
+- [x] Run full suite: `python3 -B -W error -m unittest discover -s tests`. Expected: all pass, warning-free; record actual count. Run `git diff --check`; expected exit 0.
+- [x] Rewrite current operating contract/README around actual implemented closure polling, Issue webhook setup, same-ID paused resume, fresh cancelled restart, cleanup errors and recovery refs. State logs are retained. Record test evidence and live-deployment limits in report.
+- [x] Commit docs/tests, request one independent whole-branch review, fix consequential findings with RED/GREEN regressions and full suite. Follow the established push/draft-PR preference; attach PR. No merge/deploy in this implementation step.
 
 ## Self-review
 

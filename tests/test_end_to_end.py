@@ -138,7 +138,16 @@ class EndToEndTests(unittest.TestCase, Fixture):
         methods = [c["method"] for c in self.calls()]
         self.assertEqual(methods.count("create_comment"), 2)
         self.assertIn("👀 FarmBot 已开始处理", self.calls()[[i for i, m in enumerate(methods) if m == "create_comment"][0]]["body"])
-        self.assertTrue(self.wait_gone(self.c.paths.worktrees / item["id"]))
+        # A normally exited parent provides no proof about detached descendants. Retain the
+        # worktree and expose the gap rather than treating parent exit as permission to delete.
+        deadline = time.time() + 5
+        while self.c.launcher.running() and time.time() < deadline:
+            self.c.scheduler.tick()
+            time.sleep(0.05)
+        cleanup = self.c.ledger.cleanup_record(item["id"])
+        self.assertFalse(cleanup["done"])
+        self.assertIn("teardown", cleanup["error"])
+        self.assertTrue((self.c.paths.worktrees / item["id"]).exists())
 
     def test_stop_kills_a_running_worker_within_five_seconds(self):
         with patch.dict(os.environ, {"FAKE_CLI_MODE": "sleep"}):

@@ -32,6 +32,13 @@ class LauncherTests(unittest.TestCase):
             time.sleep(0.05)
         self.fail("worker did not finish")
 
+    def test_interrupted_launch_without_pid_cannot_be_declared_quiescent(self):
+        attempt = self.launcher.state_dir("item-1") / "attempt"
+        attempt.mkdir(parents=True)
+        (attempt / "process.json").write_text(json.dumps({"state": "preparing"}))
+        with self.assertRaisesRegex(RuntimeError, "incomplete"):
+            self.launcher.assert_quiescent("item-1", None)
+
     def test_cancelled_launch_never_spawns(self):
         with patch("agent.launcher.subprocess.Popen") as spawn:
             with self.assertRaises(RuntimeError):

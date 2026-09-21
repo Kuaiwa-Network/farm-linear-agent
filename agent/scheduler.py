@@ -222,12 +222,12 @@ class Scheduler:
         for item_id in self.ledger.status()["recovery_required"]:
             item = self.ledger.item(item_id)
             pid = item["worker_pid"]
+            if pid and self.launcher.alive(pid) and item_id not in self.active and not self.launcher.owned_pid(pid, item_id):
+                continue  # A live PID we cannot identify is not a dead worker.
             if pid and (item_id in self.active or self.launcher.owned_pid(pid, item_id)):
                 if item_id in self.active:
                     self.launcher.stop(item_id)
                     self.active.pop(item_id, None)
-                else:
-                    self.launcher.kill_pid(pid)
                 self.ledger.fail(item_id, "lease expired with a live worker; killed")
                 self._notify(item_id, "error", "工作进程超过租约仍未汇报，已被终止，工作项已标记失败；可回复「重试」。")
             else:
@@ -238,13 +238,11 @@ class Scheduler:
             stale = now - row["updated_at"] > self.claim_timeout
             tracked = row["id"] in self.active
             owned = tracked or self.launcher.owned_pid(row["worker_pid"], row["id"])
-            if owned and not stale:
+            if (owned and not stale) or (not owned and self.launcher.alive(row["worker_pid"])):
                 continue
             if tracked:
                 self.launcher.stop(row["id"])
                 self.active.pop(row["id"], None)
-            elif owned:
-                self.launcher.kill_pid(row["worker_pid"])
             self.ledger.fail_queued(row["id"], "worker did not claim within the timeout" if owned else "worker process gone before claiming")
             self._notify(row["id"], "error", "工作进程未在时限内认领工作项，工作项已标记失败；可回复「重试」。")
             self._retire(row["id"], "failed")
@@ -252,48 +250,41 @@ class Scheduler:
         return recovered
 
     def _retire(self, item_id, state):
-        if state == "cancelled":
-            record = self.ledger.cleanup_record(item_id)
-            if record and record["done"]:
-                return
-            result = record["result"] if record else {}
-            try:
-                pid = record.get("worker_pid") if record else None
-                handle = self.launcher.running().get(item_id)
-                if handle and handle.process and handle.process.poll() is None:
-                    raise RuntimeError("worker has not exited")
-                if pid and self.launcher.alive(pid):
-                    if not self.launcher.owned_pid(pid, item_id):
-                        raise RuntimeError("live worker PID ownership cannot be verified")
-                    result["processes"] = [pid, *self.launcher.descendants(pid)]
-                    self.ledger.record_cleanup(item_id, result)
-                    self.launcher.kill_pid(pid)
-                if any(self.launcher.alive(p) for p in result.get("processes", [])):
-                    raise RuntimeError("worker processes have not exited")
-                for killed in self.launcher.state_dir(item_id).glob("*/killed.json"):
-                    data = json.loads(killed.read_text(encoding="utf-8"))
-                    if any(self.launcher.alive(p) for p in data.get("descendants", [])):
-                        raise RuntimeError("worker descendants have not exited")
-                if self.ledger.active_reservation(item_id) is not None:
-                    raise RuntimeError("reservation awaits quiescence")
-                saved = self.worktrees.preserve(item_id)
-                result.update(saved)
-                self.ledger.record_cleanup(item_id, result)
-                self.worktrees.remove_preserved(item_id, saved)
-                self.ledger.record_cleanup(item_id, result, done=True)
-            except Exception as exc:
-                self.ledger.record_cleanup(item_id, result, error=str(exc)[:500])
+        # The caller's snapshot may predate cancellation or retry. Every terminal path uses the
+        # same process, reservation, preservation and path checks; no force-removal fallback.
+        if self.ledger.item(item_id)["state"] not in TERMINAL:
             return
-        if state == "failed":
-            try:
-                report = self.worktrees.commit_wip(item_id, f"wip({item_id[:8]}): worker exited without finishing")
-                if report["committed"] or report["errors"]:
-                    print(json.dumps({"event": "wip_commit", "item": item_id, **report}, ensure_ascii=False),
-                          flush=True)
-            except Exception as exc:
-                print(json.dumps({"event": "wip_commit_failed", "item": item_id, "error": type(exc).__name__,
-                                  "detail": str(exc)[:200]}, ensure_ascii=False), flush=True)
-        self.worktrees.remove(item_id)
+        record = self.ledger.cleanup_record(item_id)
+        if record and record["done"]:
+            return
+        result = record["result"] if record else {}
+        try:
+            pid = record.get("worker_pid") if record else self.ledger.last_worker_pid(item_id)
+            handle = self.launcher.running().get(item_id)
+            if handle and handle.process and handle.process.poll() is None:
+                raise RuntimeError("worker has not exited")
+            if pid and self.launcher.alive(pid):
+                if not self.launcher.owned_pid(pid, item_id):
+                    raise RuntimeError("live worker PID ownership cannot be verified")
+                result["processes"] = [pid, *self.launcher.descendants(pid)]
+                self.ledger.record_cleanup(item_id, result)
+                self.launcher.kill_pid(pid)
+            self.launcher.assert_quiescent(item_id, pid, result.get("processes", []))
+            if self.ledger.active_reservation(item_id) is not None:
+                raise RuntimeError("reservation awaits quiescence")
+            saved = self.worktrees.preserve(item_id)
+            # A prior removal may have succeeded for only some repositories. Keep their manifest.
+            for key in ("committed", "refs"):
+                result[key] = {**result.get(key, {}), **saved[key]}
+            result["errors"] = saved["errors"]
+            self.ledger.record_cleanup(item_id, result)
+            self.ledger.begin_cleanup_removal(item_id)
+            self.worktrees.remove_preserved(item_id, result)
+            self.ledger.record_cleanup(item_id, result, done=True)
+        except Exception as exc:
+            # A concurrent same-ID retry retires cleanup authority. It must not delete active files.
+            if self.ledger.item(item_id)["state"] in TERMINAL:
+                self.ledger.record_cleanup(item_id, result, error=str(exc)[:500])
 
     def _sweep_worktrees(self):
         for row in self.ledger.status()["items"]:

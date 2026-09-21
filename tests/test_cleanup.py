@@ -189,3 +189,92 @@ class CancellationCleanupTests(unittest.TestCase):
             self.scheduler.tick()
         self.assertEqual(self.ledger.cleanup_record(item['id'])['worker_pid'], 777)
         self.assertFalse(self.ledger.cleanup_record(item['id'])['done'])
+
+    def test_recovery_retains_unverifiable_live_worker(self):
+        item = self.item()
+        self.ledger.set_worker(item['id'], 777, 'h')
+        self.launcher.alive_pids.add(777)
+        self.scheduler.preflight = lambda _: False
+        with patch.object(self.launcher, 'owned_pid', return_value=False):
+            self.scheduler.tick()
+        self.assertEqual(self.ledger.item(item['id'])['state'], 'queued')
+        self.assertNotIn(('removed', item['id'], None), self.trees.added)
+
+    def test_stale_terminal_snapshot_cannot_bypass_cancel_cleanup(self):
+        item = self.item()
+        self.ledger.cancel(item['id'], 'closed after sweep snapshot')
+        self.trees.commit_fails = True
+        self.scheduler._retire(item['id'], 'blocked')
+        self.assertNotIn(('removed', item['id'], None), self.trees.added)
+        self.assertTrue(self.ledger.cleanup_record(item['id'])['error'])
+
+    def test_partial_removal_keeps_all_repository_evidence_on_retry(self):
+        fixture = test_worktrees.WorktreeTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        trees = fixture.trees
+        trees.remotes['second'] = str(fixture.origin)
+        item = self.item()
+        for repo in ('Farm-Client', 'second'):
+            trees.add(repo, item['id'], 'farmbot/preserve')
+        self.scheduler.worktrees = trees
+        self.ledger.cancel(item['id'], 'closed')
+        import agent.worktrees as module
+        original = module._git
+        def remove_failure(*args, **kwargs):
+            if args[:2] == ('worktree', 'remove') and str(args[-1]).endswith('/second'):
+                raise WorktreeError('transient remove failure')
+            return original(*args, **kwargs)
+        with patch.object(module, '_git', side_effect=remove_failure):
+            self.scheduler.tick()
+        self.assertEqual(set(self.ledger.cleanup_record(item['id'])['result']['refs']), {'Farm-Client', 'second'})
+        self.scheduler.tick()
+        record = self.ledger.cleanup_record(item['id'])
+        self.assertTrue(record['done'])
+        self.assertEqual(set(record['result']['refs']), {'Farm-Client', 'second'})
+        self.assertEqual(set(record['result']['committed']), {'Farm-Client', 'second'})
+
+    def test_exited_parent_with_detached_child_holds_cleanup_after_restart(self):
+        import os
+        import signal
+        import sys
+        from agent.launcher import Launcher, RUNTIMES
+        item = self.item()
+        marker = Path(self.tmp.name) / 'child.pid'
+        script = ('import pathlib,subprocess,sys; sys.stdin.read(); '
+                  'child=subprocess.Popen([sys.executable,"-c","import time; time.sleep(120)"],'
+                  'start_new_session=True,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL); '
+                  'pathlib.Path(sys.argv[1]).write_text(str(child.pid))')
+        runtime = RUNTIMES['fake']._replace(command=[sys.executable, '-c', script, str(marker)])
+        launcher = Launcher(Path(self.tmp.name) / 'runs', runtime, 'h')
+        handle = launcher.spawn(item['id'], 'test', {}, 30, self.tmp.name)
+        self.addCleanup(launcher.poll)
+        self.addCleanup(launcher.stop, item['id'])
+        handle.process.wait(timeout=10)
+        child = int(marker.read_text())
+        self.addCleanup(launcher._signal_pid, child, signal.SIGKILL)
+        self.assertTrue(launcher.alive(child))
+        self.ledger.set_worker(item['id'], handle.pid, 'h')
+        token = self.ledger.claim(item['id'], worker_id='test')['token']
+        self.ledger.await_input(item['id'], token, 'question')
+        launcher.poll()
+        self.scheduler.launcher = Launcher(Path(self.tmp.name) / 'runs', runtime, 'h')
+        self.scheduler.stop(item['id'], 'closed')
+        self.scheduler.tick()
+        self.assertFalse(self.ledger.cleanup_record(item['id'])['done'])
+        self.assertNotIn(('removed', item['id'], None), self.trees.added)
+        self.assertTrue(self.scheduler.launcher.alive(child))
+
+    def test_retry_cannot_start_while_worktree_removal_is_in_progress(self):
+        item = self.item()
+        self.ledger.fail_queued(item['id'], 'failed launch')
+        original = self.trees.remove_preserved
+        def remove(item_id, evidence):
+            with self.assertRaises(LedgerError):
+                self.ledger.retry(item_id, 'racing retry')
+            original(item_id, evidence)
+        with patch.object(self.trees, 'remove_preserved', side_effect=remove):
+            self.scheduler._retire(item['id'], 'failed')
+        self.assertTrue(self.ledger.cleanup_record(item['id'])['done'])
+        self.assertEqual(self.ledger.item(item['id'])['state'], 'failed')
+        self.assertEqual(self.ledger.retry(item['id'], 'retry after removal')['id'], item['id'])

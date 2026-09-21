@@ -80,6 +80,13 @@ class FakeLauncher:
     def owned_pid(self, pid, item_id):
         return pid in self.alive_pids
 
+    def assert_quiescent(self, item_id, pid, recorded_processes=()):
+        if any(self.alive(p) for p in recorded_processes):
+            raise RuntimeError("worker processes have not exited")
+        for path in self.state_dir(item_id).glob("*/killed.json"):
+            if any(self.alive(p) for p in json.loads(path.read_text())["descendants"]):
+                raise RuntimeError("worker descendants have not exited")
+
     def descendants(self, pid):
         return []
 
@@ -334,7 +341,7 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(self.ledger.item(item_id)["state"], "failed")
         self.assert_committed_before_removal(item_id)
 
-    def test_a_delivered_item_is_swept_without_a_work_in_progress_commit(self):
+    def test_a_delivered_item_is_preserved_before_sweeping(self):
         item = self.item()
         self.scheduler.tick()
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
@@ -346,10 +353,10 @@ class SchedulerTests(unittest.TestCase):
         self.launcher.finished.append(Finished(item["id"], 0, "", False, "exited"))
         self.scheduler.tick()
         self.assertIn(("removed", item["id"], None), self.trees.added)
-        self.assertEqual([row for row in self.trees.added if row[0] == "committed"], [])
+        self.assert_committed_before_removal(item["id"])
 
     def assert_committed_before_removal(self, item_id):
-        message = f"wip({item_id[:8]}): worker exited without finishing"
+        message = f"wip({item_id[:8]}): preserve ended work"
         self.assertIn(("committed", item_id, message), self.trees.added)
         self.assertLess(self.trees.added.index(("committed", item_id, message)),
                         self.trees.added.index(("removed", item_id, None)))
@@ -377,15 +384,14 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual((self.ledger.item(item["id"])["state"], self.launcher.killed), ("failed", [pid]))
         self.assert_committed_before_removal(item["id"])
 
-    def test_a_failing_work_in_progress_commit_is_logged_and_still_sweeps(self):
+    def test_a_failing_work_in_progress_commit_retains_files_and_reports_error(self):
         self.trees.commit_fails = True
         log = io.StringIO()
         with contextlib.redirect_stdout(log):
             item_id = self.failed_item()
         self.assertEqual(self.ledger.item(item_id)["state"], "failed")
-        self.assertIn(("removed", item_id, None), self.trees.added)
-        self.assertIn("wip_commit_failed", log.getvalue())
-        self.assertIn("RuntimeError", log.getvalue())
+        self.assertNotIn(("removed", item_id, None), self.trees.added)
+        self.assertIn("git is unwell", self.ledger.cleanup_record(item_id)["error"])
 
     def test_reaped_worker_in_waiting_state_keeps_worktrees(self):
         item = self.item()

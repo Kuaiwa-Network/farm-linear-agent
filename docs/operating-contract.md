@@ -65,7 +65,9 @@ Cleanup records the old PID and preserves dirty tracked/non-ignored untracked so
 commits. Every repository HEAD, including clean unpublished commits, gets a durable
 `refs/farmbot/recovery/<job-id>` ref in its bare clone. Ref/HEAD/path checks must pass before removing
 worktrees. A live unverifiable PID, surviving descendants, unsettled reservation or Git failure keeps
-files and records a cleanup error. The scheduler retries pending cleanup. Slots still require the
+files and records a cleanup error. A dead parent alone does not prove detached children exited: an
+attempt without verified teardown evidence (including an interrupted launch or older attempt) also
+holds cleanup for operator investigation. These guards apply to every terminal retirement path. The scheduler retries pending cleanup. Slots still require the
 existing quiescence probe; a held slot requires operator recovery. No log, ledger history or memory
 snapshot is removed by closure cleanup. Every worker attempt gets its own log directory.
 
