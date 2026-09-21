@@ -472,28 +472,40 @@ class Launcher:
                 raise RuntimeError("cleanup boot evidence does not match this host boot")
             boot = boot_proof["boot_time"]
             certified.update(boot_proof["processes"])
-        jobs, newer = set(), set()
+        jobs, unverified = set(), set()
         for path in self.state_dir(item_id).glob("*/process.json"):
             attempt = json.loads(path.read_text(encoding="utf-8"))
-            if boot is not None and path.stat().st_mtime >= boot:
-                newer.add(attempt.get("pid"))
+            if attempt.get("state") == "not_started":
+                continue
+            proved = boot is not None and path.stat().st_mtime < boot and attempt.get("pid") in certified
             if attempt.get("windows_job"):
                 if not WindowsJob.empty(attempt["windows_job"]):
                     raise RuntimeError("Windows worker job still has active processes")
                 jobs.add(attempt["pid"])
-        return (certified - newer) | jobs
+                proved = True
+            if not proved:
+                unverified.add(attempt.get("pid"))
+        return (certified | jobs) - unverified
 
     def assert_quiescent(self, item_id, pid, recorded_processes=(), boot_proof=None):
         """Dead parents do not prove detached children died. Missing evidence holds cleanup."""
         root = self.state_dir(item_id)
         pids = {pid} if pid else set()
         contained = self.certified_pids(item_id, boot_proof)
-        for path in root.glob("*/process.json"):
-            attempt = json.loads(path.read_text(encoding="utf-8"))
+        attempts = [(path, json.loads(path.read_text(encoding="utf-8"))) for path in root.glob("*/process.json")]
+        for path, attempt in attempts:
             if attempt.get("state") == "not_started":
                 continue
             if not attempt.get("pid"):
                 raise RuntimeError("incomplete launch identity; operator investigation required")
+            # Teardown evidence belongs to an attempt, never every occurrence of its PID.
+            # In particular, a contained retry cannot certify an older uncontained run.
+            if attempt["pid"] not in contained:
+                killed_path = path.parent / "killed.json"
+                killed = json.loads(killed_path.read_text(encoding="utf-8")) if killed_path.exists() else {}
+                unique = sum(other.get("pid") == attempt["pid"] for _, other in attempts) == 1
+                if killed.get("pid") != attempt["pid"] and not (unique and attempt["pid"] in recorded_processes):
+                    raise RuntimeError("worker exited without verified descendant teardown; operator investigation required")
             pids.add(attempt["pid"])
         # Job identity is independent of PID reuse; never signal a new owner of an old PID.
         pids -= contained

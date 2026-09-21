@@ -125,3 +125,16 @@ class WindowsWorkerTests(unittest.TestCase):
         self.assertFalse(errors, repr(errors))
         self.assertEqual(len(calls), 1)
         handle.process.wait(timeout=5)
+
+    def test_later_contained_attempt_cannot_certify_legacy_attempt_with_same_pid(self):
+        from agent.windows_job import WindowsJob
+        job = WindowsJob(); name = job.name; job.close()
+        root = self.launcher.state_dir('reused')
+        old = root / 'old'; old.mkdir(parents=True)
+        new = root / 'new'; new.mkdir()
+        (old / 'process.json').write_text(json.dumps({'pid':123}))
+        (new / 'process.json').write_text(json.dumps({'pid':123, 'windows_job':name}))
+        (new / 'killed.json').write_text(json.dumps({'pid':123, 'descendants':[], 'windows_job':name}))
+        with patch.object(self.launcher, 'alive', return_value=False):
+            with self.assertRaisesRegex(RuntimeError, 'unverified|without verified'):
+                self.launcher.assert_quiescent('reused', 123)

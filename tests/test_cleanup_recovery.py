@@ -77,7 +77,7 @@ class CleanupRecoveryTests(unittest.TestCase):
         (attempt / 'process.json').write_text(json.dumps({'pid':123}))
         with patch('agent.cleanup_recovery.windows_boot_time', return_value=110), \
                 patch.object(launcher, 'alive', return_value=True):
-            with self.assertRaisesRegex(RuntimeError, 'not exited'):
+            with self.assertRaisesRegex(RuntimeError, 'without verified|not exited'):
                 launcher.assert_quiescent(self.item['id'], 123, boot_proof=proof)
 
     @unittest.skipUnless(os.name == 'nt', 'Windows boot proof')
