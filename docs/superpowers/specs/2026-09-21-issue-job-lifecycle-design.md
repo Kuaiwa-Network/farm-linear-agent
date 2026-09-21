@@ -1,6 +1,6 @@
 # Issue closure, explicit continuation, and job retention
 
-Status: proposed written design; conversational scope approved, awaiting written review.
+Status: approved with the user’s correction to retain `awaiting_input`; implementation planning.
 
 ## Intent and agreed behavior
 
@@ -9,14 +9,16 @@ and must not retain abandoned working directories indefinitely. A question may n
 answers from several people. Replies supply information; only an explicit human
 continuation request or a new UI delegation authorizes another fix job.
 
-Reactivation creates a new work item ID, fresh claim, fresh worker process and fresh
-execution state. The previous cancelled job remains cancelled. Its compact handoff
-and preserved changes are evidence for the new job, not continuing authority.
+Reactivating cancelled work creates a new work item ID, fresh claim, fresh worker
+process and fresh execution state. The previous cancelled job remains cancelled.
+Its compact handoff and preserved changes are evidence, not continuing authority.
+Resuming an open job in `awaiting_input` keeps that job’s ID and existing worktrees,
+but creates a fresh worker and claim. A new worker does not require a new job.
 
-There is no distinct long-lived paused execution state. Asking for information ends
-the attempt as `blocked`, with a pending question and `needs-more-info`. Silence does
-not cancel an open issue or automatically restart work. Resource waits remain a
-separate, active scheduling state: this change does not remove `awaiting_resource`.
+Keep `awaiting_input` as the existing paused state, with a pending question and
+`needs-more-info`. Ordinary replies add information without resuming the job.
+Silence does not cancel an open issue. Resource waits remain a separate scheduling
+state: this change does not remove `awaiting_resource` either.
 
 Assumptions proposed here: reconcile issue status every 60 seconds, and retain detailed
 logs for 30 days after a job ends. Both are configurable positive values. A compact
@@ -40,13 +42,15 @@ Alternatives considered:
 ## State and continuation
 
 The normal job path is `queued -> running -> delivered | blocked | failed | cancelled`.
+`running -> awaiting_input -> queued` requires an explicit continuation request for
+the final transition; a reply alone cannot cause it.
 `awaiting_resource` still yields the worker while the pool prepares a local slot.
 Infrastructure recovery within a still-authorized job may retain that job's ID;
 human reactivation of an ended job always creates a successor.
 
 `await-input` posts the question, adds the label, saves the question/handoff, retires
-the claim, and ends the attempt as `blocked`. An answer racing this transition is
-retained; it does not turn the old attempt back into queued work.
+the claim, and enters `awaiting_input`. An answer racing this transition is retained;
+it does not turn the job back into queued work without explicit continuation intent.
 
 Messages on inactive work go through the existing bounded chat flow. A short-lived
 chat worker can interpret natural-language intent and answer questions, but ordinary
@@ -56,22 +60,31 @@ questions, and incomplete discussion do not authorize continuation. Multiple peo
 can contribute; nobody's reply is implicitly a final sign-off. An explicit request
 starts a fresh worker that may ask again if material ambiguity remains.
 
-Replace the existing `resume-work` operation's requeue-old-job behavior with an atomic
-successor operation. Retain its CLI name for compatibility, update its result and
-callers, and document that it creates a new job. Require a live owned chat claim,
-an actual source message, the same issue, prior UI delegation, and a freshly fetched
-open issue still delegated to FarmBot. Complete the chat and insert the successor
-in one transaction. Record `predecessor_id`, requesting message provenance, and a
-stable request key so redelivery or retry cannot create duplicate jobs.
+Extend `resume-work` to distinguish waiting work from ended work. Waiting work is
+requeued with the same ID; ended work gets an atomic successor. Retain the CLI name
+and return the chosen item plus whether a successor was created. Require a live owned
+chat claim, an actual source message, the same issue, prior UI delegation, and a freshly
+fetched open issue still delegated to FarmBot. Complete the chat and requeue the waiting
+job or insert the successor in one transaction. Record `predecessor_id` for successors,
+requesting message provenance, and a stable request key so redelivery or retry cannot
+create duplicate executions.
+
+Allow one bounded chat interpreter alongside one waiting fix job, while still allowing
+at most one queued/running/resource-waiting execution per issue and one unfinished fix
+job per issue. Change the ledger uniqueness indexes and receiver selection together;
+do not simply remove the current one-active-item constraint. Messages received during
+chat handoff are forwarded exactly once to the selected job. If a waiting chat itself
+needs interpretation, a fresh worker may inspect the new reply in that chat; this is
+conversation handling, not authorization to resume a fix.
 
 The successor gets no old PID, token, lease, reservation, generation counter or
 pending executable action. Link the previous handoff, saved Git refs and PRs; mark
 their contents as stale until reverified. Refresh issue details, all comment pages,
 and relevant agent-session activities before interpreting the request. Preserve
 local message provenance where Linear does not provide a complete recoverable copy;
-missing history is reported rather than invented. Session identity may be reused;
-job identity is always new. New delegation also creates a new job linked to the
-most recent relevant ended job.
+missing history is reported rather than invented. Session identity may be reused.
+New UI delegation explicitly resumes a waiting fix, or creates a new job linked to
+the most recent relevant ended job when no waiting fix exists.
 
 ## Closure detection and cancellation
 
@@ -87,14 +100,15 @@ issues already tracked by FarmBot are eligible for lifecycle handling. An open-s
 notification never authorizes work.
 
 A separate bounded reconciliation loop scans tracked issues with active jobs or
-unfinished lifecycle cleanup. It also checks open issues with blocked jobs so closure
-while waiting is discovered. Failures are retried with backoff; an API error alone is
+unfinished lifecycle cleanup. It also checks open issues with waiting or blocked jobs
+so closure while waiting is discovered. Failures are retried with backoff; an API error alone is
 not evidence of cancellation. Reconciliation must not block Stop or resource cleanup.
 Recheck current status/delegation before initial launch and every human reactivation.
 An unavailable preflight check defers the launch without creating a model process.
 
-When a current issue is closed, cancel queued/running/resource-waiting jobs and mark
-unresolved blocked jobs cancelled. Do not rewrite delivered historical results.
+When a current issue is closed, cancel queued/running/resource-waiting/input-waiting
+jobs and mark unresolved blocked jobs cancelled. Do not rewrite delivered historical
+results.
 Explicit Stop and operator cancellation use the same cancellation implementation.
 Persist the cancellation and retire the claim before stopping owned processes. Record
 process ownership separately until termination is verified, so clearing a claim does
@@ -118,8 +132,11 @@ delegation creates a successor; it never reopens an old job or silently restarts
 ## Preservation and cleanup
 
 Cleanup has persisted progress/error metadata distinct from execution status.
-Run it for ended jobs, including blocked jobs awaiting discussion. The saved handoff
-and source changes replace the need to keep their working directories mounted.
+Run it for ended jobs. An open job in `awaiting_input` retains its handoff and
+worktrees for explicit resumption; closure changes it to cancelled and makes it
+eligible for cleanup. Do not remove a waiting job’s worktrees merely because it asked
+a question. Once a job ends, the saved handoff and source changes replace the need
+to keep its working directories mounted.
 
 1. Confirm owned processes have exited and dependent resource cleanup is safe.
 2. Preserve changed tracked and non-ignored untracked source files in local Git
@@ -155,9 +172,9 @@ fresh investigation, but must not be reported as restored progress.
 
 ## Migration and operational boundaries
 
-Use additive schema changes where possible. Convert legacy `awaiting_input` rows to
-inactive blocked outcomes without deleting their checkpoint, replies or source files.
-Keep the old enum spelling readable for migration, but produce no new such state.
+Use additive schema changes where possible. Preserve existing `awaiting_input` rows,
+checkpoints, replies and source files. Apply explicit-continuation semantics to them;
+do not requeue them merely because they already have an unread answer.
 Run cleanup only after the new preservation path is installed and verified. Existing
 terminal jobs are never automatically requeued by migration. Operator `retry` of an
 ended job adopts successor semantics too; lease recovery remains distinct.
@@ -175,11 +192,12 @@ not broaden OAuth scopes or change workspace settings silently.
 ## Verification
 
 - Multiple answers and a reply racing `await-input` do not resume a fix.
-- Explicit English/Chinese continuation creates exactly one fresh job; negation,
-  quotation and ordinary answers do not. Closed or undelegated issues refuse it.
+- Explicit English/Chinese continuation resumes a waiting job with the same ID and
+  a fresh claim, or creates exactly one successor to ended work. Negation, quotation
+  and ordinary answers do neither. Closed or undelegated issues refuse continuation.
 - Old cancelled/blocked/delivered jobs retain history; successor claims and resource
   tokens are new. Reopening alone is inert; re-delegation is deduplicated.
-- Closure/cancellation/archive while queued, running, awaiting a resource or blocked
+- Closure/cancellation/archive while queued, running, awaiting input or a resource, or blocked
   stops further authorized work. Include a live worker, a batch process and races
   between Stop, grant, launch, reply and successor creation.
 - Duplicate, delayed, foreign-organization and invalidly signed Issue notifications
