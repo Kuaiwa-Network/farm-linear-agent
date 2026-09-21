@@ -7,7 +7,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from .config import linear_api, load_config
+from .config import Paths, linear_api, load_config
 from .ledger import Ledger, LedgerError
 from .memory import prune_snapshots
 from .router import WRITE_SKILLS
@@ -61,6 +61,7 @@ def parser():
     resume.add_argument("--message-id", type=int, required=True)
     resource = cmd("await-resource", "--item", "--resource", token=True)
     resource.add_argument("--mode", required=True, choices=["interactive", "batch"])
+    resource.add_argument("--commit", help="full SHA of the clean Farm-Client worktree HEAD to verify; default: baseline")
     release = cmd("release-resource", "--item", token=True)
     release.add_argument("--outcome", required=True, choices=["quiescent", "unclean"])
     cmd("reservations"); cmd("slots")  # operator readers: no item, no token, nothing to authorise
@@ -258,7 +259,22 @@ def run(args, ledger, api_factory):
             print(json.dumps({"warning": "work resumed; acknowledgment failed", "error": type(exc).__name__}), file=sys.stderr)
         return resumed
     if c == "await-resource":
-        return ledger.await_resource(args.item, resolve_token(args), args.resource, args.mode)
+        token = resolve_token(args)
+        if args.commit is not None:
+            from .worktrees import Worktrees
+            ledger.renew(args.item, token)  # authenticate before reading any checkout
+            item = ledger.item(args.item)
+            if (item["skill"] not in WRITE_SKILLS or args.resource != "unity_slot"
+                    or (item.get("target") or {}).get("repository") != "Farm-Client"):
+                raise LedgerError("only a write worker may select a Farm-Client Unity verification commit")
+            config = load_config()
+            paths = Paths(config)
+            if Path(args.db).resolve() != paths.ledger.resolve():
+                raise LedgerError("verification must use the configured host ledger")
+            Worktrees(paths.repos, paths.worktrees, config.repos).verification_commit(
+                "Farm-Client", args.item, args.commit)
+        # Ownership is checked again after Git validation, fencing a concurrent stop/closure.
+        return ledger.await_resource(args.item, token, args.resource, args.mode, commit_sha=args.commit)
     if c == "release-resource":
         # The worker's own verdict, not the pool's: the pool re-checks quiescence before acting on a slot
         # this worker may have wedged (spec §7). Both outcomes are verified against the reservation's own

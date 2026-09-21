@@ -1,0 +1,19 @@
+{
+  "commit": "f5e16655d3334d435203ca35719d3a0d7bc761ab",
+  "code": "var bytes = System.IO.File.ReadAllBytes(UnityEngine.Application.dataPath + \"/GameRes/GameConfigs.pb/SystemUnlockInfo.pb.bytes\");\nvar table = Tbl.SystemUnlockInfoTable.Parser.ParseFrom(bytes);\nTbl.SystemUnlockInfo activity = null;\nforeach (var row in table.Info) if (row.Name == \"\u6d3b\u52a8\") activity = row;\nif (activity == null) throw new System.Exception(\"Activity config row missing\");\nvar systemId = Farm.Features.SystemUnlock.SystemUnlockIds.Activity;\nvar hiddenBefore = Farm.Features.SystemUnlock.SystemUnlockRules.ShouldHideButton(systemId, true, activity.HideButton, true, false, false);\nvar hiddenAfter = Farm.Features.SystemUnlock.SystemUnlockRules.ShouldHideButton(systemId, true, activity.HideButton, true, true, false);\nvar entries = Farm.Features.MainUI.MainTopEntries.Build();\nvar bindings = new System.Collections.Generic.Dictionary<string, uint>();\nforeach (var entry in entries) if (entry.FguiName == \"ActivityBtn\" || entry.FguiName == \"GiftBtn\") bindings.Add(entry.FguiName, entry.SystemId);\nif (systemId != activity.Id || !hiddenBefore || hiddenAfter || bindings.Count != 2 || bindings[\"ActivityBtn\"] != activity.Id || bindings[\"GiftBtn\"] != activity.Id) throw new System.Exception(\"Activity entry regression failed\");\nreturn new { activityConfigId=activity.Id, compiledActivityId=systemId, hiddenBeforeUnlock=hiddenBefore, hiddenAfterUnlock=hiddenAfter, entryBindings=bindings, isPlaying=UnityEngine.Application.isPlaying, dataPath=UnityEngine.Application.dataPath };",
+  "result": {
+    "result": {
+      "activityConfigId": 11,
+      "compiledActivityId": 11,
+      "hiddenBeforeUnlock": true,
+      "hiddenAfterUnlock": false,
+      "entryBindings": {
+        "ActivityBtn": 11,
+        "GiftBtn": 11
+      },
+      "isPlaying": false,
+      "dataPath": "/Users/elendil/WorkSpaces/Farm/farm-linear-agent/.local/editors/slot-1/Assets"
+    },
+    "compiler": "codedom"
+  }
+}

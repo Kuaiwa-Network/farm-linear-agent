@@ -14,6 +14,92 @@ HOST = "test-host"
 
 
 class CliTests(unittest.TestCase):
+    def verification_fixture(self, skill="fix"):
+        from agent.worktrees import Worktrees
+        from test_worktrees import git
+        origin = self.root / "origin"
+        origin.mkdir()
+        git("init", "-q", "-b", "main", ".", cwd=origin)
+        (origin / "fix.cs").write_text("old")
+        git("add", ".", cwd=origin)
+        git("commit", "-qm", "baseline", cwd=origin)
+        baseline = git("rev-parse", "HEAD", cwd=origin)
+        local = self.root / "local"
+        self.db = local / "agent" / "ledger.sqlite3"
+        self.env["FARMBOT_CONFIG"] = self.json_file("config.json", {
+            "client_id": "test", "client_secret": "test", "webhook_secret": "test",
+            "local_root": str(local), "repos": {"Farm-Client": str(origin)}})
+        item = self.seeded_item(skill=skill, target={**PIN, "commit_sha": baseline})
+        trees = Worktrees(local / "repos", local / "worktrees", {"Farm-Client": str(origin)})
+        path = trees.add("Farm-Client", item, "farmbot/fix")
+        (path / "fix.cs").write_text("fixed")
+        git("commit", "-qam", "fix", cwd=path)
+        fixed = trees.head(path)
+        token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
+        return item, token, baseline, fixed, path
+
+    def test_await_resource_can_select_committed_fix_without_changing_baseline(self):
+        item, token, baseline, fixed, path = self.verification_fixture()
+        result = self.run_cli("await-resource", "--item", item, "--token", token,
+                              "--resource", "unity_slot", "--mode", "batch", "--commit", fixed)
+        self.assertEqual(result["state"], "awaiting_resource")
+        self.assertEqual(result["target"]["commit_sha"], baseline)
+        reservation = self.run_cli("reservations")[0]
+        self.assertEqual(reservation["commit_sha"], fixed)
+
+    def test_explicit_commit_refuses_dirty_worktree_and_stale_claim(self):
+        item, token, baseline, fixed, path = self.verification_fixture()
+        (path / "fix.cs").write_text("not committed")
+        args = ("await-resource", "--item", item, "--token", token,
+                "--resource", "unity_slot", "--mode", "interactive", "--commit", fixed)
+        self.assertIn("clean", self.run_cli(*args, success=False).stderr)
+        (path / "fix.cs").write_text("fixed")
+        self.run_cli("cancel", "--item", item, "--reason", "stop")
+        self.run_cli(*args, success=False)
+        self.assertEqual(self.run_cli("reservations"), [])
+
+    def test_chat_cannot_select_a_fix_commit(self):
+        item, token, baseline, fixed, path = self.verification_fixture(skill="chat")
+        self.run_cli("await-resource", "--item", item, "--token", token,
+                     "--resource", "unity_slot", "--mode", "batch", "--commit", fixed, success=False)
+        self.assertEqual(self.run_cli("reservations"), [])
+
+    def test_commit_validation_cannot_queue_after_a_concurrent_cancel(self):
+        from unittest.mock import patch
+        from agent.__main__ import parser, run
+        from agent.config import load_config
+        from agent.ledger import Ledger, LedgerError
+        item, token, baseline, fixed, path = self.verification_fixture()
+        config = load_config(self.env["FARMBOT_CONFIG"])
+        args = parser().parse_args(["--db", str(self.db), "await-resource", "--item", item,
+                                   "--token", token, "--resource", "unity_slot", "--mode", "batch", "--commit", fixed])
+        ledger = Ledger(self.db)
+        self.addCleanup(ledger.close)
+        def cancel_during_git(*_):
+            other = Ledger(self.db)
+            try:
+                other.cancel(item, "issue closed during checkout validation")
+            finally:
+                other.close()
+            return fixed
+        with patch("agent.__main__.load_config", return_value=config), \
+                patch("agent.worktrees.Worktrees.verification_commit", side_effect=cancel_during_git):
+            with self.assertRaises(LedgerError):
+                run(args, ledger, lambda: None)
+        self.assertEqual(ledger.reservations(), [])
+        self.assertEqual(ledger.item(item)["state"], "cancelled")
+
+    def test_commit_validation_rejects_a_different_configured_ledger(self):
+        item, token, baseline, fixed, path = self.verification_fixture()
+        config_path = Path(self.env["FARMBOT_CONFIG"])
+        config = json.loads(config_path.read_text())
+        config["local_root"] = str(self.root / "another-host")
+        config_path.write_text(json.dumps(config))
+        result = self.run_cli("await-resource", "--item", item, "--token", token,
+                              "--resource", "unity_slot", "--mode", "batch", "--commit", fixed, success=False)
+        self.assertIn("configured host ledger", result.stderr)
+        self.assertEqual(self.run_cli("reservations"), [])
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)

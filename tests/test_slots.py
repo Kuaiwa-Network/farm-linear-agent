@@ -630,6 +630,32 @@ class PoolTests(SlotFixture):
         self.assertEqual(self.ledger.release(reservation, written, "the token on disk is the real one"),
                          "released")
 
+    def test_fix_commit_is_loaded_and_batch_evidence_is_bound_to_its_reservation(self):
+        self.pool().ensure()
+        baseline = self.trees.resolve_commit("Farm-Client")
+        item_id = self.waiting(ISSUE, baseline, "batch")
+        # Replace the ungranted baseline request with the worker's committed fix.
+        self.ledger.cancel(item_id, "replace request")
+        item_id = self.ledger.retry(item_id, "verify fix")["id"]
+        token = self.ledger.claim(item_id, worker_id="w")["token"]
+        path = self.trees.add("Farm-Client", item_id, "farmbot/fix")
+        (path / "README.md").write_text("fixed")
+        git("commit", "-qam", "fix", cwd=path)
+        fixed = self.trees.head(path)
+        self.trees.verification_commit("Farm-Client", item_id, fixed)
+        self.ledger.await_resource(item_id, token, "unity_slot", "batch", commit_sha=fixed)
+        pool = self.pool(mcp=FakeMcp())
+        self.assertEqual(pool.tick()["granted"], 1)
+        reservation = self.ledger.active_reservation(item_id)
+        self.assertEqual(self.trees.head(self.root / "editors" / "slot-1"), fixed)
+        self.assertEqual(self.ledger.item(item_id)["target"]["commit_sha"], baseline)
+        summary = json.loads((self.root / "runs" / item_id / "unity-batch.json").read_text())
+        self.assertEqual(summary["commit_sha"], fixed)
+        self.assertEqual(summary["reservation_id"], reservation["reservation_id"])
+        evidence_dir = Path(summary["results_file"]).parent
+        self.assertEqual(evidence_dir.name, reservation["reservation_id"])
+        self.assertEqual(json.loads((evidence_dir / "unity-batch.json").read_text()), summary)
+
     def test_the_pool_runs_the_batch_itself_and_hands_the_worker_the_results(self):
         """The worker never starts Unity; the launcher does, outside the sandbox. What the worker gets is
         this summary, and the argv is built from the slot entry alone — nothing the worker supplied."""
@@ -645,7 +671,9 @@ class PoolTests(SlotFixture):
         self.assertEqual(argv[argv.index("-projectPath") + 1], str(self.root / "editors" / "slot-1"))
         # Composed from the slot entry and the item's own state directory; no value a worker chose.
         self.assertEqual(argv[argv.index("-assemblyNames") + 1], "HotUpdate.Tests")
-        self.assertEqual(argv[argv.index("-testResults") + 1], str(self.root / "runs" / item / "unity-tests.xml"))
+        reservation_id = self.ledger.active_reservation(item)["reservation_id"]
+        self.assertEqual(argv[argv.index("-testResults") + 1],
+                         str(self.root / "runs" / item / "unity" / reservation_id / "unity-tests.xml"))
         self.assertEqual(pool.run_unsandboxed.owners[-1], item)   # reachable by item id for Stop and shutdown
         summary = json.loads((self.root / "runs" / item / "unity-batch.json").read_text(encoding="utf-8"))
         self.assertEqual((summary["state"], summary["exit_code"]), ("ran", 2))
@@ -677,7 +705,7 @@ class PoolTests(SlotFixture):
         self.assertEqual(pool.tick()["granted"], 1)   # a timeout is a gap, not a slot failure, once Unity is gone
         summary = json.loads((self.root / "runs" / item / "unity-batch.json").read_text(encoding="utf-8"))
         self.assertEqual((summary["state"], summary["total"]), ("timeout", None))
-        self.assertFalse(stale.exists())
+        self.assertTrue(stale.exists())  # historical evidence is retained, but never reused
 
     def test_a_pool_with_no_unsandboxed_runner_refuses_a_batch_grant_rather_than_faking_it(self):
         """SlotPool.__init__ accepts run_unsandboxed=None, so a wiring mistake in service.build is possible

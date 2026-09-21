@@ -17,6 +17,38 @@ def git(*args, cwd, allow_failure=False):
 
 
 class WorktreeTests(unittest.TestCase):
+    def test_verification_commit_must_be_clean_owned_worktree_head(self):
+        path = self.trees.add("Farm-Client", "item-1", "farmbot/fix")
+        baseline = self.trees.head(path)
+        (path / "README.md").write_text("fixed\n")
+        git("commit", "-qam", "fix", cwd=path)
+        fixed = self.trees.head(path)
+        self.assertEqual(self.trees.verification_commit("Farm-Client", "item-1", fixed), fixed)
+        for candidate in (baseline, "HEAD", fixed[:8], "0" * 40):
+            with self.subTest(candidate=candidate), self.assertRaises(WorktreeError):
+                self.trees.verification_commit("Farm-Client", "item-1", candidate)
+        (path / "untracked.cs").write_text("uncommitted change")
+        with self.assertRaisesRegex(WorktreeError, "clean"):
+            self.trees.verification_commit("Farm-Client", "item-1", fixed)
+        (path / "untracked.cs").unlink()
+        (path / "README.md").write_text("uncommitted fix\n")
+        with self.assertRaisesRegex(WorktreeError, "clean"):
+            self.trees.verification_commit("Farm-Client", "item-1", fixed)
+
+    def test_verification_rejects_foreign_checkout_and_missing_worktree(self):
+        sha = self.trees.head(self.origin)
+        path = self.trees.worktrees_root / "item-1" / "Farm-Client"
+        path.parent.mkdir(parents=True)
+        path.symlink_to(self.origin, target_is_directory=True)
+        with self.assertRaises(WorktreeError):
+            self.trees.verification_commit("Farm-Client", "item-1", sha)
+        path.unlink()
+        git("clone", "-q", str(self.origin), str(path), cwd=self.origin)
+        with self.assertRaises(WorktreeError):
+            self.trees.verification_commit("Farm-Client", "item-1", sha)
+        with self.assertRaises(WorktreeError):
+            self.trees.verification_commit("Farm-Client", "missing", sha)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)

@@ -615,6 +615,23 @@ class SecondItemOnOneIssueTests(LedgerBase):
 
 
 class ReservationTests(unittest.TestCase):
+    def test_requested_fix_commit_does_not_overwrite_baseline(self):
+        item = self.item(ISSUE, "a" * 40)
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        self.ledger.await_resource(item["id"], token, "unity_slot", "batch", commit_sha="b" * 40)
+        self.assertEqual(self.ledger.item(item["id"])["target"]["commit_sha"], "a" * 40)
+        reservation = self.ledger.acquire("unity_slot", owner="pool", host="mac")
+        self.assertEqual(reservation["commit_sha"], "b" * 40)
+
+    def test_invalid_verification_commit_leaves_claim_and_queue_unchanged(self):
+        item = self.item(ISSUE, "a" * 40)
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        for sha in ("HEAD", "", "b" * 39, 123):
+            with self.subTest(sha=sha), self.assertRaises(LedgerError):
+                self.ledger.await_resource(item["id"], token, "unity_slot", "batch", commit_sha=sha)
+        self.assertEqual(self.ledger.item(item["id"])["state"], "running")
+        self.assertEqual(self.ledger.reservations(), [])
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)

@@ -161,6 +161,24 @@ class Worktrees:
     def head(self, path):
         return _git("rev-parse", "HEAD", cwd=path)
 
+    def verification_commit(self, repo, item_id, commit):
+        """Validate a worker's immutable test input without fetching or changing files."""
+        if not isinstance(commit, str) or not self.COMMIT.fullmatch(commit):
+            raise WorktreeError("verification commit must be a full lowercase commit SHA")
+        root = self.worktrees_root.resolve()
+        path = root / item_id / repo
+        if (not path.is_dir() or path.resolve() != path or not path.is_relative_to(root)
+                or Path(_git("rev-parse", "--show-toplevel", cwd=path)).resolve() != path):
+            raise WorktreeError("verification requires the item's own worktree")
+        common = Path(_git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=path)).resolve()
+        if common != self.clone_path(repo).resolve():
+            raise WorktreeError("verification worktree does not belong to FarmBot's configured clone")
+        if self.head(path) != commit:
+            raise WorktreeError("verification commit must equal the item's current worktree HEAD")
+        if _git("status", "--porcelain", "--untracked-files=all", cwd=path):
+            raise WorktreeError("verification requires a clean worktree; commit all intended changes first")
+        return commit
+
     # A failed item's worktrees are swept, so anything only in them is gone; the commit below is what keeps
     # it. FarmBot commits as itself rather than as the operator, and never relies on a global git identity,
     # which a launchd service does not necessarily have.
