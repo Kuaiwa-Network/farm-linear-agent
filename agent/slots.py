@@ -807,7 +807,8 @@ class UnityIdentity:
         # Both spellings, because the Editor hashes its own Application.dataPath: that is the -projectPath
         # `start` handed it, which is the slot row's text, but a host whose slot path runs through a symlink
         # (/var -> /private/var on this Mac) would have Unity report the resolved one.
-        digests = {hashlib.sha1(f"{path}/Assets".encode("utf-8")).hexdigest()[:16]
+        # Unity's Application.dataPath uses forward slashes on Windows as well.
+        digests = {hashlib.sha1((path / "Assets").as_posix().encode("utf-8")).hexdigest()[:16]
                    for path in (Path(slot["folder"]), folder)}
         for entry in listed:
             if entry.get("hash") in digests or str(entry.get("id", "")).rpartition("@")[2] in digests:

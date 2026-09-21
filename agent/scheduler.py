@@ -18,7 +18,7 @@ READ_REPO = "Farm-Client"
 class Scheduler:
     def __init__(self, ledger, launcher, skills, worktrees, *, skill_root, db_path, runtime_name, host,
                  max_concurrent=2, guidance_for=lambda item: "", claim_timeout=600, api=None,
-                 slot_entries=None, preflight=None, control_ledger_factory=None, publication=None):
+                 slot_entries=None, preflight=None, control_ledger_factory=None, publication=None, codex_workers=None):
         self.publication = publication
         self.preflight = preflight
         self.control_ledger_factory = control_ledger_factory
@@ -32,6 +32,7 @@ class Scheduler:
         self.runtime_name = runtime_name
         self.host = host
         self.max_concurrent = max_concurrent
+        self.codex_workers = codex_workers or {}
         self.guidance_for = guidance_for
         self.claim_timeout = claim_timeout
         # {slot_id: entry}, the same entries service.build hands the pool. The only thing read out of them
@@ -130,10 +131,13 @@ class Scheduler:
         # Launcher.spawn already makes writable, and writes nothing in the slot.
         if self.ledger.item(item["id"])["state"] != "queued":
             return None
+        options = {}
+        if self.runtime_name == "codex" and skill.name in self.codex_workers:
+            options["model_settings"] = self.codex_workers[skill.name]
         handle = self.launcher.spawn(item["id"], message, servers, int(skill.budget["max_hours"] * 3600), cwd=primary,
                                      extra_env={"FARMBOT_DB": str(self.db_path), "PYTHONPATH": pythonpath},
                                      writable=[Path(self.db_path).parent, *paths.values(), *clones],
-                                     cancelled=lambda: self.ledger.item(item["id"])["state"] != "queued")
+                                     cancelled=lambda: self.ledger.item(item["id"])["state"] != "queued", **options)
         try:
             self.ledger.set_worker(item["id"], handle.pid, self.host, int(skill.budget["lease_seconds"]))
         except LedgerError:

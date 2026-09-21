@@ -48,10 +48,10 @@ def _toml_value(value):
     raise ValueError("unsupported MCP config value")
 
 
-def write_mcp_config(home, mcp_format, servers, settings=None):
+def write_mcp_config(home, mcp_format, servers, settings=None, root_settings=None):
     """The worker's home config: runtime settings tables first, then one table per injected MCP server."""
     if mcp_format == "toml":
-        lines = []
+        lines = [f"{key} = {_toml_value(value)}" for key, value in (root_settings or {}).items()]
         for table, values in (settings or {}).items():
             lines.append(f"[{table}]")
             lines.extend(f"{key} = {_toml_value(value)}" for key, value in values.items())
@@ -98,7 +98,8 @@ class Launcher:
         """The one directory outside its worktrees a worker may write: its runs, token and logs."""
         return self.runs_root / item_id
 
-    def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None, writable=(), cancelled=None):
+    def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None, writable=(), cancelled=None,
+              model_settings=None):
         # A fresh worker is also a new attempt after an operator retry. Stop fences from
         # its previous attempt must not prevent this worker requesting another batch.
         with self._unsandboxed_lock:
@@ -121,7 +122,12 @@ class Launcher:
         settings = {"sandbox_workspace_write": {"writable_roots": roots, "network_access": True}}
         if self.runtime.name == "codex":
             settings["features"] = {"memories": False}
-        mcp_config = write_mcp_config(home, self.runtime.mcp_format, mcp_servers, settings)
+        root_settings = {}
+        if self.runtime.name == "codex":
+            for key, target in (("model", "model"), ("reasoning_effort", "model_reasoning_effort")):
+                if key in (model_settings or {}):
+                    root_settings[target] = model_settings[key]
+        mcp_config = write_mcp_config(home, self.runtime.mcp_format, mcp_servers, settings, root_settings)
         last_message = run_dir / "last_message.txt"
         (run_dir / "prompt.md").write_text(message, encoding="utf-8")
         command = [part.format(cwd=str(cwd), last_message=str(last_message), mcp_config=str(mcp_config), home=str(home))

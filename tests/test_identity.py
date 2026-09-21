@@ -516,7 +516,7 @@ class UnityIdentityTests(Loopback):
         # Both spellings of the folder: the Editor hashes the -projectPath it was given, but on this Mac a
         # temp folder reaches it through /var -> /private/var, and a slot path could as easily.
         for folder in (self.folder, self.folder.resolve()):
-            digest = hashlib.sha1(f"{folder}/Assets".encode("utf-8")).hexdigest()[:16]
+            digest = hashlib.sha1((folder / "Assets").as_posix().encode("utf-8")).hexdigest()[:16]
             with self.subTest(folder=str(folder)):
                 Handler.replies["mcpforunity://instances"] = {"instances": [
                     {"id": "other@aaaaaaaaaaaaaaaa", "name": "other", "hash": "aaaaaaaaaaaaaaaa"},
