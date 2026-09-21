@@ -1,5 +1,6 @@
 """Cleanup must preserve source and prove process/resource safety before deleting worktrees."""
 import json
+import os
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -57,7 +58,12 @@ class PreservationTests(unittest.TestCase):
     def test_symlinked_worktree_is_never_followed(self):
         item = self.trees.worktrees_root / 'item-1'
         item.mkdir(parents=True)
-        (item / 'Farm-Client').symlink_to(self.origin, target_is_directory=True)
+        try:
+            (item / 'Farm-Client').symlink_to(self.origin, target_is_directory=True)
+        except OSError as exc:
+            if getattr(exc, 'winerror', None) == 1314:
+                self.skipTest('Windows symlink privilege unavailable')
+            raise
         before = test_worktrees.git('rev-parse', 'HEAD', cwd=self.origin)
         with self.assertRaises(WorktreeError):
             self.trees.preserve('item-1')
@@ -234,6 +240,7 @@ class CancellationCleanupTests(unittest.TestCase):
         self.assertEqual(set(record['result']['refs']), {'Farm-Client', 'second'})
         self.assertEqual(set(record['result']['committed']), {'Farm-Client', 'second'})
 
+    @unittest.skipIf(os.name == 'nt', 'Windows worker jobs contain children; tested in test_windows_workers')
     def test_exited_parent_with_detached_child_holds_cleanup_after_restart(self):
         import os
         import signal

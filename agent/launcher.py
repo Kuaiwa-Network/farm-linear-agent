@@ -77,6 +77,7 @@ class Launcher:
         self._handles = {}
         self._stopping = {}
         self._jobs = {}
+        self._job_lock = threading.RLock()
         # Touched from two threads at once: run_unsandboxed registers from the pool thread while
         # Scheduler.stop and serve()'s shutdown read from theirs.
         self._unsandboxed = {}
@@ -150,12 +151,13 @@ class Launcher:
         stderr = open(run_dir / "stderr.log", "w", encoding="utf-8")
         kwargs = {"start_new_session": True} if os.name != "nt" else {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
         job = None
-        if os.name == "nt":
-            from .windows_job import WindowsJob
-            job = WindowsJob()
-            command = [sys.executable, "-I", str(Path(__file__).with_name("windows_worker_gate.py")),
-                       str(run_dir), *command]
+        process = None
         try:
+            if os.name == "nt":
+                from .windows_job import WindowsJob
+                job = WindowsJob()
+                command = [sys.executable, "-I", str(Path(__file__).with_name("windows_worker_gate.py")),
+                           str(run_dir), *command]
             with self._unsandboxed_lock:
                 if self._shutdown or item_id in self._cancelled_runs or (cancelled and cancelled()):
                     process_record.write_text(json.dumps({"state": "not_started"}), encoding="utf-8")
@@ -179,8 +181,15 @@ class Launcher:
                     record["windows_job"] = job.name
                 process_record.write_text(json.dumps(record), encoding="utf-8")
         except BaseException:
+            self._handles.pop(item_id, None)
+            self._jobs.pop(item_id, None)
             if job is not None:
                 job.close()
+            if process is not None:
+                if process.poll() is None:
+                    process.kill()
+                process.wait(timeout=5)
+                process.stdin.close()
             raise
         finally:
             stdout.close()
@@ -439,30 +448,52 @@ class Launcher:
         (handle.run_dir / "killed.json").write_text(json.dumps({"pid": process.pid, "descendants": survivors}), encoding="utf-8")
 
     def _finish_job(self, handle):
-        job = self._jobs[handle.item_id]
-        job.terminate_and_wait()
-        # Evidence is written only after Windows reports zero active members.
-        (handle.run_dir / "killed.json").write_text(json.dumps({
-            "pid": handle.pid, "descendants": [], "windows_job": job.name, "empty": True}), encoding="utf-8")
-        job.close()
-        del self._jobs[handle.item_id]
+        with self._job_lock:
+            job = self._jobs.get(handle.item_id)
+            if job is None:
+                return
+            job.terminate_and_wait()
+            # Evidence is written only after Windows reports zero active members.
+            (handle.run_dir / "killed.json").write_text(json.dumps({
+                "pid": handle.pid, "descendants": [], "windows_job": job.name, "empty": True}), encoding="utf-8")
+            job.close()
+            del self._jobs[handle.item_id]
 
-    def assert_quiescent(self, item_id, pid, recorded_processes=()):
+    def certified_pids(self, item_id, boot_proof=None):
+        """Identities proved ended by containment/boot, regardless of numeric PID reuse."""
+        if os.name != "nt":
+            return set()
+        from .windows_job import WindowsJob
+        boot, certified = None, set()
+        if boot_proof:
+            from .cleanup_recovery import windows_boot_time
+            if (boot_proof.get("host") != self.host
+                    or abs(windows_boot_time() - boot_proof["boot_time"]) > .001):
+                raise RuntimeError("cleanup boot evidence does not match this host boot")
+            boot = boot_proof["boot_time"]
+            certified.update(boot_proof["processes"])
+        jobs, newer = set(), set()
+        for path in self.state_dir(item_id).glob("*/process.json"):
+            attempt = json.loads(path.read_text(encoding="utf-8"))
+            if boot is not None and path.stat().st_mtime >= boot:
+                newer.add(attempt.get("pid"))
+            if attempt.get("windows_job"):
+                if not WindowsJob.empty(attempt["windows_job"]):
+                    raise RuntimeError("Windows worker job still has active processes")
+                jobs.add(attempt["pid"])
+        return (certified - newer) | jobs
+
+    def assert_quiescent(self, item_id, pid, recorded_processes=(), boot_proof=None):
         """Dead parents do not prove detached children died. Missing evidence holds cleanup."""
         root = self.state_dir(item_id)
         pids = {pid} if pid else set()
-        contained = set()
+        contained = self.certified_pids(item_id, boot_proof)
         for path in root.glob("*/process.json"):
             attempt = json.loads(path.read_text(encoding="utf-8"))
             if attempt.get("state") == "not_started":
                 continue
             if not attempt.get("pid"):
                 raise RuntimeError("incomplete launch identity; operator investigation required")
-            if os.name == "nt" and attempt.get("windows_job"):
-                from .windows_job import WindowsJob
-                if not WindowsJob.empty(attempt["windows_job"]):
-                    raise RuntimeError("Windows worker job still has active processes")
-                contained.add(attempt["pid"])
             pids.add(attempt["pid"])
         # Job identity is independent of PID reuse; never signal a new owner of an old PID.
         pids -= contained
@@ -470,9 +501,9 @@ class Launcher:
         for path in root.glob("*/killed.json"):
             data = json.loads(path.read_text(encoding="utf-8"))
             verified.add(data["pid"])
-            if any(self.alive(child) for child in data["descendants"]):
+            if any(self.alive(child) for child in data["descendants"] if child not in contained):
                 raise RuntimeError("worker descendants have not exited")
-        if any(self.alive(process) for process in pids | set(recorded_processes)):
+        if any(self.alive(process) for process in (pids | set(recorded_processes)) - contained):
             raise RuntimeError("worker processes have not exited")
         if pids - verified:
             raise RuntimeError("worker exited without verified descendant teardown; operator investigation required")

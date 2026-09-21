@@ -300,7 +300,7 @@ class SchedulerTests(unittest.TestCase):
         self.scheduler.tick()
         payload = json.loads(self.launcher.spawned[0][1].split("\n\n", 1)[1])
         self.assertEqual(payload["state_dir"], str(self.launcher.state_dir(item["id"])))
-        self.assertTrue(self.launcher.spawn_env["PYTHONPATH"].split(":")[0] == str(ROOT))
+        self.assertTrue(self.launcher.spawn_env["PYTHONPATH"].split(os.pathsep)[0] == str(ROOT))
         self.assertEqual(self.launcher.spawn_env["FARMBOT_DB"], str(Path(self.tmp.name) / "ledger.sqlite3"))
         repos = ("Farm-Client", "farm-hive", "farmgui", "common", "Farm-Contract")
         worktrees = [str(self.trees.root / item["id"] / repo) for repo in repos]

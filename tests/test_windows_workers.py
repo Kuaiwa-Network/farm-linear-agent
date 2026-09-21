@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -101,3 +102,26 @@ class WindowsWorkerTests(unittest.TestCase):
         self.assertFalse(self.launcher.alive(data['pid']))
         restarted = Launcher(self.root / 'orphan-runs', RUNTIMES['fake'], 'test')
         restarted.assert_quiescent('orphan', data['pid'])
+
+    def test_simultaneous_stop_and_poll_finalize_job_once(self):
+        handle = self.launcher.spawn('race', 'prompt', {}, 30, self.root,
+                                     extra_env={'FAKE_CLI_MODE': 'sleep'})
+        self.addCleanup(self.launcher.stop, 'race')
+        job = self.launcher._jobs['race']
+        original = job.terminate_and_wait
+        entered, release = threading.Event(), threading.Event()
+        calls, errors = [], []
+        def terminate():
+            calls.append(1); entered.set(); release.wait(2); original()
+        def finish():
+            try:
+                self.launcher._finish_job(handle)
+            except Exception as exc:
+                errors.append(exc)
+        with patch.object(job, 'terminate_and_wait', side_effect=terminate):
+            first = threading.Thread(target=finish); second = threading.Thread(target=finish)
+            first.start(); self.assertTrue(entered.wait(2)); second.start()
+            time.sleep(.05); release.set(); first.join(5); second.join(5)
+        self.assertFalse(errors, repr(errors))
+        self.assertEqual(len(calls), 1)
+        handle.process.wait(timeout=5)

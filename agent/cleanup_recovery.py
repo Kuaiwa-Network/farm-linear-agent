@@ -57,11 +57,16 @@ def recover_after_boot(config, item_id, reason):
                     continue
                 if attempt.get('pid') not in pids:
                     raise LedgerError('attempt identity is not covered by launch audit')
-            result = {**record['result'], 'processes': sorted(pids), 'boot_time': boot,
-                      'recovery_host': config.host, 'recovery_reason': reason}
-            ledger.connection.execute('UPDATE job_cleanup SET result=?,error=NULL,updated_at=? WHERE item_id=?',
-                                      (json.dumps(result), ledger.clock(), item_id))
-            ledger._audit(item_id, 'cleanup_recovery', reason, {'boot_time': boot, 'host': config.host})
-            return result
+            pids.update(record['result'].get('processes', []))
+            for path in root.glob('*/killed.json'):
+                if path.stat().st_mtime >= boot:
+                    raise LedgerError('a teardown record is newer than the machine restart')
+                pids.update(json.loads(path.read_text(encoding='utf-8'))['descendants'])
+            proof = {'processes': sorted(pids), 'boot_time': boot, 'host': config.host}
+            # Authoritative evidence is append-only: an in-flight cleanup sweep cannot overwrite it.
+            ledger._audit(item_id, 'cleanup_recovery', reason, proof)
+            ledger.connection.execute('UPDATE job_cleanup SET error=NULL,updated_at=? WHERE item_id=?',
+                                      (ledger.clock(), item_id))
+            return proof
     finally:
         ledger.close()
