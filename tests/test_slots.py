@@ -773,7 +773,7 @@ class PoolTests(SlotFixture):
         pool = self.pool(mcp=FakeMcp(), run_unsandboxed=runner)
         self.assertEqual(pool.tick()["granted"], 0)
         self.assertFalse(marker.exists(), "a retried item revived its cancelled reservation")
-        self.assertEqual(self.ledger.item(item)["state"], "queued")
+        self.assertEqual(self.ledger.item(item)["state"], "cancelled")
         self.assertEqual(self.ledger.reservations()[0]["state"], "cancelled")
         self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "idle_closed")
 

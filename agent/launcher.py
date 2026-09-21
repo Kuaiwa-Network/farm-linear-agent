@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from uuid import uuid4
 
 RuntimeConfig = namedtuple("RuntimeConfig", "name command home_env mcp_format seed_files writable_flag",
                            defaults=(None,))
@@ -97,16 +98,18 @@ class Launcher:
         """The one directory outside its worktrees a worker may write: its runs, token and logs."""
         return self.runs_root / item_id
 
-    def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None, writable=()):
+    def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None, writable=(), cancelled=None):
         # A fresh worker is also a new attempt after an operator retry. Stop fences from
         # its previous attempt must not prevent this worker requesting another batch.
         with self._unsandboxed_lock:
             self._cancelled_runs.discard(item_id)
         if item_id in self._handles:
             raise RuntimeError(f"worker already running for {item_id}")
-        run_dir = self.state_dir(item_id) / time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(self.clock()))
+        run_dir = self.state_dir(item_id) / (time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(self.clock())) + "-" + uuid4().hex[:12])
         home = run_dir / "home"
         home.mkdir(parents=True, exist_ok=True)
+        process_record = run_dir / "process.json"
+        process_record.write_text(json.dumps({"state": "preparing"}), encoding="utf-8")
         for source, relative in self.runtime.seed_files.items():
             destination = home / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -137,8 +140,15 @@ class Launcher:
         stderr = open(run_dir / "stderr.log", "w", encoding="utf-8")
         kwargs = {"start_new_session": True} if os.name != "nt" else {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
         try:
-            process = subprocess.Popen(command, cwd=str(cwd), env=env, stdin=subprocess.PIPE, stdout=stdout, stderr=stderr,
-                                       text=True, encoding="utf-8", **kwargs)
+            with self._unsandboxed_lock:
+                if self._shutdown or item_id in self._cancelled_runs or (cancelled and cancelled()):
+                    process_record.write_text(json.dumps({"state": "not_started"}), encoding="utf-8")
+                    raise RuntimeError("launch cancelled before process creation")
+                process = subprocess.Popen(command, cwd=str(cwd), env=env, stdin=subprocess.PIPE, stdout=stdout, stderr=stderr,
+                                           text=True, encoding="utf-8", **kwargs)
+                handle = Handle(item_id, process.pid, self.clock(), self.clock() + budget_seconds, run_dir, process, last_message)
+                self._handles[item_id] = handle
+                (run_dir / "process.json").write_text(json.dumps({"pid": process.pid}), encoding="utf-8")
         finally:
             stdout.close()
             stderr.close()
@@ -151,8 +161,6 @@ class Launcher:
                 process.stdin.close()
             except OSError:
                 pass
-        handle = Handle(item_id, process.pid, self.clock(), self.clock() + budget_seconds, run_dir, process, last_message)
-        self._handles[item_id] = handle
         return handle
 
     def run_unsandboxed(self, argv, *, cwd, timeout, log=None, env=None, owner=None, cancelled=None):
@@ -359,6 +367,7 @@ class Launcher:
         if process.poll() is not None:
             return
         survivors = self.descendants(process.pid)
+        (handle.run_dir / "killed.json").write_text(json.dumps({"pid": process.pid, "descendants": survivors}), encoding="utf-8")
         try:
             if os.name == "nt":
                 subprocess.run(["taskkill", "/T", "/PID", str(process.pid)], capture_output=True)
@@ -388,6 +397,28 @@ class Launcher:
             if self.alive(pid):
                 self._signal_pid(pid, signal.SIGKILL)
         (handle.run_dir / "killed.json").write_text(json.dumps({"pid": process.pid, "descendants": survivors}), encoding="utf-8")
+
+    def assert_quiescent(self, item_id, pid, recorded_processes=()):
+        """Dead parents do not prove detached children died. Missing evidence holds cleanup."""
+        root = self.state_dir(item_id)
+        pids = {pid} if pid else set()
+        for path in root.glob("*/process.json"):
+            attempt = json.loads(path.read_text(encoding="utf-8"))
+            if attempt.get("state") == "not_started":
+                continue
+            if not attempt.get("pid"):
+                raise RuntimeError("incomplete launch identity; operator investigation required")
+            pids.add(attempt["pid"])
+        verified = set(recorded_processes)
+        for path in root.glob("*/killed.json"):
+            data = json.loads(path.read_text(encoding="utf-8"))
+            verified.add(data["pid"])
+            if any(self.alive(child) for child in data["descendants"]):
+                raise RuntimeError("worker descendants have not exited")
+        if any(self.alive(process) for process in pids | set(recorded_processes)):
+            raise RuntimeError("worker processes have not exited")
+        if pids - verified:
+            raise RuntimeError("worker exited without verified descendant teardown; operator investigation required")
 
     def stop(self, item_id, grace=5.0):
         handle = self._handles.get(item_id)

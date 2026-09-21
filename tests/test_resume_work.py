@@ -22,11 +22,13 @@ class ResumeWorkTests(LedgerBase):
         messages = context["session_messages"]
         self.ledger.pop_inbox(chat["id"], token)
         resumed = self.ledger.resume_work(chat["id"], token, messages[-1]["id"], APP)
-        self.assertEqual((resumed["id"], resumed["state"], resumed["generation"]), (fix["id"], "queued", 1))
+        self.assertNotEqual(resumed["id"], fix["id"])
+        self.assertEqual((resumed["predecessor_id"], resumed["state"], resumed["generation"]), (fix["id"], "queued", 0))
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "cancelled")
         self.assertEqual(resumed["target"], PIN)
         self.assertEqual(self.ledger.item(chat["id"])["state"], "delivered")
-        fresh = self.ledger.claim(fix["id"], worker_id="new")["token"]
-        self.assertEqual(self.ledger.pop_inbox(fix["id"], fresh), [m["body"] for m in messages])
+        fresh = self.ledger.claim(resumed["id"], worker_id="new")["token"]
+        self.assertEqual(self.ledger.pop_inbox(resumed["id"], fresh), [m["body"] for m in messages])
         with self.assertRaises(LedgerError):
             self.ledger.resume_work(chat["id"], token, messages[-1]["id"], APP)
 
@@ -73,11 +75,11 @@ class ResumeWorkTests(LedgerBase):
 
     def test_message_arriving_during_handoff_reaches_resumed_fix(self):
         fix, chat, token = self.conversation()
-        self.ledger.resume_work(chat["id"], token, 1, APP)
+        resumed = self.ledger.resume_work(chat["id"], token, 1, APP)
         delivered = self.ledger.push_inbox(chat["id"], "One more detail: zero tables initially")
-        self.assertEqual(delivered["item_id"], fix["id"])
-        fresh = self.ledger.claim(fix["id"], worker_id="fresh")["token"]
-        self.assertIn("One more detail: zero tables initially", self.ledger.pop_inbox(fix["id"], fresh))
+        self.assertEqual(delivered["item_id"], resumed["id"])
+        fresh = self.ledger.claim(resumed["id"], worker_id="fresh")["token"]
+        self.assertIn("One more detail: zero tables initially", self.ledger.pop_inbox(resumed["id"], fresh))
 
     def test_observing_a_new_comment_does_not_restart_blocked_work(self):
         fix = self.new_item(delegate_id=APP)

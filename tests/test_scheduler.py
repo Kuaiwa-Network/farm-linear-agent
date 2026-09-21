@@ -1,6 +1,7 @@
 import contextlib
 import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -45,7 +46,7 @@ class FakeLauncher:
     def state_dir(self, item_id):
         return self.runs / item_id
 
-    def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None, writable=()):
+    def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None, writable=(), cancelled=None):
         self.next_pid += 1
         self.spawned.append((item_id, message, mcp_servers, budget_seconds, str(cwd)))
         self.spawn_env = dict(extra_env or {})
@@ -79,6 +80,16 @@ class FakeLauncher:
     def owned_pid(self, pid, item_id):
         return pid in self.alive_pids
 
+    def assert_quiescent(self, item_id, pid, recorded_processes=()):
+        if any(self.alive(p) for p in recorded_processes):
+            raise RuntimeError("worker processes have not exited")
+        for path in self.state_dir(item_id).glob("*/killed.json"):
+            if any(self.alive(p) for p in json.loads(path.read_text())["descendants"]):
+                raise RuntimeError("worker descendants have not exited")
+
+    def descendants(self, pid):
+        return []
+
     def kill_pid(self, pid, grace=5.0):
         self.killed.append(pid)
         self.alive_pids.discard(pid)
@@ -92,7 +103,7 @@ class HandleAwareLauncher(FakeLauncher):
         super().__init__()
         self.handles = set()
 
-    def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None, writable=()):
+    def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None, writable=(), cancelled=None):
         handle = super().spawn(item_id, message, mcp_servers, budget_seconds, cwd, extra_env, writable)
         self.handles.add(item_id)
         return handle
@@ -149,6 +160,15 @@ class FakeWorktrees:
             raise RuntimeError("git is unwell")
         self.added.append(("committed", item_id, message))
         return {"committed": {}, "errors": {}}
+
+    def preserve(self, item_id):
+        report = self.commit_wip(item_id, f"wip({item_id[:8]}): preserve ended work")
+        return {**report, "refs": {}}
+
+    def remove_preserved(self, item_id, evidence):
+        if evidence["errors"]:
+            raise RuntimeError("preservation incomplete")
+        self.remove(item_id)
 
     def remove(self, item_id):
         self.added.append(("removed", item_id, None))
@@ -321,7 +341,7 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(self.ledger.item(item_id)["state"], "failed")
         self.assert_committed_before_removal(item_id)
 
-    def test_a_delivered_item_is_swept_without_a_work_in_progress_commit(self):
+    def test_a_delivered_item_is_preserved_before_sweeping(self):
         item = self.item()
         self.scheduler.tick()
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
@@ -333,10 +353,10 @@ class SchedulerTests(unittest.TestCase):
         self.launcher.finished.append(Finished(item["id"], 0, "", False, "exited"))
         self.scheduler.tick()
         self.assertIn(("removed", item["id"], None), self.trees.added)
-        self.assertEqual([row for row in self.trees.added if row[0] == "committed"], [])
+        self.assert_committed_before_removal(item["id"])
 
     def assert_committed_before_removal(self, item_id):
-        message = f"wip({item_id[:8]}): worker exited without finishing"
+        message = f"wip({item_id[:8]}): preserve ended work"
         self.assertIn(("committed", item_id, message), self.trees.added)
         self.assertLess(self.trees.added.index(("committed", item_id, message)),
                         self.trees.added.index(("removed", item_id, None)))
@@ -364,15 +384,14 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual((self.ledger.item(item["id"])["state"], self.launcher.killed), ("failed", [pid]))
         self.assert_committed_before_removal(item["id"])
 
-    def test_a_failing_work_in_progress_commit_is_logged_and_still_sweeps(self):
+    def test_a_failing_work_in_progress_commit_retains_files_and_reports_error(self):
         self.trees.commit_fails = True
         log = io.StringIO()
         with contextlib.redirect_stdout(log):
             item_id = self.failed_item()
         self.assertEqual(self.ledger.item(item_id)["state"], "failed")
-        self.assertIn(("removed", item_id, None), self.trees.added)
-        self.assertIn("wip_commit_failed", log.getvalue())
-        self.assertIn("RuntimeError", log.getvalue())
+        self.assertNotIn(("removed", item_id, None), self.trees.added)
+        self.assertIn("git is unwell", self.ledger.cleanup_record(item_id)["error"])
 
     def test_reaped_worker_in_waiting_state_keeps_worktrees(self):
         item = self.item()
@@ -504,12 +523,18 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(json.loads(result.stdout)["state"], "cancelled")
 
     def retry_with_cli(self, item_id):
+        stub = Path(self.tmp.name) / "stub"
+        stub.mkdir(exist_ok=True)
+        (stub / "issue.json").write_text(json.dumps({**self.ledger.issue(self.ledger.item(item_id)["issue_id"]),
+                                                    "delegate_id": "e5a8c16d-9f85-4123-acf5-94e41c3304d5"}))
         result = subprocess.run(
             [sys.executable, "-B", "-m", "agent", "--db", str(self.scheduler.db_path),
              "retry", "--item", item_id, "--reason", "operator retry"],
+            env={**os.environ, "FARMBOT_LINEAR_STUB_DIR": str(stub)},
             cwd=ROOT, capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["state"], "queued")
+        return json.loads(result.stdout)["id"]
 
     def test_cli_cancel_then_retry_before_tick_replaces_the_old_worker(self):
         runtime = RUNTIMES["fake"]._replace(command=[
@@ -522,10 +547,11 @@ class SchedulerTests(unittest.TestCase):
         self.addCleanup(launcher.poll)
         self.addCleanup(launcher.stop, item_id)
         self.cancel_with_cli(item_id)
-        self.retry_with_cli(item_id)
+        successor_id = self.retry_with_cli(item_id)
         self.scheduler.tick()
         self.assertIsNotNone(old.process.poll(), "retry hid the cancellation of the old worker")
-        fresh = self.scheduler.active[item_id]
+        fresh = self.scheduler.active[successor_id]
+        self.addCleanup(launcher.stop, successor_id)
         self.assertNotEqual(fresh.pid, old.pid)
         self.assertIsNone(fresh.process.poll())
         self.assertEqual((self.api.activities, self.api.comments), ([], []))
@@ -561,18 +587,19 @@ class SchedulerTests(unittest.TestCase):
         self.assertTrue(marker.exists(), errors)
         pid = int(marker.read_text())
         self.cancel_with_cli(item_id)
-        self.retry_with_cli(item_id)
+        successor_id = self.retry_with_cli(item_id)
         self.scheduler.tick()
         runner.join(2)
         self.assertFalse(runner.is_alive(), "retry hid the old batch reservation's cancellation")
         self.assertFalse(launcher.alive(pid))
         self.assertEqual(errors, [])
         self.assertNotIn(item_id, self.scheduler.active, "retry launched before the old slot was settled")
-        self.assertEqual(self.ledger.item(item_id)["state"], "queued")
+        self.assertEqual(self.ledger.item(successor_id)["state"], "queued")
         self.ledger.release(reservation["reservation_id"], reservation["token"], "pool verified quiescence")
         self.ledger.set_slot_state("unity_slot:1", "idle_closed")
         self.scheduler.tick()
-        self.assertIn(item_id, self.scheduler.active)
+        self.assertIn(successor_id, self.scheduler.active)
+        self.addCleanup(launcher.stop, successor_id)
         self.assertEqual((self.api.activities, self.api.comments), ([], []))
 
     def test_cli_cancel_kills_a_batch_run_before_any_worker_is_resumed(self):
@@ -743,7 +770,7 @@ class SchedulerTests(unittest.TestCase):
                 time.sleep(0.01)
             self.assertEqual(self.launcher.stopped, [item["id"]])
             self.assertLess(self.launcher.stop_times[0] - started, 1.0)
-            self.assertEqual(self.ledger.item(item["id"])["state"], "queued")  # cancel still waits for the lock
+            self.assertEqual(self.ledger.item(item["id"])["state"], "cancelled")  # claim revoked before signalling
         finally:
             self.scheduler.lock.release()
         thread.join(timeout=5)
@@ -766,12 +793,12 @@ class SchedulerTests(unittest.TestCase):
                 time.sleep(0.01)
             self.assertEqual(self.launcher.stopped, [item["id"]])  # nothing to kill yet
             self.scheduler.launch(item)  # the tick registers the worker while Stop waits for the lock
-            self.assertEqual(self.launcher.handles, {item["id"]})
+            self.assertEqual(self.launcher.handles, set())
         finally:
             self.scheduler.lock.release()
         thread.join(timeout=5)
         self.assertEqual(self.launcher.handles, set())  # killed once the lock was ours
-        self.assertEqual(self.launcher.stopped, [item["id"], item["id"]])
+        self.assertEqual(self.launcher.stopped, [item["id"]])
         self.assertNotIn(item["id"], self.scheduler.active)
         self.assertEqual(self.ledger.item(item["id"])["state"], "cancelled")
 

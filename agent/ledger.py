@@ -92,6 +92,7 @@ def _normalize(raw):
         raise LedgerError("complete issue detail and all comment pages are required")
     value = {key: raw[key] for key in required}
     value["delegate_id"] = raw.get("delegate_id")
+    value["updated_at"] = _timestamp(raw["updated_at"], "updated_at") if raw.get("updated_at") else None
     for field in ["id", "team_id"]:
         value[field] = _uuid(value[field], field)
     for field in ["identifier", "title", "status", "status_type", "url"]:
@@ -196,6 +197,15 @@ class Ledger:
                     fingerprint TEXT NOT NULL,
                     observed_at REAL NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS issue_checks (
+                    issue_id TEXT PRIMARY KEY REFERENCES issues(id),
+                    due_at REAL NOT NULL DEFAULT 0,
+                    requested INTEGER NOT NULL DEFAULT 0,
+                    checked_at REAL NOT NULL DEFAULT 0,
+                    failures INTEGER NOT NULL DEFAULT 0,
+                    error TEXT
+                );
+                INSERT OR IGNORE INTO issue_checks(issue_id) SELECT id FROM issues;
                 CREATE TABLE IF NOT EXISTS sessions (
                     session_id TEXT PRIMARY KEY,
                     issue_id TEXT,
@@ -324,6 +334,11 @@ class Ledger:
                     actor TEXT NOT NULL, request_id TEXT NOT NULL, payload_hash TEXT NOT NULL,
                     note_id TEXT NOT NULL REFERENCES memories(id), PRIMARY KEY(actor, request_id)
                 );
+                CREATE TABLE IF NOT EXISTS job_cleanup (
+                    item_id TEXT PRIMARY KEY REFERENCES work_items(id),
+                    worker_pid INTEGER, result TEXT NOT NULL DEFAULT '{}', error TEXT,
+                    done INTEGER NOT NULL DEFAULT 0, updated_at REAL NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS audit (
                     id INTEGER PRIMARY KEY,
                     item_id TEXT NOT NULL,
@@ -334,7 +349,9 @@ class Ledger:
                 );
             """)
             # Columns added after the first ledgers were written; CREATE TABLE IF NOT EXISTS leaves those files as they were.
-            for table, column, declaration in (("sessions", "guidance", "TEXT"), ("work_items", "lease_seconds", "REAL")):
+            for table, column, declaration in (("sessions", "guidance", "TEXT"), ("work_items", "lease_seconds", "REAL"),
+                                                ("work_items", "predecessor_id", "TEXT"),
+                                                ("job_cleanup", "removing", "INTEGER NOT NULL DEFAULT 0")):
                 present = {row["name"] for row in self.connection.execute(f"PRAGMA table_info({table})")}
                 if column not in present:
                     self.connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
@@ -374,7 +391,7 @@ class Ledger:
         issue = json.loads(self._issue_row(row["issue_id"])["metadata"])
         result = {key: row[key] for key in ["id", "issue_id", "session_id", "skill", "state", "stage",
                                             "priority", "host", "generation", "lease_expires_at",
-                                            "worker_pid", "needs_resource", "created_at"]}
+                                            "worker_pid", "needs_resource", "created_at", "predecessor_id"]}
         result.update(identifier=issue["identifier"], target=json.loads(row["target_json"]) if row["target_json"] else None,
                       resume_authorized=bool(row["resume_authorized"]), checkpoint=json.loads(row["checkpoint"]),
                       evidence=json.loads(row["evidence"]))
@@ -403,17 +420,78 @@ class Ledger:
         """Store one complete snapshot. Observing a comment is not authority to restart."""
         issue = _normalize(raw)
         with self._transaction():
+            previous = self.connection.execute("SELECT metadata FROM issues WHERE id=?", (issue["id"],)).fetchone()
+            if previous:
+                previous = json.loads(previous["metadata"])
+                if previous.get("updated_at") and (not issue.get("updated_at") or
+                        self._version(issue["updated_at"]) <= self._version(previous["updated_at"])):
+                    for key in ("status", "status_type", "archived", "delegate_id", "updated_at"):
+                        issue[key] = previous.get(key)
             own_bodies = {r["body"] for r in self.connection.execute("SELECT body FROM outbox WHERE issue_id=?", (issue["id"],))}
             own_prs = {r["url"] for r in self.connection.execute("SELECT url FROM published_prs WHERE issue_id=?", (issue["id"],))}
             fingerprint = _fingerprint(issue, own_bodies, own_prs)
             self.connection.execute("""INSERT INTO issues(id,metadata,fingerprint,observed_at) VALUES(?,?,?,?)
                 ON CONFLICT(id) DO UPDATE SET metadata=excluded.metadata,fingerprint=excluded.fingerprint,observed_at=excluded.observed_at""",
                                     (issue["id"], _json(issue), fingerprint, self.clock()))
+            self.connection.execute("INSERT OR IGNORE INTO issue_checks(issue_id) VALUES(?)", (issue["id"],))
         return {"id": issue["id"], "identifier": issue["identifier"], "fingerprint": fingerprint,
                 "in_scope": _in_scope(issue)}
 
     def issue(self, issue_id):
         return json.loads(self._issue_row(issue_id)["metadata"])
+
+    @staticmethod
+    def _version(value):
+        return datetime.fromisoformat(_timestamp(value, "updated_at").replace("Z", "+00:00")).timestamp()
+
+    def apply_issue_status(self, raw):
+        issue_id = _uuid(raw.get("id"), "issue")
+        version = self._version(raw.get("updated_at"))
+        for key in ("status", "status_type"):
+            _text(raw.get(key), key)
+        if type(raw.get("archived")) is not bool:
+            raise LedgerError("archived must be boolean")
+        if raw.get("delegate_id") is not None:
+            _uuid(raw["delegate_id"], "delegate_id")
+        with self._transaction():
+            current = self.issue(issue_id)
+            if current.get("updated_at") and version < self._version(current["updated_at"]):
+                return current
+            for key in ("status", "status_type", "archived", "delegate_id", "updated_at"):
+                current[key] = raw.get(key)
+            self.connection.execute("UPDATE issues SET metadata=?,observed_at=? WHERE id=?",
+                                    (_json(current), self.clock(), issue_id))
+        return current
+
+    def request_status_check(self, issue_id):
+        issue_id = _uuid(issue_id, "issue")
+        with self._transaction():
+            return bool(self.connection.execute("UPDATE issue_checks SET requested=1,due_at=0 WHERE issue_id=?",
+                                                (issue_id,)).rowcount)
+
+    def status_check(self, issue_id):
+        row = self.connection.execute("SELECT * FROM issue_checks WHERE issue_id=?", (issue_id,)).fetchone()
+        return dict(row) if row else None
+
+    def due_issue(self):
+        row = self.connection.execute("""SELECT c.issue_id FROM issue_checks c WHERE c.due_at<=?
+            AND (c.requested=1 OR EXISTS (SELECT 1 FROM work_items w WHERE w.issue_id=c.issue_id
+                AND w.state IN ('queued','running','awaiting_input','awaiting_resource','blocked')))
+            ORDER BY c.checked_at,c.due_at,c.issue_id LIMIT 1""", (self.clock(),)).fetchone()
+        return row["issue_id"] if row else None
+
+    def finish_status_check(self, issue_id, interval, error=None):
+        with self._transaction():
+            previous = self.status_check(issue_id)
+            failures = previous["failures"] + 1 if error else 0
+            delay = min(300, 5 * 2 ** min(failures - 1, 6)) if error else interval
+            self.connection.execute("""UPDATE issue_checks SET due_at=?,checked_at=?,requested=0,
+                failures=?,error=? WHERE issue_id=?""",
+                (self.clock() + delay, self.clock(), failures, error, issue_id))
+
+    def unfinished_for_issue(self, issue_id):
+        return [self._view(r) for r in self.connection.execute("""SELECT * FROM work_items WHERE issue_id=?
+            AND state IN ('queued','running','awaiting_input','awaiting_resource','blocked')""", (issue_id,))]
 
     def ensure_session(self, session_id, issue_id, delegation, guidance=None):
         """Guidance is Linear's operator text for this session; later events may add it."""
@@ -455,12 +533,16 @@ class Ledger:
             if self.connection.execute("SELECT 1 FROM work_items WHERE issue_id=? AND state IN ('queued','running','awaiting_input','awaiting_resource')",
                                        (issue["id"],)).fetchone():
                 raise LedgerError("an active work item already exists for this issue")
+            prior = self.connection.execute(
+                "SELECT id,state FROM work_items WHERE issue_id=? AND skill=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
+                (issue["id"], skill)).fetchone() if skill == "fix" else None
+            predecessor = prior["id"] if prior and prior["state"] == "cancelled" else None
             item_id = str(uuid4())
             now = self.clock()
-            self.connection.execute("""INSERT INTO work_items(id,issue_id,session_id,skill,state,priority,target_json,created_at,updated_at)
-                VALUES(?,?,?,?,'queued',?,?,?,?)""",
+            self.connection.execute("""INSERT INTO work_items(id,issue_id,session_id,skill,state,priority,target_json,created_at,updated_at,predecessor_id)
+                VALUES(?,?,?,?,'queued',?,?,?,?,?)""",
                                     (item_id, issue["id"], session_id, skill, issue["priority"] or 5,
-                                     json.dumps(target) if target is not None else None, now, now))
+                                     json.dumps(target) if target is not None else None, now, now, predecessor))
             self._audit(item_id, "create", f"skill {skill}")
             return self._view(self._row(item_id))
 
@@ -500,6 +582,13 @@ class Ledger:
                    for row in rows]
         return {"counts": counts, "items": compact,
                 "recovery_required": [row["id"] for row in rows if row["state"] == "running" and row["lease_expires_at"] <= self.clock()]}
+
+    def lifecycle_status(self):
+        """Operator diagnostics; avoid serializing history on every scheduler tick."""
+        return {"cleanup_pending": [self.cleanup_record(r["item_id"]) for r in self.connection.execute(
+                    "SELECT item_id FROM job_cleanup WHERE done=0 ORDER BY updated_at")],
+                "issue_status_errors": [dict(r) for r in self.connection.execute(
+                    "SELECT * FROM issue_checks WHERE error IS NOT NULL ORDER BY checked_at")]}
 
     def borrowed_comments(self, limit=20):
         """Items whose conclusion never reached the issue, because another item had already posted one.
@@ -582,6 +671,7 @@ class Ledger:
             self.connection.execute(
                 "UPDATE work_items SET worker_pid=?,host=?,lease_seconds=COALESCE(?,lease_seconds),updated_at=? WHERE id=?",
                 (pid, host, lease_seconds, self.clock(), row["id"]))
+            self.connection.execute("UPDATE job_cleanup SET worker_pid=?,done=0 WHERE item_id=?", (pid, item_id))
             self._audit(row["id"], "worker", f"pid {pid} on {host}")
             return self._view(self._row(row["id"]))
 
@@ -1002,8 +1092,14 @@ class Ledger:
         _text(reason, "reason")
         with self._transaction():
             row = self._row(item_id)
-            if row["state"] not in ACTIVE_STATES:
+            if row["state"] == "cancelled":
+                return self._view(row)
+            if row["state"] not in (*ACTIVE_STATES, "blocked"):
                 raise LedgerError("work item is already terminal")
+            pid = self.last_worker_pid(item_id)
+            self.connection.execute(
+                "INSERT OR IGNORE INTO job_cleanup(item_id,worker_pid,updated_at) VALUES(?,?,?)",
+                (row["id"], pid, self.clock()))
             # The operator CLI path must not orphan a slot: a queued request dies with the item, an active one
             # keeps the slot until the pool has probed and released it.
             self.connection.execute(
@@ -1057,6 +1153,9 @@ class Ledger:
             if not _in_scope(json.loads(self._issue_row(row["issue_id"])["metadata"])):
                 raise LedgerError("issue is archived or in a terminal status")
             try:
+                if row["state"] == "cancelled":
+                    return self._view(self._row(self._cancelled_successor(row, reason)))
+                self._guard_cleanup_retry(row["id"])
                 self._set_state(row["id"], "queued", reason, worker_pid=None, generation=row["generation"] + 1,
                                 requeue_requested=0)
             except sqlite3.IntegrityError:
@@ -1090,17 +1189,81 @@ class Ledger:
             work = self._resumable_work(chat["issue_id"], chat["session_id"])
             if work is None:
                 raise LedgerError("no previously delegated fix work on this issue")
+            # Retire the chat first so the one-active-item index permits the fix, atomically.
             self._set_state(item_id, "delivered", "handed request to previously delegated work",
-                            token=None, lease_expires_at=None, worker_pid=None,
-                            evidence=_json({"summary": "Resumed previously delegated work", "prs": [],
-                                            "resumed_item": work["id"], "message_id": message_id}))
-            self._set_state(work["id"], "queued", "human requested continuation via chat",
-                            token=None, lease_expires_at=None, worker_pid=None,
-                            generation=work["generation"] + 1, requeue_requested=0)
+                            token=None, lease_expires_at=None, worker_pid=None)
+            destination = work["id"]
+            if work["state"] == "cancelled":
+                destination = self._cancelled_successor(work, "human requested continuation via chat")
+            else:
+                self._guard_cleanup_retry(destination)
+                self._set_state(destination, "queued", "human requested continuation via chat",
+                                token=None, lease_expires_at=None, worker_pid=None,
+                                generation=work["generation"] + 1, requeue_requested=0)
+            self.connection.execute("UPDATE work_items SET evidence=? WHERE id=?", (
+                _json({"summary": "Continued previously delegated work", "prs": [],
+                       "resumed_item": destination, "message_id": message_id}), item_id))
             self.connection.executemany("INSERT INTO inbox(item_id,body,created_at) VALUES(?,?,?)",
-                                        [(work["id"], m["body"], self.clock()) for m in messages])
-            self._audit(work["id"], "resume_request", details={"chat_item": item_id, "message_id": message_id})
-            return self._view(self._row(work["id"]))
+                                        [(destination, m["body"], self.clock()) for m in messages])
+            self._audit(destination, "resume_request", details={"chat_item": item_id, "message_id": message_id})
+            return self._view(self._row(destination))
+
+    def _cancelled_successor(self, previous, reason):
+        """Caller owns the transaction; no execution fields are inherited."""
+        item_id, now = str(uuid4()), self.clock()
+        self.connection.execute("""INSERT INTO work_items
+            (id,issue_id,session_id,skill,state,priority,target_json,predecessor_id,created_at,updated_at)
+            VALUES(?,?,?,?,'queued',?,?,?,?,?)""",
+            (item_id, previous["issue_id"], previous["session_id"], previous["skill"], previous["priority"],
+             previous["target_json"], previous["id"], now, now))
+        self._audit(item_id, "create", reason, {"predecessor_id": previous["id"]})
+        return item_id
+
+    def _guard_cleanup_retry(self, item_id):
+        record = self.cleanup_record(item_id)
+        if record and record["removing"]:
+            raise LedgerError("worktree removal is in progress; retry shortly")
+        self.connection.execute("UPDATE job_cleanup SET done=0 WHERE item_id=?", (item_id,))
+
+    def begin_cleanup_removal(self, item_id):
+        with self._transaction():
+            if self._row(item_id)["state"] in ACTIVE_STATES:
+                raise LedgerError("active work cannot be removed")
+            self.connection.execute("UPDATE job_cleanup SET removing=1 WHERE item_id=?", (item_id,))
+
+    def last_worker_pid(self, item_id):
+        row = self._row(item_id)
+        if row["worker_pid"] is not None:
+            return row["worker_pid"]
+        last = self.connection.execute("SELECT reason FROM audit WHERE item_id=? AND kind='worker' ORDER BY id DESC LIMIT 1",
+                                       (item_id,)).fetchone()
+        match = re.fullmatch(r"pid ([0-9]+) on .+", last["reason"]) if last else None
+        return int(match[1]) if match else None
+
+    def cleanup_record(self, item_id):
+        row = self.connection.execute("SELECT * FROM job_cleanup WHERE item_id=?", (item_id,)).fetchone()
+        return {**dict(row), "result": json.loads(row["result"]), "done": bool(row["done"])} if row else None
+
+    def record_cleanup(self, item_id, result, error=None, *, done=False):
+        if not isinstance(result, dict):
+            raise LedgerError("cleanup result must be an object")
+        with self._transaction():
+            row = self._row(item_id)
+            if row["state"] in ACTIVE_STATES:
+                raise LedgerError("active work cannot be cleaned up")
+            self.connection.execute("""INSERT INTO job_cleanup(item_id,worker_pid,result,error,done,updated_at)
+                VALUES(?,?,?,?,?,?) ON CONFLICT(item_id) DO UPDATE SET result=excluded.result,
+                error=excluded.error,done=excluded.done,updated_at=excluded.updated_at,removing=0""",
+                (item_id, self.last_worker_pid(item_id), _json(result), error, int(done), self.clock()))
+
+    def recovery_context(self, item_id):
+        row = self._row(item_id)
+        if not row["predecessor_id"]:
+            return None
+        previous = self._row(row["predecessor_id"])
+        return {"predecessor_id": previous["id"], "checkpoint": json.loads(previous["checkpoint"]),
+                "evidence": json.loads(previous["evidence"]), "cleanup": self.cleanup_record(previous["id"]),
+                "revalidation_required": True}
 
     def prepare_comment(self, item_id, token, kind, body):
         """Claim the one outbox row for this issue, claimed input, generation and kind, and say plainly
@@ -1292,6 +1455,8 @@ class Ledger:
         view = self._view(row)
         coordination = {key: view[key] for key in ("id", "identifier", "skill", "state", "stage", "generation", "target")}
         return {"issue": json.loads(issue_row["metadata"]), "coordination": coordination, "handoff": handoff,
+                "cleanup": self.cleanup_record(item_id),
+                "recovery": self.recovery_context(item_id),
                 "resumable_work": (self._view(candidate) if row["skill"] == "chat"
                                    and (candidate := self._resumable_work(row["issue_id"], row["session_id"])) else None),
                 "session_messages": [dict(r) for r in self.connection.execute(

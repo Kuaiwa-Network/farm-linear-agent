@@ -42,6 +42,24 @@ changes at every restart and must be pasted into the Linear app settings again; 
 
 Behaviour: `docs/operating-contract.md`. Plans: `docs/superpowers/plans/`.
 
+## Issue closure and cancelled work
+
+Enable Issue webhooks alongside agent-session events on the configured Linear endpoint. Completed,
+canceled and archived issues cancel FarmBot's unfinished/blocked jobs. A separate status poll catches
+missed notifications; `reconcile_seconds` in private config defaults to 60. Failed status reads defer
+new launches. No Linear status or assignment is changed by reconciliation.
+
+Owned processes stop before cleanup. Unfinished source and clean unpublished commits survive in local
+`refs/farmbot/recovery/<job-id>` refs. Unverified processes, unsettled slots and preservation failures
+hold cleanup; `python3 -m agent.service status` shows `cleanup_pending` and `issue_status_errors`.
+All run logs, ledger history and memory snapshots remain. See the [operating contract](docs/operating-contract.md)
+for source recovery and deployment details.
+
+Open jobs awaiting answers keep today's reply behavior and the same job ID. A reply inside FarmBot's
+session resumes the waiting job even without an @mention. An ordinary issue comment outside that
+session does not start a worker unless it mentions FarmBot. Reopening a cancelled issue starts nothing;
+an authorized continuation creates a fresh job linked to the cancelled job's recovery evidence.
+
 ## Shared worker memory
 
 FarmBot starts with an empty memory store. Workers may save reusable corrections,

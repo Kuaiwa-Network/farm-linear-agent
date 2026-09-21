@@ -65,6 +65,15 @@ class LinearAPITests(unittest.TestCase):
         self.http = FakeHTTP(answers)
         return LinearAPI("client", "secret", request=self.http)
 
+    def test_lightweight_status_has_version_archive_and_delegate(self):
+        api = self.api({"FarmBotIssueStatus": [{"data": {"issue": {
+            "id": "issue", "updatedAt": "2026-09-21T00:00:00Z", "archivedAt": None,
+            "state": {"name": "Done", "type": "completed"}, "delegate": {"id": APP}}}}]})
+        value = api.issue_status("issue")
+        self.assertEqual((value["updated_at"], value["status_type"], value["delegate_id"], value["archived"]),
+                         ("2026-09-21T00:00:00Z", "completed", APP, False))
+        self.assertNotIn("comments", self.http.calls[-1][2]["query"])
+
     def test_identity_requires_expected_name_and_bearer_token(self):
         api = self.api({"FarmBotIdentity": [{"data": {"viewer": {"id": APP, "name": "FarmBot"}, "organization": {"id": "org", "name": "K"}}}]})
         self.assertEqual(api.identity()["viewer"]["id"], APP)

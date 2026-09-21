@@ -32,6 +32,29 @@ class LauncherTests(unittest.TestCase):
             time.sleep(0.05)
         self.fail("worker did not finish")
 
+    def test_interrupted_launch_without_pid_cannot_be_declared_quiescent(self):
+        attempt = self.launcher.state_dir("item-1") / "attempt"
+        attempt.mkdir(parents=True)
+        (attempt / "process.json").write_text(json.dumps({"state": "preparing"}))
+        with self.assertRaisesRegex(RuntimeError, "incomplete"):
+            self.launcher.assert_quiescent("item-1", None)
+
+    def test_cancelled_launch_never_spawns(self):
+        with patch("agent.launcher.subprocess.Popen") as spawn:
+            with self.assertRaises(RuntimeError):
+                self.launcher.spawn("item-1", self.message, {}, 30, self.tmp.name, cancelled=lambda: True)
+        spawn.assert_not_called()
+
+    def test_same_second_attempts_keep_both_logs(self):
+        self.launcher.clock = lambda: 1000
+        first = self.launcher.spawn("item-1", self.message, {}, 30, self.tmp.name)
+        self.wait_finished()
+        (first.run_dir / "stdout.log").write_text("first attempt")
+        second = self.launcher.spawn("item-1", self.message, {}, 30, self.tmp.name)
+        self.wait_finished()
+        self.assertNotEqual(first.run_dir, second.run_dir)
+        self.assertEqual((first.run_dir / "stdout.log").read_text(), "first attempt")
+
     def test_native_memory_is_disabled_and_personal_homes_are_not_imported(self):
         import tomllib
         personal = Path(self.tmp.name) / "personal"

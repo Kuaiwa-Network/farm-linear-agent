@@ -81,6 +81,21 @@ class Receiver:
         now_ms = self.clock() * 1000 if now_ms is None else now_ms
         if type(timestamp) not in (int, float) or not math.isfinite(timestamp) or abs(timestamp - now_ms) > 60_000:
             return 401, "invalid timestamp"
+        if event.get("type") == "Issue":
+            if event.get("organizationId") != self.identity["organizationId"]:
+                return 403, "identity mismatch"
+            if event.get("action") not in ("create", "update", "remove"):
+                return 200, "ignored"
+            data = event.get("data")
+            try:
+                with self.lock, self.db:
+                    issue_id = data.get("id") if isinstance(data, dict) else None
+                    issue_id = str(uuid.UUID(issue_id))
+                    accepted = self.db.execute("UPDATE issue_checks SET requested=1,due_at=0 WHERE issue_id=?",
+                                               (issue_id,)).rowcount
+            except (ValueError, TypeError, AttributeError):
+                return 400, "invalid issue"
+            return 200, "accepted" if accepted else "ignored"
         if event.get("type") != "AgentSessionEvent":
             return 200, "ignored"
         if any(event.get(k) != v for k, v in self.identity.items()):

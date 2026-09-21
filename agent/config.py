@@ -2,6 +2,7 @@
 from dataclasses import dataclass, field
 import getpass
 import json
+import math
 import os
 from pathlib import Path
 
@@ -21,11 +22,17 @@ class Config:
     runtime: str = "codex"
     repos: dict = field(default_factory=dict)
     max_concurrent: int = 2
+    reconcile_seconds: float = 60
     port: int = 8765
     local_root: Path = ROOT / ".local"
     default_server_environment: str = "公共测试服"
     slots: list = field(default_factory=list)
     tunnel: dict = field(default_factory=dict)
+
+    def __post_init__(self):
+        if (type(self.reconcile_seconds) not in (int, float) or not math.isfinite(self.reconcile_seconds)
+                or self.reconcile_seconds <= 0):
+            raise ValueError("reconcile_seconds must be positive and finite")
 
 
 class Paths:
@@ -95,6 +102,10 @@ class StubLinear:
         per_issue = self.directory / f"issue-{issue_ref}.json"
         source = per_issue if per_issue.is_file() else self.directory / "issue.json"
         return json.loads(source.read_text(encoding="utf-8"))
+
+    def issue_status(self, issue_id):
+        raw = self.fetch_issue(issue_id)
+        return {**raw, "updated_at": raw.get("updated_at") or "2026-09-21T00:00:00Z"}
 
     def create_comment(self, issue_id, body):
         number = len(list(self.directory.glob("comment-*.txt"))) + 1

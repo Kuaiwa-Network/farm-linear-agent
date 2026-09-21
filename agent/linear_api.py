@@ -10,7 +10,7 @@ SCOPES = "read,write,app:mentionable,app:assignable"
 UPLOAD = re.compile(r"(https://uploads\.linear\.app/[^\s?#)]+)[^\s)]*")
 ISSUE_QUERY = """query FarmBotIssue($id: String!, $after: String) {
   issue(id: $id) {
-    id identifier url branchName title description priority archivedAt
+    id identifier url branchName title description priority archivedAt updatedAt
     state { name type } team { id } labels { nodes { name } } attachments { nodes { url } } delegate { id }
     comments(first: 50, after: $after) {
       nodes { id body createdAt updatedAt user { id } botActor { id } }
@@ -127,6 +127,16 @@ class LinearAPI:
         if result.get("success") is not True:
             raise RuntimeError("Linear did not confirm needs-more-info label")
 
+    def issue_status(self, issue_id):
+        issue = self.graphql("""query FarmBotIssueStatus($id: String!) {
+            issue(id: $id) { id updatedAt archivedAt state { name type } delegate { id } }
+        }""", {"id": issue_id})["issue"]
+        if not issue:
+            raise RuntimeError("Issue not found")
+        return {"id": issue["id"], "updated_at": issue["updatedAt"],
+                "archived": issue["archivedAt"] is not None, "status": issue["state"]["name"],
+                "status_type": issue["state"]["type"], "delegate_id": (issue.get("delegate") or {}).get("id")}
+
     def fetch_issue(self, issue_ref):
         """Complete detail plus every comment page, shaped for Ledger.observe_issue."""
         if self.app_user_id is None:
@@ -150,7 +160,7 @@ class LinearAPI:
                 break
             after = page["endCursor"]
         return {"id": issue["id"], "identifier": issue["identifier"], "team_id": issue["team"]["id"], "url": issue["url"],
-                "branch_name": issue.get("branchName") or "", "title": issue["title"],
+                "updated_at": issue.get("updatedAt"), "branch_name": issue.get("branchName") or "", "title": issue["title"],
                 "description": strip_signed(issue.get("description") or ""), "status": issue["state"]["name"],
                 "status_type": issue["state"]["type"], "labels": [n["name"] for n in issue["labels"]["nodes"]],
                 "priority": int(issue["priority"] or 0), "archived": issue.get("archivedAt") is not None,

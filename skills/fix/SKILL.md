@@ -25,7 +25,11 @@ outside your worktree list.
    then only relevant topic files. Refresh potentially stale notes through the CLI.
 3. `python3 -m agent --db DATABASE fetch-issue --item ITEM_ID` refreshes the issue and all comments from
    Linear into the ledger. Then `issue-context --item ITEM_ID` gives you the issue, your handoff if a
-   previous worker left one, pending steering messages and registered PRs.
+   previous worker left one, pending steering messages and registered PRs. A fresh successor of cancelled
+   work also receives `recovery`: predecessor checkpoint, evidence and local Git recovery refs. Treat it
+   as stale. Check current issue requirements, repository heads and existing PRs before reusing saved
+   commits. Inspect refs in the configured bare clones; apply only changes still needed in your new
+   worktrees. Do not revive or mutate the cancelled job.
 4. Post the start marker before investigating: write the body from the `started` template to a file, then
    `prepare-comment --kind started --body-file FILE` and `post-comment --action-id ACTION_ID`. The CLI
    reconciles the marker against live comments, so a restarted worker never posts twice.

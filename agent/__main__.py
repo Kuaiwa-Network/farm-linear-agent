@@ -10,6 +10,7 @@ from pathlib import Path
 from .config import linear_api, load_config
 from .ledger import Ledger, LedgerError
 from .memory import prune_snapshots
+from .router import WRITE_SKILLS
 
 
 def parser():
@@ -199,7 +200,7 @@ def run(args, ledger, api_factory):
                                    reason=getattr(args, "reason", ""))
     if c == "status":
         # Merged here rather than inside Ledger.status(), which the scheduler calls twice a second.
-        return {**ledger.status(), "borrowed_comments": ledger.borrowed_comments()}
+        return {**ledger.status(), **ledger.lifecycle_status(), "borrowed_comments": ledger.borrowed_comments()}
     if c == "queue":
         return ledger.queue()
     if c == "fetch-issue":
@@ -250,7 +251,9 @@ def run(args, ledger, api_factory):
         try:
             api.create_activity(item["session_id"], {
                 "type": "thought" if item["session_id"] == resumed["session_id"] else "response",
-                "body": "已恢复原修复任务，你的回复会交给新的 worker；后续进展会记录在原任务会话和 issue 下。"})
+                "body": ("已为取消的修复任务创建新工作项，你的回复和历史进展会交给新的 worker。"
+                         if resumed.get("predecessor_id") else
+                         "已恢复原修复任务，你的回复会交给新的 worker；后续进展会记录在原任务会话和 issue 下。")})
         except Exception as exc:
             print(json.dumps({"warning": "work resumed; acknowledgment failed", "error": type(exc).__name__}), file=sys.stderr)
         return resumed
@@ -290,6 +293,12 @@ def run(args, ledger, api_factory):
     if c == "recover":
         return ledger.recover(args.item, args.reason)
     if c == "retry":
+        item = ledger.item(args.item)
+        api = api_factory()
+        current = api.fetch_issue(item["issue_id"])
+        ledger.observe_issue(current)
+        if item["skill"] in WRITE_SKILLS and current.get("delegate_id") != api.app_user_id:
+            raise LedgerError("issue must remain delegated to FarmBot")
         return ledger.retry(args.item, args.reason)
     raise LedgerError(f"unknown command {c}")
 
