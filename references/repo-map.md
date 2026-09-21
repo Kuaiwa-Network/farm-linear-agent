@@ -90,9 +90,11 @@ this contract. Missing generators remain explicit verification gaps or blockers.
   resolve the tools by their suffix, not by a hardcoded prefix. If no Linear
   MCP tool is reachable, that is a system-wide failure: stop, do not
   substitute a saved list or a web read.
-- FairyGUI publishing (operator instruction, 2026-09-21): the Windows editor at
-  `C:/FairyGUI-Editor/FairyGUI-Editor.exe` has a paid license and its batch export
-  has been verified. During an authorized FGUI bug fix, FarmBot may export the
+- FairyGUI publishing (operator instruction, 2026-09-21): resolve the editor
+  executable from host configuration or a host-specific shared-memory note,
+  then verify that it exists and has an active paid license for batch export.
+  Keep installation paths and license observations out of versioned guidance.
+  During an authorized FGUI bug fix, FarmBot may export the
   affected packages directly without another permission request or human GUI
   handoff. This applies to both Codex and Claude Code workers and supersedes the
   earlier unpaid-license handoff and separate export-approval guidance.

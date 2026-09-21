@@ -141,8 +141,9 @@ in the checkpoint and PR. Optimise for correctness, explicit ownership and maint
 both humans and AI, rather than whichever tool is easiest for the current worker to use.
 
 The operator's standing instruction of 2026-09-21 authorizes direct FairyGUI CLI export during
-an authorized FGUI bug fix. The Windows editor has a paid license and batch export has been
-verified. Do not wait for human intervention or ask for a separate export approval. This
+an authorized FGUI bug fix. Resolve the executable and host-specific license observations
+from local configuration or shared memory, and verify current batch-export availability.
+Do not wait for human intervention or ask for a separate export approval. This
 supersedes the earlier unpaid-license GUI handoff and export-approval gate, including historical
 design documents. Follow the tested command, staging and validation workflow in
 `references/repo-map.md`, then integrate the generated assets into the issue's authorized client
