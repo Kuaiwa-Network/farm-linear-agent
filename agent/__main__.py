@@ -50,6 +50,7 @@ def parser():
     cmd("checkpoint", "--item", "--input", token=True)
     cmd("issue-context", "--item")
     cmd("pop-inbox", "--item", token=True)
+    cmd("verify-publication", "--item", "--repo", token=True)
     prepare = cmd("prepare-comment", "--item", "--body-file", token=True)
     prepare.add_argument("--kind", required=True, choices=["started", "blocker", "delivery"])
     cmd("post-comment", "--item", "--action-id", token=True)
@@ -258,6 +259,35 @@ def run(args, ledger, api_factory):
         except Exception as exc:
             print(json.dumps({"warning": "work resumed; acknowledgment failed", "error": type(exc).__name__}), file=sys.stderr)
         return resumed
+    if c == "verify-publication":
+        from .config import ROOT
+        from .publication import PublicationVerifier
+        from .skills import load_skills
+        from .worktrees import Worktrees, _git
+        token = resolve_token(args)
+        ledger.renew(args.item, token)
+        item = ledger.item(args.item)
+        config = load_config()
+        paths = Paths(config)
+        if Path(args.db).resolve() != paths.ledger.resolve():
+            raise LedgerError("publication must use the configured host ledger")
+        skills = load_skills(ROOT / 'skills')
+        skill = skills.get(item['skill'])
+        session = ledger.session(item['session_id']) or {}
+        if (item['skill'] not in WRITE_SKILLS or not skill or args.repo not in skill.writes
+                or not session.get('delegation')):
+            raise LedgerError("only a delegated write worker may verify an allowed publishing repository")
+        api = api_factory()
+        issue = api.fetch_issue(item['issue_id'])
+        ledger.observe_issue(issue)
+        if (not api.app_user_id or issue.get('delegate_id') != api.app_user_id or issue.get('archived')
+                or issue.get('status_type') in ('completed', 'canceled')):
+            raise LedgerError("issue must remain open and delegated to FarmBot")
+        trees = Worktrees(paths.repos, paths.worktrees, config.repos)
+        branch = _git('branch', '--show-current', cwd=paths.worktrees / args.item / args.repo)
+        result = PublicationVerifier(trees).verify(args.repo, args.item, issue['identifier'], branch)
+        ledger.renew(args.item, token)  # fence cancellation while network checks were in progress
+        return result
     if c == "await-resource":
         token = resolve_token(args)
         if args.commit is not None:

@@ -209,6 +209,24 @@ class SchedulerTests(unittest.TestCase):
         # The pin travels with the item: await_resource refuses a slot request from an unpinned one.
         return self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill=skill, target=PIN)
 
+    def test_resumed_worker_gets_fresh_publication_scope_and_user_reply(self):
+        item = self.item()
+        token = self.ledger.claim(item['id'], worker_id='old')['token']
+        self.ledger.await_input(item['id'], token, 'May I publish?')
+        self.ledger.push_inbox(item['id'], 'Create the draft PR.', resume_waiting=True)
+        scopes = []
+        class Verifier:
+            def scope(inner, **kwargs):
+                scopes.append(kwargs)
+                return {'repositories': {'farmgui': {'status': 'verified', 'branch': 'farmbot/farm-1',
+                        'url': 'https://github.com/Kuaiwa-Network/farmgui'}}}
+        self.scheduler.publication = Verifier()
+        self.scheduler.tick()
+        payload = json.loads(self.launcher.spawned[-1][1].split('\n\n', 1)[1])
+        self.assertEqual(payload['publication']['repositories']['farmgui']['branch'], 'farmbot/farm-1')
+        self.assertEqual(payload['user_requests'][0]['body'], 'Create the draft PR.')
+        self.assertTrue(scopes[0]['delegated'])
+
     def waiting_item(self, mode="batch", issue_id=ISSUE, session=SESSION):
         """An item whose slot request is still queued: nothing has been acquired, so no slot is held."""
         item = self.item(issue_id=issue_id, session=session)

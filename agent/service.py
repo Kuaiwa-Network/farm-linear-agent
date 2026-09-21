@@ -13,6 +13,7 @@ from .deploy import AGENTS, install, missing_tools
 from .launcher import RUNTIMES, Launcher
 from .ledger import Ledger
 from .lifecycle import Lifecycle
+from .publication import PublicationVerifier
 from .receiver import Receiver, make_server
 from .router import WRITE_SKILLS
 from .scheduler import Scheduler
@@ -42,7 +43,8 @@ def build(config, runtime_override=None):
                           runtime_name=runtime.name, host=config.host, max_concurrent=config.max_concurrent,
                           slot_entries={entry["id"]: entry for entry in entries},
                           guidance_for=lambda item: (ledger.session(item["session_id"]) or {}).get("guidance") or "",
-                          api=api, control_ledger_factory=lambda: Ledger(paths.ledger))
+                          api=api, control_ledger_factory=lambda: Ledger(paths.ledger),
+                          publication=PublicationVerifier(worktrees))
     lifecycle = Lifecycle(Ledger(paths.ledger, check_same_thread=False), api, scheduler,
                           interval=config.reconcile_seconds)
 

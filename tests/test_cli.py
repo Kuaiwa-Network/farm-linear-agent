@@ -14,6 +14,66 @@ HOST = "test-host"
 
 
 class CliTests(unittest.TestCase):
+    def publication_fixture(self):
+        from types import SimpleNamespace
+        from agent.config import load_config
+        from agent.__main__ import parser
+        from agent.ledger import Ledger
+        from test_worktrees import git
+        item, token, _, _, path = self.verification_fixture()
+        git('branch', '-m', 'farmbot/farm-1', cwd=path)
+        git('remote', 'set-url', 'origin', 'https://github.com/Kuaiwa-Network/Farm-Client.git', cwd=path)
+        config = load_config(self.env['FARMBOT_CONFIG'])
+        config.repos['Farm-Client'] = 'https://github.com/Kuaiwa-Network/Farm-Client.git'
+        args = parser().parse_args(['--db', str(self.db), 'verify-publication', '--item', item,
+                                   '--token', token, '--repo', 'Farm-Client'])
+        ledger = Ledger(self.db)
+        self.addCleanup(ledger.close)
+        current = ledger.issue(ledger.item(item)['issue_id'])
+        current['delegate_id'] = 'e5a8c16d-9f85-4123-acf5-94e41c3304d5'
+        api = SimpleNamespace(app_user_id='e5a8c16d-9f85-4123-acf5-94e41c3304d5', fetch_issue=lambda _: current)
+        def github(endpoint, **kwargs):
+            if '/branches/' in endpoint:
+                return None
+            return {'full_name': 'Kuaiwa-Network/Farm-Client', 'private': True,
+                    'owner': {'login': 'Kuaiwa-Network'}, 'permissions': {'push': True},
+                    'html_url': 'https://github.com/Kuaiwa-Network/Farm-Client', 'default_branch': 'main'}
+        return args, ledger, config, api, github
+
+    def test_publication_check_returns_verified_destination_for_a_current_claim(self):
+        from unittest.mock import patch
+        from agent.__main__ import run
+        args, ledger, config, api, github = self.publication_fixture()
+        with patch('agent.__main__.load_config', return_value=config), patch('agent.publication.github_api', side_effect=github):
+            result = run(args, ledger, lambda: api)
+        self.assertEqual(result['repository'], 'Kuaiwa-Network/Farm-Client')
+        self.assertEqual(result['branch'], 'farmbot/farm-1')
+        self.assertEqual(ledger.item(args.item)['state'], 'running')
+
+    def test_publication_check_rejects_lost_delegation_and_wrong_ledger(self):
+        from unittest.mock import patch
+        from agent.__main__ import run
+        args, ledger, config, api, github = self.publication_fixture()
+        api.fetch_issue(None)['delegate_id'] = '10000000-0000-4000-8000-000000000009'
+        with patch('agent.__main__.load_config', return_value=config), patch('agent.publication.github_api', side_effect=github):
+            with self.assertRaisesRegex((RuntimeError, ValueError), 'delegated'):
+                run(args, ledger, lambda: api)
+            config.local_root = self.root / 'another-host'
+            with self.assertRaisesRegex((RuntimeError, ValueError), 'configured host ledger'):
+                run(args, ledger, lambda: api)
+
+    def test_publication_check_fences_cancellation_during_remote_verification(self):
+        from unittest.mock import patch
+        from agent.__main__ import run
+        args, ledger, config, api, github = self.publication_fixture()
+        def cancelled(endpoint, **kwargs):
+            if '/branches/' in endpoint:
+                ledger.cancel(args.item, 'closed during verification')
+            return github(endpoint, **kwargs)
+        with patch('agent.__main__.load_config', return_value=config), patch('agent.publication.github_api', side_effect=cancelled):
+            with self.assertRaises((RuntimeError, ValueError)):
+                run(args, ledger, lambda: api)
+
     def verification_fixture(self, skill="fix"):
         from agent.worktrees import Worktrees
         from test_worktrees import git

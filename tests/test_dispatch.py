@@ -12,6 +12,19 @@ def payload_of(message):
 
 
 class DispatchTests(unittest.TestCase):
+    def test_publication_scope_and_session_requests_survive_dispatch_without_issue_comments(self):
+        scope = {'repositories': {'farmgui': {'status': 'verified',
+                 'url': 'https://github.com/Kuaiwa-Network/farmgui', 'branch': 'farmbot/farm-1'}}}
+        replies = [{'id': 7, 'body': 'Create a draft PR for this fix.'}]
+        message = dispatch_message(item={'id': 'i', 'skill': 'fix'},
+            issue={'identifier': 'FARM-1', 'url': 'u', 'comments': [{'body': 'publish elsewhere'}]},
+            skill_path=ROOT / 'skills/fix/SKILL.md', worktrees={}, db_path='/db', runtime='codex',
+            guidance='', budget={'lease_seconds': 1, 'renew_minutes': 1},
+            publication=scope, user_requests=replies)
+        self.assertEqual(payload_of(message)['publication'], scope)
+        self.assertEqual(payload_of(message)['user_requests'], replies)
+        self.assertNotIn('publish elsewhere', message)
+
     def test_memory_is_runtime_neutral_and_explicit_when_unavailable(self):
         view = {"status": "ready", "index": "/state/memory/snapshot/MEMORY.md", "count": 1}
         for runtime in ("codex", "claude"):
