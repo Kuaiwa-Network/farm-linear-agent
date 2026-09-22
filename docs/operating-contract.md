@@ -55,6 +55,9 @@ the dedicated workspace and pinned app/workspace IDs define the current live sco
 Explicit launchd profiles use `com.kuaiwa.farmbot.<environment>.<instance_id>` labels;
 legacy labels remain unchanged. Installation writes plists but does not load them.
 
+The HTTP receiver binds the loopback address without reverse-DNS lookup. Host DNS
+availability is not required to start the local listener.
+
 ## Triggers
 
 | You do | FarmBot does |

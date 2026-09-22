@@ -98,6 +98,12 @@ and GitHub CLI credentials used by development should have write access only to
 the intended sandbox destinations. Publishing checks must accept the test team's
 issue-key policy without weakening destination or protected-branch verification.
 
+Inspect `.lfsconfig` before copying an asset repository: it can override LFS routing
+even after Git's remote changes. Rewrite sandbox routing and upload the exact LFS
+objects referenced by the selected snapshot. Verify a download from the sandbox's
+own storage before using it. Disable copied CI/deployment workflows until their
+secrets and destinations have been reviewed for development use.
+
 Keep the game/server test environment separate as well. The config's
 `default_server_environment` is descriptive; it does not enforce server isolation.
 

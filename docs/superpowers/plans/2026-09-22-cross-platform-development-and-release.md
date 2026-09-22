@@ -81,7 +81,7 @@ If only one Windows production machine is available, hosted Windows CI can cover
 
 **Files:** `agent/config.py`, `agent/service.py`, `agent/scheduler.py`, `agent/launcher.py`, `agent/linear_api.py`, `agent/__main__.py`; new `tests/test_config.py`, plus existing service, launcher and Linear API tests.
 
-- [x] Add explicit environment and instance identifiers, configurable display name, and expected app-user/organization IDs. Preserve existing production behavior through an explicit configuration migration.
+- [x] Add explicit environment and instance identifiers, configurable display name, and expected app-user/organization IDs. Preserve existing production behavior in legacy compatibility mode; production state migration remains a separately planned operation.
 - [x] Resolve one absolute config path when loading the file, carry it into the scheduler, and explicitly set the worker's `FARMBOT_CONFIG`; caller environment must not override the selected service config. Preserve that path in launchd installation as well.
 - [x] Validate absolute state paths for live profiles. Record a nonsecret identity marker in the state root and refuse a conflicting profile/identity. Acquire an OS-backed exclusive controller lock for that root and hold it for the process lifetime; do not use stale PID files as the sole lock.
 - [x] Make fake/stub activation an explicit offline mode. Refuse production startup with fake runtime or stub-related environment variables.
@@ -105,10 +105,10 @@ If only one Windows production machine is available, hosted Windows CI can cover
 
 **Files:** new `.github/workflows/tests.yml`, new `scripts/test-offline.py`, existing `tests/` fixtures, `README.md`.
 
-- [ ] Declare Python 3.13 as the initial tested release baseline and install it explicitly on both CI operating systems; record the exact patch used in release evidence. This is a proposed support baseline, not a claim that older Python is unsupported by all current code.
-- [ ] Run unittest discovery on macOS and Windows for each PR. Install/check Git and Git LFS where fixtures require them. Use no production credentials or live Unity/model calls. GitHub supports an OS matrix and explicit Python setup; see [its Python CI guide](https://docs.github.com/en/actions/tutorials/build-and-test-code/python).
+- [x] Declare Python 3.13 as the CI baseline and install it explicitly on both CI operating systems; record the exact patch used in release evidence. This is a proposed support baseline, not a claim that older Python is unsupported by all current code.
+- [x] Run unittest discovery on macOS and Windows for each PR. Install/check Git and Git LFS where fixtures require them. Use no production credentials or live Unity/model calls. GitHub supports an OS matrix and explicit Python setup; see [its Python CI guide](https://docs.github.com/en/actions/tutorials/build-and-test-code/python).
 - [ ] Make the offline test entry point clear inherited FarmBot selectors and production Git/GitHub credentials before discovery; fixtures explicitly provide their own config, remotes and API clients. Keep test network use limited to loopback and fail on unexpected external access.
-- [ ] Preserve platform-specific skip reasons. Require Windows Job Object tests to execute on Windows rather than accepting an entirely skipped native suite. Report totals, skips and failures as CI artifacts.
+- [x] Preserve platform-specific skip reasons. Require Windows Job Object tests to execute on Windows rather than accepting an entirely skipped native suite. Report totals, skips and failures as CI artifacts.
 - [ ] Pin the candidate's Python, worker CLI, Git/Git LFS, Unity version/build modules and MCP version in a release manifest. Authenticate real worker CLIs only in isolated acceptance environments.
 
 **Acceptance:** The same commit passes both OS jobs. Baseline failures are resolved or explicitly classified before making these required checks.
