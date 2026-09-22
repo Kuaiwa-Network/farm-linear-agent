@@ -42,6 +42,7 @@ def build(config, runtime_override=None):
     scheduler = Scheduler(ledger, launcher, skills, worktrees, skill_root=ROOT / "skills", db_path=paths.ledger,
                           runtime_name=runtime.name, host=config.host, max_concurrent=config.max_concurrent,
                           codex_workers=config.codex_workers,
+                          config_path=config.source_path,
                           slot_entries={entry["id"]: entry for entry in entries},
                           guidance_for=lambda item: (ledger.session(item["session_id"]) or {}).get("guidance") or "",
                           api=api, control_ledger_factory=lambda: Ledger(paths.ledger),
@@ -247,7 +248,7 @@ def main(argv=None):
             raise RuntimeError(f"not on PATH: {', '.join(missing)}; install them before writing launchd agents, "
                                "because a launchd job cannot resolve a bare name")
         target = Path.home() / "Library" / "LaunchAgents"
-        written = install(config, target, cloudflared=shutil.which("cloudflared"), config_path=args.config)
+        written = install(config, target, cloudflared=shutil.which("cloudflared"), config_path=config.source_path)
         print(json.dumps({label: str(path) for label, path in written.items()}, indent=2))
         print("\nLoad them with:")
         for label in AGENTS.values():

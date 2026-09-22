@@ -3,6 +3,26 @@
 Current behaviour implemented in this repository. Closure cleanup requires deployment of this revision. Rewritten in place whenever behaviour changes; the
 design rationale lives in `docs/superpowers/specs/`.
 
+## Host configuration
+
+File selection is explicit `--config`, then `FARMBOT_CONFIG`, then the checkout's
+default `.local/agent/config.json`. The loader expands `~` and captures an absolute
+path. A service built from that loaded config passes its path to every worker
+attempt, including resumes, overriding a conflicting inherited `FARMBOT_CONFIG`
+without changing the host process's environment. The launchd installation command
+also embeds the selected absolute path when selection came from the environment
+or default. Directly constructed in-memory configurations have no source file;
+test fixtures must still supply their own worker environment.
+
+The host loader secures the config's permissions on POSIX. Worker CLI and API
+consumers read it without changing permissions, so a selected config can live
+outside worker-writable state directories without granting write access to it.
+
+This pins file selection, not file contents. Restart a settled service after editing
+the file so the controller and its workers load the same settings. State location
+still comes from `local_root`; configure an absolute path for each installation.
+These rules do not by themselves restrict credentials, repositories or live issues.
+
 ## Triggers
 
 | You do | FarmBot does |

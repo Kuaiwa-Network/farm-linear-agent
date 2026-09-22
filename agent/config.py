@@ -29,6 +29,8 @@ class Config:
     slots: list = field(default_factory=list)
     tunnel: dict = field(default_factory=dict)
     codex_workers: dict = field(default_factory=dict)
+    # Provenance set by the loader, never accepted from JSON or written as credentials.
+    source_path: Path | None = field(default=None, init=False, repr=False, compare=False)
 
     def __post_init__(self):
         if (type(self.reconcile_seconds) not in (int, float) or not math.isfinite(self.reconcile_seconds)
@@ -58,17 +60,19 @@ class Paths:
 
 
 def load_config(path=None, *, secure_permissions=True):
-    path = Path(path or os.environ.get("FARMBOT_CONFIG") or DEFAULT_CONFIG)
+    path = Path(path or os.environ.get("FARMBOT_CONFIG") or DEFAULT_CONFIG).expanduser().resolve()
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict) or any(not isinstance(data.get(k), str) or not data[k].strip() for k in REQUIRED):
         raise ValueError("configuration is incomplete")
     if secure_permissions and os.name != "nt":
         os.chmod(path, 0o600)
-    known = {f for f in Config.__dataclass_fields__}
+    known = {name for name, definition in Config.__dataclass_fields__.items() if definition.init}
     values = {k: v for k, v in data.items() if k in known}
     if "local_root" in values:
         values["local_root"] = Path(values["local_root"])
-    return Config(**values)
+    config = Config(**values)
+    config.source_path = path
+    return config
 
 
 def configure(path=None):
@@ -138,7 +142,9 @@ def linear_api(config=None):
     stub = os.environ.get("FARMBOT_LINEAR_STUB_DIR")
     if stub:
         return StubLinear(stub)
-    config = config or load_config()
+    # The service hardens its config before launching workers. A worker consumes
+    # that file read-only; it may live outside the worker's writable state roots.
+    config = config or load_config(secure_permissions=False)
     api = LinearAPI(config.client_id, config.client_secret)
     api.identity()
     return api
