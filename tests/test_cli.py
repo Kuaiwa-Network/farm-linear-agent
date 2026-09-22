@@ -14,22 +14,24 @@ HOST = "test-host"
 
 
 class CliTests(unittest.TestCase):
-    def publication_fixture(self):
+    def publication_fixture(self, issue_prefix='FARM'):
         from types import SimpleNamespace
         from agent.config import load_config
         from agent.__main__ import parser
         from agent.ledger import Ledger
         from test_worktrees import git
         item, token, _, _, path = self.verification_fixture()
-        git('branch', '-m', 'farmbot/farm-1', cwd=path)
+        git('branch', '-m', f'farmbot/{issue_prefix.lower()}-1', cwd=path)
         git('remote', 'set-url', 'origin', 'https://github.com/Kuaiwa-Network/Farm-Client.git', cwd=path)
         config = load_config(self.env['FARMBOT_CONFIG'])
+        config.issue_prefix = issue_prefix
         config.repos['Farm-Client'] = 'https://github.com/Kuaiwa-Network/Farm-Client.git'
         args = parser().parse_args(['--db', str(self.db), 'verify-publication', '--item', item,
                                    '--token', token, '--repo', 'Farm-Client'])
         ledger = Ledger(self.db)
         self.addCleanup(ledger.close)
         current = ledger.issue(ledger.item(item)['issue_id'])
+        current['identifier'] = f'{issue_prefix}-1'
         current['delegate_id'] = 'e5a8c16d-9f85-4123-acf5-94e41c3304d5'
         api = SimpleNamespace(app_user_id='e5a8c16d-9f85-4123-acf5-94e41c3304d5', fetch_issue=lambda _: current)
         def github(endpoint, **kwargs):
@@ -51,9 +53,24 @@ class CliTests(unittest.TestCase):
         self.assertEqual(ledger.item(args.item)['state'], 'running')
 
     def test_checkpoint_reconciles_verified_pr_that_linear_attached_before_registration(self):
+        self.checkpoint_reconciles_late_pr('FARM')
+
+    def test_test_workspace_checkpoint_reconciles_verified_late_pr(self):
+        self.checkpoint_reconciles_late_pr('FBTEST')
+
+    def test_test_workspace_publication_check_uses_configured_issue_prefix(self):
+        from unittest.mock import patch
+        from agent.__main__ import run
+        args, ledger, config, api, github = self.publication_fixture('FBTEST')
+        with patch('agent.__main__.load_config', return_value=config), patch('agent.publication.github_api', side_effect=github):
+            result = run(args, ledger, lambda: api)
+        self.assertEqual(result['status'], 'verified')
+        self.assertEqual(result['branch'], 'farmbot/fbtest-1')
+
+    def checkpoint_reconciles_late_pr(self, issue_prefix):
         from unittest.mock import patch
         from agent.__main__ import run, parser
-        args, ledger, config, api, github = self.publication_fixture()
+        args, ledger, config, api, github = self.publication_fixture(issue_prefix)
         from agent.worktrees import Worktrees
         from agent.config import Paths
         # GitHub returns canonical casing even when configuration uses lowercase.
@@ -66,7 +83,7 @@ class CliTests(unittest.TestCase):
         ledger.observe_issue(raw)
         repo = github('repos/Kuaiwa-Network/Farm-Client')
         pr = {'html_url': url, 'state': 'open', 'draft': True,
-              'head': {'ref': 'farmbot/farm-1', 'sha': trees.head(paths.worktrees / args.item / 'Farm-Client'), 'repo': repo},
+              'head': {'ref': f'farmbot/{issue_prefix.lower()}-1', 'sha': trees.head(paths.worktrees / args.item / 'Farm-Client'), 'repo': repo},
               'base': {'ref': 'main', 'repo': repo}}
         def with_pr(endpoint, **kwargs):
             return pr if endpoint.endswith('/pulls/1330') else github(endpoint, **kwargs)

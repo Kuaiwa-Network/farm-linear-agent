@@ -6,6 +6,7 @@ import json
 import math
 import os
 import socket
+from socketserver import TCPServer
 import sqlite3
 import subprocess
 import threading
@@ -308,7 +309,10 @@ def make_server(receiver, port=8765):
         def server_bind(self):
             if os.name == "nt":
                 self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
-            super().server_bind()
+            # HTTPServer adds a reverse-DNS lookup after binding. This listener is
+            # explicitly loopback-only; a slow host resolver must not gate startup.
+            TCPServer.server_bind(self)
+            self.server_name, self.server_port = self.server_address
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_args):

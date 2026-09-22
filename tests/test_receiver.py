@@ -8,7 +8,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from agent.ledger import Ledger
 from agent.receiver import Receiver, make_server
@@ -282,6 +282,25 @@ class HardeningTests(ReceiverBase):
 
 
 class HttpTests(ReceiverBase):
+    def test_loopback_listener_starts_and_serves_health_without_reverse_dns(self):
+        import threading
+
+        with patch("socket.getfqdn", side_effect=AssertionError("reverse DNS must not gate startup")) as resolve:
+            server = make_server(self.receiver, port=0)
+            self.addCleanup(server.server_close)
+            self.assertEqual(server.server_address[0], "127.0.0.1")
+            self.assertEqual(server.server_name, "127.0.0.1")
+            self.assertEqual(server.server_port, server.server_address[1])
+            self.assertGreater(server.server_port, 0)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            self.addCleanup(thread.join, 5)
+            self.addCleanup(server.shutdown)
+            with urllib.request.urlopen(f"http://127.0.0.1:{server.server_port}/health", timeout=5) as response:
+                self.assertEqual(response.status, 200)
+                self.assertEqual(json.load(response)["status"], "FarmBot ready")
+            resolve.assert_not_called()
+
     def test_route_accepts_signed_and_rejects_unsigned(self):
         server = make_server(self.receiver, port=0)
         import threading

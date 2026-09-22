@@ -21,6 +21,8 @@ def windows_boot_time():
 
 def recover_after_boot(config, item_id, reason):
     """Record OS boot evidence; normal scheduler preservation/removal still does the cleanup."""
+    from .environment import check_ownership
+    check_ownership(config, require_initialized=True)
     if not reason or not reason.strip():
         raise LedgerError('operator reason is required')
     boot = windows_boot_time()

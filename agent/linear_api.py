@@ -26,9 +26,12 @@ def strip_signed(text):
 
 
 class LinearAPI:
-    def __init__(self, client_id, client_secret, *, expected_name="FarmBot", request=None):
+    def __init__(self, client_id, client_secret, *, expected_name="FarmBot", request=None,
+                 expected_app_user_id="", expected_organization_id=""):
         self.client_id, self.client_secret = client_id, client_secret
         self.expected_name = expected_name
+        self.expected_app_user_id = expected_app_user_id
+        self.expected_organization_id = expected_organization_id
         self.request = request or urllib.request.urlopen
         self.token, self.expires = None, 0
         self.app_user_id = None
@@ -64,8 +67,12 @@ class LinearAPI:
         return result["data"]
 
     def identity(self):
+        self.app_user_id = None
         data = self.graphql("query FarmBotIdentity { viewer { id name } organization { id name } }")
-        if data["viewer"]["name"] != self.expected_name:
+        viewer, organization = data.get('viewer') or {}, data.get('organization') or {}
+        if (viewer.get('name') != self.expected_name or not viewer.get('id') or not organization.get('id')
+                or (self.expected_app_user_id and viewer['id'] != self.expected_app_user_id)
+                or (self.expected_organization_id and organization['id'] != self.expected_organization_id)):
             raise RuntimeError(f"Expected {self.expected_name} app identity")
         self.app_user_id = data["viewer"]["id"]
         return data

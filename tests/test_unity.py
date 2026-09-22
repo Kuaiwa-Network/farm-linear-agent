@@ -20,8 +20,8 @@ class UnityTests(unittest.TestCase):
         self.assertEqual(project_version(self.project), "2022.3.62f3")
         mac = candidates("2022.3.62f3", system="Darwin")[0]
         windows = candidates("2022.3.62f3", system="Windows")
-        self.assertTrue(str(mac).endswith("Unity.app/Contents/MacOS/Unity"))
-        self.assertTrue(all(str(p).endswith("Editor/Unity.exe") for p in windows), windows)
+        self.assertEqual(mac.parts[-4:], ("Unity.app", "Contents", "MacOS", "Unity"))
+        self.assertTrue(all(p.parts[-2:] == ("Editor", "Unity.exe") for p in windows), windows)
         found = editor_path(self.project, system="Darwin", exists=lambda p: p == mac)
         self.assertEqual(found, mac)
 

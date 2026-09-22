@@ -40,6 +40,54 @@ class PublicationTests(unittest.TestCase):
     def verify(self):
         return self.verifier.verify('farmgui', 'job', 'FARM-1248', self.branch)
 
+    def test_test_workspace_issue_can_publish_only_its_own_feature_branch(self):
+        verifier = publication.PublicationVerifier(self.trees, api=self.verifier.api, issue_prefix='FBTEST')
+        branch = 'farmbot/fbtest-42-材料商店'
+        git('branch', '-m', branch, cwd=self.path)
+        result = verifier.verify('farmgui', 'job', 'FBTEST-42')
+        self.assertEqual(result['branch'], branch)
+        self.assertEqual(result['status'], 'verified')
+        for identifier in ('FARM-42', 'FBTEST-420', '../FBTEST-42', 'FBTEST-42/other',
+                           'FBTEST-.*', 'FBTEST-42\n', None):
+            with self.subTest(identifier=identifier), self.assertRaises(publication.PublicationError):
+                verifier.verify('farmgui', 'job', identifier)
+
+    def test_scheduler_test_workspace_branch_passes_publication_policy(self):
+        from types import SimpleNamespace
+        from agent.scheduler import Scheduler
+        scheduler = Scheduler(None, None, None, self.trees, skill_root=Path(self.tmp.name),
+                              db_path=Path(self.tmp.name) / 'ledger', runtime_name='fake', host='test',
+                              issue_prefix='FBTEST')
+        verifier = publication.PublicationVerifier(self.trees, api=self.verifier.api, issue_prefix='FBTEST')
+        for number, suggested, expected in (
+                (42, 'alice/fbtest-42-fix', 'farmbot/fbtest-42'),
+                (43, 'farmbot/fbtest-43-材料商店', 'farmbot/fbtest-43-材料商店'),
+                (44, 'farmbot/fbtest-440', 'farmbot/fbtest-44')):
+            with self.subTest(suggested=suggested):
+                git('remote', 'set-url', 'origin', str(self.origin), cwd=self.path)
+                identifier, item_id = f'FBTEST-{number}', f'job-{number}'
+                paths = scheduler._worktrees_for(SimpleNamespace(writes=['farmgui']),
+                    {'id': item_id, 'publication_retries': 0},
+                    {'identifier': identifier, 'branch_name': suggested})
+                git('remote', 'set-url', 'origin', self.remote, cwd=self.path)
+                scope = verifier.scope(item={'id': item_id, 'skill': 'fix'},
+                    issue={'identifier': identifier}, paths=paths, delegated=True)
+                self.assertEqual(scope['repositories']['farmgui']['status'], 'verified')
+                self.assertEqual(scope['repositories']['farmgui']['branch'], expected)
+
+    def test_scheduler_rejects_wrong_or_malformed_keys_before_creating_worktrees(self):
+        from types import SimpleNamespace
+        from agent.scheduler import Scheduler
+        scheduler = Scheduler(None, None, None, self.trees, skill_root=Path(self.tmp.name),
+                              db_path=Path(self.tmp.name) / 'ledger', runtime_name='fake', host='test',
+                              issue_prefix='FBTEST')
+        for identifier in ('FARM-42', '../FBTEST-42', 'FBTEST-42/other', 'FBTEST-.*', None):
+            with self.subTest(identifier=identifier), self.assertRaises(publication.PublicationError):
+                scheduler._worktrees_for(SimpleNamespace(writes=['farmgui']),
+                    {'id': 'rejected', 'publication_retries': 0},
+                    {'identifier': identifier, 'branch_name': 'farmbot/fbtest-42'})
+        self.assertFalse((self.trees.worktrees_root / 'rejected').exists())
+
     def test_verified_private_destination_identifies_exact_repo_branch_and_head(self):
         result = self.verify()
         self.assertEqual(result['repository'], 'Kuaiwa-Network/farmgui')

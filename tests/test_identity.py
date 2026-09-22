@@ -83,10 +83,18 @@ class Loopback(unittest.TestCase):
         Handler.hooks = {}
         Handler.sse = False
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
-        self.addCleanup(self.server.shutdown)
+        # Cleanups run last-in first-out. Stop the owned listener before closing
+        # its socket; Windows select otherwise raises WinError 10038 in the thread.
         self.addCleanup(self.server.server_close)
+        self.server_thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.server_thread.start()
+        self.addCleanup(self.stop_server)
         self.endpoint = f"http://127.0.0.1:{self.server.server_address[1]}/mcp"
+
+    def stop_server(self):
+        self.server.shutdown()
+        self.server_thread.join(timeout=5)
+        self.assertFalse(self.server_thread.is_alive(), "MCP fixture listener did not stop")
 
 
 class McpTests(Loopback):
@@ -530,7 +538,8 @@ class UnityIdentityTests(Loopback):
         with self.assertRaises(SlotError) as caught:
             self.identity.discover_instance(self.slot)
         self.assertEqual((caught.exception.stage, caught.exception.fault), ("editor", "external"))
-        self.assertIn(str(self.folder), str(caught.exception))
+        # Discovery reports the canonical folder, including expanded Windows 8.3 names.
+        self.assertIn(str(self.folder.resolve()), str(caught.exception))
 
     def test_every_editor_call_pins_the_instance_even_before_the_slot_row_records_it(self):
         """The pin in `_client` had no coverage: deleting it left the whole suite green, because collect()

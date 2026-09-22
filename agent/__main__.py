@@ -144,7 +144,8 @@ def verify_late_prs(ledger, args, token, progress):
     session = ledger.session(item['session_id']) or {}
     if item['skill'] not in WRITE_SKILLS or not skill or not session.get('delegation'):
         raise LedgerError("only a delegated write worker may reconcile published PRs")
-    verifier = PublicationVerifier(Worktrees(paths.repos, paths.worktrees, config.repos))
+    verifier = PublicationVerifier(Worktrees(paths.repos, paths.worktrees, config.repos),
+                                   issue_prefix=config.issue_prefix)
     verified = []
     for url in sorted(late):
         repo = next((name for name in skill.writes if name in config.repos and
@@ -337,7 +338,8 @@ def run(args, ledger, api_factory):
                 raise LedgerError("issue must remain open and delegated to FarmBot")
             trees = Worktrees(paths.repos, paths.worktrees, config.repos)
             branch = _git('branch', '--show-current', cwd=paths.worktrees / args.item / args.repo)
-            result = PublicationVerifier(trees).verify(args.repo, args.item, issue['identifier'], branch)
+            result = PublicationVerifier(trees, issue_prefix=config.issue_prefix).verify(
+                args.repo, args.item, issue['identifier'], branch)
             ledger.renew(args.item, token)  # fence cancellation while network checks were in progress
             return result
         try:
@@ -409,6 +411,8 @@ def main(argv=None):
     args = parser().parse_args(argv)
     ledger = None
     try:
+        from .environment import check_worker_state
+        check_worker_state(args.db)
         ledger = Ledger(args.db, lease_seconds=args.lease_seconds)
         result = run(args, ledger, linear_api)
         print(json.dumps(result, ensure_ascii=False, allow_nan=False))

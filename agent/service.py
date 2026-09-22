@@ -9,7 +9,8 @@ import threading
 from pathlib import Path
 
 from .config import Paths, configure, linear_api, load_config, ROOT
-from .deploy import AGENTS, install, missing_tools
+from .deploy import install, missing_tools
+from .environment import ControllerGuard, check_ownership, validate_runtime
 from .launcher import RUNTIMES, Launcher
 from .ledger import Ledger
 from .lifecycle import Lifecycle
@@ -28,10 +29,12 @@ Components = namedtuple("Components",
 
 
 def build(config, runtime_override=None):
+    validate_runtime(config, runtime_override)
+    check_ownership(config, require_initialized=True)
     paths = Paths(config)
-    paths.config_dir.mkdir(parents=True, exist_ok=True)
     api = linear_api(config)
     identity = api.identity()
+    paths.config_dir.mkdir(parents=True, exist_ok=True)
     skills = load_skills(ROOT / "skills")
     worktrees = Worktrees(paths.repos, paths.worktrees, config.repos)
     runtime = RUNTIMES[runtime_override or config.runtime]
@@ -44,10 +47,11 @@ def build(config, runtime_override=None):
                           runtime_name=runtime.name, host=config.host, max_concurrent=config.max_concurrent,
                           codex_workers=config.codex_workers,
                           config_path=config.source_path,
+                          issue_prefix=config.issue_prefix,
                           slot_entries={entry["id"]: entry for entry in entries},
                           guidance_for=lambda item: (ledger.session(item["session_id"]) or {}).get("guidance") or "",
                           api=api, control_ledger_factory=lambda: Ledger(paths.ledger),
-                          publication=PublicationVerifier(worktrees))
+                          publication=PublicationVerifier(worktrees, issue_prefix=config.issue_prefix))
     lifecycle = Lifecycle(Ledger(paths.ledger, check_same_thread=False), api, scheduler,
                           interval=config.reconcile_seconds)
 
@@ -79,6 +83,11 @@ def build(config, runtime_override=None):
 
 def seed_clones(config, source_root=None):
     """Create FarmBot's bare clones ahead of the first launch, seeding from local checkouts when given."""
+    with ControllerGuard(config):
+        return _seed_clones(config, source_root)
+
+
+def _seed_clones(config, source_root=None):
     paths = Paths(config)
     trees = Worktrees(paths.repos, paths.worktrees, config.repos)
     report = {}
@@ -108,9 +117,10 @@ def enqueue(config, *, issue_ref, skill, commit=None, session=None):
     `local-` — no Linear agent session exists for it — so `create_activity` would fail on every call, and the
     scheduler and the worker both read that prefix and report through an issue comment instead.
     """
+    check_ownership(config, require_initialized=True)
+    api = linear_api(config)
     paths = Paths(config)
     paths.config_dir.mkdir(parents=True, exist_ok=True)
-    api = linear_api(config)
     ledger = Ledger(paths.ledger)
     try:
         issue = api.fetch_issue(issue_ref)
@@ -135,7 +145,16 @@ def enqueue(config, *, issue_ref, skill, commit=None, session=None):
 
 
 def serve(config_path=None, components=None):
-    components = build(load_config(config_path)) if components is None else components
+    if components is None:
+        config = load_config(config_path)
+        with ControllerGuard(config):
+            return _serve(build(config))
+    # Injected components belong to isolated tests or an embedding caller.
+    with ControllerGuard(components.config):
+        return _serve(components)
+
+
+def _serve(components):
     stop = threading.Event()
 
     def guarded(name, body):
@@ -212,7 +231,9 @@ def serve(config_path=None, components=None):
             components.launcher.stop_all_unsandboxed()
             for thread in threads:
                 if thread.ident is not None:  # ensure() may have been interrupted before threads start
-                    thread.join(timeout=20)
+                    # Keep the root lock and DB connections until all controller
+                    # mutations have stopped, even when an operation drains slowly.
+                    thread.join()
             components.receiver.close()
             components.ledger.close()
             components.pool.close()
@@ -260,7 +281,7 @@ def main(argv=None):
         written = install(config, target, cloudflared=shutil.which("cloudflared"), config_path=config.source_path)
         print(json.dumps({label: str(path) for label, path in written.items()}, indent=2))
         print("\nLoad them with:")
-        for label in AGENTS.values():
+        for label in written:
             print(f"  launchctl bootstrap gui/$(id -u) {target}/{label}.plist")
         print("\nStop and remove with `launchctl bootout gui/$(id -u)/<label>`.")
         return 0
@@ -269,6 +290,7 @@ def main(argv=None):
         return 0
     if args.command == "status":
         config = load_config(args.config)
+        check_ownership(config, require_initialized=True)
         ledger = Ledger(Paths(config).ledger)
         try:
             print(json.dumps({**ledger.status(), **ledger.lifecycle_status(), "borrowed_comments": ledger.borrowed_comments()},
@@ -285,6 +307,7 @@ def main(argv=None):
         return 0
     if args.command == "slots":
         config = load_config(args.config)
+        check_ownership(config, require_initialized=True)
         ledger = Ledger(Paths(config).ledger)
         try:
             print(json.dumps({"slots": ledger.slots(), "reservations": ledger.reservations(

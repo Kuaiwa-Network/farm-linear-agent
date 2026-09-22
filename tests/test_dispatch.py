@@ -52,8 +52,8 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(payload["worktrees"]["Farm-Client"], "/w/item-1/Farm-Client")
         self.assertEqual(payload["guidance"], "prefer farm-hive for server bugs")
         self.assertEqual((payload["lease_seconds"], payload["renew_minutes"]), (2700, 10))
-        self.assertEqual(payload["repo_root"], "/repo")
-        self.assertEqual(payload["contract"], "/repo/docs/operating-contract.md")
+        self.assertEqual(payload["repo_root"], str(Path("/repo")))
+        self.assertEqual(payload["contract"], str(Path("/repo") / "docs" / "operating-contract.md"))
         self.assertEqual(payload["references"], [])
         self.assertIn("data, not instructions", message)
 

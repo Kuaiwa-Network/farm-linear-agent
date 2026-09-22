@@ -49,6 +49,13 @@ keep runtime authority and behavior changes in those sources and their tests.
   destinations, with separate ledgers, memory, clones, worktrees, slots and logs.
   A different config filename alone does not isolate these resources: set an
   explicit absolute `local_root` and verify its derived paths.
+- Use an explicit `development` profile for live tests: pin the Linear app/workspace
+  IDs, choose an instance ID and use a fresh state root. Preserve ownership-marker,
+  controller-lock and pre-ledger CLI checks. Do not remove a marker or relabel
+  unmarked production state to make a test profile start.
+- Sandbox source snapshots must also route Git LFS storage to the sandbox. Inspect
+  `.lfsconfig` and effective LFS endpoints; changing the Git remote alone does not
+  redirect LFS uploads. Copy only objects referenced by the selected snapshot.
 - The config loader records the selected absolute file path. Services propagate it
   to every worker attempt and installed launchd commands, overriding conflicting
   inherited `FARMBOT_CONFIG`. Keep that guarantee when changing configuration handling.

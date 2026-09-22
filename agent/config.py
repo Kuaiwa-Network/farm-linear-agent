@@ -4,6 +4,7 @@ import getpass
 import json
 import math
 import os
+import re
 from pathlib import Path
 
 from .linear_api import LinearAPI
@@ -29,10 +30,33 @@ class Config:
     slots: list = field(default_factory=list)
     tunnel: dict = field(default_factory=dict)
     codex_workers: dict = field(default_factory=dict)
+    environment: str = "legacy"
+    instance_id: str = "default"
+    expected_bot_name: str = "FarmBot"
+    expected_app_user_id: str = ""
+    expected_organization_id: str = ""
+    issue_prefix: str = "FARM"
     # Provenance set by the loader, never accepted from JSON or written as credentials.
     source_path: Path | None = field(default=None, init=False, repr=False, compare=False)
 
     def __post_init__(self):
+        if self.environment not in ('legacy', 'development', 'production', 'offline'):
+            raise ValueError('invalid environment')
+        if not isinstance(self.instance_id, str) or not re.fullmatch(r'[a-z][a-z0-9-]{0,47}', self.instance_id):
+            raise ValueError('instance_id must be a lowercase name with optional digits/hyphens')
+        if not isinstance(self.issue_prefix, str) or not re.fullmatch(r'[A-Z][A-Z0-9]{0,19}', self.issue_prefix):
+            raise ValueError('issue_prefix must be an uppercase Linear team key')
+        if not isinstance(self.expected_bot_name, str) or not self.expected_bot_name.strip():
+            raise ValueError('expected_bot_name must be nonempty')
+        if self.environment != 'legacy':
+            if not Path(self.local_root).is_absolute() or Path(self.local_root).resolve() == (ROOT / '.local').resolve():
+                raise ValueError('explicit profiles need a dedicated absolute local_root')
+            if self.instance_id == 'default':
+                raise ValueError('explicit profiles need a distinct instance_id')
+        if self.environment in ('development', 'production'):
+            if any(not isinstance(value, str) or not value.strip() for value in
+                   (self.expected_app_user_id, self.expected_organization_id)):
+                raise ValueError('live profiles require expected app and organization IDs')
         if (type(self.reconcile_seconds) not in (int, float) or not math.isfinite(self.reconcile_seconds)
                 or self.reconcile_seconds <= 0):
             raise ValueError("reconcile_seconds must be positive and finite")
@@ -139,12 +163,28 @@ class StubLinear:
 
 
 def linear_api(config=None):
+    from .environment import validate_runtime, check_ownership
     stub = os.environ.get("FARMBOT_LINEAR_STUB_DIR")
+    # Existing in-memory test fixtures may deliberately omit a config file.
+    # File-backed workers always load it before considering a stub selector.
+    if config is not None:
+        validate_runtime(config)
+        check_ownership(config)
+    elif not stub:
+        config = load_config(secure_permissions=False)
+        validate_runtime(config)
+        check_ownership(config)
+    elif os.environ.get('FARMBOT_CONFIG') and Path(os.environ['FARMBOT_CONFIG']).is_file():
+        config = load_config(secure_permissions=False)
+        validate_runtime(config)
+        check_ownership(config)
     if stub:
         return StubLinear(stub)
     # The service hardens its config before launching workers. A worker consumes
     # that file read-only; it may live outside the worker's writable state roots.
     config = config or load_config(secure_permissions=False)
-    api = LinearAPI(config.client_id, config.client_secret)
+    api = LinearAPI(config.client_id, config.client_secret, expected_name=config.expected_bot_name,
+                    expected_app_user_id=config.expected_app_user_id,
+                    expected_organization_id=config.expected_organization_id)
     api.identity()
     return api
