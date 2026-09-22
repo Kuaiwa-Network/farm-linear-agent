@@ -26,11 +26,11 @@ class MultipleSlotTests(unittest.TestCase):
                              mcp=self.mcp, editor_pid=lambda folder: 100 if folder in self.mcp.open_folders else None)
 
     def test_configured_editors_coexist_but_unmanaged_editor_still_blocks(self):
-        processes = [(100 + n, e["folder"]) for n, e in enumerate(self.entries)]
+        processes = [(100 + n, e["folder"], False) for n, e in enumerate(self.entries)]
         with patch("agent.unity._editor_processes", return_value=processes):
             self.assertIsNone(self.pool.another_editor_running(self.entries[0]["folder"]))
             self.assertIsNone(self.pool.another_editor_running(self.entries[1]["folder"]))
-        processes.append((200, str(self.root / "personal-project")))
+        processes.append((200, str(self.root / "personal-project"), False))
         with patch("agent.unity._editor_processes", return_value=processes):
             self.assertEqual(self.pool.another_editor_running(self.entries[0]["folder"]), processes[-1][1])
 

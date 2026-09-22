@@ -17,6 +17,7 @@ import time
 from uuid import UUID, uuid4
 
 from . import memory
+from .resource_recovery import RecoveryStore, SCHEMA as RECOVERY_SCHEMA
 
 MARKER = re.compile(r"\[farmbot:[0-9a-f]{64}\]")
 STATES = ("queued", "running", "awaiting_input", "awaiting_resource",
@@ -348,8 +349,10 @@ class Ledger:
                     created_at REAL NOT NULL
                 );
             """)
+            self.connection.executescript(RECOVERY_SCHEMA)
             # Columns added after the first ledgers were written; CREATE TABLE IF NOT EXISTS leaves those files as they were.
-            for table, column, declaration in (("sessions", "guidance", "TEXT"), ("work_items", "lease_seconds", "REAL"),
+            for table, column, declaration in (("resource_recovery_notices", "generation", "INTEGER NOT NULL DEFAULT 0"),
+                                                ("sessions", "guidance", "TEXT"), ("work_items", "lease_seconds", "REAL"),
                                                 ("work_items", "predecessor_id", "TEXT"),
                                                 ("work_items", "capacity_retries", "INTEGER NOT NULL DEFAULT 0"),
                                                 ("work_items", "publication_retries", "INTEGER NOT NULL DEFAULT 0"),
@@ -1044,6 +1047,7 @@ class Ledger:
                                     (self.clock(), row["resource"]))
             self._audit(row["item_id"], "reservation", "held", details={"reservation_id": reservation_id,
                                                                        "reason": reason[:200]})
+            RecoveryStore(self).request_in_transaction(row["resource"], reason)
             return self._reservation_view(row)
 
     def hold_owned(self, reservation_id, token, reason):
@@ -1095,6 +1099,9 @@ class Ledger:
         _text(reason, "reason")
         with self._transaction():
             row = self._slot_row(slot_id)
+            if self.connection.execute("SELECT 1 FROM resource_recoveries WHERE slot_id=? AND state IN ('pending','repairing')",
+                                       (slot_id,)).fetchone():
+                raise LedgerError('slot is owned by automatic recovery; cannot bypass worker/editor fencing')
             self.connection.execute(
                 """UPDATE reservations SET state=CASE WHEN state='cancel_requested' THEN 'cancelled' ELSE 'released' END,
                    released_at=?,release_reason=? WHERE resource=? AND state IN ('active','cancel_requested')""",
@@ -1262,6 +1269,7 @@ class Ledger:
                 self._guard_cleanup_retry(row["id"])
                 self._set_state(row["id"], "queued", reason, worker_pid=None, generation=row["generation"] + 1,
                                 requeue_requested=0, capacity_retries=0, publication_retries=0, retry_not_before=0)
+                self.connection.execute('DELETE FROM resource_job_retries WHERE item_id=?', (row['id'],))
             except sqlite3.IntegrityError:
                 raise LedgerError("another active work item exists for this issue")
             return self._view(self._row(row["id"]))
@@ -1335,6 +1343,7 @@ class Ledger:
                                 token=None, lease_expires_at=None, worker_pid=None,
                                 generation=work["generation"] + 1, requeue_requested=0,
                                 capacity_retries=0, publication_retries=0, retry_not_before=0)
+                self.connection.execute('DELETE FROM resource_job_retries WHERE item_id=?', (destination,))
             self.connection.execute("UPDATE work_items SET evidence=? WHERE id=?", (
                 _json({"summary": summary, "prs": [],
                        "resumed_item": destination, "message_id": message_id}), item_id))
@@ -1600,6 +1609,9 @@ class Ledger:
                 "conversation_history": self._conversation_history(row["issue_id"]),
                 "delegation_session": (authority["session_id"] if
                                        (authority := self._delegation_session(row["issue_id"], row["session_id"])) else None),
+                "resource_recovery": {"attempts": RecoveryStore(self).job_attempts(item_id),
+                                      "records": [dict(r) for r in self.connection.execute(
+                                          'SELECT id,slot_id,state,attempts,evidence,error FROM resource_recoveries WHERE item_id=? ORDER BY created_at', (item_id,))]},
                 "checkpoint_error": self.checkpoint_error(item_id),
                 "cleanup": self.cleanup_record(item_id),
                 "recovery": self.recovery_context(item_id),

@@ -80,6 +80,9 @@ class FakeLauncher:
     def owned_pid(self, pid, item_id):
         return pid in self.alive_pids
 
+    def kill_owned_attempt(self, item_id, pid):
+        return self.kill_pid(pid)
+
     def assert_quiescent(self, item_id, pid, recorded_processes=()):
         if any(self.alive(p) for p in recorded_processes):
             raise RuntimeError("worker processes have not exited")
@@ -253,6 +256,45 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(self.ledger.item(fix["id"])["state"], "cancelled")
         self.assertIn((fix["id"], "cancelled"), states_at_stop)
         self.assertIn(fix["id"], self.launcher.unsandboxed_stopped)
+
+    def test_recovery_fencing_evidence_survives_restart_before_detach(self):
+        item = self.item()
+        launcher = Launcher(Path(self.tmp.name) / 'real-runs', RUNTIMES['fake'], 'h')
+        attempt = launcher.state_dir(item['id']) / 'attempt-1'
+        attempt.mkdir(parents=True)
+        (attempt / 'process.json').write_text(json.dumps({'pid': 4242}), encoding='utf-8')
+        alive = {4242, 4243}
+        launcher.alive = lambda pid: pid in alive
+        launcher.owned_pid = lambda pid, owner: pid == 4242 and owner == item['id']
+        launcher.descendants = lambda pid: [4243]
+        launcher.certified_pids = lambda *args: set()
+        launcher._signal_pid = lambda pid, sig: alive.discard(pid)
+        self.scheduler.launcher = launcher
+        record = {'item_id': item['id'], 'worker_pid': 4242}
+        self.scheduler.fence_resource_worker(record)
+        self.assertEqual(json.loads((attempt / 'killed.json').read_text())['descendants'], [4243])
+        # Same production quiescence proof, no in-memory targets on the retry.
+        self.scheduler.fence_resource_worker(record)
+        self.assertEqual(alive, set())
+
+    def test_interrupted_teardown_retains_orphan_evidence_without_signalling_uncertain_pid(self):
+        item = self.item()
+        launcher = Launcher(Path(self.tmp.name) / 'real-runs', RUNTIMES['fake'], 'h')
+        attempt = launcher.state_dir(item['id']) / 'attempt-1'
+        attempt.mkdir(parents=True)
+        (attempt / 'process.json').write_text(json.dumps({'pid': 4242}), encoding='utf-8')
+        (attempt / 'killed.json').write_text(json.dumps({'pid': 4242, 'descendants': [4243, 4244]}), encoding='utf-8')
+        alive = {4242, 4244}
+        launcher.alive = lambda pid: pid in alive
+        launcher.owned_pid = lambda pid, owner: pid == 4242 and owner == item['id']
+        launcher.descendants = lambda pid: []
+        launcher.certified_pids = lambda *args: set()
+        launcher._signal_pid = lambda pid, sig: alive.discard(pid)
+        self.scheduler.launcher = launcher
+        with self.assertRaisesRegex(RuntimeError, 'descendants|processes'):
+            self.scheduler.fence_resource_worker({'item_id': item['id'], 'worker_pid': 4242})
+        self.assertEqual(alive, {4244})
+        self.assertIn(4244, json.loads((attempt / 'killed.json').read_text())['descendants'])
 
     def test_resumed_worker_gets_fresh_publication_scope_and_user_reply(self):
         item = self.item()

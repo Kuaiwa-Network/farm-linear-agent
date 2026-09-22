@@ -15,6 +15,7 @@ from .launcher import RUNTIMES, Launcher
 from .ledger import Ledger
 from .lifecycle import Lifecycle
 from .publication import PublicationVerifier
+from .resource_recovery import RecoveryController
 from .receiver import Receiver, make_server
 from .router import WRITE_SKILLS
 from .scheduler import Scheduler
@@ -22,10 +23,11 @@ from .session_progress import SessionProgress
 from .skills import load_skills
 from .slots import SlotError, SlotPool, UnityIdentity, slot_entry
 from .worktrees import Worktrees
+from .unity import editor_holds_project
 
 Components = namedtuple("Components",
-                        "config paths api ledger skills worktrees launcher scheduler receiver server pool lifecycle progress",
-                        defaults=(None, None))
+                        "config paths api ledger skills worktrees launcher scheduler receiver server pool lifecycle progress recovery",
+                        defaults=(None, None, None))
 
 
 def build(config, runtime_override=None):
@@ -78,7 +80,14 @@ def build(config, runtime_override=None):
                     run_unsandboxed=launcher.run_unsandboxed,
                     mcp=UnityIdentity(ROOT / "agent" / "probes" / "editor-readiness.cs.txt"))
     progress = SessionProgress(Ledger(paths.ledger, check_same_thread=False), api)
-    return Components(config, paths, api, ledger, skills, worktrees, launcher, scheduler, receiver, server, pool, lifecycle, progress)
+    recovery_ledger = Ledger(paths.ledger, check_same_thread=False)
+    recovery_pool = SlotPool(recovery_ledger, worktrees, entries, host=config.host, editors_root=paths.editors,
+                            state_dir=launcher.state_dir, mcp=UnityIdentity(ROOT / 'agent' / 'probes' / 'editor-readiness.cs.txt'),
+                            editor_pid=lambda folder: editor_holds_project(folder, strict=True))
+    recovery = RecoveryController(recovery_ledger, recovery_pool, host=config.host,
+                                  evidence_root=paths.config_dir / 'resource-recovery',
+                                  fence=scheduler.fence_resource_worker, api=api)
+    return Components(config, paths, api, ledger, skills, worktrees, launcher, scheduler, receiver, server, pool, lifecycle, progress, recovery)
 
 
 def seed_clones(config, source_root=None):
@@ -196,6 +205,11 @@ def _serve(components):
             sent = components.progress.tick()
             stop.wait(0.1 if sent else 5.0)
         threads.append(threading.Thread(target=guarded("progress", progress_once), daemon=True))
+    if components.recovery is not None:
+        def recover_resources_once():
+            components.recovery.tick()
+            stop.wait(15.0)
+        threads.append(threading.Thread(target=guarded('resource_recovery', recover_resources_once), daemon=True))
     main_thread = threading.current_thread() is threading.main_thread()
     previous_sigterm = signal.getsignal(signal.SIGTERM) if main_thread else None
 
@@ -241,6 +255,8 @@ def _serve(components):
                 components.lifecycle.ledger.close()
             if components.progress is not None:
                 components.progress.ledger.close()
+            if components.recovery is not None:
+                components.recovery.close()
         finally:
             if main_thread:
                 signal.signal(signal.SIGTERM, previous_sigterm)

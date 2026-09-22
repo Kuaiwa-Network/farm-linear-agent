@@ -536,8 +536,9 @@ class CliTests(unittest.TestCase):
         other, other_token = self.granted_item(mode="interactive", issue_id=OTHER)
         self.run_cli("release-resource", "--item", other, "--token-file", str(other_token), "--outcome", "unclean")
         self.assertEqual(self.run_cli("slots")[0]["state"], "held")
-        self.run_cli("recover-slot", "--slot", SLOT, "--reason", "operator closed Unity")
-        self.assertEqual(self.run_cli("slots")[0]["state"], "idle_closed")
+        result = self.run_cli("recover-slot", "--slot", SLOT, "--reason", "operator closed Unity", success=False)
+        self.assertIn('automatic recovery', result.stderr)
+        self.assertEqual(self.run_cli("slots")[0]["state"], "held")
 
     def test_neither_outcome_acts_on_a_reservation_the_caller_cannot_prove_it_holds(self):
         """The test above passes the right token to both outcomes, so it would pass against a `hold` that
@@ -569,7 +570,7 @@ class CliTests(unittest.TestCase):
         # The token the pool actually wrote still works, so the refusals above are about the token and not
         # about the verb having been broken.
         self.assertEqual(self.run_cli("release-resource", "--item", item, "--token-file", str(token_file),
-                                      "--outcome", "unclean")["state"], "active")
+                                      "--outcome", "unclean")["state"], "recovery_queued")
         self.assertEqual(self.run_cli("slots")[0]["state"], "held")
 
     def test_release_resource_refuses_an_item_that_holds_nothing(self):
