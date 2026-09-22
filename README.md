@@ -4,6 +4,11 @@ One Linear agent for the 农场 team. Delegate an issue to it for work, @mention
 talk. Capabilities are added as skills on a shared identity, ledger, worker runtime and
 desktop-resource locks: chat, QA, bug fix, FGUI, then whole features.
 
+FarmBot keeps one conversation across read-only investigation and writable repair execution.
+An authorized “fix it” reply can start the first repair or resume previous work without
+re-delegating. The host carries messages and findings across the change of execution profile
+and posts recorded session progress every ten minutes while work is active or queued.
+
 Start with the [design spec](docs/superpowers/specs/2026-09-17-farm-linear-agent-design.md).
 It records the decisions, the architecture, the porting map from the two prototypes it
 replaces (`FarmTestAgent` and `BugAgent`), and the phased plan.

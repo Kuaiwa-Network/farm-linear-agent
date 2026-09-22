@@ -125,13 +125,17 @@ class Scheduler:
                                    guidance=self.guidance_for(item), budget=skill.budget,
                                    repo_root=repo_root, state_dir=self.launcher.state_dir(item["id"]),
                                    resource=resource, memory=memory, publication=publication, user_requests=requests)
-        primary = paths.get(READ_REPO) or next(iter(paths.values()))
+        # The runtime's cwd is writable too. A read-only conversation must run
+        # from its private state directory, not from the detached source checkout.
+        primary = (paths.get(READ_REPO) or next(iter(paths.values())) if skill.writes
+                   else self.launcher.state_dir(item["id"]))
         # `python3 -m agent` must resolve from any worktree, so FarmBot's root leads the worker's PYTHONPATH.
         pythonpath = os.pathsep.join(p for p in (str(repo_root), os.environ.get("PYTHONPATH", "")) if p)
         # A worktree's commits land in FarmBot's bare clone, so the clone must be writable too.
-        clones = [self.worktrees.clone_path(repo) for repo in paths]
-        # `writable` is deliberately unchanged: no slot folder and no Unity host path is ever added to a
-        # worker's roots, in either mode. The worker reads the results XML in its own state directory, which
+        source_roots = ([*paths.values(), *(self.worktrees.clone_path(repo) for repo in paths)]
+                        if skill.writes else [])
+        # No slot folder or Unity host path is added to a worker's writable roots,
+        # in either mode. The worker reads results XML in its own state directory, which
         # Launcher.spawn already makes writable, and writes nothing in the slot.
         if self.ledger.item(item["id"])["state"] != "queued":
             return None
@@ -145,7 +149,7 @@ class Scheduler:
             worker_env["FARMBOT_CONFIG"] = str(self.config_path)
         handle = self.launcher.spawn(item["id"], message, servers, int(skill.budget["max_hours"] * 3600), cwd=primary,
                                      extra_env=worker_env,
-                                     writable=[Path(self.db_path).parent, *paths.values(), *clones],
+                                     writable=[Path(self.db_path).parent, *source_roots],
                                      cancelled=lambda: self.ledger.item(item["id"])["state"] != "queued", **options)
         try:
             self.ledger.set_worker(item["id"], handle.pid, self.host, int(skill.budget["lease_seconds"]))
@@ -186,9 +190,10 @@ class Scheduler:
     def stop(self, item_id, reason):
         # Revoke the claim durably before signalling; a late worker may no longer write the ledger.
         control = self.control_ledger_factory() if self.control_ledger_factory else self.ledger
+        destination = item_id
         try:
             try:
-                control.cancel(item_id, reason)
+                destination = control.cancel(item_id, reason)["id"]
             except LedgerError:
                 pass
         finally:
@@ -206,9 +211,10 @@ class Scheduler:
         # batch run in flight — this is one dict lookup that returns False. Killing it first also releases
         # the pool thread from `process.wait()` sooner, and the sooner that returns the sooner the slot can
         # settle. `SlotPool.run_batch` closes the other half: the window before the Editor is registered.
-        self.launcher.stop_unsandboxed(item_id)
-        # Killing the worker must not wait for an in-flight tick: a human pressed Stop.
-        self.launcher.stop(item_id)
+        for stopped_id in dict.fromkeys((destination, item_id)):
+            self.launcher.stop_unsandboxed(stopped_id)
+            # Signal both ends if read-only execution handed off during Stop.
+            self.launcher.stop(stopped_id)
 
     def _reap(self):
         reaped = 0

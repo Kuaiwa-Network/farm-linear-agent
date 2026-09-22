@@ -60,6 +60,8 @@ def parser():
     cmd("await-input", "--item", "--question", token=True)
     resume = cmd("resume-work", "--item", token=True)
     resume.add_argument("--message-id", type=int, required=True)
+    repair = cmd("request-repair", "--item", "--summary-file", token=True)
+    repair.add_argument("--message-id", type=int, required=True)
     resource = cmd("await-resource", "--item", "--resource", token=True)
     resource.add_argument("--mode", required=True, choices=["interactive", "batch"])
     resource.add_argument("--commit", help="full SHA of the clean Farm-Client worktree HEAD to verify; default: baseline")
@@ -281,21 +283,29 @@ def run(args, ledger, api_factory):
         api.needs_more_info(item["issue_id"])
         api.create_activity(item["session_id"], {"type": "elicitation", "body": args.question})
         return ledger.await_input(args.item, token, args.question)
-    if c == "resume-work":
+    if c in ("resume-work", "request-repair"):
         token = resolve_token(args)
         ledger.renew(args.item, token)
         item = ledger.item(args.item)
         api = api_factory()
         ledger.observe_issue(api.fetch_issue(item["issue_id"]))
-        resumed = ledger.resume_work(args.item, token, args.message_id, api.app_user_id)
+        if c == "request-repair":
+            from .config import ROOT
+            from .skills import load_skills
+            if "fix" not in load_skills(ROOT / "skills"):
+                raise LedgerError("repair execution is not available on this host")
+            resumed = ledger.request_repair(args.item, token, args.message_id, api.app_user_id,
+                                             read_text(args.summary_file))
+        else:
+            resumed = ledger.resume_work(args.item, token, args.message_id, api.app_user_id)
         try:
             api.create_activity(item["session_id"], {
                 "type": "thought" if item["session_id"] == resumed["session_id"] else "response",
-                "body": ("已为取消的修复任务创建新工作项，你的回复和历史进展会交给新的 worker。"
-                         if resumed.get("predecessor_id") else
-                         "已恢复原修复任务，你的回复会交给新的 worker；后续进展会记录在原任务会话和 issue 下。")})
+                "body": ("已排队开始或继续修复，会接着你的回复和已有调查结果处理。"
+                         + ("后续进展记录在原委派会话和 issue 下。"
+                            if item["session_id"] != resumed["session_id"] else ""))})
         except Exception as exc:
-            print(json.dumps({"warning": "work resumed; acknowledgment failed", "error": type(exc).__name__}), file=sys.stderr)
+            print(json.dumps({"warning": "repair queued; acknowledgment failed", "error": type(exc).__name__}), file=sys.stderr)
         return resumed
     if c == "verify-publication":
         from .config import ROOT

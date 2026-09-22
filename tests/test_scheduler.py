@@ -209,6 +209,51 @@ class SchedulerTests(unittest.TestCase):
         # The pin travels with the item: await_resource refuses a slot request from an unpinned one.
         return self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill=skill, target=PIN)
 
+    def test_conversation_launch_excludes_repository_write_roots(self):
+        chat = self.item(skill="chat")
+        self.scheduler.tick()
+        payload = json.loads(self.launcher.spawned[-1][1].split('\n\n', 1)[1])
+        self.assertEqual(self.launcher.spawned[-1][4], str(self.launcher.state_dir(chat["id"])))
+        self.assertEqual(self.launcher.spawn_writable, [str(Path(self.tmp.name))])
+        self.assertEqual(set(payload["worktrees"]), {"Farm-Client"})
+
+    def test_first_repair_launch_gets_write_profile_budget_and_conversation(self):
+        app = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
+        chat = self.item(skill="chat", delegate_id=app)
+        self.ledger.set_session_target(SESSION, PIN)
+        self.ledger.push_inbox(chat["id"], "修复显示，保持排序规则")
+        self.scheduler.tick()
+        token = self.ledger.claim(chat["id"], worker_id="conversation")["token"]
+        message = self.ledger.issue_context(chat["id"])["session_messages"][-1]["id"]
+        fix = self.ledger.request_repair(chat["id"], token, message, app, "Confirmed display refresh issue.")
+        self.launcher.finished.append(Finished(chat["id"], 0, "", False, "exited"))
+        self.assertEqual(self.scheduler.tick()["launched"], 1)
+        launched = self.launcher.spawned[-1]
+        payload = json.loads(launched[1].split('\n\n', 1)[1])
+        self.assertEqual(launched[0], fix["id"])
+        self.assertEqual(launched[3], 8 * 3600)
+        self.assertEqual(set(payload["worktrees"]), {"Farm-Client", "farm-hive", "farmgui", "common", "Farm-Contract"})
+        self.assertEqual(payload["lease_seconds"], 2700)
+        self.assertEqual(payload["user_requests"][-1]["body"], "修复显示，保持排序规则")
+        self.assertEqual(self.ledger.issue_context(fix["id"])["conversation_history"][0]["summary"],
+                         "Confirmed display refresh issue.")
+
+    def test_stop_selected_before_handoff_cancels_and_signals_repair_destination(self):
+        app = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
+        chat = self.item(skill="chat", delegate_id=app)
+        token = self.ledger.claim(chat["id"], worker_id="conversation")["token"]
+        self.ledger.push_inbox(chat["id"], "修复")
+        selected_before_handoff = self.ledger.active_item_for_session(SESSION)
+        message = self.ledger.issue_context(chat["id"])["session_messages"][-1]["id"]
+        fix = self.ledger.request_repair(chat["id"], token, message, app, "Fix the display.")
+        self.scheduler.tick()
+        states_at_stop = []
+        self.launcher.on_stop = lambda item_id: states_at_stop.append((item_id, self.ledger.item(item_id)["state"]))
+        self.scheduler.stop(selected_before_handoff["id"], "Linear stop")
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "cancelled")
+        self.assertIn((fix["id"], "cancelled"), states_at_stop)
+        self.assertIn(fix["id"], self.launcher.unsandboxed_stopped)
+
     def test_resumed_worker_gets_fresh_publication_scope_and_user_reply(self):
         item = self.item()
         token = self.ledger.claim(item['id'], worker_id='old')['token']

@@ -5,6 +5,16 @@ spec for review before an implementation plan is drafted. Agent name: **@FarmBot
 chosen by the user on 2026-09-17. The existing Linear OAuth application FarmQA is
 renamed to FarmBot; its app user id is unchanged, so existing sessions keep working.
 
+## Approved amendment — 2026-09-22
+
+FarmBot is one conversation with read-only and writable execution profiles. A claim-scoped
+`request-repair` transition can start the first repair or resume existing work after live
+delegation checks, carrying the conversation and findings forward. Free-text intent is
+interpreted by the worker; no additional model coordinator is introduced. The host owns
+execution permissions, lifecycle and periodic session progress. This supersedes the rigid
+chat/new-fix restriction below; see [the updated design](2026-09-22-conversation-repair-design.md)
+and `docs/operating-contract.md` for the implemented contract.
+
 ## Approved amendment — 2026-09-20
 
 The operator approved extending `fix` to Farm-Contract, then affected implementation repos,

@@ -62,6 +62,7 @@ class ConfigPropagationTests(unittest.TestCase):
         components.receiver.close()
         components.pool.close()
         components.lifecycle.ledger.close()
+        components.progress.ledger.close()
         components.ledger.close()
 
     def launch_probe(self, components, item):
