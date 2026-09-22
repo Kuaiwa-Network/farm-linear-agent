@@ -98,7 +98,7 @@ def read_results(path):
 
 
 def _editor_processes(system=None, run=None, *, strict=False):
-    """(pid, project_path) for every Unity Editor on this host. The only place a host's process-listing
+    """(pid, project_path, import_helper) for Unity processes on this host. The host's process-listing
     spelling is written, and `run` is injectable so no test in this suite shells out to pgrep."""
     system = system or platform.system()
     command = (["pgrep", "-fl", "Unity.app/Contents/MacOS/Unity"] if system == "Darwin" else
@@ -120,16 +120,17 @@ def _editor_processes(system=None, run=None, *, strict=False):
         return []
     found = []
     for line in (out or "").splitlines():
-        match = re.search(r'-projectPath\s+(?:"([^"]+)"|(\S+))', line)
+        match = re.search(r'(?<!\S)"?-projectPath"?\s+(?:"([^"]+)"|(\S+))', line)
         pid = re.match(r"\s*(\d+)\b", line)
         if match and pid:
             if strict and match.group(2):
                 # ps/pgrep flatten argv; an unquoted spaced path must never be
                 # mistaken for a different project and treated as absent.
                 tail = line[match.end():].strip()
-                if tail and not tail.startswith('-'):
+                if tail and not tail.startswith(('-', '"-')):
                     raise UnityError('Unity project path is ambiguous in process listing')
-            found.append((int(pid.group(1)), match.group(1) or match.group(2)))
+            helper = bool(re.search(r'(?<!\S)"?-name"?\s+"?AssetImportWorker\d+"?(?:\s|$)', line))
+            found.append((int(pid.group(1)), match.group(1) or match.group(2), helper))
         elif strict and line.strip():
             raise UnityError('Unity process identity is incomplete')
     return found
@@ -138,7 +139,7 @@ def _editor_processes(system=None, run=None, *, strict=False):
 def other_editor_project(folder, system=None, run=None, allowed_projects=()):
     """An Editor outside this slot and the operator-configured pool, or None."""
     allowed = {Path(path).resolve() for path in (folder, *allowed_projects)}
-    for _, project in _editor_processes(system, run):
+    for _, project, _ in _editor_processes(system, run):
         if Path(project).resolve() not in allowed:
             return project
     return None
@@ -152,8 +153,12 @@ def editor_holds_project(folder, system=None, run=None, *, strict=False):
     signals it, while `SlotPool.editor_is_open` only asks whether it is None. It exists because
     Temp/UnityLockfile cannot answer the question at all — Task 0 Step 5 found the lock still present 32 s
     after the process was gone, so the file is litter Unity leaves behind, not a liveness marker."""
-    found = [pid for pid, project in _editor_processes(system, run, strict=strict)
+    found = [(pid, helper) for pid, project, helper in _editor_processes(system, run, strict=strict)
              if Path(project).resolve() == Path(folder).resolve()]
-    if strict and len(found) > 1:
+    editors = [pid for pid, helper in found if not helper]
+    if strict and len(editors) > 1:
         raise UnityError('multiple Unity processes own the same project')
-    return found[0] if found else None
+    # Import workers share their parent's project and executable. Prefer the
+    # main editor for termination, but surviving helpers still prevent checkout
+    # or lock removal after the main process exits.
+    return editors[0] if editors else (found[0][0] if found else None)

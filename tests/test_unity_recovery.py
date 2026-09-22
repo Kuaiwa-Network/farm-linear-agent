@@ -81,6 +81,14 @@ class EditorRecoveryTests(SlotFixture):
 
 
 class StrictEditorInspectionTests(unittest.TestCase):
+    def test_import_helpers_do_not_hide_main_editor_and_still_hold_project_after_it_exits(self):
+        folder = Path('slot').resolve()
+        main = f'123 Unity -projectPath "{folder}"\n'
+        helpers = (f'456 Unity "-name" "AssetImportWorker0" "-projectPath" "{folder}" "-logFile" "worker.log"\n'
+                   f'789 Unity "-name" "AssetImportWorker1" "-projectPath" "{folder}"\n')
+        self.assertEqual(editor_holds_project(folder, run=lambda: main + helpers, strict=True), 123)
+        self.assertIn(editor_holds_project(folder, run=lambda: helpers, strict=True), (456, 789))
+
     def test_process_inspection_failure_is_not_proof_the_editor_exited(self):
         def unavailable():
             raise subprocess.TimeoutExpired('process listing', 5)
