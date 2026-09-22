@@ -48,6 +48,26 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(result['head'], self.trees.head(self.path))
         self.assertEqual(result['status'], 'verified')
 
+    def test_late_pr_must_be_open_draft_for_the_exact_job_head_and_repository(self):
+        url = 'https://github.com/Kuaiwa-Network/farmgui/pull/113'
+        metadata = {'html_url': url, 'state': 'open', 'draft': True,
+                    'head': {'ref': self.branch, 'sha': self.trees.head(self.path), 'repo': self.repo},
+                    'base': {'ref': 'main', 'repo': self.repo}}
+        api = self.verifier.api
+        current = copy.deepcopy(metadata)
+        self.verifier.api = lambda endpoint, **kwargs: (current if endpoint.endswith('/pulls/113')
+                                                        else api(endpoint, **kwargs))
+        self.assertEqual(self.verifier.verify_pr('farmgui', 'job', 'FARM-1248', url), url)
+        for key, value in [('draft', False), ('state', 'closed'), ('html_url', url + '0'),
+                           ('head', {**metadata['head'], 'sha': '0' * 40}),
+                           ('head', {**metadata['head'], 'ref': 'farmbot/farm-1249'}),
+                           ('head', {**metadata['head'], 'repo': {'full_name': 'other/farmgui'}}),
+                           ('base', {**metadata['base'], 'repo': {'full_name': 'other/farmgui'}})]:
+            with self.subTest(key=key, value=value):
+                current = {**metadata, key: value}
+                with self.assertRaises(publication.PublicationError):
+                    self.verifier.verify_pr('farmgui', 'job', 'FARM-1248', url)
+
     def test_equivalent_ssh_remote_is_verified(self):
         git('remote', 'set-url', '--push', 'origin', 'git@github.com:Kuaiwa-Network/farmgui.git', cwd=self.path)
         self.assertEqual(self.verify()['status'], 'verified')

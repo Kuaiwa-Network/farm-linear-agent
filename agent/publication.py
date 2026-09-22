@@ -72,6 +72,26 @@ class PublicationVerifier:
         except (WorktreeError, OSError, subprocess.TimeoutExpired) as exc:
             raise PublicationError('cannot verify the configured worktree and push destination') from exc
 
+    def verify_pr(self, repo, item_id, identifier, url):
+        """Prove a late Linear attachment is this job's actual draft output."""
+        verified = self.verify(repo, item_id, identifier)
+        prefix = verified['url'].rstrip('/') + '/pull/'
+        if not isinstance(url, str) or not url.startswith(prefix) or not re.fullmatch(r'[1-9][0-9]*', url[len(prefix):]):
+            raise PublicationError('PR URL differs from the verified repository')
+        pr = self.api('repos/' + verified['repository'] + '/pulls/' + url[len(prefix):])
+        if not isinstance(pr, dict):
+            raise PublicationError('GitHub returned invalid PR metadata')
+        head, base = pr.get('head'), pr.get('base')
+        if (pr.get('html_url') != url or pr.get('state') != 'open' or pr.get('draft') is not True
+                or not isinstance(head, dict) or not isinstance(base, dict)
+                or head.get('ref') != verified['branch'] or head.get('sha') != verified['head']
+                or base.get('ref') != verified['base_branch']
+                or not isinstance(head.get('repo'), dict) or not isinstance(base.get('repo'), dict)
+                or head['repo'].get('full_name') != verified['repository']
+                or base['repo'].get('full_name') != verified['repository']):
+            raise PublicationError("PR must be an open draft for this job's exact repository, branch and HEAD")
+        return url
+
     def _verify(self, repo, item_id, identifier, branch):
         configured = self.worktrees.remotes.get(repo)
         expected = github_repository(configured)

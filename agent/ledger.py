@@ -747,11 +747,31 @@ class Ledger:
             self._audit(slot_id, "slot", state)
         return self.slot(slot_id)
 
-    def checkpoint(self, item_id, token, progress):
+    def checkpoint_error(self, item_id):
+        event = self.connection.execute("""SELECT kind,reason FROM audit WHERE item_id=?
+            AND kind IN ('handoff_rejected','handoff_saved') ORDER BY id DESC LIMIT 1""", (item_id,)).fetchone()
+        return event["reason"] if event and event["kind"] == "handoff_rejected" else None
+
+    def require_valid_checkpoint(self, item_id, token):
+        """A rejected handoff must be repaired before voluntarily retiring its claim."""
+        self._owned(item_id, token)
+        if error := self.checkpoint_error(item_id):
+            raise LedgerError(f"repair the rejected checkpoint handoff before pausing or finishing: {error}")
+
+    def checkpoint(self, item_id, token, progress, *, verified_prs=()):
         if not isinstance(progress, dict):
             raise LedgerError("checkpoint input must be an object")
-        if "handoff" in progress:
-            _validate_handoff(progress["handoff"])
+        handoff_updated = "handoff" in progress
+        if handoff_updated:
+            try:
+                _validate_handoff(progress["handoff"])
+            except LedgerError as exc:
+                # Commit the rejection independently of the failed write. It must survive a
+                # CLI restart, and an invalid/stale claim must not poison another worker.
+                with self._transaction():
+                    self._owned(item_id, token)
+                    self._audit(item_id, "handoff_rejected", str(exc))
+                raise
         published = progress.get("published_prs", [])
         if not isinstance(published, list):
             raise LedgerError("published_prs must be an array of canonical HTTPS PR URLs")
@@ -778,21 +798,34 @@ class Ledger:
                 progress["handoff"] = previous["handoff"]
                 progress["handoff_meta"] = previous.get("handoff_meta")
             known = {r["url"] for r in self.connection.execute("SELECT url FROM published_prs WHERE issue_id=?", (row["issue_id"],))}
-            existing_input = set(json.loads(self._issue_row(row["issue_id"])["metadata"])["attachments"])
+            issue = json.loads(self._issue_row(row["issue_id"])["metadata"])
+            existing_input = set(issue["attachments"])
+            new_prs = set(published) - known
+            late_prs = new_prs & existing_input
+            own_bodies = {r["body"] for r in self.connection.execute("SELECT body FROM outbox WHERE issue_id=?", (row["issue_id"],))}
+            fingerprint = _fingerprint(issue, own_bodies, known | new_prs)
+            # A PR can reach Linear before its checkpoint (including during the next
+            # verify-publication call). Only verified job output which exactly restores
+            # the claimed input can repair that echo. Real human changes still requeue.
+            if late_prs and (not late_prs <= set(verified_prs) or fingerprint != row["claimed_fingerprint"]):
+                raise LedgerError("published PR was already issue input; reconcile it instead of registering it as new output")
             for url in sorted(set(published) - known):
-                if url in existing_input:
-                    raise LedgerError("published PR was already issue input; reconcile it instead of registering it as new output")
                 self.connection.execute("INSERT INTO published_prs(issue_id,url,generation,created_at) VALUES(?,?,?,?)",
                                         (row["issue_id"], url, row["generation"], self.clock()))
                 self._audit(row["id"], "published_pr", details={"url": url})
+            if late_prs:
+                self.connection.execute("UPDATE issues SET fingerprint=? WHERE id=?", (fingerprint, row["issue_id"]))
             self.connection.execute("UPDATE work_items SET checkpoint=?,stage=COALESCE(?,stage),updated_at=? WHERE id=?",
                                     (_json(progress), stage, self.clock(), row["id"]))
             self._audit(row["id"], "checkpoint", stage or "")
+            if handoff_updated:
+                self._audit(row["id"], "handoff_saved")
             return self._view(self._row(row["id"]))
 
     def await_input(self, item_id, token, question):
         _text(question, "question")
         with self._transaction():
+            self.require_valid_checkpoint(item_id, token)
             row = self._owned(item_id, token)
             checkpoint = json.loads(row["checkpoint"])
             checkpoint["pending_question"] = question
@@ -818,6 +851,7 @@ class Ledger:
         if mode not in ("interactive", "batch"):
             raise LedgerError("mode must be interactive or batch")
         with self._transaction():
+            self.require_valid_checkpoint(item_id, token)
             row = self._owned(item_id, token)
             target = json.loads(row["target_json"]) if row["target_json"] else None
             if not target or not COMMIT_SHA.match(target.get("commit_sha") or ""):
@@ -1410,6 +1444,7 @@ class Ledger:
             raise LedgerError("finish input must be an object")
         _text(evidence.get("summary"), "summary")
         with self._transaction():
+            self.require_valid_checkpoint(item_id, token)
             row = self._owned(item_id, token)
             chat = row["skill"] == "chat"
             if chat and outcome == "delivered":
@@ -1515,6 +1550,7 @@ class Ledger:
         view = self._view(row)
         coordination = {key: view[key] for key in ("id", "identifier", "skill", "state", "stage", "generation", "target")}
         return {"issue": json.loads(issue_row["metadata"]), "coordination": coordination, "handoff": handoff,
+                "checkpoint_error": self.checkpoint_error(item_id),
                 "cleanup": self.cleanup_record(item_id),
                 "recovery": self.recovery_context(item_id),
                 "resumable_work": (self._view(candidate) if row["skill"] == "chat"

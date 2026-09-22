@@ -28,11 +28,19 @@ AUTHORITY = (
     "already performed for you, outside your sandbox, before you were started; resource.batch_result is "
     "its outcome and resource.batch_result.results_file is the XML. To run tests on an interactive slot, "
     "use the unity MCP server's run_tests tool (it returns a job_id, polls with get_test_job, and has "
-    "clear_stuck for a job a domain reload orphaned); to get a fresh batch run, release your reservation "
+    "clear_stuck only for a confirmed orphaned job when no tests are active); after 120 seconds without "
+    "progress inspect the job, Editor state and console. Attempt at most one documented safe recovery "
+    "when no tests are active, then release unclean if it cannot settle. Never kill the shared Editor or "
+    "infer a stall's cause from recovery alone. To get a fresh batch run, release your reservation "
     "and request a new batch one. A batch run's evidence is that XML, never the exit code: exit 0 means "
     "nothing ran and exit 2 means tests failed, so read total from the file and report a missing, "
     "unparseable or zero-total result — batch_result.state of 'gap' or 'timeout' — as a verification gap "
-    "rather than as a pass or a failure. main is known-red at 26 of 4388; those failures are not yours."
+    "rather than as a pass or a failure. Attribute a failure to the baseline only with per-test evidence "
+    "from recorded baseline and fix SHAs under the same mode, selection and environment; historical "
+    "failure counts do not establish that current failures are unrelated. Report unmatched failures "
+    "with attribution unresolved. Check every mutation's exit status and returned state; repair a "
+    "rejected checkpoint handoff and save it successfully before await-input, await-resource or finish. "
+    "Use references/worker-cli.md for command arguments and the exact handoff JSON shape."
 )
 
 

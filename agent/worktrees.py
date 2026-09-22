@@ -149,6 +149,13 @@ class Worktrees:
         if not refresh and path.exists():
             return path
         clone = self.ensure_clone(repo)
+        recovery = self._recovery_commit(clone, self._recovery_ref(item_id)) if not path.exists() else None
+        if recovery:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            local_branches = set(_git("for-each-ref", "--format=%(refname:short)", "refs/heads", cwd=clone).splitlines())
+            name = branch if branch not in local_branches else f"{branch}-{item_id}"
+            _git("worktree", "add", "--quiet", "-b", self._unused_branch(name, clone), str(path), recovery, cwd=clone)
+            return path
         self.fetch(repo)
         if path.exists():
             return path
@@ -161,6 +168,34 @@ class Worktrees:
             name = branch if branch not in local_branches else f"{branch}-{item_id}"
             _git("worktree", "add", "--quiet", "-b", name, str(path), f"origin/{self.default_branch(repo)}", cwd=clone)
         return path
+
+    @staticmethod
+    def _unused_branch(name, cwd):
+        branches = set(_git("for-each-ref", "--format=%(refname:short)", "refs/heads", cwd=cwd).splitlines())
+        candidate, suffix = name, 2
+        while candidate in branches:
+            candidate = f"{name}-{suffix}"
+            suffix += 1
+        return candidate
+
+    @staticmethod
+    def _recovery_ref(item_id):
+        return f"refs/farmbot/recovery/{_branch_safe(item_id)}"
+
+    def _recovery_commit(self, clone, ref):
+        # Enumerating covers packed refs; checking the loose file also catches malformed or dangling refs
+        # that Git omits from enumeration. Such evidence must never look like a fresh job with no recovery.
+        if not (clone / ref).exists():
+            refs = _git("for-each-ref", "--format=%(refname)", ref, cwd=clone).splitlines()
+            if ref not in refs:
+                return None
+        try:
+            commit = _git("rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}", cwd=clone)
+            if not self.COMMIT.fullmatch(commit):
+                raise WorktreeError("not a full commit SHA")
+            return commit
+        except WorktreeError as exc:
+            raise WorktreeError(f"invalid recovery ref {ref}: {exc}") from exc
 
     def head(self, path):
         return _git("rev-parse", "HEAD", cwd=path)
@@ -225,7 +260,8 @@ class Worktrees:
                     # A commit on a detached head is referenced by nothing, so `worktree prune` would sweep
                     # it as surely as the files. Read-only skills get detached worktrees (add_detached).
                     # After the staged-diff guard, so a worktree with nothing to keep leaves no stray ref.
-                    _git("checkout", "--quiet", "-b", f"farmbot/wip/{_branch_safe(item_id)}", cwd=path)
+                    name = self._unused_branch(f"farmbot/wip/{_branch_safe(item_id)}", path)
+                    _git("checkout", "--quiet", "-b", name, cwd=path)
                 _git(*self.WIP_IDENTITY, "commit", "--no-verify", "--quiet", "-m", message, cwd=path)
                 report["committed"][path.name] = _git("rev-parse", "HEAD", cwd=path)
             except (WorktreeError, subprocess.SubprocessError, OSError) as exc:
@@ -253,17 +289,36 @@ class Worktrees:
         return paths
 
     def preserve(self, item_id):
-        """Keep every HEAD reachable, including clean unpublished and detached commits."""
+        """Keep every HEAD reachable, including clean unpublished and detached commits.
+
+        `refs` remains the latest recovery pointer. `snapshots` maps each repository's historical commit
+        SHAs to immutable recovery refs, so reset/divergent later attempts cannot hide earlier evidence.
+        """
         paths = self._managed_paths(item_id)
         report = self.commit_wip(item_id, f"wip({item_id[:8]}): preserve ended work")
         report["refs"] = {}
+        report["snapshots"] = {}
         for path in paths:
             try:
                 sha = self.head(path)
-                ref = f"refs/farmbot/recovery/{_branch_safe(item_id)}"
-                _git("update-ref", ref, sha, cwd=self.clone_path(path.name))
+                clone = self.clone_path(path.name)
+                ref = self._recovery_ref(item_id)
+                previous = self._recovery_commit(clone, ref)
+                history = f"refs/farmbot/recovery-history/{_branch_safe(item_id)}/"
+                # Save the old pointer too: it may predate immutable snapshots. Never replace a snapshot,
+                # and do not advance the latest pointer if any archive write fails.
+                for commit in dict.fromkeys(filter(None, (previous, sha))):
+                    snapshot = history + commit
+                    archived = self._recovery_commit(clone, snapshot)
+                    if archived is None:
+                        _git("update-ref", snapshot, commit, "0" * 40, cwd=clone)
+                    elif archived != commit:
+                        raise WorktreeError(f"recovery snapshot no longer matches {snapshot}")
+                _git("update-ref", ref, sha, previous or "0" * 40, cwd=clone)
                 report["committed"][path.name] = sha
                 report["refs"][path.name] = ref
+                report["snapshots"][path.name] = dict(line.split(" ", 1) for line in
+                    _git("for-each-ref", "--format=%(objectname) %(refname)", history, cwd=clone).splitlines())
             except (WorktreeError, subprocess.SubprocessError, OSError) as exc:
                 report["errors"][path.name] = str(exc)[:500]
         return report
@@ -301,8 +356,13 @@ class Worktrees:
 
     def add_detached(self, repo, item_id):
         clone = self.ensure_clone(repo)
-        self.fetch(repo)
         path = self.worktrees_root / item_id / repo
+        recovery = self._recovery_commit(clone, self._recovery_ref(item_id)) if not path.exists() else None
+        if recovery:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            _git("worktree", "add", "--quiet", "--detach", str(path), recovery, cwd=clone)
+            return path
+        self.fetch(repo)
         if path.exists():
             return path
         path.parent.mkdir(parents=True, exist_ok=True)

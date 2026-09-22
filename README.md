@@ -104,6 +104,15 @@ hold cleanup; `python3 -m agent.service status` shows `cleanup_pending` and `iss
 All run logs, ledger history and memory snapshots remain. See the [operating contract](docs/operating-contract.md)
 for source recovery and deployment details.
 
+Retries of the same job restore missing worktrees from its saved recovery commit. Cleanup also
+retains immutable `refs/farmbot/recovery-history/<job-id>/<sha>` snapshots, listed in the cleanup
+manifest, so later attempts cannot hide earlier work by replacing the latest recovery pointer.
+
+Worker CLI examples and the exact handoff format are in [worker CLI guidance](references/worker-cli.md).
+A rejected handoff must be successfully saved before the job can await input/resources or finish.
+If Linear attaches a job's PR before its checkpoint, the CLI can reconcile it after verifying the
+exact open draft, repository, branch and HEAD and proving that no other issue input changed.
+
 Open jobs awaiting answers keep today's reply behavior and the same job ID. A reply inside FarmBot's
 session resumes the waiting job even without an @mention. An ordinary issue comment outside that
 session does not start a worker unless it mentions FarmBot. Reopening a cancelled issue starts nothing;

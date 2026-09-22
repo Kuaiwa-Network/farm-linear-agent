@@ -308,6 +308,9 @@ class Scheduler:
             # A prior removal may have succeeded for only some repositories. Keep their manifest.
             for key in ("committed", "refs"):
                 result[key] = {**result.get(key, {}), **saved[key]}
+            snapshots = result.setdefault("snapshots", {})
+            for repo, refs in saved.get("snapshots", {}).items():
+                snapshots[repo] = {**snapshots.get(repo, {}), **refs}
             result["errors"] = saved["errors"]
             self.ledger.record_cleanup(item_id, result)
             self.ledger.begin_cleanup_removal(item_id)

@@ -50,6 +50,42 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result['branch'], 'farmbot/farm-1')
         self.assertEqual(ledger.item(args.item)['state'], 'running')
 
+    def test_checkpoint_reconciles_verified_pr_that_linear_attached_before_registration(self):
+        from unittest.mock import patch
+        from agent.__main__ import run, parser
+        args, ledger, config, api, github = self.publication_fixture()
+        from agent.worktrees import Worktrees
+        from agent.config import Paths
+        # GitHub returns canonical casing even when configuration uses lowercase.
+        config.repos['Farm-Client'] = 'https://github.com/kuaiwa-network/farm-client.git'
+        paths = Paths(config)
+        trees = Worktrees(paths.repos, paths.worktrees, config.repos)
+        url = 'https://github.com/Kuaiwa-Network/Farm-Client/pull/1330'
+        raw = api.fetch_issue(None)
+        raw['attachments'] = [url]
+        ledger.observe_issue(raw)
+        repo = github('repos/Kuaiwa-Network/Farm-Client')
+        pr = {'html_url': url, 'state': 'open', 'draft': True,
+              'head': {'ref': 'farmbot/farm-1', 'sha': trees.head(paths.worktrees / args.item / 'Farm-Client'), 'repo': repo},
+              'base': {'ref': 'main', 'repo': repo}}
+        def with_pr(endpoint, **kwargs):
+            return pr if endpoint.endswith('/pulls/1330') else github(endpoint, **kwargs)
+        cp = parser().parse_args(['--db', str(self.db), 'checkpoint', '--item', args.item, '--token', args.token,
+                                  '--input', self.json_file('late.json', {'published_prs': [url]})])
+        with patch('agent.__main__.load_config', return_value=config), patch('agent.publication.github_api', side_effect=with_pr):
+            result = run(cp, ledger, lambda: api)
+        self.assertEqual(result['state'], 'running')
+        self.assertEqual(ledger.issue_context(args.item)['published_prs'], [url])
+
+    def test_rejected_checkpoint_blocks_await_input_before_posting_question(self):
+        item = self.seeded_item()
+        token = self.run_cli('claim', '--item', item, '--worker-id', 'w')['token']
+        self.run_cli('checkpoint', '--item', item, '--token', token,
+                     '--input', self.json_file('invalid.json', {'handoff': {'facts': []}}), success=False)
+        result = self.run_cli('await-input', '--item', item, '--token', token, '--question', 'Which behavior?', success=False)
+        self.assertIn('checkpoint', result.stderr)
+        self.assertEqual(self.calls(), [])
+
     def test_publication_check_rejects_lost_delegation_and_wrong_ledger(self):
         from unittest.mock import patch
         from agent.__main__ import run

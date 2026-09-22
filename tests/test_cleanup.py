@@ -38,6 +38,57 @@ class PreservationTests(unittest.TestCase):
         self.assertEqual(test_worktrees.git('rev-parse', saved['refs']['Farm-Client'],
                                            cwd=self.trees.clone_path('Farm-Client')), before)
 
+    def test_divergent_cleanup_retains_each_snapshot_after_git_pruning(self):
+        path = self.trees.add('Farm-Client', 'item-1', 'farmbot/history')
+        baseline = self.trees.head(path)
+        (path / 'fix.txt').write_text('first attempt')
+        first = self.trees.preserve('item-1')
+        original = first['committed']['Farm-Client']
+        test_worktrees.git('reset', '--hard', baseline, cwd=path)
+        second = self.trees.preserve('item-1')
+        self.assertEqual(second['errors'], {})
+        self.trees.remove_preserved('item-1', second)
+        clone = self.trees.clone_path('Farm-Client')
+        test_worktrees.git('reflog', 'expire', '--expire=now', '--all', cwd=clone)
+        test_worktrees.git('gc', '--prune=now', cwd=clone)
+        snapshots = second.get('snapshots', {}).get('Farm-Client', {})
+        self.assertEqual(set(snapshots), {original, baseline})
+        for sha, ref in snapshots.items():
+            self.assertEqual(test_worktrees.git('rev-parse', ref, cwd=clone), sha)
+        self.assertEqual(test_worktrees.git('show', snapshots[original] + ':fix.txt', cwd=clone), 'first attempt')
+        self.assertEqual(test_worktrees.git('rev-parse', second['refs']['Farm-Client'], cwd=clone), baseline)
+
+    def test_first_cleanup_after_upgrade_archives_the_legacy_recovery_ref(self):
+        path = self.trees.add('Farm-Client', 'item-1', 'farmbot/history')
+        baseline = self.trees.head(path)
+        (path / 'fix.txt').write_text('legacy work')
+        legacy = self.trees.commit_wip('item-1', 'legacy work')['committed']['Farm-Client']
+        clone = self.trees.clone_path('Farm-Client')
+        latest = 'refs/farmbot/recovery/item-1'
+        test_worktrees.git('update-ref', latest, legacy, cwd=clone)
+        test_worktrees.git('reset', '--hard', baseline, cwd=path)
+        saved = self.trees.preserve('item-1')
+        self.assertEqual(saved['errors'], {})
+        history = saved.get('snapshots', {}).get('Farm-Client', {})
+        self.assertIn(legacy, history)
+        self.assertEqual(test_worktrees.git('show', history[legacy] + ':fix.txt', cwd=clone), 'legacy work')
+        self.assertEqual(test_worktrees.git('rev-parse', latest, cwd=clone), baseline)
+
+    def test_conflicting_snapshot_prevents_recovery_ref_replacement_and_removal(self):
+        path = self.trees.add('Farm-Client', 'item-1', 'farmbot/history')
+        baseline = self.trees.head(path)
+        first = self.trees.preserve('item-1')
+        (path / 'fix.txt').write_text('new work')
+        changed = self.trees.commit_wip('item-1', 'new work')['committed']['Farm-Client']
+        clone = self.trees.clone_path('Farm-Client')
+        test_worktrees.git('update-ref', f'refs/farmbot/recovery-history/item-1/{changed}', baseline, cwd=clone)
+        saved = self.trees.preserve('item-1')
+        self.assertIn('Farm-Client', saved['errors'])
+        self.assertEqual(test_worktrees.git('rev-parse', first['refs']['Farm-Client'], cwd=clone), baseline)
+        with self.assertRaises(WorktreeError):
+            self.trees.remove_preserved('item-1', saved)
+        self.assertEqual((path / 'fix.txt').read_text(), 'new work')
+
     def test_partial_preservation_failure_keeps_all_worktrees(self):
         path = self.trees.add('Farm-Client', 'item-1', 'farmbot/farm-1')
         (path / 'fix.txt').write_text('keep')
@@ -228,17 +279,19 @@ class CancellationCleanupTests(unittest.TestCase):
         import agent.worktrees as module
         original = module._git
         def remove_failure(*args, **kwargs):
-            if args[:2] == ('worktree', 'remove') and str(args[-1]).endswith('/second'):
+            if args[:2] == ('worktree', 'remove') and Path(args[-1]).name == 'second':
                 raise WorktreeError('transient remove failure')
             return original(*args, **kwargs)
         with patch.object(module, '_git', side_effect=remove_failure):
             self.scheduler.tick()
+        self.assertFalse(self.ledger.cleanup_record(item['id'])['done'])
         self.assertEqual(set(self.ledger.cleanup_record(item['id'])['result']['refs']), {'Farm-Client', 'second'})
         self.scheduler.tick()
         record = self.ledger.cleanup_record(item['id'])
         self.assertTrue(record['done'])
         self.assertEqual(set(record['result']['refs']), {'Farm-Client', 'second'})
         self.assertEqual(set(record['result']['committed']), {'Farm-Client', 'second'})
+        self.assertEqual(set(record['result']['snapshots']), {'Farm-Client', 'second'})
 
     @unittest.skipIf(os.name == 'nt', 'Windows worker jobs contain children; tested in test_windows_workers')
     def test_exited_parent_with_detached_child_holds_cleanup_after_restart(self):

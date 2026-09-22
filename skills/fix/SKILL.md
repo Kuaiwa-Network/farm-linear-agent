@@ -17,10 +17,12 @@ outside your worktree list.
 1. Read the `contract` path and every path in `references` from your launch message, this file, then the
    `CLAUDE.md` or `AGENTS.md` of every repository in your worktrees.
 2. `python3 -m agent --db DATABASE claim --item ITEM_ID --worker-id WORKER_ID`. Write the returned token
-   to `STATE_DIR/token` with mode 0600, never print it, and pass `--item ITEM_ID --token-file
-   STATE_DIR/token` on every later call, including `post-comment` and `confirm-comment`: every
-   worker command is scoped to your own item. Never put `--token` on a command line: arguments are
-   visible to every process on the host. If the claim fails, stop and exit 2.
+   to `STATE_DIR/token` with mode 0600 and never print it. Follow
+   `<repo_root>/references/worker-cli.md` for the command argument table and checkpoint JSON.
+   Claim-authenticated commands, including `post-comment` and `confirm-comment`, take
+   `--item ITEM_ID --token-file STATE_DIR/token`. `fetch-issue` and `issue-context` take only
+   `--item ITEM_ID`; they do not accept token flags. Never put `--token` on a command line:
+   arguments are visible to every process on the host. If the claim fails, stop and exit 2.
    After claiming, follow `<repo_root>/references/memory.md`: read `memory.index` when ready,
    then only relevant topic files. Refresh potentially stale notes through the CLI.
 3. `python3 -m agent --db DATABASE fetch-issue --item ITEM_ID` refreshes the issue and all comments from
@@ -53,7 +55,8 @@ decision rules; do not reintroduce the handoff-only blocker.
 
 If intended behaviour is unclear, the issue lacks necessary detail, or you cannot decide whether the
 contract or implementation is wrong, checkpoint the exact clause, evidence and pending question, then
-run `await-input --question TEXT` and exit. This command adds `needs-more-info` and posts the question
+confirm the checkpoint succeeded before running `await-input --question TEXT` and exiting.
+This command adds `needs-more-info` and posts the question
 in the Linear session. Do not separately post an elicitation first, and do not finish blocked merely
 because a human answer is needed. A reply in the session or an @FarmBot mention resumes this item;
 read the answer from your inbox before proceeding. If it is still insufficient, ask again. Never ask
@@ -99,9 +102,10 @@ Cheapest sufficient check first, and say which rungs ran:
    as the precondition for claiming anything at all. `state` says which case you are in — `"ran"` is
    evidence, `"gap"` (missing, unparseable or `total="0"`, usually a wrong `-assemblyNames`) and
    `"timeout"` are **verification gaps**, neither a pass nor a failure, and you report them as gaps.
-   **`main` is known-red at 26 failures of 4388**, almost all configuration-table contract tests; they are
-   in the spike record by class, they will appear in your run, and they are not caused by your change — say
-   so rather than treating them as a regression. If you need another run, `release-resource --outcome
+   Attribute a failure to the baseline only after comparing that individual test and failure signature
+   on the pinned baseline and fix, recording both full SHAs, the same test mode, selection and environment.
+   A historical failure count or memory note does not establish that today's failures are unrelated.
+   Without that comparison, report observed failures with attribution unresolved. If you need another run, `release-resource --outcome
    quiescent` and request a fresh batch reservation: one grant is one run. Otherwise release and move on.
 5. Behaviour no test covers needs an interactive slot: `await-resource --resource unity_slot --mode
    interactive --commit FIX_SHA`. The fresh worker gets one MCP server named `unity`; call `set_active_instance` with the
@@ -111,9 +115,14 @@ Cheapest sufficient check first, and say which rungs ran:
    is already running on that folder, and a second `Unity -batchmode` on a folder a live Editor holds
    corrupts it. To run tests from an interactive slot, use the MCP server's own `run_tests` tool: it is
    asynchronous, returns a `job_id`, is polled with `get_test_job` (which takes a `wait_timeout`, so poll
-   with one rather than in a busy loop), and exposes `clear_stuck` for a job a domain reload orphaned. It
-   runs inside the Editor that is already open, which is why an interactive slot needs no second process at
-   all. Leave the Editor in Edit Mode with nothing compiling, then
+   with one rather than in a busy loop). It runs inside the Editor that is already open.
+   If the job or mode transition shows no progress for 120 seconds, inspect the job, Editor state and
+   console and preserve the evidence. If tests are active, do not clear the job or reload the Editor.
+   Only when no tests are active may you attempt one documented MCP recovery appropriate to the
+   observed state (`clear_stuck` requires evidence that the job is orphaned).
+   Recheck state after that attempt; if it still cannot settle, release `unclean`. Never start or kill
+   the shared Editor. A reload that restores progress does not establish why the stall occurred.
+   Leave the Editor in Edit Mode with nothing compiling, then
    `release-resource --outcome quiescent`; if you cannot, `--outcome unclean`, which holds the slot for an
    operator instead of handing a wedged Editor to the next worker.
 
@@ -128,7 +137,12 @@ build — slots budget an import-only `Library/` and a player build triples it.
 
 Record any behaviour you could not verify as a verification gap and finish blocked or deliver with the gap
 named. Never describe a source-only check as runtime evidence. Show a testable logic bug failing before the
-fix and passing after.
+fix and passing after under comparable conditions. Missing dependencies, unhydrated LFS pointers,
+typecheck setup failures, compilation failures before the intended test, and zero-test runs leave that
+test unverified; they are not the product's red test. Establish prerequisites, then obtain a controlled
+before/after result. Follow `references/evidence-format.md` when classifying results. A draft delivery
+may include unresolved verification gaps, but its comment, report and outcome must name those gaps and
+must not claim the behavior or full suite passed.
 
 If your work item was created by an operator with `enqueue` rather than by a Linear delegation, its session
 is local and Linear has no agent session for it: report through an issue comment and do not expect session
@@ -170,9 +184,10 @@ access), preserve local work and explain the specific gap through `await-input` 
 `needs-more-info`). If automatic approval rejects the action, keep the rejection in the report;
 gather the missing evidence or request concrete approval. Never switch execution paths to bypass it.
 
-Checkpoint often: `checkpoint --input CHECKPOINT.json` with `stage`, an optional `handoff`
-(`facts`, `hypotheses`, `checks`, `repositories`, `next_actions`; each entry with evidence paths) and
-`published_prs` immediately after a PR exists. Open PRs as drafts with `gh pr create --draft`, link the
+Checkpoint often using the complete JSON in `references/worker-cli.md`, with `stage`, `handoff` and
+`published_prs` immediately after a PR exists. Check every mutation's exit status and returned state.
+A rejected handoff must be repaired and successfully saved before `await-input`, `await-resource` or
+`finish`; a failed checkpoint does not preserve progress. Open PRs as drafts with `gh pr create --draft`, link the
 issue, describe the observed problem, the change, the checks that ran and the ones that did not.
 
 ## Outcomes
