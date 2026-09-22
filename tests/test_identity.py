@@ -557,6 +557,16 @@ class UnityIdentityTests(Loopback):
                     call({**self.slot, "instance": recorded})
                     self.assertIn("tools/call:set_active_instance", Handler.seen)
 
+    def test_stale_recorded_instance_cannot_send_commands_to_another_project(self):
+        foreign = "other@aaaaaaaaaaaaaaaa"
+        Handler.replies["mcpforunity://instances"]["instances"].append(
+            {"id": foreign, "dataPath": str(self.folder.parent / "android-build" / "Assets")})
+        Handler.seen = []
+        with self.assertRaisesRegex(SlotError, "recorded instance"):
+            self.identity.refresh({**self.slot, "instance": foreign})
+        self.assertNotIn("tools/call:refresh_unity", Handler.seen)
+        self.assertNotIn("tools/call:set_active_instance", Handler.seen)
+
     def test_the_console_is_read_in_every_shape_the_installed_plugin_actually_returns(self):
         """ReadConsole.cs returns the entries as a bare list under `data` when `count` is given and paging
         is not, and as `items` under a paging envelope when it is; an entry is a string in the default

@@ -142,7 +142,9 @@ for verification, allowing another healthy slot to serve it. A separate recovery
 preserves diagnostics, requests Play Mode stop, restarts only the affected configured editor,
 and verifies identity, compilation and readiness before returning the slot to the pool.
 
-Two automatic job retries and three editor repair attempts are persisted in SQLite; repair
+Two automatic execution retries, three separate slot-preparation retries, and three editor
+repair attempts are persisted in SQLite. A failed grant or explicit legacy adoption does not
+consume the execution budget. Exhaustion reports its phase and latest cause. Repair
 attempts back off 60 then 180 seconds. An interrupted repair lease expires after 15 minutes.
 Repeated stalls or exhaustion of every configured slot produce an explicit infrastructure
 failure with saved work and diagnostics. Genuine questions remain `awaiting_input`.
@@ -150,7 +152,12 @@ Workers must checkpoint before `release-resource --outcome unclean`, then exit; 
 operation or “continue verification” reply is required. Diagnostics live under
 `.local/agent/resource-recovery/` and in `issue-context.resource_recovery`.
 
-The ledger migration only adds recovery tables. Preserve those tables and their
+Other Unity projects may remain open. Each MCP call verifies the configured project against
+the live instance listing before selecting it; unrelated editors and shared brokers remain untouched.
+
+The ledger migration adds recovery tables and retry-classification columns. Existing recovery
+counts are retained, with old records classified as execution; historical causes are not guessed.
+Explicit retry clears both per-job budgets. Preserve these tables and their
 diagnostics across upgrades. Older code cannot service a pending recovery or its
 revoked claims; rolling code back does not restore those claims. Resume with a
 compatible controller, and never rewind the ledger after new external actions.

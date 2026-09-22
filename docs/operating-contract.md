@@ -170,10 +170,22 @@ stop and verifies teardown before restarting the editor. Startup, compilation, c
 assembly identity must pass before availability is restored. An interrupted run remains a
 verification gap. Stop and issue closure prevent job continuation throughout recovery.
 
-There are two automatic retries per job and three attempts per slot recovery, with 60/180-second
+Unrelated Unity project folders may coexist with the pool. Every editor MCP call resolves the
+configured project from the current instance listing and rejects a conflicting recorded instance.
+Process ownership, project locks and the full grant identity probe still apply. Closing the last
+pool editor does not reap its broker while an unrelated editor is present.
+
+There are two automatic execution retries per job, three separate preparation retries, and three
+attempts per slot recovery, with 60/180-second
 repair backoff persisted across restarts. Repair leases expire after 15 minutes if a controller
 dies. Exhaustion produces an explicit failure, preserves work, and reports through Linear;
 it never masquerades as a question. Existing human questions are not automatically resumed.
+Grant-probe failures before execution and explicit legacy adoption use the preparation budget;
+worker unclean releases, watchdog stalls and already-started batch runs use execution. Terminal
+messages name the exhausted phase and latest recorded cause. Explicit retry resets both budgets.
+The additive migration preserves existing counts and defaults historical records to execution;
+it does not infer old failure categories or automatically restart previously failed jobs. Older
+code cannot enforce separate budgets; do not roll back during pending recovery or rewind live data.
 
 ## Draft PR publishing authority
 

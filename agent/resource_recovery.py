@@ -18,12 +18,14 @@ CREATE TABLE IF NOT EXISTS resource_recoveries (
     state TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
     due_at REAL NOT NULL DEFAULT 0, lease_until REAL NOT NULL DEFAULT 0,
     detached INTEGER NOT NULL DEFAULT 0, resume_job INTEGER NOT NULL DEFAULT 0,
-    reason TEXT NOT NULL, error TEXT, evidence TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL
+    reason TEXT NOT NULL, error TEXT, evidence TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL,
+    recovery_kind TEXT NOT NULL DEFAULT 'execution'
 );
 CREATE UNIQUE INDEX IF NOT EXISTS one_pending_resource_recovery ON resource_recoveries(slot_id)
     WHERE state IN ('pending','repairing');
 CREATE TABLE IF NOT EXISTS resource_job_retries (
-    item_id TEXT PRIMARY KEY REFERENCES work_items(id), attempts INTEGER NOT NULL DEFAULT 0
+    item_id TEXT PRIMARY KEY REFERENCES work_items(id), attempts INTEGER NOT NULL DEFAULT 0,
+    setup_attempts INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS resource_recovery_notices (
     id TEXT PRIMARY KEY, item_id TEXT NOT NULL, body TEXT NOT NULL, sent INTEGER NOT NULL DEFAULT 0,
@@ -35,6 +37,7 @@ CREATE TABLE IF NOT EXISTS resource_watches (
 """
 
 MAX_JOB_RETRIES = 2
+MAX_SETUP_RETRIES = 3
 MAX_REPAIR_ATTEMPTS = 3
 
 
@@ -82,8 +85,10 @@ class RecoveryStore:
         row = self.db.execute('SELECT * FROM resource_recoveries WHERE id=?', (recovery_id,)).fetchone()
         return dict(row) if row else None
 
-    def request_in_transaction(self, slot_id, reason, *, adopt=False):
+    def request_in_transaction(self, slot_id, reason, *, adopt=False, recovery_kind='execution'):
         """Called by hold() inside its transaction; never infer intent from prose."""
+        if recovery_kind not in ('execution', 'setup'):
+            raise ValueError('unknown resource recovery kind')
         slot = self.ledger._slot_row(slot_id)
         existing = self.db.execute("SELECT * FROM resource_recoveries WHERE slot_id=? AND state IN ('pending','repairing')",
                                    (slot_id,)).fetchone()
@@ -95,11 +100,12 @@ class RecoveryStore:
                               or (adopt and item['state'] == 'awaiting_input')))
         now, recovery_id = self.ledger.clock(), str(uuid4())
         self.db.execute("""INSERT INTO resource_recoveries
-            (id,slot_id,host,reservation_id,item_id,worker_pid,commit_sha,resume_job,reason,created_at,updated_at)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (id,slot_id,host,reservation_id,item_id,worker_pid,commit_sha,resume_job,reason,created_at,updated_at,recovery_kind)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
             (recovery_id, slot_id, slot['host'], reservation['reservation_id'] if reservation else None,
              item['id'] if item else None, self.ledger.last_worker_pid(item['id']) if item else None,
-             reservation['commit_sha'] if reservation else slot['parked_commit'], int(resume), reason[:1000], now, now))
+             reservation['commit_sha'] if reservation else slot['parked_commit'], int(resume), reason[:1000], now, now,
+             recovery_kind))
         self.db.execute("UPDATE slots SET state='held',updated_at=? WHERE slot_id=?", (now, slot_id))
         if reservation:
             # Fence the old resource token immediately, before the worker can
@@ -120,7 +126,7 @@ class RecoveryStore:
     def adopt(self, slot_id, reason):
         """Explicit host migration of a verified legacy infrastructure-only pause."""
         with self.ledger._transaction():
-            return self.request_in_transaction(slot_id, reason, adopt=True)
+            return self.request_in_transaction(slot_id, reason, adopt=True, recovery_kind='setup')
 
     def discover(self, host):
         """Migrate pre-existing holds, retaining genuine human questions and exhausted holds."""
@@ -153,9 +159,12 @@ class RecoveryStore:
                             (now + 900, now, recovery_id))
             return self.get(recovery_id)
 
-    def job_attempts(self, item_id):
-        row = self.db.execute('SELECT attempts FROM resource_job_retries WHERE item_id=?', (item_id,)).fetchone()
-        return row['attempts'] if row else 0
+    def job_attempts(self, item_id, *, recovery_kind='execution'):
+        if recovery_kind not in ('execution', 'setup'):
+            raise ValueError('unknown resource recovery kind')
+        column = 'setup_attempts' if recovery_kind == 'setup' else 'attempts'
+        row = self.db.execute(f'SELECT {column} FROM resource_job_retries WHERE item_id=?', (item_id,)).fetchone()
+        return row[column] if row else 0
 
     def _attempt(self, recovery_id, attempt):
         r = self.get(recovery_id)
@@ -192,16 +201,23 @@ class RecoveryStore:
                 item = self.ledger.item(r['item_id'])
                 if (r['resume_job'] and not cancelled and item['state'] == 'awaiting_resource'
                         and item['stage'] == 'waiting_for_recovery'):
-                    if self.job_attempts(item['id']) >= MAX_JOB_RETRIES:
-                        self._fail_job(item['id'], 'Unity verification repeatedly stalled; repeated automatic job retries exhausted (2)')
+                    setup = r['recovery_kind'] == 'setup'
+                    limit = MAX_SETUP_RETRIES if setup else MAX_JOB_RETRIES
+                    if self.job_attempts(item['id'], recovery_kind=r['recovery_kind']) >= limit:
+                        phase = 'slot preparation' if setup else 'worker execution'
+                        self._fail_job(item['id'], f'Unity {phase} repeatedly failed; automatic retries exhausted ({limit}). '
+                                       f'Last cause: {r["reason"][:300]}')
                     else:
-                        self.db.execute("INSERT INTO resource_job_retries(item_id,attempts) VALUES(?,1) ON CONFLICT(item_id) DO UPDATE SET attempts=attempts+1", (item['id'],))
+                        column = 'setup_attempts' if setup else 'attempts'
+                        self.db.execute(f"INSERT INTO resource_job_retries(item_id,{column}) VALUES(?,1) "
+                                        f"ON CONFLICT(item_id) DO UPDATE SET {column}={column}+1", (item['id'],))
                         replacement = str(uuid4())
                         self.db.execute("""INSERT INTO reservations(reservation_id,item_id,generation,kind,mode,commit_sha,state,created_at)
                             VALUES(?,?,?,?,?,?,'queued',?)""",
                             (replacement, item['id'], item['generation'], old['kind'], old['mode'], old['commit_sha'], self.ledger.clock()))
                         self.ledger._audit(item['id'], 'resource_recovery', 'retry queued',
-                                           {'recovery_id': recovery_id, 'reservation_id': replacement, 'commit_sha': old['commit_sha']})
+                                           {'recovery_id': recovery_id, 'reservation_id': replacement,
+                                            'commit_sha': old['commit_sha'], 'recovery_kind': r['recovery_kind']})
             self.db.execute('UPDATE resource_recoveries SET detached=1,updated_at=? WHERE id=?', (self.ledger.clock(), recovery_id))
 
     def complete(self, recovery_id, attempt, commit, instance):

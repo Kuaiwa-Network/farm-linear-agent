@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 from agent.ledger import Ledger
 from agent.slots import SlotPool, slot_entry
+from agent.unity import other_editor_project
 from test_slots import FakeMcp
 
 
@@ -23,9 +24,12 @@ class MultipleSlotTests(unittest.TestCase):
                                     mcp_address=e["mcp_address"])
             self.mcp.open_folders.add(e["folder"])
         self.pool = SlotPool(self.ledger, Mock(), self.entries, host="h", editors_root=self.root,
-                             mcp=self.mcp, editor_pid=lambda folder: 100 if folder in self.mcp.open_folders else None)
+                             mcp=self.mcp, editor_pid=lambda folder: 100 if folder in self.mcp.open_folders else None,
+                             editor_scan=lambda folder: None)
 
-    def test_configured_editors_coexist_but_unmanaged_editor_still_blocks(self):
+    def test_external_editor_is_detected_to_preserve_its_shared_broker(self):
+        self.pool.editor_scan = lambda folder: other_editor_project(
+            folder, allowed_projects=[entry['folder'] for entry in self.entries])
         processes = [(100 + n, e["folder"], False) for n, e in enumerate(self.entries)]
         with patch("agent.unity._editor_processes", return_value=processes):
             self.assertIsNone(self.pool.another_editor_running(self.entries[0]["folder"]))

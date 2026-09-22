@@ -352,6 +352,8 @@ class Ledger:
             self.connection.executescript(RECOVERY_SCHEMA)
             # Columns added after the first ledgers were written; CREATE TABLE IF NOT EXISTS leaves those files as they were.
             for table, column, declaration in (("resource_recovery_notices", "generation", "INTEGER NOT NULL DEFAULT 0"),
+                                                ("resource_recoveries", "recovery_kind", "TEXT NOT NULL DEFAULT 'execution'"),
+                                                ("resource_job_retries", "setup_attempts", "INTEGER NOT NULL DEFAULT 0"),
                                                 ("sessions", "guidance", "TEXT"), ("work_items", "lease_seconds", "REAL"),
                                                 ("work_items", "predecessor_id", "TEXT"),
                                                 ("work_items", "capacity_retries", "INTEGER NOT NULL DEFAULT 0"),
@@ -1035,7 +1037,7 @@ class Ledger:
                                                                       "reason": reason[:200]})
             return state
 
-    def hold(self, reservation_id, reason):
+    def hold(self, reservation_id, reason, *, recovery_kind='execution'):
         """A failing quiescence probe keeps the reservation open and takes the slot out of the pool (spec §7)."""
         _text(reason, "reason")
         with self._transaction():
@@ -1047,7 +1049,7 @@ class Ledger:
                                     (self.clock(), row["resource"]))
             self._audit(row["item_id"], "reservation", "held", details={"reservation_id": reservation_id,
                                                                        "reason": reason[:200]})
-            RecoveryStore(self).request_in_transaction(row["resource"], reason)
+            RecoveryStore(self).request_in_transaction(row["resource"], reason, recovery_kind=recovery_kind)
             return self._reservation_view(row)
 
     def hold_owned(self, reservation_id, token, reason):
@@ -1610,8 +1612,9 @@ class Ledger:
                 "delegation_session": (authority["session_id"] if
                                        (authority := self._delegation_session(row["issue_id"], row["session_id"])) else None),
                 "resource_recovery": {"attempts": RecoveryStore(self).job_attempts(item_id),
+                                      "setup_attempts": RecoveryStore(self).job_attempts(item_id, recovery_kind='setup'),
                                       "records": [dict(r) for r in self.connection.execute(
-                                          'SELECT id,slot_id,state,attempts,evidence,error FROM resource_recoveries WHERE item_id=? ORDER BY created_at', (item_id,))]},
+                                          'SELECT id,slot_id,state,attempts,recovery_kind,reason,evidence,error FROM resource_recoveries WHERE item_id=? ORDER BY created_at', (item_id,))]},
                 "checkpoint_error": self.checkpoint_error(item_id),
                 "cleanup": self.cleanup_record(item_id),
                 "recovery": self.recovery_context(item_id),
