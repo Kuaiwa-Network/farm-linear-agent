@@ -100,7 +100,7 @@ def check_pr_targets(urls):
     if not isinstance(urls, list) or not urls:
         return
     try:
-        repos = load_config().repos
+        repos = load_config(secure_permissions=False).repos
     except (OSError, ValueError):
         return  # no private config (tests, first run): the ledger's URL shape is the only rule
     prefixes = {f"https://github.com/{m.group(1)}/{m.group(2)}/pull/".casefold()
@@ -135,7 +135,7 @@ def verify_late_prs(ledger, args, token, progress):
     from .publication import PublicationVerifier, github_repository
     from .skills import load_skills
     from .worktrees import Worktrees
-    config = load_config()
+    config = load_config(secure_permissions=False)
     paths = Paths(config)
     if Path(args.db).resolve() != paths.ledger.resolve():
         raise LedgerError("publication reconciliation must use the configured host ledger")
@@ -315,7 +315,7 @@ def run(args, ledger, api_factory):
         token = resolve_token(args)
         ledger.renew(args.item, token)
         item = ledger.item(args.item)
-        config = load_config()
+        config = load_config(secure_permissions=False)
         paths = Paths(config)
         if Path(args.db).resolve() != paths.ledger.resolve():
             raise LedgerError("publication must use the configured host ledger")
@@ -353,7 +353,7 @@ def run(args, ledger, api_factory):
             if (item["skill"] not in WRITE_SKILLS or args.resource != "unity_slot"
                     or (item.get("target") or {}).get("repository") != "Farm-Client"):
                 raise LedgerError("only a write worker may select a Farm-Client Unity verification commit")
-            config = load_config()
+            config = load_config(secure_permissions=False)
             paths = Paths(config)
             if Path(args.db).resolve() != paths.ledger.resolve():
                 raise LedgerError("verification must use the configured host ledger")

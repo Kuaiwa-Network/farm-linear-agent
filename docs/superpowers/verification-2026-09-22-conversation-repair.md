@@ -67,3 +67,15 @@ These baseline conditions are recorded rather than represented as successful tes
 No live model replay, Unity test, production deployment or restart is claimed. Offline
 tests validate the controller boundaries and context flow; intent interpretation still
 depends on the worker following the updated instructions.
+
+## PR integration with current main
+
+Integrated `e67c828` before creating the PR, preserving selected-config propagation
+and read-only writable roots in the scheduler. The new config-propagation fixture
+also closes the progress publisher connection.
+
+Focused integration checks: **132 tests, 130 passed, 2 platform skips**. Full offline
+suite on Windows: **572 tests, 554 passed, 5 failures, 5 errors, 8 skips** in 280.588
+seconds. The ten failure/error names exactly match the baseline above; no additional
+failures occurred. All 28 feature regressions passed. Logs: `.local/verification/`
+`pr-integration-focused.log` and `pr-integration-full.log`.

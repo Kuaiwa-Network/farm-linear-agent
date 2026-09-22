@@ -48,6 +48,14 @@ changes at every restart and must be pasted into the Linear app settings again; 
 
 Behaviour: `docs/operating-contract.md`. Plans: `docs/superpowers/plans/`.
 
+For Mac development alongside Windows production, follow the
+[development workflow](docs/development-workflow.md): offline tests first, then
+snapshots of real issues in a separate test workspace once its prerequisites are met.
+`serve --config` propagates the selected absolute config file to all worker attempts.
+An installed launchd service also preserves configuration selected through
+`FARMBOT_CONFIG`. Use an absolute `local_root`; changing the config filename alone
+does not move its state. Restart a settled service after editing configuration.
+
 For a host-specific Codex model override, add `codex_workers` to private
 `.local/agent/config.json` and restart the drained receiver:
 
