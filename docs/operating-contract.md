@@ -135,7 +135,7 @@ worktrees. A live unverifiable PID, surviving descendants, unsettled reservation
 files and records a cleanup error. A dead parent alone does not prove detached children exited: an
 attempt without verified teardown evidence (including an interrupted launch or older attempt) also
 holds cleanup for operator investigation. These guards apply to every terminal retirement path. The scheduler retries pending cleanup. Slots still require the
-existing quiescence probe; a held slot requires operator recovery. No log, ledger history or memory
+existing quiescence probe; held slots enter controller-owned recovery. No log, ledger history or memory
 snapshot is removed by closure cleanup. Every worker attempt gets its own log directory.
 
 Inspect `cleanup_pending` and `issue_status_errors` with `python3 -m agent.service status`, or the
@@ -147,6 +147,33 @@ repository history. Cleanup does not push, merge, close PRs, or undo already-iss
 SIGTERM to the service runs batch-process cleanup during startup or normal serving. On this Mac,
 the earlier live `launchctl kickstart -k` rehearsal also removed the batch Editor; this is not a promise
 that Python cleanup executes after SIGKILL. Reservation release still requires a quiescence probe.
+
+## Automatic Unity resource recovery
+
+A failing release or stalled interactive test quarantines its slot and requests controller
+recovery. `awaiting_resource` with stage `waiting_for_recovery` is an infrastructure wait;
+`awaiting_input` remains exclusively a human question. This supersedes the original
+operator-only slot recovery policy. Workers checkpoint, release `unclean`, and exit immediately.
+The release revokes both their claim and reservation token. Never request a human to operate
+Unity or add `needs-more-info` for this condition.
+
+After certifying the worker's process tree has stopped, the controller detaches the old
+reservation and queues its exact commit and mode. A healthy second slot may resume that job
+while an independent service loop repairs the first. Only configured local slot editors may
+be stopped; uncertain process inspection, dirty tracked source, surviving processes and
+identity mismatches keep the slot quarantined. A shared MCP broker is never terminated by
+this recovery path. Captured diagnostics remain under `.local/agent/resource-recovery/`.
+
+The controller observes test progress, not merely the active flag: 180 seconds without progress
+or continuously unavailable inspection triggers recovery. Repair requests a cooperative Play Mode
+stop and verifies teardown before restarting the editor. Startup, compilation, commit and loaded
+assembly identity must pass before availability is restored. An interrupted run remains a
+verification gap. Stop and issue closure prevent job continuation throughout recovery.
+
+There are two automatic retries per job and three attempts per slot recovery, with 60/180-second
+repair backoff persisted across restarts. Repair leases expire after 15 minutes if a controller
+dies. Exhaustion produces an explicit failure, preserves work, and reports through Linear;
+it never masquerades as a question. Existing human questions are not automatically resumed.
 
 ## Draft PR publishing authority
 
@@ -280,15 +307,15 @@ the host code and worker skill files together after the service has been settled
 Chinese, concise, one marker line `[farmbot:<id>]` appended by the ledger. Kinds: started (once
 per item), blocker, delivery. Templates: `references/comment-templates.md`.
 
-## Limits in this phase
+## Resource execution limits
 
-- One host at a time (the Mac since 2026-09-18; Windows follows in its own plan) and one Unity slot. Two
-  items that both need Unity serialize on it in arrival order; a worker holds at most one slot and releases
+- Each configured host owns its Unity slots. Items that need Unity queue for a free slot;
+  a worker holds at most one slot and releases
   it after its own quiescence check with `release-resource --outcome quiescent`, or `--outcome unclean` to
-  leave it for an operator. **A worker never starts a Unity process**: the Editor does not work inside a
+  hand it to controller recovery. **A worker never starts a Unity process**: the Editor does not work inside a
   worker's sandbox, so FarmBot performs a batch run itself, outside that sandbox, between the request and
   the worker that reads its results — one grant is one run. A failing probe, and an unclean release, hold
-  the slot until an operator runs `recover-slot`. No slot is ever released on a timer. A slot runs Edit Mode
+  the slot until controller repair verifies it healthy. No slot is ever released on a timer. A slot runs Edit Mode
   and PlayMode fixtures and never a player build: the budget is an import-only `Library/`, and a player
   build adds several GB of `Bee` and `BuildCache` to it. The receiver and the tunnel run as launchd agents
   and restart at login; while the host config names no named tunnel, the public hostname changes whenever

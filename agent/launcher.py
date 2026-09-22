@@ -395,9 +395,32 @@ class Launcher:
             return False
         return item_id in self._command_line(pid)
 
-    def kill_pid(self, pid, grace=5.0):
+    def kill_owned_attempt(self, item_id, pid):
+        """Persist the exact attempt's teardown targets before signalling them."""
+        attempts = [p for p in self.state_dir(item_id).glob('*/process.json')
+                    if json.loads(p.read_text(encoding='utf-8')).get('pid') == pid]
+        if len(attempts) != 1 or not self.owned_pid(pid, item_id):
+            raise RuntimeError('worker attempt ownership is ambiguous')
+        return self.kill_pid(pid, evidence=attempts[0].parent / 'killed.json')
+
+    def kill_pid(self, pid, grace=5.0, *, evidence=None):
         """Terminate a worker this launcher no longer tracks (after a restart) plus its descendants."""
         targets = [pid] + self.descendants(pid)
+        retained = set(targets)
+        if evidence is not None:
+            if evidence.exists():
+                previous = json.loads(evidence.read_text(encoding='utf-8'))
+                if previous.get('pid') != pid:
+                    raise RuntimeError('teardown evidence belongs to a different attempt')
+                retained.update(previous['descendants'])
+            # assert_quiescent checks that every recorded target is dead. Save
+            # before the kill so a crash after teardown cannot lose the targets.
+            temporary = evidence.with_suffix('.tmp')
+            with temporary.open('w', encoding='utf-8') as stream:
+                json.dump({'pid': pid, 'descendants': sorted(retained - {pid})}, stream)
+                stream.flush()
+                os.fsync(stream.fileno())
+            temporary.replace(evidence)
         for target in targets:
             self._signal_pid(target, signal.SIGTERM)
         deadline = time.monotonic() + grace
@@ -406,7 +429,10 @@ class Launcher:
         for target in targets:
             if self.alive(target):
                 self._signal_pid(target, signal.SIGKILL)
-        return targets
+        # Only signal the presently owned process tree. Orphaned targets from a
+        # prior scan stay in the proof and block reuse while alive; PID reuse
+        # means that an old numeric PID alone never authorizes a new signal.
+        return sorted(retained)
 
     @staticmethod
     def _signal_pid(pid, sig):

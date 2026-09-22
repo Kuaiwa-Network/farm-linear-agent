@@ -740,7 +740,8 @@ class PoolTests(SlotFixture):
         summary = json.loads((self.root / "runs" / item / "unity-batch.json").read_text(encoding="utf-8"))
         self.assertEqual(summary["state"], "timeout")
         self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "held")
-        self.assertEqual(self.ledger.item(item)["state"], "failed")
+        self.assertEqual(self.ledger.item(item)["state"], "awaiting_resource")
+        self.assertEqual(self.ledger.item(item)["stage"], "waiting_for_recovery")
 
     def test_two_requests_serialize_on_the_one_slot_batch_first_then_interactive(self):
         self.pool().ensure()
@@ -852,13 +853,14 @@ class PoolTests(SlotFixture):
         self.assertEqual(self.trees.head(self.root / "editors" / "slot-1"), second_commit)
         self.assertEqual(self.ledger.item(second)["state"], "queued")
 
-    def test_a_failing_probe_holds_the_slot_and_fails_the_item_without_retrying(self):
+    def test_a_failing_probe_holds_the_slot_and_queues_controller_recovery(self):
         self.pool().ensure()
         item = self.waiting(ISSUE, self.commit("fix"), "interactive")
         pool = self.pool(mcp=FakeMcp(ready=False))
         pool.tick()
         self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "held")
-        self.assertEqual(self.ledger.item(item)["state"], "failed")
+        self.assertEqual(self.ledger.item(item)["state"], "awaiting_resource")
+        self.assertEqual(self.ledger.item(item)["stage"], "waiting_for_recovery")
         self.assertEqual([r["state"] for r in self.ledger.reservations()], ["active"])
 
     def test_a_held_slot_is_not_probed_again_on_the_next_tick(self):

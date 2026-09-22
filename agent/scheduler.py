@@ -86,6 +86,8 @@ class Scheduler:
         # worker the Unity MCP whether or not it holds a slot — and never from a repository-local
         # .codex/config.toml, which the isolated home makes inert.
         reservation = self.ledger.active_reservation(item["id"])
+        if reservation is not None and self.ledger.slot(reservation['resource'])['state'] == 'held':
+            return None
         servers, resource = {}, None
         if reservation is not None and reservation["kind"] in skill.resources:
             slot = self.ledger.slot(reservation["resource"])
@@ -261,6 +263,28 @@ class Scheduler:
                 self._retire(finished.item_id, state)
             reaped += 1
         return reaped
+
+    def fence_resource_worker(self, recovery):
+        """Stop the revoked attempt and certify its process tree before failover."""
+        item_id, pid = recovery['item_id'], recovery['worker_pid']
+        if item_id is None:
+            return
+        with self.lock:
+            current = self.ledger.item(item_id)
+            if current['worker_pid'] is not None and current['worker_pid'] != pid:
+                raise RuntimeError('a different worker attempt owns this job')
+            self.launcher.stop_unsandboxed(item_id)
+            self.launcher.stop(item_id)
+            recorded = []
+            certified = self.launcher.certified_pids(item_id) if hasattr(self.launcher, 'certified_pids') else set()
+            if pid and pid not in certified and self.launcher.alive(pid):
+                if not self.launcher.owned_pid(pid, item_id):
+                    raise RuntimeError('old worker process ownership is unverified')
+                recorded = self.launcher.kill_owned_attempt(item_id, pid)
+            self.launcher.assert_quiescent(item_id, pid, recorded)
+            # Consume the old handle before its same-ID successor can launch.
+            self._reap()
+            self.active.pop(item_id, None)
 
     def _recover(self):
         recovered = 0

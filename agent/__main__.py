@@ -373,9 +373,9 @@ def run(args, ledger, api_factory):
         if reservation is None:
             raise LedgerError("this item holds no resource")
         if args.outcome == "unclean":
-            # The worker says it left the Editor in a state it could not settle; the slot waits for an
-            # operator's recover-slot rather than going to the next worker wedged.
-            return ledger.hold_owned(reservation["reservation_id"], token, "worker reported an unclean release")
+            held = ledger.hold_owned(reservation["reservation_id"], token, "worker reported an unclean release")
+            return {"state": "recovery_queued", "reservation": held, "item": ledger.item(args.item),
+                    "next_action": "exit; the controller will recover Unity and resume the saved job"}
         ledger.release(reservation["reservation_id"], token, "worker reported quiescent")
         return ledger.reservation(reservation["reservation_id"])
     if c == "reservations":

@@ -81,3 +81,10 @@ succeeds. Confirm the returned checkpoint contains the intended handoff before r
 the claim. The CLI blocks those transitions after a rejected handoff until a valid
 handoff is saved; do not remove `handoff` to bypass the repair. If saving cannot
 succeed, retain the local JSON, report the exact error, and do not claim it was saved.
+
+For a stalled Unity reservation, save that checkpoint **before**
+`release-resource --outcome unclean --item ITEM_ID --token-file RESERVATION_TOKEN_FILE`.
+Its `recovery_queued` response revokes the worker claim and reservation token: exit immediately.
+The controller handles editor recovery and job continuation. Do not follow it with `await-input`
+or ask for host intervention. A fresh worker receives the exact retried commit and can read
+`issue-context.resource_recovery` for prior attempts and retained diagnostics.

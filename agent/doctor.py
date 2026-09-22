@@ -52,7 +52,7 @@ def _report(now):
     return {"schema_version": 1, "checked_at": now, "status": "ok", "host": None,
             "scope": "local ledger snapshot and recorded worker PIDs; no service, tunnel or Linear health probe",
             "counts": {}, "jobs": [], "slots": [], "reservations": [],
-            "cleanup_pending": [], "issue_status_errors": [], "findings": []}
+            "cleanup_pending": [], "issue_status_errors": [], "resource_recoveries": [], "findings": []}
 
 
 def _finding(report, code, hint, *, incomplete=False, **evidence):
@@ -91,6 +91,9 @@ def _snapshot(path):
                 OR EXISTS (SELECT 1 FROM job_cleanup c WHERE c.item_id=w.id AND c.done=0)
                 ORDER BY w.created_at,w.id"""),
             "slots": rows("SELECT slot_id,kind,host,folder,state,updated_at FROM slots ORDER BY slot_id"),
+            "resource_recoveries": rows("""SELECT id,slot_id,item_id,state,attempts,detached,due_at,lease_until,
+                error IS NOT NULL AS has_error,evidence,updated_at FROM resource_recoveries
+                WHERE state != 'recovered' ORDER BY created_at,id""") if 'resource_recoveries' in tables else [],
             "reservations": rows("""SELECT reservation_id,item_id,resource,host,state,created_at,acquired_at
                 FROM reservations WHERE state IN ('queued','active','cancel_requested') ORDER BY sequence"""),
             "cleanup_pending": rows("""SELECT item_id,worker_pid,error IS NOT NULL AS has_error,updated_at
@@ -185,7 +188,7 @@ def diagnose(config, *, now=None):
     owned_slots = {r["resource"] for r in report["reservations"] if r["state"] in ("active", "cancel_requested")}
     for slot in report["slots"]:
         if slot["state"] == "held":
-            _finding(report, "slot_held", "Inspect slot identity and service logs before releasing the hold.", slot_id=slot["slot_id"], host=slot["host"])
+            _finding(report, "slot_held", "Controller recovery owns this slot. Inspect resource_recoveries and retained diagnostics; do not release it manually.", slot_id=slot["slot_id"], host=slot["host"])
         # release() leaves a slot switching while park_idle() returns it to the pool.
         elif slot["state"] in ("interactive_busy", "batch_busy") and slot["slot_id"] not in owned_slots:
             _finding(report, "slot_without_reservation", "Inspect the slot and reservation history; a busy slot has no active reservation.", slot_id=slot["slot_id"], host=slot["host"])

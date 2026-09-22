@@ -40,6 +40,19 @@ class DoctorTests(unittest.TestCase):
     def codes(self, report):
         return {f["code"] for f in report["findings"]}
 
+    def test_recovery_diagnostics_expose_progress_without_private_errors(self):
+        from agent.resource_recovery import RecoveryStore
+        self.ledger.ensure_slot('unity_slot:1', kind='unity_slot', host='test-host', folder=str(self.paths.editors / 'slot-1'))
+        self.ledger.set_slot_state('unity_slot:1', 'held')
+        store = RecoveryStore(self.ledger)
+        store.discover('test-host')
+        recovery = store.begin(store.pending('test-host')[0]['id'])
+        store.failed(recovery['id'], recovery['attempts'], 'private error detail')
+        report = self.report()
+        self.assertEqual(report['resource_recoveries'][0]['attempts'], 1)
+        self.assertEqual(report['resource_recoveries'][0]['state'], 'pending')
+        self.assertNotIn('private error detail', json.dumps(report))
+
     def running(self, pid=4242, host="test-host"):
         self.ledger.set_worker(self.item["id"], pid, host)
         return self.ledger.claim(self.item["id"], worker_id="test")

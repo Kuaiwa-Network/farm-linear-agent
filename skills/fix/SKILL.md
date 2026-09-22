@@ -130,11 +130,16 @@ Cheapest sufficient check first, and say which rungs ran:
    console and preserve the evidence. If tests are active, do not clear the job or reload the Editor.
    Only when no tests are active may you attempt one documented MCP recovery appropriate to the
    observed state (`clear_stuck` requires evidence that the job is orphaned).
-   Recheck state after that attempt; if it still cannot settle, release `unclean`. Never start or kill
+   Recheck state after that attempt; if it still cannot settle, save a checkpoint and release `unclean`. Never start or kill
    the shared Editor. A reload that restores progress does not establish why the stall occurred.
    Leave the Editor in Edit Mode with nothing compiling, then
-   `release-resource --outcome quiescent`; if you cannot, `--outcome unclean`, which holds the slot for an
-   operator instead of handing a wedged Editor to the next worker.
+   `release-resource --outcome quiescent`; if you cannot, `--outcome unclean`, which quarantines the slot,
+   revokes your claim and resource token, and queues automatic controller recovery. **Exit immediately
+   after an unclean release. Do not call `await-input`, add `needs-more-info`, or ask anyone to operate
+   the Unity host.** The controller proves worker teardown, preserves diagnostics, retries the exact
+   reservation commit on a healthy slot, and repairs the affected bot-owned editor independently.
+   On resume inspect `resource_recovery` in `issue-context`; interrupted tests are verification gaps,
+   never successful evidence. Repeated stalls are bounded and end with an infrastructure failure report.
 
 `release-resource` is authorised by the *reservation* token, not by your claim token: pass `--token-file`
 with the path in `resource.token_file` from your launch message, which the pool wrote before you started.

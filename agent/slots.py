@@ -304,7 +304,6 @@ class SlotPool:
             # Spec §7: a failing probe holds the slot for the operator's recover command. With one slot there
             # is nowhere to retry, so the item records the gap instead of waiting for a human.
             self.ledger.hold(reservation["reservation_id"], reason)
-            self.ledger.fail_queued(reservation["item_id"], f"slot held after a failed probe: {reason}")
             return
         self.ledger.release(reservation["reservation_id"], reservation["token"], reason)
         try:
@@ -851,16 +850,37 @@ class UnityIdentity:
         the Editor keeps running, so it is not used at all. SIGTERM the pid that holds the folder — measured
         gone in 1 s — and confirm it. Removing Temp/UnityLockfile is the pool's job, not this method's,
         because Unity leaves it behind even here."""
-        pid = editor_holds_project(slot["folder"])
+        pid = editor_holds_project(slot["folder"], strict=True)
         if pid is None:
             return
         os.kill(pid, signal.SIGTERM)
         deadline = self.clock() + timeout
-        while editor_holds_project(slot["folder"]) is not None:
+        while editor_holds_project(slot["folder"], strict=True) is not None:
             if self.clock() >= deadline:
                 raise SlotError(f"Unity pid {pid} still holds {slot['folder']} {timeout}s after SIGTERM",
                                 stage="editor")
             self.sleep(1.0)
+
+    def recovery_snapshot(self, slot):
+        client = self._client(slot)
+        state = client.read_resource('mcpforunity://editor/state')
+        snapshot = {'state': state}
+        job_id = (state.get('tests') or {}).get('current_job_id')
+        if job_id:
+            snapshot['job'] = client.call_tool('get_test_job', {'job_id': job_id, 'wait_timeout': 0})
+        try:
+            snapshot['console'] = client.call_tool('read_console', {'action': 'get', 'types': ['error'],
+                                                                   'count': '10', 'include_stacktrace': True})
+        except Exception as exc:
+            # Auxiliary diagnostics must not turn a progressing test into an
+            # unavailable editor and eventually trigger a false watchdog hold.
+            snapshot['console_error'] = f'{type(exc).__name__}: {exc}'[:500]
+        return snapshot
+
+    def cancel_tests(self, slot):
+        # Exiting Play Mode is the supported cooperative stop available across
+        # the deployed Unity test-framework versions. Never clear a live job.
+        return self._client(slot).call_tool('manage_editor', {'action': 'stop'})
 
     def reap_server(self, slot):
         """The uvx MCP server is a child of the Editor but outlives it: after the kill it still held port
