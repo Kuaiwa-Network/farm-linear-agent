@@ -102,6 +102,72 @@ class WorktreeTests(unittest.TestCase):
         self.assertFalse(path.exists())
         self.assertNotIn(str(path), git("worktree", "list", cwd=self.trees.ensure_clone("Farm-Client")))
 
+    def test_removed_same_item_resumes_saved_work_on_every_retry(self):
+        for readonly in (False, True):
+            item = "readonly" if readonly else "writer"
+            def reopen():
+                if readonly:
+                    return self.trees.add_detached("Farm-Client", item)
+                return self.trees.add("Farm-Client", item, "farmbot/retry", refresh=False)
+            path = reopen()
+            with self.subTest(readonly=readonly):
+                for attempt in range(3):
+                    (path / "fix.txt").write_text(f"saved work {attempt}\n")
+                    saved = self.trees.preserve(item)
+                    self.assertEqual(saved["errors"], {})
+                    self.trees.remove_preserved(item, saved)
+                    path = reopen()
+                    self.assertEqual(self.trees.head(path), saved["committed"]["Farm-Client"])
+                    self.assertEqual((path / "fix.txt").read_text(), f"saved work {attempt}\n")
+                    branch = git("branch", "--show-current", cwd=path)
+                    self.assertEqual(bool(branch), not readonly)
+
+    def test_recovery_does_not_replace_an_existing_worktree(self):
+        for readonly in (False, True):
+            item = "readonly" if readonly else "writer"
+            if readonly:
+                path = self.trees.add_detached("Farm-Client", item)
+            else:
+                path = self.trees.add("Farm-Client", item, "farmbot/active")
+            self.trees.preserve(item)
+            (path / "pending.txt").write_text("active work")
+            if readonly:
+                reopened = self.trees.add_detached("Farm-Client", item)
+            else:
+                reopened = self.trees.add("Farm-Client", item, "farmbot/active")
+            self.assertEqual(reopened, path)
+            self.assertEqual((path / "pending.txt").read_text(), "active work")
+
+    def test_invalid_recovery_ref_never_starts_from_baseline(self):
+        clone = self.trees.ensure_clone("Farm-Client")
+        blob = git("rev-parse", "origin/main:README.md", cwd=clone)
+        for readonly in (False, True):
+            for index, invalid in enumerate((blob, "f" * 40, "invalid", "ref: refs/heads/missing")):
+                item = f"invalid-{readonly}-{index}"
+                ref = clone / "refs" / "farmbot" / "recovery" / item
+                ref.parent.mkdir(parents=True, exist_ok=True)
+                ref.write_text(invalid + "\n")
+                with self.subTest(readonly=readonly, invalid=invalid):
+                    with self.assertRaisesRegex(WorktreeError, "recovery"):
+                        if readonly:
+                            self.trees.add_detached("Farm-Client", item)
+                        else:
+                            self.trees.add("Farm-Client", item, f"farmbot/{item}", refresh=False)
+                    self.assertFalse((self.trees.worktrees_root / item / "Farm-Client").exists())
+                ref.unlink()
+
+    def test_packed_recovery_ref_restores_saved_commit(self):
+        path = self.trees.add("Farm-Client", "item-1", "farmbot/packed")
+        (path / "fix.txt").write_text("saved work")
+        saved = self.trees.preserve("item-1")
+        self.trees.remove_preserved("item-1", saved)
+        clone = self.trees.clone_path("Farm-Client")
+        git("pack-refs", "--all", cwd=clone)
+        self.assertFalse((clone / saved["refs"]["Farm-Client"]).exists())
+        path = self.trees.add("Farm-Client", "item-1", "farmbot/packed")
+        self.assertEqual(self.trees.head(path), saved["committed"]["Farm-Client"])
+        self.assertEqual((path / "fix.txt").read_text(), "saved work")
+
     WIP = "wip(item-1): worker exited without finishing"
 
     def test_commit_wip_commits_a_failed_items_work_to_its_branch(self):

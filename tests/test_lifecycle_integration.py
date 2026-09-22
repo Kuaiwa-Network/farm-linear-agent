@@ -66,6 +66,9 @@ time.sleep(120)
         self.assertTrue(before_logs <= set(self.c.paths.runs.rglob('*.log')))
         self.assertIn('worker evidence retained', (handle.run_dir / 'stdout.log').read_text())
         saved = cleanup['result']; ref = saved['refs']['Farm-Client']
+        sha = saved['committed']['Farm-Client']
+        snapshot = saved['snapshots']['Farm-Client'][sha]
+        self.assertEqual(snapshot, f"refs/farmbot/recovery-history/{job['id']}/{sha}")
         clone = self.c.worktrees.clone_path('Farm-Client')
         self.assertEqual(git('show', ref + ':README.md', cwd=clone), 'tracked unfinished fix')
         self.assertEqual(git('show', ref + ':new-source.txt', cwd=clone), 'untracked unfinished fix')

@@ -119,6 +119,41 @@ def resolve_token(args):
     raise LedgerError("claim token required: pass --token-file PATH, set FARMBOT_TOKEN, or pass --token")
 
 
+def verify_late_prs(ledger, args, token, progress):
+    """Only consult GitHub when Linear has already observed unregistered output."""
+    published = progress.get("published_prs", []) if isinstance(progress, dict) else []
+    if not isinstance(published, list) or not all(isinstance(url, str) for url in published):
+        return []  # the checkpoint validator reports the payload error
+    ledger.renew(args.item, token)
+    context = ledger.issue_context(args.item)
+    late = set(published) & set(context['issue']['attachments']) - set(context['published_prs'])
+    if not late:
+        return []
+    from .config import ROOT
+    from .publication import PublicationVerifier, github_repository
+    from .skills import load_skills
+    from .worktrees import Worktrees
+    config = load_config()
+    paths = Paths(config)
+    if Path(args.db).resolve() != paths.ledger.resolve():
+        raise LedgerError("publication reconciliation must use the configured host ledger")
+    item = ledger.item(args.item)
+    skill = load_skills(ROOT / 'skills').get(item['skill'])
+    session = ledger.session(item['session_id']) or {}
+    if item['skill'] not in WRITE_SKILLS or not skill or not session.get('delegation'):
+        raise LedgerError("only a delegated write worker may reconcile published PRs")
+    verifier = PublicationVerifier(Worktrees(paths.repos, paths.worktrees, config.repos))
+    verified = []
+    for url in sorted(late):
+        repo = next((name for name in skill.writes if name in config.repos and
+                     url.casefold().startswith(('https://github.com/' + github_repository(config.repos[name]) + '/pull/').casefold())), None)
+        if repo is None:
+            raise LedgerError("PR URL is not under an allowed publishing repository")
+        verified.append(verifier.verify_pr(repo, args.item, context['issue']['identifier'], url))
+    ledger.renew(args.item, token)  # network checks cannot outlive cancellation or the claim
+    return verified
+
+
 def session_response(skill, outcome, evidence):
     """The activity that completes the Linear session. A chat answer is already its own response."""
     if skill == "chat" and outcome == "delivered":
@@ -215,7 +250,9 @@ def run(args, ledger, api_factory):
         progress = read_json(args.input)
         if isinstance(progress, dict):
             check_pr_targets(progress.get("published_prs"))
-        return ledger.checkpoint(args.item, resolve_token(args), progress)
+        token = resolve_token(args)
+        return ledger.checkpoint(args.item, token, progress,
+                                 verified_prs=verify_late_prs(ledger, args, token, progress))
     if c == "issue-context":
         return ledger.issue_context(args.item)
     if c == "pop-inbox":
@@ -239,6 +276,7 @@ def run(args, ledger, api_factory):
         token = resolve_token(args)
         item = ledger.item(args.item)
         ledger.renew(args.item, token)
+        ledger.require_valid_checkpoint(args.item, token)
         api = api_factory()
         api.needs_more_info(item["issue_id"])
         api.create_activity(item["session_id"], {"type": "elicitation", "body": args.question})
