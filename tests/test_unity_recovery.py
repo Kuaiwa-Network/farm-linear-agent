@@ -2,7 +2,7 @@ import subprocess
 import unittest
 from pathlib import Path
 
-from agent.unity import UnityError, editor_holds_project
+from agent.unity import UnityError, editor_holds_project, other_editor_project
 from test_slots import FakeMcp, SlotFixture
 
 
@@ -81,6 +81,12 @@ class EditorRecoveryTests(SlotFixture):
 
 
 class StrictEditorInspectionTests(unittest.TestCase):
+    def test_outside_editor_scan_does_not_treat_a_timeout_as_no_editor(self):
+        def unavailable():
+            raise subprocess.TimeoutExpired('process listing', 5)
+        with self.assertRaises(UnityError):
+            other_editor_project(Path('slot'), run=unavailable, strict=True)
+
     def test_import_helpers_do_not_hide_main_editor_and_still_hold_project_after_it_exits(self):
         folder = Path('slot').resolve()
         main = f'123 Unity -projectPath "{folder}"\n'

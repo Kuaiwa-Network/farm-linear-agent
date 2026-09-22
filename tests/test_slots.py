@@ -498,6 +498,18 @@ class SwitchTests(SlotFixture):
         with self.assertRaisesRegex(SlotError, "identity probe did not match"):
             pool.switch("unity_slot:1", self.commit("fix"), "interactive")
 
+    def test_unavailable_foreign_editor_inspection_preserves_broker(self):
+        from agent.unity import UnityError
+        self.pool().ensure()
+        mcp = FakeMcp()
+        pool = self.pool(mcp=mcp)
+        slot = pool.switch('unity_slot:1', self.commit('fix'), 'interactive')
+        def unavailable(folder):
+            raise UnityError('process inspection timed out')
+        pool.editor_scan = unavailable
+        self.assertTrue(pool.close_editor(slot))
+        self.assertNotIn(('reap_server', 'unity_slot:1'), mcp.calls)
+
     def test_a_live_editors_lock_is_never_deleted_by_a_park_or_a_batch_switch(self):
         """spec §7 line 353: the lock is removed "only after confirming the process is gone". `lambda: False`
         asserts that rather than checking, and the lock file is what enforces Unity's one-Editor-per-folder

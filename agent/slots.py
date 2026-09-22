@@ -105,7 +105,7 @@ class SlotPool:
         # with their own Unity Editor open would otherwise fail every switch test on their machine.
         self.sleep = sleep or time.sleep
         self.editor_scan = editor_scan or (lambda folder: other_editor_project(
-            folder, allowed_projects=[self.folder(entry) for entry in self.entries.values()]))
+            folder, allowed_projects=[self.folder(entry) for entry in self.entries.values()], strict=True))
         self.editor_pid = editor_pid or editor_holds_project
         # A callable taking an item id and returning that item's private directory: Launcher.state_dir in
         # production. The reservation token is written there and nowhere else.
@@ -627,8 +627,13 @@ class SlotPool:
             peers = [other for other in self.ledger.slots(host=self.host)
                      if other["slot_id"] != slot["slot_id"] and other["slot_id"] in self.entries
                      and other["mcp_address"] == slot["mcp_address"]]
-            shared_open = (any(self.editor_is_open(other) for other in peers)
-                           or bool(self.another_editor_running(folder)))
+            shared_open = any(self.editor_is_open(other) for other in peers)
+            if not shared_open:
+                try:
+                    shared_open = bool(self.another_editor_running(folder))
+                except UnityError:
+                    # Unknown consumers cannot justify terminating a shared broker.
+                    shared_open = True
             if not shared_open:
                 # The first editor owns the pidfile even if another editor is last to close.
                 for owner in [slot, *peers]:
