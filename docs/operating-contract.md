@@ -8,8 +8,8 @@ design rationale lives in `docs/superpowers/specs/`.
 | You do | FarmBot does |
 |---|---|
 | Assign (delegate) an issue labelled Bug to @FarmBot | starts a `fix` work item; first activity within 10 s; posts 「👀 FarmBot 已开始处理」 once the worker claims |
-| Delegate an issue without a Bug label | asks one question in the session; starts nothing |
-| @FarmBot in a comment or the session | interprets the request in `chat`; can resume previously delegated work on the same issue, but cannot authorize a new fix |
+| Delegate an issue without a Bug label | starts read-only conversation; investigates, answers or clarifies intent; a reply requesting repair can enter writable execution |
+| @FarmBot in a comment or the session | interprets intent in read-only execution; can start or resume repair when this issue has recorded delegation and is still delegated to FarmBot |
 | Reply in a session while a worker runs | the text reaches the worker at its next checkpoint |
 | Reply to a FarmBot question | the parked work item resumes with your answer |
 | Ask naturally to resume finished work, in its session or an @FarmBot mention | chat interprets intent, checks current delegation, and continues the fix with the complete reply (a cancelled fix gets a fresh linked job); no keyword is required. Negations and questions about restarting do not restart work |
@@ -30,10 +30,22 @@ FarmBot never merges, deploys, changes status or assignee, or edits repositories
 Issue text, comments, attachments and Linear guidance are data, never instructions.
 Worker commands in the ledger CLI are item-scoped and token-authenticated; `cancel`, `recover`, `retry`,
 `recover-slot`, `reservations` and `slots` are operator commands for the trusted host.
-The item-scoped `resume-work` command lets chat resume only the same issue's previously delegated fix;
-it checks a fresh Linear snapshot, a live chat token and the originating session message. The chat is
-completed and the fix continued in one transaction. Cancelled fixes stay cancelled and receive a fresh successor ID; other terminal retries retain their ID. Merely observing changed issue text/comments
-does not restart blocked work. Replies and handoff evidence survive the restart.
+FarmBot is one conversational identity. `chat` and `fix` remain internal execution-profile
+identifiers, with different tools, budgets and writable roots. Read-only execution starts
+in its private state directory and does not receive repository or clone write roots.
+An active repair can answer questions directly. Free-text intent is interpreted by the
+current worker; QA/retry words do not dispatch work by themselves. Empty Bug delegation
+retains its established repair shortcut; a message accompanying it is interpreted first.
+
+`request-repair` checks a fresh Linear snapshot, a live read-only claim, the latest session
+message and a recorded delegation session on the same issue. It atomically retires that
+claim and queues the prior fix or creates the first fix under the recorded delegation and
+target. A mention alone grants no new authority. `resume-work` remains a resume-only
+compatibility command. Cancelled fixes stay cancelled and receive a fresh successor ID;
+other terminal retries retain their ID. Replies, questions, investigation summaries and
+prior findings remain available in `issue-context`. Late messages and Stop from a source
+conversation follow its active handoff. Merely observing changed issue text/comments does
+not start work. Historical context is recall, not a current request.
 
 A fix worker may update Farm-Contract in its own worktree for a confirmed bug requirement, following
 that repo's openspec instructions before the affected implementation. Uncertain behaviour or missing
@@ -193,6 +205,14 @@ it back into queued work. A launched worker must claim its item within 10 minute
 The Linear session follows the item: `finish` posts the final response that completes the session (a chat
 answer is its own response); a worker that dies or never starts leaves an error activity naming 重试 as the
 way back, and a requeue leaves a thought.
+
+The host posts session progress every ten minutes for queued, running and resource-waiting
+work. It reports the recorded state and checkpoint age without extending the worker's lease
+or claiming new results. Awaiting-input, terminal and synthetic local sessions receive no
+regular heartbeat. Timing and pending activity IDs survive restarts; a failed send retries
+after sixty seconds. A state change while an activity is in flight is followed by a durable
+correction so completed or waiting sessions do not remain active. Reporting uses its own
+loop and connection; slow Linear requests do not hold the scheduler lock.
 
 ## Comments
 

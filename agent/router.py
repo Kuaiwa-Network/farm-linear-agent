@@ -1,11 +1,7 @@
-"""Deterministic routing of Linear session events to skills (spec §4)."""
+"""Route lifecycle events; workers interpret natural-language intent."""
 from dataclasses import dataclass
 
-QA_WORDS = ("测试", "复现", "冒烟", "qa")
 WRITE_SKILLS = ("fix", "fgui", "feature")
-ELICIT_TEXT = ("这个 issue 需要我做什么？请回复「修复」让我处理缺陷，或改为 @FarmBot 提问。"
-               "没有 Bug 标签的委派我不会自动开工。")
-QA_UNAVAILABLE = "我现在还不能在 qa 技能上执行游戏测试，只能回答问题；QA 会在下一阶段启用。"
 
 
 @dataclass(frozen=True)
@@ -15,11 +11,6 @@ class Decision:
     text: str | None = None
 
 
-def _contains(text, words):
-    lowered = (text or "").lower()
-    return any(word.lower() in lowered for word in words)
-
-
 def route(*, action, is_delegation, text, labels, active_state, terminal_exists, available_skills):
     if action == "stop":
         return Decision("stop")
@@ -27,16 +18,9 @@ def route(*, action, is_delegation, text, labels, active_state, terminal_exists,
         if active_state == "awaiting_input":
             return Decision("resume", None, text)
         return Decision("steer", None, text)
-    if action == "prompted" and terminal_exists:
-        # The chat worker interprets intent in context; a word inside a question or a
-        # negation must never restart work. Its resume-work tool enforces authority.
-        return Decision("chat", "chat", text)
-    if is_delegation and action == "created":
+    if is_delegation and action == "created" and not (text or "").strip():
+        # Retain the explicit Bug-delegation workflow. Any actual message is
+        # interpreted first, including questions and negations on a Bug issue.
         if "Bug" in labels and "fix" in available_skills:
             return Decision("work", "fix")
-        return Decision("elicit", None, ELICIT_TEXT)
-    if _contains(text, QA_WORDS):
-        if "qa" in available_skills:
-            return Decision("work", "qa")
-        return Decision("chat", "chat", QA_UNAVAILABLE)
     return Decision("chat", "chat", text)

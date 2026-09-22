@@ -17,13 +17,14 @@ from .publication import PublicationVerifier
 from .receiver import Receiver, make_server
 from .router import WRITE_SKILLS
 from .scheduler import Scheduler
+from .session_progress import SessionProgress
 from .skills import load_skills
 from .slots import SlotError, SlotPool, UnityIdentity, slot_entry
 from .worktrees import Worktrees
 
 Components = namedtuple("Components",
-                        "config paths api ledger skills worktrees launcher scheduler receiver server pool lifecycle",
-                        defaults=(None,))
+                        "config paths api ledger skills worktrees launcher scheduler receiver server pool lifecycle progress",
+                        defaults=(None, None))
 
 
 def build(config, runtime_override=None):
@@ -71,7 +72,8 @@ def build(config, runtime_override=None):
                     # composes its argv: Unity cannot run inside sandbox_workspace_write at all.
                     run_unsandboxed=launcher.run_unsandboxed,
                     mcp=UnityIdentity(ROOT / "agent" / "probes" / "editor-readiness.cs.txt"))
-    return Components(config, paths, api, ledger, skills, worktrees, launcher, scheduler, receiver, server, pool, lifecycle)
+    progress = SessionProgress(Ledger(paths.ledger, check_same_thread=False), api)
+    return Components(config, paths, api, ledger, skills, worktrees, launcher, scheduler, receiver, server, pool, lifecycle, progress)
 
 
 def seed_clones(config, source_root=None):
@@ -169,6 +171,11 @@ def serve(config_path=None, components=None):
             result = components.lifecycle.tick()
             stop.wait(0.1 if result["checked"] else 1.0)
         threads.append(threading.Thread(target=guarded("lifecycle", reconcile_once), daemon=True))
+    if components.progress is not None:
+        def progress_once():
+            sent = components.progress.tick()
+            stop.wait(0.1 if sent else 5.0)
+        threads.append(threading.Thread(target=guarded("progress", progress_once), daemon=True))
     main_thread = threading.current_thread() is threading.main_thread()
     previous_sigterm = signal.getsignal(signal.SIGTERM) if main_thread else None
 
@@ -210,6 +217,8 @@ def serve(config_path=None, components=None):
             components.pool.close()
             if components.lifecycle is not None:
                 components.lifecycle.ledger.close()
+            if components.progress is not None:
+                components.progress.ledger.close()
         finally:
             if main_thread:
                 signal.signal(signal.SIGTERM, previous_sigterm)

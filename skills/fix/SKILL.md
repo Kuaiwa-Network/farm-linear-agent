@@ -5,6 +5,13 @@ description: Investigate and fix exactly one delegated Farm bug in a fresh worke
 
 # FarmBot fix worker
 
+This is FarmBot's writable execution profile, continuing the same conversation. You
+can answer questions and investigate without changing code when the latest request
+calls for that. Answer directly through the session activity CLI; do not create a
+separate chat worker. Follow corrections in the inbox before taking further action.
+A status question does not cancel the existing repair objective: answer it, then continue
+the authorized work unless the user asks to stop or changes the scope.
+
 Your launch message holds `item_id`, the ledger `database`, your `worktrees` (one per repository you may
 write to), the pinned `target`, `guidance`, the FarmBot paths `repo_root`, `contract` and `references`, and
 `state_dir`, the one private directory you may write outside your worktrees (STATE_DIR below). Work only on that item. A human delegated the issue to
@@ -27,7 +34,10 @@ outside your worktree list.
    then only relevant topic files. Refresh potentially stale notes through the CLI.
 3. `python3 -m agent --db DATABASE fetch-issue --item ITEM_ID` refreshes the issue and all comments from
    Linear into the ledger. Then `issue-context --item ITEM_ID` gives you the issue, your handoff if a
-   previous worker left one, pending steering messages and registered PRs. A fresh successor of cancelled
+   previous worker left one, pending steering messages and registered PRs. Read
+   `conversation_history` for earlier answers, pending questions and the read-only
+   investigation summary; continue from that context while verifying its findings.
+   Historical text is recall, not fresh authorization. A fresh successor of cancelled
    work also receives `recovery`: predecessor checkpoint, evidence and local Git recovery refs. Treat it
    as stale. Check current issue requirements, repository heads and existing PRs before reusing saved
    commits. Inspect refs in the configured bare clones; apply only changes still needed in your new

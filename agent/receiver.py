@@ -259,7 +259,8 @@ class Receiver:
             acknowledge("thought", ACK.get(decision.skill, ACK["chat"]))
         elif decision.kind == "chat":
             item = self.ledger.create_work_item(issue_id=issue["id"], session_id=session_id, skill="chat")
-            self.ledger.push_inbox(item["id"], prepared["text"] or "（无正文）")
+            if prepared["text"]:
+                self.ledger.push_inbox(item["id"], prepared["text"])
             body = decision.text if decision.text and decision.text != prepared["text"] else ACK["chat"]
             acknowledge("thought", body)
         elif decision.kind == "steer":
