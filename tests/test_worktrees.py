@@ -1,3 +1,4 @@
+import contextlib
 import os
 import subprocess
 import tempfile
@@ -300,8 +301,9 @@ class WorktreeTests(unittest.TestCase):
             calls.append(args)
             return real(*args, cwd=cwd)
 
-        with patch("agent.worktrees._git", recording):
+        with contextlib.chdir(root), patch("agent.worktrees._git", recording):
             # git would resolve a relative path against the clone directory, not against our cwd.
+            # Use the fixture's drive: Windows may place temp state on C: and the checkout on D:.
             self.trees.ensure_clone("Farm-Client", seed_from=os.path.relpath(checkout))
         seed_fetch = next(a for a in calls if a[0] == "fetch" and "origin" not in a)
         self.assertIn(str(checkout.resolve()), seed_fetch)

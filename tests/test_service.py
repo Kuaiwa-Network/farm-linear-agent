@@ -271,6 +271,9 @@ class SignalShutdownTests(unittest.TestCase):
     def check_sigterm(self, phase):
         """Removing the signal handler or placing ensure outside finally orphans this real child."""
         script = textwrap.dedent('''
+            import faulthandler
+            # Capture a stalled startup before the parent's 15-second deadline.
+            faulthandler.dump_traceback_later(10)
             import signal, sqlite3, sys, threading
             from pathlib import Path
             from agent.config import Config
@@ -294,7 +297,7 @@ class SignalShutdownTests(unittest.TestCase):
                 def tick(self):
                     components.launcher.run_unsandboxed(
                         [sys.executable, "-c", child, str(root / "child.pid")],
-                        cwd=root, timeout=120, owner="temporary-batch")
+                        cwd=root, timeout=120, owner="temporary-batch", log=root / "batch.log")
 
                 def close(self):
                     if phase == "startup":
@@ -316,6 +319,7 @@ class SignalShutdownTests(unittest.TestCase):
                 else:
                     raise AssertionError("service left a ledger connection open")
             (root / "closed").write_text("closed")
+            faulthandler.cancel_dump_traceback_later()
         ''')
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -333,7 +337,14 @@ class SignalShutdownTests(unittest.TestCase):
                     while ((not marker.exists() or not marker.read_text()) and process.poll() is None
                            and time.monotonic() < deadline):
                         time.sleep(0.02)
-                    self.assertTrue(marker.exists(), (root / "service.log").read_text())
+                    if not marker.exists() or not marker.read_text():
+                        port_file, batch_log = root / "port", root / "batch.log"
+                        self.fail(
+                            f"batch marker not ready: phase={phase}, service_pid={process.pid}, "
+                            f"returncode={process.poll()}, executable={sys.executable!r}, "
+                            f"port={port_file.read_text() if port_file.exists() else 'not bound'}\n"
+                            f"service log:\n{(root / 'service.log').read_text()}\n"
+                            f"batch log:\n{batch_log.read_text() if batch_log.exists() else 'not started'}")
                     child_pid = int(marker.read_text())
                     self.assertTrue(Launcher.alive(child_pid))
                     if phase == "serving":
