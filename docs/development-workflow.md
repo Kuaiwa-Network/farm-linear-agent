@@ -34,14 +34,24 @@ Start with manual copies; automated issue import is deferred.
   workers and stubbed Linear/Unity integrations.
 - The service propagates the selected config file to initial and resumed workers;
   launchd installation preserves environment-selected configs as well.
-- Live test-bot provisioning, configurable app identity, test-team publishing
-  policy, enforced environment ownership and Mac/Windows CI remain work in the
+- Explicit profiles verify bot/workspace identity, bind a fresh state root, hold a
+  controller lock and reject fake/stub integrations for live operation.
+- `issue_prefix` supports test-team publishing with the existing repository checks.
+- [Mac/Windows CI](ci.md) runs the offline suite with Python 3.13 and records evidence.
+- Live credentials, dedicated Git write credentials, source snapshots, Unity resources
+  and Windows desktop acceptance remain operational setup in the
   [rollout plan](superpowers/plans/2026-09-22-cross-platform-development-and-release.md).
 
-Do not treat config propagation alone as completion of live environment isolation.
-Current identity validation still expects `FarmBot`, and publication validation
-still expects `FARM-*` issue identifiers. The planned `FarmBot Dev` / `FBTEST-*`
-setup needs those prerequisites before its first live run.
+Use the [development profile template](../config/development.example.json). Fill
+credentials only in an ignored private copy, set actual app/workspace IDs and a
+dedicated absolute root, and replace the sandbox repo examples. The template fails
+validation until completed. `seed-clones` initializes a fresh root's ownership marker
+before cloning; `serve` can initialize one too. Other state commands require an
+initialized explicit profile. Keep the config outside the state root when convenient.
+
+Existing configs use legacy compatibility; they do not acquire the stronger explicit
+live-profile requirements automatically. Use a fresh root for development. Do not
+point a development profile at existing production data or copy its marker.
 
 ## Daily code changes
 
@@ -79,8 +89,8 @@ worker should not receive the production reader's credentials.
 Each installation needs an absolute state root and separate ledger, memory, run
 logs, bare clones, worktrees and Unity slots. Give concurrent instances distinct
 receiver/MCP ports and service names. Do not share production Unity folders or copy
-Mac runtime state to Windows. Existing launchd labels are fixed, so two installations
-for the same user are not yet supported by that installer.
+Mac runtime state to Windows. Explicit profiles have distinct launchd labels derived
+from their environment and instance ID; installation does not start them.
 
 Map logical repository names to private sandbox copies of the real source. Include
 the relevant Git LFS assets, Unity version/build modules and test dependencies. Git

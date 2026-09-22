@@ -447,7 +447,9 @@ class LoopGuardTests(unittest.TestCase):
         server = Mock(); server.server_address = ("127.0.0.1", 1234)
         server.serve_forever.side_effect = lambda: released.wait(20)
         launcher = Mock(); launcher.runtime.name = "fake"
-        config = Mock(); config.host = "test"
+        state = tempfile.TemporaryDirectory()
+        self.addCleanup(state.cleanup)
+        config = Config('client', 'secret', 'signing', host='test', runtime='fake', local_root=Path(state.name))
         components = Components(config, None, None, Mock(), {"chat"}, None, launcher, Mock(), receiver, server,
                                 Mock())
         out = io.StringIO()

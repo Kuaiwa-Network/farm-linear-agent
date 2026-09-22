@@ -46,6 +46,8 @@ Behaviour: `docs/operating-contract.md`. Plans: `docs/superpowers/plans/`.
 For Mac development alongside Windows production, follow the
 [development workflow](docs/development-workflow.md): offline tests first, then
 snapshots of real issues in a separate test workspace once its prerequisites are met.
+Start an explicit development profile from [this template](config/development.example.json).
+See [CI](docs/ci.md) for the Python 3.13 Mac/Windows checks and evidence artifacts.
 `serve --config` propagates the selected absolute config file to all worker attempts.
 An installed launchd service also preserves configuration selected through
 `FARMBOT_CONFIG`. Use an absolute `local_root`; changing the config filename alone

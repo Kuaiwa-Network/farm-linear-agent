@@ -1,8 +1,10 @@
 """launchd agents: the property lists FarmBot writes, and what installing them touches (spec §17)."""
 import plistlib
+from dataclasses import replace
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from agent.config import Config
 from agent.deploy import AGENTS, install, missing_tools, plist, tunnel_arguments
@@ -66,6 +68,41 @@ class DeployTests(unittest.TestCase):
             # so a worker spawned under it would die at Popen with FileNotFoundError.
             self.assertEqual(job["EnvironmentVariables"]["PATH"], "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
             self.assertIn("HOME", job["EnvironmentVariables"])
+
+    def test_explicit_profiles_install_distinct_labels_without_replacing_legacy_agents(self):
+        target = self.root / "LaunchAgents"
+        legacy = install(self.config, target)
+        original = {label: path.read_bytes() for label, path in legacy.items()}
+        for environment, instance in (("development", "mac-dev"),
+                                      ("production", "mac-dev"),
+                                      ("development", "second-dev")):
+            config = replace(self.config, environment=environment, instance_id=instance,
+                             local_root=self.root / environment / instance,
+                             expected_app_user_id="app", expected_organization_id="org")
+            expected = {f"com.kuaiwa.farmbot.{environment}.{instance}.{kind}" for kind in AGENTS}
+            with patch("subprocess.run", side_effect=AssertionError("must not start jobs")), \
+                    patch("subprocess.Popen", side_effect=AssertionError("must not start jobs")):
+                written = install(config, target)
+            self.assertEqual(set(written), expected)
+            for label, path in written.items():
+                self.assertEqual(path.name, f"{label}.plist")
+                job = plistlib.loads(path.read_bytes())
+                self.assertEqual(job["Label"], label)
+                self.assertEqual(Path(job["StandardErrorPath"]).parent,
+                                 config.local_root / "agent" / "logs")
+                self.assertEqual(Path(job["StandardErrorPath"]).name, f"{label}.err.log")
+        self.assertEqual(len(list(target.glob("*.plist"))), 8)
+        self.assertEqual({label: path.read_bytes() for label, path in legacy.items()}, original)
+
+    def test_direct_install_uses_loaded_config_source_unless_explicitly_overridden(self):
+        target = self.root / "LaunchAgents"
+        self.config.source_path = self.root / "profile files 测试" / "selected.json"
+        override = self.root / "override.json"
+        for explicit, selected in ((None, self.config.source_path), (override, override)):
+            with self.subTest(explicit=explicit):
+                written = install(self.config, target, config_path=explicit)
+                serve = plistlib.loads(written[AGENTS["serve"]].read_bytes())
+                self.assertEqual(serve["ProgramArguments"][-2:], ["--config", str(selected.resolve())])
 
     def test_missing_tools_names_what_this_host_cannot_resolve(self):
         self.assertEqual(missing_tools(self.config, which=lambda name: f"/somewhere/{name}"), [])

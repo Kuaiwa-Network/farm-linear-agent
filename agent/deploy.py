@@ -14,6 +14,14 @@ from .config import Paths, ROOT
 AGENTS = {"serve": "com.kuaiwa.farmbot.serve", "tunnel": "com.kuaiwa.farmbot.tunnel"}
 
 
+def labels(config):
+    """Keep legacy installations stable and separate explicitly named profiles."""
+    if config.environment == "legacy":
+        return dict(AGENTS)
+    prefix = f"com.kuaiwa.farmbot.{config.environment}.{config.instance_id}"
+    return {kind: f"{prefix}.{kind}" for kind in AGENTS}
+
+
 def missing_tools(config, which=shutil.which):
     """The binaries the installed jobs will invoke and this host cannot resolve."""
     return [name for name in (config.runtime, "cloudflared") if which(name) is None]
@@ -59,9 +67,11 @@ def install(config, target_dir, *, python=sys.executable, cloudflared="cloudflar
     target_dir.mkdir(parents=True, exist_ok=True)
     # An installed job cannot inherit the operator's --config, so name it explicitly or it reads another file.
     serve = [python, "-u", "-m", "agent.service", "serve"]
+    config_path = config_path or config.source_path
     if config_path:
         serve += ["--config", str(Path(config_path).expanduser().resolve())]
-    jobs = {AGENTS["serve"]: serve, AGENTS["tunnel"]: tunnel_arguments(config, cloudflared)}
+    names = labels(config)
+    jobs = {names["serve"]: serve, names["tunnel"]: tunnel_arguments(config, cloudflared)}
     written = {}
     for label, arguments in jobs.items():
         destination = target_dir / f"{label}.plist"

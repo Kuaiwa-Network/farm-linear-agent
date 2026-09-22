@@ -22,6 +22,13 @@ class PublicationUnavailable(PublicationError):
     """A temporary transport failure, not a rejected publishing destination."""
 
 
+def issue_branch(identifier, issue_prefix='FARM'):
+    """Validate the configured issue namespace before deriving a writable branch."""
+    if not isinstance(identifier, str) or not re.fullmatch(re.escape(issue_prefix) + r'-[0-9]+', identifier):
+        raise PublicationError("publication requires an identifier in the configured issue namespace")
+    return 'farmbot/' + identifier.lower()
+
+
 def github_repository(url):
     match = re.fullmatch(r'(?:https://github\.com/|ssh://git@github\.com/|git@github\.com:)'
                          r'([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?', str(url), re.IGNORECASE)
@@ -62,9 +69,10 @@ def github_api(endpoint, *, missing_ok=False):
 
 
 class PublicationVerifier:
-    def __init__(self, worktrees, *, api=None):
+    def __init__(self, worktrees, *, api=None, issue_prefix='FARM'):
         self.worktrees = worktrees
         self.api = api or github_api
+        self.issue_prefix = issue_prefix
 
     def verify(self, repo, item_id, identifier, branch=None):
         try:
@@ -93,6 +101,7 @@ class PublicationVerifier:
         return url
 
     def _verify(self, repo, item_id, identifier, branch):
+        prefix = issue_branch(identifier, self.issue_prefix)
         configured = self.worktrees.remotes.get(repo)
         expected = github_repository(configured)
         root = self.worktrees.worktrees_root.resolve()
@@ -102,10 +111,9 @@ class PublicationVerifier:
                 or Path(_git('rev-parse', '--path-format=absolute', '--git-common-dir', cwd=path)).resolve()
                    != self.worktrees.clone_path(repo).resolve()):
             raise PublicationError("publication requires this job's own configured worktree")
-        prefix = 'farmbot/' + identifier.lower()
         actual_branch = _git('branch', '--show-current', cwd=path)
         branch = actual_branch if branch is None else branch
-        if (not re.fullmatch(r'FARM-[0-9]+', identifier) or not isinstance(branch, str)
+        if (not isinstance(branch, str)
                 or not (branch == prefix or branch.startswith(prefix + '-'))
                 or actual_branch != branch):
             raise PublicationError("publication requires this issue's FarmBot feature branch")

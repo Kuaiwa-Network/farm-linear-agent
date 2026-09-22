@@ -23,6 +23,38 @@ the file so the controller and its workers load the same settings. State locatio
 still comes from `local_root`; configure an absolute path for each installation.
 These rules do not by themselves restrict credentials, repositories or live issues.
 
+Explicit profiles select `environment` (`development`, `production`, or `offline`)
+and a lowercase `instance_id`. Existing configs default to `legacy` for compatibility.
+Live profiles require `expected_bot_name`, pinned `expected_app_user_id` and
+`expected_organization_id`, and a dedicated absolute `local_root`. API identity must
+match all configured fields. Live profiles reject the fake runtime and Linear stub
+selector; offline profiles require both. Offline mode still needs local repository
+and Unity fixtures and is not a network sandbox.
+
+`serve` and `seed-clones` acquire a nonblocking OS file lock on the root before
+building state. Explicit profiles bind a fresh root using `environment.json` with
+nonsecret identity fields. Mismatched, corrupt or unmarked existing runtime state is
+refused; it is never automatically adopted. State/Unity paths, including default slot
+folders, must resolve inside the root. Shutdown retains the lock until controller
+threads finish. Maintenance and worker CLI checks reject incompatible ownership
+before opening a ledger; worker CLI additionally checks the selected profile's DB.
+Config-free legacy CLI fixtures remain supported for unmarked databases.
+
+These checks prevent accidental profile mixing; filesystem permissions and credentials
+remain the security boundary. Do not delete the marker or downgrade code to bypass it.
+Migrate an existing production root only as a separately planned, backed-up operation.
+The marker adds no database migration, and legacy production settings are unchanged.
+
+`issue_prefix` defaults to `FARM`; a test team can use `FBTEST`. Writable worktrees
+and publication verification share this policy and use `farmbot/<lowercase-key>`
+with an optional suffix. An unrelated suggested Linear branch becomes the canonical
+branch. Repository identity, private/write permission, protected-branch and exact
+PR verification still apply. The prefix is a publishing rule, not a team admission rule;
+the dedicated workspace and pinned app/workspace IDs define the current live scope.
+
+Explicit launchd profiles use `com.kuaiwa.farmbot.<environment>.<instance_id>` labels;
+legacy labels remain unchanged. Installation writes plists but does not load them.
+
 ## Triggers
 
 | You do | FarmBot does |

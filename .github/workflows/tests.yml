@@ -1,0 +1,130 @@
+name: Offline tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: offline-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline:
+    name: Offline / ${{ matrix.os }} / Python 3.13
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    env:
+      PYTHONUTF8: "1"
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Check out candidate
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Check fixture dependencies
+        shell: python
+        run: |
+          import pathlib
+          import subprocess
+          import sys
+          import tempfile
+          print(sys.version)
+          subprocess.run(["git", "--version"], check=True)
+          subprocess.run(["git", "lfs", "version"], check=True)
+          # Symlink rejection tests are part of the safety boundary on both OSes.
+          # Fail when the runner lacks this capability instead of skipping them.
+          with tempfile.TemporaryDirectory() as directory:
+              root = pathlib.Path(directory)
+              (root / "target").mkdir()
+              (root / "link").symlink_to(root / "target", target_is_directory=True)
+              assert (root / "link").is_symlink()
+
+      - name: Run offline suite
+        shell: python
+        run: |
+          import contextlib
+          import json
+          import os
+          import pathlib
+          import platform
+          import subprocess
+          import sys
+          import time
+          import unittest
+
+          # Discovery and its child processes must use the fixtures' selectors.
+          # Do not expose inherited GitHub tokens to the suite or fake workers.
+          for name in list(os.environ):
+              if name.upper().startswith(("FARMBOT_", "FAKE_CLI_")) or name.upper() in {
+                  "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"
+              }:
+                  del os.environ[name]
+
+          sys.path.insert(0, str(pathlib.Path.cwd()))
+
+          class RecordedResult(unittest.TextTestResult):
+              def __init__(self, *args, **kwargs):
+                  super().__init__(*args, **kwargs)
+                  self.executed = []
+
+              def startTest(self, test):
+                  self.executed.append(test.id())
+                  super().startTest(test)
+
+          reports = pathlib.Path("reports/offline")
+          reports.mkdir(parents=True, exist_ok=True)
+          versions = {
+              "python": sys.version,
+              "platform": platform.platform(),
+              "git": subprocess.check_output(["git", "--version"], text=True).strip(),
+              "git_lfs": subprocess.check_output(["git", "lfs", "version"], text=True).strip(),
+              "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+          }
+          started = time.monotonic()
+          with (reports / "unittest.log").open("w", encoding="utf-8") as log:
+              with contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
+                  suite = unittest.defaultTestLoader.discover("tests")
+                  result = unittest.TextTestRunner(
+                      stream=log, verbosity=2, resultclass=RecordedResult).run(suite)
+          skipped = {test.id(): reason for test, reason in result.skipped}
+          native = [name for name in result.executed if name.startswith("test_windows_workers.")]
+          native_ok = os.name != "nt" or (bool(native) and not any(name in skipped for name in native))
+          summary = {
+              **versions,
+              "seconds": time.monotonic() - started,
+              "tests": result.testsRun,
+              "failures": [test.id() for test, _ in result.failures],
+              "errors": [test.id() for test, _ in result.errors],
+              "skipped": skipped,
+              "native_windows_tests": native,
+              "native_windows_required_checks_ran": native_ok,
+          }
+          (reports / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+          print((reports / "unittest.log").read_text(encoding="utf-8"))
+          if not native_ok:
+              print("Windows Job Object tests were missing or skipped", file=sys.stderr)
+          sys.exit(0 if result.wasSuccessful() and result.testsRun and native_ok else 1)
+
+      - name: Upload test evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: offline-${{ matrix.os }}-python-3.13
+          path: reports/offline/
+          if-no-files-found: warn
+          retention-days: 14

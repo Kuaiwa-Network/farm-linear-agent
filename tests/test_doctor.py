@@ -167,13 +167,16 @@ class DoctorTests(unittest.TestCase):
 
     def test_cli_is_json_and_does_not_change_config_permissions_or_ledger_contents(self):
         self.config_path.chmod(0o640)
+        # Windows exposes only a subset of POSIX chmod bits. Compare the actual
+        # starting mode so both platforms still prove doctor leaves it unchanged.
+        before_mode = self.config_path.stat().st_mode
         before = list(self.ledger.connection.iterdump())
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
             result = main(["doctor", "--config", str(self.config_path)])
         self.assertEqual(result, 0)
         self.assertEqual(json.loads(output.getvalue())["status"], "ok")
-        self.assertEqual(self.config_path.stat().st_mode & 0o777, 0o640)
+        self.assertEqual(self.config_path.stat().st_mode, before_mode)
         self.assertEqual(list(self.ledger.connection.iterdump()), before)
 
     def test_missing_database_is_not_created_and_cli_returns_incomplete(self):

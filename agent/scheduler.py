@@ -9,6 +9,7 @@ from pathlib import Path
 from .dispatch import dispatch_message
 from .ledger import LedgerError
 from .memory import publish_snapshot
+from .publication import issue_branch
 
 TERMINAL = ("delivered", "blocked", "cancelled", "failed")
 WAITING = ("awaiting_input", "awaiting_resource")
@@ -19,7 +20,7 @@ class Scheduler:
     def __init__(self, ledger, launcher, skills, worktrees, *, skill_root, db_path, runtime_name, host,
                  max_concurrent=2, guidance_for=lambda item: "", claim_timeout=600, api=None,
                  slot_entries=None, preflight=None, control_ledger_factory=None, publication=None, codex_workers=None,
-                 config_path=None):
+                 config_path=None, issue_prefix='FARM'):
         self.publication = publication
         self.preflight = preflight
         self.control_ledger_factory = control_ledger_factory
@@ -35,6 +36,7 @@ class Scheduler:
         self.max_concurrent = max_concurrent
         self.codex_workers = codex_workers or {}
         self.config_path = config_path
+        self.issue_prefix = issue_prefix
         self.guidance_for = guidance_for
         self.claim_timeout = claim_timeout
         # {slot_id: entry}, the same entries service.build hands the pool. The only thing read out of them
@@ -44,15 +46,18 @@ class Scheduler:
         self.lock = threading.RLock()
 
     def _branch(self, issue):
-        name = issue.get("branch_name") or f"farmbot/{issue['identifier'].lower()}"
-        return re.sub(r"[^A-Za-z0-9._/一-鿿-]+", "-", name).strip("-/") or f"farmbot/{issue['identifier'].lower()}"
+        canonical = issue_branch(issue.get('identifier'), self.issue_prefix)
+        name = issue.get("branch_name") or canonical
+        name = re.sub(r"[^A-Za-z0-9._/一-鿿-]+", "-", name).strip("-/")
+        return name if name == canonical or name.startswith(canonical + '-') else canonical
 
     def _worktrees_for(self, skill, item, issue):
         paths = {}
         if skill.writes:
+            branch = self._branch(issue)
             for repo in skill.writes:
                 options = {"refresh": False} if item["publication_retries"] else {}
-                paths[repo] = self.worktrees.add(repo, item["id"], self._branch(issue), **options)
+                paths[repo] = self.worktrees.add(repo, item["id"], branch, **options)
         else:
             paths[READ_REPO] = self.worktrees.add_detached(READ_REPO, item["id"])
         return paths

@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -620,7 +621,10 @@ class PoolTests(SlotFixture):
         self.assertEqual(self.trees.head(self.root / "editors" / "slot-1"), commit)
         token = pool.token_path(item)
         self.assertTrue(token.is_file())
-        self.assertEqual(token.stat().st_mode & 0o077, 0)
+        if os.name != "nt":
+            # Windows chmod does not represent group/other access. Token identity
+            # and claim fencing below must still run on Windows.
+            self.assertEqual(token.stat().st_mode & 0o077, 0)
         # The token goes to a file and never onto a command line, where arguments are visible to every
         # process on the host (spec §15). It is the reservation's own secret, and the ledger is the only
         # thing that can say so: it keeps a hash, so presenting the file back is the proof.

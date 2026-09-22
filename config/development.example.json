@@ -1,0 +1,25 @@
+{
+  "environment": "development",
+  "instance_id": "dev-mac",
+  "host": "dev-mac",
+  "client_id": "",
+  "client_secret": "",
+  "webhook_secret": "",
+  "expected_bot_name": "FarmBot Dev",
+  "expected_app_user_id": "",
+  "expected_organization_id": "",
+  "issue_prefix": "FBTEST",
+  "runtime": "codex",
+  "local_root": "SET_AN_ABSOLUTE_DEDICATED_STATE_ROOT",
+  "port": 8766,
+  "max_concurrent": 1,
+  "repos": {
+    "Farm-Client": "https://github.com/YOUR_ORGANIZATION/farmbot-dev-Farm-Client.git",
+    "farm-hive": "https://github.com/YOUR_ORGANIZATION/farmbot-dev-farm-hive.git",
+    "farmgui": "https://github.com/YOUR_ORGANIZATION/farmbot-dev-farmgui.git",
+    "common": "https://github.com/YOUR_ORGANIZATION/farmbot-dev-common.git",
+    "Farm-Contract": "https://github.com/YOUR_ORGANIZATION/farmbot-dev-Farm-Contract.git"
+  },
+  "slots": [],
+  "tunnel": {}
+}
