@@ -136,10 +136,10 @@ def _editor_processes(system=None, run=None, *, strict=False):
     return found
 
 
-def other_editor_project(folder, system=None, run=None, allowed_projects=()):
+def other_editor_project(folder, system=None, run=None, allowed_projects=(), *, strict=False):
     """An Editor outside this slot and the operator-configured pool, or None."""
     allowed = {Path(path).resolve() for path in (folder, *allowed_projects)}
-    for _, project, _ in _editor_processes(system, run):
+    for _, project, _ in _editor_processes(system, run, strict=strict):
         if Path(project).resolve() not in allowed:
             return project
     return None

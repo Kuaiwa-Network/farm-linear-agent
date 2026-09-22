@@ -8,6 +8,19 @@ from test_ledger import LedgerBase, PIN
 
 
 class RecoveryTests(LedgerBase):
+    def test_upgrade_preserves_existing_retry_counts_and_pending_recovery(self):
+        item, _, r = self.running_with_slot()
+        self.ledger.hold(r['reservation_id'], 'old execution stalled')
+        recovery_id = self.store().pending('test')[0]['id']
+        self.ledger.connection.execute('INSERT INTO resource_job_retries(item_id,attempts) VALUES(?,2)', (item,))
+        self.ledger.connection.execute('ALTER TABLE resource_job_retries DROP COLUMN setup_attempts')
+        self.ledger.connection.execute('ALTER TABLE resource_recoveries DROP COLUMN recovery_kind')
+        store = self.store(self.open_ledger())
+        self.assertEqual(store.job_attempts(item), 2)
+        self.assertEqual(store.job_attempts(item, recovery_kind='setup'), 0)
+        self.assertEqual(store.get(recovery_id)['recovery_kind'], 'execution')
+        self.assertEqual(store.get(recovery_id)['state'], 'pending')
+
     def failed_job(self):
         item = self.new_item()
         token = self.ledger.claim(item['id'], worker_id='worker')['token']
@@ -205,6 +218,44 @@ class RecoveryTests(LedgerBase):
         self.assertEqual(self.ledger.item(item)['checkpoint']['saved'], 'keep me')
         self.assertEqual(self.ledger.reservations(states=('queued',)), [])
         self.assertIn('repeated', self.store().notifications()[0]['body'])
+
+    def test_setup_failures_have_a_separate_bounded_budget_and_preserve_cause(self):
+        item, _, r = self.running_with_slot()
+        self.ledger.connection.execute('INSERT INTO resource_job_retries(item_id,attempts) VALUES(?,2)', (item,))
+        for attempt in range(4):
+            self.ledger.hold(r['reservation_id'], 'MCP project identity mismatch', recovery_kind='setup')
+            store = self.store(self.open_ledger())
+            recovery = self.begin()
+            store.detach(recovery['id'], recovery['attempts'])
+            store.complete(recovery['id'], recovery['attempts'], 'b' * 40, 'instance-1')
+            self.assertEqual(store.job_attempts(item), 2)
+            if attempt < 3:
+                self.assertEqual(self.ledger.item(item)['state'], 'awaiting_resource')
+                r = self.ledger.acquire('unity_slot', owner='pool', host='test')
+        self.assertEqual(self.ledger.item(item)['state'], 'failed')
+        notice = store.notifications()[0]['body']
+        self.assertIn('slot preparation', notice)
+        self.assertIn('MCP project identity mismatch', notice)
+        self.assertNotIn('test', notice)
+        self.assertEqual(self.ledger.item(item)['checkpoint']['saved'], 'keep me')
+
+    def test_legacy_adoption_does_not_consume_worker_recovery_budget(self):
+        item, token, r = self.running_with_slot()
+        self.ledger.await_input(item, token, 'Legacy request to operate the Unity host')
+        self.ledger.set_slot_state('unity_slot:1', 'held')
+        self.store().adopt('unity_slot:1', 'verified infrastructure-only pause')
+        recovery = self.begin()
+        self.store().detach(recovery['id'], recovery['attempts'])
+        self.assertEqual(self.store().job_attempts(item), 0)
+        self.assertEqual(len(self.ledger.reservations(states=('queued',))), 1)
+
+    def test_invalid_recovery_kind_rolls_back_the_hold(self):
+        item, token, r = self.running_with_slot()
+        with self.assertRaisesRegex(ValueError, 'recovery kind'):
+            self.ledger.hold(r['reservation_id'], 'bad classification', recovery_kind='typo')
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'interactive_busy')
+        self.assertEqual(self.store().pending('test'), [])
+        self.ledger.renew(item, token)
 
     def test_repair_backoff_and_attempts_survive_restart(self):
         _, _, r = self.running_with_slot()
