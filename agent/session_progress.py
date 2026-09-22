@@ -64,10 +64,18 @@ class SessionProgress:
         try:
             self.api.create_activity(session_id, content, activity_id=activity_id)
         except Exception as exc:
-            self.db.execute("UPDATE session_progress SET last_error=? WHERE item_id=?",
-                            (type(exc).__name__, item_id))
+            self.db.execute("UPDATE session_progress SET last_error=? WHERE item_id=? AND activity_id=?",
+                            (type(exc).__name__, item_id, activity_id))
             return False
         return True
+
+    def queue_current(self, item_id):
+        """Correct an external status send that raced a newer job transition."""
+        with self.ledger._transaction():
+            item, status_key = self._current(item_id)
+            self.db.execute('INSERT OR IGNORE INTO session_progress(item_id,due_at) VALUES(?,0)', (item_id,))
+            self._reserve(item_id, self._content(item), status_key)
+            self.db.execute('UPDATE session_progress SET due_at=0 WHERE item_id=?', (item_id,))
 
     def tick(self):
         now = self.ledger.clock()
@@ -104,7 +112,7 @@ class SessionProgress:
                 activity_id = self._reserve(item_id, content, status_key)
                 continue
             if sent:
-                self.db.execute("UPDATE session_progress SET due_at=?,activity_id=NULL,content=NULL,status_key=NULL,last_error=NULL WHERE item_id=?",
-                                (self.ledger.clock() + self.interval, item_id))
+                self.db.execute("UPDATE session_progress SET due_at=?,activity_id=NULL,content=NULL,status_key=NULL,last_error=NULL WHERE item_id=? AND activity_id=?",
+                                (self.ledger.clock() + self.interval, item_id, activity_id))
             break
         return True

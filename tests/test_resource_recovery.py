@@ -8,6 +8,65 @@ from test_ledger import LedgerBase, PIN
 
 
 class RecoveryTests(LedgerBase):
+    def failed_job(self):
+        item = self.new_item()
+        token = self.ledger.claim(item['id'], worker_id='worker')['token']
+        self.ledger.await_resource(item['id'], token, 'unity_slot', 'interactive')
+        with self.ledger._transaction():
+            self.store()._fail_job(item['id'], 'Unity infrastructure recovery exhausted')
+        return item['id']
+
+    def test_obsolete_failure_notice_cannot_close_a_retried_job(self):
+        from agent.resource_recovery import RecoveryController
+        item = self.failed_job()
+        self.ledger.retry(item, 'human requests retry')
+        self.ledger.claim(item, worker_id='new')
+        class API:
+            def create_activity(inner, *args, **kwargs):
+                self.fail('obsolete terminal error must not be sent')
+        c = RecoveryController(self.ledger, None, host='test', evidence_root=self.path.parent,
+                               inspect=lambda s: {}, repair=lambda r: None, fence=lambda r: None, api=API())
+        c.report()
+        self.assertEqual(self.store().notifications(), [])
+
+    def test_retry_crossing_failure_send_queues_immediate_current_status(self):
+        from agent.resource_recovery import RecoveryController
+        from agent.session_progress import SessionProgress
+        item, sent = self.failed_job(), []
+        class API:
+            def create_activity(inner, session, content, **kwargs):
+                sent.append(content['type'])
+                if content['type'] == 'error':
+                    self.ledger.retry(item, 'retry during slow report')
+                    self.ledger.claim(item, worker_id='new')
+        api = API()
+        c = RecoveryController(self.ledger, None, host='test', evidence_root=self.path.parent,
+                               inspect=lambda s: {}, repair=lambda r: None, fence=lambda r: None, api=api)
+        c.report()
+        self.assertTrue(SessionProgress(self.ledger, api).tick())
+        self.assertEqual(sent, ['error', 'thought'])
+
+    def test_accepted_error_with_lost_response_still_corrects_crossing_retry(self):
+        from agent.resource_recovery import RecoveryController
+        from agent.session_progress import SessionProgress
+        item, sent = self.failed_job(), []
+        class API:
+            def create_activity(inner, session, content, **kwargs):
+                if content['type'] == 'error':
+                    self.ledger.retry(item, 'retry while response is in flight')
+                    self.ledger.claim(item, worker_id='new')
+                    self.now += 601
+                    SessionProgress(self.ledger, inner).tick()
+                    sent.append('error')  # Accepted after the new progress send.
+                    raise TimeoutError('response lost')
+                sent.append(content['type'])
+        api = API()
+        c = RecoveryController(self.ledger, None, host='test', evidence_root=self.path.parent,
+                               inspect=lambda s: {}, repair=lambda r: None, fence=lambda r: None, api=api)
+        c.report()
+        self.assertTrue(SessionProgress(self.ledger, api).tick())
+        self.assertEqual(sent, ['thought', 'error', 'thought'])
+
     def running_with_slot(self):
         item = self.new_item()
         claim = self.ledger.claim(item['id'], worker_id='before-resource')

@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS resource_job_retries (
     item_id TEXT PRIMARY KEY REFERENCES work_items(id), attempts INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS resource_recovery_notices (
-    id TEXT PRIMARY KEY, item_id TEXT NOT NULL, body TEXT NOT NULL, sent INTEGER NOT NULL DEFAULT 0
+    id TEXT PRIMARY KEY, item_id TEXT NOT NULL, body TEXT NOT NULL, sent INTEGER NOT NULL DEFAULT 0,
+    generation INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS resource_watches (
     reservation_id TEXT PRIMARY KEY, signature TEXT NOT NULL, since REAL NOT NULL
@@ -163,8 +164,8 @@ class RecoveryStore:
         return r
 
     def _notice(self, item_id, body):
-        self.db.execute('INSERT INTO resource_recovery_notices(id,item_id,body) VALUES(?,?,?)',
-                        (str(uuid4()), item_id, body))
+        self.db.execute('INSERT INTO resource_recovery_notices(id,item_id,body,generation) VALUES(?,?,?,?)',
+                        (str(uuid4()), item_id, body, self.ledger.item(item_id)['generation']))
 
     def _fail_job(self, item_id, reason):
         item = self.ledger.item(item_id)
@@ -173,7 +174,8 @@ class RecoveryStore:
         self.db.execute("UPDATE reservations SET state='cancelled',released_at=?,release_reason=? WHERE item_id=? AND state='queued'",
                         (self.ledger.clock(), reason, item_id))
         self.ledger._set_state(item_id, 'failed', reason, token=None, lease_expires_at=None,
-                               worker_pid=None, needs_resource=None, stage='verification-infrastructure-failed')
+                               worker_pid=None, needs_resource=None, stage='verification-infrastructure-failed',
+                               evidence=json.dumps({**item['evidence'], 'summary': reason}, ensure_ascii=False))
         self._notice(item_id, reason + '; saved changes, draft PRs and diagnostics are retained. No host operation is requested.')
 
     def detach(self, recovery_id, attempt):
@@ -320,14 +322,38 @@ class RecoveryController:
             return
         for notice in self.store.notifications():
             item = self.ledger.item(notice['item_id'])
+            if not self._notice_current(notice):
+                self._correct_status(item)
+                self.ledger.connection.execute('UPDATE resource_recovery_notices SET sent=1 WHERE id=?', (notice['id'],))
+                continue
             try:
                 if item['session_id'].startswith('local-'):
                     self.api.create_comment(item['issue_id'], notice['body'])
                 else:
                     self.api.create_activity(item['session_id'], {'type': 'error', 'body': notice['body']}, activity_id=notice['id'])
             except Exception:
+                # The server may have accepted a request whose response was
+                # lost. A timeout is not proof that session state was unchanged.
+                if not self._notice_current(notice):
+                    self._correct_status(item)
                 continue
             self.ledger.connection.execute('UPDATE resource_recovery_notices SET sent=1 WHERE id=?', (notice['id'],))
+            if not item['session_id'].startswith('local-') and not self._notice_current(notice):
+                # Retry, Stop or a new question may cross the remote send. Queue
+                # an immediate durable correction on the shared status loop.
+                self._correct_status(item)
+
+    def _correct_status(self, item):
+        if not item['session_id'].startswith('local-'):
+            from .session_progress import SessionProgress
+            SessionProgress(self.ledger, self.api).queue_current(item['id'])
+
+    def _notice_current(self, notice):
+        item = self.ledger.item(notice['item_id'])
+        active = self.ledger.active_item_for_session(item['session_id'])
+        return (item['generation'] == notice['generation'] and item['state'] == 'failed'
+                and item['stage'] == 'verification-infrastructure-failed'
+                and (active is None or active['id'] == item['id']))
 
     def tick(self):
         self.store.discover(self.host)

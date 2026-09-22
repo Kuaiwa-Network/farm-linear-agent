@@ -150,6 +150,11 @@ Workers must checkpoint before `release-resource --outcome unclean`, then exit; 
 operation or “continue verification” reply is required. Diagnostics live under
 `.local/agent/resource-recovery/` and in `issue-context.resource_recovery`.
 
+The ledger migration only adds recovery tables. Preserve those tables and their
+diagnostics across upgrades. Older code cannot service a pending recovery or its
+revoked claims; rolling code back does not restore those claims. Resume with a
+compatible controller, and never rewind the ledger after new external actions.
+
 ## Windows worker cleanup
 
 Windows worker attempts run in a host-owned Job Object with kill-on-close enabled.

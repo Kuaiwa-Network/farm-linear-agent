@@ -351,7 +351,8 @@ class Ledger:
             """)
             self.connection.executescript(RECOVERY_SCHEMA)
             # Columns added after the first ledgers were written; CREATE TABLE IF NOT EXISTS leaves those files as they were.
-            for table, column, declaration in (("sessions", "guidance", "TEXT"), ("work_items", "lease_seconds", "REAL"),
+            for table, column, declaration in (("resource_recovery_notices", "generation", "INTEGER NOT NULL DEFAULT 0"),
+                                                ("sessions", "guidance", "TEXT"), ("work_items", "lease_seconds", "REAL"),
                                                 ("work_items", "predecessor_id", "TEXT"),
                                                 ("work_items", "capacity_retries", "INTEGER NOT NULL DEFAULT 0"),
                                                 ("work_items", "publication_retries", "INTEGER NOT NULL DEFAULT 0"),

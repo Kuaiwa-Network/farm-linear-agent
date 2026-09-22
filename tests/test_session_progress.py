@@ -6,6 +6,20 @@ from agent.session_progress import SessionProgress
 
 
 class SessionProgressTests(LedgerBase):
+    def test_old_send_cannot_acknowledge_new_correction_from_another_connection(self):
+        item = self.new_item()
+        other = SessionProgress(self.open_ledger(), self.api)
+        def crossing(*args, **kwargs):
+            self.send(*args, **kwargs)
+            other.queue_current(item['id'])
+        self.api.create_activity = crossing
+        self.now += 600
+        self.assertTrue(self.progress.tick())
+        self.api.create_activity = self.send
+        self.assertTrue(self.progress.tick())
+        self.assertEqual(len(self.sent), 2)
+        self.assertNotEqual(self.sent[0][2], self.sent[1][2])
+
     def setUp(self):
         super().setUp()
         self.sent = []
