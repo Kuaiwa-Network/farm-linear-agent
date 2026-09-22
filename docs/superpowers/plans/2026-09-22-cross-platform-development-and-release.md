@@ -1,6 +1,8 @@
 # FarmBot cross-platform development and release plan
 
-**Status:** Proposed; no implementation or deployment performed.
+**Status:** Separate test-workspace and manual snapshot workflow approved. Implementation
+has started with config-path propagation; remaining rollout phases are not complete.
+No live test workspace has been provisioned or production deployment performed here.
 
 **Goal:** Develop and test FarmBot on macOS while a stable production revision runs on Windows, then promote a verified revision without mixing bot identities, credentials, work, or state.
 
@@ -35,7 +37,7 @@ A branch separates source history, not credentials or operational state. Changin
 
 Two real app identities are enough if Mac and Windows live testing alternate. Use a third test app if both need to receive agent events simultaneously. Each live app has its own client ID, client secret, webhook signing secret, and endpoint. Preserve the production endpoint throughout development.
 
-Prefer a separate Linear test workspace. A dedicated test team/project in the existing workspace is an alternative with explicit admission checks. Use private sandbox repositories for write/publishing tests, retaining the logical names `Farm-Client`, `farm-hive`, `farmgui`, `common`, and `Farm-Contract`. Read-only source access can be separate from sandbox write access. Sandbox copies must have the Unity assets, Git LFS objects and branch configuration needed by the scenario.
+The approved choice is a separate Linear test workspace. Copy real feature/bug issues as manual snapshots with original issue provenance and source revisions; keep their test lifecycle independent and promote useful changes explicitly. Automated import is deferred. See the [development workflow](../../development-workflow.md). Use private sandbox repositories for write/publishing tests, retaining the logical names `Farm-Client`, `farm-hive`, `farmgui`, `common`, and `Farm-Contract`. Read-only source access can be separate from sandbox write access. Sandbox copies must have the Unity assets, Git LFS objects and branch configuration needed by the scenario.
 
 Use host accounts or credential contexts that cannot write production repositories from development. The launcher currently inherits much of the host environment and Git/GitHub authentication; its isolated worker home does not alone isolate publishing credentials. Ensure Git credentials and `gh` authenticate consistently to the sandbox destinations.
 
@@ -55,11 +57,11 @@ If only one Windows production machine is available, hosted Windows CI can cover
 
 ## Gaps that affect this workflow
 
-1. **Worker configuration can diverge from the receiver.** `service.serve()` loads `--config`, but `Scheduler.launch()` passes only `FARMBOT_DB` and `PYTHONPATH` explicitly. Worker CLI operations call `load_config()`/`linear_api()` independently. Unless the operator also exported the matching `FARMBOT_CONFIG`, workers can use an inherited or checkout-default config. Publication/verification checks can reject the ledger mismatch, while other API operations can select the wrong identity.
+1. **Config-file propagation is now implemented.** The loader records the selected absolute source path, the scheduler passes it to initial/resumed workers, and launchd installation embeds it regardless of selection method. Regression tests cover conflicting ambient profiles. This pins the file path, not its contents or environment ownership; restart a settled service after config edits.
 2. **The bot name is fixed at startup.** `LinearAPI` defaults `expected_name` to `FarmBot`, and the factory cannot configure it. `FarmBot Dev` would fail the identity check. Match stable expected app-user and organization IDs; keep display name configurable for presentation.
 3. **No environment ownership guard.** Changing the config file location does not change the default state root. There is no environment marker binding a state root to its app identity, or explicit prohibition on production using stub/fake settings. Add a same-root controller lock as well as identity validation.
 4. **Test-team issue keys can fail publishing.** `publication.py` requires `FARM-[0-9]+` and `farmbot/<issue>` branches. The scheduler can use Linear's `branch_name`. A test team such as `FBTEST` needs a consistent configured issue/branch policy in both places, not a blanket relaxation of verification.
-5. **Install support is macOS-specific.** `deploy.py` renders launchd agents with fixed labels. Two installs for the same macOS user overwrite the same plist names. No Windows installer/supervisor is present in this checkout. `install-launchd` also needs to preserve the resolved config when configuration was selected through the environment.
+5. **Install support is macOS-specific.** `deploy.py` renders launchd agents with fixed labels. Two installs for the same macOS user overwrite the same plist names. No Windows installer/supervisor is present in this checkout. Environment-selected config propagation has been fixed; installer isolation remains open.
 6. **Windows readiness is incomplete.** `doctor.probe_process()` returns `platform_not_supported` on Windows. Unity's command-line parser stops project paths at whitespace. A pure parser probe reproduced `C:\Farm Bot\editors\slot-1` being read as `C:\Farm`. Worker instructions also assume `python3`; use the actual host interpreter. Audit Windows CLI wrappers, encoding, Git path handling and shutdown behavior.
 7. **No checked-in CI workflow or controlled release operation.** This checkout has no `.github/workflows` directory, no declared supported Python version, and no drain command. Opening `Ledger` performs migrations; rollback cannot be treated as simply checking out an older commit. `/health` currently proves the HTTP handler responds, not that scheduling, reconciliation, the tunnel or Unity work.
 
@@ -79,7 +81,7 @@ If only one Windows production machine is available, hosted Windows CI can cover
 **Files:** `agent/config.py`, `agent/service.py`, `agent/scheduler.py`, `agent/launcher.py`, `agent/linear_api.py`, `agent/__main__.py`; new `tests/test_config.py`, plus existing service, launcher and Linear API tests.
 
 - [ ] Add explicit environment and instance identifiers, configurable display name, and expected app-user/organization IDs. Preserve existing production behavior through an explicit configuration migration.
-- [ ] Resolve one absolute config path at service entry, carry it into the scheduler, and explicitly set the worker's `FARMBOT_CONFIG`; caller environment must not override the selected service config.
+- [x] Resolve one absolute config path when loading the file, carry it into the scheduler, and explicitly set the worker's `FARMBOT_CONFIG`; caller environment must not override the selected service config. Preserve that path in launchd installation as well.
 - [ ] Validate absolute state paths for live profiles. Record a nonsecret identity marker in the state root and refuse a conflicting profile/identity. Acquire an OS-backed exclusive controller lock for that root and hold it for the process lifetime; do not use stale PID files as the sole lock.
 - [ ] Make fake/stub activation an explicit offline mode. Refuse production startup with fake runtime or stub-related environment variables.
 - [ ] Test with two configs and a deliberately wrong ambient `FARMBOT_CONFIG`: the spawned CLI must fetch, post and verify using the selected profile; mismatched identity/root and a second controller must fail before launching work or making mutations.

@@ -11,6 +11,8 @@ keep runtime authority and behavior changes in those sources and their tests.
   authority boundaries. Check the implementation when documentation disagrees.
 - [Worker CLI reference](references/worker-cli.md): command authentication and
   checkpoint formats; consult when changing worker instructions or CLI behavior.
+- [Development workflow](docs/development-workflow.md): approved test-workspace
+  snapshot workflow, current prerequisites and explicit promotion of useful changes.
 - [Development and release proposal](docs/superpowers/plans/2026-09-22-cross-platform-development-and-release.md):
   proposed Mac development and Windows release workflow. Unchecked phases are not
   implemented capabilities or authorization to execute the whole plan.
@@ -47,10 +49,11 @@ keep runtime authority and behavior changes in those sources and their tests.
   destinations, with separate ledgers, memory, clones, worktrees, slots and logs.
   A different config filename alone does not isolate these resources: set an
   explicit absolute `local_root` and verify its derived paths.
-- Check configuration propagation before starting workers. Currently the service's
-  `--config` is not explicitly propagated to workers; until fixed, the service
-  process must also have the matching absolute `FARMBOT_CONFIG` in its environment.
-  Revalidate this note when changing configuration handling.
+- The config loader records the selected absolute file path. Services propagate it
+  to every worker attempt and installed launchd commands, overriding conflicting
+  inherited `FARMBOT_CONFIG`. Keep that guarantee when changing configuration handling.
+  This selects a file, not an immutable snapshot; restart a settled service after
+  editing its config so controller and workers do not observe different contents.
 - `runtime="fake"` and `FARMBOT_LINEAR_STUB_DIR` control separate integrations.
   Neither alone makes an arbitrary service invocation offline. Prefer the existing
   test fixtures, which also isolate repositories and Unity dependencies.

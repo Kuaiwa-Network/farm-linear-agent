@@ -18,7 +18,8 @@ READ_REPO = "Farm-Client"
 class Scheduler:
     def __init__(self, ledger, launcher, skills, worktrees, *, skill_root, db_path, runtime_name, host,
                  max_concurrent=2, guidance_for=lambda item: "", claim_timeout=600, api=None,
-                 slot_entries=None, preflight=None, control_ledger_factory=None, publication=None, codex_workers=None):
+                 slot_entries=None, preflight=None, control_ledger_factory=None, publication=None, codex_workers=None,
+                 config_path=None):
         self.publication = publication
         self.preflight = preflight
         self.control_ledger_factory = control_ledger_factory
@@ -33,6 +34,7 @@ class Scheduler:
         self.host = host
         self.max_concurrent = max_concurrent
         self.codex_workers = codex_workers or {}
+        self.config_path = config_path
         self.guidance_for = guidance_for
         self.claim_timeout = claim_timeout
         # {slot_id: entry}, the same entries service.build hands the pool. The only thing read out of them
@@ -136,8 +138,13 @@ class Scheduler:
         options = {}
         if self.runtime_name == "codex" and skill.name in self.codex_workers:
             options["model_settings"] = self.codex_workers[skill.name]
+        worker_env = {"FARMBOT_DB": str(self.db_path), "PYTHONPATH": pythonpath}
+        if self.config_path is not None:
+            # Every attempt, including resumes, uses the controller's selected file.
+            # Do not mutate os.environ: another controller/test may live in this process.
+            worker_env["FARMBOT_CONFIG"] = str(self.config_path)
         handle = self.launcher.spawn(item["id"], message, servers, int(skill.budget["max_hours"] * 3600), cwd=primary,
-                                     extra_env={"FARMBOT_DB": str(self.db_path), "PYTHONPATH": pythonpath},
+                                     extra_env=worker_env,
                                      writable=[Path(self.db_path).parent, *paths.values(), *clones],
                                      cancelled=lambda: self.ledger.item(item["id"])["state"] != "queued", **options)
         try:
