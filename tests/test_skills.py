@@ -81,6 +81,43 @@ class CommentTemplateTests(unittest.TestCase):
         self.assertNotIn("FarmBot", text)
 
 
+class RunReportInstructionTests(unittest.TestCase):
+    """Run reports are FarmBot's private evidence. Told to commit one under FarmBot's own checkout, which is
+    not a worker writable root, FARM-1282's workers committed reports/<date>-<identifier>/report.md into
+    Farm-Client and Farm-Contract instead."""
+
+    def worker_reads(self):
+        """What a worker is told to read: its skill, every reference and the operating contract."""
+        paths = [*(ROOT / "skills").glob("*/SKILL.md"), *(ROOT / "references").glob("*.md"),
+                 ROOT / "docs" / "operating-contract.md"]
+        return {path.relative_to(ROOT).as_posix(): path.read_text(encoding="utf-8") for path in sorted(paths)}
+
+    def test_no_worker_instruction_names_a_report_path_inside_a_repository(self):
+        for name, text in self.worker_reads().items():
+            with self.subTest(name=name):
+                self.assertNotIn("reports/<", text)
+                self.assertNotIn("repo_root>/reports", text)
+
+    def test_the_fix_skill_and_report_format_write_the_report_in_state_dir(self):
+        texts = self.worker_reads()
+        for name in ("skills/fix/SKILL.md", "references/evidence-format.md"):
+            with self.subTest(name=name):
+                self.assertIn("`STATE_DIR/report.md`", texts[name])
+
+    def test_a_later_attempt_of_the_same_job_writes_a_new_report(self):
+        """Retries and resumes keep the job's id, so they share its state_dir (Launcher.state_dir): a fixed
+        report.md would let a later attempt overwrite the evidence of an earlier one."""
+        texts = self.worker_reads()
+        for name in ("skills/fix/SKILL.md", "references/evidence-format.md"):
+            with self.subTest(name=name):
+                self.assertIn("`STATE_DIR/report-2.md`", texts[name])
+
+    def test_candidate_lessons_go_to_shared_memory_not_a_pull_request(self):
+        text = self.worker_reads()["references/evidence-format.md"]
+        self.assertNotIn("promotion is a PR", text)
+        self.assertIn("references/memory.md", text)
+
+
 class SkillRegistryTests(unittest.TestCase):
     def test_repository_skills_load_with_expected_authority(self):
         skills = load_skills(ROOT / "skills")

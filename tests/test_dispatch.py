@@ -25,6 +25,18 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(payload_of(message)['user_requests'], replies)
         self.assertNotIn('publish elsewhere', message)
 
+    def test_run_reports_stay_in_state_dir_and_are_outside_publishing_scope(self):
+        """FARM-1282's workers committed run reports into product repositories. The block a worker cannot
+        skip names state_dir as their place, and the publishing authorization no longer covers them."""
+        message = dispatch_message(item={"id": "item-1", "skill": "fix"}, issue={"identifier": "FARM-1", "url": "u"},
+                                   skill_path=ROOT / "skills/fix/SKILL.md", worktrees={}, db_path="/db",
+                                   runtime="codex", guidance="", budget={"lease_seconds": 1, "renew_minutes": 1},
+                                   state_dir="/runs/item-1")
+        authority = message.split("\n\n", 1)[0]
+        self.assertIn("Keep per-run reports in state_dir", authority)
+        self.assertNotIn("verification reports", authority)
+        self.assertEqual(payload_of(message)["state_dir"], "/runs/item-1")
+
     def test_memory_is_runtime_neutral_and_explicit_when_unavailable(self):
         view = {"status": "ready", "index": "/state/memory/snapshot/MEMORY.md", "count": 1}
         for runtime in ("codex", "claude"):

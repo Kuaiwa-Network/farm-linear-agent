@@ -170,8 +170,8 @@ cannot be read or `os.waitid` is missing, and Stop then records its evidence as 
 interpreter, and for a worker that exited while FarmBot was not running or before this check existed,
 there is no evidence and cleanup still holds.
 These guards apply to every terminal retirement path. The scheduler retries pending cleanup. Slots still require the
-existing quiescence probe; held slots enter controller-owned recovery. No log, ledger history or memory
-snapshot is removed by closure cleanup. Every worker attempt gets its own log directory.
+existing quiescence probe; held slots enter controller-owned recovery. No log, run report, ledger history or
+memory snapshot is removed by closure cleanup. Every worker attempt gets its own log directory.
 
 Inspect `cleanup_pending` and `issue_status_errors` with `python3 -m agent.service status`, or the
 ledger CLI's `status`. `issue-context --item JOB_ID` exposes that job's `cleanup` and, for successors,
@@ -228,9 +228,11 @@ For a delegated write job, the operator authorizes publishing that issue's sourc
 tests and required generated assets to its feature branches in the host's
 configured private GitHub repositories, and creating/updating draft PRs there. This applies to
 the fix manifest's Farm-Client, farm-hive, farmgui, common and Farm-Contract worktrees equally.
-Run reports stay under the worker's private `state_dir`; PR descriptions and Linear outcomes carry
-concise verification summaries and gaps. Publishing does not authorize run reports, secrets,
-unrelated files, force pushes, protected/default branch writes,
+Run reports stay in the job's private `state_dir` (`runs/<job>/report.md`). Every attempt of a job
+shares that directory, including retries and resumes that keep its ID, so a later attempt leaves
+earlier reports unchanged and adds the first unused of `report-2.md`, `report-3.md` and so on.
+PR descriptions and Linear outcomes carry concise verification summaries and gaps. Publishing does
+not authorize run reports, secrets, unrelated files, force pushes, protected/default branch writes,
 merges or deployment. Chat workers and sessions without delegation receive no publishing scope.
 
 At every launch, including resumes, the controller supplies `publication.repositories` with
