@@ -11,8 +11,9 @@ keep runtime authority and behavior changes in those sources and their tests.
   authority boundaries. Check the implementation when documentation disagrees.
 - [Worker CLI reference](references/worker-cli.md): command authentication and
   checkpoint formats; consult when changing worker instructions or CLI behavior.
-- [Development workflow](docs/development-workflow.md): approved test-workspace
-  snapshot workflow, current prerequisites and explicit promotion of useful changes.
+- [Development workflow](docs/development-workflow.md): the FarmBot Dev test bot in
+  the production workspace, working on real issues and repositories; setup,
+  initialization and test scoping.
 - [Development and release proposal](docs/superpowers/plans/2026-09-22-cross-platform-development-and-release.md):
   proposed Mac development and Windows release workflow. Unchecked phases are not
   implemented capabilities or authorization to execute the whole plan.
@@ -45,17 +46,24 @@ keep runtime authority and behavior changes in those sources and their tests.
   for routine work within that scope.
 - Keep credentials and host-specific paths in private config, normally under the
   ignored `.local/` directory. Never commit secrets, claim tokens or private state.
-- For authorized live testing, use dedicated test credentials, issues and publishing
-  destinations, with separate ledgers, memory, clones, worktrees, slots and logs.
-  A different config filename alone does not isolate these resources: set an
-  explicit absolute `local_root` and verify its derived paths.
+- For authorized live testing, run the FarmBot Dev app: a second Linear app in the
+  same Kuaiwa AI workspace as production, with its own client ID, client secret,
+  webhook signing secret, endpoint and port. It works on real issues and publishes
+  to the real repositories. Do not propose a separate workspace, manual issue
+  snapshots or sandbox repositories; that design was abandoned on 2026-09-23.
+- Give each instance separate ledgers, memory, clones, worktrees, slots and logs. A
+  different config filename alone does not isolate these resources: set an explicit
+  absolute `local_root` at a stable path outside any checkout or worktree, and
+  verify its derived paths.
 - Use an explicit `development` profile for live tests: pin the Linear app/workspace
   IDs, choose an instance ID and use a fresh state root. Preserve ownership-marker,
   controller-lock and pre-ledger CLI checks. Do not remove a marker or relabel
   unmarked production state to make a test profile start.
-- Sandbox source snapshots must also route Git LFS storage to the sandbox. Inspect
-  `.lfsconfig` and effective LFS endpoints; changing the Git remote alone does not
-  redirect LFS uploads. Copy only objects referenced by the selected snapshot.
+- The two bots share one workspace and the same repositories. Mention or delegate
+  only issues the operator chooses, never one issue to both bots (both use
+  `farmbot/<key>` branches), and remember that test comments, labels, branches and
+  draft PRs are real. The real repositories' default branches are unprotected, so
+  FarmBot's publication checks are the only guard; test changes to them offline first.
 - The config loader records the selected absolute file path. Services propagate it
   to every worker attempt and installed launchd commands, overriding conflicting
   inherited `FARMBOT_CONFIG`. Keep that guarantee when changing configuration handling.
