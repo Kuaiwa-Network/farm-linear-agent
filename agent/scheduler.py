@@ -9,6 +9,7 @@ from pathlib import Path
 from .dispatch import dispatch_message
 from .launcher import _read_worker_text
 from .ledger import LedgerError
+from .kw_ops import SERVER as KW_OPS_SERVER, resolve as resolve_kw_ops
 from .memory import publish_snapshot
 from .publication import issue_branch
 from .stages import write_repositories
@@ -23,7 +24,7 @@ class Scheduler:
     def __init__(self, ledger, launcher, skills, worktrees, *, skill_root, db_path, runtime_name, host,
                  max_concurrent=2, guidance_for=lambda item: "", claim_timeout=600, api=None,
                  slot_entries=None, preflight=None, control_ledger_factory=None, publication=None, codex_workers=None,
-                 config_path=None, issue_prefix='FARM', bot_name='FarmBot'):
+                 config_path=None, issue_prefix='FARM', bot_name='FarmBot', kw_ops=None):
         self.publication = publication
         self.preflight = preflight
         self.control_ledger_factory = control_ledger_factory
@@ -41,6 +42,7 @@ class Scheduler:
         self.config_path = config_path
         self.issue_prefix = issue_prefix
         self.bot_name = bot_name
+        self.kw_ops_config = dict(kw_ops or {})
         self.guidance_for = guidance_for
         self.claim_timeout = claim_timeout
         # {slot_id: entry}, the same entries service.build hands the pool. The only thing read out of them
@@ -125,6 +127,13 @@ class Scheduler:
                 servers["unity"] = ({"url": slot["mcp_address"]}
                                     if self.launcher.runtime.mcp_format == "toml"
                                     else {"type": "http", "url": slot["mcp_address"]})
+        # A standing grant, unlike the Unity MCP: the manifest's `mcp` names it (spec §5) and the host profile
+        # says where it is. The token stays in the controller's environment, and a worker without the server
+        # keeps none of it.
+        kw_ops_grant = resolve_kw_ops(skill.mcp, self.kw_ops_config, self.runtime_name, os.environ)
+        if kw_ops_grant.server is not None:
+            servers[KW_OPS_SERVER] = kw_ops_grant.server
+        tools = {KW_OPS_SERVER: kw_ops_grant.tools} if kw_ops_grant.tools is not None else {}
         try:
             memory = publish_snapshot(Path(self.db_path).resolve().parent / "memory", self.ledger.memory_rows())
         except (OSError, ValueError, sqlite3.Error) as exc:
@@ -154,7 +163,7 @@ class Scheduler:
                                    repo_root=repo_root, state_dir=self.launcher.state_dir(item["id"]),
                                    resource=resource, memory=memory, publication=publication, user_requests=requests,
                                    bot_name=self.bot_name, write_repositories=write_repos,
-                                   prior_context=prior_context)
+                                   prior_context=prior_context, tools=tools)
         # The runtime's cwd is writable too. A read-only conversation must run
         # from its private state directory, not from the detached source checkout.
         primary = (paths[write_repos[0]] if write_repos else self.launcher.state_dir(item["id"]))
@@ -172,6 +181,8 @@ class Scheduler:
         if self.runtime_name == "codex":
             options["model_settings"] = {**DEFAULT_CODEX_MODEL_SETTINGS,
                                          **self.codex_workers.get(skill.name, {})}
+        if self.kw_ops_config and kw_ops_grant.keep_env is None:
+            options["withheld_env"] = [self.kw_ops_config["token_env"]]
         worker_env = {"FARMBOT_DB": str(self.db_path), "PYTHONPATH": pythonpath}
         if self.config_path is not None:
             # Every attempt, including resumes, uses the controller's selected file.

@@ -118,6 +118,23 @@ class DispatchTests(unittest.TestCase):
         self.assertIn(str(ROOT / "references" / "repo-map.md"), payload["references"])
         self.assertIsNone(payload["state_dir"])
 
+    def dispatched(self, **extra):
+        return dispatch_message(item={'id': 'i', 'skill': 'chat'}, issue={'identifier': 'FARM-1', 'url': 'u'},
+                                skill_path=ROOT / 'skills/chat/SKILL.md', worktrees={}, db_path='/db',
+                                runtime='codex', guidance='', budget={'lease_seconds': 1, 'renew_minutes': 1},
+                                **extra)
+
+    def test_tool_grants_reach_the_payload_and_the_authority_explains_kw_ops(self):
+        message = self.dispatched(tools={'kw_ops': {'access': 'read'}})
+        self.assertEqual(payload_of(message)['tools'], {'kw_ops': {'access': 'read'}})
+        authority = message.split("\n\n", 1)[0]
+        for phrase in ("tools.kw_ops.access", "test game environment", "gm_list_targets",
+                       "never read, print or store", "State changes", "verification gap"):
+            self.assertIn(phrase, authority)
+
+    def test_a_launch_without_tool_grants_carries_an_empty_tools_map(self):
+        self.assertEqual(payload_of(self.dispatched())['tools'], {})
+
 
 class BotNameTests(unittest.TestCase):
     """Workers write Linear comments themselves, so the launch message tells them which app they speak as."""

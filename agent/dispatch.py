@@ -53,13 +53,21 @@ AUTHORITY = (
     "failure counts do not establish that current failures are unrelated. Report unmatched failures "
     "with attribution unresolved. Check every mutation's exit status and returned state; repair a "
     "rejected checkpoint handoff and save it successfully before await-input, await-resource or finish. "
+    "When tools.kw_ops.access is present, the kw_ops MCP server is the GM backend of the test game "
+    "environment, and every server gm_list_targets returns is a test server. With access \"full\" you may use "
+    "any kw_ops tool on any listed server when this issue's reproduction or verification needs it; with "
+    "\"read\" only its query tools exist. Record every state-changing kw_ops call, with server_id, tool, target "
+    "and reason, as a handoff fact and under State changes in the run report. The kw_ops credential belongs "
+    "to the host: never read, print or store it. kw_ops grants no other authority. When tools.kw_ops.status "
+    "is \"unavailable\" and this issue's reproduction or verification needs kw_ops, report that as a "
+    "verification gap. "
     "Use references/worker-cli.md for command arguments and the exact handoff JSON shape."
 )
 
 
 def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, guidance, budget, repo_root=None,
                      state_dir=None, resource=None, memory=None, publication=None, user_requests=None,
-                     bot_name="FarmBot", write_repositories=(), prior_context=None):
+                     bot_name="FarmBot", write_repositories=(), prior_context=None, tools=None):
     root = Path(repo_root) if repo_root is not None else Path(skill_path).parent.parent.parent
     payload = {
         "item_id": item["id"],
@@ -84,6 +92,9 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
         # The reservation this worker holds, or None. It carries the token's *path* and never the token, and
         # in neither mode does it carry an argv or the Editor's own path: a worker never starts Unity.
         "resource": resource,
+        # Standing tool grants beside the reservation: tools.kw_ops is {"access": ...} or {"status": "unavailable",
+        # "reason": ...}. A token is never here; the worker's CLI reads it from the environment by name.
+        "tools": tools or {},
         "memory": memory if memory is not None else {"status": "unavailable", "index": None, "reason": "not supplied"},
         "runtime": runtime,
         "lease_seconds": budget["lease_seconds"],

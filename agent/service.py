@@ -51,6 +51,7 @@ def build(config, runtime_override=None):
                           config_path=config.source_path,
                           issue_prefix=config.issue_prefix,
                           bot_name=config.expected_bot_name,
+                          kw_ops=config.kw_ops,
                           slot_entries={entry["id"]: entry for entry in entries},
                           guidance_for=lambda item: (ledger.session(item["session_id"]) or {}).get("guidance") or "",
                           api=api, control_ledger_factory=lambda: Ledger(paths.ledger),
