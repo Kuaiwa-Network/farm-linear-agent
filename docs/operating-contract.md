@@ -174,6 +174,11 @@ and does not discard the exits already collected for other workers. That worker 
 keeps its concurrency slot, until a later scheduler pass completes its processing; the error itself
 records no teardown evidence. A Unity failover fence fails, and is retried, while the revoked worker is
 still tracked, so a same-ID successor never launches beside it.
+FarmBot's launcher reads a worker's reports and its launch and teardown records, all in the worker-writable
+state directory, only as regular files and without waiting. A FIFO, a device, a record over 1 MiB, or on
+POSIX a symlink in place of the file, is unreadable. An unreadable launch or teardown record holds cleanup.
+An unreadable report leaves that exit's message empty and its failure unclassified. Of `stderr.log`, only
+the last 4 KiB is read.
 These guards apply to every terminal retirement path. The scheduler retries pending cleanup. Slots still require the
 existing quiescence probe; held slots enter controller-owned recovery. No log, run report, ledger history or
 memory snapshot is removed by closure cleanup. Every worker attempt gets its own log directory.
