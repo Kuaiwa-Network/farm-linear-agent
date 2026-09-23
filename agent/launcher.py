@@ -16,6 +16,10 @@ RuntimeConfig = namedtuple("RuntimeConfig", "name command home_env mcp_format se
 Handle = namedtuple("Handle", "item_id pid started_at deadline run_dir process last_message_path")
 Finished = namedtuple("Finished", "item_id returncode last_message killed reason failure_kind worker_pid", defaults=(None, None))
 Unsandboxed = namedtuple("Unsandboxed", "returncode timed_out seconds")
+# Seeing a POSIX worker's exit without reaping it needs waitid(WNOWAIT), which CPython exposes on macOS
+# only from 3.13. Without it no self-exit evidence is made and such attempts keep holding their cleanup.
+_PINNED_EXIT = os.name != "nt" and all(hasattr(os, name) for name in ("waitid", "P_PID", "WEXITED", "WNOHANG",
+                                                                         "WNOWAIT"))
 
 RUNTIMES = {
     "codex": RuntimeConfig(
@@ -69,6 +73,11 @@ def write_mcp_config(home, mcp_format, servers, settings=None, root_settings=Non
 
 
 class Launcher:
+    # SIGTERM grace for members of an exited POSIX worker's session, before SIGKILL.
+    exit_grace = 5.0
+    # How long an unreadable process table is retried while the exited worker stays unreaped.
+    settle_retry_seconds = 60.0
+
     def __init__(self, runs_root, runtime, host, clock=time.time):
         self.runs_root = Path(runs_root)
         self.runtime = runtime
@@ -78,6 +87,11 @@ class Launcher:
         self._stopping = {}
         self._jobs = {}
         self._job_lock = threading.RLock()
+        # Items whose live POSIX worker `_kill` has claimed: until it has reaped the worker and written
+        # killed.json, poll() neither reaps nor reports it.
+        self._killing = set()
+        self._teardown_lock = threading.Lock()
+        self._settling = {}
         # Touched from two threads at once: run_unsandboxed registers from the pool thread while
         # Scheduler.stop and serve()'s shutdown read from theirs.
         self._unsandboxed = {}
@@ -372,6 +386,162 @@ class Launcher:
         return result
 
     @staticmethod
+    def exited(process):
+        """Whether a worker has exited, without reaping it on POSIX.
+
+        An unreaped worker keeps its pid allocated, and with it the IDs of the session and process group it
+        leads, so nothing new can take them while its session is inspected. Only poll(), or the `_kill` that
+        claimed the worker, reaps it.
+        """
+        if process.returncode is not None or not _PINNED_EXIT:
+            return process.poll() is not None
+        try:
+            return os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is not None
+        except ChildProcessError:
+            return True  # Already reaped by the thread holding Popen's waitpid lock.
+
+    @staticmethod
+    def _pinned(process):
+        """True while an exited worker is still this process's unreaped child: its session is still ours."""
+        if process.returncode is not None or not _PINNED_EXIT:
+            return False
+        try:
+            return os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is not None
+        except ChildProcessError:
+            return False
+
+    def _wait_exited(self, process, timeout):
+        deadline = time.monotonic() + timeout
+        while not self.exited(process):
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.02)
+        return True
+
+    @staticmethod
+    def session_members(leader):
+        """Live processes other than `leader` in its process group or session, from one `ps` snapshot.
+
+        None when the snapshot cannot be trusted: a table that does not list this process proves nothing.
+        Zombies have already exited. A process that called setsid() is in neither and is not reported.
+        """
+        try:
+            out = subprocess.run(["ps", "-A", "-o", "pid=,pgid=,stat="], capture_output=True, text=True, timeout=5)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        rows = []
+        for line in out.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 3 and parts[0].isdigit() and parts[1].isdigit():
+                rows.append((int(parts[0]), int(parts[1]), parts[2]))
+        if out.returncode != 0 or os.getpid() not in {pid for pid, _, _ in rows}:
+            return None
+        members = []
+        for pid, pgid, stat in rows:
+            if pid == leader or stat.startswith("Z"):
+                continue
+            if pgid != leader:
+                # A job-control shell gives each job its own group inside the worker's session.
+                try:
+                    if os.getsid(pid) != leader:
+                        continue
+                except ProcessLookupError:
+                    continue  # exited since the snapshot
+                except OSError:
+                    return None
+            members.append(pid)
+        return members
+
+    @staticmethod
+    def _signal_session(leader, members, sig):
+        """Signal a pinned worker's process group, then each member still verified in its session."""
+        try:
+            os.killpg(leader, sig)
+        except (ProcessLookupError, PermissionError):
+            pass
+        for pid in members:
+            try:
+                if os.getsid(pid) == leader:
+                    os.kill(pid, sig)
+            except (ProcessLookupError, PermissionError):
+                pass
+
+    def _terminate_session(self, leader, members):
+        """SIGTERM, then SIGKILL, what remains of a pinned worker's session; returns every member seen."""
+        seen = set(members)
+        for sig, wait in ((signal.SIGTERM, self.exit_grace), (signal.SIGKILL, 1.0)):
+            self._signal_session(leader, sorted(seen), sig)
+            deadline = time.monotonic() + wait
+            while time.monotonic() < deadline:
+                current = self.session_members(leader)
+                seen.update(current or ())
+                # A killed member is a zombie until launchd/init reaps it, and alive() still answers for it.
+                if current == [] and not any(self.alive(pid) for pid in seen):
+                    return sorted(seen)
+                time.sleep(0.1)
+        return sorted(seen)
+
+    @staticmethod
+    def _group_gone(leader, timeout=1.0):
+        """True once no process at all has process group `leader` (checked after its leader is reaped)."""
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                os.killpg(leader, 0)
+            except ProcessLookupError:
+                return True
+            except PermissionError:
+                pass  # macOS reports a group of zombies, or of processes we cannot signal, this way.
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.02)
+
+    def _settle_exited(self, handle):
+        """Teardown evidence for a POSIX worker that exited by itself, and its reap.
+
+        spawn's start_new_session=True made the worker the leader of a session and a process group whose IDs
+        both equal its pid, and a leader cannot move out of either. Until this reaps it, the exited worker
+        still holds that pid, so every process now in its session or group descends from this attempt and
+        may be signalled. Evidence is written only after the session scan is empty and, once the leader is
+        reaped, the kernel reports no process in its group. A process that called setsid() left the session
+        and is outside this proof: the documented POSIX limit.
+
+        Returns False to be retried on a later poll with the worker still unreaped: when the process table
+        cannot be read (for up to settle_retry_seconds) or the reap itself did not happen.
+        """
+        leader = handle.pid
+        state = self._settling.setdefault(handle.item_id, {
+            "until": time.monotonic() + self.settle_retry_seconds, "terminated": set()})
+        members = self.session_members(leader)
+        if members:
+            state["terminated"].update(self._terminate_session(leader, members))
+            members = self.session_members(leader)
+        if members is None and time.monotonic() < state["until"]:
+            return False
+        if handle.process.poll() is None:
+            return False  # Another thread holds Popen's waitpid lock; the worker is not reaped yet.
+        # Members were proved gone through the pinned session, so they are not re-checked by pid later.
+        record = {"pid": leader, "descendants": [], "terminated": sorted(state["terminated"]),
+                  "posix_session": leader, "exited": True}
+        if members is None:
+            reason = "process table unreadable"
+        elif members:
+            reason = "session members survived SIGKILL"
+        elif not self._group_gone(leader):
+            reason = "process group still present after its leader was reaped"
+        else:
+            (handle.run_dir / "killed.json").write_text(json.dumps({**record, "empty": True}), encoding="utf-8")
+            return True
+        # Recovery evidence for the operator; assert_quiescent reads only killed.json and keeps holding. An
+        # interrupted Stop's early record is kept aside, never left to certify what this could not verify.
+        stale = handle.run_dir / "killed.json"
+        if stale.exists():
+            stale.replace(handle.run_dir / "killed.superseded.json")
+        (handle.run_dir / "teardown-unverified.json").write_text(
+            json.dumps({**record, "empty": False, "remaining": members, "reason": reason}), encoding="utf-8")
+        return True
+
+    @staticmethod
     def _command_line(pid):
         try:
             if os.name == "nt":
@@ -447,28 +617,49 @@ class Launcher:
             self._finish_job(handle)
             process.wait(timeout=max(grace, 1))
             return
-        if process.poll() is not None:
-            return
+        with self._teardown_lock:
+            if handle.item_id in self._killing or self.exited(process):
+                # Another Stop is already killing it, or it exited on its own and poll() records that
+                # session: reaping it here would free the pid that pins the session first.
+                return
+            self._killing.add(handle.item_id)
+        try:
+            self._kill_claimed(handle, grace)
+        finally:
+            with self._teardown_lock:
+                self._killing.discard(handle.item_id)
+
+    def _kill_claimed(self, handle, grace):
+        """Terminate a live worker claimed in `_killing`; poll() leaves it alone until the claim is released."""
+        process = handle.process
         survivors = self.descendants(process.pid)
         (handle.run_dir / "killed.json").write_text(json.dumps({"pid": process.pid, "descendants": survivors}), encoding="utf-8")
+        # On POSIX the pid is also the group ID (start_new_session=True) and stays ours until the reap below.
+        # Not os.getpgid(): macOS refuses it for a worker that has just become a zombie.
         try:
             if os.name == "nt":
                 subprocess.run(["taskkill", "/T", "/PID", str(process.pid)], capture_output=True)
             else:
-                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                os.killpg(process.pid, signal.SIGTERM)
         except (ProcessLookupError, PermissionError):
             pass
-        try:
-            process.wait(timeout=grace)
-        except subprocess.TimeoutExpired:
+        exited = self._wait_exited(process, grace)
+        if not exited:
             try:
                 if os.name == "nt":
                     subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], capture_output=True)
                 else:
-                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                    os.killpg(process.pid, signal.SIGKILL)
             except (ProcessLookupError, PermissionError):
                 pass
-            process.wait(timeout=grace)
+            exited = self._wait_exited(process, grace)
+        if exited and os.name != "nt" and self._pinned(process):
+            # Still unreaped, so its session is still pinned: sweep it as a self-exit is swept. The group
+            # signal does not wait for members, and a SIGTERM-ignoring member outlives it.
+            members = self.session_members(process.pid)
+            if members:
+                survivors = sorted(set(survivors) | set(self._terminate_session(process.pid, members)))
+        process.wait(timeout=grace if exited else 0)
         # Children detached into their own sessions are not reached by the group signal.
         for pid in survivors:
             if self.alive(pid):
@@ -594,14 +785,27 @@ class Launcher:
     def poll(self):
         finished = []
         for item_id, handle in list(self._handles.items()):
-            if handle.process.poll() is None and self.clock() >= handle.deadline and item_id not in self._stopping:
+            with self._teardown_lock:
+                if item_id in self._killing:
+                    continue  # Stop's _kill reaps it and writes killed.json; report it after that.
+            if not self.exited(handle.process) and self.clock() >= handle.deadline and item_id not in self._stopping:
                 self._stopping[item_id] = "budget"
                 self._kill(handle, grace=5.0)
-            code = handle.process.poll()
-            if code is None:
+            if not self.exited(handle.process):
                 continue
             if item_id in self._jobs:
                 self._finish_job(handle)
+            elif os.name != "nt":
+                with self._teardown_lock:
+                    if item_id in self._killing:
+                        continue  # Stop's _kill reaps it and writes killed.json; report it after that.
+                    settle = self._pinned(handle.process)
+                if settle and not self._settle_exited(handle):
+                    continue  # Retried on a later poll; the unreaped worker keeps its session pinned.
+            code = handle.process.poll()
+            if code is None:
+                continue
+            self._settling.pop(item_id, None)
             reason = self._stopping.pop(item_id, "exited")
             finished.append(Finished(item_id, code, self._read_last_message(handle), reason != "exited", reason,
                                      self._failure_kind(handle, code, reason), handle.pid))

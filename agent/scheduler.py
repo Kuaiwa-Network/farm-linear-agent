@@ -279,6 +279,9 @@ class Scheduler:
                 raise RuntimeError('a different worker attempt owns this job')
             self.launcher.stop_unsandboxed(item_id)
             self.launcher.stop(item_id)
+            # A worker that exited by itself is left unreaped by stop(); polling it now records its
+            # pinned-session evidence instead of meeting a zombie whose ownership cannot be read.
+            self._reap()
             recorded = []
             certified = self.launcher.certified_pids(item_id) if hasattr(self.launcher, 'certified_pids') else set()
             if pid and pid not in certified and self.launcher.alive(pid):
@@ -338,8 +341,12 @@ class Scheduler:
             certified = (self.launcher.certified_pids(item_id, boot_proof)
                          if hasattr(self.launcher, "certified_pids") else set())
             handle = self.launcher.running().get(item_id)
-            if handle and handle.process and handle.process.poll() is None:
-                raise RuntimeError("worker has not exited")
+            if handle and handle.process:
+                if not self.launcher.exited(handle.process):
+                    raise RuntimeError("worker has not exited")
+                # POSIX: never reap a registered worker here; Launcher.poll records its evidence first.
+                if handle.process.returncode is None:
+                    raise RuntimeError("worker exit awaits teardown evidence")
             if pid and pid not in certified and self.launcher.alive(pid):
                 if not self.launcher.owned_pid(pid, item_id):
                     raise RuntimeError("live worker PID ownership cannot be verified")

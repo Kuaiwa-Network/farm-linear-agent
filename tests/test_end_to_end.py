@@ -140,27 +140,26 @@ class EndToEndTests(unittest.TestCase, Fixture):
         methods = [c["method"] for c in self.calls()]
         self.assertEqual(methods.count("create_comment"), 2)
         self.assertIn("👀 FarmBot 已开始处理", self.calls()[[i for i, m in enumerate(methods) if m == "create_comment"][0]]["body"])
-        # POSIX parent exit alone cannot prove detached descendants are gone. Windows
-        # Job Object containment supplies stronger evidence after its last member exits.
+        # A parent's exit alone proves nothing about its descendants. The worker exited by itself, so its
+        # evidence is an empty Windows Job Object, or on POSIX its own session and process group verified
+        # empty at reap time (setsid() escapees are that proof's documented limit).
         deadline = time.time() + 5
         while self.c.launcher.running() and time.time() < deadline:
             self.c.scheduler.tick()
             time.sleep(0.05)
         cleanup = self.c.ledger.cleanup_record(item["id"])
-        if os.name == 'nt':
-            self.assertTrue(cleanup['done'])
-            self.assertFalse((self.c.paths.worktrees / item['id']).exists())
-            records = list((self.c.paths.runs / item['id']).glob('*/killed.json'))
-            self.assertTrue(records)
-            for record in records:
-                proof = json.loads(record.read_text(encoding='utf-8'))
+        self.assertTrue(cleanup['done'], cleanup['error'])
+        self.assertFalse((self.c.paths.worktrees / item['id']).exists())
+        records = list((self.c.paths.runs / item['id']).glob('*/killed.json'))
+        self.assertTrue(records)
+        for record in records:
+            proof = json.loads(record.read_text(encoding='utf-8'))
+            self.assertIs(proof['empty'], True)
+            self.assertEqual(proof['descendants'], [])
+            if os.name == 'nt':
                 self.assertTrue(proof['windows_job'])
-                self.assertIs(proof['empty'], True)
-                self.assertEqual(proof['descendants'], [])
-        else:
-            self.assertFalse(cleanup["done"])
-            self.assertIn("teardown", cleanup["error"])
-            self.assertTrue((self.c.paths.worktrees / item["id"]).exists())
+            else:
+                self.assertEqual(proof['posix_session'], proof['pid'])
 
     def test_stop_kills_a_running_worker_within_five_seconds(self):
         with patch.dict(os.environ, {"FAKE_CLI_MODE": "sleep"}):

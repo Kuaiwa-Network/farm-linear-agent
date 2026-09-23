@@ -335,3 +335,295 @@ class LauncherTests(unittest.TestCase):
                                                     "--add-dir", str(Path("/repo/.local/agent"))])
         self.assertEqual(RUNTIMES["claude"].writable_flag, "--add-dir")
         self.assertIsNone(RUNTIMES["codex"].writable_flag)
+
+
+# The child a leaking worker leaves behind: it announces its pid only once `setup` has run, so a
+# SIGTERM-ignoring child cannot be signalled before it installs its handler.
+CHILD = ("import os, signal, sys, time\n"
+         "{setup}"
+         "tmp = sys.argv[1] + '.tmp'\n"
+         "open(tmp, 'w').write(str(os.getpid()))\n"
+         "os.replace(tmp, sys.argv[1])\n"
+         "time.sleep(60)\n")
+# A middle process that starts CHILD and exits at once, so CHILD is re-parented while still in the group.
+ORPHANING = ("import subprocess, sys\n"
+             "subprocess.Popen([sys.executable, '-c', {child!r}, sys.argv[1]], stdin=subprocess.DEVNULL)\n")
+# A worker that starts one child with `kwargs` and waits until it is ready. It then waits for `release`
+# (when given), sleeps `linger` seconds, and exits 0 on its own.
+LEAKING_WORKER = ("import os, subprocess, sys, time\n"
+                  "sys.stdin.read()\n"
+                  "ready, release = sys.argv[1], sys.argv[2]\n"
+                  "subprocess.Popen([sys.executable, '-c', {child!r}, ready], stdin=subprocess.DEVNULL,"
+                  " {kwargs}).wait() if {orphan} else "
+                  "subprocess.Popen([sys.executable, '-c', {child!r}, ready], stdin=subprocess.DEVNULL, {kwargs})\n"
+                  "deadline = time.time() + 30\n"
+                  "while not os.path.exists(ready) and time.time() < deadline:\n"
+                  "    time.sleep(0.02)\n"
+                  "while release and not os.path.exists(release) and time.time() < deadline:\n"
+                  "    time.sleep(0.02)\n"
+                  "time.sleep({linger})\n")
+TERM_IGNORED = "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+
+
+def exited_unreaped(pid):
+    return os.waitid(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is not None
+
+
+@unittest.skipIf(os.name == "nt", "POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py")
+class PosixSelfExitTeardownTests(unittest.TestCase):
+    """A worker that exits by itself has no killed.json from Stop. Until it is reaped it still pins its session
+    and process group IDs (both its pid), so the reap is where its evidence is made."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.launcher = Launcher(self.root / "runs", RUNTIMES["fake"], host="test-host")
+        self.launcher.exit_grace = 0.5
+        self.addCleanup(self.stop_all)
+
+    def stop_all(self):
+        self.launcher._killing.clear()
+        for item_id in list(self.launcher.running()):
+            self.launcher.stop(item_id, grace=1.0)
+        deadline = time.monotonic() + 10
+        while self.launcher.running() and time.monotonic() < deadline:
+            self.launcher.poll()
+            time.sleep(0.02)
+
+    def finished(self, timeout=15):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            result = self.launcher.poll()
+            if result:
+                return result[0]
+            time.sleep(0.03)
+        self.fail("worker did not finish")
+
+    def wait_exited(self, handle):
+        deadline = time.monotonic() + 10
+        while not exited_unreaped(handle.pid) and time.monotonic() < deadline:
+            time.sleep(0.02)
+        self.assertTrue(exited_unreaped(handle.pid))
+
+    def leaking_worker(self, item_id, kwargs="", setup="", orphan=False, release="", linger=0):
+        """Spawn a worker that leaves one child behind; returns (handle, child_pid)."""
+        ready = self.root / f"{item_id}-child.pid"
+
+        def kill_child():  # never leak the child, even when an assertion (or the RED run) fails first
+            if ready.exists():
+                pid = int(ready.read_text())
+                if Launcher.alive(pid) and str(ready) in Launcher._command_line(pid):
+                    os.kill(pid, signal.SIGKILL)
+
+        self.addCleanup(kill_child)
+        child = CHILD.format(setup=setup)
+        if orphan:
+            child = ORPHANING.format(child=child)
+        script = self.root / f"{item_id}-worker.py"
+        script.write_text(LEAKING_WORKER.format(child=child, kwargs=kwargs, orphan=orphan, linger=linger),
+                          encoding="utf-8")
+        self.launcher.runtime = RUNTIMES["fake"]._replace(command=[sys.executable, str(script), str(ready),
+                                                                   str(release)])
+        handle = self.launcher.spawn(item_id, "prompt", {}, 30, self.root)
+        deadline = time.monotonic() + 10
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        self.assertTrue(ready.exists(), "worker did not start its child")
+        return handle, int(ready.read_text())
+
+    def evidence(self, handle, name="killed.json"):
+        return json.loads((handle.run_dir / name).read_text(encoding="utf-8"))
+
+    def gone(self, pid, timeout=3):
+        deadline = time.monotonic() + timeout
+        while Launcher.alive(pid) and time.monotonic() < deadline:
+            time.sleep(0.02)
+        return not Launcher.alive(pid)
+
+    def test_normal_exit_is_proven_quiescent(self):
+        # FARM-1300 on the TestBot Mac: a chat worker answered, exited 0 by itself, and its cleanup was held
+        # for ever with "worker exited without verified descendant teardown".
+        handle = self.launcher.spawn("normal", "prompt", {}, 30, self.root)
+        self.assertEqual(self.finished().reason, "exited")
+        self.launcher.assert_quiescent("normal", handle.pid)
+        self.assertEqual(self.evidence(handle), {"pid": handle.pid, "descendants": [], "terminated": [],
+                                                 "posix_session": handle.pid, "exited": True, "empty": True})
+
+    def test_same_group_survivor_is_terminated_and_recorded(self):
+        unrelated = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        self.addCleanup(lambda: (unrelated.kill(), unrelated.wait()))
+        # SIGTERM is ignored, so this also proves the SIGKILL escalation.
+        handle, child = self.leaking_worker("group", setup=TERM_IGNORED)
+        self.assertEqual(os.getpgid(child), handle.pid)
+        self.assertEqual(self.finished().returncode, 0)
+        self.assertTrue(self.gone(child), "same-group child survived its worker's reap")
+        self.assertIsNone(unrelated.poll(), "a process outside the worker's session was signalled")
+        proof = self.evidence(handle)
+        self.assertEqual((proof["terminated"], proof["descendants"], proof["empty"]), ([child], [], True))
+        self.launcher.assert_quiescent("group", handle.pid)
+
+    def test_other_group_in_the_worker_session_is_terminated_and_recorded(self):
+        # A job-control shell puts each job in its own process group, still inside the worker's session.
+        handle, child = self.leaking_worker("subgroup", kwargs="process_group=0")
+        self.assertNotEqual(os.getpgid(child), handle.pid)
+        self.assertEqual(os.getsid(child), handle.pid)
+        self.finished()
+        self.assertTrue(self.gone(child), "same-session child survived its worker's reap")
+        self.assertEqual(self.evidence(handle)["terminated"], [child])
+        self.launcher.assert_quiescent("subgroup", handle.pid)
+
+    def test_a_member_that_cannot_be_terminated_holds_cleanup(self):
+        handle, child = self.leaking_worker("stubborn")
+        with patch.object(Launcher, "_signal_session", lambda *args: None):
+            self.finished()
+        self.assertTrue(Launcher.alive(child))
+        self.assertFalse((handle.run_dir / "killed.json").exists())
+        unverified = self.evidence(handle, "teardown-unverified.json")
+        self.assertEqual((unverified["remaining"], unverified["empty"]), ([child], False))
+        with self.assertRaisesRegex(RuntimeError, "teardown"):
+            self.launcher.assert_quiescent("stubborn", handle.pid)
+
+    def test_an_unverified_self_exit_supersedes_an_interrupted_stop_record(self):
+        # A Stop whose kill raised (a worker stuck past SIGKILL) leaves its early killed.json behind. When
+        # that worker later exits and its session cannot be verified, the early record must not certify it.
+        handle, child = self.leaking_worker("interrupted")
+        early = {"pid": handle.pid, "descendants": []}
+        (handle.run_dir / "killed.json").write_text(json.dumps(early), encoding="utf-8")
+        with patch.object(Launcher, "_signal_session", lambda *args: None):
+            self.finished()
+        self.assertFalse((handle.run_dir / "killed.json").exists())
+        self.assertEqual(self.evidence(handle, "killed.superseded.json"), early)
+        with self.assertRaisesRegex(RuntimeError, "teardown"):
+            self.launcher.assert_quiescent("interrupted", handle.pid)
+
+    def test_an_unreadable_process_table_is_retried_while_the_worker_stays_unreaped(self):
+        handle = self.launcher.spawn("blind", "prompt", {}, 30, self.root)
+        self.wait_exited(handle)
+        with patch.object(Launcher, "session_members", return_value=None):
+            self.assertEqual(self.launcher.poll(), [])
+        self.assertTrue(exited_unreaped(handle.pid), "the retry must keep the session pinned")
+        self.finished()
+        self.assertIs(self.evidence(handle)["empty"], True)
+        self.launcher.assert_quiescent("blind", handle.pid)
+
+    def test_a_process_table_that_stays_unreadable_holds_cleanup(self):
+        self.launcher.settle_retry_seconds = 0
+        handle = self.launcher.spawn("blind", "prompt", {}, 30, self.root)
+        with patch.object(Launcher, "session_members", return_value=None):
+            self.finished()
+        self.assertFalse((handle.run_dir / "killed.json").exists())
+        self.assertIsNone(self.evidence(handle, "teardown-unverified.json")["remaining"])
+        with self.assertRaisesRegex(RuntimeError, "teardown"):
+            self.launcher.assert_quiescent("blind", handle.pid)
+
+    def test_without_waitid_a_self_exit_keeps_holding_cleanup(self):
+        # CPython exposes os.waitid on macOS only from 3.13. Without it the exit cannot be seen unreaped,
+        # so the old fail-closed hold is the only honest outcome.
+        with patch("agent.launcher._PINNED_EXIT", False):
+            handle = self.launcher.spawn("old-python", "prompt", {}, 30, self.root)
+            self.assertEqual(self.finished().returncode, 0)
+        self.assertFalse((handle.run_dir / "killed.json").exists())
+        with self.assertRaisesRegex(RuntimeError, "teardown"):
+            self.launcher.assert_quiescent("old-python", handle.pid)
+
+    def test_setsid_descendant_escapes_the_session_check(self):
+        """The documented POSIX limit: a child that called setsid() left the worker's session and group, so
+        neither the reap check nor any signal reaches it, and the attempt is still certified. Claude Code
+        2.1.280 was observed starting its Bash tool shells this way."""
+        handle, child = self.leaking_worker("setsid", kwargs="start_new_session=True")
+        self.assertEqual(os.getsid(child), child)
+        self.finished()
+        self.assertTrue(Launcher.alive(child), "a process outside the worker's session was signalled")
+        self.assertEqual(self.evidence(handle)["terminated"], [])
+        self.launcher.assert_quiescent("setsid", handle.pid)
+
+    def test_stop_after_a_self_exit_leaves_the_reap_and_its_evidence_to_poll(self):
+        handle = self.launcher.spawn("raced", "prompt", {}, 30, self.root)
+        self.wait_exited(handle)
+        # Linear Stop arrives after the worker already exited but before the scheduler polled it.
+        self.assertTrue(self.launcher.stop("raced", grace=1.0))
+        self.finished()
+        self.assertIs(self.evidence(handle)["empty"], True)
+        self.launcher.assert_quiescent("raced", handle.pid)
+
+    def test_stop_racing_a_self_exit_still_reaches_the_worker_group(self):
+        # Stop sees the worker alive, then it exits by itself while `_kill` walks `ps`. Its child has been
+        # re-parented, so only the still-pinned group and session reach it.
+        release = self.root / "raced-release"
+        handle, child = self.leaking_worker("raced", setup=TERM_IGNORED, release=str(release))
+        real = Launcher.descendants
+
+        def exits_during_the_walk(pid):
+            release.touch()
+            deadline = time.monotonic() + 10
+            while not exited_unreaped(pid) and time.monotonic() < deadline:
+                time.sleep(0.01)
+            return real(pid)
+
+        with patch.object(Launcher, "descendants", staticmethod(exits_during_the_walk)):
+            self.assertTrue(self.launcher.stop("raced", grace=1.0))
+        self.assertTrue(self.finished().killed)
+        self.assertTrue(self.gone(child), "a same-group child outlived a Stop that raced its worker's exit")
+        self.assertIn(child, self.evidence(handle)["descendants"])
+        self.launcher.assert_quiescent("raced", handle.pid)
+
+    def test_stop_racing_a_self_exit_signals_the_group_even_without_waitid(self):
+        # No session sweep is possible without waitid, but the group signal must still reach the child:
+        # macOS refuses os.getpgid() for a worker that has just become a zombie.
+        release = self.root / "old-release"
+        with patch("agent.launcher._PINNED_EXIT", False):
+            handle, child = self.leaking_worker("old-raced", release=str(release))
+            real = Launcher.descendants
+
+            def exits_during_the_walk(pid):
+                release.touch()
+                deadline = time.monotonic() + 10
+                while not exited_unreaped(pid) and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                return real(pid)
+
+            with patch.object(Launcher, "descendants", staticmethod(exits_during_the_walk)):
+                self.assertTrue(self.launcher.stop("old-raced", grace=1.0))
+            self.finished()
+        self.assertTrue(self.gone(child), "the group SIGTERM did not reach a child of a just-exited worker")
+
+    def test_stop_terminates_a_group_member_the_parent_walk_cannot_see(self):
+        # The child's parent exited first, so the walk from the live worker misses it; it ignores SIGTERM.
+        handle, child = self.leaking_worker("orphaned", setup=TERM_IGNORED, orphan=True, linger=60)
+        self.assertNotIn(child, Launcher.descendants(handle.pid))
+        self.assertTrue(self.launcher.stop("orphaned", grace=1.0))
+        self.finished()
+        self.assertTrue(self.gone(child), "Stop left a same-group member running")
+        self.assertIn(child, self.evidence(handle)["descendants"])
+        self.launcher.assert_quiescent("orphaned", handle.pid)
+
+    def test_poll_leaves_a_worker_being_killed_to_kill(self):
+        handle = self.launcher.spawn("owned", "prompt", {}, 30, self.root)
+        self.wait_exited(handle)
+        # Stop's _kill has taken this worker over on another thread: it reaps and records, poll() waits.
+        self.launcher._killing.add("owned")
+        self.assertEqual(self.launcher.poll(), [])
+        self.assertTrue(exited_unreaped(handle.pid))
+        self.launcher._killing.discard("owned")
+        self.assertEqual(self.finished().returncode, 0)
+
+    def test_a_claimed_worker_is_not_reaped_by_poll_even_without_waitid(self):
+        handle = self.launcher.spawn("owned-old", "prompt", {}, 30, self.root)
+        self.wait_exited(handle)
+        self.launcher._killing.add("owned-old")
+        with patch("agent.launcher._PINNED_EXIT", False):
+            self.assertEqual(self.launcher.poll(), [])
+        self.assertTrue(exited_unreaped(handle.pid), "poll() reaped a worker Stop's _kill had claimed")
+        self.launcher._killing.discard("owned-old")
+        self.assertEqual(self.finished().returncode, 0)
+
+    def test_a_reap_that_cannot_complete_is_retried(self):
+        handle = self.launcher.spawn("contended", "prompt", {}, 30, self.root)
+        self.wait_exited(handle)
+        # Popen.poll() answers None without reaping while another thread holds its waitpid lock.
+        with handle.process._waitpid_lock:
+            self.assertEqual(self.launcher.poll(), [])
+        self.assertFalse((handle.run_dir / "teardown-unverified.json").exists())
+        self.assertEqual(self.finished().returncode, 0)
+        self.assertIs(self.evidence(handle)["empty"], True)
