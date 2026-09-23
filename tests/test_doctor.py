@@ -241,6 +241,9 @@ class DoctorTests(unittest.TestCase):
         # Whitespace is unset too, as it is when the controller resolves the grant.
         with patch.dict(os.environ, {"KW_OPS_TOKEN": "   "}):
             self.assertFalse(self.report()["tools"]["kw_ops"]["token_set_in_doctor_environment"])
+        with patch.dict(os.environ):
+            os.environ.pop("KW_OPS_TOKEN", None)
+            self.assertFalse(self.report()["tools"]["kw_ops"]["token_set_in_doctor_environment"])
 
     def test_an_unconfigured_kw_ops_is_reported_as_such(self):
         self.assertEqual(self.report()["tools"], {"kw_ops": {"configured": False}})
