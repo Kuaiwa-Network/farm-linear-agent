@@ -13,6 +13,7 @@ from agent.launcher import Launcher, RUNTIMES, Unsandboxed
 from agent.ledger import Ledger
 from agent.slots import SlotError, SlotPool, slot_entry
 from agent.worktrees import WorktreeError, Worktrees
+from test_launcher import unblocked
 from test_ledger import ISSUE, OTHER, SELECTED_AT, issue
 
 
@@ -935,6 +936,78 @@ class PoolTests(SlotFixture):
                 self.assertEqual(pool.tick()["settled"], 0)
                 self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "held")
                 self.assertEqual([r["state"] for r in self.ledger.reservations()], ["active"])
+
+    def test_a_token_the_worker_made_unusable_holds_the_slot_without_stalling_the_pool(self):
+        # reservation.token is in the worker's state directory. A FIFO there made settle() wait for ever, and
+        # bytes that are not UTF-8 raised out of every tick: either way no slot was settled, granted or parked.
+        breaks = {"undecodable": lambda path: path.write_bytes(b"res_\xff\xfe")}
+        if hasattr(os, "mkfifo"):
+            breaks["fifo"] = lambda path: (path.unlink(), os.mkfifo(path))
+        for label, break_it in breaks.items():
+            with self.subTest(label):
+                self.setUp()
+                self.pool().ensure()
+                item = self.waiting(ISSUE, self.commit("fix"), "batch")
+                pool = self.pool(mcp=FakeMcp())
+                pool.tick()
+                token = pool.token_path(item)
+                break_it(token)
+                self.finish_worker(item)
+                self.assertEqual(unblocked(self, pool.tick, token)["settled"], 0)
+                self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "held")
+                self.assertEqual([r["state"] for r in self.ledger.reservations()], ["active"])
+
+    @unittest.skipIf(os.name == "nt", "no FIFOs in a directory, and making a symlink needs a privilege")
+    def test_what_the_worker_left_at_the_token_path_is_replaced_by_the_grant(self):
+        # A FIFO made the hand-over's open() wait for ever with the slot switched and busy; a symlink turned the
+        # truncating write on whatever it named, outside the sandbox.
+        for label, plant in (("fifo", os.mkfifo), ("symlink", lambda path: path.symlink_to(self.root / "outside.txt"))):
+            with self.subTest(label):
+                self.setUp()
+                outside = self.root / "outside.txt"
+                outside.write_text("not FarmBot's", encoding="utf-8")
+                self.pool().ensure()
+                item = self.waiting(ISSUE, self.commit("fix"), "batch")
+                pool = self.pool(mcp=FakeMcp())
+                token = pool.token_path(item)
+                token.parent.mkdir(parents=True)
+                plant(token)
+                self.assertEqual(unblocked(self, pool.tick, token)["granted"], 1)
+                self.assertFalse(token.is_symlink())
+                self.assertTrue(token.read_text(encoding="utf-8").startswith("res_"))
+                self.assertEqual(token.stat().st_mode & 0o077, 0)
+                self.assertEqual(outside.read_text(encoding="utf-8"), "not FarmBot's")
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFOs in a directory are POSIX")
+    def test_a_fifo_left_for_the_batch_summary_cannot_stall_the_batch_run(self):
+        # The pool writes its summary into the item's state directory and the run's evidence directory, both
+        # inside the worker-writable state directory.
+        planted = []
+
+        class LeavesAFifo(FakeUnity):
+            def __call__(self, argv, **kwargs):
+                result = super().__call__(argv, **kwargs)
+                planted.append(Path(argv[argv.index("-testResults") + 1]).parent / "unity-batch.json")
+                os.mkfifo(planted[-1])
+                return result
+        for label, runner in (("state directory", FakeUnity(total=4388, passed=4362, failed=26, code=2)),
+                              ("evidence directory", LeavesAFifo(total=4388, passed=4362, failed=26, code=2))):
+            with self.subTest(label):
+                self.setUp()
+                planted.clear()
+                self.pool().ensure()
+                item = self.waiting(ISSUE, self.commit("fix"), "batch")
+                summary = self.root / "runs" / item / "unity-batch.json"
+                if label == "state directory":
+                    summary.parent.mkdir(parents=True)
+                    os.mkfifo(summary)
+                    planted.append(summary)
+                pool = self.pool(mcp=FakeMcp(), run_unsandboxed=runner)
+                self.assertEqual(unblocked(self, pool.tick, lambda: planted[-1])["granted"], 1)
+                recorded = json.loads(summary.read_text(encoding="utf-8"))
+                self.assertEqual(recorded["total"], 4388)
+                evidence = Path(recorded["results_file"]).parent / "unity-batch.json"
+                self.assertEqual(json.loads(evidence.read_text(encoding="utf-8")), recorded)
 
     def test_a_grant_that_fails_gives_the_slot_back_through_park_and_never_asserts_its_state(self):
         """The same lie park_idle was fixed not to write, on the give-back path. A compile failure is

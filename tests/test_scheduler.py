@@ -644,6 +644,19 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(payload["resource"]["batch_result"]["state"], "gap")
         self.assertIsNone(payload["resource"]["batch_result"]["results_file"])
 
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFOs in a directory are POSIX")
+    def test_a_fifo_left_for_the_batch_summary_is_no_evidence_and_cannot_stall_the_launch(self):
+        # The summary is in the worker-writable state directory; opening a FIFO there stopped the scheduler loop.
+        from test_launcher import unblocked
+        item = self.granted_item(mode="batch")
+        summary = Path(self.launcher.state_dir(item)) / "unity-batch.json"
+        summary.unlink()
+        os.mkfifo(summary)
+        unblocked(self, self.scheduler.tick, summary)
+        payload = json.loads(self.launcher.spawned[-1][1].split("\n\n", 1)[1])
+        self.assertEqual(payload["resource"]["batch_result"]["state"], "gap")
+        self.assertIsNone(payload["resource"]["batch_result"]["results_file"])
+
     def test_an_interactive_reservation_injects_the_slot_address_and_not_its_folder(self):
         item = self.granted_item(mode="interactive")
         self.scheduler.tick()

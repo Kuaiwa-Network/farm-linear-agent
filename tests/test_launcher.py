@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 import unittest
+import uuid
 from pathlib import Path
 from unittest.mock import patch
 
@@ -21,33 +22,42 @@ CAPACITY = "ERROR: Selected model is at capacity. Please try a different model."
 
 
 def unblocked(test, call, fifo, timeout=5):
-    """call()'s result, or its exception, from a thread; the test fails if it is still blocked after `timeout`.
+    """call()'s result, failing the test if it is still running after `timeout`.
 
-    A call blocked opening `fifo` is then released through the FIFO's write end, so no thread outlives the test.
+    The call runs on this thread, since a ledger connection may be used only on the thread that made it. From
+    then on a watchdog opens both ends of the FIFO at `fifo` (a path, or a callable giving one once the call has
+    started), until the call returns: an open() waiting for a reader or a writer then proceeds, so a call that
+    blocks on the FIFO, as often as it does, cannot hang the suite.
     """
-    outcome = {}
+    done, blocked = threading.Event(), []
 
-    def run():
-        try:
-            outcome["result"] = call()
-        except BaseException as exc:
-            outcome["error"] = exc
-    thread = threading.Thread(target=run, daemon=True)
-    thread.start()
-    thread.join(timeout)
-    if thread.is_alive():
-        try:
-            writer = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
-        except OSError:
-            writer = None
-        thread.join(1)  # its open() has returned; its read() now waits for this writer to close
-        if writer is not None:
-            os.close(writer)
-        thread.join(5)
-        test.fail(f"blocked for {timeout} s on a FIFO at {fifo.name}")
-    if "error" in outcome:
-        raise outcome["error"]
-    return outcome["result"]
+    def watch():
+        if done.wait(timeout):
+            return
+        blocked.append(fifo() if callable(fifo) else fifo)
+        while not done.is_set():
+            try:
+                reader = os.open(blocked[0], os.O_RDONLY | os.O_NONBLOCK)  # a writer blocked opening it proceeds
+            except OSError:
+                done.wait(0.2)
+                continue
+            writer = os.open(blocked[0], os.O_WRONLY | os.O_NONBLOCK)  # as does a reader
+            done.wait(1)
+            os.close(writer)  # a released reader now reads end of file
+            try:
+                os.read(reader, 1 << 16)  # and a released writer's record never waits for room
+            except BlockingIOError:
+                pass
+            os.close(reader)
+    watchdog = threading.Thread(target=watch, daemon=True)
+    watchdog.start()
+    try:
+        return call()
+    finally:
+        done.set()
+        watchdog.join()
+        if blocked:
+            test.fail(f"blocked for {timeout} s on a FIFO at {blocked[0].name}")
 
 
 class LauncherTests(unittest.TestCase):
@@ -467,6 +477,76 @@ class LauncherTests(unittest.TestCase):
             unblocked(self, lambda: self.launcher.kill_owned_attempt("item-1", handle.pid), fifo)
         self.assertIsNone(handle.process.poll())
 
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFOs in a directory are POSIX")
+    def test_a_stop_replaces_a_fifo_the_live_worker_swapped_in_for_its_teardown_record(self):
+        # The worker is still running while Stop reads killed.json and then writes it: it can swap in a FIFO,
+        # whose open for writing waits for a reader that never comes.
+        handle = self.launcher.spawn("item-1", self.message, {}, budget_seconds=60, cwd=self.tmp.name,
+                                     extra_env={"FAKE_CLI_MODE": "sleep"})
+        fifo = handle.run_dir / "killed.json"
+        walk = Launcher.descendants
+
+        def swapped_during_the_walk(pid):
+            if not fifo.exists():
+                os.mkfifo(fifo)
+            return walk(pid)
+        with patch.object(Launcher, "descendants", side_effect=swapped_during_the_walk):
+            self.assertTrue(unblocked(self, lambda: self.launcher.stop("item-1", grace=2.0), fifo))
+        self.assertEqual(json.loads(fifo.read_text(encoding="utf-8")), {"pid": handle.pid, "descendants": []})
+        self.assertEqual([f.reason for f in self.wait_finished()], ["stopped"])
+        self.launcher.assert_quiescent("item-1", handle.pid)
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFOs in a directory are POSIX")
+    def test_spawn_records_the_pid_past_a_fifo_the_new_worker_put_at_its_launch_record(self):
+        popen = subprocess.Popen
+        records = []
+
+        def fast_worker(command, **kwargs):
+            process = popen(command, **kwargs)
+            if not records:  # the worker is running, and replaces its launch record before spawn writes it
+                records.append(Path(command[-1]).parent / "process.json")
+                records[0].unlink()
+                os.mkfifo(records[0])
+            return process
+        with patch("agent.launcher.subprocess.Popen", side_effect=fast_worker):
+            handle = unblocked(self, lambda: self.launcher.spawn(
+                "item-1", self.message, {}, budget_seconds=60, cwd=self.tmp.name,
+                extra_env={"FAKE_CLI_MODE": "crash"}), lambda: records[0])
+        self.assertEqual(json.loads(records[0].read_text(encoding="utf-8")), {"pid": handle.pid})
+        self.assertEqual([f.returncode for f in self.wait_finished()], [3])
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFOs in a directory are POSIX")
+    def test_spawn_notes_an_undelivered_prompt_past_a_fifo_the_worker_left_for_the_note(self):
+        # The worker plants the FIFO, then closes stdin unread: a prompt larger than the pipe fails to arrive.
+        script = ("import os, sys, time\n"
+                  "os.mkfifo(os.path.join(os.path.dirname(sys.argv[1]), 'stdin-error.txt'))\n"
+                  "os.close(0)\n"
+                  "time.sleep(30)\n")
+        self.launcher.runtime = RUNTIMES["fake"]._replace(command=[sys.executable, "-c", script, "{last_message}"])
+        self.addCleanup(self.wait_finished)
+        self.addCleanup(self.launcher.stop, "item-1", grace=1.0)
+        handle = unblocked(self, lambda: self.launcher.spawn("item-1", "x" * (1 << 20), {}, 60, self.tmp.name),
+                           lambda: self.launcher.running()["item-1"].run_dir / "stdin-error.txt")
+        self.assertEqual((handle.run_dir / "stdin-error.txt").read_text(encoding="utf-8"),
+                         "BrokenPipeError: prompt not fully delivered\n")
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFOs in a directory are POSIX")
+    def test_a_kill_after_a_restart_persists_its_targets_past_a_fifo_left_for_their_temporary_file(self):
+        handle = self.launcher.spawn("item-1", self.message, {}, budget_seconds=60, cwd=self.tmp.name,
+                                     extra_env={"FAKE_CLI_MODE": "sleep"})
+        fifo = handle.run_dir / "killed.tmp"
+        os.mkfifo(fifo)
+        fsync, synced = os.fsync, []
+        with patch("agent.launcher.os.fsync", side_effect=lambda fd: (synced.append(fd), fsync(fd))):
+            # 10 s: the kill then waits out its 5 s grace, since this unreaped child's zombie answers alive().
+            recorded = unblocked(self, lambda: self.launcher.kill_owned_attempt("item-1", handle.pid), fifo,
+                                 timeout=10)
+        self.assertEqual(recorded, [handle.pid])
+        self.assertTrue(synced, "the targets are no longer flushed to disk before the kill")
+        self.assertEqual(json.loads((handle.run_dir / "killed.json").read_text(encoding="utf-8")),
+                         {"pid": handle.pid, "descendants": []})
+        self.assertEqual([f.returncode for f in self.wait_finished()], [-signal.SIGTERM])
+
     def test_stop_also_kills_descendants_in_other_sessions(self):
         handle = self.launcher.spawn("item-7", self.message, {}, budget_seconds=60, cwd=self.tmp.name,
                                      extra_env={"FAKE_CLI_MODE": "detached-sleep"})
@@ -850,6 +930,45 @@ class PosixSelfExitTeardownTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "teardown"):
             self.launcher.assert_quiescent("fifo", handle.pid)
 
+    def test_what_the_worker_left_for_the_unverified_record_is_replaced_not_opened(self):
+        # An unusable killed.json makes the reap hold cleanup, writing teardown-unverified.json. Opening a FIFO
+        # there for writing waited for ever, and a symlink redirected the service's write out of the sandbox.
+        outside = self.root / "outside.txt"
+        plants = {"fifo": os.mkfifo, "symlink": lambda path: path.symlink_to(outside)}
+        for name, plant in plants.items():
+            with self.subTest(name):
+                outside.write_text("not FarmBot's", encoding="utf-8")
+                handle = self.launcher.spawn(name, "prompt", {}, 30, self.root)
+                self.wait_exited(handle)
+                (handle.run_dir / "killed.json").write_text("not json", encoding="utf-8")
+                planted = handle.run_dir / "teardown-unverified.json"
+                plant(planted)
+                self.assertEqual([f.reason for f in unblocked(self, self.launcher.poll, planted)], ["exited"])
+                self.assertEqual(self.evidence(handle, "teardown-unverified.json")["reason"],
+                                 "earlier teardown record is unreadable or not this attempt's")
+                self.assertEqual(outside.read_text(encoding="utf-8"), "not FarmBot's")
+                self.assertEqual((handle.run_dir / "killed.superseded.json").read_text(encoding="utf-8"),
+                                 "not json")
+                with self.assertRaisesRegex(RuntimeError, "teardown"):
+                    self.launcher.assert_quiescent(name, handle.pid)
+
+    def test_a_fifo_that_appears_at_the_teardown_record_is_replaced_by_the_verified_one(self):
+        # Evidence is written last, after the session scan and the reap: whatever is at killed.json by then is
+        # not what was read, and a FIFO must not stop the write that certifies the exit.
+        handle = self.launcher.spawn("appears", "prompt", {}, 30, self.root)
+        self.wait_exited(handle)
+        fifo = handle.run_dir / "killed.json"
+        gone = Launcher._group_gone
+
+        def appears_before_the_write(leader, timeout=1.0):
+            os.mkfifo(fifo)
+            return gone(leader, timeout)
+        with patch.object(Launcher, "_group_gone", side_effect=appears_before_the_write):
+            self.assertEqual([f.reason for f in unblocked(self, self.launcher.poll, fifo)], ["exited"])
+        self.assertEqual(self.evidence(handle), {"pid": handle.pid, "descendants": [], "terminated": [],
+                                                 "posix_session": handle.pid, "exited": True, "empty": True})
+        self.launcher.assert_quiescent("appears", handle.pid)
+
     def test_a_signalled_member_that_leaves_the_session_is_still_checked(self):
         # The member was verified in the pinned session and signalled, then called setsid() in its handler.
         # The group SIGTERM and the per-member one can each run the handler; a second setsid() is EPERM.
@@ -1215,3 +1334,70 @@ class WorkerFileReadTests(unittest.TestCase):
             '{"state": "not_started"}' + " " * agent.launcher._WORKER_FILE_LIMIT, encoding="utf-8")
         with self.assertRaises(OSError):
             Launcher(Path(self.tmp.name) / "runs", RUNTIMES["fake"], host="test-host").certified_pids("item")
+
+
+class WorkerFileWriteTests(unittest.TestCase):
+    """Every file FarmBot writes where a worker can write replaces what is there instead of opening it."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.path = self.root / "record.json"
+
+    def write(self, text, **kwargs):
+        agent.launcher._write_worker_file(self.path, text, **kwargs)
+
+    def test_the_file_holds_exactly_what_write_text_wrote_with_its_permissions(self):
+        # Including Windows, where text mode writes each "\n" as "\r\n" and an fd opened without O_BINARY
+        # would translate it a second time.
+        text = '{\n  "state": "ran",\n  "result": "—"\n}'
+        self.write(text)
+        expected = self.root / "expected.json"
+        expected.write_text(text, encoding="utf-8")
+        self.assertEqual(self.path.read_bytes(), expected.read_bytes())
+        self.assertEqual(self.path.stat().st_mode, expected.stat().st_mode)
+        self.write("second")
+        self.assertEqual(self.path.read_text(encoding="utf-8"), "second")
+        self.assertEqual(sorted(p.name for p in self.root.iterdir()), ["expected.json", "record.json"])
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFOs in a directory are POSIX")
+    def test_a_fifo_at_the_name_is_replaced_without_waiting_for_a_reader(self):
+        os.mkfifo(self.path)
+        unblocked(self, lambda: self.write("{}"), self.path)
+        self.assertEqual(self.path.read_text(encoding="utf-8"), "{}")
+
+    @unittest.skipIf(os.name == "nt", "making a symlink on Windows needs a privilege")
+    def test_a_symlink_at_the_name_is_replaced_and_what_it_names_is_left_alone(self):
+        outside = self.root / "outside.txt"
+        outside.write_text("not FarmBot's", encoding="utf-8")
+        self.path.symlink_to(outside)
+        self.write("{}")
+        self.assertFalse(self.path.is_symlink())
+        self.assertEqual((self.path.read_text(encoding="utf-8"), outside.read_text(encoding="utf-8")),
+                         ("{}", "not FarmBot's"))
+
+    def test_anything_already_at_the_temporary_name_is_refused_and_left_alone(self):
+        # The name is unguessable; were it guessed, O_EXCL still refuses to open what the worker put there.
+        planted = self.root / ".record.json.0123456789abcdef0123456789abcdef.tmp"
+        planted.write_text("not FarmBot's", encoding="utf-8")
+        with patch("agent.launcher.uuid4", return_value=uuid.UUID(planted.name.split(".")[3])):
+            with self.assertRaises(FileExistsError):
+                self.write("{}")
+        self.assertEqual((planted.read_text(encoding="utf-8"), self.path.exists()), ("not FarmBot's", False))
+
+    def test_a_replace_that_fails_raises_and_leaves_no_temporary_file(self):
+        (self.path / "inside").mkdir(parents=True)
+        with self.assertRaises(OSError):
+            self.write("{}")
+        self.assertEqual([p.name for p in self.root.iterdir()], ["record.json"])
+
+    def test_a_synced_write_reaches_the_disk_before_it_replaces_the_name(self):
+        self.path.write_text("earlier", encoding="utf-8")
+        fsync, seen = os.fsync, []
+        with patch("agent.launcher.os.fsync",
+                   side_effect=lambda fd: (seen.append(self.path.read_text(encoding="utf-8")), fsync(fd))):
+            self.write("later")
+            self.assertEqual(seen, [])
+            self.write("synced", sync=True)
+        self.assertEqual((seen, self.path.read_text(encoding="utf-8")), (["later"], "synced"))
