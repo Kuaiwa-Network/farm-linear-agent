@@ -279,6 +279,9 @@ class Scheduler:
                 raise RuntimeError('a different worker attempt owns this job')
             self.launcher.stop_unsandboxed(item_id)
             self.launcher.stop(item_id)
+            # A worker that exited by itself is left unreaped by stop(); polling it now records its
+            # pinned-session evidence instead of meeting a zombie whose ownership cannot be read.
+            self._reap()
             recorded = []
             certified = self.launcher.certified_pids(item_id) if hasattr(self.launcher, 'certified_pids') else set()
             if pid and pid not in certified and self.launcher.alive(pid):

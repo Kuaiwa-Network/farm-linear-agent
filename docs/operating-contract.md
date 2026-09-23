@@ -157,10 +157,11 @@ FarmBot reaps it. Before that reap FarmBot terminates and records any live membe
 a Stop or budget kill as well as a self-exit. For a self-exit it writes evidence only after the session
 is empty and, once the worker is reaped, no process remains in its group. An unreadable process table is
 retried for up to a minute first. A child that called `setsid()` has left the worker's session and escapes
-this check; that is the POSIX limit of the proof, and it is not rare. Claude Code starts each Bash tool
-shell in its own session, so processes a `claude` worker's commands leave running are outside it (Codex
-is unmeasured). Stop also signals descendants it can still find through their parents; a self-exit proof
-cannot. Self-exit evidence needs `os.waitid`, which CPython provides on macOS from 3.13. Under an older
+this check; that is the POSIX limit of the proof, and it is not rare. Claude Code 2.1.280 was observed
+starting each Bash tool shell in its own session, so processes a `claude` worker's commands leave running
+are likely outside it; other versions and Codex are unmeasured. Stop also signals descendants it can still
+find through their parents; a self-exit proof cannot. The Stop sweep is skipped when the process table
+cannot be read or `os.waitid` is missing, and Stop then records its evidence as before. Self-exit evidence needs `os.waitid`, which CPython provides on macOS from 3.13. Under an older
 interpreter, and for a worker that exited while FarmBot was not running or before this check existed,
 there is no evidence and cleanup still holds.
 These guards apply to every terminal retirement path. The scheduler retries pending cleanup. Slots still require the

@@ -520,7 +520,6 @@ class Launcher:
             return False
         if handle.process.poll() is None:
             return False  # Another thread holds Popen's waitpid lock; the worker is not reaped yet.
-        del self._settling[handle.item_id]
         # Members were proved gone through the pinned session, so they are not re-checked by pid later.
         record = {"pid": leader, "descendants": [], "terminated": sorted(state["terminated"]),
                   "posix_session": leader, "exited": True}
@@ -533,7 +532,11 @@ class Launcher:
         else:
             (handle.run_dir / "killed.json").write_text(json.dumps({**record, "empty": True}), encoding="utf-8")
             return True
-        # Recovery evidence for the operator; assert_quiescent reads only killed.json and keeps holding.
+        # Recovery evidence for the operator; assert_quiescent reads only killed.json and keeps holding. An
+        # interrupted Stop's early record is kept aside, never left to certify what this could not verify.
+        stale = handle.run_dir / "killed.json"
+        if stale.exists():
+            stale.replace(handle.run_dir / "killed.superseded.json")
         (handle.run_dir / "teardown-unverified.json").write_text(
             json.dumps({**record, "empty": False, "remaining": members, "reason": reason}), encoding="utf-8")
         return True
@@ -627,7 +630,7 @@ class Launcher:
                 self._killing.discard(handle.item_id)
 
     def _kill_claimed(self, handle, grace):
-        """Terminate a live worker claimed in `_killing`; nothing else reaps it until that claim is released."""
+        """Terminate a live worker claimed in `_killing`; poll() leaves it alone until the claim is released."""
         process = handle.process
         survivors = self.descendants(process.pid)
         (handle.run_dir / "killed.json").write_text(json.dumps({"pid": process.pid, "descendants": survivors}), encoding="utf-8")
@@ -782,6 +785,9 @@ class Launcher:
     def poll(self):
         finished = []
         for item_id, handle in list(self._handles.items()):
+            with self._teardown_lock:
+                if item_id in self._killing:
+                    continue  # Stop's _kill reaps it and writes killed.json; report it after that.
             if not self.exited(handle.process) and self.clock() >= handle.deadline and item_id not in self._stopping:
                 self._stopping[item_id] = "budget"
                 self._kill(handle, grace=5.0)
@@ -799,6 +805,7 @@ class Launcher:
             code = handle.process.poll()
             if code is None:
                 continue
+            self._settling.pop(item_id, None)
             reason = self._stopping.pop(item_id, "exited")
             finished.append(Finished(item_id, code, self._read_last_message(handle), reason != "exited", reason,
                                      self._failure_kind(handle, code, reason), handle.pid))

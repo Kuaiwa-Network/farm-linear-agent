@@ -189,13 +189,16 @@ Do not edit `process.json`, `killed.json` or cleanup records to bypass missing e
 ## macOS worker cleanup
 
 Each worker leads its own POSIX session and process group. Before FarmBot reaps an exited worker, it
-terminates any remaining member of that session. For a worker that exited by itself, it records
-`killed.json` with `posix_session` only once the session and group are empty. If it cannot verify
-this, it writes `teardown-unverified.json` and cleanup stays pending. Children that called `setsid()`
-leave the session and are not covered. That includes the shells Claude Code starts for its Bash tool.
+terminates any remaining member of that session it can see in the process table. For a worker that
+exited by itself, it records `killed.json` with `posix_session` only once the session and group are
+empty. If it cannot verify this, it writes `teardown-unverified.json` and cleanup stays pending.
+Children that called `setsid()` leave the session and are not covered. Claude Code 2.1.280 was observed
+starting its Bash tool shells that way, so treat processes a `claude` worker leaves running as uncovered.
 The check needs Python 3.13 or later on macOS, for `os.waitid`. Attempts that exited under an older
 interpreter, before this check existed, or while FarmBot was stopped keep their pending cleanup.
-`recover-worker-cleanup` is Windows-only.
+`recover-worker-cleanup` is Windows-only; on macOS, inspect the attempt's run directory (`process.json`,
+`killed.json`, `teardown-unverified.json`) and the job's `issue-context` cleanup evidence before deciding
+how to proceed.
 
 ## Shared worker memory
 

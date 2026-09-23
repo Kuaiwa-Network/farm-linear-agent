@@ -413,3 +413,18 @@ class SelfExitedWorkerCleanupTests(unittest.TestCase):
         self.wait_reaped(item['id'])
         record = self.ledger.cleanup_record(item['id'])
         self.assertTrue(record['done'], record['error'])
+
+    def test_resource_fencing_certifies_a_worker_that_exited_by_itself(self):
+        # Unity failover fences the revoked attempt. If it already exited, Stop has nothing to kill and its
+        # still-pinned session is the proof; an unreaped zombie is not a live process of unknown ownership.
+        item = self.item()
+        self.release.touch()
+        self.scheduler.tick()
+        handle = self.launcher.running()[item['id']]
+        deadline = time.monotonic() + 10
+        while (os.waitid(os.P_PID, handle.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None
+               and time.monotonic() < deadline):
+            time.sleep(0.02)
+        self.scheduler.fence_resource_worker({'item_id': item['id'], 'worker_pid': handle.pid})
+        self.assertNotIn(item['id'], self.launcher.running())
+        self.assertIs(json.loads((handle.run_dir / 'killed.json').read_text())['empty'], True)

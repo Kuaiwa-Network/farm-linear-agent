@@ -484,6 +484,19 @@ class PosixSelfExitTeardownTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "teardown"):
             self.launcher.assert_quiescent("stubborn", handle.pid)
 
+    def test_an_unverified_self_exit_supersedes_an_interrupted_stop_record(self):
+        # A Stop whose kill raised (a worker stuck past SIGKILL) leaves its early killed.json behind. When
+        # that worker later exits and its session cannot be verified, the early record must not certify it.
+        handle, child = self.leaking_worker("interrupted")
+        early = {"pid": handle.pid, "descendants": []}
+        (handle.run_dir / "killed.json").write_text(json.dumps(early), encoding="utf-8")
+        with patch.object(Launcher, "_signal_session", lambda *args: None):
+            self.finished()
+        self.assertFalse((handle.run_dir / "killed.json").exists())
+        self.assertEqual(self.evidence(handle, "killed.superseded.json"), early)
+        with self.assertRaisesRegex(RuntimeError, "teardown"):
+            self.launcher.assert_quiescent("interrupted", handle.pid)
+
     def test_an_unreadable_process_table_is_retried_while_the_worker_stays_unreaped(self):
         handle = self.launcher.spawn("blind", "prompt", {}, 30, self.root)
         self.wait_exited(handle)
@@ -516,8 +529,8 @@ class PosixSelfExitTeardownTests(unittest.TestCase):
 
     def test_setsid_descendant_escapes_the_session_check(self):
         """The documented POSIX limit: a child that called setsid() left the worker's session and group, so
-        neither the reap check nor any signal reaches it, and the attempt is still certified. Claude Code's
-        Bash tool starts every shell this way."""
+        neither the reap check nor any signal reaches it, and the attempt is still certified. Claude Code
+        2.1.280 was observed starting its Bash tool shells this way."""
         handle, child = self.leaking_worker("setsid", kwargs="start_new_session=True")
         self.assertEqual(os.getsid(child), child)
         self.finished()
@@ -593,6 +606,16 @@ class PosixSelfExitTeardownTests(unittest.TestCase):
         self.assertEqual(self.launcher.poll(), [])
         self.assertTrue(exited_unreaped(handle.pid))
         self.launcher._killing.discard("owned")
+        self.assertEqual(self.finished().returncode, 0)
+
+    def test_a_claimed_worker_is_not_reaped_by_poll_even_without_waitid(self):
+        handle = self.launcher.spawn("owned-old", "prompt", {}, 30, self.root)
+        self.wait_exited(handle)
+        self.launcher._killing.add("owned-old")
+        with patch("agent.launcher._PINNED_EXIT", False):
+            self.assertEqual(self.launcher.poll(), [])
+        self.assertTrue(exited_unreaped(handle.pid), "poll() reaped a worker Stop's _kill had claimed")
+        self.launcher._killing.discard("owned-old")
         self.assertEqual(self.finished().returncode, 0)
 
     def test_a_reap_that_cannot_complete_is_retried(self):
