@@ -457,7 +457,7 @@ instance's `expected_bot_name`, passed to workers as `bot_name`.
 - Two concurrent workers. Run-time budget, lease and renewal cadence are per skill, from its `skill.json`
   (`max_hours`, `lease_seconds`, `renew_minutes`); the launcher records the lease on the work item and the
   launch message tells the worker its own numbers.
-- Worker runtime: Codex CLI (`codex exec --sandbox workspace-write --approve-for-me`), one isolated `CODEX_HOME` per work item seeded with `auth.json`; Claude Code remains a chat fallback pending an equivalent fix sandbox and isolated-auth recipe. Details: `docs/superpowers/spikes/2026-09-18-runtime-spike.md`.
+- Worker runtime: Codex CLI (`codex exec --approve-for-me`, with `sandbox_mode = "workspace-write"` in its isolated home and automatic approval review), one isolated `CODEX_HOME` per work item seeded with `auth.json`; Claude Code remains a chat fallback pending an equivalent fix sandbox and isolated-auth recipe. Details: `docs/superpowers/spikes/2026-09-18-runtime-spike.md`.
 - Receiver: HMAC-SHA256 and 60 s timestamp window. AgentSessionEvent matches client, app user and organization; Issue events match organization.
 
 ## Publication transport recovery
