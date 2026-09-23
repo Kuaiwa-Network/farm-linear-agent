@@ -15,6 +15,7 @@ the authorized work unless the user asks to stop or changes the scope.
 
 Your launch message holds `item_id`, the ledger `database`, readable `worktrees`, `stage`
 (`root_repository`, `write_repositories`, `read_only_worktrees`), the pinned `target`, `guidance`,
+bounded `prior_context` from the investigator or previous repository stage,
 the FarmBot paths `repo_root`, `contract` and `references`, `bot_name`
 (the Linear app you speak as; write it wherever a template says `<bot_name>`), and
 `state_dir`, the one private directory you may write outside the current stage's writable worktree (STATE_DIR below). Work only on that item. A human delegated the issue to
@@ -40,7 +41,7 @@ outside your worktree list.
    Linear into the ledger. Then `issue-context --item ITEM_ID` gives you the issue, your handoff if a
    previous worker left one, pending steering messages and registered PRs. Read
    `conversation_history` for earlier answers, pending questions and the read-only
-   investigation summary; continue from that context while verifying its findings.
+   investigation summary; continue from `prior_context` and that context while verifying findings.
    Historical text is recall, not fresh authorization. A fresh successor of cancelled
    work also receives `recovery`: predecessor checkpoint, evidence and local Git recovery refs. Treat it
    as stale. Check current issue requirements, repository heads and existing PRs before reusing saved

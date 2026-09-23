@@ -209,6 +209,25 @@ class RepositoryStageTests(LedgerBase):
         retried = self.ledger.retry(item["id"], "try again")
         self.assertIsNone(retried["root_repo"])
 
+    def test_chat_repair_keeps_findings_but_restarts_at_neutral_root(self):
+        app_user = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
+        fix = self.new_item(delegate_id=app_user)
+        self.ledger.connection.execute("UPDATE work_items SET root_repo='Farm-Client' WHERE id=?", (fix["id"],))
+        self.ledger.fail_queued(fix["id"], "earlier attempt ended")
+        self.ledger.ensure_session("chat-session", ISSUE, delegation=False)
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id="chat-session", skill="chat")
+        self.ledger.push_inbox(chat["id"], "请重新调查并修复")
+        token = self.ledger.claim(chat["id"], worker_id="investigator")["token"]
+        message_id = self.ledger.issue_context(chat["id"])["session_messages"][-1]["id"]
+        resumed = self.ledger.request_repair(chat["id"], token, message_id, app_user,
+                                             "Confirmed symptom; source repository still unknown.")
+        self.assertEqual(resumed["id"], fix["id"])
+        self.assertIsNone(resumed["root_repo"])
+        context = self.ledger.issue_context(fix["id"])
+        self.assertIn("请重新调查并修复", [m["body"] for m in context["session_messages"]])
+        self.assertIn("Confirmed symptom; source repository still unknown.",
+                      [entry["summary"] for entry in context["conversation_history"]])
+
 
 class LeaseTests(LedgerBase):
     def test_claim_requires_queued_and_issues_cli_safe_token(self):

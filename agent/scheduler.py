@@ -133,14 +133,27 @@ class Scheduler:
                                              paths={repo: paths[repo] for repo in write_repos},
                                              delegated=bool(session.get('delegation')))
                        if self.publication is not None else {'repositories': {}})
-        # Inbox entries are session requests; ordinary issue comments stay in issue-context.
-        requests = self.ledger.issue_context(item['id'])['session_messages']
+        # Carry one bounded, structured predecessor summary into the fresh prompt. The full
+        # history stays in issue-context; a chat-to-fix restart uses the latest investigator
+        # summary, while a repository switch uses this item's validated checkpoint handoff.
+        context = self.ledger.issue_context(item['id'])
+        requests = context['session_messages']
+        prior_context = None
+        if item['skill'] == 'fix':
+            chat_summaries = [entry['summary'] for entry in context['conversation_history']
+                              if entry['skill'] == 'chat' and entry['summary']]
+            if item.get('root_repo') is None and chat_summaries:
+                prior_context = {'source': 'investigator_summary', 'summary': chat_summaries[-1],
+                                 'revalidation_required': True}
+            else:
+                prior_context = context['handoff']
         message = dispatch_message(item=item, issue=issue, skill_path=self.skill_root / skill.name / "SKILL.md",
                                    worktrees=paths, db_path=self.db_path, runtime=self.runtime_name,
                                    guidance=self.guidance_for(item), budget=skill.budget,
                                    repo_root=repo_root, state_dir=self.launcher.state_dir(item["id"]),
                                    resource=resource, memory=memory, publication=publication, user_requests=requests,
-                                   bot_name=self.bot_name, write_repositories=write_repos)
+                                   bot_name=self.bot_name, write_repositories=write_repos,
+                                   prior_context=prior_context)
         # The runtime's cwd is writable too. A read-only conversation must run
         # from its private state directory, not from the detached source checkout.
         primary = (paths[write_repos[0]] if write_repos else self.launcher.state_dir(item["id"]))

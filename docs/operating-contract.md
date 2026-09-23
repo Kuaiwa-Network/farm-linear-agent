@@ -111,7 +111,8 @@ that decision `codex exec` trusts the cwd itself and loads the repository's `.co
 measured, its MCP servers start and send any inline credentials; per Codex's trust prompt,
 project hooks and exec policies load too. With it, Codex no longer injects the cwd's `AGENTS.md`,
 so the `--approve-for-me` reviewer, which trusts injected `AGENTS.md` but not tool output, loses
-that text. Fix workers still read every worktree's `AGENTS.md`/`CLAUDE.md`; grants a worker
+that text. Fix workers read the current root's `AGENTS.md`/`CLAUDE.md` and other repository
+instructions when investigation needs them; grants a worker
 needs belong in the dispatch AUTHORITY. Repository skills under `.agents/skills` and
 `.codex/skills` still load, and workers inherit the service's `HOME`, so the host user's
 `~/.agents/skills` are visible too. Measured with codex-cli 0.155.1 on macOS; Windows is
@@ -125,8 +126,11 @@ message and a recorded delegation session on the same issue. It atomically retir
 claim and queues the prior fix or creates the first fix under the recorded delegation and
 target. A mention alone grants no new authority. `resume-work` remains a resume-only
 compatibility command. Cancelled fixes stay cancelled and receive a fresh successor ID;
-other terminal retries retain their ID. Replies, questions, investigation summaries and
-prior findings remain available in `issue-context`. Late messages and Stop from a source
+other terminal retries retain their ID. A chat-to-fix transition restarts at the neutral
+investigation root. The launch includes one bounded `prior_context` summary from the
+investigator or the current fix checkpoint; replies, questions and the full prior findings
+remain available in `issue-context`. Both are recall that the new worker must verify.
+Late messages and Stop from a source
 conversation follow its active handoff. Merely observing changed issue text/comments does
 not start work. Historical context is recall, not a current request.
 

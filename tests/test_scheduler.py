@@ -238,6 +238,9 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(set(payload["worktrees"]), {"Farm-Client", "farm-hive", "farmgui", "common", "Farm-Contract"})
         self.assertEqual(payload["lease_seconds"], 2700)
         self.assertEqual(payload["user_requests"][-1]["body"], "修复显示，保持排序规则")
+        self.assertEqual(payload["prior_context"], {
+            "source": "investigator_summary", "summary": "Confirmed display refresh issue.",
+            "revalidation_required": True})
         self.assertEqual(self.ledger.issue_context(fix["id"])["conversation_history"][0]["summary"],
                          "Confirmed display refresh issue.")
 
@@ -413,6 +416,9 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(current["root_repo"], "Farm-Contract")
         payload = json.loads(self.launcher.spawned[-1][1].split("\n\n", 1)[1])
         self.assertEqual(payload["stage"]["write_repositories"], ["Farm-Contract"])
+        self.assertEqual(payload["prior_context"]["source"], "previous_worker_checkpoint")
+        self.assertEqual(payload["prior_context"]["content"]["next_actions"],
+                         ["Inspect Farm-Contract rules in its own worker"])
         self.assertEqual(self.launcher.spawned[-1][4], str(self.trees.root / item["id"] / "Farm-Contract"))
         self.assertEqual(self.launcher.spawn_writable[1:], [
             str(self.trees.root / item["id"] / "Farm-Contract"),

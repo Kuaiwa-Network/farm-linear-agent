@@ -1413,7 +1413,8 @@ class Ledger:
                 self._set_state(destination, "queued", "human requested continuation via chat",
                                 token=None, lease_expires_at=None, worker_pid=None,
                                 generation=work["generation"] + 1, requeue_requested=0,
-                                capacity_retries=0, publication_retries=0, retry_not_before=0)
+                                capacity_retries=0, publication_retries=0, retry_not_before=0,
+                                root_repo=None, next_root_repo=None)
                 self.connection.execute('DELETE FROM resource_job_retries WHERE item_id=?', (destination,))
             self.connection.execute("UPDATE work_items SET evidence=? WHERE id=?", (
                 _json({"summary": summary, "prs": [],
