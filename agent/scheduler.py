@@ -86,7 +86,8 @@ class Scheduler:
         # Enforcement is tool injection (spec §7): what a worker can reach is decided here, from the
         # reservation it actually holds, and never from the skill manifest — which would give every fix
         # worker the Unity MCP whether or not it holds a slot — and never from a repository-local
-        # .codex/config.toml, which the isolated home makes inert.
+        # .codex/config.toml. The isolated home alone does not make that file inert: codex exec trusts an
+        # undecided cwd and then loads it, so Launcher.spawn records the cwd as untrusted in that home.
         reservation = self.ledger.active_reservation(item["id"])
         if reservation is not None and self.ledger.slot(reservation['resource'])['state'] == 'held':
             return None

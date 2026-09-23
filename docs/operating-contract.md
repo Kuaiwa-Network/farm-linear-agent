@@ -104,6 +104,18 @@ Worker commands in the ledger CLI are item-scoped and token-authenticated; `canc
 FarmBot is one conversational identity. `chat` and `fix` remain internal execution-profile
 identifiers, with different tools, budgets and writable roots. Read-only execution starts
 in its private state directory and does not receive repository or clone write roots.
+A Codex worker's tools and runtime settings come from its launch, not from the repository it
+works in. Its isolated home records the cwd with `trust_level = "untrusted"`, under the path
+passed to `--cd` (the spelling `codex exec` was measured to honour) and its resolved form. Without
+that decision `codex exec` trusts the cwd itself and loads the repository's `.codex/config.toml`:
+measured, its MCP servers start and send any inline credentials; per Codex's trust prompt,
+project hooks and exec policies load too. With it, Codex no longer injects the cwd's `AGENTS.md`,
+so the `--approve-for-me` reviewer, which trusts injected `AGENTS.md` but not tool output, loses
+that text. Fix workers still read every worktree's `AGENTS.md`/`CLAUDE.md`; grants a worker
+needs belong in the dispatch AUTHORITY. Repository skills under `.agents/skills` and
+`.codex/skills` still load, and workers inherit the service's `HOME`, so the host user's
+`~/.agents/skills` are visible too. Measured with codex-cli 0.155.1 on macOS; Windows is
+unverified. Claude workers pin only their MCP servers (`--strict-mcp-config`).
 An active repair can answer questions directly. Free-text intent is interpreted by the
 current worker; QA/retry words do not dispatch work by themselves. Empty Bug delegation
 retains its established repair shortcut; a message accompanying it is interpreted first.

@@ -137,6 +137,61 @@ class LauncherTests(unittest.TestCase):
             while time.time() < deadline and not pending.poll():
                 time.sleep(0.05)
 
+    def test_a_codex_home_records_its_cwd_as_untrusted_under_both_spellings(self):
+        """codex-cli 0.155.1 `exec` writes `trust_level = "trusted"` into CODEX_HOME for a cwd it has no decision
+        for, and trust loads the repository's own .codex/config.toml, whose MCP servers may carry inline
+        credentials. An explicit decision stops both. The --cd spelling is the one exec was measured to honour;
+        the resolved one covers canonical lookups. Paths may hold spaces, CJK and characters beyond U+FFFF."""
+        import tomllib
+        state = Path(self.tmp.name) / "state 农场 🐄"
+        worktree = state / "worktrees" / "item 1" / "Farm-Client"
+        worktree.mkdir(parents=True)
+        cwd = worktree
+        link = Path(self.tmp.name) / "linked state"
+        try:
+            link.symlink_to(state, target_is_directory=True)
+            cwd = link / "worktrees" / "item 1" / "Farm-Client"
+        except OSError:
+            pass  # Windows without the symlink privilege
+        # The fake reads only its first argument, so the real codex arguments ride along to be inspected.
+        runtime = RUNTIMES["codex"]._replace(command=[*RUNTIMES["fake"].command, *RUNTIMES["codex"].command[1:]],
+                                             seed_files={})
+        launcher = Launcher(self.runs, runtime, host="h")
+        handle = launcher.spawn("item-trust", self.message, {"unity": {"url": "http://127.0.0.1:8080/mcp"}}, 60, cwd,
+                                extra_env={"FAKE_CLI_MODE": "echo"}, writable=[worktree])
+        self.addCleanup(launcher.stop, "item-trust")
+        deadline = time.time() + 10
+        finished = []
+        while time.time() < deadline and not finished:
+            finished = launcher.poll()
+            time.sleep(0.05)
+        self.assertTrue(finished, "worker did not finish")
+        config = tomllib.loads((handle.run_dir / "home" / "config.toml").read_text(encoding="utf-8"))
+        argv = [str(part) for part in handle.process.args]
+        self.assertEqual(argv[argv.index("--cd") + 1], str(cwd))
+        if link.is_symlink():
+            self.assertNotEqual(str(cwd), str(cwd.resolve()))
+        self.assertEqual(config["projects"], {str(cwd): {"trust_level": "untrusted"},
+                                              str(cwd.resolve()): {"trust_level": "untrusted"}})
+        self.assertIn(str(worktree), config["sandbox_workspace_write"]["writable_roots"])
+        self.assertEqual(config["mcp_servers"]["unity"]["url"], "http://127.0.0.1:8080/mcp")
+
+    def test_home_config_strings_survive_any_path_character(self):
+        """One TOML encoder writes every string. It reuses JSON's escapes, except that a character beyond U+FFFF
+        must not become a surrogate pair. An undecodable name (a lone surrogate) still makes the file invalid,
+        so Codex refuses the config instead of reading some other path."""
+        import tomllib
+        home = Path(self.tmp.name) / "home"
+        home.mkdir()
+        values = ['quote " and backslash \\', "tab\tnewline\ncr\r", "nul\x00 del\x7f", "C:\\Users\\A B\\农场",
+                  "/w/state 🐄/Farm-Client"]
+        servers = {f"s{index}": {"command": value} for index, value in enumerate(values)}
+        config = tomllib.loads(write_mcp_config(home, "toml", servers).read_text(encoding="utf-8"))
+        self.assertEqual([config["mcp_servers"][name]["command"] for name in servers], values)
+        write_mcp_config(home, "toml", {"s": {"command": "/w/\udc80"}})
+        with self.assertRaises(tomllib.TOMLDecodeError):
+            tomllib.loads((home / "config.toml").read_text(encoding="utf-8"))
+
     def test_sandbox_roots_and_network_access_precede_mcp_servers_in_the_home_config(self):
         handle = self.launcher.spawn("item-3", self.message, {"unity": {"url": "http://127.0.0.1:8080/mcp"}},
                                      budget_seconds=60, cwd=self.tmp.name, extra_env={"FAKE_CLI_MODE": "echo"},
