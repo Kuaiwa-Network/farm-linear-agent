@@ -15,6 +15,7 @@ from test_worktrees import git
 class LifecycleIntegrationTests(unittest.TestCase):
     setUp = test_service.ServeTests.setUp
     drain_workers = test_service.ServeTests.drain_workers
+    close_later = test_service.ServeTests.close_later
 
     def snapshot(self, **changes):
         raw = issue(labels=['Bug'], delegate_id=APP,

@@ -58,13 +58,14 @@ class ServeTests(unittest.TestCase):
                         repos=remotes, max_concurrent=2, port=0, local_root=root / "local")
         self.c = build(config)
         self.addCleanup(self.drain_workers)
-        self.addCleanup(self.c.lifecycle.ledger.close)
-        self.addCleanup(self.c.progress.ledger.close)
-        self.addCleanup(self.c.recovery.close)
-        self.addCleanup(self.c.pool.close)
-        self.addCleanup(self.c.receiver.close)
-        self.addCleanup(self.c.ledger.close)
-        self.addCleanup(self.c.server.server_close)
+        self.close_later(self.c)
+
+    def close_later(self, components):
+        """Every connection build() opens. Windows cannot delete a temp directory holding an open ledger."""
+        for close in (components.lifecycle.ledger.close, components.progress.ledger.close,
+                      components.recovery.close, components.pool.close, components.receiver.close,
+                      components.ledger.close, components.server.server_close):
+            self.addCleanup(close)
 
     def drain_workers(self):
         """A tick may have launched the fake worker before shutdown; never leave a child unreaped."""
@@ -134,9 +135,7 @@ class ServeTests(unittest.TestCase):
                         runtime="fake", repos=self.c.config.repos, port=0,
                         local_root=Path(self.tmp.name) / "testbot", expected_bot_name="TestBot")
         testbot = build(config)
-        for close in (testbot.server.server_close, testbot.ledger.close, testbot.receiver.close,
-                      testbot.pool.close, testbot.lifecycle.ledger.close):
-            self.addCleanup(close)
+        self.close_later(testbot)
         self.assertEqual(self.acknowledgement(testbot).split("\n")[0],
                          "TestBot 已收到委派，正在排队处理这个缺陷。进展和草稿 PR 会更新在这里。")
         self.assertEqual(testbot.scheduler.bot_name, "TestBot")
