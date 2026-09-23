@@ -186,11 +186,16 @@ and does not discard the exits already collected for other workers. That worker 
 keeps its concurrency slot, until a later scheduler pass completes its processing; the error itself
 records no teardown evidence. A Unity failover fence fails, and is retried, while the revoked worker is
 still tracked, so a same-ID successor never launches beside it.
-FarmBot's launcher reads a worker's reports and its launch and teardown records, all in the worker-writable
-state directory, only as regular files and without waiting. A FIFO, a device, a record over 1 MiB, or on
-POSIX a symlink in place of the file, is unreadable. An unreadable launch or teardown record holds cleanup.
-An unreadable report leaves that exit's message empty and its failure unclassified. Of `stderr.log`, only
-the last 4 KiB is read.
+FarmBot reads the files it keeps in a worker's writable state directory only as regular files and without
+waiting. These are the worker's reports, its launch and teardown records, its slot reservation token and the
+batch run summary. A FIFO, a device, a record over 1 MiB, or on POSIX a symlink in place of the file, is
+unreadable. An unreadable launch or teardown record holds cleanup, and an unreadable reservation token holds
+its slot. An unreadable report leaves that exit's message empty and its failure unclassified. An unreadable
+batch summary reaches the next worker as a verification gap. Of `stderr.log`, only the last 4 KiB is read.
+Once a worker could have reached the directory, FarmBot writes each of these files as a new file, then
+renames it over the old name. Whatever the worker left at that name, a FIFO or a symlink included, is
+replaced, never opened or written through. This does not extend to a worker that replaces a directory on the
+path, such as its run directory, with a symlink.
 These guards apply to every terminal retirement path. The scheduler retries pending cleanup. Slots still require the
 existing quiescence probe; held slots enter controller-owned recovery. No log, run report, ledger history or
 memory snapshot is removed by closure cleanup. Every worker attempt gets its own log directory.

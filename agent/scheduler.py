@@ -7,6 +7,7 @@ import threading
 from pathlib import Path
 
 from .dispatch import dispatch_message
+from .launcher import _read_worker_text
 from .ledger import LedgerError
 from .memory import publish_snapshot
 from .publication import issue_branch
@@ -70,7 +71,7 @@ class Scheduler:
         so it is represented rather than dropped — a batch worker with no `batch_result` key at all would
         read as "no slot" instead of "no evidence"."""
         try:
-            return json.loads((Path(state_dir) / "unity-batch.json").read_text(encoding="utf-8"))
+            return json.loads(_read_worker_text(Path(state_dir) / "unity-batch.json"))
         except (OSError, ValueError):
             return {"state": "gap", "exit_code": None, "results_file": None,
                     "result": "the pool recorded no batch run for this reservation"}

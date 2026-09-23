@@ -13,6 +13,7 @@ import urllib.parse
 from pathlib import Path
 
 from .identity import collect, quiet, ready
+from .launcher import _read_worker_text, _write_worker_file
 from .ledger import Ledger, LedgerError
 from .unity import (UnityError, batch_test_command, editor_holds_project, editor_path, other_editor_project,
                     read_results)
@@ -179,17 +180,19 @@ class SlotPool:
 
     def _write_token(self, item_id, reservation):
         """The token goes to a file, never onto a command line: arguments are visible to every process on
-        the host (spec §15). The dispatch payload carries this path, never the secret."""
+        the host (spec §15). The dispatch payload carries this path, never the secret. The path is in the
+        worker's state directory, so the file replaces whatever is there rather than being opened through it."""
         path = self.token_path(item_id)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with os.fdopen(os.open(path, os.O_CREAT | os.O_TRUNC | os.O_WRONLY, 0o600), "w", encoding="utf-8") as handle:
-            handle.write(reservation["token"])
+        _write_worker_file(path, reservation["token"], mode=0o600)
         return path
 
     def _read_token(self, item_id):
+        """None when the worker left something unusable there, which holds the slot: raising would stop every
+        tick before it settled, granted or parked anything."""
         try:
-            return self.token_path(item_id).read_text(encoding="utf-8").strip()
-        except OSError:
+            return _read_worker_text(self.token_path(item_id)).strip()
+        except (OSError, ValueError):
             return None
 
     def tick(self):
@@ -551,8 +554,8 @@ class SlotPool:
         # Written before the raise below, not after it: the operator who reads a held slot needs the record
         # of what happened on it, and a summary that only exists on the happy path is the one nobody has.
         serialized = json.dumps(summary, indent=2)
-        (evidence_dir / "unity-batch.json").write_text(serialized, encoding="utf-8")
-        (state_dir / "unity-batch.json").write_text(serialized, encoding="utf-8")
+        _write_worker_file(evidence_dir / "unity-batch.json", serialized)
+        _write_worker_file(state_dir / "unity-batch.json", serialized)
         if run.timed_out:
             self.clear_stale_lock(slot["folder"], lambda: self.editor_pid(slot["folder"]) is not None)
             if self.editor_pid(slot["folder"]) is not None:

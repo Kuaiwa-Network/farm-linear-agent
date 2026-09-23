@@ -60,6 +60,29 @@ def _read_worker_text(path):
     return io.TextIOWrapper(io.BytesIO(_read_worker_file(path)), encoding="utf-8").read()
 
 
+def _write_worker_file(path, text, *, mode=0o666, sync=False):
+    """Put a file holding `text` at `path`, in a worker-writable directory, without opening what is there.
+
+    A FIFO the worker left at `path` would make the open wait for a reader, and a symlink would take the write
+    outside the sandbox. The text goes to a new file under an unguessable name, which O_EXCL refuses to open
+    through a link or FIFO, and os.replace then swaps it in for whatever is at `path`. `sync` flushes it to disk
+    first. It is written as Path.write_text(text, encoding="utf-8") writes it.
+    """
+    path = Path(path)
+    temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), mode)
+    try:
+        with open(fd, "w", encoding="utf-8") as stream:
+            stream.write(text)
+            if sync:
+                stream.flush()
+                os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
 RUNTIMES = {
     "codex": RuntimeConfig(
         name="codex",
@@ -255,7 +278,8 @@ class Launcher:
                 if job is not None:
                     self._jobs[item_id] = job
                     record["windows_job"] = job.name
-                process_record.write_text(json.dumps(record), encoding="utf-8")
+                # The worker is running and may already have replaced this file.
+                _write_worker_file(process_record, json.dumps(record))
         except BaseException:
             self._handles.pop(item_id, None)
             self._jobs.pop(item_id, None)
@@ -275,7 +299,7 @@ class Launcher:
                 process.stdin.write("G")
             process.stdin.write(message)
         except (BrokenPipeError, OSError) as exc:
-            (run_dir / "stdin-error.txt").write_text(f"{type(exc).__name__}: prompt not fully delivered\n", encoding="utf-8")
+            _write_worker_file(run_dir / "stdin-error.txt", f"{type(exc).__name__}: prompt not fully delivered\n")
         finally:
             try:
                 process.stdin.close()
@@ -603,7 +627,7 @@ class Launcher:
         elif not self._group_gone(leader):
             reason = "process group still present after its leader was reaped"
         else:
-            (handle.run_dir / "killed.json").write_text(json.dumps({**record, "empty": True}), encoding="utf-8")
+            _write_worker_file(handle.run_dir / "killed.json", json.dumps({**record, "empty": True}))
             return True
         self._hold(handle, {**record, "remaining": members}, reason)
         return True
@@ -618,8 +642,8 @@ class Launcher:
         stale = handle.run_dir / "killed.json"
         if stale.exists():
             stale.replace(handle.run_dir / "killed.superseded.json")
-        (handle.run_dir / "teardown-unverified.json").write_text(
-            json.dumps({**record, "empty": False, "reason": reason}), encoding="utf-8")
+        _write_worker_file(handle.run_dir / "teardown-unverified.json",
+                           json.dumps({**record, "empty": False, "reason": reason}))
 
     @staticmethod
     def _prior_descendants(handle):
@@ -684,12 +708,7 @@ class Launcher:
                 retained.update(previous['descendants'])
             # assert_quiescent checks that every recorded target is dead. Save
             # before the kill so a crash after teardown cannot lose the targets.
-            temporary = evidence.with_suffix('.tmp')
-            with temporary.open('w', encoding='utf-8') as stream:
-                json.dump({'pid': pid, 'descendants': sorted(retained - {pid})}, stream)
-                stream.flush()
-                os.fsync(stream.fileno())
-            temporary.replace(evidence)
+            _write_worker_file(evidence, json.dumps({'pid': pid, 'descendants': sorted(retained - {pid})}), sync=True)
         for target in targets:
             self._signal_pid(target, signal.SIGTERM)
         deadline = time.monotonic() + grace
@@ -779,7 +798,7 @@ class Launcher:
         if prior is None:
             self._hold(handle, record, _UNUSABLE_RECORD)
         else:
-            (handle.run_dir / "killed.json").write_text(json.dumps(record), encoding="utf-8")
+            _write_worker_file(handle.run_dir / "killed.json", json.dumps(record))
 
     def _finish_job(self, handle):
         with self._job_lock:
@@ -788,8 +807,8 @@ class Launcher:
                 return
             job.terminate_and_wait()
             # Evidence is written only after Windows reports zero active members.
-            (handle.run_dir / "killed.json").write_text(json.dumps({
-                "pid": handle.pid, "descendants": [], "windows_job": job.name, "empty": True}), encoding="utf-8")
+            _write_worker_file(handle.run_dir / "killed.json", json.dumps({
+                "pid": handle.pid, "descendants": [], "windows_job": job.name, "empty": True}))
             job.close()
             del self._jobs[handle.item_id]
 
