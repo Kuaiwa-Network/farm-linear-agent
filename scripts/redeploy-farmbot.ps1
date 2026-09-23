@@ -61,7 +61,7 @@ try {
     })
     $reservations = @($report.reservations | Where-Object { $null -ne $_ })
     if ($busyJobs.Count -or $reservations.Count) {
-        throw "FarmBot is busy ($($busyJobs.Count) jobs, $($reservations.Count) reservations). Try again after work settles."
+        throw "FarmBot is busy (active jobs: $($busyJobs.Count); reservations: $($reservations.Count)). Try again after work settles."
     }
 
     $receiverId = 0
@@ -83,7 +83,9 @@ try {
     }
     $null = Assert-OwnedReceiver $receiverId
     $receiver.Kill()
-    $null = $receiver.WaitForExit(5000)
+    if (-not $receiver.WaitForExit(5000)) {
+        throw "Receiver PID $receiverId did not exit after the stop request."
+    }
     Write-Output "Restarting FarmBot at $revision..."
 
     $healthUrl = "http://127.0.0.1:$port/health"
