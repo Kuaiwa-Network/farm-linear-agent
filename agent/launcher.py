@@ -86,7 +86,8 @@ def _write_worker_file(path, text, *, mode=0o666, sync=False):
 RUNTIMES = {
     "codex": RuntimeConfig(
         name="codex",
-        command=["codex", "exec", "-c", "features.memories=false", "--cd", "{cwd}", "--sandbox", "workspace-write",
+        # --approve-for-me rejects --sandbox; the isolated home selects workspace-write.
+        command=["codex", "exec", "-c", "features.memories=false", "--cd", "{cwd}",
                  "--approve-for-me", "--skip-git-repo-check",
                  "--output-last-message", "{last_message}", "-"],
         home_env="CODEX_HOME", mcp_format="toml",
@@ -237,6 +238,7 @@ class Launcher:
                 settings["shell_environment_policy"] = {"exclude": secrets}
         root_settings = {}
         if self.runtime.name == "codex":
+            root_settings["sandbox_mode"] = "workspace-write"
             for key, target in (("model", "model"), ("reasoning_effort", "model_reasoning_effort")):
                 if key in (model_settings or {}):
                     root_settings[target] = model_settings[key]

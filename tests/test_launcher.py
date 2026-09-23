@@ -225,6 +225,7 @@ class LauncherTests(unittest.TestCase):
             self.assertNotEqual(str(cwd), str(cwd.resolve()))
         self.assertEqual(config["projects"], {str(cwd): {"trust_level": "untrusted"},
                                               str(cwd.resolve()): {"trust_level": "untrusted"}})
+        self.assertEqual(config["sandbox_mode"], "workspace-write")
         self.assertIn(str(worktree), config["sandbox_workspace_write"]["writable_roots"])
         self.assertEqual(config["mcp_servers"]["unity"]["url"], "http://127.0.0.1:8080/mcp")
 
@@ -332,7 +333,8 @@ class LauncherTests(unittest.TestCase):
 
     def test_sandbox_roots_and_network_access_precede_mcp_servers_in_the_home_config(self):
         codex_command = RUNTIMES["codex"].command
-        self.assertEqual(codex_command[codex_command.index("--sandbox") + 1], "workspace-write")
+        self.assertIn("--approve-for-me", codex_command)
+        self.assertNotIn("--sandbox", codex_command)
         handle = self.launcher.spawn("item-3", self.message, {"unity": {"url": "http://127.0.0.1:8080/mcp"}},
                                      budget_seconds=60, cwd=self.tmp.name, extra_env={"FAKE_CLI_MODE": "echo"},
                                      writable=[Path("/w/item-3/Farm-Client"), Path("/repo/.local/agent")])
