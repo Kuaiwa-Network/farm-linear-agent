@@ -348,3 +348,71 @@ class IssueNotificationTests(ReceiverBase):
         self.assertEqual(self.receive(self.notification(organizationId='foreign'))[0], 403)
         self.assertEqual(self.receive(self.notification(data={'id': '../unsafe'}))[0], 400)
         self.assertEqual(self.receive(self.notification(), signature='bad')[0], 401)
+
+
+class BotNameTests(ReceiverBase):
+    """TestBot shares the Linear workspace with production, so every word the receiver says in a session
+    names the instance's configured app. An acknowledgement that said FarmBot from TestBot made the
+    operator stop the wrong bot."""
+
+    def receiver_named(self, name):
+        self.receiver = Receiver(self.db, "signing-secret", IDENTITY, self.api, lambda: Ledger(self.db),
+                                 skills={"chat", "fix", "qa"}, scheduler=self.scheduler, bot_name=name)
+        self.addCleanup(self.receiver.close)
+
+    def mention(self, session, body):
+        self.api.fetch_issue.return_value = issue(labels=["Bug"], delegate_id=None)
+        return self.event(agentSession={"id": session, "issue": {"id": ISSUE, "identifier": "FARM-1", "url": "u"},
+                                        "comment": {"body": body}})
+
+    def answer_after_undelegation(self):
+        """The fix item waits for input, the human removes the delegation, then replies in the session."""
+        self.receive(); self.receiver.process_one()
+        item = self.ledger.items_for_session("session-1")[0]
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        self.ledger.await_input(item["id"], token, "which server?")
+        self.api.fetch_issue.return_value = issue(labels=["Bug"], delegate_id=None)
+        self.receive(self.event("prompted", body="公共测试服")); self.receiver.process_one()
+        return self.activities()[-1]["body"]
+
+    def test_default_receiver_keeps_the_production_acknowledgements_byte_for_byte(self):
+        self.receive(); self.receiver.process_one()
+        self.assertEqual(self.activities()[-1]["body"], "FarmBot 已收到委派，正在排队处理这个缺陷。进展和草稿 PR 会更新在这里。")
+        self.ledger.cancel(self.ledger.items_for_session("session-1")[0]["id"], "test")
+        self.receive(self.mention("session-2", "@FarmBot 这个 bug 是客户端还是服务端的？")); self.receiver.process_one()
+        self.assertEqual(self.activities()[-1]["body"], "FarmBot 已收到，正在查看。")
+
+    def test_default_receiver_keeps_the_production_resume_and_error_text(self):
+        self.assertEqual(self.answer_after_undelegation(), "已保存回复；issue 已不再委派给 FarmBot，暂不继续修复。")
+        self.api.fetch_issue.side_effect = KeyError("labels")
+        self.receive(self.event(agentSession={"id": "session-9", "issue": {"id": ISSUE}})); self.receiver.process_one()
+        self.assertEqual(self.activities()[-1], {"type": "error", "body": "FarmBot 处理这条消息时出错（KeyError），请稍后重试或联系维护者。"})
+
+    def test_default_receiver_keeps_the_production_elicitation(self):
+        self.api.fetch_issue.return_value = issue(labels=["需求"], delegate_id=APP)
+        self.receive(); self.receiver.process_one()
+        self.assertEqual(self.activities()[-1]["body"], "这个 issue 需要我做什么？请回复「修复」让我处理缺陷，或改为 @FarmBot 提问。"
+                                                        "没有 Bug 标签的委派我不会自动开工。")
+
+    def test_a_named_instance_acknowledges_as_itself(self):
+        self.receiver_named("TestBot")
+        self.receive(); self.receiver.process_one()
+        self.assertEqual(self.activities()[-1]["body"], "TestBot 已收到委派，正在排队处理这个缺陷。进展和草稿 PR 会更新在这里。")
+        self.ledger.cancel(self.ledger.items_for_session("session-1")[0]["id"], "test")
+        self.receive(self.mention("session-2", "@TestBot 这个 bug 是客户端还是服务端的？")); self.receiver.process_one()
+        self.assertEqual(self.activities()[-1]["body"], "TestBot 已收到，正在查看。")
+        self.ledger.cancel(self.ledger.items_for_session("session-2")[0]["id"], "test")
+        self.receive(self.mention("session-3", "@TestBot 帮我复现一下")); self.receiver.process_one()
+        self.assertEqual(self.activities()[-1]["body"], "TestBot 已收到测试请求，正在排队。")
+
+    def test_a_named_instance_never_says_farmbot_in_resume_error_or_elicitation_text(self):
+        self.receiver_named("TestBot")
+        self.assertEqual(self.answer_after_undelegation(), "已保存回复；issue 已不再委派给 TestBot，暂不继续修复。")
+        self.api.fetch_issue.side_effect = KeyError("labels")
+        self.receive(self.event(agentSession={"id": "session-9", "issue": {"id": ISSUE}})); self.receiver.process_one()
+        self.assertEqual(self.activities()[-1]["body"], "TestBot 处理这条消息时出错（KeyError），请稍后重试或联系维护者。")
+        self.api.fetch_issue.side_effect = None
+        self.api.fetch_issue.return_value = issue(labels=["需求"], delegate_id=APP)
+        self.receive(self.event(agentSession={"id": "session-10", "issue": {"id": ISSUE}})); self.receiver.process_one()
+        self.assertIn("@TestBot 提问", self.activities()[-1]["body"])
+        self.assertFalse([a for a in self.activities() if "FarmBot" in a["body"]])

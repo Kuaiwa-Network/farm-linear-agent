@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 QA_WORDS = ("测试", "复现", "冒烟", "qa")
 WRITE_SKILLS = ("fix", "fgui", "feature")
-ELICIT_TEXT = ("这个 issue 需要我做什么？请回复「修复」让我处理缺陷，或改为 @FarmBot 提问。"
+ELICIT_TEXT = ("这个 issue 需要我做什么？请回复「修复」让我处理缺陷，或改为 @{bot} 提问。"
                "没有 Bug 标签的委派我不会自动开工。")
 QA_UNAVAILABLE = "我现在还不能在 qa 技能上执行游戏测试，只能回答问题；QA 会在下一阶段启用。"
 
@@ -20,7 +20,8 @@ def _contains(text, words):
     return any(word.lower() in lowered for word in words)
 
 
-def route(*, action, is_delegation, text, labels, active_state, terminal_exists, available_skills):
+def route(*, action, is_delegation, text, labels, active_state, terminal_exists, available_skills,
+          bot_name="FarmBot"):
     if action == "stop":
         return Decision("stop")
     if action == "prompted" and active_state is not None:
@@ -34,7 +35,7 @@ def route(*, action, is_delegation, text, labels, active_state, terminal_exists,
     if is_delegation and action == "created":
         if "Bug" in labels and "fix" in available_skills:
             return Decision("work", "fix")
-        return Decision("elicit", None, ELICIT_TEXT)
+        return Decision("elicit", None, ELICIT_TEXT.format(bot=bot_name))
     if _contains(text, QA_WORDS):
         if "qa" in available_skills:
             return Decision("work", "qa")

@@ -24,6 +24,14 @@ class RouterTests(unittest.TestCase):
         self.assertEqual(decision.kind, "elicit")
         self.assertIn("修复", decision.text)
 
+    def test_the_question_names_the_configured_bot_and_defaults_to_farmbot(self):
+        self.assertEqual(go(is_delegation=True, labels=["需求"]).text,
+                         "这个 issue 需要我做什么？请回复「修复」让我处理缺陷，或改为 @FarmBot 提问。"
+                         "没有 Bug 标签的委派我不会自动开工。")
+        named = go(is_delegation=True, labels=["需求"], bot_name="TestBot").text
+        self.assertIn("@TestBot 提问", named)
+        self.assertNotIn("FarmBot", named)
+
     def test_mention_asking_for_qa_routes_to_qa_only_when_available(self):
         self.assertEqual(go(text="@FarmBot 帮我复现一下", available_skills=SKILLS | {"qa"}), Decision("work", "qa"))
         fallback = go(text="@FarmBot 跑冒烟")

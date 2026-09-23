@@ -114,6 +114,31 @@ class ServeTests(unittest.TestCase):
         self.assertEqual(failures, [])
         self.assertIs(self.c.scheduler.api, self.c.api)  # worker deaths reach the session through the same client
 
+    def acknowledgement(self, components):
+        """The body of the activity answering one signed delegation, read from the stub's call log."""
+        body = json.dumps(self.created_event()).encode()
+        signature = hmac.new(b"signing-secret", body, hashlib.sha256).hexdigest()
+        self.assertEqual(components.receiver.receive(body, signature), (200, "accepted"))
+        self.assertTrue(components.receiver.process_one())
+        calls = [json.loads(line) for line in (self.stub / "calls.jsonl").read_text(encoding="utf-8").splitlines()]
+        return [c for c in calls if c["method"] == "create_activity"][-1]["content"]["body"]
+
+    def test_build_speaks_as_the_configured_bot_and_production_keeps_farmbot(self):
+        """TestBot shares the workspace with production: Linear text follows expected_bot_name, never a literal."""
+        self.assertEqual(self.acknowledgement(self.c).split("\n")[0],
+                         "FarmBot 已收到委派，正在排队处理这个缺陷。进展和草稿 PR 会更新在这里。")
+        self.assertEqual(self.c.scheduler.bot_name, "FarmBot")
+        config = Config(client_id="client", client_secret="s", webhook_secret="signing-secret", host="test",
+                        runtime="fake", repos=self.c.config.repos, port=0,
+                        local_root=Path(self.tmp.name) / "testbot", expected_bot_name="TestBot")
+        testbot = build(config)
+        for close in (testbot.server.server_close, testbot.ledger.close, testbot.receiver.close,
+                      testbot.pool.close, testbot.lifecycle.ledger.close):
+            self.addCleanup(close)
+        self.assertEqual(self.acknowledgement(testbot).split("\n")[0],
+                         "TestBot 已收到委派，正在排队处理这个缺陷。进展和草稿 PR 会更新在这里。")
+        self.assertEqual(testbot.scheduler.bot_name, "TestBot")
+
     def test_build_gives_the_pool_its_own_connection_and_never_the_schedulers(self):
         """The rule this whole task exists for, asserted on the production wiring rather than on a SlotPool
         a test constructed. serve() runs pool.tick() on a third thread while the scheduler ticks on its own
