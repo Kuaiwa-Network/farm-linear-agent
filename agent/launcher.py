@@ -195,7 +195,7 @@ class Launcher:
         return self.runs_root / item_id
 
     def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None, writable=(), cancelled=None,
-              model_settings=None):
+              model_settings=None, withheld_env=()):
         # A fresh worker is also a new attempt after an operator retry. Stop fences from
         # its previous attempt must not prevent this worker requesting another batch.
         with self._unsandboxed_lock:
@@ -227,6 +227,14 @@ class Launcher:
             # counting it as trusted text; fix workers still read it, as tool output.
             for path in dict.fromkeys((str(cwd), str(Path(cwd).resolve()))):
                 settings[f"projects.{_toml_string(path)}"] = {"trust_level": "untrusted"}
+            # A server the CLI authenticates from an environment variable names it, never its value, and the
+            # worker's shell must not see it either. codex-cli 0.156.1 re-exports variables from its shell
+            # snapshot, so `exclude` holds only with the snapshot off (measured).
+            secrets = sorted({server["bearer_token_env_var"] for server in mcp_servers.values()
+                              if "bearer_token_env_var" in server})
+            if secrets:
+                settings["features"]["shell_snapshot"] = False
+                settings["shell_environment_policy"] = {"exclude": secrets}
         root_settings = {}
         if self.runtime.name == "codex":
             for key, target in (("model", "model"), ("reasoning_effort", "model_reasoning_effort")):
@@ -241,7 +249,7 @@ class Launcher:
             # Codex takes its roots from the isolated home's config; Claude takes them on the command line.
             for root in roots:
                 command += [self.runtime.writable_flag, root]
-        env = {k: v for k, v in os.environ.items() if k not in ("CODEX_HOME", "CLAUDE_CONFIG_DIR")}
+        env = {k: v for k, v in os.environ.items() if k not in ("CODEX_HOME", "CLAUDE_CONFIG_DIR", *withheld_env)}
         env[self.runtime.home_env] = str(home)
         env["FARMBOT_ITEM_ID"] = item_id
         env.update(extra_env or {})

@@ -77,6 +77,15 @@ class LauncherTests(unittest.TestCase):
             time.sleep(0.05)
         self.fail("worker did not finish")
 
+    def finished_by(self, launcher, timeout=10):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            finished = launcher.poll()
+            if finished:
+                return finished
+            time.sleep(0.02)
+        self.fail("worker did not finish")
+
     def wait_exited(self, handle, timeout=10):
         deadline = time.time() + timeout
         while not Launcher.exited(handle.process) and time.time() < deadline:
@@ -277,6 +286,49 @@ class LauncherTests(unittest.TestCase):
         write_mcp_config(home, "toml", {"s": {"command": "/w/\udc80"}})
         with self.assertRaises(tomllib.TOMLDecodeError):
             tomllib.loads((home / "config.toml").read_text(encoding="utf-8"))
+
+    def test_a_withheld_variable_never_reaches_the_worker(self):
+        # Braces are doubled: spawn formats every command part.
+        script = ("import json,os,pathlib,sys;sys.stdin.read();"
+                  "pathlib.Path(sys.argv[1]).write_text(json.dumps({{k: os.environ.get(k) for k in "
+                  "['KW_OPS_TOKEN', 'KEPT_MARKER']}}))")
+        runtime = RUNTIMES["codex"]._replace(command=[sys.executable, "-c", script, "{last_message}"], seed_files={})
+        launcher = Launcher(self.runs, runtime, host="h")
+        with patch.dict(os.environ, {"KW_OPS_TOKEN": "dummy-token-value", "KEPT_MARKER": "kept"}):
+            launcher.spawn("item-withheld", self.message, {}, 30, self.tmp.name, withheld_env=["KW_OPS_TOKEN"])
+        self.addCleanup(launcher.stop, "item-withheld")
+        finished = self.finished_by(launcher)
+        self.assertEqual(json.loads(finished[0].last_message), {"KW_OPS_TOKEN": None, "KEPT_MARKER": "kept"})
+
+    def test_a_codex_worker_with_a_token_server_hides_the_token_from_its_shell(self):
+        import tomllib
+        runtime = RUNTIMES["codex"]._replace(command=RUNTIMES["fake"].command, seed_files={})
+        launcher = Launcher(self.runs, runtime, host="h")
+        server = {"url": "http://gm.test/mcp", "bearer_token_env_var": "KW_OPS_TOKEN"}
+        with patch.dict(os.environ, {"KW_OPS_TOKEN": "dummy-token-value"}):
+            handle = launcher.spawn("item-secret", self.message, {"kw_ops": server}, 30, self.tmp.name,
+                                    extra_env={"FAKE_CLI_MODE": "echo"})
+        self.addCleanup(launcher.stop, "item-secret")
+        self.finished_by(launcher)
+        text = (handle.run_dir / "home" / "config.toml").read_text(encoding="utf-8")
+        config = tomllib.loads(text)
+        self.assertEqual(config["mcp_servers"]["kw_ops"], server)
+        self.assertEqual(config["shell_environment_policy"], {"exclude": ["KW_OPS_TOKEN"]})
+        # codex-cli 0.156.1 re-exports an excluded variable from its shell snapshot unless the snapshot is off.
+        self.assertIs(config["features"]["shell_snapshot"], False)
+        self.assertNotIn("dummy-token-value", text)
+
+    def test_a_codex_worker_without_a_token_server_keeps_its_shell_settings(self):
+        import tomllib
+        runtime = RUNTIMES["codex"]._replace(command=RUNTIMES["fake"].command, seed_files={})
+        launcher = Launcher(self.runs, runtime, host="h")
+        handle = launcher.spawn("item-plain", self.message, {"unity": {"url": "http://127.0.0.1:8080/mcp"}}, 30,
+                                self.tmp.name, extra_env={"FAKE_CLI_MODE": "echo"})
+        self.addCleanup(launcher.stop, "item-plain")
+        self.finished_by(launcher)
+        config = tomllib.loads((handle.run_dir / "home" / "config.toml").read_text(encoding="utf-8"))
+        self.assertNotIn("shell_environment_policy", config)
+        self.assertEqual(config["features"], {"memories": False})
 
     def test_sandbox_roots_and_network_access_precede_mcp_servers_in_the_home_config(self):
         codex_command = RUNTIMES["codex"].command
