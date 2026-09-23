@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agent.launcher import Launcher, RUNTIMES, write_mcp_config
+from agent.launcher import _PINNED_EXIT, Handle, Launcher, RUNTIMES, write_mcp_config
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -374,7 +374,12 @@ class PosixSelfExitTeardownTests(unittest.TestCase):
     """A worker that exits by itself has no killed.json from Stop. Until it is reaped it still pins its session
     and process group IDs (both its pid), so the reap is where its evidence is made."""
 
+    # Runs on every POSIX interpreter: without os.waitid the designed outcome is the old hold.
+    RUNS_WITHOUT_WAITID = {"test_without_waitid_a_self_exit_keeps_holding_cleanup"}
+
     def setUp(self):
+        if not _PINNED_EXIT and self._testMethodName not in self.RUNS_WITHOUT_WAITID:
+            self.skipTest("needs os.waitid (CPython 3.13+ on macOS)")
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
@@ -497,6 +502,70 @@ class PosixSelfExitTeardownTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "teardown"):
             self.launcher.assert_quiescent("interrupted", handle.pid)
 
+    def test_a_verified_self_exit_keeps_an_interrupted_stops_recorded_descendants(self):
+        # A Stop whose kill raised had recorded a setsid() child it found by parent walk. The later self-exit
+        # check cannot see that child, so the verified record must still carry it for assert_quiescent.
+        handle, child = self.leaking_worker("kept", kwargs="start_new_session=True")
+        (handle.run_dir / "killed.json").write_text(json.dumps({"pid": handle.pid, "descendants": [child]}),
+                                                    encoding="utf-8")
+        self.finished()
+        proof = self.evidence(handle)
+        self.assertEqual((proof["descendants"], proof["empty"]), ([child], True))
+        with self.assertRaisesRegex(RuntimeError, "descendants have not exited"):
+            self.launcher.assert_quiescent("kept", handle.pid)
+
+    def test_a_teardown_record_naming_another_pid_holds_cleanup(self):
+        handle = self.launcher.spawn("foreign", "prompt", {}, 30, self.root)
+        (handle.run_dir / "killed.json").write_text(json.dumps({"pid": 1, "descendants": []}), encoding="utf-8")
+        self.finished()
+        self.assertFalse((handle.run_dir / "killed.json").exists())
+        self.assertEqual(self.evidence(handle, "teardown-unverified.json")["reason"],
+                         "earlier teardown record is unreadable or not this attempt's")
+        with self.assertRaisesRegex(RuntimeError, "teardown"):
+            self.launcher.assert_quiescent("foreign", handle.pid)
+
+    def test_a_signalled_member_that_leaves_the_session_is_still_checked(self):
+        # The member was verified in the pinned session and signalled, then called setsid() in its handler.
+        # The group SIGTERM and the per-member one can each run the handler; a second setsid() is EPERM.
+        escape = ("def _escape(*_):\n"
+                  "    try:\n"
+                  "        os.setsid()\n"
+                  "    except PermissionError:\n"
+                  "        pass\n"
+                  "    open(sys.argv[1] + '.escaped', 'w').close()\n"
+                  "signal.signal(signal.SIGTERM, _escape)\n")
+        handle, child = self.leaking_worker("escaping", setup=escape)
+        escaped = self.root / "escaping-child.pid.escaped"
+        real = Launcher._signal_session
+
+        def kill_after_the_escape(leader, members, sig):
+            # The handler is Python code in another process: under load it can run after exit_grace. Hold
+            # only the SIGKILL pass until it has, so the premise does not depend on scheduling.
+            deadline = time.monotonic() + 10
+            while sig == signal.SIGKILL and not escaped.exists() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            real(leader, members, sig)
+
+        with patch.object(Launcher, "_signal_session", staticmethod(kill_after_the_escape)):
+            self.finished()
+        self.assertTrue(escaped.exists(), "the member never ran its SIGTERM handler")
+        self.assertTrue(Launcher.alive(child))
+        self.assertEqual(os.getsid(child), child)
+        proof = self.evidence(handle)
+        self.assertEqual((proof["descendants"], proof["terminated"]), ([child], []))
+        with self.assertRaisesRegex(RuntimeError, "descendants have not exited"):
+            self.launcher.assert_quiescent("escaping", handle.pid)
+
+    def test_a_group_still_reported_after_the_reap_holds_cleanup(self):
+        handle = self.launcher.spawn("lingering", "prompt", {}, 30, self.root)
+        with patch.object(Launcher, "_group_gone", return_value=False):
+            self.finished()
+        self.assertFalse((handle.run_dir / "killed.json").exists())
+        self.assertEqual(self.evidence(handle, "teardown-unverified.json")["reason"],
+                         "process group still present after its leader was reaped")
+        with self.assertRaisesRegex(RuntimeError, "teardown"):
+            self.launcher.assert_quiescent("lingering", handle.pid)
+
     def test_an_unreadable_process_table_is_retried_while_the_worker_stays_unreaped(self):
         handle = self.launcher.spawn("blind", "prompt", {}, 30, self.root)
         self.wait_exited(handle)
@@ -598,6 +667,35 @@ class PosixSelfExitTeardownTests(unittest.TestCase):
         self.assertIn(child, self.evidence(handle)["descendants"])
         self.launcher.assert_quiescent("orphaned", handle.pid)
 
+    def test_a_repeated_stop_keeps_what_an_earlier_stop_recorded(self):
+        # Stop re-runs each tick on a stuck worker. The earlier Stop recorded a setsid() grandchild whose
+        # parent has since died, so this Stop's fresh walk cannot find it; the proof must still hold it.
+        handle, child = self.leaking_worker("restop", kwargs="start_new_session=True", orphan=True, linger=60)
+        self.assertNotIn(child, Launcher.descendants(handle.pid))
+        (handle.run_dir / "killed.json").write_text(json.dumps({"pid": handle.pid, "descendants": [child]}),
+                                                    encoding="utf-8")
+        self.assertTrue(self.launcher.stop("restop", grace=1.0))
+        self.finished()
+        self.assertIn(child, self.evidence(handle)["descendants"])
+        self.assertTrue(Launcher.alive(child), "an old recorded pid alone must never authorize a signal")
+        with self.assertRaisesRegex(RuntimeError, "descendants have not exited"):
+            self.launcher.assert_quiescent("restop", handle.pid)
+
+    def test_a_failing_teardown_check_still_reports_every_exit(self):
+        first = self.launcher.spawn("first", "prompt", {}, 30, self.root)
+        second = self.launcher.spawn("second", "prompt", {}, 30, self.root)
+        self.wait_exited(first)
+        self.wait_exited(second)
+        with patch.object(Launcher, "_group_gone", side_effect=RuntimeError("boom")):
+            finished = self.launcher.poll()
+        self.assertEqual(sorted(f.item_id for f in finished), ["first", "second"])
+        for handle in (first, second):
+            self.assertFalse((handle.run_dir / "killed.json").exists())
+            self.assertEqual(self.evidence(handle, "teardown-unverified.json")["reason"],
+                             "teardown check failed: RuntimeError")
+            with self.assertRaisesRegex(RuntimeError, "teardown"):
+                self.launcher.assert_quiescent(handle.item_id, handle.pid)
+
     def test_poll_leaves_a_worker_being_killed_to_kill(self):
         handle = self.launcher.spawn("owned", "prompt", {}, 30, self.root)
         self.wait_exited(handle)
@@ -627,3 +725,100 @@ class PosixSelfExitTeardownTests(unittest.TestCase):
         self.assertFalse((handle.run_dir / "teardown-unverified.json").exists())
         self.assertEqual(self.finished().returncode, 0)
         self.assertIs(self.evidence(handle)["empty"], True)
+
+
+@unittest.skipIf(os.name == "nt", "POSIX sessions and process groups")
+class PosixSessionScanTests(unittest.TestCase):
+    """The scan and signal primitives on their own: every doubt about the table means None, not []."""
+    LEADER = 900
+
+    def ps(self, rows, returncode=0):
+        me = os.getpid()
+        return subprocess.CompletedProcess(["ps"], returncode, stdout=f"{me} {me} S\n" + rows, stderr="")
+
+    def getsid(self, sessions):
+        def lookup(pid):
+            if pid in sessions:
+                value = sessions[pid]
+                if isinstance(value, BaseException):
+                    raise value
+                return value
+            return 1
+        return lookup
+
+    def scan(self, run, sessions=None):
+        with patch("agent.launcher.subprocess.run", **run), \
+                patch("agent.launcher.os.getsid", side_effect=self.getsid(sessions or {})):
+            return Launcher.session_members(self.LEADER)
+
+    def test_group_and_session_members_are_listed_but_not_the_leader_or_zombies(self):
+        rows = "900 900 Ss\n901 900 Z\n902 555 S\n903 900 S+\n904 556 S\n"
+        self.assertEqual(self.scan({"return_value": self.ps(rows)}, {902: 900, 904: 904}), [902, 903])
+
+    def test_a_member_that_exits_before_getsid_is_skipped(self):
+        rows = "902 555 S\n903 900 S\n"
+        self.assertEqual(self.scan({"return_value": self.ps(rows)}, {902: ProcessLookupError()}), [903])
+
+    def test_ps_that_fails_or_times_out_proves_nothing(self):
+        for failure in (OSError("no ps"), subprocess.TimeoutExpired("ps", 5)):
+            with self.subTest(failure=type(failure).__name__):
+                self.assertIsNone(self.scan({"side_effect": failure}))
+
+    def test_a_failed_ps_exit_proves_nothing(self):
+        self.assertIsNone(self.scan({"return_value": self.ps("903 900 S\n", returncode=1)}))
+
+    def test_a_table_that_does_not_list_farmbot_itself_proves_nothing(self):
+        truncated = subprocess.CompletedProcess(["ps"], 0, stdout="903 900 S\n", stderr="")
+        self.assertIsNone(self.scan({"return_value": truncated}))
+
+    def test_a_session_that_cannot_be_read_proves_nothing(self):
+        rows = "902 555 S\n"
+        self.assertIsNone(self.scan({"return_value": self.ps(rows)}, {902: PermissionError()}))
+
+    def test_signals_reach_the_group_and_only_members_still_in_the_session(self):
+        with patch("agent.launcher.os.killpg") as killpg, patch("agent.launcher.os.kill") as kill, \
+                patch("agent.launcher.os.getsid", side_effect=self.getsid({902: 900, 903: 777, 904: ProcessLookupError()})):
+            Launcher._signal_session(self.LEADER, [902, 903, 904], signal.SIGTERM)
+        killpg.assert_called_once_with(self.LEADER, signal.SIGTERM)
+        kill.assert_called_once_with(902, signal.SIGTERM)
+
+    def test_the_group_is_gone_only_when_the_kernel_says_so(self):
+        for outcome, expected in ((ProcessLookupError(), True), (PermissionError(), False), (None, False)):
+            with self.subTest(outcome=type(outcome).__name__):
+                with patch("agent.launcher.os.killpg", side_effect=outcome):
+                    self.assertIs(Launcher._group_gone(self.LEADER, timeout=0.05), expected)
+
+
+class PriorTeardownRecordTests(unittest.TestCase):
+    """killed.json lives in the worker-writable state directory, so reading it must never raise."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.handle = Handle("item", 4242, 0, 0, Path(self.tmp.name), None, None)
+
+    def prior(self, text):
+        (self.handle.run_dir / "killed.json").write_text(text, encoding="utf-8")
+        return Launcher._prior_descendants(self.handle)
+
+    def test_no_record_is_an_empty_one(self):
+        self.assertEqual(Launcher._prior_descendants(self.handle), [])
+
+    def test_the_attempts_own_record_is_read(self):
+        self.assertEqual(self.prior(json.dumps({"pid": 4242, "descendants": [7, 8]})), [7, 8])
+
+    def test_anything_else_proves_nothing(self):
+        cases = {
+            "unparsable": "{not json",
+            "overflowing pid": '{"pid": 4242, "descendants": [1e999]}',
+            "deeply nested": '{"pid": 4242, "descendants": ' + "[" * 100000 + "]" * 100000 + "}",
+            "string descendants": '{"pid": 4242, "descendants": "12"}',
+            "non-positive pid": '{"pid": 4242, "descendants": [0, -3]}',
+            "boolean pid": '{"pid": 4242, "descendants": [true]}',
+            "float pid": '{"pid": 4242, "descendants": [7.0]}',
+            "not an object": "[4242]",
+            "another attempt": '{"pid": 1, "descendants": []}',
+        }
+        for name, text in cases.items():
+            with self.subTest(name):
+                self.assertIsNone(self.prior(text))
