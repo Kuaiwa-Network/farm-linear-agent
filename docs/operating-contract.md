@@ -116,7 +116,24 @@ instructions when investigation needs them; grants a worker
 needs belong in the dispatch AUTHORITY. Repository skills under `.agents/skills` and
 `.codex/skills` still load, and workers inherit the service's `HOME`, so the host user's
 `~/.agents/skills` are visible too. Measured with codex-cli 0.155.1 on macOS; Windows is
-unverified. Claude workers pin only their MCP servers (`--strict-mcp-config`).
+unverified.
+A Claude worker's settings and MCP servers also come from its launch, whatever its cwd. It runs
+with `--setting-sources user`, so of the user, project and local settings it reads only the user
+settings in its isolated `CLAUDE_CONFIG_DIR`, where FarmBot seeds none, and with
+`--strict-mcp-config`, so only the injected `mcp.json` supplies MCP servers. `claude -p` skips
+the workspace trust dialog. Without the first flag it loads the cwd's `.claude/settings.json` and
+`.claude/settings.local.json`: measured, their `apiKeyHelper` ran, their hooks ran (`SessionStart`
+and `UserPromptSubmit` before the first model request, tool hooks around a tool call), and their
+`env` reached the worker and its tools, so an `ANTHROPIC_BASE_URL` they set received the worker's
+requests and OAuth token. A repository worktree's settings loaded, and so did a
+`.claude/settings.json` in a job's state directory: the chat cwd, which the worker can write and
+every attempt of the job shares. Without the second flag, a repository `.mcp.json` server that
+the repository's own settings approved started. The first flag also stops Claude injecting the
+cwd's `CLAUDE.md` (with its `@` imports, `CLAUDE.local.md`, `.claude/CLAUDE.md` and
+`.claude/rules`) and loading the cwd's `.claude` skills, agents and commands and the skills and
+agents of `--add-dir` directories; FarmBot's skills reach workers by path. Settings in `--add-dir`
+directories and the service user's `~/.claude` did not load with or without the flag. Measured
+with Claude Code 2.1.229 on macOS; Windows is unverified.
 An active repair can answer questions directly. Free-text intent is interpreted by the
 current worker; QA/retry words do not dispatch work by themselves. Empty Bug delegation
 retains its established repair shortcut; a message accompanying it is interpreted first.
@@ -208,11 +225,16 @@ and does not discard the exits already collected for other workers. That worker 
 keeps its concurrency slot, until a later scheduler pass completes its processing; the error itself
 records no teardown evidence. A Unity failover fence fails, and is retried, while the revoked worker is
 still tracked, so a same-ID successor never launches beside it.
-FarmBot's launcher reads a worker's reports and its launch and teardown records, all in the worker-writable
-state directory, only as regular files and without waiting. A FIFO, a device, a record over 1 MiB, or on
-POSIX a symlink in place of the file, is unreadable. An unreadable launch or teardown record holds cleanup.
-An unreadable report leaves that exit's message empty and its failure unclassified. Of `stderr.log`, only
-the last 4 KiB is read.
+FarmBot reads the files it keeps in a worker's writable state directory only as regular files and without
+waiting. These are the worker's reports, its launch and teardown records, its slot reservation token and the
+batch run summary. A FIFO, a device, a record over 1 MiB, or on POSIX a symlink in place of the file, is
+unreadable. An unreadable launch or teardown record holds cleanup, and an unreadable reservation token holds
+its slot. An unreadable report leaves that exit's message empty and its failure unclassified. An unreadable
+batch summary reaches the next worker as a verification gap. Of `stderr.log`, only the last 4 KiB is read.
+Once a worker could have reached the directory, FarmBot writes each of these files as a new file, then
+renames it over the old name. Whatever the worker left at that name, a FIFO or a symlink included, is
+replaced, never opened or written through. This does not extend to a worker that replaces a directory on the
+path, such as its run directory, with a symlink.
 These guards apply to every terminal retirement path. The scheduler retries pending cleanup. Slots still require the
 existing quiescence probe; held slots enter controller-owned recovery. No log, run report, ledger history or
 memory snapshot is removed by closure cleanup. Every worker attempt gets its own log directory.
