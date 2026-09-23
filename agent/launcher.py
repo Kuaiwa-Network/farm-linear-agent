@@ -68,10 +68,17 @@ RUNTIMES = {
                  "--output-last-message", "{last_message}", "-"],
         home_env="CODEX_HOME", mcp_format="toml",
         seed_files={os.path.expanduser("~/.codex/auth.json"): "auth.json"}),
+    # `claude -p` skips the workspace trust dialog and loads the cwd's .claude/settings.json and
+    # settings.local.json: measured, their hooks and apiKeyHelper run and their env applies, so an
+    # ANTHROPIC_BASE_URL they set received the worker's requests and OAuth token. That cwd is a repository or the
+    # job's state directory, which the worker writes and every attempt shares. `--setting-sources user` keeps
+    # only the isolated CLAUDE_CONFIG_DIR and also stops the cwd's CLAUDE.md being injected;
+    # --strict-mcp-config keeps only the injected MCP servers.
     "claude": RuntimeConfig(
         name="claude",
         command=["claude", "-p", "--output-format", "json", "--permission-mode", "bypassPermissions",
-                 "--mcp-config", "{mcp_config}", "--strict-mcp-config", "--add-dir", "{cwd}"],
+                 "--mcp-config", "{mcp_config}", "--strict-mcp-config", "--setting-sources", "user",
+                 "--add-dir", "{cwd}"],
         home_env="CLAUDE_CONFIG_DIR", mcp_format="json", seed_files={}, writable_flag="--add-dir"),
     "fake": RuntimeConfig(
         name="fake",

@@ -209,6 +209,49 @@ class LauncherTests(unittest.TestCase):
         self.assertIn(str(worktree), config["sandbox_workspace_write"]["writable_roots"])
         self.assertEqual(config["mcp_servers"]["unity"]["url"], "http://127.0.0.1:8080/mcp")
 
+    def test_a_claude_worker_loads_settings_only_from_its_isolated_home(self):
+        """`claude -p` skips the workspace trust dialog. Measured with Claude Code 2.1.229, the cwd's
+        .claude/settings.json and settings.local.json then load: their hooks ran before the first model request
+        and around a tool call, their apiKeyHelper ran, and their env pointed ANTHROPIC_BASE_URL at a URL of
+        their choosing, which received the worker's requests and OAuth token. That cwd may be a repository or
+        the job's state directory, which the worker writes and every attempt shares; settings.json loaded from
+        both. `--setting-sources user` leaves only the isolated CLAUDE_CONFIG_DIR; it also stops the skills and
+        agents of --add-dir directories. --strict-mcp-config leaves only the injected mcp.json: without it, a
+        repository .mcp.json server that the repository's own settings approved started. Paths may hold spaces,
+        CJK and characters beyond U+FFFF."""
+        state = Path(self.tmp.name) / "state 农场 🐄"
+        repo = state / "worktrees" / "item 1" / "Farm-Client"
+        sibling = repo.parent / "farm-hive"
+        database = state / "db"
+        for root in (repo, sibling, database):
+            root.mkdir(parents=True)
+        # The fake reads only its first argument, so the real claude arguments ride along to be inspected.
+        runtime = RUNTIMES["claude"]._replace(command=[*RUNTIMES["fake"].command, *RUNTIMES["claude"].command[1:]])
+        launcher = Launcher(self.runs, runtime, host="h")
+        # A worker rooted in a worktree, and one started as chat is, from its job's own state directory.
+        launches = {"item-root": (repo, [repo, sibling], [repo, self.runs / "item-root", repo, sibling]),
+                    "item-chat": (launcher.state_dir("item-chat"), [database],
+                                  [self.runs / "item-chat", self.runs / "item-chat", database])}
+
+        def reap():  # never leave a child unreaped, even if an assertion below fails first
+            for item_id in launches:
+                launcher.stop(item_id)
+            launcher.poll()
+
+        self.addCleanup(reap)
+        for item_id, (cwd, writable, add_dirs) in launches.items():
+            with self.subTest(item_id):
+                handle = launcher.spawn(item_id, self.message, {"probe": {"command": "python3"}}, 60, cwd,
+                                        extra_env={"FAKE_CLI_MODE": "echo"}, writable=writable)
+                argv = [str(part) for part in handle.process.args]
+                sources = ([argv[index + 1] for index, part in enumerate(argv) if part == "--setting-sources"]
+                           + [part.partition("=")[2] for part in argv if part.startswith("--setting-sources=")])
+                self.assertEqual(sources, ["user"])
+                self.assertIn("--strict-mcp-config", argv)
+                self.assertEqual(argv[argv.index("--mcp-config") + 1], str(handle.run_dir / "home" / "mcp.json"))
+                self.assertEqual([argv[index + 1] for index, part in enumerate(argv) if part == "--add-dir"],
+                                 [str(path) for path in add_dirs])
+
     def test_home_config_strings_survive_any_path_character(self):
         """One TOML encoder writes every string. It reuses JSON's escapes, except that a character beyond U+FFFF
         must not become a surrogate pair. An undecodable name (a lone surrogate) still makes the file invalid,

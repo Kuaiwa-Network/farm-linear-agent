@@ -116,7 +116,24 @@ instructions when investigation needs them; grants a worker
 needs belong in the dispatch AUTHORITY. Repository skills under `.agents/skills` and
 `.codex/skills` still load, and workers inherit the service's `HOME`, so the host user's
 `~/.agents/skills` are visible too. Measured with codex-cli 0.155.1 on macOS; Windows is
-unverified. Claude workers pin only their MCP servers (`--strict-mcp-config`).
+unverified.
+A Claude worker's settings and MCP servers also come from its launch, whatever its cwd. It runs
+with `--setting-sources user`, so of the user, project and local settings it reads only the user
+settings in its isolated `CLAUDE_CONFIG_DIR`, where FarmBot seeds none, and with
+`--strict-mcp-config`, so only the injected `mcp.json` supplies MCP servers. `claude -p` skips
+the workspace trust dialog. Without the first flag it loads the cwd's `.claude/settings.json` and
+`.claude/settings.local.json`: measured, their `apiKeyHelper` ran, their hooks ran (`SessionStart`
+and `UserPromptSubmit` before the first model request, tool hooks around a tool call), and their
+`env` reached the worker and its tools, so an `ANTHROPIC_BASE_URL` they set received the worker's
+requests and OAuth token. A repository worktree's settings loaded, and so did a
+`.claude/settings.json` in a job's state directory: the chat cwd, which the worker can write and
+every attempt of the job shares. Without the second flag, a repository `.mcp.json` server that
+the repository's own settings approved started. The first flag also stops Claude injecting the
+cwd's `CLAUDE.md` (with its `@` imports, `CLAUDE.local.md`, `.claude/CLAUDE.md` and
+`.claude/rules`) and loading the cwd's `.claude` skills, agents and commands and the skills and
+agents of `--add-dir` directories; FarmBot's skills reach workers by path. Settings in `--add-dir`
+directories and the service user's `~/.claude` did not load with or without the flag. Measured
+with Claude Code 2.1.229 on macOS; Windows is unverified.
 An active repair can answer questions directly. Free-text intent is interpreted by the
 current worker; QA/retry words do not dispatch work by themselves. Empty Bug delegation
 retains its established repair shortcut; a message accompanying it is interpreted first.
