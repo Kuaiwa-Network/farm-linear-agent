@@ -1,7 +1,8 @@
 # Run report format
 
-Path: `reports/<YYYY-MM-DD>-<identifier>/report.md`, committed by the worker. Raw logs stay in
-`.local/runs/<item>/`.
+Path: `STATE_DIR/report.md`, where `STATE_DIR` is the private run directory in the worker's launch
+message. Keep the report and raw logs there; do not commit or publish run reports in a repository.
+Summarize the checks, tested commits and gaps in the draft PR description and Linear outcome.
 
 Sections, in order: Target (repository, commit, server environment), Scope, Steps taken (commands
 and their results), Evidence (paths, PR URLs, screenshots), Failures and gaps (exactly what was
