@@ -6,18 +6,33 @@ controller's environment: the worker's CLI reads it by name.
 """
 from collections import namedtuple
 import re
+from urllib.parse import urlsplit
 
 SERVER = "kw_ops"
 GRANTS = {"kw_ops": "full", "kw_ops:read": "read"}
 # The query tools a read grant exposes. A tool kw_ops adds later stays unavailable to read grants until listed.
 READ_TOOLS = ("gm_list_targets", "gm_query_players", "gm_player_detail", "gm_guild_query", "gm_time_get",
               "gm_reward_types", "gm_reward_catalog")
-_URL = re.compile(r"https?://[^\s/]+(/\S*)?")
 _ENV_NAME = re.compile(r"[A-Z_][A-Z0-9_]*")
 
 # tools: the launch payload's tools.kw_ops entry, or None when the skill has no kw_ops grant.
 # server: the MCP server entry to inject, or None. keep_env: the token variable the worker keeps, or None.
 Resolution = namedtuple("Resolution", "tools server keep_env")
+
+
+def _is_http_url(url):
+    """An http(s) URL naming a host, with no credentials, query, fragment, whitespace or control character."""
+    # Checked on the raw string: urlsplit silently drops tabs and newlines and strips leading spaces.
+    if not isinstance(url, str) or not url.isprintable() or any(char.isspace() for char in url):
+        return False
+    try:
+        parts = urlsplit(url)
+        parts.port  # an invalid port raises ValueError
+    except ValueError:
+        # Refused rather than chained: Python's own messages can repeat part of the value.
+        return False
+    return (parts.scheme in ("http", "https") and bool(parts.hostname) and parts.username is None
+            and parts.password is None and not parts.query and not parts.fragment)
 
 
 def validate_config(block):
@@ -26,7 +41,7 @@ def validate_config(block):
         return
     if not isinstance(block, dict) or set(block) != {"url", "token_env"}:
         raise ValueError("kw_ops accepts exactly url and token_env")
-    if not isinstance(block["url"], str) or not _URL.fullmatch(block["url"]):
+    if not _is_http_url(block["url"]):
         raise ValueError("kw_ops url must be an http or https URL")
     if not isinstance(block["token_env"], str) or not _ENV_NAME.fullmatch(block["token_env"]):
         raise ValueError("kw_ops token_env must be an environment variable name")
@@ -47,13 +62,13 @@ def resolve(grants, config, runtime, environ):
     level = access(grants)
     if level is None:
         return Resolution(None, None, None)
+    if runtime != "codex":
+        # Since #39, fix runs only on Codex, and Claude cannot hold a read grant to the query tools.
+        return _unavailable(f"kw_ops is not supported on the {runtime} runtime")
     if not config:
         return _unavailable("kw_ops is not configured on this host")
-    if not environ.get(config["token_env"]):
+    if not environ.get(config["token_env"], "").strip():
         return _unavailable(f"{config['token_env']} is not set in the controller's environment")
-    if runtime != "codex":
-        # Since #39 fix runs only on Codex, and Claude cannot hold a read grant to the query tools.
-        return _unavailable(f"kw_ops is not supported on the {runtime} runtime")
     server = {"url": config["url"], "bearer_token_env_var": config["token_env"]}
     if level == "read":
         server["enabled_tools"] = list(READ_TOOLS)
