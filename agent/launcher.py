@@ -499,8 +499,8 @@ class Launcher:
             time.sleep(0.02)
 
     def _settle(self, handle):
-        """_settle_exited, except that its failure holds cleanup instead of escaping poll(), which would
-        drop the Finished records of workers this poll has already removed from its handles."""
+        """_settle_exited, except that its failure holds cleanup and lets the exit be reported instead of
+        raising, which would leave the exited worker for poll() to retry."""
         try:
             return self._settle_exited(handle)
         except Exception as exc:
@@ -840,31 +840,55 @@ class Launcher:
         return None
 
     def poll(self):
+        """Finished records of the workers done since the last poll, each removed from the handles.
+
+        A failure while processing one worker never escapes: that would discard the records of workers this
+        poll has already removed, and the scheduler would hold their slots for ever. The failing worker stays
+        registered with its state intact and is processed again by the next poll; nothing here writes
+        teardown evidence for it.
+        """
         finished = []
         for item_id, handle in list(self._handles.items()):
+            try:
+                record = self._poll_one(item_id, handle)
+            except Exception as exc:
+                try:
+                    print(json.dumps({"event": "worker_poll_error", "item_id": item_id, "error": type(exc).__name__}),
+                          flush=True)
+                except (OSError, ValueError):
+                    pass
+                continue
+            if record is not None:
+                finished.append(record)
+        return finished
+
+    def _poll_one(self, item_id, handle):
+        """The worker's Finished record, once it is done and its handle removed; None while it is not done."""
+        with self._teardown_lock:
+            if item_id in self._killing:
+                return None  # Stop's _kill reaps it and writes killed.json; report it after that.
+        if not self.exited(handle.process) and self.clock() >= handle.deadline and item_id not in self._stopping:
+            self._stopping[item_id] = "budget"
+            self._kill(handle, grace=5.0)
+        if not self.exited(handle.process):
+            return None
+        if item_id in self._jobs:
+            self._finish_job(handle)
+        elif os.name != "nt":
             with self._teardown_lock:
                 if item_id in self._killing:
-                    continue  # Stop's _kill reaps it and writes killed.json; report it after that.
-            if not self.exited(handle.process) and self.clock() >= handle.deadline and item_id not in self._stopping:
-                self._stopping[item_id] = "budget"
-                self._kill(handle, grace=5.0)
-            if not self.exited(handle.process):
-                continue
-            if item_id in self._jobs:
-                self._finish_job(handle)
-            elif os.name != "nt":
-                with self._teardown_lock:
-                    if item_id in self._killing:
-                        continue  # Stop's _kill reaps it and writes killed.json; report it after that.
-                    settle = self._pinned(handle.process)
-                if settle and not self._settle(handle):
-                    continue  # Retried on a later poll; the unreaped worker keeps its session pinned.
-            code = handle.process.poll()
-            if code is None:
-                continue
-            self._settling.pop(item_id, None)
-            reason = self._stopping.pop(item_id, "exited")
-            finished.append(Finished(item_id, code, self._read_last_message(handle), reason != "exited", reason,
-                                     self._failure_kind(handle, code, reason), handle.pid))
-            del self._handles[item_id]
-        return finished
+                    return None  # Stop's _kill reaps it and writes killed.json; report it after that.
+                settle = self._pinned(handle.process)
+            if settle and not self._settle(handle):
+                return None  # Retried on a later poll; the unreaped worker keeps its session pinned.
+        code = handle.process.poll()
+        if code is None:
+            return None
+        reason = self._stopping.get(item_id, "exited")
+        record = Finished(item_id, code, self._read_last_message(handle), reason != "exited", reason,
+                          self._failure_kind(handle, code, reason), handle.pid)
+        # Nothing below raises: the handle and its state go only with a complete record in hand.
+        self._settling.pop(item_id, None)
+        self._stopping.pop(item_id, None)
+        del self._handles[item_id]
+        return record
