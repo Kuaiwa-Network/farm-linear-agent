@@ -613,6 +613,27 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(self.launcher.spawned[-1][2],
                          {"unity": {"type": "http", "url": "http://127.0.0.1:8080/mcp"}})
 
+    def test_a_codex_worker_home_distrusts_the_cwd_the_scheduler_chose(self):
+        """A repository's own .codex/config.toml is never a source of worker tools (spec §7). codex exec trusts
+        an undecided cwd and then loads that file, so the home must carry an explicit decision for the directory
+        handed over as cwd: the Farm-Client worktree for a fix, the private state directory for a chat."""
+        import tomllib
+        runtime = RUNTIMES["codex"]._replace(command=RUNTIMES["fake"].command, seed_files={})
+        launcher = Launcher(Path(self.tmp.name) / "real-runs", runtime, "h")
+        self.scheduler.launcher = launcher
+        self.scheduler.runtime_name = "codex"
+        fix = self.item()
+        chat = self.item(issue_id=OTHER, session="chat-session", skill="chat")
+        for item, cwd in ((fix, self.trees.root / fix["id"] / "Farm-Client"), (chat, launcher.state_dir(chat["id"]))):
+            with self.subTest(skill=item["skill"]):
+                handle = self.scheduler.launch(self.ledger.item(item["id"]))
+                self.addCleanup(launcher.stop, item["id"])
+                handle.process.wait(timeout=10)
+                config = tomllib.loads((handle.run_dir / "home" / "config.toml").read_text(encoding="utf-8"))
+                self.assertEqual(config["projects"], {str(cwd): {"trust_level": "untrusted"},
+                                                      str(cwd.resolve()): {"trust_level": "untrusted"}})
+        launcher.poll()
+
     def test_an_item_with_no_reservation_is_launched_with_no_tools_and_no_resource_block(self):
         """Enforcement is tool injection (spec §7): a fix worker that holds no slot must not reach the Unity
         MCP, and the manifest's own `resources`/`mcp` fields must never be what decides that."""

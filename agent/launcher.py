@@ -42,11 +42,18 @@ RUNTIMES = {
 }
 
 
+def _toml_string(value):
+    """A TOML basic string. JSON's escapes are TOML's, except that JSON writes a character beyond U+FFFF as a
+    surrogate pair, which TOML rejects: one emoji in a path would make the whole worker config unreadable."""
+    return '"' + "".join(json.dumps(char)[1:-1] if ord(char) <= 0xFFFF else f"\\U{ord(char):08X}"
+                         for char in value) + '"'
+
+
 def _toml_value(value):
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, str):
-        return json.dumps(value)
+        return _toml_string(value)
     if isinstance(value, list):
         return "[" + ", ".join(_toml_value(v) for v in value) + "]"
     if isinstance(value, dict):
@@ -143,6 +150,14 @@ class Launcher:
         settings = {"sandbox_workspace_write": {"writable_roots": roots, "network_access": True}}
         if self.runtime.name == "codex":
             settings["features"] = {"memories": False}
+            # codex exec records `trust_level = "trusted"` here for a cwd it has no decision for, then loads the
+            # repository's own .codex/config.toml: measured, its MCP servers start and send any inline
+            # credentials; per Codex's trust prompt, project hooks and exec policies load too. The literal --cd
+            # spelling is the key exec was measured to honour; the resolved one covers canonical lookups.
+            # Distrusted, the cwd's AGENTS.md is no longer injected, so the --approve-for-me reviewer stops
+            # counting it as trusted text; fix workers still read it, as tool output.
+            for path in dict.fromkeys((str(cwd), str(Path(cwd).resolve()))):
+                settings[f"projects.{_toml_string(path)}"] = {"trust_level": "untrusted"}
         root_settings = {}
         if self.runtime.name == "codex":
             for key, target in (("model", "model"), ("reasoning_effort", "model_reasoning_effort")):
