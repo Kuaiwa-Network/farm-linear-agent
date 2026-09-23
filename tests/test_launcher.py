@@ -1,3 +1,5 @@
+from contextlib import redirect_stdout
+import io
 import json
 import os
 import signal
@@ -31,6 +33,22 @@ class LauncherTests(unittest.TestCase):
                 return finished
             time.sleep(0.05)
         self.fail("worker did not finish")
+
+    def wait_exited(self, handle, timeout=10):
+        deadline = time.time() + timeout
+        while not Launcher.exited(handle.process) and time.time() < deadline:
+            time.sleep(0.02)
+        self.assertTrue(Launcher.exited(handle.process), "worker did not exit")
+
+    def failing_for(self, method, item_id, exc):
+        """Patch one launcher step to raise for a single item and run as usual for every other."""
+        real = getattr(self.launcher, method)
+
+        def step(handle, *args, **kwargs):
+            if handle.item_id == item_id:
+                raise exc
+            return real(handle, *args, **kwargs)
+        return patch.object(self.launcher, method, side_effect=step)
 
     def test_interrupted_launch_without_pid_cannot_be_declared_quiescent(self):
         attempt = self.launcher.state_dir("item-1") / "attempt"
@@ -152,6 +170,61 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(finished["item-5"].reason, "budget")
         self.assertTrue(finished["item-5"].killed)
         self.assertEqual(finished["item-6"].returncode, 3)
+
+    def test_a_budget_kill_that_raises_keeps_the_live_worker_and_reports_the_others(self):
+        # An exception escaping poll() once discarded the records of workers it had already removed, so the
+        # scheduler never freed their slots, and it left every worker later in the loop unvisited.
+        for index, order in enumerate((("stuck", "done"), ("done", "stuck"))):
+            with self.subTest(order=order):
+                ids = {name: f"{name}-{index}" for name in order}
+                handles = {}
+                for name in order:
+                    mode, budget = ("sleep", 0) if name == "stuck" else ("crash", 60)
+                    handles[name] = self.launcher.spawn(ids[name], self.message, {}, budget_seconds=budget,
+                                                        cwd=self.tmp.name, extra_env={"FAKE_CLI_MODE": mode})
+                self.addCleanup(self.launcher.stop, ids["stuck"], 1.0)
+                self.wait_exited(handles["done"])
+                log = io.StringIO()
+                with self.failing_for("_kill", ids["stuck"], subprocess.TimeoutExpired("worker", 5)), \
+                        redirect_stdout(log):
+                    finished = self.launcher.poll()
+                self.assertEqual([(f.item_id, f.returncode) for f in finished], [(ids["done"], 3)])
+                self.assertIn(ids["stuck"], self.launcher.running())
+                self.assertTrue(Launcher.alive(handles["stuck"].pid))
+                self.assertFalse((handles["stuck"].run_dir / "killed.json").exists())
+                self.assertEqual(json.loads(log.getvalue()),
+                                 {"event": "worker_poll_error", "item_id": ids["stuck"], "error": "TimeoutExpired"})
+                # The kept worker is reported, as a budget kill, once that kill does complete.
+                self.launcher._kill(handles["stuck"], grace=2.0)
+                finished = self.wait_finished()
+                self.assertEqual([(f.item_id, f.reason, f.killed) for f in finished], [(ids["stuck"], "budget", True)])
+
+    def test_a_worker_whose_report_fails_keeps_its_whole_record_for_the_next_poll(self):
+        self.launcher.spawn("stopped", self.message, {}, budget_seconds=60, cwd=self.tmp.name,
+                            extra_env={"FAKE_CLI_MODE": "sleep"})
+        done = self.launcher.spawn("done", self.message, {}, budget_seconds=60, cwd=self.tmp.name,
+                                   extra_env={"FAKE_CLI_MODE": "crash"})
+        self.assertTrue(self.launcher.stop("stopped", grace=2.0))
+        self.wait_exited(done)
+        with self.failing_for("_read_last_message", "stopped", PermissionError("last_message.txt")), \
+                redirect_stdout(io.StringIO()):
+            self.assertEqual([f.item_id for f in self.launcher.poll()], ["done"])
+        self.assertIn("stopped", self.launcher.running())
+        finished = self.launcher.poll()
+        self.assertEqual([(f.item_id, f.reason, f.killed) for f in finished], [("stopped", "stopped", True)])
+
+    def test_an_unwritable_service_log_does_not_lose_a_polls_records(self):
+        done = self.launcher.spawn("done", self.message, {}, budget_seconds=60, cwd=self.tmp.name,
+                                   extra_env={"FAKE_CLI_MODE": "crash"})
+        failing = self.launcher.spawn("failing", self.message, {}, budget_seconds=60, cwd=self.tmp.name,
+                                      extra_env={"FAKE_CLI_MODE": "crash"})
+        self.wait_exited(done)
+        self.wait_exited(failing)
+        closed = io.StringIO()
+        closed.close()
+        with self.failing_for("_read_last_message", "failing", OSError("disk")), redirect_stdout(closed):
+            self.assertEqual([f.item_id for f in self.launcher.poll()], ["done"])
+        self.assertEqual([f.item_id for f in self.launcher.poll()], ["failing"])
 
     def test_stop_also_kills_descendants_in_other_sessions(self):
         handle = self.launcher.spawn("item-7", self.message, {}, budget_seconds=60, cwd=self.tmp.name,

@@ -289,8 +289,11 @@ class Scheduler:
                     raise RuntimeError('old worker process ownership is unverified')
                 recorded = self.launcher.kill_owned_attempt(item_id, pid)
             self.launcher.assert_quiescent(item_id, pid, recorded)
-            # Consume the old handle before its same-ID successor can launch.
+            # Consume the old handle before its same-ID successor can launch. A poll that could not finish
+            # processing the old worker keeps its handle registered, and the fence then fails to be retried.
             self._reap()
+            if item_id in self.launcher.running():
+                raise RuntimeError('old worker handle could not be consumed')
             self.active.pop(item_id, None)
 
     def _recover(self):

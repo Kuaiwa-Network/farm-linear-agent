@@ -1,4 +1,6 @@
 """Cleanup must preserve source and prove process/resource safety before deleting worktrees."""
+from contextlib import redirect_stdout
+import io
 import json
 import os
 from pathlib import Path
@@ -429,3 +431,25 @@ class SelfExitedWorkerCleanupTests(unittest.TestCase):
         self.scheduler.fence_resource_worker({'item_id': item['id'], 'worker_pid': handle.pid})
         self.assertNotIn(item['id'], self.launcher.running())
         self.assertIs(json.loads((handle.run_dir / 'killed.json').read_text())['empty'], True)
+
+    def test_resource_fencing_fails_while_the_old_handle_is_still_registered(self):
+        # poll() keeps a worker whose report fails registered. Its teardown evidence is complete, so only
+        # the fence itself can refuse to hand the item's ID to a successor while the old handle remains.
+        item = self.item()
+        self.release.touch()
+        self.scheduler.tick()
+        handle = self.launcher.running()[item['id']]
+        deadline = time.monotonic() + 10
+        while (os.waitid(os.P_PID, handle.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None
+               and time.monotonic() < deadline):
+            time.sleep(0.02)
+        record = {'item_id': item['id'], 'worker_pid': handle.pid}
+        with patch.object(self.launcher, '_read_last_message', side_effect=PermissionError('last_message.txt')), \
+                redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(RuntimeError, 'old worker handle'):
+                self.scheduler.fence_resource_worker(record)
+        self.assertIn(item['id'], self.launcher.running())
+        self.assertIn(item['id'], self.scheduler.active)
+        self.scheduler.fence_resource_worker(record)
+        self.assertNotIn(item['id'], self.launcher.running())
+        self.assertNotIn(item['id'], self.scheduler.active)

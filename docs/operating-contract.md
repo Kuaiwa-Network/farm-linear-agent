@@ -169,6 +169,11 @@ find through their parents; a self-exit proof cannot. The Stop sweep is skipped 
 cannot be read or `os.waitid` is missing, and Stop then records its evidence as before. Self-exit evidence needs `os.waitid`, which CPython provides on macOS from 3.13. Under an older
 interpreter, and for a worker that exited while FarmBot was not running or before this check existed,
 there is no evidence and cleanup still holds.
+An error while FarmBot processes one worker's exit or budget kill is logged as a `worker_poll_error` event
+and does not discard the exits already collected for other workers. That worker stays tracked, and
+keeps its concurrency slot, until a later scheduler pass completes its processing; the error itself
+records no teardown evidence. A Unity failover fence fails, and is retried, while the revoked worker is
+still tracked, so a same-ID successor never launches beside it.
 These guards apply to every terminal retirement path. The scheduler retries pending cleanup. Slots still require the
 existing quiescence probe; held slots enter controller-owned recovery. No log, run report, ledger history or
 memory snapshot is removed by closure cleanup. Every worker attempt gets its own log directory.
