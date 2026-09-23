@@ -58,13 +58,14 @@ class ServeTests(unittest.TestCase):
                         repos=remotes, max_concurrent=2, port=0, local_root=root / "local")
         self.c = build(config)
         self.addCleanup(self.drain_workers)
-        self.addCleanup(self.c.lifecycle.ledger.close)
-        self.addCleanup(self.c.progress.ledger.close)
-        self.addCleanup(self.c.recovery.close)
-        self.addCleanup(self.c.pool.close)
-        self.addCleanup(self.c.receiver.close)
-        self.addCleanup(self.c.ledger.close)
-        self.addCleanup(self.c.server.server_close)
+        self.close_later(self.c)
+
+    def close_later(self, components):
+        """Every connection build() opens. Windows cannot delete a temp directory holding an open ledger."""
+        for close in (components.lifecycle.ledger.close, components.progress.ledger.close,
+                      components.recovery.close, components.pool.close, components.receiver.close,
+                      components.ledger.close, components.server.server_close):
+            self.addCleanup(close)
 
     def drain_workers(self):
         """A tick may have launched the fake worker before shutdown; never leave a child unreaped."""
@@ -115,6 +116,29 @@ class ServeTests(unittest.TestCase):
         self.assertFalse(thread.is_alive())
         self.assertEqual(failures, [])
         self.assertIs(self.c.scheduler.api, self.c.api)  # worker deaths reach the session through the same client
+
+    def acknowledgement(self, components):
+        """The body of the activity answering one signed delegation, read from the stub's call log."""
+        body = json.dumps(self.created_event()).encode()
+        signature = hmac.new(b"signing-secret", body, hashlib.sha256).hexdigest()
+        self.assertEqual(components.receiver.receive(body, signature), (200, "accepted"))
+        self.assertTrue(components.receiver.process_one())
+        calls = [json.loads(line) for line in (self.stub / "calls.jsonl").read_text(encoding="utf-8").splitlines()]
+        return [c for c in calls if c["method"] == "create_activity"][-1]["content"]["body"]
+
+    def test_build_speaks_as_the_configured_bot_and_production_keeps_farmbot(self):
+        """TestBot shares the workspace with production: Linear text follows expected_bot_name, never a literal."""
+        self.assertEqual(self.acknowledgement(self.c).split("\n")[0],
+                         "FarmBot 已收到委派，正在排队处理这个缺陷。进展和草稿 PR 会更新在这里。")
+        self.assertEqual(self.c.scheduler.bot_name, "FarmBot")
+        config = Config(client_id="client", client_secret="s", webhook_secret="signing-secret", host="test",
+                        runtime="fake", repos=self.c.config.repos, port=0,
+                        local_root=Path(self.tmp.name) / "testbot", expected_bot_name="TestBot")
+        testbot = build(config)
+        self.close_later(testbot)
+        self.assertEqual(self.acknowledgement(testbot).split("\n")[0],
+                         "TestBot 已收到委派，正在排队处理这个缺陷。进展和草稿 PR 会更新在这里。")
+        self.assertEqual(testbot.scheduler.bot_name, "TestBot")
 
     def test_build_gives_the_pool_its_own_connection_and_never_the_schedulers(self):
         """The rule this whole task exists for, asserted on the production wiring rather than on a SlotPool

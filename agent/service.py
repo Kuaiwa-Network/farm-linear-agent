@@ -50,6 +50,7 @@ def build(config, runtime_override=None):
                           codex_workers=config.codex_workers,
                           config_path=config.source_path,
                           issue_prefix=config.issue_prefix,
+                          bot_name=config.expected_bot_name,
                           slot_entries={entry["id"]: entry for entry in entries},
                           guidance_for=lambda item: (ledger.session(item["session_id"]) or {}).get("guidance") or "",
                           api=api, control_ledger_factory=lambda: Ledger(paths.ledger),
@@ -68,7 +69,8 @@ def build(config, runtime_override=None):
                         {"oauthClientId": config.client_id, "appUserId": identity["viewer"]["id"],
                          "organizationId": identity["organization"]["id"]},
                         api, lambda: Ledger(paths.ledger, check_same_thread=False), set(skills), scheduler,
-                        worktrees=worktrees, default_server_environment=config.default_server_environment)
+                        worktrees=worktrees, default_server_environment=config.default_server_environment,
+                        bot_name=config.expected_bot_name)
     server = make_server(receiver, config.port)
     # A factory, not the scheduler's connection: the pool runs on its own thread and two threads on one
     # sqlite3.Connection interleave their BEGIN IMMEDIATE blocks. The receiver already takes one of these.

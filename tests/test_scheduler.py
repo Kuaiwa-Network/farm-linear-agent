@@ -414,6 +414,30 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(payload["guidance"], self.ledger.session(SESSION)["guidance"])
         self.assertEqual(payload["guidance"], "优先看 farm-hive 的日志")
 
+    def test_launch_tells_the_worker_the_default_bot_name(self):
+        self.item()
+        self.scheduler.tick()
+        self.assertEqual(json.loads(self.launcher.spawned[0][1].split("\n\n", 1)[1])["bot_name"], "FarmBot")
+
+    def test_a_named_instance_signs_launches_and_launch_failures_with_its_own_name(self):
+        self.scheduler.bot_name = "TestBot"
+        self.item()
+        self.scheduler.tick()
+        self.assertEqual(json.loads(self.launcher.spawned[0][1].split("\n\n", 1)[1])["bot_name"], "TestBot")
+        other = self.item(issue_id=OTHER, session="session-2")
+        self.trees.fail_on = ("Farm-Client", other["id"])
+        self.scheduler.max_concurrent = 2
+        self.scheduler.tick()
+        self.assertEqual(self.api.activities[-1], ("session-2", "error",
+                         "TestBot 无法启动工作进程（RuntimeError），工作项已标记失败；可回复「重试」。"))
+
+    def test_launch_failure_keeps_the_production_text_by_default(self):
+        item = self.item()
+        self.trees.fail_on = ("Farm-Client", item["id"])
+        self.scheduler.tick()
+        self.assertEqual(self.api.activities[-1], (SESSION, "error",
+                         "FarmBot 无法启动工作进程（RuntimeError），工作项已标记失败；可回复「重试」。"))
+
     def test_concurrency_cap_holds_second_item_queued(self):
         self.item()
         self.now += 1  # distinct created_at: queue() order is otherwise a coin flip on the item's random id

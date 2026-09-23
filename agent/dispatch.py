@@ -49,12 +49,15 @@ AUTHORITY = (
 
 
 def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, guidance, budget, repo_root=None,
-                     state_dir=None, resource=None, memory=None, publication=None, user_requests=None):
+                     state_dir=None, resource=None, memory=None, publication=None, user_requests=None,
+                     bot_name="FarmBot"):
     root = Path(repo_root) if repo_root is not None else Path(skill_path).parent.parent.parent
     payload = {
         "item_id": item["id"],
         "identifier": issue["identifier"],
         "issue_url": issue["url"],
+        # The Linear app this instance speaks as; comment templates write it where they say <bot_name>.
+        "bot_name": bot_name,
         "skill": str(skill_path),
         "repo_root": str(root),
         "contract": str(root / "docs" / "operating-contract.md"),

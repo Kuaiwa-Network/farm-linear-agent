@@ -69,9 +69,16 @@ availability is not required to start the local listener.
 
 ## Triggers
 
+Linear text names the instance by its configured `expected_bot_name` (default `FarmBot`): the
+receiver's acknowledgements and error activities, launch-failure notices, and the worker comments
+rendered from `references/comment-templates.md`, whose `<bot_name>` workers fill from the launch
+message's `bot_name`. A development profile whose app is TestBot therefore speaks as TestBot in the
+shared workspace. The tables below use the production name. Git commit identity, launchd labels,
+the ledger marker and the `/health` body are unchanged.
+
 | You do | FarmBot does |
 |---|---|
-| Assign (delegate) an issue labelled Bug to @FarmBot | starts a `fix` work item; first activity within 10 s; posts 「👀 FarmBot 已开始处理」 once the worker claims |
+| Assign (delegate) an issue labelled Bug to @FarmBot | starts a `fix` work item; first activity within 10 s; posts 「👀 <bot_name> 已开始处理」 (「👀 FarmBot 已开始处理」 in production) once the worker claims |
 | Delegate an issue without a Bug label | starts read-only conversation; investigates, answers or clarifies intent; a reply requesting repair can enter writable execution |
 | @FarmBot in a comment or the session | interprets intent in read-only execution; can start or resume repair when this issue has recorded delegation and is still delegated to FarmBot |
 | Reply in a session while a worker runs | the text reaches the worker at its next checkpoint |
@@ -326,7 +333,8 @@ the host code and worker skill files together after the service has been settled
 ## Comments
 
 Chinese, concise, one marker line `[farmbot:<id>]` appended by the ledger. Kinds: started (once
-per item), blocker, delivery. Templates: `references/comment-templates.md`.
+per item), blocker, delivery. Templates: `references/comment-templates.md`; `<bot_name>` there is the
+instance's `expected_bot_name`, passed to workers as `bot_name`.
 
 ## Resource execution limits
 

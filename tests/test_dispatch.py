@@ -105,3 +105,19 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(payload["contract"], str(ROOT / "docs" / "operating-contract.md"))
         self.assertIn(str(ROOT / "references" / "repo-map.md"), payload["references"])
         self.assertIsNone(payload["state_dir"])
+
+
+class BotNameTests(unittest.TestCase):
+    """Workers write Linear comments themselves, so the launch message tells them which app they speak as."""
+
+    def message(self, **extra):
+        return dispatch_message(item={"id": "i", "skill": "fix"}, issue={"identifier": "FARM-1", "url": "u"},
+                                skill_path=ROOT / "skills/fix/SKILL.md", worktrees={}, db_path="/db",
+                                runtime="codex", guidance="", budget={"lease_seconds": 1, "renew_minutes": 1},
+                                **extra)
+
+    def test_the_default_bot_name_is_farmbot(self):
+        self.assertEqual(payload_of(self.message())["bot_name"], "FarmBot")
+
+    def test_a_named_instance_tells_its_worker_its_own_name(self):
+        self.assertEqual(payload_of(self.message(bot_name="TestBot"))["bot_name"], "TestBot")

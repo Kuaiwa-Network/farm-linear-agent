@@ -21,7 +21,7 @@ class Scheduler:
     def __init__(self, ledger, launcher, skills, worktrees, *, skill_root, db_path, runtime_name, host,
                  max_concurrent=2, guidance_for=lambda item: "", claim_timeout=600, api=None,
                  slot_entries=None, preflight=None, control_ledger_factory=None, publication=None, codex_workers=None,
-                 config_path=None, issue_prefix='FARM'):
+                 config_path=None, issue_prefix='FARM', bot_name='FarmBot'):
         self.publication = publication
         self.preflight = preflight
         self.control_ledger_factory = control_ledger_factory
@@ -38,6 +38,7 @@ class Scheduler:
         self.codex_workers = codex_workers or {}
         self.config_path = config_path
         self.issue_prefix = issue_prefix
+        self.bot_name = bot_name
         self.guidance_for = guidance_for
         self.claim_timeout = claim_timeout
         # {slot_id: entry}, the same entries service.build hands the pool. The only thing read out of them
@@ -132,7 +133,8 @@ class Scheduler:
                                    worktrees=paths, db_path=self.db_path, runtime=self.runtime_name,
                                    guidance=self.guidance_for(item), budget=skill.budget,
                                    repo_root=repo_root, state_dir=self.launcher.state_dir(item["id"]),
-                                   resource=resource, memory=memory, publication=publication, user_requests=requests)
+                                   resource=resource, memory=memory, publication=publication, user_requests=requests,
+                                   bot_name=self.bot_name)
         # The runtime's cwd is writable too. A read-only conversation must run
         # from its private state directory, not from the detached source checkout.
         primary = (paths.get(READ_REPO) or next(iter(paths.values())) if skill.writes
@@ -194,7 +196,7 @@ class Scheduler:
         except LedgerError:
             return
         self._retire(item_id, "failed")
-        self._notify(item_id, "error", f"FarmBot 无法启动工作进程（{type(exc).__name__}），工作项已标记失败；可回复「重试」。")
+        self._notify(item_id, "error", f"{self.bot_name} 无法启动工作进程（{type(exc).__name__}），工作项已标记失败；可回复「重试」。")
 
     def stop(self, item_id, reason):
         # Revoke the claim durably before signalling; a late worker may no longer write the ledger.

@@ -21,13 +21,15 @@ from .worktrees import WorktreeError
 MAX_BODY = 1024 * 1024
 TARGET_REPO = "Farm-Client"
 PIN_TIMEOUT = 8
-ACK = {"fix": "FarmBot 已收到委派，正在排队处理这个缺陷。进展和草稿 PR 会更新在这里。",
-       "chat": "FarmBot 已收到，正在查看。", "qa": "FarmBot 已收到测试请求，正在排队。"}
+# {bot} is the instance's configured Linear app name: a development instance shares the workspace with
+# production, and an acknowledgement in the wrong name gets the wrong bot stopped.
+ACK = {"fix": "{bot} 已收到委派，正在排队处理这个缺陷。进展和草稿 PR 会更新在这里。",
+       "chat": "{bot} 已收到，正在查看。", "qa": "{bot} 已收到测试请求，正在排队。"}
 
 
 class Receiver:
     def __init__(self, db_path, secret, identity, api, ledger_factory, skills, scheduler, clock=time.time,
-                 worktrees=None, default_server_environment="公共测试服"):
+                 worktrees=None, default_server_environment="公共测试服", bot_name="FarmBot"):
         self.secret = secret.encode()
         self.identity = identity
         self.api = api
@@ -37,6 +39,7 @@ class Receiver:
         self.clock = clock
         self.worktrees = worktrees
         self.default_server_environment = default_server_environment
+        self.bot_name = bot_name
         self.lock = threading.Lock()
         self.db = sqlite3.connect(db_path, check_same_thread=False, timeout=10)
         self.db.row_factory = sqlite3.Row
@@ -257,12 +260,13 @@ class Receiver:
                                                 target=(session or {}).get("target"))
             if prepared["text"]:
                 self.ledger.push_inbox(item["id"], prepared["text"])
-            acknowledge("thought", ACK.get(decision.skill, ACK["chat"]))
+            acknowledge("thought", ACK.get(decision.skill, ACK["chat"]).format(bot=self.bot_name))
         elif decision.kind == "chat":
             item = self.ledger.create_work_item(issue_id=issue["id"], session_id=session_id, skill="chat")
             if prepared["text"]:
                 self.ledger.push_inbox(item["id"], prepared["text"])
-            body = decision.text if decision.text and decision.text != prepared["text"] else ACK["chat"]
+            body = (decision.text if decision.text and decision.text != prepared["text"]
+                    else ACK["chat"].format(bot=self.bot_name))
             acknowledge("thought", body)
         elif decision.kind == "steer":
             self.ledger.push_inbox(active["id"], decision.text)
@@ -270,7 +274,8 @@ class Receiver:
         elif decision.kind == "resume":
             can_resume = active["skill"] == "chat" or issue.get("delegate_id") == self.identity["appUserId"]
             self.ledger.push_inbox(active["id"], decision.text, resume_waiting=can_resume)
-            acknowledge("thought", "收到回复，继续处理。" if can_resume else "已保存回复；issue 已不再委派给 FarmBot，暂不继续修复。")
+            acknowledge("thought", "收到回复，继续处理。" if can_resume
+                        else f"已保存回复；issue 已不再委派给 {self.bot_name}，暂不继续修复。")
         elif decision.kind == "elicit":
             acknowledge("elicitation", decision.text)
 
@@ -289,7 +294,7 @@ class Receiver:
         except (LedgerError, RuntimeError, ValueError, KeyError, OSError, sqlite3.Error) as exc:
             status, error = "uncertain", type(exc).__name__
             try:
-                self._send(row["session_id"], row["ack_id"], {"type": "error", "body": f"FarmBot 处理这条消息时出错（{type(exc).__name__}），请稍后重试或联系维护者。"})
+                self._send(row["session_id"], row["ack_id"], {"type": "error", "body": f"{self.bot_name} 处理这条消息时出错（{type(exc).__name__}），请稍后重试或联系维护者。"})
             except Exception:
                 pass
         with self.lock, self.db:

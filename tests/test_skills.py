@@ -53,6 +53,34 @@ class WorkerCliReferenceTests(unittest.TestCase):
                 ledger.close()
 
 
+class CommentTemplateTests(unittest.TestCase):
+    """Workers fill <bot_name> from their launch message. Rendered for FarmBot, the templates must read
+    exactly as production's did before the name became configurable."""
+
+    def rendered(self, name):
+        text = (ROOT / "references" / "comment-templates.md").read_text(encoding="utf-8")
+        return text.replace("<bot_name>", name)
+
+    def test_templates_carry_no_hard_coded_bot_name(self):
+        raw = (ROOT / "references" / "comment-templates.md").read_text(encoding="utf-8")
+        self.assertNotIn("FarmBot", raw)
+        self.assertIn("`bot_name`", raw)
+
+    def test_farmbot_rendering_matches_the_production_comments(self):
+        text = self.rendered("FarmBot")
+        for kind, line in (("started", "👀 FarmBot 已开始处理：正在复现与定位问题，验证结果和草稿 PR 会补充在本 issue。"),
+                           ("blocker", "FarmBot 暂停处理。"),
+                           ("delivery", "FarmBot 已提交修复（草稿 PR，待 review）：")):
+            with self.subTest(kind=kind):
+                self.assertIn(f"\n## {kind}\n{line}\n", text)
+        self.assertIn("\nFarmBot 已确认无需改动：\n", text)
+
+    def test_a_named_instance_starts_as_itself(self):
+        text = self.rendered("TestBot")
+        self.assertIn("\n## started\n👀 TestBot 已开始处理：正在复现与定位问题，验证结果和草稿 PR 会补充在本 issue。\n", text)
+        self.assertNotIn("FarmBot", text)
+
+
 class SkillRegistryTests(unittest.TestCase):
     def test_repository_skills_load_with_expected_authority(self):
         skills = load_skills(ROOT / "skills")
