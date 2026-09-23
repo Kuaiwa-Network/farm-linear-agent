@@ -136,6 +136,13 @@ class PublicationVerifier:
             raise PublicationError('GitHub did not verify the configured private repository and write access')
         if branch == metadata['default_branch']:
             raise PublicationError('publishing to the default branch is not authorized')
+        # Ignore rules do not protect reports that a worker has force-added or that
+        # an earlier commit already tracks. Check the outgoing branch, not the file
+        # system, so a pre-existing report on the base branch is not a false alarm.
+        base_ref = f"refs/remotes/origin/{metadata['default_branch']}"
+        if (_git('diff', '--name-only', f'{base_ref}...HEAD', '--', 'reports', cwd=path)
+                or _git('diff', '--cached', '--name-only', '--', 'reports', cwd=path)):
+            raise PublicationError('run report changes must stay in private state, not the published branch')
         remote_branch = self.api('repos/' + expected + '/branches/' + quote(branch, safe=''), missing_ok=True)
         if remote_branch is not None and (not isinstance(remote_branch, dict)
                                          or remote_branch.get('name') != branch or remote_branch.get('protected') is not False):

@@ -220,10 +220,12 @@ code cannot enforce separate budgets; do not roll back during pending recovery o
 ## Draft PR publishing authority
 
 For a delegated write job, the operator authorizes publishing that issue's source changes,
-tests, required generated assets and verification reports to its feature branches in the host's
+tests and required generated assets to its feature branches in the host's
 configured private GitHub repositories, and creating/updating draft PRs there. This applies to
 the fix manifest's Farm-Client, farm-hive, farmgui, common and Farm-Contract worktrees equally.
-It does not authorize secrets, unrelated files, force pushes, protected/default branch writes,
+Run reports stay under the worker's private `state_dir`; PR descriptions and Linear outcomes carry
+concise verification summaries and gaps. Publishing does not authorize run reports, secrets,
+unrelated files, force pushes, protected/default branch writes,
 merges or deployment. Chat workers and sessions without delegation receive no publishing scope.
 
 At every launch, including resumes, the controller supplies `publication.repositories` with
@@ -234,6 +236,8 @@ memory to user requests. Verification failures withhold publishing scope, not lo
 Verification compares the effective origin push URL (including Git URL rewrites) with the configured
 repository, requires a single destination and the job's own worktree/issue branch, and reads GitHub
 metadata for exact repository identity, private visibility, write access and default branch.
+It rejects outgoing `reports/` changes even when the files are tracked or force-added through
+`.gitignore`; unchanged reports already on the base branch do not block publication.
 Existing protected branches are rejected. Public repositories need a separately designed publishing
 policy; they are not authorized by this private-repository workflow.
 

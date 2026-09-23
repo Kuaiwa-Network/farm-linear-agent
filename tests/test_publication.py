@@ -96,6 +96,28 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(result['head'], self.trees.head(self.path))
         self.assertEqual(result['status'], 'verified')
 
+    def test_branch_with_force_added_ignored_run_report_cannot_publish(self):
+        (self.path / '.gitignore').write_text('/reports/\n', encoding='utf-8')
+        git('add', '.gitignore', cwd=self.path)
+        git('commit', '-qm', 'ignore run reports', cwd=self.path)
+        report = self.path / 'reports' / 'run' / 'report.md'
+        report.parent.mkdir(parents=True)
+        report.write_text('run evidence\n', encoding='utf-8')
+        git('add', '-f', 'reports/run/report.md', cwd=self.path)
+        git('commit', '-qm', 'force add report', cwd=self.path)
+
+        with self.assertRaisesRegex(publication.PublicationError, 'run report'):
+            self.verify()
+
+    def test_staged_run_report_change_cannot_publish(self):
+        report = self.path / 'reports' / 'run' / 'report.md'
+        report.parent.mkdir(parents=True)
+        report.write_text('run evidence\n', encoding='utf-8')
+        git('add', 'reports/run/report.md', cwd=self.path)
+
+        with self.assertRaisesRegex(publication.PublicationError, 'run report'):
+            self.verify()
+
     def test_late_pr_must_be_open_draft_for_the_exact_job_head_and_repository(self):
         url = 'https://github.com/Kuaiwa-Network/farmgui/pull/113'
         metadata = {'html_url': url, 'state': 'open', 'draft': True,
