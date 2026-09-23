@@ -229,6 +229,22 @@ class DoctorTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(main(["doctor", "--config", str(self.config_path)]), 1)
 
+    def test_kw_ops_configuration_is_reported_without_its_token(self):
+        self.config.kw_ops = {"url": "http://gm.test/mcp", "token_env": "KW_OPS_TOKEN"}
+        with patch.dict(os.environ, {"KW_OPS_TOKEN": "dummy-token-value"}):
+            report = self.report()
+        self.assertEqual(report["tools"]["kw_ops"], {"configured": True, "token_env": "KW_OPS_TOKEN",
+                                                     "token_set_in_doctor_environment": True})
+        self.assertNotIn("dummy-token-value", json.dumps(report))
+        with patch.dict(os.environ, {"KW_OPS_TOKEN": ""}):
+            self.assertFalse(self.report()["tools"]["kw_ops"]["token_set_in_doctor_environment"])
+        # Whitespace is unset too, as it is when the controller resolves the grant.
+        with patch.dict(os.environ, {"KW_OPS_TOKEN": "   "}):
+            self.assertFalse(self.report()["tools"]["kw_ops"]["token_set_in_doctor_environment"])
+
+    def test_an_unconfigured_kw_ops_is_reported_as_such(self):
+        self.assertEqual(self.report()["tools"], {"kw_ops": {"configured": False}})
+
 
 @unittest.skipIf(os.name == "nt", "POSIX process inspection")
 class ProcessProbeTests(unittest.TestCase):
