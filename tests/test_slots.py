@@ -678,6 +678,8 @@ class PoolTests(SlotFixture):
         # Replace the ungranted baseline request with the worker's committed fix.
         self.ledger.cancel(item_id, "replace request")
         item_id = self.ledger.retry(item_id, "verify fix")["id"]
+        # The retry starts at the neutral root; only a Farm-Client-rooted worker commits and selects a fix.
+        self.ledger.connection.execute("UPDATE work_items SET root_repo='Farm-Client' WHERE id=?", (item_id,))
         token = self.ledger.claim(item_id, worker_id="w")["token"]
         path = self.trees.add("Farm-Client", item_id, "farmbot/fix")
         (path / "README.md").write_text("fixed")

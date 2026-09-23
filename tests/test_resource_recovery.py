@@ -82,6 +82,8 @@ class RecoveryTests(LedgerBase):
 
     def running_with_slot(self):
         item = self.new_item()
+        # Only a Farm-Client-rooted fix worker may select its own commit for Unity verification.
+        self.ledger.connection.execute("UPDATE work_items SET root_repo='Farm-Client' WHERE id=?", (item['id'],))
         claim = self.ledger.claim(item['id'], worker_id='before-resource')
         self.ledger.await_resource(item['id'], claim['token'], 'unity_slot', 'interactive', commit_sha='b' * 40)
         self.ledger.ensure_slot('unity_slot:1', kind='unity_slot', host='test', folder=str(self.path.parent / 'slot-1'))
