@@ -202,6 +202,15 @@ class RepositoryStageTests(LedgerBase):
         with self.assertRaisesRegex(LedgerError, "neutral or Farm-Client"):
             self.ledger.await_resource(item["id"], token, "unity_slot", "batch")
 
+    def test_neutral_stage_requests_only_the_baseline_for_unity(self):
+        item = self.new_item()
+        token = self.ledger.claim(item["id"], worker_id="worker")["token"]
+        with self.assertRaisesRegex(LedgerError, "only a write worker"):
+            self.ledger.await_resource(item["id"], token, "unity_slot", "batch", commit_sha="b" * 40)
+        waiting = self.ledger.await_resource(item["id"], token, "unity_slot", "batch")
+        self.assertEqual(waiting["state"], "awaiting_resource")
+        self.assertEqual([r["commit_sha"] for r in self.ledger.reservations()], [PIN["commit_sha"]])
+
     def test_explicit_retry_restarts_from_neutral_investigation(self):
         item = self.new_item()
         self.ledger.connection.execute("UPDATE work_items SET root_repo='Farm-Contract' WHERE id=?", (item["id"],))

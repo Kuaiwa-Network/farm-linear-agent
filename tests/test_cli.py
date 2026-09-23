@@ -206,6 +206,14 @@ class CliTests(unittest.TestCase):
                      "--resource", "unity_slot", "--mode", "batch", "--commit", fixed, success=False)
         self.assertEqual(self.run_cli("reservations"), [])
 
+    def test_neutral_fix_cannot_select_a_fix_commit(self):
+        item, token, baseline, fixed, path = self.verification_fixture()
+        self.root_item(item, None)
+        result = self.run_cli("await-resource", "--item", item, "--token", token,
+                              "--resource", "unity_slot", "--mode", "batch", "--commit", fixed, success=False)
+        self.assertIn("only a write worker may select", result.stderr)
+        self.assertEqual(self.run_cli("reservations"), [])
+
     def test_commit_validation_cannot_queue_after_a_concurrent_cancel(self):
         from unittest.mock import patch
         from agent.__main__ import parser, run
