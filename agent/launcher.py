@@ -1,9 +1,11 @@
 """Spawn, watch and kill one headless CLI worker per work item (spec §8)."""
 from collections import namedtuple
+import io
 import json
 import os
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import threading
@@ -22,6 +24,41 @@ Unsandboxed = namedtuple("Unsandboxed", "returncode timed_out seconds")
 _UNUSABLE_RECORD = "earlier teardown record is unreadable or not this attempt's"
 _PINNED_EXIT = os.name != "nt" and all(hasattr(os, name) for name in ("waitid", "P_PID", "WEXITED", "WNOHANG",
                                                                          "WNOWAIT"))
+# The most read from a whole file that a worker can replace; stderr.log is read only from its tail.
+_WORKER_FILE_LIMIT = 1 << 20
+# Opening a FIFO waits for a writer, and an exited worker leaves none. Nothing FarmBot or a CLI writes in the
+# state directory is a symlink. Windows has neither flag nor FIFOs in a directory, and needs O_BINARY for bytes.
+_WORKER_FILE_FLAGS = (os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0)
+                      | getattr(os, "O_BINARY", 0))
+
+
+def _read_worker_file(path, tail=None):
+    """The bytes of a file in a worker-writable directory, or its last `tail` bytes, read without blocking.
+
+    Raises OSError for anything but a regular file (on POSIX, for a symlink too), and without `tail` for one
+    larger than _WORKER_FILE_LIMIT: a FIFO, a device or an endless file is refused instead of waited on or read.
+    """
+    fd = os.open(path, _WORKER_FILE_FLAGS)
+    try:
+        status = os.fstat(fd)
+        if not stat.S_ISREG(status.st_mode):
+            raise OSError(f"{Path(path).name} is not a regular file")
+        with open(fd, "rb", closefd=False) as stream:
+            if tail is not None:
+                stream.seek(max(0, status.st_size - tail))
+                return stream.read(tail)
+            data = stream.read(_WORKER_FILE_LIMIT + 1)
+    finally:
+        os.close(fd)
+    if len(data) > _WORKER_FILE_LIMIT:
+        raise OSError(f"{Path(path).name} is larger than {_WORKER_FILE_LIMIT} bytes")
+    return data
+
+
+def _read_worker_text(path):
+    """_read_worker_file decoded as Path.read_text(encoding="utf-8") decodes: strict UTF-8, universal newlines."""
+    return io.TextIOWrapper(io.BytesIO(_read_worker_file(path)), encoding="utf-8").read()
+
 
 RUNTIMES = {
     "codex": RuntimeConfig(
@@ -588,12 +625,12 @@ class Launcher:
     def _prior_descendants(handle):
         """What an earlier (interrupted) kill of this attempt recorded: [] when there is no record, None when
         the record is not verifiably this attempt's own list of pids. The file is in the worker-writable state
-        directory, so reading it must never raise (a huge number or deep nesting would)."""
+        directory, so reading it must never raise (a huge number or deep nesting would) or block (a FIFO would)."""
         path = handle.run_dir / "killed.json"
         if not path.exists():
             return []
         try:
-            prior = json.loads(path.read_text(encoding="utf-8"))
+            prior = json.loads(_read_worker_text(path))
         except Exception:
             return None
         if not isinstance(prior, dict) or prior.get("pid") != handle.pid:
@@ -630,7 +667,7 @@ class Launcher:
     def kill_owned_attempt(self, item_id, pid):
         """Persist the exact attempt's teardown targets before signalling them."""
         attempts = [p for p in self.state_dir(item_id).glob('*/process.json')
-                    if json.loads(p.read_text(encoding='utf-8')).get('pid') == pid]
+                    if json.loads(_read_worker_text(p)).get('pid') == pid]
         if len(attempts) != 1 or not self.owned_pid(pid, item_id):
             raise RuntimeError('worker attempt ownership is ambiguous')
         return self.kill_pid(pid, evidence=attempts[0].parent / 'killed.json')
@@ -641,7 +678,7 @@ class Launcher:
         retained = set(targets)
         if evidence is not None:
             if evidence.exists():
-                previous = json.loads(evidence.read_text(encoding='utf-8'))
+                previous = json.loads(_read_worker_text(evidence))
                 if previous.get('pid') != pid:
                     raise RuntimeError('teardown evidence belongs to a different attempt')
                 retained.update(previous['descendants'])
@@ -771,7 +808,7 @@ class Launcher:
             certified.update(boot_proof["processes"])
         jobs, unverified = set(), set()
         for path in self.state_dir(item_id).glob("*/process.json"):
-            attempt = json.loads(path.read_text(encoding="utf-8"))
+            attempt = json.loads(_read_worker_text(path))
             if attempt.get("state") == "not_started":
                 continue
             proved = boot is not None and path.stat().st_mtime < boot and attempt.get("pid") in certified
@@ -789,7 +826,7 @@ class Launcher:
         root = self.state_dir(item_id)
         pids = {pid} if pid else set()
         contained = self.certified_pids(item_id, boot_proof)
-        attempts = [(path, json.loads(path.read_text(encoding="utf-8"))) for path in root.glob("*/process.json")]
+        attempts = [(path, json.loads(_read_worker_text(path))) for path in root.glob("*/process.json")]
         for path, attempt in attempts:
             if attempt.get("state") == "not_started":
                 continue
@@ -799,7 +836,7 @@ class Launcher:
             # In particular, a contained retry cannot certify an older uncontained run.
             if attempt["pid"] not in contained:
                 killed_path = path.parent / "killed.json"
-                killed = json.loads(killed_path.read_text(encoding="utf-8")) if killed_path.exists() else {}
+                killed = json.loads(_read_worker_text(killed_path)) if killed_path.exists() else {}
                 unique = sum(other.get("pid") == attempt["pid"] for _, other in attempts) == 1
                 if killed.get("pid") != attempt["pid"] and not (unique and attempt["pid"] in recorded_processes):
                     raise RuntimeError("worker exited without verified descendant teardown; operator investigation required")
@@ -808,7 +845,7 @@ class Launcher:
         pids -= contained
         verified = set(recorded_processes) | contained
         for path in root.glob("*/killed.json"):
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(_read_worker_text(path))
             verified.add(data["pid"])
             if any(self.alive(child) for child in data["descendants"] if child not in contained):
                 raise RuntimeError("worker descendants have not exited")
@@ -830,12 +867,12 @@ class Launcher:
         would fail every poll of this reaped worker, keeping it registered and holding its slot until restart."""
         try:
             if handle.last_message_path.exists():
-                return handle.last_message_path.read_text(encoding="utf-8").strip()
+                return _read_worker_text(handle.last_message_path).strip()
         except (OSError, ValueError):
             return ""
         if self.runtime.name == "claude":
             try:
-                data = json.loads((handle.run_dir / "stdout.log").read_text(encoding="utf-8"))
+                data = json.loads(_read_worker_text(handle.run_dir / "stdout.log"))
                 return str(data.get("result", "")).strip()
             except (OSError, ValueError):
                 return ""
@@ -846,10 +883,7 @@ class Launcher:
         if self.runtime.name != "codex" or code == 0 or reason != "exited":
             return None
         try:
-            with (handle.run_dir / "stderr.log").open("rb") as log:
-                log.seek(0, 2)
-                log.seek(max(0, log.tell() - 4096))
-                tail = log.read().decode("utf-8", errors="replace")
+            tail = _read_worker_file(handle.run_dir / "stderr.log", tail=4096).decode("utf-8", errors="replace")
         except OSError:
             return None
         lines = [line.strip() for line in tail.splitlines() if line.strip()]

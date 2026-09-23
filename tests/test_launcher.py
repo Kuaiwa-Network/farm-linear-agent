@@ -2,6 +2,7 @@ from contextlib import redirect_stdout
 import io
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -12,9 +13,41 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import agent.launcher
 from agent.launcher import _PINNED_EXIT, Handle, Launcher, RUNTIMES, write_mcp_config
 
 ROOT = Path(__file__).resolve().parents[1]
+CAPACITY = "ERROR: Selected model is at capacity. Please try a different model."
+
+
+def unblocked(test, call, fifo, timeout=5):
+    """call()'s result, or its exception, from a thread; the test fails if it is still blocked after `timeout`.
+
+    A call blocked opening `fifo` is then released through the FIFO's write end, so no thread outlives the test.
+    """
+    outcome = {}
+
+    def run():
+        try:
+            outcome["result"] = call()
+        except BaseException as exc:
+            outcome["error"] = exc
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    thread.join(timeout)
+    if thread.is_alive():
+        try:
+            writer = os.open(fifo, os.O_WRONLY | os.O_NONBLOCK)
+        except OSError:
+            writer = None
+        thread.join(1)  # its open() has returned; its read() now waits for this writer to close
+        if writer is not None:
+            os.close(writer)
+        thread.join(5)
+        test.fail(f"blocked for {timeout} s on a FIFO at {fifo.name}")
+    if "error" in outcome:
+        raise outcome["error"]
+    return outcome["result"]
 
 
 class LauncherTests(unittest.TestCase):
@@ -303,6 +336,91 @@ class LauncherTests(unittest.TestCase):
                 self.assertEqual([(f.item_id, f.returncode, f.last_message) for f in finished], [(name, 3, "")])
                 self.assertNotIn(name, launcher.running())
                 self.assertEqual(log.getvalue(), "")
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFOs in a directory are POSIX")
+    def test_a_fifo_the_worker_left_as_a_report_file_cannot_block_poll(self):
+        # Opening a FIFO for reading waits for a writer, and after the reap there is none: poll(), and with it the
+        # whole scheduler loop, stopped for ever without raising anything a guard could catch.
+        cases = {"last_message.txt": "fake", "stdout.log": "claude", "stderr.log": "codex"}
+        for name, runtime in cases.items():
+            with self.subTest(file=name, runtime=runtime):
+                config = RUNTIMES[runtime]._replace(command=RUNTIMES["fake"].command, seed_files={})
+                launcher = Launcher(self.runs / runtime, config, host="test-host")
+                handle = launcher.spawn(runtime, self.message, {}, budget_seconds=60, cwd=self.tmp.name,
+                                        extra_env={"FAKE_CLI_MODE": "crash"})
+                self.wait_exited(handle)
+                fifo = handle.run_dir / name
+                fifo.unlink(missing_ok=True)
+                os.mkfifo(fifo)
+                finished = unblocked(self, launcher.poll, fifo)
+                self.assertEqual([(f.item_id, f.returncode, f.last_message, f.failure_kind) for f in finished],
+                                 [(runtime, 3, "", None)])
+                self.assertNotIn(runtime, launcher.running())
+
+    def test_a_capacity_error_ending_a_log_larger_than_the_read_bound_is_still_classified(self):
+        # Only stderr.log's tail is read: a long codex log must not be refused as oversized.
+        codex = Launcher(self.runs, RUNTIMES["codex"]._replace(command=RUNTIMES["fake"].command, seed_files={}),
+                         host="test-host")
+        handle = codex.spawn("item-1", self.message, {}, budget_seconds=60, cwd=self.tmp.name,
+                             extra_env={"FAKE_CLI_MODE": "crash"})
+        self.wait_exited(handle)
+        (handle.run_dir / "stderr.log").write_bytes(
+            b"tool output\n" * (2 * agent.launcher._WORKER_FILE_LIMIT // 12) + CAPACITY.encode() + b"\n")
+        self.assertEqual([f.failure_kind for f in codex.poll()], ["model_capacity"])
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFOs in a directory are POSIX")
+    def test_stop_does_not_block_on_a_fifo_teardown_record_and_holds_cleanup(self):
+        handle = self.launcher.spawn("item-1", self.message, {}, budget_seconds=60, cwd=self.tmp.name,
+                                     extra_env={"FAKE_CLI_MODE": "sleep"})
+        fifo = handle.run_dir / "killed.json"
+        os.mkfifo(fifo)
+        self.assertTrue(unblocked(self, lambda: self.launcher.stop("item-1", grace=2.0), fifo))
+        unverified = json.loads((handle.run_dir / "teardown-unverified.json").read_text(encoding="utf-8"))
+        self.assertEqual(unverified["reason"], "earlier teardown record is unreadable or not this attempt's")
+        self.assertEqual([f.reason for f in self.wait_finished()], ["stopped"])
+        with self.assertRaisesRegex(RuntimeError, "teardown"):
+            self.launcher.assert_quiescent("item-1", handle.pid)
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFOs in a directory are POSIX")
+    def test_cleanup_checks_refuse_a_fifo_launch_or_teardown_record_without_blocking(self):
+        # The scheduler thread runs these before a job's worktrees and slot are released. Refusing holds cleanup.
+        state = self.launcher.state_dir("item-1")
+
+        def attempt(name, record=None):
+            path = state / name
+            path.mkdir(parents=True)
+            if record is not None:
+                (path / "process.json").write_text(json.dumps(record), encoding="utf-8")
+            return path
+        cases = {
+            "an attempt's launch record": (lambda: attempt("a") / "process.json",
+                                           lambda: self.launcher.assert_quiescent("item-1", None)),
+            "an attempt's teardown record": (lambda: attempt("a", {"pid": 4242}) / "killed.json",
+                                             lambda: self.launcher.assert_quiescent("item-1", 4242)),
+            "a teardown record beside no attempt": (lambda: attempt("stray") / "killed.json",
+                                                    lambda: self.launcher.assert_quiescent("item-1", None)),
+            "another attempt's launch record, before a kill": (
+                lambda: attempt("stray") / "process.json", lambda: self.launcher.kill_owned_attempt("item-1", 4242)),
+        }
+        for name, (place, check) in cases.items():
+            with self.subTest(name):
+                shutil.rmtree(state, ignore_errors=True)
+                fifo = place()
+                os.mkfifo(fifo)
+                with self.assertRaises(OSError):
+                    unblocked(self, check, fifo)
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFOs in a directory are POSIX")
+    def test_a_kill_after_a_restart_refuses_a_fifo_teardown_record_before_signalling(self):
+        handle = self.launcher.spawn("item-1", self.message, {}, budget_seconds=60, cwd=self.tmp.name,
+                                     extra_env={"FAKE_CLI_MODE": "sleep"})
+        self.addCleanup(self.launcher.stop, "item-1", grace=1.0)
+        fifo = handle.run_dir / "killed.json"
+        os.mkfifo(fifo)
+        self.addCleanup(fifo.unlink, missing_ok=True)  # before the Stop above, which would read it
+        with self.assertRaises(OSError):
+            unblocked(self, lambda: self.launcher.kill_owned_attempt("item-1", handle.pid), fifo)
+        self.assertIsNone(handle.process.poll())
 
     def test_stop_also_kills_descendants_in_other_sessions(self):
         handle = self.launcher.spawn("item-7", self.message, {}, budget_seconds=60, cwd=self.tmp.name,
@@ -675,6 +793,18 @@ class PosixSelfExitTeardownTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "teardown"):
             self.launcher.assert_quiescent("foreign", handle.pid)
 
+    def test_a_fifo_teardown_record_holds_cleanup_without_blocking_the_poll(self):
+        handle = self.launcher.spawn("fifo", "prompt", {}, 30, self.root)
+        self.wait_exited(handle)
+        fifo = handle.run_dir / "killed.json"
+        os.mkfifo(fifo)
+        self.assertEqual([f.reason for f in unblocked(self, self.launcher.poll, fifo)], ["exited"])
+        self.assertEqual(self.evidence(handle, "teardown-unverified.json")["reason"],
+                         "earlier teardown record is unreadable or not this attempt's")
+        self.assertTrue((handle.run_dir / "killed.superseded.json").is_fifo())
+        with self.assertRaisesRegex(RuntimeError, "teardown"):
+            self.launcher.assert_quiescent("fifo", handle.pid)
+
     def test_a_signalled_member_that_leaves_the_session_is_still_checked(self):
         # The member was verified in the pinned session and signalled, then called setsid() in its handler.
         # The group SIGTERM and the per-member one can each run the handler; a second setsid() is EPERM.
@@ -973,3 +1103,70 @@ class PriorTeardownRecordTests(unittest.TestCase):
         for name, text in cases.items():
             with self.subTest(name):
                 self.assertIsNone(self.prior(text))
+
+
+class WorkerFileReadTests(unittest.TestCase):
+    """Every file the launcher reads from a worker's state directory is read as a bounded regular file."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / "record"
+
+    def read(self, path=None, **kwargs):
+        return agent.launcher._read_worker_file(self.path if path is None else path, **kwargs)
+
+    def test_a_regular_file_is_read_as_its_exact_bytes(self):
+        # Windows opens a file descriptor in text mode unless told otherwise, which ends a read at Ctrl-Z.
+        self.path.write_bytes(b"first\r\nsecond\x1athird\xff")
+        self.assertEqual(self.read(), b"first\r\nsecond\x1athird\xff")
+
+    def test_text_is_decoded_as_read_text_decoded_it(self):
+        self.path.write_bytes("first\r\nsecond\rthird\n—".encode("utf-8"))
+        self.assertEqual(agent.launcher._read_worker_text(self.path), "first\nsecond\nthird\n—")
+        self.path.write_bytes(b"report \xff\xfe")
+        with self.assertRaises(UnicodeDecodeError):
+            agent.launcher._read_worker_text(self.path)
+
+    def test_a_file_up_to_the_bound_is_read_and_a_larger_one_is_refused(self):
+        limit = agent.launcher._WORKER_FILE_LIMIT
+        self.path.write_bytes(b"x" * limit)
+        self.assertEqual(len(self.read()), limit)
+        self.path.write_bytes(b"x" * (limit + 1))
+        with self.assertRaises(OSError):
+            self.read()
+
+    def test_a_tail_is_only_the_last_bytes_of_a_file_of_any_size(self):
+        self.path.write_bytes(b"x" * (4 * agent.launcher._WORKER_FILE_LIMIT) + b"final line\n")
+        tail = self.read(tail=4096)
+        self.assertEqual((len(tail), tail[-11:]), (4096, b"final line\n"))
+        self.path.write_bytes(b"short\n")
+        self.assertEqual(self.read(tail=4096), b"short\n")
+
+    def test_a_device_is_refused(self):
+        with self.assertRaises(OSError):
+            self.read(Path(os.devnull))
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFOs in a directory are POSIX")
+    def test_a_fifo_is_refused_without_waiting_for_a_writer(self):
+        os.mkfifo(self.path)
+        with self.assertRaises(OSError):
+            unblocked(self, self.read, self.path)
+
+    @unittest.skipIf(os.name == "nt", "Windows has no O_NOFOLLOW; making a symlink there needs a privilege")
+    def test_a_symlink_is_refused_even_to_a_regular_file(self):
+        # Nothing FarmBot or a CLI writes there is a link: a worker made it, and it may lead off this filesystem.
+        target = Path(self.tmp.name) / "elsewhere"
+        target.write_text("{}", encoding="utf-8")
+        self.path.symlink_to(target)
+        with self.assertRaises(OSError):
+            self.read()
+
+    @unittest.skipUnless(os.name == "nt", "the Windows containment path reads every attempt's launch record")
+    def test_an_oversized_launch_record_is_refused_by_the_windows_containment_check(self):
+        attempt = Path(self.tmp.name) / "runs" / "item" / "attempt"
+        attempt.mkdir(parents=True)
+        (attempt / "process.json").write_text(
+            '{"state": "not_started"}' + " " * agent.launcher._WORKER_FILE_LIMIT, encoding="utf-8")
+        with self.assertRaises(OSError):
+            Launcher(Path(self.tmp.name) / "runs", RUNTIMES["fake"], host="test-host").certified_pids("item")
