@@ -18,6 +18,7 @@ ISSUE_QUERY = """query FarmBotIssue($id: String!, $after: String) {
     }
   }
 }"""
+ISSUE_READ_ATTEMPTS = 3
 
 
 def strip_signed(text):
@@ -169,7 +170,17 @@ class LinearAPI:
             self.identity()
         comments, after, issue = [], None, None
         while True:
-            issue = self.graphql(ISSUE_QUERY, {"id": issue_ref, "after": after})["issue"]
+            # A timed-out issue query has no side effect. Retry only this read;
+            # replaying GraphQL mutations after a lost response is unsafe.
+            for attempt in range(ISSUE_READ_ATTEMPTS):
+                try:
+                    issue = self.graphql(ISSUE_QUERY, {"id": issue_ref, "after": after})["issue"]
+                    break
+                except (TimeoutError, urllib.error.URLError) as exc:
+                    if (isinstance(exc, urllib.error.URLError)
+                            and not isinstance(exc.reason, TimeoutError)) or attempt == ISSUE_READ_ATTEMPTS - 1:
+                        raise
+                    time.sleep(0.25 * (attempt + 1))
             if issue is None:
                 raise RuntimeError("Issue not found")
             for node in issue["comments"]["nodes"]:

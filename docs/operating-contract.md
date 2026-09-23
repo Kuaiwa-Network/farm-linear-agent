@@ -76,6 +76,10 @@ message's `bot_name`. A development profile whose app is TestBot therefore speak
 shared workspace. The tables below use the production name. Git commit identity, launchd labels,
 the ledger marker and the `/health` body are unchanged.
 
+Issue detail reads retry a timed-out Linear request up to three times before the receiver reports
+an error activity. The retry applies to the current read page only; GraphQL mutations are never
+replayed after a lost response. A prompt that still fails must be retried in Linear.
+
 | You do | FarmBot does |
 |---|---|
 | Assign (delegate) an issue labelled Bug to @FarmBot | starts a `fix` work item; first activity within 10 s; posts 「👀 <bot_name> 已开始处理」 (「👀 FarmBot 已开始处理」 in production) once the worker claims |
