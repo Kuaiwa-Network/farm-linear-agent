@@ -5,7 +5,7 @@
   "client_id": "",
   "client_secret": "",
   "webhook_secret": "",
-  "expected_bot_name": "FarmBot Dev",
+  "expected_bot_name": "TestBot",
   "expected_app_user_id": "",
   "expected_organization_id": "",
   "issue_prefix": "FARM",

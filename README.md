@@ -50,7 +50,7 @@ Behaviour: `docs/operating-contract.md`. Plans: `docs/superpowers/plans/`.
 
 For Mac development alongside Windows production, follow the
 [development workflow](docs/development-workflow.md): offline tests first, then live
-tests with the FarmBot Dev app in the same Linear workspace, on real issues you choose
+tests with the TestBot app in the same Linear workspace, on real issues you choose
 and the real repositories.
 Start an explicit development profile from [this template](config/development.example.json).
 See [CI](docs/ci.md) for the Python 3.13 Mac/Windows checks and evidence artifacts.

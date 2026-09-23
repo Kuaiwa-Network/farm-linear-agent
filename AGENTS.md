@@ -11,7 +11,7 @@ keep runtime authority and behavior changes in those sources and their tests.
   authority boundaries. Check the implementation when documentation disagrees.
 - [Worker CLI reference](references/worker-cli.md): command authentication and
   checkpoint formats; consult when changing worker instructions or CLI behavior.
-- [Development workflow](docs/development-workflow.md): the FarmBot Dev test bot in
+- [Development workflow](docs/development-workflow.md): the TestBot test bot in
   the production workspace, working on real issues and repositories; setup,
   initialization and test scoping.
 - [Development and release proposal](docs/superpowers/plans/2026-09-22-cross-platform-development-and-release.md):
@@ -46,7 +46,7 @@ keep runtime authority and behavior changes in those sources and their tests.
   for routine work within that scope.
 - Keep credentials and host-specific paths in private config, normally under the
   ignored `.local/` directory. Never commit secrets, claim tokens or private state.
-- For authorized live testing, run the FarmBot Dev app: a second Linear app in the
+- For authorized live testing, run the TestBot app: a second Linear app in the
   same Kuaiwa AI workspace as production, with its own client ID, client secret,
   webhook signing secret, endpoint and port. It works on real issues and publishes
   to the real repositories. Do not propose a separate workspace, manual issue

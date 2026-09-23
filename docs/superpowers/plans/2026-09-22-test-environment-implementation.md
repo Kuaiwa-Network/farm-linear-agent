@@ -3,7 +3,7 @@
 Status: user authorized implementation and test-resource provisioning after PR #23.
 Steps 1–5 landed in PR #24 and remain current. Step 6's separate Linear workspace and
 sandbox destinations, and the FBTEST prefix in step 3, were abandoned on 2026-09-23 in
-favor of a FarmBot Dev app in the production workspace on real issues and repositories;
+favor of a TestBot app in the production workspace on real issues and repositories;
 see the [development workflow](../../development-workflow.md). This historical record
 is otherwise unchanged; production deployment remains separate.
 

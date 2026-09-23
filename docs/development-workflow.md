@@ -3,16 +3,16 @@
 ## Approved workflow
 
 Develop on macOS while production stays on its accepted Windows revision. Live
-tests use a second Linear app, **FarmBot Dev**, installed in the same Kuaiwa AI
+tests use a second Linear app, **TestBot**, installed in the same Kuaiwa AI
 workspace as production **FarmBot**. It works on real issues that the operator
 chooses and publishes to the real repositories.
 
 ```text
 Real issue in Kuaiwa AI, chosen by the operator
                   |
-   @FarmBot Dev mention, or delegation from the Linear UI
+   @TestBot mention, or delegation from the Linear UI
                   v
-FarmBot Dev on the Mac: development checkout + private development profile
+TestBot on the Mac: development checkout + private development profile
                   |
                   v
 Session activity on that issue; optional draft PR on its farmbot/<key> branch
@@ -71,7 +71,7 @@ What does not separate them:
 - Start a new build with an @mention on an undelegated issue. That takes the
   read-only conversation path and receives no publishing scope.
 - Delegate from the Linear UI; delegation set through the API creates no agent
-  session. In the @-autocomplete, pick FarmBot Dev, not FarmBot.
+  session. In the @-autocomplete, pick TestBot, not FarmBot.
 - FarmBot never closes PRs or deletes remote branches. Close an unwanted draft PR
   and its branch yourself.
 
@@ -111,27 +111,31 @@ existing production data or copy its marker.
    python -m unittest discover -s tests -p 'test_windows_workers.py' -v
    ```
 
-4. Run FarmBot Dev from that checkout on a live issue once it is set up as below.
+4. Run TestBot from that checkout on a live issue once it is set up as below.
    Offline tests remain the quick iteration loop.
 5. Review and merge the FarmBot change after relevant platform checks. Windows
    process, installation and Unity behavior require Windows evidence.
 6. Promote an accepted FarmBot revision to production through a separately
    authorized release. Merging a development PR does not restart production.
 
-## Setting up FarmBot Dev
+## Setting up TestBot
 
 1. **Linear app.** In Kuaiwa AI, create an OAuth app whose name is exactly the
-   profile's `expected_bot_name` (`FarmBot Dev`) and enable client credentials.
+   profile's `expected_bot_name` (`TestBot`) and enable client credentials.
    FarmBot requests `read,write,app:mentionable,app:assignable` when it fetches its
    token. Enable webhooks for Agent session events and Issues. The URL is exactly
    `https://<host>/webhook`: routes are string-matched, so a trailing slash returns
    404. Requests need an HMAC-SHA256 hex signature of the raw body in
-   `Linear-Signature` and a `webhookTimestamp` within 60 seconds.
+   `Linear-Signature` and a `webhookTimestamp` within 60 seconds. Linear requires a
+   redirect URI even though client credentials never use one; an unused localhost
+   URI is enough.
 2. **Profile.** Copy the [template](../config/development.example.json) to a
    private file outside Git and outside any checkout or worktree that may be
    deleted. `client_id`, `client_secret` and `webhook_secret` are all required, so
    every config-loading command fails until they are filled. Enter them through
-   hidden input; never paste them into chat, commits or logs. Set:
+   hidden input; never paste them into chat, commits or logs. An agent should not
+   create or edit this file with tools that report file changes back into its
+   transcript, since a later secret write would be reported with the contents. Set:
    - a lowercase `instance_id` and a `port` other than production's;
    - `expected_app_user_id` and `expected_organization_id` from the app's own
      client-credentials `viewer` and `organization`, after confirming the
@@ -151,12 +155,14 @@ existing production data or copy its marker.
    - `claude` gives each attempt an empty isolated `CLAUDE_CONFIG_DIR` with no
      seeded credentials, so a worker reports "Not logged in". Export a long-lived
      token from `claude setup-token` as `CLAUDE_CODE_OAUTH_TOKEN` in the
-     controller's environment; worker environments are copied from it. Copying
-     Keychain credentials or `~/.claude.json` does not work.
+     controller's environment; worker environments are copied from it. The token
+     can wrap across terminal lines, and a one-line paste saves only part of it;
+     test it with an empty `CLAUDE_CONFIG_DIR` before use. Copying Keychain
+     credentials or `~/.claude.json` does not work.
 5. **Endpoint.** Run
    `cloudflared tunnel --url http://127.0.0.1:<port> --no-autoupdate --protocol http2`.
    A quick tunnel's hostname changes on every restart and FarmBot never learns it,
-   so paste the new `/webhook` URL into the FarmBot Dev app after each restart.
+   so paste the new `/webhook` URL into the TestBot app after each restart.
 6. **Initialize.**
    - `python3 -m agent.service doctor --config /absolute/profile.json` is read-only
      and never creates a ledger. `config_unreadable` means the profile is
