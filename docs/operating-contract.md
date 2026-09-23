@@ -23,6 +23,11 @@ the file so the controller and its workers load the same settings. State locatio
 still comes from `local_root`; configure an absolute path for each installation.
 These rules do not by themselves restrict credentials, repositories or live issues.
 
+Codex workers default to `gpt-6-sol` at `xhigh` reasoning. Private
+`codex_workers` entries override either setting per skill; unspecified settings
+retain the FarmBot default. The selected settings are written into each new or
+resumed worker's isolated Codex home. Claude workers do not use these settings.
+
 Explicit profiles select `environment` (`development`, `production`, or `offline`)
 and a lowercase `instance_id`. Existing configs default to `legacy` for compatibility.
 Live profiles require `expected_bot_name`, pinned `expected_app_user_id` and

@@ -58,18 +58,19 @@ An installed launchd service also preserves configuration selected through
 `FARMBOT_CONFIG`. Use an absolute `local_root`; changing the config filename alone
 does not move its state. Restart a settled service after editing configuration.
 
-For a host-specific Codex model override, add `codex_workers` to private
+Codex `chat` and `fix` workers default to `gpt-6-sol` with `xhigh` reasoning.
+For a host-specific override, add `codex_workers` to private
 `.local/agent/config.json` and restart the drained receiver:
 
 ```json
 "codex_workers": {
-  "fix": {"model": "gpt-5.6-sol", "reasoning_effort": "high"}
+  "fix": {"reasoning_effort": "high"}
 }
 ```
 
-Each new or resumed `fix` worker receives these settings in its isolated Codex
-home. Skills without an entry keep the runtime default; Claude workers are
-unaffected. The model must be available to the host's account. This setting does
+Each new or resumed worker receives the default settings, merged with any
+per-skill override, in its isolated Codex home. Claude workers are unaffected.
+The model must be available to the host's account. This setting does
 not change `max_concurrent` or the number of configured Unity slots.
 
 ## AI/operator diagnostics
