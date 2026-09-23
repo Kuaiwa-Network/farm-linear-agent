@@ -27,6 +27,20 @@ python3 -m agent.service doctor                    # read-only JSON diagnostics 
 python3 -m agent --db .local/agent/ledger.sqlite3 status
 ```
 
+On the installed Windows production host, reload the revision already checked out
+after work has settled with one PowerShell command:
+
+```powershell
+.\scripts\redeploy-farmbot.ps1
+```
+
+The helper checks the production ledger for active work and reservations, verifies
+the receiver process belongs to this installation, then lets its scheduled
+supervisor restart it. It waits for a new receiver PID and HTTP health 200.
+`-CheckOnly` performs the checks without restarting. The helper does not fetch
+or select a Git revision; update the checkout to a tested commit before using it
+for a code release.
+
 Before the first `serve` on a new host: point the Linear app's webhook at a tunnel to port 8765
 (`cloudflared tunnel --url http://127.0.0.1:8765`), run `python3 -m agent.service seed-clones --from ~/WorkSpaces/Farm`
 so the bare clones exist before the first launch instead of being fetched inside a scheduler tick, and on a
