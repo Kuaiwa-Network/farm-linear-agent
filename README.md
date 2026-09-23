@@ -76,6 +76,21 @@ per-skill override, in its isolated Codex home. Claude workers are unaffected.
 The model must be available to the host's account. This setting does
 not change `max_concurrent` or the number of configured Unity slots.
 
+To give workers kw_ops, the test environment's GM backend, add its location to the private config
+and put the token only in the controller's environment:
+
+```json
+"kw_ops": {"url": "http://<gm-host>/mcp", "token_env": "KW_OPS_TOKEN"}
+```
+
+Export the variable in the wrapper that starts `serve`, never in a shell startup file such as
+`~/.zshenv`: FarmBot removes or excludes it only from the environment a worker inherits, and
+worker shells may source startup files. `install-launchd` writes only `PATH` and `HOME` into its
+plists, so start a launchd-installed controller through a wrapper that exports the variable.
+Codex fix workers then get every kw_ops tool and chat workers its query tools; Claude workers get
+none. `doctor` shows whether kw_ops is configured and whether the variable is set in doctor's own
+environment.
+
 ## AI/operator diagnostics
 
 Run `python3 -m agent.service doctor --config /absolute/path/to/config.json` on the

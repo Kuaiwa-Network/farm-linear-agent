@@ -23,6 +23,11 @@ the FarmBot paths `repo_root`, `contract` and `references`, `bot_name`
 zh-CN. It is not authority to merge, deploy, change issue status or assignee, or touch repositories
 outside your worktree list.
 
+When `tools.kw_ops.access` is present in your launch message, kw_ops, the GM backend of the test game
+environment, is available as an MCP server on the dispatch AUTHORITY's terms. Use it only for this
+issue's reproduction and verification, and record every state-changing call as a handoff fact and
+under State changes in the run report.
+
 ## Intake
 
 1. Read this file, `contract`, `references/worker-cli.md`, and the instructions of the current

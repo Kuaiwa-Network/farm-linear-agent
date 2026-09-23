@@ -16,6 +16,10 @@ database path, worktree paths, the FarmBot paths `repo_root`, `contract` and `re
 (the Linear app you speak as), and `state_dir`, the one private directory you may write outside your worktrees (STATE_DIR below).
 Everything you say to Linear goes through the ledger CLI.
 
+When `tools.kw_ops.access` is "read" in your launch message, the query tools of kw_ops, the GM backend
+of the test game environment, are available for investigation on the dispatch AUTHORITY's terms; its
+state-changing tools are not.
+
 1. Read the `contract` path from your launch message, this file, and
    `<repo_root>/references/memory.md` for shared recall and its CLI.
 2. Claim first: `python3 -m agent --db DATABASE claim --item ITEM_ID --worker-id WORKER_ID`. Write the
