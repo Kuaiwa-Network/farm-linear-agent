@@ -151,13 +151,18 @@ worktrees. A live unverifiable PID, surviving descendants, unsettled reservation
 files and records a cleanup error. A dead parent alone does not prove detached children exited: an
 attempt without verified teardown evidence (including an interrupted launch or older attempt) also
 holds cleanup for operator investigation. Teardown evidence comes from a Stop or budget kill, from an
-empty Windows Job Object, or on macOS/POSIX from the reap of a worker that exited by itself. Before
-reaping such a worker, FarmBot checks its own session and process group, whose IDs both equal the worker
-PID and stay reserved until the reap. It terminates and records any live member, and writes evidence only
-after that session is empty and, once the worker is reaped, no process remains in its group. A child that
-called `setsid()` has left the worker's session and escapes this check; that is the POSIX limit of the
-proof. Stop also signals descendants it can still find through their parents. A POSIX worker that exited
-while FarmBot was not running, or before this check existed, has no evidence and still holds cleanup.
+empty Windows Job Object, or on macOS/POSIX from the reap of a worker that exited by itself. A POSIX
+worker leads its own session and process group, whose IDs both equal its PID and stay reserved until
+FarmBot reaps it. Before that reap FarmBot terminates and records any live member of the session, after
+a Stop or budget kill as well as a self-exit. For a self-exit it writes evidence only after the session
+is empty and, once the worker is reaped, no process remains in its group. An unreadable process table is
+retried for up to a minute first. A child that called `setsid()` has left the worker's session and escapes
+this check; that is the POSIX limit of the proof, and it is not rare. Claude Code starts each Bash tool
+shell in its own session, so processes a `claude` worker's commands leave running are outside it (Codex
+is unmeasured). Stop also signals descendants it can still find through their parents; a self-exit proof
+cannot. Self-exit evidence needs `os.waitid`, which CPython provides on macOS from 3.13. Under an older
+interpreter, and for a worker that exited while FarmBot was not running or before this check existed,
+there is no evidence and cleanup still holds.
 These guards apply to every terminal retirement path. The scheduler retries pending cleanup. Slots still require the
 existing quiescence probe; held slots enter controller-owned recovery. No log, ledger history or memory
 snapshot is removed by closure cleanup. Every worker attempt gets its own log directory.

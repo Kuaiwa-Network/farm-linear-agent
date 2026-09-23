@@ -338,10 +338,12 @@ class Scheduler:
             certified = (self.launcher.certified_pids(item_id, boot_proof)
                          if hasattr(self.launcher, "certified_pids") else set())
             handle = self.launcher.running().get(item_id)
-            # Never reap a registered worker here: Launcher.poll records its teardown evidence first.
-            if handle and handle.process and handle.process.returncode is None:
-                raise RuntimeError("worker exit awaits teardown evidence" if self.launcher.exited(handle.process)
-                                   else "worker has not exited")
+            if handle and handle.process:
+                if not self.launcher.exited(handle.process):
+                    raise RuntimeError("worker has not exited")
+                # POSIX: never reap a registered worker here; Launcher.poll records its evidence first.
+                if handle.process.returncode is None:
+                    raise RuntimeError("worker exit awaits teardown evidence")
             if pid and pid not in certified and self.launcher.alive(pid):
                 if not self.launcher.owned_pid(pid, item_id):
                     raise RuntimeError("live worker PID ownership cannot be verified")
