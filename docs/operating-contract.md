@@ -153,12 +153,15 @@ attempt without verified teardown evidence (including an interrupted launch or o
 holds cleanup for operator investigation. Teardown evidence comes from a Stop or budget kill, from an
 empty Windows Job Object, or on macOS/POSIX from the reap of a worker that exited by itself. A POSIX
 worker leads its own session and process group, whose IDs both equal its PID and stay reserved until
-FarmBot reaps it. Before that reap FarmBot terminates and records any live member of the session, after
-a Stop or budget kill as well as a self-exit. For a self-exit it writes evidence only after the session
-is empty and, once the worker is reaped, no process remains in its group. A member that leaves the
-session after being signalled, and any descendant an interrupted Stop recorded, stays in that evidence
-and holds cleanup while alive. An unreadable process table is
-retried for up to a minute first. A child that called `setsid()` has left the worker's session and escapes
+FarmBot reaps it. Before that reap FarmBot terminates and records each live member of the session that
+its `ps` snapshot shows, after a Stop or budget kill as well as a self-exit. For a self-exit it writes
+evidence only after a fresh snapshot shows the session empty and, once the worker is reaped, the kernel
+reports no process in its group. A snapshot is not atomic: a member of another process group in the
+session that forks and exits between the listing and its session lookup can be missed, and a Stop
+persists its sweep only in its final record. A member that leaves the session after being signalled,
+and any descendant an earlier, interrupted Stop of the same attempt recorded, stays in that evidence and
+holds cleanup while alive; such a pid is recorded but never signalled again. An unreadable process
+table is retried for up to a minute first; an unreadable or foreign earlier record holds cleanup. A child that called `setsid()` has left the worker's session and escapes
 this check; that is the POSIX limit of the proof, and it is not rare. Claude Code 2.1.280 was observed
 starting each Bash tool shell in its own session, so processes a `claude` worker's commands leave running
 are likely outside it; other versions and Codex are unmeasured. Stop also signals descendants it can still

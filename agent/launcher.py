@@ -18,6 +18,8 @@ Finished = namedtuple("Finished", "item_id returncode last_message killed reason
 Unsandboxed = namedtuple("Unsandboxed", "returncode timed_out seconds")
 # Seeing a POSIX worker's exit without reaping it needs waitid(WNOWAIT), which CPython exposes on macOS
 # only from 3.13. Without it no self-exit evidence is made and such attempts keep holding their cleanup.
+# A killed.json that is unreadable, malformed or names another pid cannot be merged, only held.
+_UNUSABLE_RECORD = "earlier teardown record is unreadable or not this attempt's"
 _PINNED_EXIT = os.name != "nt" and all(hasattr(os, name) for name in ("waitid", "P_PID", "WEXITED", "WNOHANG",
                                                                          "WNOWAIT"))
 
@@ -496,6 +498,19 @@ class Launcher:
                 return False
             time.sleep(0.02)
 
+    def _settle(self, handle):
+        """_settle_exited, except that its failure holds cleanup instead of escaping poll(), which would
+        drop the Finished records of workers this poll has already removed from its handles."""
+        try:
+            return self._settle_exited(handle)
+        except Exception as exc:
+            try:
+                self._hold(handle, {"pid": handle.pid, "posix_session": handle.pid, "exited": True},
+                           f"teardown check failed: {type(exc).__name__}")
+            except OSError:
+                pass
+            return True
+
     def _settle_exited(self, handle):
         """Teardown evidence for a POSIX worker that exited by itself, and its reap.
 
@@ -520,15 +535,15 @@ class Launcher:
             return False
         if handle.process.poll() is None:
             return False  # Another thread holds Popen's waitpid lock; the worker is not reaped yet.
-        # A member seen in the pinned session and signalled, but still alive, has since left the session:
-        # it stays recorded and checked by pid, like the descendants an interrupted Stop recorded. Members
-        # seen gone were proved so through the pinned session and are not re-checked later.
+        # Every member seen and signalled that is still alive (it left the session, or is not yet reaped)
+        # stays recorded and checked by pid, as do the descendants an interrupted Stop recorded. Members seen
+        # gone were proved so through the pinned session and are not re-checked later.
         escaped = {pid for pid in state["terminated"] if self.alive(pid)}
         prior = self._prior_descendants(handle)
         record = {"pid": leader, "descendants": sorted(escaped | set(prior or ())),
                   "terminated": sorted(state["terminated"] - escaped), "posix_session": leader, "exited": True}
         if prior is None:
-            reason = "earlier teardown record does not belong to this attempt"
+            reason = _UNUSABLE_RECORD
         elif members is None:
             reason = "process table unreadable"
         elif members:
@@ -538,28 +553,40 @@ class Launcher:
         else:
             (handle.run_dir / "killed.json").write_text(json.dumps({**record, "empty": True}), encoding="utf-8")
             return True
-        # Recovery evidence for the operator; assert_quiescent reads only killed.json and keeps holding. An
-        # interrupted Stop's early record is kept aside, never left to certify what this could not verify.
+        self._hold(handle, {**record, "remaining": members}, reason)
+        return True
+
+    @staticmethod
+    def _hold(handle, record, reason):
+        """Recovery evidence for the operator; assert_quiescent reads only killed.json and keeps holding.
+
+        An earlier killed.json is kept aside as killed.superseded.json, never left to certify what this
+        could not verify.
+        """
         stale = handle.run_dir / "killed.json"
         if stale.exists():
             stale.replace(handle.run_dir / "killed.superseded.json")
         (handle.run_dir / "teardown-unverified.json").write_text(
-            json.dumps({**record, "empty": False, "remaining": members, "reason": reason}), encoding="utf-8")
-        return True
+            json.dumps({**record, "empty": False, "reason": reason}), encoding="utf-8")
 
     @staticmethod
     def _prior_descendants(handle):
-        """What an earlier (interrupted) kill of this attempt recorded; None if that record is not its own."""
+        """What an earlier (interrupted) kill of this attempt recorded: [] when there is no record, None when
+        the record is not verifiably this attempt's own list of pids. The file is in the worker-writable state
+        directory, so reading it must never raise (a huge number or deep nesting would)."""
         path = handle.run_dir / "killed.json"
         if not path.exists():
             return []
         try:
             prior = json.loads(path.read_text(encoding="utf-8"))
-            if prior.get("pid") != handle.pid:
-                return None
-            return [int(pid) for pid in prior.get("descendants", [])]
-        except (OSError, ValueError, TypeError, AttributeError):
+        except Exception:
             return None
+        if not isinstance(prior, dict) or prior.get("pid") != handle.pid:
+            return None
+        descendants = prior.get("descendants", [])
+        if not isinstance(descendants, list) or not all(type(pid) is int and pid > 0 for pid in descendants):
+            return None
+        return descendants
 
     @staticmethod
     def _command_line(pid):
@@ -652,8 +679,11 @@ class Launcher:
     def _kill_claimed(self, handle, grace):
         """Terminate a live worker claimed in `_killing`; poll() leaves it alone until the claim is released."""
         process = handle.process
+        # Stop repeats each tick on a stuck worker and every walk starts afresh. What an earlier Stop recorded
+        # stays in the proof, but is not signalled: an old numeric pid alone never authorizes a signal.
+        prior = self._prior_descendants(handle)
         survivors = self.descendants(process.pid)
-        (handle.run_dir / "killed.json").write_text(json.dumps({"pid": process.pid, "descendants": survivors}), encoding="utf-8")
+        self._record_kill(handle, survivors, prior)
         # On POSIX the pid is also the group ID (start_new_session=True) and stays ours until the reap below.
         # Not os.getpgid(): macOS refuses it for a worker that has just become a zombie.
         try:
@@ -690,7 +720,14 @@ class Launcher:
         for pid in survivors:
             if self.alive(pid):
                 self._signal_pid(pid, signal.SIGKILL)
-        (handle.run_dir / "killed.json").write_text(json.dumps({"pid": process.pid, "descendants": survivors}), encoding="utf-8")
+        self._record_kill(handle, survivors, prior)
+
+    def _record_kill(self, handle, survivors, prior):
+        record = {"pid": handle.pid, "descendants": sorted(set(survivors) | set(prior or ()))}
+        if prior is None:
+            self._hold(handle, record, _UNUSABLE_RECORD)
+        else:
+            (handle.run_dir / "killed.json").write_text(json.dumps(record), encoding="utf-8")
 
     def _finish_job(self, handle):
         with self._job_lock:
@@ -820,7 +857,7 @@ class Launcher:
                     if item_id in self._killing:
                         continue  # Stop's _kill reaps it and writes killed.json; report it after that.
                     settle = self._pinned(handle.process)
-                if settle and not self._settle_exited(handle):
+                if settle and not self._settle(handle):
                     continue  # Retried on a later poll; the unreaped worker keeps its session pinned.
             code = handle.process.poll()
             if code is None:
