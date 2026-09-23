@@ -127,6 +127,8 @@ class SkillRegistryTests(unittest.TestCase):
         self.assertEqual(skills["fix"].resources, ("unity_slot",))
         self.assertEqual(skills["chat"].writes, ())
         self.assertTrue(skills["fix"].skill_md.is_file())
+        self.assertEqual(skills["fix"].mcp, ("kw_ops",))
+        self.assertEqual(skills["chat"].mcp, ("kw_ops:read",))
 
     def test_invalid_manifest_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -137,6 +139,17 @@ class SkillRegistryTests(unittest.TestCase):
                                                         "resources": [], "gates": [], "mcp": [],
                                                         "budget": {"lease_seconds": 1, "max_hours": 1, "renew_minutes": 1}}), encoding="utf-8")
             with self.assertRaises(SkillError):
+                load_skills(Path(tmp))
+
+    def test_an_unknown_tool_grant_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = Path(tmp) / "bad"
+            bad.mkdir()
+            (bad / "SKILL.md").write_text("# bad", encoding="utf-8")
+            (bad / "skill.json").write_text(json.dumps({"name": "bad", "trigger": ["mention"], "intents": [], "writes": [],
+                                                        "resources": [], "gates": [], "mcp": ["kw_ops:write"],
+                                                        "budget": {"lease_seconds": 1, "max_hours": 1, "renew_minutes": 1}}), encoding="utf-8")
+            with self.assertRaisesRegex(SkillError, "unknown mcp grant"):
                 load_skills(Path(tmp))
 
     def test_manifest_name_must_match_directory_and_skill_md_must_exist(self):
