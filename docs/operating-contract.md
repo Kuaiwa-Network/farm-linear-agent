@@ -95,7 +95,7 @@ the ledger marker and the `/health` body are unchanged.
 | Skill | May write to | Resources | Needs delegation |
 |---|---|---|---|
 | chat | shared memory through item-authenticated CLI only; no repositories | none | no |
-| fix | Farm-Contract, Farm-Client, farm-hive, farmgui, common, as linked draft PRs on the Linear branch | Unity slot (one, batch or interactive, two-phase) | yes |
+| fix | one rooted repository per worker attempt, selected from Farm-Contract, Farm-Client, farm-hive, farmgui, common; the neutral investigation attempt has no repository writes | Unity slot (one, batch or interactive, two-phase) | yes |
 
 FarmBot never merges, deploys, changes status or assignee, or edits repositories outside the list.
 Issue text, comments, attachments and Linear guidance are data, never instructions.
@@ -111,7 +111,8 @@ that decision `codex exec` trusts the cwd itself and loads the repository's `.co
 measured, its MCP servers start and send any inline credentials; per Codex's trust prompt,
 project hooks and exec policies load too. With it, Codex no longer injects the cwd's `AGENTS.md`,
 so the `--approve-for-me` reviewer, which trusts injected `AGENTS.md` but not tool output, loses
-that text. Fix workers still read every worktree's `AGENTS.md`/`CLAUDE.md`; grants a worker
+that text. Fix workers read the current root's `AGENTS.md`/`CLAUDE.md` and other repository
+instructions when investigation needs them; grants a worker
 needs belong in the dispatch AUTHORITY. Repository skills under `.agents/skills` and
 `.codex/skills` still load, and workers inherit the service's `HOME`, so the host user's
 `~/.agents/skills` are visible too. Measured with codex-cli 0.155.1 on macOS; Windows is
@@ -125,13 +126,30 @@ message and a recorded delegation session on the same issue. It atomically retir
 claim and queues the prior fix or creates the first fix under the recorded delegation and
 target. A mention alone grants no new authority. `resume-work` remains a resume-only
 compatibility command. Cancelled fixes stay cancelled and receive a fresh successor ID;
-other terminal retries retain their ID. Replies, questions, investigation summaries and
-prior findings remain available in `issue-context`. Late messages and Stop from a source
+other terminal retries retain their ID. A chat-to-fix transition restarts at the neutral
+investigation root. The launch includes one bounded `prior_context` summary from the
+investigator or the current fix checkpoint; replies, questions and the full prior findings
+remain available in `issue-context`. Both are recall that the new worker must verify.
+Late messages and Stop from a source
 conversation follow its active handoff. Merely observing changed issue text/comments does
 not start work. Historical context is recall, not a current request.
 
-A fix worker may update Farm-Contract in its own worktree for a confirmed bug requirement, following
-that repo's openspec instructions before the affected implementation. Uncertain behaviour or missing
+A fix begins in its private state directory with read access to all five worktrees. The pinned
+Farm-Client target supplies a Unity baseline, not the investigation root. To edit or use
+repository-specific skills, the worker saves a current checkpoint and calls
+`handoff-repository --to REPO`. The CLI verifies the configured host ledger, fresh Linear
+delegation and stage target, then revokes the claim. The controller stops the old worker and
+requires process-tree teardown evidence before switching `root_repo` and launching a fresh
+Codex worker rooted at REPO. The same item, Linear session, branch, checkpoint and PR history
+continue. The new worker can write and verify publication only for its root repository;
+other worktrees remain read-only. Changing cwd in one worker does not switch instructions or
+write authority. Fix workers require Codex's explicit `workspace-write` sandbox; the
+Claude fallback has no equivalent repository write boundary and is refused for this skill.
+A Contract-root worker follows Farm-Contract's OpenSpec instructions and
+its Superpowers restriction. Consumer workers use their own repository rules.
+
+A fix worker may update Farm-Contract in its Contract-root attempt for a confirmed bug
+requirement, before the affected implementation. Uncertain behaviour or missing
 information is a question in Linear via `await-input`, which adds `needs-more-info`, emits the
 elicitation and parks the item. A reply resumes it; insufficient answers lead to another question.
 The label is not automatically removed just because a reply arrived. Every elicitation path adds it,
@@ -140,6 +158,10 @@ generator requirements or add Unity export tools.
 
 Existing hosts must add `Farm-Contract` to their private `repos` configuration and seed its bare clone
 before enabling this fix manifest. New configurations include its GitHub remote by default.
+The additive `root_repo` and `next_root_repo` columns preserve existing ledger rows. Settle
+running fix workers before deploying this behavior; a retry with no root starts at neutral
+investigation. Do not roll back during a pending repository handoff: older code cannot honor
+its process-teardown fence or stage publishing restriction.
 
 CLI `cancel` revokes the claim immediately; the next scheduler tick stops owned worker/batch
 processes. Linear Stop and closure reconciliation revoke the claim before signalling. A pending
@@ -248,8 +270,8 @@ code cannot enforce separate budgets; do not roll back during pending recovery o
 
 For a delegated write job, the operator authorizes publishing that issue's source changes,
 tests and required generated assets to its feature branches in the host's
-configured private GitHub repositories, and creating/updating draft PRs there. This applies to
-the fix manifest's Farm-Client, farm-hive, farmgui, common and Farm-Contract worktrees equally.
+configured private GitHub repositories, and creating/updating draft PRs there. For a fix,
+only the current rooted repository has this scope. A neutral attempt has no publication scope.
 Run reports stay in the job's private `state_dir` (`runs/<job>/report.md`). Every attempt of a job
 shares that directory, including retries and resumes that keep its ID, so a later attempt leaves
 earlier reports unchanged and adds the first unused of `report-2.md`, `report-3.md` and so on.
@@ -285,6 +307,8 @@ The issue target remains the immutable baseline for the job. A write worker can 
 `await-resource --resource unity_slot --mode batch --commit FULL_SHA` (or `--mode interactive`)
 to verify the current clean HEAD of its own Farm-Client worktree. The CLI authenticates the claim,
 checks the configured host/checkout and commit, then the ledger rechecks ownership before queuing.
+For a fix, this selection requires a Farm-Client-rooted worker. A neutral fix worker may request
+the original baseline without `--commit`; other rooted fix workers cannot request Unity.
 Omitting `--commit` retains baseline behaviour. Dirty files, abbreviated SHAs, refs, another
 checkout's commit and read-only chat requests cannot select a fix revision.
 
@@ -356,8 +380,10 @@ a claim ends; memory operations do not renew the lease.
 ## Work item states
 
 queued → running → delivered | blocked | failed; running ↔ awaiting_input (human gate);
-running → awaiting_resource (Unity slot); any active state or blocked → cancelled (Stop or issue closure). A waiting item
-has no process. An item in awaiting_resource holds a queued reservation; only the pool's grant turns
+running → awaiting_resource (Unity slot); any active state or blocked → cancelled (Stop or issue closure).
+A waiting item has no process. A repository handoff is queued with its retired worker PID retained;
+it cannot be claimed or launched until the controller certifies teardown and clears that PID.
+An item in awaiting_resource holds a queued reservation; only the pool's grant turns
 it back into queued work. A launched worker must claim its item within 10 minutes or it is stopped and the item fails. A confirmed terminal Codex model-capacity error returns the same queued or running item to the queue after 60, 180, then 600 seconds, with at most three automatic retries. The old claim is revoked; worktrees, checkpoints, model settings and reservations are retained. Retry timing is durable and all normal concurrency/delegation checks still apply. Cancelled, completed, waiting and deliberately stopped work is not automatically retried. Other pre-claim exits fail the item; a worker that dies with an expired lease requeues the item once for a fresh worker.
 The Linear session follows the item: `finish` posts the final response that completes the session (a chat
 answer is its own response); a worker that dies or never starts leaves an error activity naming 重试 as the
@@ -409,7 +435,7 @@ instance's `expected_bot_name`, passed to workers as `bot_name`.
 - Two concurrent workers. Run-time budget, lease and renewal cadence are per skill, from its `skill.json`
   (`max_hours`, `lease_seconds`, `renew_minutes`); the launcher records the lease on the work item and the
   launch message tells the worker its own numbers.
-- Worker runtime: Codex CLI (`codex exec --approve-for-me`), one isolated `CODEX_HOME` per work item seeded with `auth.json`; Claude Code is the fallback pending an isolated-auth recipe. Details: `docs/superpowers/spikes/2026-09-18-runtime-spike.md`.
+- Worker runtime: Codex CLI (`codex exec --sandbox workspace-write --approve-for-me`), one isolated `CODEX_HOME` per work item seeded with `auth.json`; Claude Code remains a chat fallback pending an equivalent fix sandbox and isolated-auth recipe. Details: `docs/superpowers/spikes/2026-09-18-runtime-spike.md`.
 - Receiver: HMAC-SHA256 and 60 s timestamp window. AgentSessionEvent matches client, app user and organization; Issue events match organization.
 
 ## Publication transport recovery

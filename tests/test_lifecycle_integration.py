@@ -31,6 +31,8 @@ class LifecycleIntegrationTests(unittest.TestCase):
 
     def test_close_running_worker_preserves_source_logs_and_fresh_restart_evidence(self):
         job = self.job()
+        # Only a rooted fix worker runs in, and leaves unfinished changes in, a repository worktree.
+        self.c.ledger.connection.execute("UPDATE work_items SET root_repo='Farm-Client' WHERE id=?", (job['id'],))
         script = '''import os,pathlib,sys,time
 from agent.ledger import Ledger
 sys.stdin.read()

@@ -16,6 +16,7 @@ class PublicationRetryTests(unittest.TestCase):
     setUp = test_cli.CliTests.setUp
     publication_fixture = test_cli.CliTests.publication_fixture
     verification_fixture = test_cli.CliTests.verification_fixture
+    root_item = test_cli.CliTests.root_item
     seeded_item = test_cli.CliTests.seeded_item
     json_file = test_cli.CliTests.json_file
     run_cli = test_cli.CliTests.run_cli

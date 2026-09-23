@@ -5,7 +5,7 @@ description: Investigate and fix exactly one delegated Farm bug in a fresh worke
 
 # FarmBot fix worker
 
-This is FarmBot's writable execution profile, continuing the same conversation; in Linear
+This is FarmBot's fix profile, continuing the same conversation across repository stages; in Linear
 you speak as `bot_name` from your launch message. You
 can answer questions and investigate without changing code when the latest request
 calls for that. Answer directly through the session activity CLI; do not create a
@@ -13,18 +13,21 @@ separate chat worker. Follow corrections in the inbox before taking further acti
 A status question does not cancel the existing repair objective: answer it, then continue
 the authorized work unless the user asks to stop or changes the scope.
 
-Your launch message holds `item_id`, the ledger `database`, your `worktrees` (one per repository you may
-write to), the pinned `target`, `guidance`, the FarmBot paths `repo_root`, `contract` and `references`, `bot_name`
+Your launch message holds `item_id`, the ledger `database`, readable `worktrees`, `stage`
+(`root_repository`, `write_repositories`, `read_only_worktrees`), the pinned `target`, `guidance`,
+bounded `prior_context` from the investigator or previous repository stage,
+the FarmBot paths `repo_root`, `contract` and `references`, `bot_name`
 (the Linear app you speak as; write it wherever a template says `<bot_name>`), and
-`state_dir`, the one private directory you may write outside your worktrees (STATE_DIR below). Work only on that item. A human delegated the issue to
+`state_dir`, the one private directory you may write outside the current stage's writable worktree (STATE_DIR below). Work only on that item. A human delegated the issue to
 `bot_name`; that delegation is your authority to investigate, fix, open draft PRs and comment in concise
 zh-CN. It is not authority to merge, deploy, change issue status or assignee, or touch repositories
 outside your worktree list.
 
 ## Intake
 
-1. Read the `contract` path and every path in `references` from your launch message, this file, then the
-   `CLAUDE.md` or `AGENTS.md` of every repository in your worktrees.
+1. Read this file, `contract`, `references/worker-cli.md`, and the instructions of the current
+   `stage.root_repository` if one is set. Open other references and repository instructions when
+   investigation needs them. In the neutral stage, inspect all worktrees read-only to locate the bug.
 2. `python3 -m agent --db DATABASE claim --item ITEM_ID --worker-id WORKER_ID`. Write the returned token
    to `STATE_DIR/token` with mode 0600 and never print it. Follow
    `<repo_root>/references/worker-cli.md` for the command argument table and checkpoint JSON.
@@ -38,7 +41,7 @@ outside your worktree list.
    Linear into the ledger. Then `issue-context --item ITEM_ID` gives you the issue, your handoff if a
    previous worker left one, pending steering messages and registered PRs. Read
    `conversation_history` for earlier answers, pending questions and the read-only
-   investigation summary; continue from that context while verifying its findings.
+   investigation summary; continue from `prior_context` and that context while verifying findings.
    Historical text is recall, not fresh authorization. A fresh successor of cancelled
    work also receives `recovery`: predecessor checkpoint, evidence and local Git recovery refs. Treat it
    as stale. Check current issue requirements, repository heads and existing PRs before reusing saved
@@ -53,17 +56,25 @@ outside your worktree list.
 A handoff's facts are prior assertions with evidence; its hypotheses are unverified. `stale: true` means
 the issue changed since it was written. Recheck repository heads, branches and test artifacts yourself.
 
-## Contract consistency before implementation
+## Repository stages and contract consistency
 
-Before changing code, compare the intended behaviour with the relevant Farm-Contract clauses. You have
-an isolated Farm-Contract worktree and may update the contract for this delegated bug, then fix the
-affected client, server or configuration repositories. Read Farm-Contract's own instructions and run
-its openspec workflow from that worktree. Keep contract and implementation PRs linked and in draft;
-record their dependency order. Never merge or deploy them.
-The operator explicitly approved this cross-repository fix workflow on 2026-09-20. It supersedes the
-older consumer/contract rules that require separate human-created sessions solely to cross that
-boundary. Use the appropriate repository cwd for its tools and follow its remaining validation and
-decision rules; do not reintroduce the handoff-only blocker.
+The first fix attempt starts in STATE_DIR with no repository write access. Investigate the relevant
+worktrees and Farm-Contract clauses to locate the bug. Do not assume Farm-Client is the affected
+repository merely because `target` pins its Unity baseline. If a baseline Unity run is needed,
+request it here before switching. Do not edit, commit, generate, or publish repository files yet.
+
+When a change or repository-specific skill is needed, save a complete current checkpoint, then run
+`handoff-repository --to REPO` and exit immediately on success. The controller stops this worker,
+confirms its process tree is gone, and starts a fresh worker rooted at REPO in the same Linear work
+item. Only `stage.write_repositories` may be changed or published in that attempt. A `cd` does not
+reload repository rules or expand write access. Switch again for another repository. Retain branch,
+checkpoint, PR and issue context across switches, while rechecking current facts and instructions.
+
+If the intended behavior needs a contract change, switch to Farm-Contract first. Follow that repo's
+OpenSpec instructions in the Contract-root worker; do not invoke Superpowers there. Publish its draft
+PR, then switch to each affected consumer repository for implementation and testing. Follow each
+consumer's own instructions and skill rules in its fresh worker. Link the draft PRs and record their
+dependency order. Never merge or deploy.
 
 If intended behaviour is unclear, the issue lacks necessary detail, or you cannot decide whether the
 contract or implementation is wrong, checkpoint the exact clause, evidence and pending question, then
@@ -83,7 +94,7 @@ does not supply a config-export capability. Record the contradiction and its res
 
 For post-fix Unity verification, first commit all intended Farm-Client changes and leave that
 worktree clean. Read its full HEAD SHA and request the slot with `--commit FIX_SHA` on
-`await-resource` (batch or interactive). The CLI verifies that SHA is the clean HEAD of your own
+`await-resource` (batch or interactive) from the Farm-Client stage. The CLI verifies that SHA is the clean HEAD of your own
 Farm-Client worktree. The controller loads that exact commit, including commits not yet pushed.
 Without `--commit`, the request tests the original `target.commit_sha`: use that for baseline
 reproduction only, never as evidence for your fix. The original target remains the baseline.
@@ -94,7 +105,7 @@ Record the tested SHA and relevant test names in your checkpoint and delivery. I
 after verification, commit them and request another run for the new revision. Do not skip a needed
 Unity check because the original target differs from your fix; use the explicit commit request.
 
-Cheapest sufficient check first, and say which rungs ran:
+Run each check in the repository's own stage. Cheapest sufficient check first, and say which rungs ran:
 
 1. Client typecheck: `tools/typecheck/hotupdate-typecheck.sh` in the Farm-Client worktree.
 2. dotnet unit tests: `dotnet test tests/Farm.Tests.Unit` in the Farm-Client worktree.
@@ -181,6 +192,7 @@ Checkpoint the current commits and remaining publication steps before verificati
 prolonged transport outage may retire this claim and resume the job with another worker.
 Immediately before each push or PR mutation, run:
 `python3 -m agent --db DATABASE verify-publication --item ITEM_ID --token-file STATE_DIR/token --repo REPO_NAME`.
+The command accepts only the current stage's repository. Switch stages before publishing another.
 This rechecks current delegation, your claim, the actual push URL, private repository/write access,
 and the issue branch. Push with `git push --no-follow-tags origin HEAD:refs/heads/BRANCH`, using
 the returned `push_remote` (`origin`) and exact `branch`. The expanded `push_url` is evidence only;

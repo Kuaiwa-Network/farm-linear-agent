@@ -238,6 +238,9 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(set(payload["worktrees"]), {"Farm-Client", "farm-hive", "farmgui", "common", "Farm-Contract"})
         self.assertEqual(payload["lease_seconds"], 2700)
         self.assertEqual(payload["user_requests"][-1]["body"], "修复显示，保持排序规则")
+        self.assertEqual(payload["prior_context"], {
+            "source": "investigator_summary", "summary": "Confirmed display refresh issue.",
+            "revalidation_required": True})
         self.assertEqual(self.ledger.issue_context(fix["id"])["conversation_history"][0]["summary"],
                          "Confirmed display refresh issue.")
 
@@ -389,11 +392,66 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(payload["state_dir"], str(self.launcher.state_dir(item["id"])))
         self.assertTrue(self.launcher.spawn_env["PYTHONPATH"].split(os.pathsep)[0] == str(ROOT))
         self.assertEqual(self.launcher.spawn_env["FARMBOT_DB"], str(Path(self.tmp.name) / "ledger.sqlite3"))
-        repos = ("Farm-Client", "farm-hive", "farmgui", "common", "Farm-Contract")
-        worktrees = [str(self.trees.root / item["id"] / repo) for repo in repos]
-        clones = [str(self.trees.root / "repos" / f"{repo}.git") for repo in repos]  # commits land in the bare clone
+        self.assertEqual(payload["stage"]["root_repository"], None)
+        self.assertEqual(payload["stage"]["write_repositories"], [])
+        self.assertEqual(self.launcher.spawned[0][4], str(self.launcher.state_dir(item["id"])))
         self.assertEqual(self.launcher.spawn_writable[0], str(Path(self.tmp.name)))  # the ledger's directory
-        self.assertEqual(sorted(self.launcher.spawn_writable[1:]), sorted(worktrees + clones))
+        self.assertEqual(self.launcher.spawn_writable[1:], [])
+
+    def test_repository_handoff_waits_for_teardown_then_roots_one_repository(self):
+        item = self.item()
+        self.scheduler.tick()
+        token = self.ledger.claim(item["id"], worker_id="first")["token"]
+        self.ledger.checkpoint(item["id"], token, {"handoff": {
+            "facts": [], "hypotheses": [], "checks": [], "repositories": [],
+            "next_actions": ["Inspect Farm-Contract rules in its own worker"]}})
+        pending = self.ledger.handoff_repository(item["id"], token, "Farm-Contract")
+        self.assertEqual(pending["next_root_repo"], "Farm-Contract")
+        self.assertEqual(self.ledger.queue(), [])
+        self.assertEqual(self.scheduler.tick()["launched"], 0)
+        self.assertIn(item["id"], self.launcher.stopped)
+        self.launcher.finished.append(Finished(item["id"], 0, "", True, "stopped", None, 101))
+        self.assertEqual(self.scheduler.tick()["launched"], 1)
+        current = self.ledger.item(item["id"])
+        self.assertEqual(current["root_repo"], "Farm-Contract")
+        payload = json.loads(self.launcher.spawned[-1][1].split("\n\n", 1)[1])
+        self.assertEqual(payload["stage"]["write_repositories"], ["Farm-Contract"])
+        self.assertEqual(payload["prior_context"]["source"], "previous_worker_checkpoint")
+        self.assertEqual(payload["prior_context"]["content"]["next_actions"],
+                         ["Inspect Farm-Contract rules in its own worker"])
+        self.assertEqual(self.launcher.spawned[-1][4], str(self.trees.root / item["id"] / "Farm-Contract"))
+        self.assertEqual(self.launcher.spawn_writable[1:], [
+            str(self.trees.root / item["id"] / "Farm-Contract"),
+            str(self.trees.clone_path("Farm-Contract"))])
+
+    def test_handoff_stays_pending_when_teardown_evidence_is_missing(self):
+        item = self.item()
+        self.scheduler.tick()
+        token = self.ledger.claim(item["id"], worker_id="first")["token"]
+        self.ledger.checkpoint(item["id"], token, {"handoff": {
+            "facts": [], "hypotheses": [], "checks": [], "repositories": [], "next_actions": ["Check server"]}})
+        self.ledger.handoff_repository(item["id"], token, "farm-hive")
+        self.launcher.finished.append(Finished(item["id"], 0, "", True, "stopped", None, 101))
+        self.launcher.assert_quiescent = lambda *args: (_ for _ in ()).throw(RuntimeError("descendant alive"))
+        self.assertEqual(self.scheduler.tick()["launched"], 0)
+        self.assertEqual(self.ledger.item(item["id"])["next_root_repo"], "farm-hive")
+        self.assertEqual(len(self.launcher.spawned), 1)
+
+    def test_publication_scope_contains_only_the_current_repository(self):
+        item = self.item()
+        self.ledger.connection.execute("UPDATE work_items SET root_repo='farm-hive' WHERE id=?", (item["id"],))
+        verifier = Mock()
+        verifier.scope.return_value = {"repositories": {}}
+        self.scheduler.publication = verifier
+        self.scheduler.tick()
+        self.assertEqual(set(verifier.scope.call_args.kwargs["paths"]), {"farm-hive"})
+
+    def test_fix_refuses_runtime_without_repository_sandbox(self):
+        item = self.item()
+        self.scheduler.runtime_name = "claude"
+        with self.assertRaisesRegex(RuntimeError, "Codex workspace-write"):
+            self.scheduler.launch(item)
+        self.assertEqual(self.trees.added, [])
 
     def test_dispatch_and_lease_follow_the_skill_budget(self):
         item = self.item()
@@ -616,7 +674,7 @@ class SchedulerTests(unittest.TestCase):
     def test_a_codex_worker_home_distrusts_the_cwd_the_scheduler_chose(self):
         """A repository's own .codex/config.toml is never a source of worker tools (spec §7). codex exec trusts
         an undecided cwd and then loads that file, so the home must carry an explicit decision for the directory
-        handed over as cwd: the Farm-Client worktree for a fix, the private state directory for a chat."""
+        handed over as cwd: the private state directory for neutral fix and chat workers."""
         import tomllib
         runtime = RUNTIMES["codex"]._replace(command=RUNTIMES["fake"].command, seed_files={})
         launcher = Launcher(Path(self.tmp.name) / "real-runs", runtime, "h")
@@ -624,7 +682,7 @@ class SchedulerTests(unittest.TestCase):
         self.scheduler.runtime_name = "codex"
         fix = self.item()
         chat = self.item(issue_id=OTHER, session="chat-session", skill="chat")
-        for item, cwd in ((fix, self.trees.root / fix["id"] / "Farm-Client"), (chat, launcher.state_dir(chat["id"]))):
+        for item, cwd in ((fix, launcher.state_dir(fix["id"])), (chat, launcher.state_dir(chat["id"]))):
             with self.subTest(skill=item["skill"]):
                 handle = self.scheduler.launch(self.ledger.item(item["id"]))
                 self.addCleanup(launcher.stop, item["id"])

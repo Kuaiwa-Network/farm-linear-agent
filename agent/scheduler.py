@@ -10,6 +10,7 @@ from .dispatch import dispatch_message
 from .ledger import LedgerError
 from .memory import publish_snapshot
 from .publication import issue_branch
+from .stages import write_repositories
 
 TERMINAL = ("delivered", "blocked", "cancelled", "failed")
 WAITING = ("awaiting_input", "awaiting_resource")
@@ -80,6 +81,9 @@ class Scheduler:
         if current["state"] != "queued" or current["retry_not_before"] > self.ledger.clock():
             return None
         skill = self.skills[item["skill"]]
+        if item["skill"] == "fix" and self.runtime_name not in ("codex", "fake"):
+            raise RuntimeError("repository-staged fix requires the Codex workspace-write sandbox")
+        write_repos = write_repositories(item, skill)
         issue = self.ledger.issue(item["issue_id"])
         paths = self._worktrees_for(skill, item, issue)
         repo_root = Path(self.skill_root).parent
@@ -125,26 +129,39 @@ class Scheduler:
         except (OSError, ValueError, sqlite3.Error) as exc:
             memory = {"status": "unavailable", "index": None, "reason": type(exc).__name__}
         session = self.ledger.session(item['session_id']) or {}
-        publication = (self.publication.scope(item=item, issue=issue, paths=paths,
+        publication = (self.publication.scope(item=item, issue=issue,
+                                             paths={repo: paths[repo] for repo in write_repos},
                                              delegated=bool(session.get('delegation')))
                        if self.publication is not None else {'repositories': {}})
-        # Inbox entries are session requests; ordinary issue comments stay in issue-context.
-        requests = self.ledger.issue_context(item['id'])['session_messages']
+        # Carry one bounded, structured predecessor summary into the fresh prompt. The full
+        # history stays in issue-context; a chat-to-fix restart uses the latest investigator
+        # summary, while a repository switch uses this item's validated checkpoint handoff.
+        context = self.ledger.issue_context(item['id'])
+        requests = context['session_messages']
+        prior_context = None
+        if item['skill'] == 'fix':
+            chat_summaries = [entry['summary'] for entry in context['conversation_history']
+                              if entry['skill'] == 'chat' and entry['summary']]
+            if item.get('root_repo') is None and chat_summaries:
+                prior_context = {'source': 'investigator_summary', 'summary': chat_summaries[-1],
+                                 'revalidation_required': True}
+            else:
+                prior_context = context['handoff']
         message = dispatch_message(item=item, issue=issue, skill_path=self.skill_root / skill.name / "SKILL.md",
                                    worktrees=paths, db_path=self.db_path, runtime=self.runtime_name,
                                    guidance=self.guidance_for(item), budget=skill.budget,
                                    repo_root=repo_root, state_dir=self.launcher.state_dir(item["id"]),
                                    resource=resource, memory=memory, publication=publication, user_requests=requests,
-                                   bot_name=self.bot_name)
+                                   bot_name=self.bot_name, write_repositories=write_repos,
+                                   prior_context=prior_context)
         # The runtime's cwd is writable too. A read-only conversation must run
         # from its private state directory, not from the detached source checkout.
-        primary = (paths.get(READ_REPO) or next(iter(paths.values())) if skill.writes
-                   else self.launcher.state_dir(item["id"]))
+        primary = (paths[write_repos[0]] if write_repos else self.launcher.state_dir(item["id"]))
         # `python3 -m agent` must resolve from any worktree, so FarmBot's root leads the worker's PYTHONPATH.
         pythonpath = os.pathsep.join(p for p in (str(repo_root), os.environ.get("PYTHONPATH", "")) if p)
         # A worktree's commits land in FarmBot's bare clone, so the clone must be writable too.
-        source_roots = ([*paths.values(), *(self.worktrees.clone_path(repo) for repo in paths)]
-                        if skill.writes else [])
+        source_roots = [*(paths[repo] for repo in write_repos),
+                        *(self.worktrees.clone_path(repo) for repo in write_repos)]
         # No slot folder or Unity host path is added to a worker's writable roots,
         # in either mode. The worker reads results XML in its own state directory, which
         # Launcher.spawn already makes writable, and writes nothing in the slot.
@@ -234,6 +251,17 @@ class Scheduler:
             self.active.pop(finished.item_id, None)
             item = self.ledger.item(finished.item_id)
             state = item["state"]
+            if (state == "queued" and item["next_root_repo"] is not None
+                    and item["worker_pid"] == finished.worker_pid):
+                try:
+                    self.launcher.assert_quiescent(finished.item_id, finished.worker_pid)
+                    self.ledger.complete_repository_handoff(finished.item_id, finished.worker_pid)
+                except Exception:
+                    # Preserve the old PID and pending target for recovery; never launch over
+                    # descendants whose teardown is unproven.
+                    pass
+                reaped += 1
+                continue
             if finished.failure_kind == "model_capacity" and not finished.killed:
                 retry = self.ledger.defer_capacity_retry(finished.item_id, finished.worker_pid)
                 if retry:
@@ -300,6 +328,21 @@ class Scheduler:
     def _recover(self):
         recovered = 0
         now = self.ledger.clock()
+        for row in self.ledger.repository_handoffs():
+            item_id, pid = row["id"], row["worker_pid"]
+            if item_id in self.active:
+                continue  # poll() owns teardown evidence for a live controller handle.
+            try:
+                recorded = []
+                if self.launcher.alive(pid):
+                    if not self.launcher.owned_pid(pid, item_id):
+                        continue
+                    recorded = self.launcher.kill_owned_attempt(item_id, pid)
+                self.launcher.assert_quiescent(item_id, pid, recorded)
+                self.ledger.complete_repository_handoff(item_id, pid)
+                recovered += 1
+            except Exception:
+                continue
         for item_id in self.ledger.status()["recovery_required"]:
             item = self.ledger.item(item_id)
             pid = item["worker_pid"]
@@ -393,10 +436,12 @@ class Scheduler:
             # retry can replace 'cancelled' with 'queued' before this tick. The old reservation still
             # carries cancellation, and a live worker whose recorded pid was cleared is an old attempt.
             stale_worker = row["state"] == "queued" and row["worker_pid"] is None and row["id"] in self.active
-            if row["state"] == "cancelled" or row["id"] in cancelling or stale_worker:
+            handoff_worker = row["next_root_repo"] is not None and row["id"] in self.active
+            if row["state"] == "cancelled" or row["id"] in cancelling or stale_worker or handoff_worker:
                 self.launcher.stop_unsandboxed(row["id"])
                 self.launcher.stop(row["id"])
-                self.active.pop(row["id"], None)
+                if not handoff_worker:
+                    self.active.pop(row["id"], None)
 
     def tick(self):
         with self.lock:
