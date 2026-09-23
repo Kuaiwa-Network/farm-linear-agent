@@ -186,6 +186,15 @@ than any launch/attempt record. It records an audit entry; the scheduler still p
 source and verifies cleanup normally. It neither restarts the machine nor retries the job.
 Do not edit `process.json`, `killed.json` or cleanup records to bypass missing evidence.
 
+## macOS worker cleanup
+
+Each worker leads its own POSIX session and process group. When a worker exits by itself, FarmBot
+checks that session before reaping the worker, terminates any remaining members, and records
+`killed.json` with `posix_session` only once the session and group are empty. If it cannot verify
+this, it writes `teardown-unverified.json` and cleanup stays pending. Children that called
+`setsid()` leave the session and are not covered. Attempts that exited before this check existed,
+or while FarmBot was stopped, keep their pending cleanup; `recover-worker-cleanup` is Windows-only.
+
 ## Shared worker memory
 
 FarmBot starts with an empty memory store. Workers may save reusable corrections,

@@ -2,10 +2,14 @@
 import json
 import os
 from pathlib import Path
+import sys
+import time
 import unittest
 from unittest.mock import patch
 
+from agent.launcher import Launcher, RUNTIMES
 from agent.ledger import LedgerError
+from agent.scheduler import Scheduler
 from agent.worktrees import WorktreeError
 import test_worktrees
 import test_scheduler
@@ -338,3 +342,74 @@ class CancellationCleanupTests(unittest.TestCase):
         self.assertTrue(self.ledger.cleanup_record(item['id'])['done'])
         self.assertEqual(self.ledger.item(item['id'])['state'], 'failed')
         self.assertEqual(self.ledger.retry(item['id'], 'retry after removal')['id'], item['id'])
+
+
+@unittest.skipIf(os.name == 'nt', 'POSIX self-exit evidence; Windows workers are proved by Job Objects')
+class SelfExitedWorkerCleanupTests(unittest.TestCase):
+    """The real launcher under the scheduler. FakeLauncher.assert_quiescent does not model teardown evidence,
+    so no FakeLauncher test can see a normally exited POSIX worker hold its cleanup."""
+    item = test_scheduler.SchedulerTests.item
+
+    def setUp(self):
+        test_scheduler.SchedulerTests.setUp(self)
+        root = Path(self.tmp.name)
+        self.release = root / 'release'
+        worker = root / 'worker.py'
+        worker.write_text('import os, sys, time\nsys.stdin.read()\ndeadline = time.time() + 30\n'
+                          f'while not os.path.exists({str(self.release)!r}) and time.time() < deadline:\n'
+                          '    time.sleep(0.02)\n', encoding='utf-8')
+        self.launcher = Launcher(root / 'runs', RUNTIMES['fake']._replace(command=[sys.executable, str(worker)]), 'h')
+        self.scheduler = Scheduler(self.ledger, self.launcher, test_scheduler.SKILLS, self.trees,
+                                   skill_root=test_scheduler.ROOT / 'skills', db_path=root / 'ledger.sqlite3',
+                                   runtime_name='fake', host='h', max_concurrent=1, api=self.api)
+        self.addCleanup(self.stop_workers)
+
+    def stop_workers(self):
+        for item_id in list(self.launcher.running()):
+            self.launcher.stop(item_id, grace=1.0)
+        deadline = time.monotonic() + 10
+        while self.launcher.running() and time.monotonic() < deadline:
+            self.launcher.poll()
+            time.sleep(0.02)
+
+    def wait_reaped(self, item_id):
+        deadline = time.monotonic() + 10
+        while item_id in self.launcher.running() and time.monotonic() < deadline:
+            self.scheduler.tick()
+            time.sleep(0.02)
+        self.assertNotIn(item_id, self.launcher.running())
+
+    def test_continuation_of_a_self_exited_paused_worker_launches(self):
+        # A paused fix worker exits by itself, the job is cancelled, and a continuation is requested: the
+        # successor waits for its predecessor's cleanup, which on POSIX never finished.
+        item = self.item()
+        self.scheduler.tick()
+        token = self.ledger.claim(item['id'], worker_id='worker')['token']
+        self.ledger.await_input(item['id'], token, 'question?')
+        self.release.touch()
+        self.wait_reaped(item['id'])
+        self.ledger.cancel(item['id'], 'closed')
+        self.scheduler.tick()
+        self.release.unlink()
+        successor = self.ledger.retry(item['id'], 'continue')
+        self.scheduler.tick()
+        self.assertIn(successor['id'], self.launcher.running(), self.ledger.cleanup_record(item['id'])['error'])
+
+    def test_retirement_leaves_the_reap_of_a_registered_worker_to_poll(self):
+        # Reaping in _retire would release the pid that pins the worker's session before poll() checks it.
+        item = self.item()
+
+        def exited_then_refused(item_id, pid, *args):
+            deadline = time.monotonic() + 10
+            while (os.waitid(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None
+                   and time.monotonic() < deadline):
+                time.sleep(0.02)
+            raise LedgerError('claim fenced')
+
+        self.release.touch()
+        with patch.object(self.ledger, 'set_worker', side_effect=exited_then_refused):
+            self.scheduler.tick()
+        self.assertEqual(self.ledger.item(item['id'])['state'], 'failed')
+        self.wait_reaped(item['id'])
+        record = self.ledger.cleanup_record(item['id'])
+        self.assertTrue(record['done'], record['error'])
