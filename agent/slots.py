@@ -105,7 +105,7 @@ class SlotPool:
         # with their own Unity Editor open would otherwise fail every switch test on their machine.
         self.sleep = sleep or time.sleep
         self.editor_scan = editor_scan or (lambda folder: other_editor_project(
-            folder, allowed_projects=[self.folder(entry) for entry in self.entries.values()]))
+            folder, allowed_projects=[self.folder(entry) for entry in self.entries.values()], strict=True))
         self.editor_pid = editor_pid or editor_holds_project
         # A callable taking an item id and returning that item's private directory: Launcher.state_dir in
         # production. The reservation token is written there and nowhere else.
@@ -244,7 +244,7 @@ class SlotPool:
             try:
                 self.run_batch(self.ledger.slot(slot_id), reservation)
             except SlotError as exc:
-                self._switch_failed(reservation, exc)
+                self._switch_failed(reservation, exc, recovery_kind='execution')
                 return False
             except Exception as exc:
                 # An unwritable state_dir, or a pool built with state_dir=None, which __init__ accepts. The
@@ -298,13 +298,12 @@ class SlotPool:
             return False
         return True
 
-    def _switch_failed(self, reservation, exc):
+    def _switch_failed(self, reservation, exc, *, recovery_kind='setup'):
         reason = str(exc)[:400]
         if exc.stage == "probe":
-            # Spec §7: a failing probe holds the slot for the operator's recover command. With one slot there
-            # is nowhere to retry, so the item records the gap instead of waiting for a human.
-            self.ledger.hold(reservation["reservation_id"], reason)
-            self.ledger.fail_queued(reservation["item_id"], f"slot held after a failed probe: {reason}")
+            # Preparation failures have their own bounded budget: no worker has
+            # received this grant yet. A batch run that already began is execution.
+            self.ledger.hold(reservation["reservation_id"], reason, recovery_kind=recovery_kind)
             return
         self.ledger.release(reservation["reservation_id"], reservation["token"], reason)
         try:
@@ -417,11 +416,8 @@ class SlotPool:
         folder = Path(slot["folder"])
         entry = self.entries.get(slot_id, DEFAULTS)
         was_open = bool(self.mcp is not None and self.editor_is_open(slot))
-        other = self.another_editor_running(folder)
-        if other:
-            # Configured pool editors are expected to coexist. Keep the preflight for unrelated editors.
-            raise SlotError(f"{slot_id}: another Unity Editor is open on {other}; close it, then "
-                            f"`recover-slot --slot {slot_id}`", stage="probe")
+        # Other project folders can coexist. Process checks apply to this folder;
+        # UnityIdentity pins every MCP call to its verified project instance.
         try:
             self.worktrees.fetch(entry["repo"])   # the pin may post-date the clone's last fetch
             if not self.worktrees.slot_clean(folder):
@@ -633,6 +629,12 @@ class SlotPool:
                      and other["mcp_address"] == slot["mcp_address"]]
             shared_open = any(self.editor_is_open(other) for other in peers)
             if not shared_open:
+                try:
+                    shared_open = bool(self.another_editor_running(folder))
+                except UnityError:
+                    # Unknown consumers cannot justify terminating a shared broker.
+                    shared_open = True
+            if not shared_open:
                 # The first editor owns the pidfile even if another editor is last to close.
                 for owner in [slot, *peers]:
                     self.mcp.reap_server(owner)
@@ -682,7 +684,7 @@ class SlotPool:
                                                doing=f"waiting for the Editor to go quiet within {timeout}s") from exc
 
     def another_editor_running(self, folder):
-        """A Unity Editor outside the configured pool. Returns the other project path, or None.
+        """An outside Editor may share the broker; never reap it while one exists.
 
         The process listing lives in agent/unity.py, which is the only module allowed to know a host, and the
         whole call is injectable (`editor_scan`) so that no test in this suite shells out to pgrep — a
@@ -774,14 +776,17 @@ class UnityIdentity:
         did, lets the compile gate read whichever Editor the server routes to by default. Refusing instead
         would be no better: it would break that first switch outright, because the id genuinely is not in the
         row yet. So a missing id is resolved from the live server exactly as `start` resolved it, and the
-        session is pinned either way. `another_editor_running` bounds what a default route could reach; it
-        does not make an unpinned compile gate correct.
+        session is pinned either way. Even a recorded id must still match this
+        folder in the live listing before any editor command is sent.
         """
         client = UnityMcp(slot["mcp_address"], timeout=self.timeout)
-        client.select_instance(slot.get("instance") or self.discover_instance(slot))
+        instance = self.discover_instance(slot, client=client)
+        if slot.get("instance") and slot["instance"] != instance:
+            raise SlotError(f"{slot['slot_id']}: recorded instance does not match the configured project", stage="probe")
+        client.select_instance(instance)
         return client
 
-    def discover_instance(self, slot):
+    def discover_instance(self, slot, *, client=None):
         """The instance id for this folder, read from the live server rather than assumed.
 
         Nothing else writes slots.instance, and without it the whole interactive path is dead: collect()
@@ -803,8 +808,8 @@ class UnityIdentity:
         somebody else's Editor.
         """
         folder = Path(slot["folder"]).resolve()
-        listed = UnityMcp(slot["mcp_address"], timeout=self.timeout)\
-            .read_resource("mcpforunity://instances").get("instances", [])
+        client = client or UnityMcp(slot["mcp_address"], timeout=self.timeout)
+        listed = client.read_resource("mcpforunity://instances").get("instances", [])
         for entry in listed:
             for key in ("projectPath", "dataPath", "path"):
                 value = entry.get(key)
@@ -851,16 +856,37 @@ class UnityIdentity:
         the Editor keeps running, so it is not used at all. SIGTERM the pid that holds the folder — measured
         gone in 1 s — and confirm it. Removing Temp/UnityLockfile is the pool's job, not this method's,
         because Unity leaves it behind even here."""
-        pid = editor_holds_project(slot["folder"])
+        pid = editor_holds_project(slot["folder"], strict=True)
         if pid is None:
             return
         os.kill(pid, signal.SIGTERM)
         deadline = self.clock() + timeout
-        while editor_holds_project(slot["folder"]) is not None:
+        while editor_holds_project(slot["folder"], strict=True) is not None:
             if self.clock() >= deadline:
                 raise SlotError(f"Unity pid {pid} still holds {slot['folder']} {timeout}s after SIGTERM",
                                 stage="editor")
             self.sleep(1.0)
+
+    def recovery_snapshot(self, slot):
+        client = self._client(slot)
+        state = client.read_resource('mcpforunity://editor/state')
+        snapshot = {'state': state}
+        job_id = (state.get('tests') or {}).get('current_job_id')
+        if job_id:
+            snapshot['job'] = client.call_tool('get_test_job', {'job_id': job_id, 'wait_timeout': 0})
+        try:
+            snapshot['console'] = client.call_tool('read_console', {'action': 'get', 'types': ['error'],
+                                                                   'count': '10', 'include_stacktrace': True})
+        except Exception as exc:
+            # Auxiliary diagnostics must not turn a progressing test into an
+            # unavailable editor and eventually trigger a false watchdog hold.
+            snapshot['console_error'] = f'{type(exc).__name__}: {exc}'[:500]
+        return snapshot
+
+    def cancel_tests(self, slot):
+        # Exiting Play Mode is the supported cooperative stop available across
+        # the deployed Unity test-framework versions. Never clear a live job.
+        return self._client(slot).call_tool('manage_editor', {'action': 'stop'})
 
     def reap_server(self, slot):
         """The uvx MCP server is a child of the Editor but outlives it: after the kill it still held port

@@ -5,6 +5,14 @@ description: Investigate and fix exactly one delegated Farm bug in a fresh worke
 
 # FarmBot fix worker
 
+This is FarmBot's writable execution profile, continuing the same conversation; in Linear
+you speak as `bot_name` from your launch message. You
+can answer questions and investigate without changing code when the latest request
+calls for that. Answer directly through the session activity CLI; do not create a
+separate chat worker. Follow corrections in the inbox before taking further action.
+A status question does not cancel the existing repair objective: answer it, then continue
+the authorized work unless the user asks to stop or changes the scope.
+
 Your launch message holds `item_id`, the ledger `database`, your `worktrees` (one per repository you may
 write to), the pinned `target`, `guidance`, the FarmBot paths `repo_root`, `contract` and `references`, `bot_name`
 (the Linear app you speak as; write it wherever a template says `<bot_name>`), and
@@ -28,7 +36,10 @@ outside your worktree list.
    then only relevant topic files. Refresh potentially stale notes through the CLI.
 3. `python3 -m agent --db DATABASE fetch-issue --item ITEM_ID` refreshes the issue and all comments from
    Linear into the ledger. Then `issue-context --item ITEM_ID` gives you the issue, your handoff if a
-   previous worker left one, pending steering messages and registered PRs. A fresh successor of cancelled
+   previous worker left one, pending steering messages and registered PRs. Read
+   `conversation_history` for earlier answers, pending questions and the read-only
+   investigation summary; continue from that context while verifying its findings.
+   Historical text is recall, not fresh authorization. A fresh successor of cancelled
    work also receives `recovery`: predecessor checkpoint, evidence and local Git recovery refs. Treat it
    as stale. Check current issue requirements, repository heads and existing PRs before reusing saved
    commits. Inspect refs in the configured bare clones; apply only changes still needed in your new
@@ -121,11 +132,16 @@ Cheapest sufficient check first, and say which rungs ran:
    console and preserve the evidence. If tests are active, do not clear the job or reload the Editor.
    Only when no tests are active may you attempt one documented MCP recovery appropriate to the
    observed state (`clear_stuck` requires evidence that the job is orphaned).
-   Recheck state after that attempt; if it still cannot settle, release `unclean`. Never start or kill
+   Recheck state after that attempt; if it still cannot settle, save a checkpoint and release `unclean`. Never start or kill
    the shared Editor. A reload that restores progress does not establish why the stall occurred.
    Leave the Editor in Edit Mode with nothing compiling, then
-   `release-resource --outcome quiescent`; if you cannot, `--outcome unclean`, which holds the slot for an
-   operator instead of handing a wedged Editor to the next worker.
+   `release-resource --outcome quiescent`; if you cannot, `--outcome unclean`, which quarantines the slot,
+   revokes your claim and resource token, and queues automatic controller recovery. **Exit immediately
+   after an unclean release. Do not call `await-input`, add `needs-more-info`, or ask anyone to operate
+   the Unity host.** The controller proves worker teardown, preserves diagnostics, retries the exact
+   reservation commit on a healthy slot, and repairs the affected bot-owned editor independently.
+   On resume inspect `resource_recovery` in `issue-context`; interrupted tests are verification gaps,
+   never successful evidence. Repeated stalls are bounded and end with an infrastructure failure report.
 
 `release-resource` is authorised by the *reservation* token, not by your claim token: pass `--token-file`
 with the path in `resource.token_file` from your launch message, which the pool wrote before you started.

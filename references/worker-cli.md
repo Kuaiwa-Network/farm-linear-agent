@@ -12,12 +12,21 @@ python3 -m agent --db DATABASE checkpoint --help
 | `claim` | `--item ITEM_ID --worker-id WORKER_ID`; returns the claim token |
 | `fetch-issue`, `issue-context` | `--item ITEM_ID` only; no token flags |
 | `renew`, `checkpoint`, `pop-inbox`, `verify-publication`, `prepare-comment`, `post-comment`, `confirm-comment`, `activity`, `await-input`, `await-resource`, `finish` | `--item ITEM_ID --token-file STATE_DIR/token`, plus command-specific arguments from `--help` |
+| `request-repair` | Read-only profile only: claim-token arguments, `--message-id LATEST_MESSAGE_ID --summary-file STATE_DIR/repair-summary.md` |
+| `resume-work` | Legacy resume-only command: claim-token arguments and `--message-id LATEST_MESSAGE_ID`; cannot start a first repair |
 | `memory-list`, `memory-read`, `memory-save`, `memory-forget` | Same claim-token arguments; see `references/memory.md` |
 | `release-resource` | `--item ITEM_ID --token-file RESOURCE_TOKEN_FILE`, using `resource.token_file`, plus `--outcome quiescent` or `--outcome unclean` |
 
 `fetch-issue` refreshes the ledger from Linear; `issue-context` reads the saved context.
 Neither accepts `--token-file`. Tokens never belong in argv as `--token` values.
 The argument table does not grant additional authority; use only your delegated item.
+
+`request-repair` refreshes Linear, then atomically retires read-only execution and queues
+the same issue's repair. It requires recorded delegation provenance and current delegation,
+but no prior fix or Bug label. It carries all current messages and the investigation summary
+into `issue-context`. Success retires your token: exit immediately. A newer-message refusal
+means reread the conversation before deciding again. `conversation_history` provides earlier
+answers/findings across execution profiles; only current `session_messages` authorize a request.
 
 ```bash
 python3 -m agent --db DATABASE fetch-issue --item ITEM_ID
@@ -72,3 +81,10 @@ succeeds. Confirm the returned checkpoint contains the intended handoff before r
 the claim. The CLI blocks those transitions after a rejected handoff until a valid
 handoff is saved; do not remove `handoff` to bypass the repair. If saving cannot
 succeed, retain the local JSON, report the exact error, and do not claim it was saved.
+
+For a stalled Unity reservation, save that checkpoint **before**
+`release-resource --outcome unclean --item ITEM_ID --token-file RESERVATION_TOKEN_FILE`.
+Its `recovery_queued` response revokes the worker claim and reservation token: exit immediately.
+The controller handles editor recovery and job continuation. Do not follow it with `await-input`
+or ask for host intervention. A fresh worker receives the exact retried commit and can read
+`issue-context.resource_recovery` for prior attempts and retained diagnostics.

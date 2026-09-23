@@ -479,21 +479,36 @@ class SwitchTests(SlotFixture):
         self.assertFalse(lock.exists())
         self.assertFalse(SlotPool.clear_stale_lock(lock.parent.parent, lambda: False))
 
-    def test_another_editor_on_the_host_holds_the_slot_before_any_git_runs(self):
-        """The contention preflight is not decoration: it must refuse *before* the fetch and the checkout,
-        and it must hold the slot (probe) rather than offer a retry (git), because a second Editor losing a
-        licence race reports as something that reads like project corruption."""
-        class Untouchable(Worktrees):
-            def fetch(self, repo):
-                raise AssertionError("switch() ran git before the contention preflight")
-
+    def test_unrelated_editor_does_not_block_a_verified_slot_or_receive_commands(self):
         self.pool().ensure()
-        spy = Untouchable(self.root / "repos", self.root / "worktrees", {"Farm-Client": str(self.origin)})
-        pool = self.pool(spy, mcp=FakeMcp(), editor_scan=lambda folder: "/Users/x/Farm-Client")
-        with self.assertRaises(SlotError) as caught:
-            pool.switch("unity_slot:1", "0" * 40, "batch")
-        self.assertEqual(caught.exception.stage, "probe")
-        self.assertIn("/Users/x/Farm-Client", str(caught.exception))
+        mcp = FakeMcp()
+        pool = self.pool(mcp=mcp, editor_scan=lambda folder: str(self.root / "android-build"))
+        fixed = self.commit("fix")
+        slot = pool.switch("unity_slot:1", fixed, "interactive")
+        self.assertEqual(slot["state"], "interactive_busy")
+        self.assertEqual(self.trees.head(slot["folder"]), fixed)
+        self.assertIn(("probe", "unity_slot:1"), mcp.calls)
+        self.assertEqual({slot_id for _, slot_id in mcp.calls}, {"unity_slot:1"})
+        pool.close_editor(slot)
+        self.assertNotIn(("reap_server", "unity_slot:1"), mcp.calls)
+
+    def test_unrelated_editor_does_not_bypass_the_reserved_slots_identity_probe(self):
+        self.pool().ensure()
+        pool = self.pool(mcp=FakeMcp(ready=False), editor_scan=lambda folder: str(self.root / "android-build"))
+        with self.assertRaisesRegex(SlotError, "identity probe did not match"):
+            pool.switch("unity_slot:1", self.commit("fix"), "interactive")
+
+    def test_unavailable_foreign_editor_inspection_preserves_broker(self):
+        from agent.unity import UnityError
+        self.pool().ensure()
+        mcp = FakeMcp()
+        pool = self.pool(mcp=mcp)
+        slot = pool.switch('unity_slot:1', self.commit('fix'), 'interactive')
+        def unavailable(folder):
+            raise UnityError('process inspection timed out')
+        pool.editor_scan = unavailable
+        self.assertTrue(pool.close_editor(slot))
+        self.assertNotIn(('reap_server', 'unity_slot:1'), mcp.calls)
 
     def test_a_live_editors_lock_is_never_deleted_by_a_park_or_a_batch_switch(self):
         """spec §7 line 353: the lock is removed "only after confirming the process is gone". `lambda: False`
@@ -608,6 +623,28 @@ class PoolTests(SlotFixture):
 
     def audit_rows(self):
         return self.ledger.connection.execute("SELECT count(*) FROM audit").fetchone()[0]
+
+    def test_preparation_recovery_preserves_execution_budget_then_regrants_with_foreign_editor(self):
+        from agent.resource_recovery import RecoveryStore
+        self.pool().ensure()
+        commit = self.commit('fix')
+        item = self.waiting(ISSUE, commit, 'interactive')
+        mcp = FakeMcp(ready=False)
+        pool = self.pool(mcp=mcp, editor_scan=lambda folder: str(self.root / 'android-build'))
+        self.assertEqual(pool.tick()['granted'], 0)
+        store = RecoveryStore(self.ledger)
+        recovery = store.begin(store.pending('test')[0]['id'])
+        self.assertEqual(recovery['recovery_kind'], 'setup')
+        store.detach(recovery['id'], recovery['attempts'])
+        store.complete(recovery['id'], recovery['attempts'], commit, mcp.instance)
+        self.assertEqual(store.job_attempts(item), 0)
+        self.assertEqual(store.job_attempts(item, recovery_kind='setup'), 1)
+        mcp.ready = True
+        self.assertEqual(pool.tick()['granted'], 1)
+        self.assertEqual(self.ledger.item(item)['state'], 'queued')
+        reservation = self.ledger.active_reservation_on('unity_slot:1')
+        self.assertEqual(reservation['commit_sha'], commit)
+        self.assertTrue(pool.token_path(item).is_file())
 
     def test_a_queued_request_is_granted_switched_and_resumed_for_a_fresh_worker(self):
         self.pool().ensure()
@@ -740,7 +777,8 @@ class PoolTests(SlotFixture):
         summary = json.loads((self.root / "runs" / item / "unity-batch.json").read_text(encoding="utf-8"))
         self.assertEqual(summary["state"], "timeout")
         self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "held")
-        self.assertEqual(self.ledger.item(item)["state"], "failed")
+        self.assertEqual(self.ledger.item(item)["state"], "awaiting_resource")
+        self.assertEqual(self.ledger.item(item)["stage"], "waiting_for_recovery")
 
     def test_two_requests_serialize_on_the_one_slot_batch_first_then_interactive(self):
         self.pool().ensure()
@@ -852,13 +890,14 @@ class PoolTests(SlotFixture):
         self.assertEqual(self.trees.head(self.root / "editors" / "slot-1"), second_commit)
         self.assertEqual(self.ledger.item(second)["state"], "queued")
 
-    def test_a_failing_probe_holds_the_slot_and_fails_the_item_without_retrying(self):
+    def test_a_failing_probe_holds_the_slot_and_queues_controller_recovery(self):
         self.pool().ensure()
         item = self.waiting(ISSUE, self.commit("fix"), "interactive")
         pool = self.pool(mcp=FakeMcp(ready=False))
         pool.tick()
         self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "held")
-        self.assertEqual(self.ledger.item(item)["state"], "failed")
+        self.assertEqual(self.ledger.item(item)["state"], "awaiting_resource")
+        self.assertEqual(self.ledger.item(item)["stage"], "waiting_for_recovery")
         self.assertEqual([r["state"] for r in self.ledger.reservations()], ["active"])
 
     def test_a_held_slot_is_not_probed_again_on_the_next_tick(self):

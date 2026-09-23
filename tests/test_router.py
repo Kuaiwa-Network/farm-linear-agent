@@ -19,24 +19,17 @@ class RouterTests(unittest.TestCase):
     def test_delegated_bug_becomes_fix_work(self):
         self.assertEqual(go(is_delegation=True, labels=["Bug", "程序"]), Decision("work", "fix"))
 
-    def test_delegation_without_bug_label_asks_one_question(self):
+    def test_delegation_without_bug_label_starts_a_conversation(self):
         decision = go(is_delegation=True, labels=["需求"])
-        self.assertEqual(decision.kind, "elicit")
-        self.assertIn("修复", decision.text)
+        self.assertEqual(decision.kind, "chat")
 
-    def test_the_question_names_the_configured_bot_and_defaults_to_farmbot(self):
-        self.assertEqual(go(is_delegation=True, labels=["需求"]).text,
-                         "这个 issue 需要我做什么？请回复「修复」让我处理缺陷，或改为 @FarmBot 提问。"
-                         "没有 Bug 标签的委派我不会自动开工。")
-        named = go(is_delegation=True, labels=["需求"], bot_name="TestBot").text
-        self.assertIn("@TestBot 提问", named)
-        self.assertNotIn("FarmBot", named)
+    def test_natural_language_is_interpreted_without_keyword_dispatch(self):
+        for text in ("@FarmBot 帮我复现一下", "不要测试，只解释", "how does QA work?", "修复"):
+            self.assertEqual(go(text=text, available_skills=SKILLS | {"qa"}), Decision("chat", "chat", text))
 
-    def test_mention_asking_for_qa_routes_to_qa_only_when_available(self):
-        self.assertEqual(go(text="@FarmBot 帮我复现一下", available_skills=SKILLS | {"qa"}), Decision("work", "qa"))
-        fallback = go(text="@FarmBot 跑冒烟")
-        self.assertEqual(fallback.kind, "chat")
-        self.assertIn("qa", fallback.text)
+    def test_question_on_delegated_bug_is_interpreted_before_writable_work(self):
+        self.assertEqual(go(is_delegation=True, labels=["Bug"], text="先解释原因，不要修改"),
+                         Decision("chat", "chat", "先解释原因，不要修改"))
 
     def test_mention_never_starts_write_capable_work(self):
         self.assertEqual(go(text="fix this bug please", labels=["Bug"]).kind, "chat")

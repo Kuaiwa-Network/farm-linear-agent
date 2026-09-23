@@ -43,7 +43,30 @@ class WorkerModelConfigTests(unittest.TestCase):
 
 
 class WorkerModelRoutingTests(unittest.TestCase):
-    def test_fix_and_resumed_fix_receive_settings_but_chat_does_not(self):
+    def test_default_model_reaches_new_and_resumed_workers(self):
+        fixture = test_scheduler.SchedulerTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.scheduler.runtime_name = "codex"
+        received = []
+        original = fixture.launcher.spawn
+        def capture(*args, **kwargs):
+            received.append(kwargs.pop("model_settings", None))
+            return original(*args, **kwargs)
+        fixture.launcher.spawn = capture
+        fix = fixture.item()
+        fixture.scheduler.launch(fix)
+        token = fixture.ledger.claim(fix["id"], worker_id="first")["token"]
+        fixture.ledger.await_input(fix["id"], token, "Continue?")
+        fixture.ledger.push_inbox(fix["id"], "Continue", resume_waiting=True)
+        fixture.scheduler.launch(fixture.ledger.item(fix["id"]))
+        from test_ledger import OTHER
+        chat = fixture.item(issue_id=OTHER, session="chat-session", skill="chat")
+        fixture.scheduler.launch(chat)
+        expected = {"model": "gpt-6-sol", "reasoning_effort": "xhigh"}
+        self.assertEqual(received, [expected, expected, expected])
+
+    def test_explicit_skill_settings_override_default(self):
         # Reuse the scheduler fixture without inheriting its entire test suite.
         fixture = test_scheduler.SchedulerTests()
         fixture.setUp()
@@ -66,4 +89,20 @@ class WorkerModelRoutingTests(unittest.TestCase):
         chat = fixture.item(issue_id=OTHER, session="chat-session", skill="chat")
         fixture.scheduler.launch(chat)
         self.assertEqual(received, [fixture.scheduler.codex_workers["fix"],
-                                    fixture.scheduler.codex_workers["fix"], None])
+                                    fixture.scheduler.codex_workers["fix"],
+                                    {"model": "gpt-6-sol", "reasoning_effort": "xhigh"}])
+
+    def test_partial_skill_override_keeps_default_model(self):
+        fixture = test_scheduler.SchedulerTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.scheduler.runtime_name = "codex"
+        fixture.scheduler.codex_workers = {"fix": {"reasoning_effort": "high"}}
+        received = []
+        original = fixture.launcher.spawn
+        def capture(*args, **kwargs):
+            received.append(kwargs.pop("model_settings", None))
+            return original(*args, **kwargs)
+        fixture.launcher.spawn = capture
+        fixture.scheduler.launch(fixture.item())
+        self.assertEqual(received, [{"model": "gpt-6-sol", "reasoning_effort": "high"}])

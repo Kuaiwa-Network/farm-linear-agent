@@ -729,16 +729,21 @@ class ReservationTests(unittest.TestCase):
         self.ledger.cancel(item, "operator")
         self.assertEqual([r["state"] for r in self.ledger.reservations() if r["item_id"] == item], ["cancelled"])
 
-    def test_a_failing_probe_holds_the_slot_until_the_operator_recovers_it(self):
+    def test_a_failing_probe_holds_the_slot_until_the_controller_recovers_it(self):
         self.waiting(ISSUE, "a" * 40, "batch")
         granted = self.ledger.acquire("unity_slot", owner="pool", host="mac")
         self.ledger.hold(granted["reservation_id"], "quiescence probe failed")
         self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "held")
         self.waiting(OTHER, "b" * 40, "batch")
         self.assertIsNone(self.ledger.acquire("unity_slot", owner="pool", host="mac"))
-        self.ledger.recover_slot("unity_slot:1", "operator closed Unity by hand")
-        self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "idle_closed")
-        self.assertIsNone(self.ledger.slot("unity_slot:1")["parked_commit"])
+        with self.assertRaisesRegex(LedgerError, 'automatic recovery'):
+            self.ledger.recover_slot("unity_slot:1", "operator closed Unity by hand")
+        from agent.resource_recovery import RecoveryStore
+        store = RecoveryStore(self.ledger)
+        recovery = store.begin(store.pending('mac')[0]['id'])
+        store.detach(recovery['id'], recovery['attempts'])
+        store.complete(recovery['id'], recovery['attempts'], 'a' * 40, 'verified-instance')
+        self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "idle_open")
         self.assertIsNotNone(self.ledger.acquire("unity_slot", owner="pool", host="mac"))
 
     def test_a_reservation_is_listed_for_settlement_once_its_item_is_no_longer_running(self):

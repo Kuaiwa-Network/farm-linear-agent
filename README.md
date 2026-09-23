@@ -4,6 +4,11 @@ One Linear agent for the 农场 team. Delegate an issue to it for work, @mention
 talk. Capabilities are added as skills on a shared identity, ledger, worker runtime and
 desktop-resource locks: chat, QA, bug fix, FGUI, then whole features.
 
+FarmBot keeps one conversation across read-only investigation and writable repair execution.
+An authorized “fix it” reply can start the first repair or resume previous work without
+re-delegating. The host carries messages and findings across the change of execution profile
+and posts recorded session progress every ten minutes while work is active or queued.
+
 Start with the [design spec](docs/superpowers/specs/2026-09-17-farm-linear-agent-design.md).
 It records the decisions, the architecture, the porting map from the two prototypes it
 replaces (`FarmTestAgent` and `BugAgent`), and the phased plan.
@@ -53,18 +58,19 @@ An installed launchd service also preserves configuration selected through
 `FARMBOT_CONFIG`. Use an absolute `local_root`; changing the config filename alone
 does not move its state. Restart a settled service after editing configuration.
 
-For a host-specific Codex model override, add `codex_workers` to private
+Codex `chat` and `fix` workers default to `gpt-6-sol` with `xhigh` reasoning.
+For a host-specific override, add `codex_workers` to private
 `.local/agent/config.json` and restart the drained receiver:
 
 ```json
 "codex_workers": {
-  "fix": {"model": "gpt-5.6-sol", "reasoning_effort": "high"}
+  "fix": {"reasoning_effort": "high"}
 }
 ```
 
-Each new or resumed `fix` worker receives these settings in its isolated Codex
-home. Skills without an entry keep the runtime default; Claude workers are
-unaffected. The model must be available to the host's account. This setting does
+Each new or resumed worker receives the default settings, merged with any
+per-skill override, in its isolated Codex home. Claude workers are unaffected.
+The model must be available to the host's account. This setting does
 not change `max_concurrent` or the number of configured Unity slots.
 
 ## AI/operator diagnostics
@@ -127,6 +133,35 @@ Open jobs awaiting answers keep today's reply behavior and the same job ID. A re
 session resumes the waiting job even without an @mention. An ordinary issue comment outside that
 session does not start a worker unless it mentions FarmBot. Reopening a cancelled issue starts nothing;
 an authorized continuation creates a fresh job linked to the cancelled job's recovery evidence.
+
+## Automatic Unity recovery
+
+An unclean Unity release or 180 seconds of observed test stagnation quarantines that slot
+and puts the job in `awaiting_resource` / `waiting_for_recovery`. The controller revokes the
+old worker and resource tokens, proves process teardown, and queues the exact same commit
+for verification, allowing another healthy slot to serve it. A separate recovery loop
+preserves diagnostics, requests Play Mode stop, restarts only the affected configured editor,
+and verifies identity, compilation and readiness before returning the slot to the pool.
+
+Two automatic execution retries, three separate slot-preparation retries, and three editor
+repair attempts are persisted in SQLite. A failed grant or explicit legacy adoption does not
+consume the execution budget. Exhaustion reports its phase and latest cause. Repair
+attempts back off 60 then 180 seconds. An interrupted repair lease expires after 15 minutes.
+Repeated stalls or exhaustion of every configured slot produce an explicit infrastructure
+failure with saved work and diagnostics. Genuine questions remain `awaiting_input`.
+Workers must checkpoint before `release-resource --outcome unclean`, then exit; no host
+operation or “continue verification” reply is required. Diagnostics live under
+`.local/agent/resource-recovery/` and in `issue-context.resource_recovery`.
+
+Other Unity projects may remain open. Each MCP call verifies the configured project against
+the live instance listing before selecting it; unrelated editors and shared brokers remain untouched.
+
+The ledger migration adds recovery tables and retry-classification columns. Existing recovery
+counts are retained, with old records classified as execution; historical causes are not guessed.
+Explicit retry clears both per-job budgets. Preserve these tables and their
+diagnostics across upgrades. Older code cannot service a pending recovery or its
+revoked claims; rolling code back does not restore those claims. Resume with a
+compatible controller, and never rewind the ledger after new external actions.
 
 ## Windows worker cleanup
 

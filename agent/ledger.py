@@ -17,6 +17,7 @@ import time
 from uuid import UUID, uuid4
 
 from . import memory
+from .resource_recovery import RecoveryStore, SCHEMA as RECOVERY_SCHEMA
 
 MARKER = re.compile(r"\[farmbot:[0-9a-f]{64}\]")
 STATES = ("queued", "running", "awaiting_input", "awaiting_resource",
@@ -348,8 +349,12 @@ class Ledger:
                     created_at REAL NOT NULL
                 );
             """)
+            self.connection.executescript(RECOVERY_SCHEMA)
             # Columns added after the first ledgers were written; CREATE TABLE IF NOT EXISTS leaves those files as they were.
-            for table, column, declaration in (("sessions", "guidance", "TEXT"), ("work_items", "lease_seconds", "REAL"),
+            for table, column, declaration in (("resource_recovery_notices", "generation", "INTEGER NOT NULL DEFAULT 0"),
+                                                ("resource_recoveries", "recovery_kind", "TEXT NOT NULL DEFAULT 'execution'"),
+                                                ("resource_job_retries", "setup_attempts", "INTEGER NOT NULL DEFAULT 0"),
+                                                ("sessions", "guidance", "TEXT"), ("work_items", "lease_seconds", "REAL"),
                                                 ("work_items", "predecessor_id", "TEXT"),
                                                 ("work_items", "capacity_retries", "INTEGER NOT NULL DEFAULT 0"),
                                                 ("work_items", "publication_retries", "INTEGER NOT NULL DEFAULT 0"),
@@ -553,6 +558,14 @@ class Ledger:
     def active_item_for_session(self, session_id):
         row = self.connection.execute("""SELECT * FROM work_items WHERE session_id=? AND state IN
             ('queued','running','awaiting_input','awaiting_resource') ORDER BY created_at DESC LIMIT 1""", (session_id,)).fetchone()
+        if row is None:
+            # A mention may have handed execution back to the original delegation
+            # session. Replies and Stop still belong to the same logical conversation.
+            row = self.connection.execute("""SELECT w.* FROM work_items c JOIN work_items w
+                ON w.id=json_extract(c.evidence,'$.resumed_item') AND w.issue_id=c.issue_id
+                WHERE c.session_id=? AND c.skill='chat' AND c.state='delivered'
+                AND w.state IN ('queued','running','awaiting_input','awaiting_resource')
+                ORDER BY c.created_at DESC,c.rowid DESC LIMIT 1""", (session_id,)).fetchone()
         return self._view(row) if row else None
 
     def items_for_session(self, session_id):
@@ -1024,7 +1037,7 @@ class Ledger:
                                                                       "reason": reason[:200]})
             return state
 
-    def hold(self, reservation_id, reason):
+    def hold(self, reservation_id, reason, *, recovery_kind='execution'):
         """A failing quiescence probe keeps the reservation open and takes the slot out of the pool (spec §7)."""
         _text(reason, "reason")
         with self._transaction():
@@ -1036,6 +1049,7 @@ class Ledger:
                                     (self.clock(), row["resource"]))
             self._audit(row["item_id"], "reservation", "held", details={"reservation_id": reservation_id,
                                                                        "reason": reason[:200]})
+            RecoveryStore(self).request_in_transaction(row["resource"], reason, recovery_kind=recovery_kind)
             return self._reservation_view(row)
 
     def hold_owned(self, reservation_id, token, reason):
@@ -1087,6 +1101,9 @@ class Ledger:
         _text(reason, "reason")
         with self._transaction():
             row = self._slot_row(slot_id)
+            if self.connection.execute("SELECT 1 FROM resource_recoveries WHERE slot_id=? AND state IN ('pending','repairing')",
+                                       (slot_id,)).fetchone():
+                raise LedgerError('slot is owned by automatic recovery; cannot bypass worker/editor fencing')
             self.connection.execute(
                 """UPDATE reservations SET state=CASE WHEN state='cancel_requested' THEN 'cancelled' ELSE 'released' END,
                    released_at=?,release_reason=? WHERE resource=? AND state IN ('active','cancel_requested')""",
@@ -1141,11 +1158,19 @@ class Ledger:
         _text(reason, "reason")
         with self._transaction():
             row = self._row(item_id)
+            # Stop may have selected the source just before the atomic handoff.
+            # Resolve that race under this same transaction, before revoking claims.
+            if row["skill"] == "chat" and row["state"] == "delivered":
+                destination = json.loads(row["evidence"]).get("resumed_item")
+                if destination:
+                    target = self._row(destination)
+                    if target["issue_id"] == row["issue_id"]:
+                        row = target
             if row["state"] == "cancelled":
                 return self._view(row)
             if row["state"] not in (*ACTIVE_STATES, "blocked"):
                 raise LedgerError("work item is already terminal")
-            pid = self.last_worker_pid(item_id)
+            pid = self.last_worker_pid(row["id"])
             self.connection.execute(
                 "INSERT OR IGNORE INTO job_cleanup(item_id,worker_pid,updated_at) VALUES(?,?,?)",
                 (row["id"], pid, self.clock()))
@@ -1246,6 +1271,7 @@ class Ledger:
                 self._guard_cleanup_retry(row["id"])
                 self._set_state(row["id"], "queued", reason, worker_pid=None, generation=row["generation"] + 1,
                                 requeue_requested=0, capacity_retries=0, publication_retries=0, retry_not_before=0)
+                self.connection.execute('DELETE FROM resource_job_retries WHERE item_id=?', (row['id'],))
             except sqlite3.IntegrityError:
                 raise LedgerError("another active work item exists for this issue")
             return self._view(self._row(row["id"]))
@@ -1258,43 +1284,75 @@ class Ledger:
             (issue_id, session_id)).fetchone()
 
     def resume_work(self, item_id, token, message_id, app_user_id):
-        """Atomically hand a chat's natural-language request to its issue's prior fix.
+        """Compatibility command: only resume previously delegated repair work."""
+        return self._repair_work(item_id, token, message_id, app_user_id, allow_start=False,
+                                 summary="Continued previously delegated work")
 
-        Intent is interpreted by the chat worker. The host checks fresh delegation;
-        this transaction enforces item ownership, provenance and one active worker.
+    def request_repair(self, item_id, token, message_id, app_user_id, summary):
+        """Request writable execution after interpreting the current conversation."""
+        _text(summary, "repair summary")
+        if len(summary) > 8000:
+            raise LedgerError("repair summary must be at most 8000 characters")
+        return self._repair_work(item_id, token, message_id, app_user_id, allow_start=True, summary=summary)
+
+    def _delegation_session(self, issue_id, preferred):
+        return self.connection.execute("""SELECT * FROM sessions WHERE issue_id=? AND delegation=1
+            ORDER BY (session_id=?) DESC,created_at DESC,rowid DESC LIMIT 1""", (issue_id, preferred)).fetchone()
+
+    def _repair_work(self, item_id, token, message_id, app_user_id, *, allow_start, summary):
+        """Atomically retire read-only execution and queue its authorized repair.
+
+        Intent belongs to the worker; the CLI checks fresh Linear state. The
+        transaction fences claim ownership, newer input, provenance and concurrency.
         """
         with self._transaction():
             chat = self._owned(item_id, token)
             if chat["skill"] != "chat":
-                raise LedgerError("resume-work requires an owned chat item")
+                raise LedgerError("repair transition requires an owned read-only chat item")
             issue = json.loads(self._issue_row(chat["issue_id"])["metadata"])
             if not _in_scope(issue) or not app_user_id or issue.get("delegate_id") != app_user_id:
                 raise LedgerError("issue must remain open and delegated to FarmBot")
             messages = self.connection.execute("SELECT id,body FROM inbox WHERE item_id=? ORDER BY id",
                                                (item_id,)).fetchall()
-            if message_id not in {m["id"] for m in messages}:
-                raise LedgerError("resume-work requires a real message from this chat")
+            if message_id not in {m["id"] for m in messages if m["body"].strip() not in ("", "（无正文）")}:
+                raise LedgerError("repair transition requires a real message from this chat")
+            if message_id != messages[-1]["id"]:
+                raise LedgerError("repair transition requires the latest message; reread the conversation")
             work = self._resumable_work(chat["issue_id"], chat["session_id"])
             if work is None:
-                raise LedgerError("no previously delegated fix work on this issue")
+                if not allow_start:
+                    raise LedgerError("no previously delegated fix work on this issue")
+                authority = self._delegation_session(chat["issue_id"], chat["session_id"])
+                if authority is None:
+                    raise LedgerError("a recorded delegation session on this issue is required")
             # Retire the chat first so the one-active-item index permits the fix, atomically.
-            self._set_state(item_id, "delivered", "handed request to previously delegated work",
+            self._set_state(item_id, "delivered", "handed conversation to repair execution",
                             token=None, lease_expires_at=None, worker_pid=None)
-            destination = work["id"]
-            if work["state"] == "cancelled":
+            if work is None:
+                destination, now = str(uuid4()), self.clock()
+                self.connection.execute("""INSERT INTO work_items
+                    (id,issue_id,session_id,skill,state,priority,target_json,created_at,updated_at)
+                    VALUES(?,?,?,'fix','queued',?,?,?,?)""",
+                    (destination, chat["issue_id"], authority["session_id"], issue["priority"] or 5,
+                     authority["target_json"], now, now))
+                self._audit(destination, "create", "conversation requested first repair")
+            elif work["state"] == "cancelled":
                 destination = self._cancelled_successor(work, "human requested continuation via chat")
             else:
+                destination = work["id"]
                 self._guard_cleanup_retry(destination)
                 self._set_state(destination, "queued", "human requested continuation via chat",
                                 token=None, lease_expires_at=None, worker_pid=None,
                                 generation=work["generation"] + 1, requeue_requested=0,
                                 capacity_retries=0, publication_retries=0, retry_not_before=0)
+                self.connection.execute('DELETE FROM resource_job_retries WHERE item_id=?', (destination,))
             self.connection.execute("UPDATE work_items SET evidence=? WHERE id=?", (
-                _json({"summary": "Continued previously delegated work", "prs": [],
+                _json({"summary": summary, "prs": [],
                        "resumed_item": destination, "message_id": message_id}), item_id))
             self.connection.executemany("INSERT INTO inbox(item_id,body,created_at) VALUES(?,?,?)",
                                         [(destination, m["body"], self.clock()) for m in messages])
-            self._audit(destination, "resume_request", details={"chat_item": item_id, "message_id": message_id})
+            self._audit(destination, "resume_request" if work else "repair_request",
+                        details={"chat_item": item_id, "message_id": message_id, "summary": summary})
             return self._view(self._row(destination))
 
     def _cancelled_successor(self, previous, reason):
@@ -1550,6 +1608,13 @@ class Ledger:
         view = self._view(row)
         coordination = {key: view[key] for key in ("id", "identifier", "skill", "state", "stage", "generation", "target")}
         return {"issue": json.loads(issue_row["metadata"]), "coordination": coordination, "handoff": handoff,
+                "conversation_history": self._conversation_history(row["issue_id"]),
+                "delegation_session": (authority["session_id"] if
+                                       (authority := self._delegation_session(row["issue_id"], row["session_id"])) else None),
+                "resource_recovery": {"attempts": RecoveryStore(self).job_attempts(item_id),
+                                      "setup_attempts": RecoveryStore(self).job_attempts(item_id, recovery_kind='setup'),
+                                      "records": [dict(r) for r in self.connection.execute(
+                                          'SELECT id,slot_id,state,attempts,recovery_kind,reason,evidence,error FROM resource_recoveries WHERE item_id=? ORDER BY created_at', (item_id,))]},
                 "checkpoint_error": self.checkpoint_error(item_id),
                 "cleanup": self.cleanup_record(item_id),
                 "recovery": self.recovery_context(item_id),
@@ -1562,6 +1627,19 @@ class Ledger:
                     "SELECT url FROM published_prs WHERE issue_id=? ORDER BY url", (row["issue_id"],))],
                 "inbox_pending": self.connection.execute(
                     "SELECT count(*) FROM inbox WHERE item_id=? AND consumed_at IS NULL", (row["id"],)).fetchone()[0]}
+
+    def _conversation_history(self, issue_id):
+        """Prior findings/questions are recall, separate from this item's live requests."""
+        history = []
+        for row in self.connection.execute("SELECT * FROM work_items WHERE issue_id=? ORDER BY created_at,rowid", (issue_id,)):
+            checkpoint, evidence = json.loads(row["checkpoint"]), json.loads(row["evidence"])
+            history.append({"item_id": row["id"], "session_id": row["session_id"], "skill": row["skill"],
+                            "state": row["state"], "summary": evidence.get("summary"),
+                            "pending_question": checkpoint.get("pending_question"),
+                            "handoff": checkpoint.get("handoff"),
+                            "messages": [dict(m) for m in self.connection.execute(
+                                "SELECT id,body FROM inbox WHERE item_id=? ORDER BY id", (row["id"],))]})
+        return history
 
     # Memory is shared recall data. These operations never widen work-item authority.
     def memory_rows(self):

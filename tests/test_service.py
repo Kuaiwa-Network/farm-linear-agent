@@ -59,6 +59,8 @@ class ServeTests(unittest.TestCase):
         self.c = build(config)
         self.addCleanup(self.drain_workers)
         self.addCleanup(self.c.lifecycle.ledger.close)
+        self.addCleanup(self.c.progress.ledger.close)
+        self.addCleanup(self.c.recovery.close)
         self.addCleanup(self.c.pool.close)
         self.addCleanup(self.c.receiver.close)
         self.addCleanup(self.c.ledger.close)
@@ -166,6 +168,26 @@ class ServeTests(unittest.TestCase):
         finally:
             control.close()
 
+    def test_recovery_has_independent_ledger_and_does_not_block_health_or_slot_grants(self):
+        self.assertIsNot(self.c.recovery.ledger.connection, self.c.ledger.connection)
+        self.assertIsNot(self.c.recovery.ledger.connection, self.c.pool.ledger.connection)
+        entered, release = threading.Event(), threading.Event()
+        def repair_tick():
+            entered.set()
+            release.wait(5)
+        self.c.recovery.tick = repair_tick
+        thread = threading.Thread(target=lambda: serve(components=self.c), daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 20)
+        self.addCleanup(release.set)
+        self.assertTrue(entered.wait(10))
+        with urllib.request.urlopen(f'http://127.0.0.1:{self.c.server.server_address[1]}/health', timeout=5) as response:
+            self.assertEqual(response.status, 200)
+        release.set()
+        self.c.server.shutdown()
+        thread.join(20)
+        self.assertFalse(thread.is_alive())
+
     def test_build_hands_the_pool_the_launchers_runner_and_the_scheduler_the_same_slot_entries(self):
         """The production wiring of Task 7's two injections, asserted on build() rather than on objects a
         test constructed. A pool with no runner refuses every batch grant, and a scheduler with no entries
@@ -182,6 +204,8 @@ class ServeTests(unittest.TestCase):
         self.addCleanup(components.receiver.close)
         self.addCleanup(components.pool.close)
         self.addCleanup(components.lifecycle.ledger.close)
+        self.addCleanup(components.progress.ledger.close)
+        self.addCleanup(components.recovery.close)
         self.assertEqual(components.scheduler.slot_entries, components.pool.entries)
         self.assertEqual(components.scheduler.slot_entries["unity_slot:1"]["build_target_argument"], "OSXUniversal")
         self.assertEqual(components.pool.run_unsandboxed, components.launcher.run_unsandboxed)

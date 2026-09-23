@@ -226,7 +226,7 @@ class Receiver:
         history = self.ledger.items_for_session(prepared["session_id"])
         decision = route(action=prepared["action"], is_delegation=is_delegation, text=prepared["text"], labels=issue["labels"],
                          active_state=active["state"] if active else None, terminal_exists=bool(history) and active is None,
-                         available_skills=self.skills, bot_name=self.bot_name)
+                         available_skills=self.skills)
         session_id = prepared["session_id"]
 
         def acknowledge(kind, body):
@@ -263,7 +263,8 @@ class Receiver:
             acknowledge("thought", ACK.get(decision.skill, ACK["chat"]).format(bot=self.bot_name))
         elif decision.kind == "chat":
             item = self.ledger.create_work_item(issue_id=issue["id"], session_id=session_id, skill="chat")
-            self.ledger.push_inbox(item["id"], prepared["text"] or "（无正文）")
+            if prepared["text"]:
+                self.ledger.push_inbox(item["id"], prepared["text"])
             body = (decision.text if decision.text and decision.text != prepared["text"]
                     else ACK["chat"].format(bot=self.bot_name))
             acknowledge("thought", body)

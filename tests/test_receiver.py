@@ -164,11 +164,11 @@ class ReceiverTests(ReceiverBase):
         self.assertEqual(self.receive(self.event(appUserId="someone"))[0], 403)
         self.assertEqual(self.receive({"type": "Issue", "action": "update", "webhookTimestamp": 100_000}), (403, "identity mismatch"))
 
-    def test_delegation_without_bug_label_elicits_without_creating_an_item(self):
+    def test_delegation_without_bug_label_creates_read_only_conversation(self):
         self.api.fetch_issue.return_value = issue(labels=["需求"], delegate_id=APP)
         self.receive(); self.receiver.process_one()
-        self.assertEqual(self.ledger.items_for_session("session-1"), [])
-        self.assertEqual(self.activities()[0]["type"], "elicitation")
+        self.assertEqual(self.ledger.items_for_session("session-1")[0]["skill"], "chat")
+        self.assertEqual(self.activities()[0]["type"], "thought")
 
     def test_api_failure_marks_event_uncertain_not_done(self):
         self.api.fetch_issue.side_effect = RuntimeError("boom")
@@ -197,7 +197,7 @@ class ReceiverTests(ReceiverBase):
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
         self.assertEqual(self.ledger.pop_inbox(item["id"], token), ["@FarmBot 安卓上也能复现"])
 
-    def test_qa_words_without_qa_skill_explain_to_the_human_and_keep_their_text_for_the_worker(self):
+    def test_qa_request_keeps_original_intent_for_the_worker(self):
         self.api.fetch_issue.return_value = issue(labels=["Bug"], delegate_id=None)
         self.receive(self.event(agentSession={"id": "session-4", "issue": {"id": ISSUE, "identifier": "FARM-1", "url": "u"},
                                               "comment": {"body": "@FarmBot 帮我复现一下"}}))
@@ -205,7 +205,7 @@ class ReceiverTests(ReceiverBase):
         item = self.ledger.items_for_session("session-4")[0]
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
         self.assertEqual(self.ledger.pop_inbox(item["id"], token), ["@FarmBot 帮我复现一下"])
-        self.assertIn("qa", self.activities()[-1]["body"])
+        self.assertEqual(self.activities()[-1]["type"], "thought")
 
     def test_a_new_session_pins_the_client_head_and_says_so_in_the_one_acknowledgment(self):
         self.receiver.worktrees = SimpleNamespace(remote_head=lambda repo, timeout=8: "c" * 40)
@@ -229,15 +229,13 @@ class ReceiverTests(ReceiverBase):
         self.assertIn("暂时无法锁定", self.activities()[0]["body"])
         self.assertEqual(self.receiver.results()[-1]["status"], "done")
 
-    def test_a_first_event_that_only_elicits_still_announces_the_pin(self):
-        """The pin is stored before routing and the echo is guarded on target is None, so a session that does
-        not create work on its first event would otherwise pin in silence and never announce it."""
+    def test_a_read_only_delegation_announces_its_pin_for_later_repair(self):
         self.api.fetch_issue.return_value = issue(labels=["需求"], delegate_id=APP)
         self.receiver.worktrees = SimpleNamespace(remote_head=lambda repo, timeout=8: "c" * 40)
         self.receive()
         self.assertTrue(self.receiver.process_one())
-        self.assertEqual(self.ledger.items_for_session("session-1"), [])
-        self.assertEqual(self.activities()[0]["type"], "elicitation")
+        self.assertEqual(self.ledger.items_for_session("session-1")[0]["skill"], "chat")
+        self.assertEqual(self.activities()[0]["type"], "thought")
         self.assertIn("c" * 7, self.activities()[0]["body"])
         self.assertEqual(self.ledger.session("session-1")["target"]["commit_sha"], "c" * 40)
 
@@ -357,7 +355,7 @@ class BotNameTests(ReceiverBase):
 
     def receiver_named(self, name):
         self.receiver = Receiver(self.db, "signing-secret", IDENTITY, self.api, lambda: Ledger(self.db),
-                                 skills={"chat", "fix", "qa"}, scheduler=self.scheduler, bot_name=name)
+                                 skills={"chat", "fix"}, scheduler=self.scheduler, bot_name=name)
         self.addCleanup(self.receiver.close)
 
     def mention(self, session, body):
@@ -388,12 +386,6 @@ class BotNameTests(ReceiverBase):
         self.receive(self.event(agentSession={"id": "session-9", "issue": {"id": ISSUE}})); self.receiver.process_one()
         self.assertEqual(self.activities()[-1], {"type": "error", "body": "FarmBot 处理这条消息时出错（KeyError），请稍后重试或联系维护者。"})
 
-    def test_default_receiver_keeps_the_production_elicitation(self):
-        self.api.fetch_issue.return_value = issue(labels=["需求"], delegate_id=APP)
-        self.receive(); self.receiver.process_one()
-        self.assertEqual(self.activities()[-1]["body"], "这个 issue 需要我做什么？请回复「修复」让我处理缺陷，或改为 @FarmBot 提问。"
-                                                        "没有 Bug 标签的委派我不会自动开工。")
-
     def test_a_named_instance_acknowledges_as_itself(self):
         self.receiver_named("TestBot")
         self.receive(); self.receiver.process_one()
@@ -401,18 +393,11 @@ class BotNameTests(ReceiverBase):
         self.ledger.cancel(self.ledger.items_for_session("session-1")[0]["id"], "test")
         self.receive(self.mention("session-2", "@TestBot 这个 bug 是客户端还是服务端的？")); self.receiver.process_one()
         self.assertEqual(self.activities()[-1]["body"], "TestBot 已收到，正在查看。")
-        self.ledger.cancel(self.ledger.items_for_session("session-2")[0]["id"], "test")
-        self.receive(self.mention("session-3", "@TestBot 帮我复现一下")); self.receiver.process_one()
-        self.assertEqual(self.activities()[-1]["body"], "TestBot 已收到测试请求，正在排队。")
 
-    def test_a_named_instance_never_says_farmbot_in_resume_error_or_elicitation_text(self):
+    def test_a_named_instance_never_says_farmbot_in_resume_or_error_text(self):
         self.receiver_named("TestBot")
         self.assertEqual(self.answer_after_undelegation(), "已保存回复；issue 已不再委派给 TestBot，暂不继续修复。")
         self.api.fetch_issue.side_effect = KeyError("labels")
         self.receive(self.event(agentSession={"id": "session-9", "issue": {"id": ISSUE}})); self.receiver.process_one()
         self.assertEqual(self.activities()[-1]["body"], "TestBot 处理这条消息时出错（KeyError），请稍后重试或联系维护者。")
-        self.api.fetch_issue.side_effect = None
-        self.api.fetch_issue.return_value = issue(labels=["需求"], delegate_id=APP)
-        self.receive(self.event(agentSession={"id": "session-10", "issue": {"id": ISSUE}})); self.receiver.process_one()
-        self.assertIn("@TestBot 提问", self.activities()[-1]["body"])
         self.assertFalse([a for a in self.activities() if "FarmBot" in a["body"]])
