@@ -811,8 +811,13 @@ class Launcher:
         return True
 
     def _read_last_message(self, handle):
-        if handle.last_message_path.exists():
-            return handle.last_message_path.read_text(encoding="utf-8").strip()
+        """Best-effort: the report files are in the worker's writable state directory, and a read that raised
+        would fail every poll of this reaped worker, keeping it registered and holding its slot until restart."""
+        try:
+            if handle.last_message_path.exists():
+                return handle.last_message_path.read_text(encoding="utf-8").strip()
+        except (OSError, ValueError):
+            return ""
         if self.runtime.name == "claude":
             try:
                 data = json.loads((handle.run_dir / "stdout.log").read_text(encoding="utf-8"))

@@ -226,6 +226,29 @@ class LauncherTests(unittest.TestCase):
             self.assertEqual([f.item_id for f in self.launcher.poll()], ["done"])
         self.assertEqual([f.item_id for f in self.launcher.poll()], ["failing"])
 
+    def test_a_last_message_the_worker_made_unreadable_reports_it_with_an_empty_message(self):
+        # last_message.txt is in the worker-writable state directory. Reading it once raised on every poll, so the
+        # reaped worker stayed registered for ever and held its max_concurrent slot until restart.
+        corruptions = {"undecodable": lambda path: path.write_bytes(b"report \xff\xfe"), "directory": Path.mkdir}
+        if os.name != "nt" and os.geteuid() != 0:
+            # Its existence check raises too once the worker makes its run directory unsearchable.
+            corruptions["unsearchable"] = lambda path: path.parent.chmod(0)
+        for name, corrupt in corruptions.items():
+            with self.subTest(corruption=name):
+                # A launcher of its own: a worker left registered by one case must not be polled by the next.
+                launcher = Launcher(self.runs / name, RUNTIMES["fake"], host="test-host")
+                handle = launcher.spawn(name, self.message, {}, budget_seconds=60, cwd=self.tmp.name,
+                                        extra_env={"FAKE_CLI_MODE": "crash"})
+                self.addCleanup(handle.run_dir.chmod, 0o700)
+                self.wait_exited(handle)
+                corrupt(handle.last_message_path)
+                log = io.StringIO()
+                with redirect_stdout(log):
+                    finished = launcher.poll()
+                self.assertEqual([(f.item_id, f.returncode, f.last_message) for f in finished], [(name, 3, "")])
+                self.assertNotIn(name, launcher.running())
+                self.assertEqual(log.getvalue(), "")
+
     def test_stop_also_kills_descendants_in_other_sessions(self):
         handle = self.launcher.spawn("item-7", self.message, {}, budget_seconds=60, cwd=self.tmp.name,
                                      extra_env={"FAKE_CLI_MODE": "detached-sleep"})
