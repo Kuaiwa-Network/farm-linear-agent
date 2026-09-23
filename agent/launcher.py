@@ -566,14 +566,25 @@ class Launcher:
         stale = handle.run_dir / "killed.json"
         if stale.exists():
             stale.replace(handle.run_dir / "killed.superseded.json")
-        (handle.run_dir / "teardown-unverified.json").write_text(
-            json.dumps({**record, "empty": False, "reason": reason}), encoding="utf-8")
+        held = handle.run_dir / "teardown-unverified.json"
+        kept = set(record.get("descendants", ()))
+        try:
+            # A repeated hold keeps the pids an earlier one recorded; this file is diagnostic only.
+            earlier = json.loads(held.read_text(encoding="utf-8")) if held.exists() else {}
+            kept.update(pid for pid in earlier.get("descendants", ()) if type(pid) is int and pid > 0)
+        except Exception:
+            pass
+        held.write_text(json.dumps({**record, "descendants": sorted(kept), "empty": False, "reason": reason}),
+                        encoding="utf-8")
 
     @staticmethod
     def _prior_descendants(handle):
         """What an earlier (interrupted) kill of this attempt recorded: [] when there is no record, None when
         the record is not verifiably this attempt's own list of pids. The file is in the worker-writable state
-        directory, so reading it must never raise (a huge number or deep nesting would)."""
+        directory, so reading it must never raise (a huge number or deep nesting would). An attempt already
+        held as unverified stays held: a later Stop or check must not write a record that forgets why."""
+        if (handle.run_dir / "teardown-unverified.json").exists():
+            return None
         path = handle.run_dir / "killed.json"
         if not path.exists():
             return []

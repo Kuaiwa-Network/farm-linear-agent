@@ -681,6 +681,35 @@ class PosixSelfExitTeardownTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "descendants have not exited"):
             self.launcher.assert_quiescent("restop", handle.pid)
 
+    def test_a_stop_that_meets_an_unusable_record_holds_cleanup(self):
+        handle, child = self.leaking_worker("forged", linger=60)
+        (handle.run_dir / "killed.json").write_text("{not json", encoding="utf-8")
+        self.assertTrue(self.launcher.stop("forged", grace=1.0))
+        self.finished()
+        self.assertFalse((handle.run_dir / "killed.json").exists())
+        self.assertEqual(self.evidence(handle, "teardown-unverified.json")["reason"],
+                         "earlier teardown record is unreadable or not this attempt's")
+        with self.assertRaisesRegex(RuntimeError, "teardown"):
+            self.launcher.assert_quiescent("forged", handle.pid)
+
+    def test_an_attempt_already_held_stays_held(self):
+        # An earlier Stop or check held this attempt and set its record aside. A later Stop, or the
+        # self-exit check, must not write a fresh record that forgets why it was held.
+        for item_id, stop in (("held-stop", True), ("held-exit", False)):
+            with self.subTest(item_id):
+                handle, child = self.leaking_worker(item_id, linger=60 if stop else 0)
+                (handle.run_dir / "teardown-unverified.json").write_text(json.dumps(
+                    {"pid": handle.pid, "descendants": [999999], "empty": False, "reason": "earlier hold"}),
+                    encoding="utf-8")
+                if stop:
+                    self.assertTrue(self.launcher.stop(item_id, grace=1.0))
+                self.finished()
+                self.assertFalse((handle.run_dir / "killed.json").exists())
+                # The operator's record keeps what the earlier hold recorded (a pid never signalled again).
+                self.assertIn(999999, self.evidence(handle, "teardown-unverified.json")["descendants"])
+                with self.assertRaisesRegex(RuntimeError, "teardown"):
+                    self.launcher.assert_quiescent(item_id, handle.pid)
+
     def test_a_failing_teardown_check_still_reports_every_exit(self):
         first = self.launcher.spawn("first", "prompt", {}, 30, self.root)
         second = self.launcher.spawn("second", "prompt", {}, 30, self.root)
@@ -803,6 +832,11 @@ class PriorTeardownRecordTests(unittest.TestCase):
 
     def test_no_record_is_an_empty_one(self):
         self.assertEqual(Launcher._prior_descendants(self.handle), [])
+
+    def test_an_attempt_already_held_as_unverified_has_no_usable_record(self):
+        (self.handle.run_dir / "teardown-unverified.json").write_text("{}", encoding="utf-8")
+        self.assertIsNone(Launcher._prior_descendants(self.handle))
+        self.assertIsNone(self.prior(json.dumps({"pid": 4242, "descendants": []})))
 
     def test_the_attempts_own_record_is_read(self):
         self.assertEqual(self.prior(json.dumps({"pid": 4242, "descendants": [7, 8]})), [7, 8])

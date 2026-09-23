@@ -161,7 +161,8 @@ session that forks and exits between the listing and its session lookup can be m
 persists its sweep only in its final record. A member that leaves the session after being signalled,
 and any descendant an earlier, interrupted Stop of the same attempt recorded, stays in that evidence and
 holds cleanup while alive; such a pid is recorded but never signalled again. An unreadable process
-table is retried for up to a minute first; an unreadable or foreign earlier record holds cleanup. A child that called `setsid()` has left the worker's session and escapes
+table is retried for up to a minute first. An unreadable or foreign earlier record holds cleanup, and an
+attempt once held as unverified stays held through later Stops and checks. A child that called `setsid()` has left the worker's session and escapes
 this check; that is the POSIX limit of the proof, and it is not rare. Claude Code 2.1.280 was observed
 starting each Bash tool shell in its own session, so processes a `claude` worker's commands leave running
 are likely outside it; other versions and Codex are unmeasured. Stop also signals descendants it can still
