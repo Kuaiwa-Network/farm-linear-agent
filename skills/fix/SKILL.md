@@ -236,7 +236,10 @@ snapshots or the database, or use operator-only `memory-admin`. Gameplay rules r
   summary and PR links). Never post a `response` yourself; use `activity --type thought` for progress and
   `--type elicitation` only for a question.
 
-Write your run report to `STATE_DIR/report.md`, with `STATE_DIR` from your launch message. Keep it
+Write your run report to `STATE_DIR/report.md`, with `STATE_DIR` from your launch message. Retries and
+resumes of this job reuse `STATE_DIR`: if a report is already there when you start yours, an earlier
+attempt wrote it. Leave earlier reports unchanged, write yours to the first unused
+`STATE_DIR/report-2.md`, `report-3.md`, …, and name the report it supersedes. Keep reports
 in FarmBot's private state; never create, stage, commit or push a `reports/` run report in any
 repository worktree, even if an earlier worker tracked it or you can override `.gitignore` with
 `git add -f`. Put a concise verification summary, tested commits and remaining gaps in the draft

@@ -1,15 +1,19 @@
 # Run report format
 
-Path: `STATE_DIR/report.md`, where `STATE_DIR` is the private run directory in the worker's launch
-message. Keep the report and raw logs there; do not commit or publish run reports in a repository.
-Summarize the checks, tested commits and gaps in the draft PR description and Linear outcome.
+Path: `STATE_DIR/report.md`, where `STATE_DIR` is the job's private state directory from the worker's
+launch message. Retries and resumes of the job share it: when an earlier attempt's report is already
+there, leave earlier reports unchanged and write the first unused `STATE_DIR/report-2.md`,
+`report-3.md`, …, naming the report it supersedes. Keep reports and raw logs in `STATE_DIR`; do not
+commit or publish run reports in a repository. Summarize the checks, tested commits and gaps in the
+draft PR description and Linear outcome.
 
 Sections, in order: Target (repository, commit, server environment), Scope, Steps taken (commands
 and their results), Evidence (paths, PR URLs, screenshots), Failures and gaps (exactly what was
 not verified and why), State changes (accounts, data, files outside the PR), Next steps.
 
 Use PASS / FAIL / BLOCKED / INCONCLUSIVE. A successful command is not a successful outcome.
-Candidate lessons go under a final "Candidate lessons" heading with evidence; promotion is a PR.
+Candidate lessons go under a final "Candidate lessons" heading with evidence; save reusable ones
+through the memory CLI in `references/memory.md`.
 
 For each check, record the full tested commit SHA, command or test selection, test mode,
 environment (including relevant Unity version and dependency state), result and artifact path.
