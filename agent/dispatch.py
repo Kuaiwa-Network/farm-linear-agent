@@ -59,8 +59,9 @@ AUTHORITY = (
     "\"read\" only its query tools exist. Record every state-changing kw_ops call, with server_id, tool, target "
     "and reason, as a handoff fact and under State changes in the run report. The kw_ops credential belongs "
     "to the host: never read, print or store it. kw_ops grants no other authority. When tools.kw_ops.status "
-    "is \"unavailable\" and this issue's reproduction or verification needs kw_ops, report that as a "
-    "verification gap. "
+    "is \"unavailable\", or tools.kw_ops.access is present but no kw_ops tools are available because kw_ops "
+    "did not start in time, and this issue's reproduction or verification needs kw_ops, report that as a "
+    "verification gap; do not work around it. "
     "Use references/worker-cli.md for command arguments and the exact handoff JSON shape."
 )
 

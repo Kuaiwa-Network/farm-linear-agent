@@ -800,7 +800,8 @@ class SchedulerTests(unittest.TestCase):
 
     def test_an_item_with_no_reservation_is_launched_with_no_tools_and_no_resource_block(self):
         """Enforcement is tool injection (spec §7): a fix worker that holds no slot must not reach the Unity
-        MCP, and the manifest's own `resources`/`mcp` fields must never be what decides that."""
+        MCP, and for a reservation-bound server such as that one the manifest's own `resources`/`mcp`
+        fields must never be what decides that."""
         self.waiting_item(mode="interactive")   # queued, never acquired: this item holds nothing
         self.item(issue_id=OTHER, session="s2", identifier="FARM-2")
         self.scheduler.tick()

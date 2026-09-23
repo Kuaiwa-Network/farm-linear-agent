@@ -83,13 +83,18 @@ and put the token only in the controller's environment:
 "kw_ops": {"url": "http://<gm-host>/mcp", "token_env": "KW_OPS_TOKEN"}
 ```
 
-Export the variable in the wrapper that starts `serve`, never in a shell startup file such as
-`~/.zshenv`: FarmBot removes or excludes it only from the environment a worker inherits, and
-worker shells may source startup files. `install-launchd` writes only `PATH` and `HOME` into its
-plists, so start a launchd-installed controller through a wrapper that exports the variable.
-Codex fix workers then get every kw_ops tool and chat workers its query tools; Claude workers get
-none. `doctor` shows whether kw_ops is configured and whether the variable is set in doctor's own
-environment.
+Configure kw_ops only when every target it lists is a test server, using a kw_ops operator whose
+permissions cover only test servers; FarmBot does not scope servers. Export the variable in the
+wrapper that starts `serve`, never in a shell startup file such as `~/.zshenv`: FarmBot removes or
+excludes it only from the environment a worker inherits, and worker shells may source startup
+files. `install-launchd` writes only `PATH` and `HOME` into its plists, so it cannot carry the
+variable; never add the token to a plist's `EnvironmentVariables`, where workers can read it.
+Instead, start a kw_ops controller through that wrapper yourself, as the
+[development workflow](docs/development-workflow.md) does for TestBot. Codex fix workers then get
+every kw_ops tool and chat workers its query tools; Claude workers get none. FarmBot learns the
+variable's name only from the block, so add the block and the export together, and remove them
+together: an export without the block reaches every worker. `doctor` shows whether kw_ops is
+configured and whether the variable is set in doctor's own environment.
 
 ## AI/operator diagnostics
 

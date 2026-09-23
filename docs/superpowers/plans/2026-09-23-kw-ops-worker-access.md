@@ -21,6 +21,11 @@ never enters a file, a prompt or a worker's shell.
 
 **Spec:** `docs/superpowers/specs/2026-09-23-kw-ops-worker-access-design.md`
 
+> **Status (2026-09-24):** implemented. The shipped code differs from this plan where reviews ruled:
+> URL validation uses `urllib.parse.urlsplit` (credentials, query and fragment rejected), `resolve`
+> checks the runtime first, a blank token counts as unset, and the AUTHORITY and documentation
+> wording changed. The code and the operating contract are authoritative.
+
 ## Global Constraints
 
 **Scope and dependencies**

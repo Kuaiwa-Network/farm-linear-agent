@@ -115,8 +115,8 @@ that text. Fix workers read the current root's `AGENTS.md`/`CLAUDE.md` and other
 instructions when investigation needs them; grants a worker
 needs belong in the dispatch AUTHORITY. Repository skills under `.agents/skills` and
 `.codex/skills` still load, and workers inherit the service's `HOME`, so the host user's
-`~/.agents/skills` are visible too. Measured with codex-cli 0.155.1 on macOS and re-checked on
-0.156.1; Windows is unverified.
+`~/.agents/skills` are visible too. Measured with codex-cli 0.155.1 on macOS; the trust fix was
+re-checked on 0.156.1; Windows is unverified.
 A Claude worker's settings and MCP servers also come from its launch, whatever its cwd. It runs
 with `--setting-sources user`, so of the user, project and local settings it reads only the user
 settings in its isolated `CLAUDE_CONFIG_DIR`, where FarmBot seeds none, and with
@@ -145,22 +145,32 @@ by name (`bearer_token_env_var`). That worker's isolated home lists the variable
 `shell_environment_policy.exclude` and sets `features.shell_snapshot = false`, because codex-cli
 0.156.1 re-exports excluded variables from its shell snapshot (measured on macOS; Windows is
 unverified). Every other worker has the variable removed from its environment. Claude workers get
-no kw_ops.
+no kw_ops. FarmBot learns the variable's name only from the block, so add the block and the
+variable together, and remove them together: a variable set without the block reaches every worker.
 
 `tools.kw_ops` in the launch payload states the access, `full` or `read`. When kw_ops is not
 configured, its variable is unset or blank, or the runtime is unsupported, it says why instead and
-nothing is injected. An unreachable kw_ops leaves the CLI running without it. Every server kw_ops
-lists belongs to the test environment, so FarmBot does not scope servers. The dispatch AUTHORITY
-limits full access to the issue's reproduction and verification, and requires every
-state-changing call to be recorded. Read-only access rests on FarmBot's allowlist, not on kw_ops.
+nothing is injected. Codex waits about a second for kw_ops before the worker's first model
+request, and a worker whose kw_ops has not started by then still runs without it: a refused
+connection logs an error in the worker's stderr, and a slow or silent kw_ops logs nothing
+(measured with codex-cli 0.156.1 on macOS; Windows is unverified). In both cases the payload still
+states the access, and the worker reports the missing kw_ops as a verification gap when the issue
+needs it. Configure kw_ops only when every target it lists is a test server, using a kw_ops
+operator whose permissions cover only test servers; FarmBot does not scope servers. The dispatch
+AUTHORITY, which tells workers that every listed server is a test server, limits full access to
+the issue's reproduction and verification, and requires every state-changing call to be recorded.
+Read-only access rests on FarmBot's allowlist, not on kw_ops.
 
 The token variable must be set only in the controller's environment, in the wrapper that starts
 `serve`, never in a shell startup file such as `~/.zshenv`: the removal and the exclusion apply
-only to the environment a worker inherits, and worker shells may source startup files. One known
-limit: the Unity processes FarmBot starts (batch runs and the interactive Editor) inherit the
-controller's environment, token variable included. `doctor` reports `tools.kw_ops` with
-`configured` and, for a configured host, `token_env` and `token_set_in_doctor_environment`, which
-reflects doctor's own environment, not the running controller's.
+only to the environment a worker inherits, and worker shells may source startup files. On Windows,
+provide it only in the controller service's process environment, not as a persistent user or
+machine environment variable, which lives in the registry where same-user processes can likely
+read it (unverified). One known limit: the Unity processes FarmBot starts (batch runs and the
+interactive Editor) inherit the controller's environment, token variable included. `doctor`
+reports `tools.kw_ops` with `configured` and, for a configured host, `token_env` and
+`token_set_in_doctor_environment`, which reflects doctor's own environment, not the running
+controller's.
 
 An active repair can answer questions directly. Free-text intent is interpreted by the
 current worker; QA/retry words do not dispatch work by themselves. Empty Bug delegation

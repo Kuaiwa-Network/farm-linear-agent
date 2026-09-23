@@ -129,7 +129,8 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(payload_of(message)['tools'], {'kw_ops': {'access': 'read'}})
         authority = message.split("\n\n", 1)[0]
         for phrase in ("tools.kw_ops.access", "test game environment", "gm_list_targets",
-                       "never read, print or store", "State changes", "verification gap"):
+                       "never read, print or store", "State changes",
+                       "tools.kw_ops.status is \"unavailable\"", "no kw_ops tools are available"):
             self.assertIn(phrase, authority)
 
     def test_a_launch_without_tool_grants_carries_an_empty_tools_map(self):

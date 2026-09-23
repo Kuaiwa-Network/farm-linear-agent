@@ -90,11 +90,12 @@ class Scheduler:
         issue = self.ledger.issue(item["issue_id"])
         paths = self._worktrees_for(skill, item, issue)
         repo_root = Path(self.skill_root).parent
-        # Enforcement is tool injection (spec §7): what a worker can reach is decided here, from the
-        # reservation it actually holds, and never from the skill manifest — which would give every fix
-        # worker the Unity MCP whether or not it holds a slot — and never from a repository-local
-        # .codex/config.toml. The isolated home alone does not make that file inert: codex exec trusts an
-        # undecided cwd and then loads it, so Launcher.spawn records the cwd as untrusted in that home.
+        # Enforcement is tool injection (spec §7): what a worker can reach is decided here, never from a
+        # repository-local .codex/config.toml. A reservation-bound server such as the Unity MCP is decided
+        # from the reservation the worker actually holds, and never from the skill manifest — which would
+        # give every fix worker the Unity MCP whether or not it holds a slot. The isolated home alone does
+        # not make that repository file inert: codex exec trusts an undecided cwd and then loads it, so
+        # Launcher.spawn records the cwd as untrusted in that home.
         reservation = self.ledger.active_reservation(item["id"])
         if reservation is not None and self.ledger.slot(reservation['resource'])['state'] == 'held':
             return None
