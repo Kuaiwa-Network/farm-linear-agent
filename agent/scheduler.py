@@ -14,6 +14,7 @@ from .publication import issue_branch
 TERMINAL = ("delivered", "blocked", "cancelled", "failed")
 WAITING = ("awaiting_input", "awaiting_resource")
 READ_REPO = "Farm-Client"
+DEFAULT_CODEX_MODEL_SETTINGS = {"model": "gpt-6-sol", "reasoning_effort": "xhigh"}
 
 
 class Scheduler:
@@ -147,8 +148,9 @@ class Scheduler:
         if self.ledger.item(item["id"])["state"] != "queued":
             return None
         options = {}
-        if self.runtime_name == "codex" and skill.name in self.codex_workers:
-            options["model_settings"] = self.codex_workers[skill.name]
+        if self.runtime_name == "codex":
+            options["model_settings"] = {**DEFAULT_CODEX_MODEL_SETTINGS,
+                                         **self.codex_workers.get(skill.name, {})}
         worker_env = {"FARMBOT_DB": str(self.db_path), "PYTHONPATH": pythonpath}
         if self.config_path is not None:
             # Every attempt, including resumes, uses the controller's selected file.
