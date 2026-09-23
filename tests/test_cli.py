@@ -52,6 +52,33 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result['branch'], 'farmbot/farm-1')
         self.assertEqual(ledger.item(args.item)['state'], 'running')
 
+    def test_repository_handoff_keeps_the_item_and_revokes_the_old_claim(self):
+        from unittest.mock import patch
+        from agent.__main__ import parser, run
+        args, ledger, config, api, _ = self.publication_fixture()
+        config.repos['Farm-Contract'] = 'https://github.com/Kuaiwa-Network/Farm-Contract.git'
+        ledger.set_worker(args.item, 12345, 'test')
+        ledger.checkpoint(args.item, args.token, {'handoff': {
+            'facts': [], 'hypotheses': [], 'checks': [], 'repositories': [], 'next_actions': ['Check contract']}})
+        handoff = parser().parse_args(['--db', str(self.db), 'handoff-repository', '--item', args.item,
+                                       '--token', args.token, '--to', 'Farm-Contract'])
+        with patch('agent.__main__.load_config', return_value=config):
+            result = run(handoff, ledger, lambda: api)
+        self.assertEqual(result['id'], args.item)
+        self.assertEqual(result['next_root_repo'], 'Farm-Contract')
+        with self.assertRaises(Exception):
+            ledger.renew(args.item, args.token)
+
+    def test_neutral_fix_cannot_verify_publication(self):
+        from unittest.mock import patch
+        from agent.__main__ import run
+        from agent.ledger import LedgerError
+        args, ledger, config, api, _ = self.publication_fixture()
+        self.root_item(args.item, None)
+        with patch('agent.__main__.load_config', return_value=config):
+            with self.assertRaisesRegex(LedgerError, 'allowed publishing repository'):
+                run(args, ledger, lambda: api)
+
     def test_checkpoint_reconciles_verified_pr_that_linear_attached_before_registration(self):
         self.checkpoint_reconciles_late_pr('FARM')
 
@@ -143,6 +170,8 @@ class CliTests(unittest.TestCase):
             "client_id": "test", "client_secret": "test", "webhook_secret": "test",
             "local_root": str(local), "repos": {"Farm-Client": str(origin)}})
         item = self.seeded_item(skill=skill, target={**PIN, "commit_sha": baseline})
+        if skill == "fix":
+            self.root_item(item, "Farm-Client")
         trees = Worktrees(local / "repos", local / "worktrees", {"Farm-Client": str(origin)})
         path = trees.add("Farm-Client", item, "farmbot/fix")
         (path / "fix.cs").write_text("fixed")
@@ -259,6 +288,14 @@ class CliTests(unittest.TestCase):
         ledger.close()
         return item["id"]
 
+    def root_item(self, item, repo):
+        from agent.ledger import Ledger
+        ledger = Ledger(self.db)
+        try:
+            ledger.connection.execute("UPDATE work_items SET root_repo=? WHERE id=?", (repo, item))
+        finally:
+            ledger.close()
+
     def test_status_exposes_pending_cleanup_and_status_read_failures(self):
         from agent.ledger import Ledger
         item = self.seeded_item()
@@ -323,7 +360,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(self.calls()[-1]["method"], "create_comment")
         self.assertIn(action["marker"], self.calls()[-1]["body"])
         self.run_cli("checkpoint", "--item", item, "--token", token, "--input",
-                     self.json_file("cp.json", {"stage": "diagnose", "published_prs": ["https://github.com/o/r/pull/9"]}))
+                     self.json_file("cp.json", {"stage": "diagnose", "published_prs": []}))
         blocker = self.root / "blocker.md"
         blocker.write_text("需要设备型号。", encoding="utf-8")
         blocked = self.run_cli("prepare-comment", "--item", item, "--token", token, "--kind", "blocker", "--body-file", str(blocker))
@@ -485,12 +522,14 @@ class CliTests(unittest.TestCase):
 
     def test_pr_targets_accept_ssh_remotes_ignore_case_and_refuse_a_config_without_github(self):
         item = self.seeded_item()
+        self.root_item(item, "Farm-Client")
         token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
         ok = self.json_file("ok.json", {"published_prs": ["https://github.com/Kuaiwa-Network/Farm-Client/pull/1"]})
         self.write_config({"Farm-Client": "git@github.com:kuaiwa-network/farm-client.git"})
         self.assertEqual(self.run_cli("checkpoint", "--item", item, "--token", token, "--input", ok)["state"], "running")
         self.write_config({"Farm-Client": "https://example.com/farm/Farm-Client.git"})
-        process = self.run_cli("checkpoint", "--item", item, "--token", token, "--input", ok, success=False)
+        second = self.json_file("second.json", {"published_prs": ["https://github.com/Kuaiwa-Network/Farm-Client/pull/2"]})
+        process = self.run_cli("checkpoint", "--item", item, "--token", token, "--input", second, success=False)
         self.assertIn("no configured GitHub repository", process.stderr)
         empty = self.json_file("none.json", {"published_prs": []})
         self.assertEqual(self.run_cli("checkpoint", "--item", item, "--token", token, "--input", empty)["state"], "running")
@@ -498,6 +537,7 @@ class CliTests(unittest.TestCase):
     def test_checkpoint_refuses_a_pr_outside_the_configured_repositories(self):
         self.write_config({"Farm-Client": "https://github.com/Kuaiwa-Network/Farm-Client.git"})
         item = self.seeded_item()
+        self.root_item(item, "Farm-Client")
         token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
         process = self.run_cli("checkpoint", "--item", item, "--token", token, "--input",
                                self.json_file("bad.json", {"published_prs": ["https://github.com/other/repo/pull/1"]}),

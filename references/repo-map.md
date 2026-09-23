@@ -1,8 +1,9 @@
 # Farm repository map (volatile layer)
 
 FarmBot note: this map is inherited from the Farm-Client sweep skill. Repository names and
-write authority for FarmBot come from each skill's `skill.json` manifest, which supersedes the
-"Sweep access" column below wherever they differ. In particular the configuration repository is
+eligible repositories for FarmBot come from each skill's `skill.json` manifest; actual write
+authority comes from the current worker's `stage.write_repositories`. The "Sweep access" column
+below describes repository roles, not permission for every fix attempt. In particular the configuration repository is
 `common` (GitHub `Kuaiwa-Network/common`, often checked out locally as `farm-common`), and the
 `fix` skill may change designer tables there through the documented `designer/configgen`
 toolchain, as draft PRs. Generated artifacts are still never hand-edited.
@@ -73,8 +74,10 @@ kill server runtimes.
 
 ## Farm-Contract workflow for FarmBot
 
-The fix manifest grants an isolated Farm-Contract worktree. Read its `AGENTS.md`/`CLAUDE.md`
-and use its openspec process from that worktree; cwd matters. For the delegated bug, resolve
+The fix manifest includes a readable Farm-Contract worktree. Switch with `handoff-repository`
+to start a fresh worker rooted there before editing or invoking its OpenSpec process; cwd matters.
+Contract-root workers must follow Contract's restrictions on Superpowers and consumer code.
+For the delegated bug, resolve
 uncertain behaviour by asking in Linear with `await-input` (which adds `needs-more-info`).
 Once the human decision is clear, update the relevant contract first, then the affected client,
 server and configuration sources. Link draft PRs and record dependencies and the decision's

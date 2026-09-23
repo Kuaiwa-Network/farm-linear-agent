@@ -18,6 +18,7 @@ from uuid import UUID, uuid4
 
 from . import memory
 from .resource_recovery import RecoveryStore, SCHEMA as RECOVERY_SCHEMA
+from .stages import FIX_REPOSITORIES
 
 MARKER = re.compile(r"\[farmbot:[0-9a-f]{64}\]")
 STATES = ("queued", "running", "awaiting_input", "awaiting_resource",
@@ -234,6 +235,8 @@ class Ledger:
                     lease_seconds REAL,
                     worker_pid INTEGER,
                     needs_resource TEXT,
+                    root_repo TEXT,
+                    next_root_repo TEXT,
                     target_json TEXT,
                     checkpoint TEXT NOT NULL DEFAULT '{}',
                     evidence TEXT NOT NULL DEFAULT '{}',
@@ -359,6 +362,8 @@ class Ledger:
                                                 ("work_items", "capacity_retries", "INTEGER NOT NULL DEFAULT 0"),
                                                 ("work_items", "publication_retries", "INTEGER NOT NULL DEFAULT 0"),
                                                 ("work_items", "retry_not_before", "REAL NOT NULL DEFAULT 0"),
+                                                ("work_items", "root_repo", "TEXT"),
+                                                ("work_items", "next_root_repo", "TEXT"),
                                                 ("job_cleanup", "removing", "INTEGER NOT NULL DEFAULT 0")):
                 present = {row["name"] for row in self.connection.execute(f"PRAGMA table_info({table})")}
                 if column not in present:
@@ -399,7 +404,8 @@ class Ledger:
         issue = json.loads(self._issue_row(row["issue_id"])["metadata"])
         result = {key: row[key] for key in ["id", "issue_id", "session_id", "skill", "state", "stage",
                                             "priority", "host", "generation", "lease_expires_at",
-                                            "worker_pid", "needs_resource", "created_at", "predecessor_id",
+                                            "worker_pid", "needs_resource", "root_repo", "next_root_repo",
+                                            "created_at", "predecessor_id",
                                             "capacity_retries", "publication_retries", "retry_not_before"]}
         result.update(identifier=issue["identifier"], target=json.loads(row["target_json"]) if row["target_json"] else None,
                       resume_authorized=bool(row["resume_authorized"]), checkpoint=json.loads(row["checkpoint"]),
@@ -587,8 +593,15 @@ class Ledger:
 
     def launched(self):
         """Queued items whose worker was spawned but has not claimed yet."""
-        rows = self.connection.execute("SELECT * FROM work_items WHERE state='queued' AND worker_pid IS NOT NULL ORDER BY created_at, id")
+        rows = self.connection.execute("SELECT * FROM work_items WHERE state='queued' AND worker_pid IS NOT NULL "
+                                       "AND next_root_repo IS NULL ORDER BY created_at, id")
         return [{**self._view(row), "updated_at": row["updated_at"]} for row in rows]
+
+    def repository_handoffs(self):
+        """Revoked workers awaiting proven teardown before another repository is launched."""
+        rows = self.connection.execute("SELECT * FROM work_items WHERE state='queued' "
+                                       "AND next_root_repo IS NOT NULL AND worker_pid IS NOT NULL ORDER BY updated_at, id")
+        return [self._view(row) for row in rows]
 
     def status(self):
         rows = [self._view(row) for row in self.connection.execute("SELECT * FROM work_items ORDER BY created_at, id")]
@@ -596,7 +609,7 @@ class Ledger:
         for row in rows:
             counts[row["state"]] = counts.get(row["state"], 0) + 1
         counts["total"] = len(rows)
-        compact = [{key: row[key] for key in ("id", "identifier", "skill", "state", "stage", "priority", "lease_expires_at", "worker_pid")}
+        compact = [{key: row[key] for key in ("id", "identifier", "skill", "state", "stage", "priority", "lease_expires_at", "worker_pid", "next_root_repo")}
                    for row in rows]
         return {"counts": counts, "items": compact,
                 "recovery_required": [row["id"] for row in rows if row["state"] == "running" and row["lease_expires_at"] <= self.clock()]}
@@ -651,6 +664,8 @@ class Ledger:
             row = self._row(item_id)
             if row["state"] != "queued":
                 raise LedgerError("only a queued work item can be claimed")
+            if row["next_root_repo"] is not None:
+                raise LedgerError("previous worker has not finished teardown")
             if row["retry_not_before"] > self.clock():
                 raise LedgerError("automatic retry delay has not elapsed")
             issue_row = self._issue_row(row["issue_id"])
@@ -806,7 +821,9 @@ class Ledger:
             progress.pop("handoff_meta", None)
             if "handoff" in progress:
                 progress["handoff_meta"] = {"fingerprint": row["claimed_fingerprint"],
-                                            "generation": row["generation"], "recorded_at": self.clock()}
+                                            "generation": row["generation"], "worker_id": progress.get("worker_id"),
+                                            "claim_token_hash": row["token"],
+                                            "recorded_at": self.clock()}
             elif "handoff" in previous:
                 progress["handoff"] = previous["handoff"]
                 progress["handoff_meta"] = previous.get("handoff_meta")
@@ -834,6 +851,54 @@ class Ledger:
             if handoff_updated:
                 self._audit(row["id"], "handoff_saved")
             return self._view(self._row(row["id"]))
+
+    def handoff_repository(self, item_id, token, to_repo):
+        """Retire a claim while retaining its PID; only the controller may finish the handoff."""
+        if to_repo not in FIX_REPOSITORIES:
+            raise LedgerError("repository is not a fix target")
+        with self._transaction():
+            row = self._owned(item_id, token)
+            if row["skill"] != "fix":
+                raise LedgerError("repository handoff requires a fix work item")
+            if row["root_repo"] == to_repo:
+                raise LedgerError("worker is already rooted in that repository")
+            if row["next_root_repo"] is not None:
+                raise LedgerError("repository handoff is already pending")
+            if row["worker_pid"] is None:
+                raise LedgerError("worker process is not recorded yet; retry the handoff")
+            self.require_valid_checkpoint(item_id, token)
+            checkpoint = json.loads(row["checkpoint"])
+            meta = checkpoint.get("handoff_meta") or {}
+            if (not checkpoint.get("handoff") or meta.get("worker_id") != checkpoint.get("worker_id")
+                    or meta.get("generation") != row["generation"]
+                    or meta.get("claim_token_hash") != row["token"]
+                    or meta.get("fingerprint") != row["claimed_fingerprint"]):
+                raise LedgerError("save a current worker checkpoint before repository handoff")
+            if self.connection.execute("SELECT 1 FROM reservations WHERE item_id=? "
+                                       "AND state IN ('queued','active','cancel_requested') LIMIT 1", (item_id,)).fetchone():
+                raise LedgerError("release the resource reservation before repository handoff")
+            if not _in_scope(json.loads(self._issue_row(row["issue_id"])["metadata"])):
+                raise LedgerError("issue left scope; cancel instead of handing off")
+            if row["requeue_requested"] or self._issue_row(row["issue_id"])["fingerprint"] != row["claimed_fingerprint"]:
+                raise LedgerError("issue changed; revalidate before repository handoff")
+            self._set_state(item_id, "queued", "repository handoff requested", token=None,
+                            lease_expires_at=None, next_root_repo=to_repo)
+            self._audit(item_id, "repository_handoff_requested", details={
+                "from": row["root_repo"], "to": to_repo, "worker_pid": row["worker_pid"]})
+            return self._view(self._row(item_id))
+
+    def complete_repository_handoff(self, item_id, expected_pid):
+        """Controller-only transition after the old worker and descendants are certified gone."""
+        with self._transaction():
+            row = self._row(item_id)
+            if (row["state"] != "queued" or row["next_root_repo"] not in FIX_REPOSITORIES
+                    or row["worker_pid"] != expected_pid or row["token"] is not None):
+                raise LedgerError("repository handoff no longer matches the retired worker")
+            target = row["next_root_repo"]
+            self._set_state(item_id, "queued", "repository handoff complete", root_repo=target,
+                            next_root_repo=None, worker_pid=None)
+            self._audit(item_id, "repository_handoff_complete", details={"to": target})
+            return self._view(self._row(item_id))
 
     def await_input(self, item_id, token, question):
         _text(question, "question")
@@ -866,6 +931,8 @@ class Ledger:
         with self._transaction():
             self.require_valid_checkpoint(item_id, token)
             row = self._owned(item_id, token)
+            if row["skill"] == "fix" and row["root_repo"] not in (None, "Farm-Client"):
+                raise LedgerError("Unity verification requires the neutral or Farm-Client stage")
             target = json.loads(row["target_json"]) if row["target_json"] else None
             if not target or not COMMIT_SHA.match(target.get("commit_sha") or ""):
                 raise LedgerError("a resource request needs a pinned commit; this item has none")
@@ -873,7 +940,8 @@ class Ledger:
                 if not isinstance(commit_sha, str) or not COMMIT_SHA.fullmatch(commit_sha):
                     raise LedgerError("verification commit must be a full lowercase commit SHA")
                 if (row["skill"] not in ("fix", "fgui", "feature") or resource != "unity_slot"
-                        or target["repository"] != "Farm-Client"):
+                        or target["repository"] != "Farm-Client"
+                        or (row["skill"] == "fix" and row["root_repo"] != "Farm-Client")):
                     raise LedgerError("only a write worker may select a Farm-Client Unity verification commit")
             selected_commit = target["commit_sha"] if commit_sha is None else commit_sha
             open_row = self.connection.execute(
@@ -1184,7 +1252,7 @@ class Ledger:
                    WHERE item_id=? AND state IN ('queued','active')""",
                 (self.clock(), reason[:500], row["id"]))
             self._set_state(row["id"], "cancelled", reason, token=None, lease_expires_at=None, worker_pid=None,
-                            needs_resource=None)
+                            needs_resource=None, next_root_repo=None)
             return self._view(self._row(row["id"]))
 
     def fail(self, item_id, reason):
@@ -1270,7 +1338,8 @@ class Ledger:
                     return self._view(self._row(self._cancelled_successor(row, reason)))
                 self._guard_cleanup_retry(row["id"])
                 self._set_state(row["id"], "queued", reason, worker_pid=None, generation=row["generation"] + 1,
-                                requeue_requested=0, capacity_retries=0, publication_retries=0, retry_not_before=0)
+                                requeue_requested=0, capacity_retries=0, publication_retries=0, retry_not_before=0,
+                                root_repo=None, next_root_repo=None)
                 self.connection.execute('DELETE FROM resource_job_retries WHERE item_id=?', (row['id'],))
             except sqlite3.IntegrityError:
                 raise LedgerError("another active work item exists for this issue")
@@ -1606,7 +1675,8 @@ class Ledger:
                                 or bool(row["requeue_requested"]),
                        "revalidation_required": True, "source": "previous_worker_checkpoint"}
         view = self._view(row)
-        coordination = {key: view[key] for key in ("id", "identifier", "skill", "state", "stage", "generation", "target")}
+        coordination = {key: view[key] for key in ("id", "identifier", "skill", "state", "stage", "generation",
+                                                  "root_repo", "next_root_repo", "target")}
         return {"issue": json.loads(issue_row["metadata"]), "coordination": coordination, "handoff": handoff,
                 "conversation_history": self._conversation_history(row["issue_id"]),
                 "delegation_session": (authority["session_id"] if

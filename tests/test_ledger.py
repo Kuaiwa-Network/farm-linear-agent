@@ -59,12 +59,16 @@ class SchemaTests(LedgerBase):
     def test_opening_an_older_ledger_adds_the_columns_later_waves_introduced(self):
         self.ledger.connection.execute("ALTER TABLE sessions DROP COLUMN guidance")
         self.ledger.connection.execute("ALTER TABLE work_items DROP COLUMN lease_seconds")
+        self.ledger.connection.execute("ALTER TABLE work_items DROP COLUMN root_repo")
+        self.ledger.connection.execute("ALTER TABLE work_items DROP COLUMN next_root_repo")
         self.ledger.close()
         reopened = self.open_ledger()
         reopened.ensure_session(SESSION, None, delegation=True, guidance="先看日志")
         self.assertEqual(reopened.session(SESSION)["guidance"], "先看日志")
         columns = {row["name"] for row in reopened.connection.execute("PRAGMA table_info(work_items)")}
         self.assertIn("lease_seconds", columns)
+        self.assertIn("root_repo", columns)
+        self.assertIn("next_root_repo", columns)
 
 
 class SnapshotTests(LedgerBase):
@@ -169,6 +173,41 @@ class WorkItemTests(LedgerBase):
         for bad in (1.0, "2026-09-19T00:00:00", ""):
             with self.assertRaises(LedgerError):
                 self.ledger.set_session_target(SESSION, {**good, "selected_at": bad})
+
+
+class RepositoryStageTests(LedgerBase):
+    def test_handoff_requires_current_checkpoint_and_controller_teardown(self):
+        item = self.new_item()
+        self.ledger.set_worker(item["id"], 4321, "test")
+        token = self.ledger.claim(item["id"], worker_id="worker-one")["token"]
+        with self.assertRaises(LedgerError):
+            self.ledger.handoff_repository(item["id"], token, "Farm-Contract")
+        self.ledger.checkpoint(item["id"], token, {"handoff": {
+            "facts": [], "hypotheses": [], "checks": [], "repositories": [], "next_actions": ["Check contract"]}})
+        pending = self.ledger.handoff_repository(item["id"], token, "Farm-Contract")
+        self.assertEqual(pending["worker_pid"], 4321)
+        self.assertEqual(self.ledger.queue(), [])
+        with self.assertRaises(LedgerError):
+            self.ledger.claim(item["id"], worker_id="worker-two")
+        with self.assertRaises(LedgerError):
+            self.ledger.complete_repository_handoff(item["id"], 9999)
+        ready = self.ledger.complete_repository_handoff(item["id"], 4321)
+        self.assertEqual((ready["root_repo"], ready["worker_pid"]), ("Farm-Contract", None))
+        self.assertEqual(self.ledger.claim(item["id"], worker_id="worker-two")["state"], "running")
+
+    def test_contract_stage_cannot_request_unity(self):
+        item = self.new_item()
+        self.ledger.connection.execute("UPDATE work_items SET root_repo='Farm-Contract' WHERE id=?", (item["id"],))
+        token = self.ledger.claim(item["id"], worker_id="worker")['token']
+        with self.assertRaisesRegex(LedgerError, "neutral or Farm-Client"):
+            self.ledger.await_resource(item["id"], token, "unity_slot", "batch")
+
+    def test_explicit_retry_restarts_from_neutral_investigation(self):
+        item = self.new_item()
+        self.ledger.connection.execute("UPDATE work_items SET root_repo='Farm-Contract' WHERE id=?", (item["id"],))
+        self.ledger.fail_queued(item["id"], "transient")
+        retried = self.ledger.retry(item["id"], "try again")
+        self.assertIsNone(retried["root_repo"])
 
 
 class LeaseTests(LedgerBase):
@@ -617,6 +656,7 @@ class SecondItemOnOneIssueTests(LedgerBase):
 class ReservationTests(unittest.TestCase):
     def test_requested_fix_commit_does_not_overwrite_baseline(self):
         item = self.item(ISSUE, "a" * 40)
+        self.ledger.connection.execute("UPDATE work_items SET root_repo='Farm-Client' WHERE id=?", (item["id"],))
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
         self.ledger.await_resource(item["id"], token, "unity_slot", "batch", commit_sha="b" * 40)
         self.assertEqual(self.ledger.item(item["id"])["target"]["commit_sha"], "a" * 40)

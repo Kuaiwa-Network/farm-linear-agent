@@ -193,6 +193,8 @@ class LauncherTests(unittest.TestCase):
             tomllib.loads((home / "config.toml").read_text(encoding="utf-8"))
 
     def test_sandbox_roots_and_network_access_precede_mcp_servers_in_the_home_config(self):
+        codex_command = RUNTIMES["codex"].command
+        self.assertEqual(codex_command[codex_command.index("--sandbox") + 1], "workspace-write")
         handle = self.launcher.spawn("item-3", self.message, {"unity": {"url": "http://127.0.0.1:8080/mcp"}},
                                      budget_seconds=60, cwd=self.tmp.name, extra_env={"FAKE_CLI_MODE": "echo"},
                                      writable=[Path("/w/item-3/Farm-Client"), Path("/repo/.local/agent")])

@@ -11,7 +11,7 @@ python3 -m agent --db DATABASE checkpoint --help
 | --- | --- |
 | `claim` | `--item ITEM_ID --worker-id WORKER_ID`; returns the claim token |
 | `fetch-issue`, `issue-context` | `--item ITEM_ID` only; no token flags |
-| `renew`, `checkpoint`, `pop-inbox`, `verify-publication`, `prepare-comment`, `post-comment`, `confirm-comment`, `activity`, `await-input`, `await-resource`, `finish` | `--item ITEM_ID --token-file STATE_DIR/token`, plus command-specific arguments from `--help` |
+| `renew`, `checkpoint`, `pop-inbox`, `verify-publication`, `handoff-repository`, `prepare-comment`, `post-comment`, `confirm-comment`, `activity`, `await-input`, `await-resource`, `finish` | `--item ITEM_ID --token-file STATE_DIR/token`, plus command-specific arguments from `--help` |
 | `request-repair` | Read-only profile only: claim-token arguments, `--message-id LATEST_MESSAGE_ID --summary-file STATE_DIR/repair-summary.md` |
 | `resume-work` | Legacy resume-only command: claim-token arguments and `--message-id LATEST_MESSAGE_ID`; cannot start a first repair |
 | `memory-list`, `memory-read`, `memory-save`, `memory-forget` | Same claim-token arguments; see `references/memory.md` |
@@ -81,6 +81,18 @@ succeeds. Confirm the returned checkpoint contains the intended handoff before r
 the claim. The CLI blocks those transitions after a rejected handoff until a valid
 handoff is saved; do not remove `handoff` to bypass the repair. If saving cannot
 succeed, retain the local JSON, report the exact error, and do not claim it was saved.
+
+For a fix repository switch, save a fresh `handoff` with facts, checks, repository heads,
+published PRs and next actions, then run:
+
+```bash
+python3 -m agent --db DATABASE handoff-repository --item ITEM_ID --token-file STATE_DIR/token --to Farm-Contract
+```
+
+Use the actual target repository name. The command refreshes the issue and delegation, revokes
+this claim, and queues a fresh worker in the same item. Check its returned `next_root_repo`,
+then exit immediately. A new worker starts only after the controller certifies this attempt's
+teardown. A failed command leaves the current claim in place; inspect the error and repair it.
 
 For a stalled Unity reservation, save that checkpoint **before**
 `release-resource --outcome unclean --item ITEM_ID --token-file RESERVATION_TOKEN_FILE`.

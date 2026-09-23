@@ -8,6 +8,8 @@ FarmBot keeps one conversation across read-only investigation and writable repai
 An authorized “fix it” reply can start the first repair or resume previous work without
 re-delegating. The host carries messages and findings across the change of execution profile
 and posts recorded session progress every ten minutes while work is active or queued.
+Fix work starts with read-only investigation, then uses a fresh Codex worker rooted in each
+repository it needs to change. The controller keeps one Linear work item across those switches.
 
 Start with the [design spec](docs/superpowers/specs/2026-09-17-farm-linear-agent-design.md).
 It records the decisions, the architecture, the porting map from the two prototypes it

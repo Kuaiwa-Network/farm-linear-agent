@@ -11,6 +11,7 @@ from .config import Paths, linear_api, load_config
 from .ledger import Ledger, LedgerError
 from .memory import prune_snapshots
 from .router import WRITE_SKILLS
+from .stages import FIX_REPOSITORIES, write_repositories
 
 
 def parser():
@@ -48,6 +49,7 @@ def parser():
     cmd("claim", "--item", "--worker-id")
     cmd("renew", "--item", token=True)
     cmd("checkpoint", "--item", "--input", token=True)
+    cmd("handoff-repository", "--item", "--to", token=True)
     cmd("issue-context", "--item")
     cmd("pop-inbox", "--item", token=True)
     cmd("verify-publication", "--item", "--repo", token=True)
@@ -95,18 +97,22 @@ def read_text(path):
 GITHUB_REMOTE = re.compile(r"(?:https://|ssh://git@|git@)github\.com[:/]([^/\s:]+)/([^/\s]+?)(?:\.git)?/?", re.IGNORECASE)
 
 
-def check_pr_targets(urls):
+def check_pr_targets(urls, *, allowed_repositories=None):
     """A worker may only register PRs on the repositories this host is configured for."""
     if not isinstance(urls, list) or not urls:
         return
     try:
         repos = load_config(secure_permissions=False).repos
     except (OSError, ValueError):
+        if allowed_repositories is not None:
+            raise LedgerError("configured repository is required to register a new PR")
         return  # no private config (tests, first run): the ledger's URL shape is the only rule
+    if allowed_repositories is not None:
+        repos = {name: remote for name, remote in repos.items() if name in allowed_repositories}
     prefixes = {f"https://github.com/{m.group(1)}/{m.group(2)}/pull/".casefold()
                 for m in (GITHUB_REMOTE.fullmatch(str(remote)) for remote in (repos or {}).values()) if m}
     if not prefixes:  # a config that names no GitHub remote can never legitimise a PR
-        raise LedgerError("no configured GitHub repository to register PRs on; check repos in the host config")
+        raise LedgerError("no configured GitHub repository in this stage to register PRs on")
     for url in urls:
         if not isinstance(url, str) or not any(url.casefold().startswith(prefix) for prefix in prefixes):
             raise LedgerError(f"PR URL is not under a configured repository: {url}")
@@ -148,7 +154,7 @@ def verify_late_prs(ledger, args, token, progress):
                                    issue_prefix=config.issue_prefix)
     verified = []
     for url in sorted(late):
-        repo = next((name for name in skill.writes if name in config.repos and
+        repo = next((name for name in write_repositories(item, skill) if name in config.repos and
                      url.casefold().startswith(('https://github.com/' + github_repository(config.repos[name]) + '/pull/').casefold())), None)
         if repo is None:
             raise LedgerError("PR URL is not under an allowed publishing repository")
@@ -252,10 +258,43 @@ def run(args, ledger, api_factory):
     if c == "checkpoint":
         progress = read_json(args.input)
         if isinstance(progress, dict):
-            check_pr_targets(progress.get("published_prs"))
+            from .config import ROOT
+            from .skills import load_skills
+            item = ledger.item(args.item)
+            skill = load_skills(ROOT / "skills").get(item["skill"])
+            published = progress.get("published_prs")
+            if (isinstance(published, list) and all(isinstance(url, str) for url in published)
+                    and skill is not None):
+                known = set(ledger.issue_context(args.item)["published_prs"])
+                check_pr_targets([url for url in published if url not in known],
+                                 allowed_repositories=write_repositories(item, skill))
+            else:
+                check_pr_targets(published)
         token = resolve_token(args)
         return ledger.checkpoint(args.item, token, progress,
                                  verified_prs=verify_late_prs(ledger, args, token, progress))
+    if c == "handoff-repository":
+        from .config import ROOT
+        from .skills import load_skills
+        token = resolve_token(args)
+        ledger.renew(args.item, token)
+        item = ledger.item(args.item)
+        if item["skill"] != "fix" or args.to not in FIX_REPOSITORIES:
+            raise LedgerError("repository handoff requires a configured fix repository")
+        config = load_config(secure_permissions=False)
+        if Path(args.db).resolve() != Paths(config).ledger.resolve():
+            raise LedgerError("repository handoff must use the configured host ledger")
+        skill = load_skills(ROOT / "skills").get("fix")
+        if skill is None or args.to not in skill.writes or args.to not in config.repos:
+            raise LedgerError("target repository is not configured for this fix worker")
+        api = api_factory()
+        issue = api.fetch_issue(item["issue_id"])
+        ledger.observe_issue(issue)
+        if (not api.app_user_id or issue.get("delegate_id") != api.app_user_id or issue.get("archived")
+                or issue.get("status_type") in ("completed", "canceled")):
+            raise LedgerError("issue must remain open and delegated to FarmBot")
+        ledger.renew(args.item, token)
+        return ledger.handoff_repository(args.item, token, args.to)
     if c == "issue-context":
         return ledger.issue_context(args.item)
     if c == "pop-inbox":
@@ -323,7 +362,7 @@ def run(args, ledger, api_factory):
         skills = load_skills(ROOT / 'skills')
         skill = skills.get(item['skill'])
         session = ledger.session(item['session_id']) or {}
-        if (item['skill'] not in WRITE_SKILLS or not skill or args.repo not in skill.writes
+        if (item['skill'] not in WRITE_SKILLS or not skill or args.repo not in write_repositories(item, skill)
                 or not session.get('delegation')):
             raise LedgerError("only a delegated write worker may verify an allowed publishing repository")
         from .publication import PublicationUnavailable
@@ -353,7 +392,8 @@ def run(args, ledger, api_factory):
             ledger.renew(args.item, token)  # authenticate before reading any checkout
             item = ledger.item(args.item)
             if (item["skill"] not in WRITE_SKILLS or args.resource != "unity_slot"
-                    or (item.get("target") or {}).get("repository") != "Farm-Client"):
+                    or (item.get("target") or {}).get("repository") != "Farm-Client"
+                    or (item["skill"] == "fix" and item["root_repo"] != "Farm-Client")):
                 raise LedgerError("only a write worker may select a Farm-Client Unity verification commit")
             config = load_config(secure_permissions=False)
             paths = Paths(config)
@@ -415,7 +455,7 @@ def main(argv=None):
         check_worker_state(args.db)
         ledger = Ledger(args.db, lease_seconds=args.lease_seconds)
         result = run(args, ledger, linear_api)
-        print(json.dumps(result, ensure_ascii=False, allow_nan=False))
+        print(json.dumps(result, ensure_ascii=True, allow_nan=False))
         return 0
     except (LedgerError, OSError, ValueError, RuntimeError, sqlite3.Error, KeyError) as exc:
         print(f"farmbot: {type(exc).__name__}: {exc}", file=sys.stderr)

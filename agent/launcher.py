@@ -26,7 +26,8 @@ _PINNED_EXIT = os.name != "nt" and all(hasattr(os, name) for name in ("waitid", 
 RUNTIMES = {
     "codex": RuntimeConfig(
         name="codex",
-        command=["codex", "exec", "-c", "features.memories=false", "--cd", "{cwd}", "--approve-for-me", "--skip-git-repo-check",
+        command=["codex", "exec", "-c", "features.memories=false", "--cd", "{cwd}", "--sandbox", "workspace-write",
+                 "--approve-for-me", "--skip-git-repo-check",
                  "--output-last-message", "{last_message}", "-"],
         home_env="CODEX_HOME", mcp_format="toml",
         seed_files={os.path.expanduser("~/.codex/auth.json"): "auth.json"}),
@@ -145,7 +146,8 @@ class Launcher:
             if Path(source).is_file():
                 shutil.copy2(source, destination)
         # Codex's workspace-write sandbox allows only the cwd and temp dirs and no network by default; the
-        # worker also writes its other worktrees, the ledger and its state dir, and talks to Linear and GitHub.
+        # worker also writes only its active repository worktree, the ledger and its state dir,
+        # and talks to Linear and GitHub.
         roots = [str(self.state_dir(item_id)), *(str(path) for path in writable)]
         settings = {"sandbox_workspace_write": {"writable_roots": roots, "network_access": True}}
         if self.runtime.name == "codex":
