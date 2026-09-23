@@ -155,7 +155,9 @@ empty Windows Job Object, or on macOS/POSIX from the reap of a worker that exite
 worker leads its own session and process group, whose IDs both equal its PID and stay reserved until
 FarmBot reaps it. Before that reap FarmBot terminates and records any live member of the session, after
 a Stop or budget kill as well as a self-exit. For a self-exit it writes evidence only after the session
-is empty and, once the worker is reaped, no process remains in its group. An unreadable process table is
+is empty and, once the worker is reaped, no process remains in its group. A member that leaves the
+session after being signalled, and any descendant an interrupted Stop recorded, stays in that evidence
+and holds cleanup while alive. An unreadable process table is
 retried for up to a minute first. A child that called `setsid()` has left the worker's session and escapes
 this check; that is the POSIX limit of the proof, and it is not rare. Claude Code 2.1.280 was observed
 starting each Bash tool shell in its own session, so processes a `claude` worker's commands leave running

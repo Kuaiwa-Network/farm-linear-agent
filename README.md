@@ -197,8 +197,8 @@ starting its Bash tool shells that way, so treat processes a `claude` worker lea
 The check needs Python 3.13 or later on macOS, for `os.waitid`. Attempts that exited under an older
 interpreter, before this check existed, or while FarmBot was stopped keep their pending cleanup.
 `recover-worker-cleanup` is Windows-only; on macOS, inspect the attempt's run directory (`process.json`,
-`killed.json`, `teardown-unverified.json`) and the job's `issue-context` cleanup evidence before deciding
-how to proceed.
+`killed.json`, `teardown-unverified.json`, and `killed.superseded.json`, which keeps an interrupted Stop's
+record) and the job's `issue-context` cleanup evidence before deciding how to proceed.
 
 ## Shared worker memory
 

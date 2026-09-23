@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from agent.config import Config
+from agent.launcher import _PINNED_EXIT
 from agent.service import build, enqueue
 from test_ledger import ISSUE, OTHER, issue
 from test_slots import FakeMcp, FakeUnity
@@ -142,12 +143,18 @@ class EndToEndTests(unittest.TestCase, Fixture):
         self.assertIn("👀 FarmBot 已开始处理", self.calls()[[i for i, m in enumerate(methods) if m == "create_comment"][0]]["body"])
         # A parent's exit alone proves nothing about its descendants. The worker exited by itself, so its
         # evidence is an empty Windows Job Object, or on POSIX its own session and process group verified
-        # empty at reap time (setsid() escapees are that proof's documented limit).
+        # empty at reap time (setsid() escapees are that proof's documented limit). Without os.waitid
+        # (macOS CPython before 3.13) that check cannot run and cleanup keeps holding.
         deadline = time.time() + 5
         while self.c.launcher.running() and time.time() < deadline:
             self.c.scheduler.tick()
             time.sleep(0.05)
         cleanup = self.c.ledger.cleanup_record(item["id"])
+        if os.name != 'nt' and not _PINNED_EXIT:
+            self.assertFalse(cleanup['done'])
+            self.assertIn("teardown", cleanup["error"])
+            self.assertTrue((self.c.paths.worktrees / item["id"]).exists())
+            return
         self.assertTrue(cleanup['done'], cleanup['error'])
         self.assertFalse((self.c.paths.worktrees / item['id']).exists())
         records = list((self.c.paths.runs / item['id']).glob('*/killed.json'))

@@ -520,10 +520,16 @@ class Launcher:
             return False
         if handle.process.poll() is None:
             return False  # Another thread holds Popen's waitpid lock; the worker is not reaped yet.
-        # Members were proved gone through the pinned session, so they are not re-checked by pid later.
-        record = {"pid": leader, "descendants": [], "terminated": sorted(state["terminated"]),
-                  "posix_session": leader, "exited": True}
-        if members is None:
+        # A member seen in the pinned session and signalled, but still alive, has since left the session:
+        # it stays recorded and checked by pid, like the descendants an interrupted Stop recorded. Members
+        # seen gone were proved so through the pinned session and are not re-checked later.
+        escaped = {pid for pid in state["terminated"] if self.alive(pid)}
+        prior = self._prior_descendants(handle)
+        record = {"pid": leader, "descendants": sorted(escaped | set(prior or ())),
+                  "terminated": sorted(state["terminated"] - escaped), "posix_session": leader, "exited": True}
+        if prior is None:
+            reason = "earlier teardown record does not belong to this attempt"
+        elif members is None:
             reason = "process table unreadable"
         elif members:
             reason = "session members survived SIGKILL"
@@ -540,6 +546,20 @@ class Launcher:
         (handle.run_dir / "teardown-unverified.json").write_text(
             json.dumps({**record, "empty": False, "remaining": members, "reason": reason}), encoding="utf-8")
         return True
+
+    @staticmethod
+    def _prior_descendants(handle):
+        """What an earlier (interrupted) kill of this attempt recorded; None if that record is not its own."""
+        path = handle.run_dir / "killed.json"
+        if not path.exists():
+            return []
+        try:
+            prior = json.loads(path.read_text(encoding="utf-8"))
+            if prior.get("pid") != handle.pid:
+                return None
+            return [int(pid) for pid in prior.get("descendants", [])]
+        except (OSError, ValueError, TypeError, AttributeError):
+            return None
 
     @staticmethod
     def _command_line(pid):

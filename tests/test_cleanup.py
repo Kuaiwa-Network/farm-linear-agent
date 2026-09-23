@@ -7,7 +7,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from agent.launcher import Launcher, RUNTIMES
+from agent.launcher import _PINNED_EXIT, Launcher, RUNTIMES
 from agent.ledger import LedgerError
 from agent.scheduler import Scheduler
 from agent.worktrees import WorktreeError
@@ -345,6 +345,7 @@ class CancellationCleanupTests(unittest.TestCase):
 
 
 @unittest.skipIf(os.name == 'nt', 'POSIX self-exit evidence; Windows workers are proved by Job Objects')
+@unittest.skipUnless(_PINNED_EXIT, 'needs os.waitid (CPython 3.13+ on macOS)')
 class SelfExitedWorkerCleanupTests(unittest.TestCase):
     """The real launcher under the scheduler. FakeLauncher.assert_quiescent does not model teardown evidence,
     so no FakeLauncher test can see a normally exited POSIX worker hold its cleanup."""
