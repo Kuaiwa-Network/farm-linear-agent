@@ -5,21 +5,20 @@
   "client_id": "",
   "client_secret": "",
   "webhook_secret": "",
-  "expected_bot_name": "FarmBot Dev",
+  "expected_bot_name": "TestBot",
   "expected_app_user_id": "",
   "expected_organization_id": "",
-  "issue_prefix": "FBTEST",
+  "issue_prefix": "FARM",
   "runtime": "codex",
-  "local_root": "SET_AN_ABSOLUTE_DEDICATED_STATE_ROOT",
+  "local_root": "SET_AN_ABSOLUTE_STABLE_STATE_ROOT_OUTSIDE_ANY_CHECKOUT",
   "port": 8766,
   "max_concurrent": 1,
   "repos": {
-    "Farm-Client": "https://github.com/YOUR_ORGANIZATION/farmbot-dev-Farm-Client.git",
-    "farm-hive": "https://github.com/YOUR_ORGANIZATION/farmbot-dev-farm-hive.git",
-    "farmgui": "https://github.com/YOUR_ORGANIZATION/farmbot-dev-farmgui.git",
-    "common": "https://github.com/YOUR_ORGANIZATION/farmbot-dev-common.git",
-    "Farm-Contract": "https://github.com/YOUR_ORGANIZATION/farmbot-dev-Farm-Contract.git"
+    "Farm-Client": "https://github.com/Kuaiwa-Network/Farm-Client.git",
+    "farm-hive": "https://github.com/Kuaiwa-Network/farm-hive.git",
+    "farmgui": "https://github.com/Kuaiwa-Network/farmgui.git",
+    "common": "https://github.com/Kuaiwa-Network/common.git",
+    "Farm-Contract": "https://github.com/Kuaiwa-Network/Farm-Contract.git"
   },
-  "slots": [],
-  "tunnel": {}
+  "slots": []
 }

@@ -1,9 +1,12 @@
 # FarmBot cross-platform development and release plan
 
-**Status:** Separate test-workspace and manual snapshot workflow approved. Implementation
-now includes explicit profile identity/ownership, controller locks, test issue-key publishing,
-instance launchd labels and Mac/Windows CI. Live provisioning is in progress; remaining
-rollout phases are not complete. No production deployment has been performed.
+**Status:** On 2026-09-23 the separate test workspace, manual issue snapshots and sandbox
+repositories were abandoned. Live development now uses the TestBot app inside the
+production workspace, on real issues and the real repositories; see the
+[development workflow](../../development-workflow.md). Implementation includes explicit
+profile identity/ownership, controller locks, configurable issue-key publishing, instance
+launchd labels and Mac/Windows CI. Remaining rollout phases are not complete. No production
+deployment has been performed.
 
 **Goal:** Develop and test FarmBot on macOS while a stable production revision runs on Windows, then promote a verified revision without mixing bot identities, credentials, work, or state.
 
@@ -15,7 +18,7 @@ rollout phases are not complete. No production deployment has been performed.
 
 ## Recommendation and alternatives
 
-Use a distinct Linear app named **FarmBot Dev** for live development. Keep **FarmBot** for production. Linear supports app-specific agent identities and agent-session webhooks; a distinct name also makes accidental delegation more visible. See [Linear's agent setup documentation](https://linear.app/developers/agents).
+Use a distinct Linear app named **TestBot** for live development. Keep **FarmBot** for production. Linear supports app-specific agent identities and agent-session webhooks; a distinct name also makes accidental delegation more visible. See [Linear's agent setup documentation](https://linear.app/developers/agents).
 
 Three options:
 
@@ -32,15 +35,15 @@ A branch separates source history, not credentials or operational state. Changin
 | Environment | Machine | Linear identity | State | Execution |
 |---|---|---|---|---|
 | Offline development | Mac and CI | Stub | Temporary directory | Fake worker, local Git remotes, fake Unity |
-| Live development | Mac | FarmBot Dev | Dedicated absolute development root | Real worker; dedicated Mac Unity slot |
-| Windows acceptance | Separate Windows host or suitable VM | FarmBot Test when concurrent; otherwise FarmBot Dev with only one active receiver | Dedicated acceptance root | Exact candidate revision, real worker and Unity |
+| Live development | Mac | TestBot | Dedicated absolute development root | Real worker; dedicated Mac Unity slot |
+| Windows acceptance | Separate Windows host or suitable VM | FarmBot Test when concurrent; otherwise TestBot with only one active receiver | Dedicated acceptance root | Exact candidate revision, real worker and Unity |
 | Production | Windows | FarmBot | Stable production root outside release directories | Pinned released revision |
 
 Two real app identities are enough if Mac and Windows live testing alternate. Use a third test app if both need to receive agent events simultaneously. Each live app has its own client ID, client secret, webhook signing secret, and endpoint. Preserve the production endpoint throughout development.
 
-The approved choice is a separate Linear test workspace. Copy real feature/bug issues as manual snapshots with original issue provenance and source revisions; keep their test lifecycle independent and promote useful changes explicitly. Automated import is deferred. See the [development workflow](../../development-workflow.md). Use private sandbox repositories for write/publishing tests, retaining the logical names `Farm-Client`, `farm-hive`, `farmgui`, `common`, and `Farm-Contract`. Read-only source access can be separate from sandbox write access. Sandbox copies must have the Unity assets, Git LFS objects and branch configuration needed by the scenario.
+The current choice (2026-09-23) is TestBot in the production Kuaiwa AI workspace, working on real issues the operator mentions or delegates and publishing to the real `Farm-Client`, `farm-hive`, `farmgui`, `common`, and `Farm-Contract` repositories with the host's ambient Git/GitHub login. It replaced a separate test workspace with manual issue snapshots and private sandbox repositories: snapshots lost evolving issue context, sandbox copies drifted from the code an issue described, and results had to be re-tested in the real workspace anyway. See the [development workflow](../../development-workflow.md).
 
-Use host accounts or credential contexts that cannot write production repositories from development. The launcher currently inherits much of the host environment and Git/GitHub authentication; its isolated worker home does not alone isolate publishing credentials. Ensure Git credentials and `gh` authenticate consistently to the sandbox destinations.
+The two bots are separated by app identity, pinned IDs and state root, not by workspace or repository. There is no team/project admission filter yet (Phase 2), and the real repositories' default branches are unprotected on the current GitHub plan, so FarmBot's own publication verification is the only guard against a wrong push. The launcher inherits the host environment and Git/GitHub authentication; its isolated worker home does not isolate publishing credentials.
 
 Do not share a ledger, Git clone, Unity folder, MCP port, or memory directory between environments. Do not move Mac `.local` state to Windows: it contains host-specific paths, process evidence, worktrees and caches. Seed Windows clones and Unity imports separately. `default_server_environment` describes the game test target; it is not a FarmBot environment switch or an enforcement boundary.
 
@@ -61,7 +64,7 @@ If only one Windows production machine is available, hosted Windows CI can cover
 1. **Config-file propagation is now implemented.** The loader records the selected absolute source path, the scheduler passes it to initial/resumed workers, and launchd installation embeds it regardless of selection method. Regression tests cover conflicting ambient profiles. This pins the file path, not its contents or environment ownership; restart a settled service after config edits.
 2. **Explicit app identity is implemented.** Live profiles require pinned app-user/workspace IDs and a configurable expected display name. Existing configs remain legacy until explicitly migrated.
 3. **State ownership and controller guards are implemented.** Explicit profiles require a fresh absolute state root, bind it to nonsecret identity and acquire an OS-backed controller lock. CLI/maintenance checks run before ledger construction. Native Windows evidence is still required.
-4. **Configured test issue-key publishing is implemented.** Scheduler and verifier share `issue_prefix` while retaining repository/private/protected branch checks. This is not team/project admission; separate workspace credentials provide the current live boundary.
+4. **Configured test issue-key publishing is implemented.** Scheduler and verifier share `issue_prefix` while retaining repository/private/protected branch checks. This is not team/project admission; the current live scope is explicit delegation or @mention of the instance's own app.
 5. **Installer labels now distinguish explicit instances.** launchd labels include environment and instance ID; legacy names remain stable. A Windows installer/supervisor is not yet implemented.
 6. **Windows readiness is incomplete.** `doctor.probe_process()` returns `platform_not_supported` on Windows. Unity's command-line parser stops project paths at whitespace. A pure parser probe reproduced `C:\Farm Bot\editors\slot-1` being read as `C:\Farm`. Worker instructions also assume `python3`; use the actual host interpreter. Audit Windows CLI wrappers, encoding, Git path handling and shutdown behavior.
 7. **CI added; controlled release operation remains open.** Mac/Windows CI uses Python 3.13 and uploads test evidence. There is still no drain command or release installer. Opening `Ledger` performs migrations; rollback cannot be treated as simply checking out an older commit. `/health` currently proves the HTTP handler responds, not that scheduling, reconciliation, the tunnel or Unity work.
@@ -71,7 +74,7 @@ If only one Windows production machine is available, hosted Windows CI can cover
 - Preserve current delegation, publication, claim and process-ownership rules.
 - Keep development operational while production stays on its release revision.
 - Keep secrets and mutable runtime data outside Git and release artifacts.
-- All live development actions must target admitted test issues and configured sandbox repositories.
+- Live development actions target only issues the operator mentions or delegates to TestBot, and only the configured repositories.
 - Prefer native Windows testing for native Windows behavior. Mac mocks are supporting tests, not Windows evidence.
 - Keep the current controller/worker/slot architecture. A distributed scheduler or container migration is unnecessary for this goal.
 
@@ -96,10 +99,10 @@ If only one Windows production machine is available, hosted Windows CI can cover
 
 - [ ] Configure allowed team/project/issue scope for live test profiles. Fetch the fields needed to enforce it; reject out-of-scope work before acknowledgments, label changes, repository setup or worker launches. Apply equivalent checks to `enqueue`, resumed work and worker-side external mutations, not only webhook intake.
 - [x] Replace the hard-coded `FARM` publication assumption with a validated issue-key policy tied to the permitted team. Share branch validation between scheduler and publication verification and retain exact configured destination/protected-branch checks.
-- [ ] Provision the test app, test issues and private sandbox repos as a separate operational step. Enable Agent session events and Issue webhooks, using the test app's signing secret and endpoint. Follow [Linear's client-credentials setup](https://linear.app/developers/oauth-2-0-authentication).
+- [ ] Provision the TestBot app in the production workspace as a separate operational step. Enable Agent session events and Issue webhooks, using the test app's signing secret and endpoint. Follow [Linear's client-credentials setup](https://linear.app/developers/oauth-2-0-authentication).
 - [ ] Test validly signed events for the wrong app and wrong organization, out-of-scope mentions/delegations, direct enqueue bypass attempts, test-team publishing, and a production push URL introduced through Git configuration. Assert no unintended external mutation.
 
-**Acceptance:** Delegate a test Bug from Linear's UI, receive activities, ask/reply, stop and resume, then create a draft PR only in a sandbox repository. Production issues remain unaffected.
+**Acceptance:** Delegate a chosen real Bug to TestBot from Linear's UI, receive activities, ask/reply, stop and resume, then create a draft PR on that issue's `farmbot/<key>` branch. Production FarmBot ignores the session, and issues outside the configured scope are refused.
 
 ### Phase 3 — Add continuous Mac and Windows checks
 
@@ -143,7 +146,7 @@ If only one Windows production machine is available, hosted Windows CI can cover
 ## Daily workflow after implementation
 
 1. Create a feature branch/worktree on the Mac and run focused offline tests while changing code.
-2. Run the full offline suite, then use FarmBot Dev for a deliberate integration scenario in the test workspace.
+2. Run the full offline suite, then use TestBot for a deliberate integration scenario on a chosen real issue.
 3. Open a PR and require both Mac and Windows CI.
 4. Run the candidate revision in Windows acceptance when changing process handling, deployment, tool integration or Unity behavior; establish an initial full acceptance baseline before the first production promotion.
 5. Record the accepted revision/tool versions; deploy that revision through drain, backup, switch, verify and resume.

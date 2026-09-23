@@ -50,12 +50,16 @@ remain the security boundary. Do not delete the marker or downgrade code to bypa
 Migrate an existing production root only as a separately planned, backed-up operation.
 The marker adds no database migration, and legacy production settings are unchanged.
 
-`issue_prefix` defaults to `FARM`; a test team can use `FBTEST`. Writable worktrees
+`issue_prefix` defaults to `FARM`, which a development profile testing real 农场 issues
+keeps; a profile serving another team uses that team's key. Writable worktrees
 and publication verification share this policy and use `farmbot/<lowercase-key>`
 with an optional suffix. An unrelated suggested Linear branch becomes the canonical
 branch. Repository identity, private/write permission, protected-branch and exact
-PR verification still apply. The prefix is a publishing rule, not a team admission rule;
-the dedicated workspace and pinned app/workspace IDs define the current live scope.
+PR verification still apply. The prefix is a publishing rule, not a team admission rule.
+The pinned app/workspace IDs select which app's sessions an instance accepts; within
+the workspace, only UI delegation or an @mention of that app starts work. No team,
+project or issue allowlist exists, so a development bot sharing the production
+workspace is scoped by the operator's choice of issues.
 
 Explicit launchd profiles use `com.kuaiwa.farmbot.<environment>.<instance_id>` labels;
 legacy labels remain unchanged. Installation writes plists but does not load them.
