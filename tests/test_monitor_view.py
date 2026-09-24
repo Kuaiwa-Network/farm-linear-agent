@@ -1,15 +1,22 @@
 """The /api/status document: what it shows, what it never shows, and how it judges the service."""
-from contextlib import closing
+from contextlib import closing, redirect_stdout
+import io
 import json
 import sqlite3
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
+from agent.config import Config
 from agent.heartbeat import Heartbeat, validate
 from agent.ledger import Ledger
 from agent.monitor_view import CLEANUP_GRACE, LOOP_LIMITS, RECENT_LIMIT, build_status
 from agent.resource_recovery import MAX_REPAIR_ATTEMPTS, RecoveryStore
+from agent.service import Components, serve
 from test_ledger import PIN, comment, issue
 
 NOW = 1_000_000.0
@@ -182,6 +189,21 @@ class WorkerTests(ViewBase):
         worker = self.active(self.status(heartbeat=("fresh", stopped)), "FARM-1")["worker"]
         self.assertEqual(worker, {"state": "alive", "tracked": None, "started_at": None, "deadline": None,
                                   "renewed_at": NOW - 120, "lease_expires_at": NOW - 120 + 3600})
+
+    def test_a_retried_job_is_judged_from_its_new_claim_not_an_earlier_attempts_renewals(self):
+        item, claim = self.running(NOW - 3000)
+        self.clock = NOW - 2400
+        self.ledger.renew(item["id"], claim["token"])  # the first attempt's last renewal
+        self.clock = NOW - 2000
+        self.ledger.fail(item["id"], "worker failed")
+        self.ledger.record_cleanup(item["id"], {}, done=True)  # the scheduler finished the first cleanup
+        self.ledger.retry(item["id"], "重试")
+        self.clock = NOW - 60
+        self.claim(item)  # the second attempt, which has not renewed yet
+        document = self.status(heartbeat=self.tracking(item))
+        worker = self.active(document, "FARM-1")["worker"]
+        self.assertEqual((worker["state"], worker["renewed_at"]), ("alive", NOW - 60))
+        self.assertNotIn("renewal_overdue", {entry["code"] for entry in document["attention"]})
 
     def test_an_expired_lease_outranks_the_other_worker_states(self):
         self.running(NOW - 4000)  # the one-hour lease ran out 400 s ago
@@ -395,6 +417,21 @@ class AttentionTests(ViewBase):
         self.assertIn(("reservation_cancel_pending", "FARM-1"), found)
         self.assertNotIn(("slot_without_reservation", "unity_slot:2"), found)
 
+    def test_a_cancellation_is_flagged_only_five_minutes_after_its_job_was_cancelled(self):
+        self.ledger.ensure_slot("unity_slot:1", kind="unity_slot", host="test-host",
+                                folder=str(Path(self.tmp.name) / "unity_slot-1"))
+        item = self.job()
+        self.ledger.await_resource(item["id"], self.claim(item)["token"], "unity_slot", "batch")
+        self.ledger.acquire("unity_slot", owner="pool", host="test-host")
+        self.clock = NOW
+        self.ledger.cancel(item["id"], "Linear stop")  # the active reservation becomes cancel_requested
+        flagged = [{"code": "reservation_cancel_pending", "subject": "FARM-1", "since": NOW, "count": None}]
+        for later, expected in ((1, []), (299, []), (300, flagged)):  # the spec's "5 minutes or more"
+            with self.subTest(seconds_after_cancel=later):
+                attention = self.status(now=NOW + later)["attention"]
+                self.assertEqual([entry for entry in attention if entry["code"] == "reservation_cancel_pending"],
+                                 expected)
+
 
 class ServiceTests(ViewBase):
     def test_the_verdict_follows_the_spec_table(self):
@@ -498,6 +535,48 @@ class ServiceTests(ViewBase):
                 raised = {entry["code"] for entry in document["attention"]}
                 self.assertEqual(raised & {"loop_stalled", "loop_erroring"}, codes)
 
+    def test_a_stale_heartbeat_raises_no_loop_or_webhook_item(self):
+        # A dead serve's last beat: a loop busy past its limit, another erroring and a webhook just rejected.
+        written = NOW - 120
+        loops = {"schedule": loop(written - LOOP_LIMITS["schedule"] - 60, written - LOOP_LIMITS["schedule"] - 70),
+                 "lifecycle": loop(written - 5, written - 4, errors=5, error_type="TimeoutError")}
+        last = beat("serving", written, loops=loops, rejected_at=written - 30, rejected=2)
+        # Read while fresh, the same beat raises all three, so the fixture holds what a stale beat must not raise.
+        fresh = self.status(heartbeat=("fresh", last), now=written + 1)
+        self.assertEqual({entry["code"] for entry in fresh["attention"]},
+                         {"loop_stalled", "loop_erroring", "webhook_rejected"})
+        for health, codes in ((HEALTHY, ["heartbeat_stale"]), (DOWN, [])):
+            with self.subTest(health=health["ok"]):
+                document = self.status(heartbeat=("stale", last), health=health, failing_since=NOW - 30)
+                self.assertEqual([entry["code"] for entry in document["attention"]], codes)
+
+    def test_a_loop_pausing_longer_than_its_limit_reads_idle(self):
+        # While serve drains at shutdown it keeps writing fresh serving beats, and a loop whose last iteration has
+        # finished pauses for good. However long ago that iteration started, the loop is idle, never stalled.
+        started = NOW - LOOP_LIMITS["receive"] - 60
+        document = self.status(heartbeat=("fresh", beat(loops={"receive": loop(started, started + 1)})))
+        self.assertEqual([(entry["name"], entry["state"]) for entry in document["service"]["loops"]],
+                         [("receive", "idle")])
+        self.assertEqual(document["attention"], [])
+
+    def test_two_consecutive_loop_errors_are_not_yet_erroring(self):
+        for errors, state, codes in ((2, "idle", []), (3, "erroring", ["loop_erroring"])):
+            with self.subTest(errors=errors):
+                loops = {"lifecycle": loop(NOW - 5, NOW - 4, errors=errors, error_type="TimeoutError")}
+                document = self.status(heartbeat=("fresh", beat(loops=loops)))
+                self.assertEqual([entry["state"] for entry in document["service"]["loops"]], [state])
+                self.assertEqual([entry["code"] for entry in document["attention"]], codes)
+
+    def test_the_document_reports_the_monitors_own_revision_beside_serves(self):
+        document = self.status(heartbeat=("fresh", beat()))
+        self.assertEqual(document["monitor"], {"revision": "b1d5bd4a0c11", "dirty": False})
+        self.assertEqual(document["service"]["heartbeat"]["revision"], "a3f9f77c1d2e")  # serve's, from its beat
+        for revision in (("b1d5bd4a0c11", True), (None, None)):
+            with self.subTest(revision=revision):
+                built = build_status(self.path, heartbeat=("missing", None), health=HEALTHY, instance=INSTANCE,
+                                     monitor_revision=revision, now=NOW)
+                self.assertEqual(built["monitor"], {"revision": revision[0], "dirty": revision[1]})
+
     def test_linear_and_agent_session_times_come_from_the_ledger(self):
         first, second = self.job(), self.job()
         self.sql("UPDATE issue_checks SET checked_at=? WHERE issue_id=?", NOW - 30, first["issue_id"])
@@ -508,6 +587,52 @@ class ServiceTests(ViewBase):
         service = self.status()["service"]
         self.assertEqual(service["linear"], {"last_ok_at": NOW - 30, "failing_issues": 1})
         self.assertEqual(service["agent_event_at"], NOW - 840)
+
+
+class ServeLoopTests(ViewBase):
+    """serve's own heartbeat read into the document, on stand-in components with no listening socket."""
+
+    def test_serve_times_a_loops_work_and_not_the_pause_after_it(self):
+        # Resource recovery pauses 15 s after each tick. A beat written during that pause reads idle: a loop that
+        # sleeps between ticks is not busy.
+        ticked, released = threading.Event(), threading.Event()
+        self.addCleanup(released.set)
+        receiver, server, launcher = Mock(), Mock(), Mock()
+        receiver.process_one.return_value = False
+        server.server_address = ("127.0.0.1", 1234)
+        server.serve_forever.side_effect = lambda: released.wait(20)  # returns, as server.shutdown() makes it
+        launcher.runtime.name = "fake"
+        launcher.running.return_value = {}
+        config = Config("client", "secret", "signing", host="test", runtime="fake",
+                        local_root=Path(self.tmp.name) / "serve 状态")
+        components = Components(config, None, None, Mock(), {"chat"}, None, launcher, Mock(), receiver, server,
+                                SimpleNamespace(ensure=lambda: None, tick=lambda: None, close=lambda: None),
+                                recovery=SimpleNamespace(tick=ticked.set, close=lambda: None))
+        problems = []
+
+        def run():
+            try:
+                with redirect_stdout(io.StringIO()):
+                    serve(components=components)
+            except BaseException as exc:
+                problems.append(exc)
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 20)
+        self.assertTrue(ticked.wait(20), "serve never ran the resource recovery loop")
+        deadline = time.monotonic() + 5  # the tick is under way, and serve records its end before the pause
+        while (server.heartbeat.payload()["loops"]["resource_recovery"]["finished_at"] is None
+               and time.monotonic() < deadline):
+            time.sleep(0.01)
+        pausing = validate(json.loads(json.dumps(server.heartbeat.payload())))
+        released.set()
+        thread.join(timeout=20)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(problems, [])
+        document = self.status(heartbeat=("fresh", pausing), now=pausing["written_at"])
+        loops = {entry["name"]: entry["state"] for entry in document["service"]["loops"]}
+        self.assertEqual(loops["resource_recovery"], "idle")
 
 
 class OlderLedgerTests(unittest.TestCase):
@@ -536,6 +661,40 @@ class OlderLedgerTests(unittest.TestCase):
                          {"audit", "published_prs", "slots", "reservations", "resource_recoveries", "job_cleanup",
                           "issue_checks", "webhook_events"})
         self.assertEqual(document["verdict"], "ok")
+
+    def test_optional_tables_without_their_optional_columns_still_fill_their_sections(self):
+        # slots without parked_commit or updated_at, and published_prs without created_at.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "old ledger.sqlite3"
+            with closing(sqlite3.connect(path)) as db:
+                db.executescript("""
+                    CREATE TABLE issues (id TEXT PRIMARY KEY, metadata TEXT NOT NULL);
+                    CREATE TABLE work_items (id TEXT PRIMARY KEY, issue_id TEXT, skill TEXT, state TEXT, stage TEXT,
+                                             created_at REAL, updated_at REAL);
+                    CREATE TABLE slots (slot_id TEXT PRIMARY KEY, kind TEXT, state TEXT);
+                    CREATE TABLE published_prs (issue_id TEXT, url TEXT);""")
+                db.execute("INSERT INTO issues VALUES(?,?)", ("issue-1", json.dumps(
+                    {"identifier": "FARM-9", "title": "旧账本", "url": "https://linear.app/k/issue/FARM-9"})))
+                db.execute("INSERT INTO work_items VALUES('item-1','issue-1','fix','running','intake',?,?)", (NOW - 60, NOW - 60))
+                db.executemany("INSERT INTO slots VALUES(?,?,?)",
+                               [("unity_slot:1", "unity_slot", "idle_open"), ("unity_slot:2", "unity_slot", "held")])
+                db.executemany("INSERT INTO published_prs VALUES(?,?)",
+                               [("issue-1", "https://github.com/Kuaiwa-Network/farmgui/pull/9"),
+                                ("issue-1", "https://github.com/Kuaiwa-Network/common/pull/3")])
+                db.commit()
+            document = self.build(path)
+        self.assertTrue(document["ledger"]["ok"])
+        free = {"commit": None, "holder": None, "mode": None, "recovery": None}
+        self.assertEqual(document["slots"],
+                         [{"slot_id": "unity_slot:1", "kind": "unity_slot", "state": "idle_open", **free},
+                          {"slot_id": "unity_slot:2", "kind": "unity_slot", "state": "held", **free}])
+        self.assertEqual(document["attention"],
+                         [{"code": "slot_held", "subject": "unity_slot:2", "since": None, "count": None}])
+        # Without created_at, a job's PRs come in URL order.
+        self.assertEqual(document["active"][0]["prs"],
+                         [{"url": "https://github.com/Kuaiwa-Network/common/pull/3", "label": "common#3"},
+                          {"url": "https://github.com/Kuaiwa-Network/farmgui/pull/9", "label": "farmgui#9"}])
+        self.assertTrue({"slots", "published_prs"}.isdisjoint(document["ledger"]["missing_optional"]))
 
     def test_a_missing_ledger_or_required_table_is_unknown(self):
         with tempfile.TemporaryDirectory() as tmp:
