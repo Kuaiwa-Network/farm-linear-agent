@@ -76,6 +76,28 @@ per-skill override, in its isolated Codex home. Claude workers are unaffected.
 The model must be available to the host's account. This setting does
 not change `max_concurrent` or the number of configured Unity slots.
 
+To give workers kw_ops, the test environment's GM backend, add its location to the private config
+and put the token only in the controller's environment:
+
+```json
+"kw_ops": {"url": "https://<gm-host>/mcp", "token_env": "KW_OPS_TOKEN"}
+```
+
+Use HTTPS for a remote kw_ops server; HTTP is accepted only for loopback addresses.
+An existing remote HTTP URL must be changed to HTTPS before restarting on this revision.
+Configure kw_ops only when every target it lists is a test server, using a kw_ops operator whose
+permissions cover only test servers; FarmBot does not scope servers. Export the variable in the
+wrapper that starts `serve`, never in a shell startup file such as `~/.zshenv`: FarmBot removes or
+excludes it only from the environment a worker inherits, and worker shells may source startup
+files. `install-launchd` writes only `PATH` and `HOME` into its plists, so it cannot carry the
+variable; never add the token to a plist's `EnvironmentVariables`, where workers can read it.
+Instead, start a kw_ops controller through that wrapper yourself, as the
+[development workflow](docs/development-workflow.md) does for TestBot. Codex fix workers then get
+every kw_ops tool and chat workers its query tools; Claude workers get none. FarmBot learns the
+variable's name only from the block, so add the block and the export together, and remove them
+together: an export without the block reaches every worker. `doctor` shows whether kw_ops is
+configured and whether the variable is set in doctor's own environment.
+
 ## AI/operator diagnostics
 
 Run `python3 -m agent.service doctor --config /absolute/path/to/config.json` on the

@@ -13,6 +13,8 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
+from .kw_ops import child_environment
+
 RuntimeConfig = namedtuple("RuntimeConfig", "name command home_env mcp_format seed_files writable_flag",
                            defaults=(None,))
 Handle = namedtuple("Handle", "item_id pid started_at deadline run_dir process last_message_path")
@@ -156,11 +158,12 @@ class Launcher:
     # How long an unreadable process table is retried while the exited worker stays unreaped.
     settle_retry_seconds = 60.0
 
-    def __init__(self, runs_root, runtime, host, clock=time.time):
+    def __init__(self, runs_root, runtime, host, clock=time.time, token_env=None):
         self.runs_root = Path(runs_root)
         self.runtime = runtime
         self.host = host
         self.clock = clock
+        self.token_env = token_env
         self._handles = {}
         self._stopping = {}
         self._jobs = {}
@@ -196,7 +199,7 @@ class Launcher:
         return self.runs_root / item_id
 
     def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None, writable=(), cancelled=None,
-              model_settings=None):
+              model_settings=None, withheld_env=()):
         # A fresh worker is also a new attempt after an operator retry. Stop fences from
         # its previous attempt must not prevent this worker requesting another batch.
         with self._unsandboxed_lock:
@@ -228,6 +231,14 @@ class Launcher:
             # counting it as trusted text; fix workers still read it, as tool output.
             for path in dict.fromkeys((str(cwd), str(Path(cwd).resolve()))):
                 settings[f"projects.{_toml_string(path)}"] = {"trust_level": "untrusted"}
+            # A server the CLI authenticates from an environment variable names it, never its value, and the
+            # worker's shell must not see it either. codex-cli 0.156.1 re-exports variables from its shell
+            # snapshot, so `exclude` holds only with the snapshot off (measured).
+            secrets = sorted({server["bearer_token_env_var"] for server in mcp_servers.values()
+                              if "bearer_token_env_var" in server})
+            if secrets:
+                settings["features"]["shell_snapshot"] = False
+                settings["shell_environment_policy"] = {"exclude": secrets}
         root_settings = {}
         if self.runtime.name == "codex":
             root_settings["sandbox_mode"] = "workspace-write"
@@ -249,6 +260,9 @@ class Launcher:
         env.update(extra_env or {})
         if self.runtime.name == "claude":
             env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
+        # Apply withholding last: per-worker overrides must not put a denied secret back.
+        for name in withheld_env:
+            env.pop(name, None)
         stdout = open(run_dir / "stdout.log", "w", encoding="utf-8")
         stderr = open(run_dir / "stderr.log", "w", encoding="utf-8")
         kwargs = {"start_new_session": True} if os.name != "nt" else {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
@@ -332,8 +346,9 @@ class Launcher:
         here writes an isolated home, a CODEX_HOME or a sandbox table; this is a plain subprocess, and the
         deadline exists because the thing it runs is the thing that was watched hang.
 
-        env=None on purpose: the Editor inherits the service's own environment, including the real HOME, and
-        Task 0 Steps 3 and 6 measured licensing resolving under exactly that — foreground and under launchd.
+        The Editor receives the service's environment, including the real HOME needed for licensing, with
+        only the configured kw_ops token removed. Task 0 Steps 3 and 6 measured licensing resolving under
+        the service environment — foreground and under launchd.
         """
         start = time.monotonic()
         handle = open(log, "w", encoding="utf-8") if log else subprocess.DEVNULL
@@ -346,7 +361,8 @@ class Launcher:
                 if (self._shutdown or owner in self._cancelled_runs
                         or (cancelled is not None and cancelled())):
                     return Unsandboxed(-signal.SIGTERM, False, time.monotonic() - start)
-                process = subprocess.Popen([str(part) for part in argv], cwd=str(cwd), env=env,
+                process = subprocess.Popen([str(part) for part in argv], cwd=str(cwd),
+                                           env=child_environment(self.token_env, env),
                                            stdin=subprocess.DEVNULL, stdout=handle, stderr=subprocess.STDOUT,
                                            **kwargs)
                 if owner is not None:
