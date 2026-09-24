@@ -168,6 +168,12 @@ class PageTests(unittest.TestCase):
         self.assertLess(pill.index(neutral), pill.index("loop.state"))
         self.assertIn("return times.length ? Math.max(...times) : null;", self.block("function lastRecorded(loop) {"))
 
+    def test_the_stale_heartbeat_line_also_fits_a_fresh_stopped_beat(self):
+        # heartbeat_stale also covers a fresh stopped beat while /health answers, and that beat has not expired.
+        self.assertIn('heartbeat_stale: () => "服务心跳没有在正常更新，但 /health 仍有响应",',
+                      self.block("const ATTENTION = {"))
+        self.assertNotIn("心跳已过期", self.text("monitor.js"))
+
     def test_a_held_slot_words_its_recovery_alike_in_its_row_and_its_attention_line(self):
         script = self.text("monitor.js")
         shared = self.block("function recoveryText(recovery) {")

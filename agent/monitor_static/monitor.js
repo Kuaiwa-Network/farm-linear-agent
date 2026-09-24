@@ -55,7 +55,7 @@
     loop_stalled: (a) => `${LOOP[a.subject] || a.subject} 循环单次运行时间过长`,
     webhook_rejected: (a) => `最近有 webhook 被拒绝（签名、时间或身份不符；启动以来共 ${a.count} 个）`,
     receiver_unreachable: () => "接收器 /health 没有响应，但服务心跳正常",
-    heartbeat_stale: () => "服务心跳已过期，但 /health 仍有响应",
+    heartbeat_stale: () => "服务心跳没有在正常更新，但 /health 仍有响应",
     heartbeat_unreadable: () => "服务心跳文件无法读取",
     renewal_overdue: (a) => `${a.subject || "一项工作"} 的 worker 超过预期时间没有续约，可能卡住了`,
     worker_untracked: (a) => `${a.subject || "一项工作"} 显示处理中，但服务没有在管理对应的 worker 进程`,
