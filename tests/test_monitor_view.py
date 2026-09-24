@@ -171,7 +171,7 @@ class WorkerTests(ViewBase):
 
     def test_a_running_job_serve_is_not_managing_is_untracked(self):
         self.running(NOW - 600)
-        self.running(NOW - 10)  # claimed inside the grace period for a worker being reaped
+        self.running(NOW - 10)  # claimed 10 s ago, inside the 30 s grace that follows every claim
         document = self.status(heartbeat=("fresh", beat(workers={})))
         self.assertEqual(self.active(document, "FARM-1")["worker"]["state"], "untracked")
         self.assertEqual(self.active(document, "FARM-2")["worker"]["state"], "alive")

@@ -235,7 +235,9 @@ Derivations:
   - `state`, taking the first rule that applies:
     - `lease_expired` once the lease has run out;
     - `untracked` when `tracked` is false and the heartbeat was written more than 30 s
-      after the claim, a grace period that covers a worker being reaped;
+      after the claim. The grace is measured from the claim, so it covers only a job's
+      first 30 s: later, a job whose worker has just been reaped can read `untracked`
+      for the few seconds before it leaves `running`;
     - `renewal_overdue` when more than 1.5 of the skill's `renew_minutes` (from the
       monitor checkout's `skills/*/skill.json`: 15 minutes for fix, 7.5 for chat) have
       passed since `renewed_at`;

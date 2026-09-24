@@ -33,7 +33,9 @@ REJECT_WINDOW = 900
 LOOP_ERRORS = 3
 # A worker renews its lease at least every renew_minutes (skill.json); 1.5 intervals without one is overdue.
 RENEWAL_GRACE = 1.5
-# A worker that exits is reaped before its job leaves running, so a missing worker is only flagged after this.
+# No job is flagged untracked within this many seconds of its claim. The grace is measured from the claim, not from
+# a worker's exit, so it covers only a job's first 30 s: later, a job whose worker has just been reaped can read
+# untracked for the few seconds before it leaves running.
 UNTRACKED_GRACE = 30
 LOOP_LIMITS = {"receive": 120, "lifecycle": 600, "progress": 600, "schedule": 1800,
                "resource_recovery": 1800, "pool": 5400}
