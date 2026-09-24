@@ -251,8 +251,8 @@ def _slots(db, schema):
     names = _identifiers(db, list(dict.fromkeys(row["item_id"] for row in holders.values())))
     recoveries = {}
     if _has(schema, "resource_recoveries", "slot_id", "state", "attempts"):
-        for row in db.execute("SELECT slot_id, state, attempts FROM resource_recoveries "
-                              "WHERE state != 'recovered' ORDER BY rowid"):
+        # Each slot's newest recovery by rowid. An older one, even an exhausted one, belongs to an earlier hold.
+        for row in db.execute("SELECT slot_id, state, attempts FROM resource_recoveries ORDER BY rowid"):
             recoveries[row["slot_id"]] = {"state": _text(row["state"], 32),
                                           "attempts": row["attempts"] if type(row["attempts"]) is int else None,
                                           "max_attempts": MAX_REPAIR_ATTEMPTS}
@@ -261,11 +261,16 @@ def _slots(db, schema):
     for row in db.execute(f"SELECT {select} FROM slots ORDER BY slot_id"):
         row = dict(row)
         holder = holders.get(row["slot_id"])
+        # Only a held slot has a current recovery. A newest one that already succeeded belongs to an earlier
+        # hold as well: the pool can hold a slot it fails to park before the recovery loop opens a new one.
+        recovery = recoveries.get(row["slot_id"]) if row["state"] == "held" else None
+        if recovery and recovery["state"] == "recovered":
+            recovery = None
         slots.append({"slot_id": _text(row["slot_id"], 64), "kind": _text(row["kind"], 32),
                       "state": _text(row["state"], 32), "commit": _text(row.get("parked_commit"), 7),
                       "holder": names.get(holder["item_id"]) if holder else None,
                       "mode": _text(holder["mode"], 16) if holder else None,
-                      "recovery": recoveries.get(row["slot_id"]),
+                      "recovery": recovery,
                       "updated_at": _time(row.get("updated_at")), "reserved": holder is not None})
     return slots
 
@@ -286,9 +291,12 @@ def _ledger_attention(db, schema, rows, slots, now):
         if row["state"] == "running" and lease is not None and lease <= now:
             add("lease_expired", _text(row["identifier"], 32), lease)
     if _has(schema, "job_cleanup", "item_id", "done", "updated_at"):
+        # set_worker and retry() reopen the row when a new attempt starts, without moving updated_at: for a job
+        # that is active again it means "clean up after this attempt", so only a finished job's row is overdue.
         pending = [dict(row) for row in db.execute(
-            "SELECT item_id, updated_at FROM job_cleanup WHERE done=0 AND updated_at <= ? ORDER BY updated_at",
-            (now - CLEANUP_GRACE,))]
+            f"""SELECT c.item_id, c.updated_at FROM job_cleanup c JOIN work_items w ON w.id=c.item_id
+                WHERE c.done=0 AND c.updated_at <= ? AND w.state IN ({_marks(TERMINAL)}) ORDER BY c.updated_at""",
+            (now - CLEANUP_GRACE, *TERMINAL))]
         names = _identifiers(db, [row["item_id"] for row in pending])
         for row in pending:
             add("cleanup_pending", names.get(row["item_id"]), row["updated_at"])

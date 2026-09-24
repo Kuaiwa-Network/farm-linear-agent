@@ -245,6 +245,40 @@ class SlotTests(ViewBase):
         self.assertEqual(slots["unity_slot:2"]["recovery"],
                          {"state": "pending", "attempts": 1, "max_attempts": MAX_REPAIR_ATTEMPTS})
 
+    def test_a_slot_reports_a_recovery_only_while_it_is_held(self):
+        self.slot("unity_slot:1")
+        self.ledger.set_slot_state("unity_slot:1", "held")
+        store = RecoveryStore(self.ledger)
+        store.discover("farm-host")
+        for _ in range(MAX_REPAIR_ATTEMPTS):  # every automatic repair fails, until recovery gives up
+            pending = store.pending("farm-host")[0]
+            self.clock = max(self.clock, pending["due_at"])
+            recovery = store.begin(pending["id"])
+            store.failed(recovery["id"], recovery["attempts"], "private repair error")
+        document = self.status()
+        self.assertEqual(document["slots"][0]["recovery"],
+                         {"state": "exhausted", "attempts": MAX_REPAIR_ATTEMPTS, "max_attempts": MAX_REPAIR_ATTEMPTS})
+        self.assertIn(("slot_held", "unity_slot:1", MAX_REPAIR_ATTEMPTS),
+                      {(item["code"], item["subject"], item["count"]) for item in document["attention"]})
+        self.ledger.recover_slot("unity_slot:1", "operator repaired the Editor")  # the exhausted row stays
+        slot = self.status()["slots"][0]
+        self.assertEqual((slot["state"], slot["recovery"]), ("idle_closed", None))
+
+    def test_a_slot_held_again_after_a_repair_shows_no_recovery_until_one_opens(self):
+        self.slot("unity_slot:1")
+        self.ledger.set_slot_state("unity_slot:1", "held")
+        store = RecoveryStore(self.ledger)
+        store.discover("farm-host")
+        recovery = store.begin(store.pending("farm-host")[0]["id"])
+        store.detach(recovery["id"], recovery["attempts"])
+        store.complete(recovery["id"], recovery["attempts"], "9f2e1c0" + "0" * 33, "instance-1")
+        self.assertIsNone(self.status()["slots"][0]["recovery"])  # repaired and idle_open
+        self.ledger.set_slot_state("unity_slot:1", "held")  # SlotPool.park_idle holds a slot it cannot park
+        self.assertIsNone(self.status()["slots"][0]["recovery"])  # the newest recovery is the repaired one
+        store.discover("farm-host")
+        self.assertEqual(self.status()["slots"][0]["recovery"],
+                         {"state": "pending", "attempts": 0, "max_attempts": MAX_REPAIR_ATTEMPTS})
+
 
 class AttentionTests(ViewBase):
     def found(self, document):
@@ -252,6 +286,8 @@ class AttentionTests(ViewBase):
 
     def test_ledger_conditions_raise_attention_only_past_their_thresholds(self):
         cleaned, fresh_cleanup, flaky, broken, expired = (self.job() for _ in range(5))
+        # Cleanup is overdue only for a job that has finished; both must be, or the grace goes untested.
+        self.sql("UPDATE work_items SET state='failed' WHERE id IN (?,?)", cleaned["id"], fresh_cleanup["id"])
         self.sql("INSERT INTO job_cleanup(item_id, worker_pid, updated_at) VALUES(?,?,?)",
                  cleaned["id"], 1, NOW - CLEANUP_GRACE - 1)
         self.sql("INSERT INTO job_cleanup(item_id, worker_pid, updated_at) VALUES(?,?,?)",
@@ -264,6 +300,25 @@ class AttentionTests(ViewBase):
         self.assertEqual(self.found(document), {("cleanup_pending", "FARM-1"), ("issue_status_error", "FARM-4"),
                                                 ("lease_expired", "FARM-5")})
         self.assertEqual(document["verdict"], "attention")
+
+    def test_cleanup_is_pending_only_for_a_job_that_has_finished(self):
+        # retry() and set_worker reopen a finished job's cleanup row for its next attempt without moving
+        # updated_at, so a job that is running again is not a stuck cleanup however old the row looks.
+        retried, inserted, cancelled = (self.job() for _ in range(3))
+        self.claim(retried)
+        self.ledger.fail(retried["id"], "worker failed")
+        self.ledger.record_cleanup(retried["id"], {}, done=True)  # the scheduler finished the first cleanup
+        self.ledger.cancel(cancelled["id"], "Linear stop")  # opens a cleanup row the scheduler has not finished
+        self.clock = NOW - 60
+        self.ledger.retry(retried["id"], "重试")
+        self.claim(retried)
+        self.claim(inserted)
+        self.sql("INSERT INTO job_cleanup(item_id, worker_pid, updated_at) VALUES(?,?,?)",
+                 inserted["id"], 1, NOW - CLEANUP_GRACE - 1)
+        record = self.ledger.cleanup_record(retried["id"])
+        self.assertEqual((record["done"], record["updated_at"]), (False, NOW - 3600))  # reopened, still dated
+        self.assertEqual([item for item in self.status()["attention"] if item["code"] == "cleanup_pending"],
+                         [{"code": "cleanup_pending", "subject": "FARM-3", "since": NOW - 3600, "count": None}])
 
     def test_a_busy_slot_without_a_reservation_and_a_slow_cancellation_are_flagged(self):
         for slot in ("unity_slot:1", "unity_slot:2"):
@@ -376,15 +431,19 @@ class PrivacyTests(ViewBase):
                  json.dumps({"summary": "PRIVATE-EVIDENCE"}), item["id"])
         self.sql("UPDATE issue_checks SET error=?, failures=9, checked_at=? WHERE issue_id=?",
                  "PRIVATE-ERROR /srv/private/secret", NOW, item["issue_id"])
+        finished = self.job()  # cleanup_pending reads only a finished job's row
+        self.sql("UPDATE work_items SET state='failed' WHERE id=?", finished["id"])
         self.sql("INSERT INTO job_cleanup(item_id, worker_pid, error, updated_at) VALUES(?,?,?,?)",
-                 item["id"], 424242, "PRIVATE-CLEANUP", NOW - 3600)
+                 finished["id"], 424242, "PRIVATE-CLEANUP", NOW - 3600)
         self.ledger.ensure_slot("unity_slot:1", kind="unity_slot", host="farm-host",
                                 folder=str(Path(self.tmp.name) / "PRIVATE-FOLDER"))
         waiting = self.job()
         answer = self.claim(waiting)
         self.ledger.await_input(waiting["id"], answer["token"], "PRIVATE-QUESTION")
         token_hash = self.ledger.connection.execute("SELECT token FROM work_items WHERE id=?", (item["id"],)).fetchone()[0]
-        text = json.dumps(self.status(heartbeat=("fresh", beat())), ensure_ascii=False)
+        document = self.status(heartbeat=("fresh", beat()))
+        self.assertIn("cleanup_pending", {entry["code"] for entry in document["attention"]})  # the private row is read
+        text = json.dumps(document, ensure_ascii=False)
         for secret in ("PRIVATE-DESCRIPTION", "PRIVATE-COMMENT", "PRIVATE-INBOX", "PRIVATE-CHECKPOINT",
                        "PRIVATE-EVIDENCE", "PRIVATE-ERROR", "/srv/private", "PRIVATE-CLEANUP", "PRIVATE-FOLDER",
                        "PRIVATE-QUESTION", "424242", "515151", claim["token"], token_hash, answer["token"], "session-1"):
