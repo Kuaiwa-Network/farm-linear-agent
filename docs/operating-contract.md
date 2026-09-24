@@ -538,15 +538,21 @@ instead makes it exit 1 with one `monitor_failed` JSON line: an unreadable confi
 mismatch, a `monitor` block it cannot use, a port equal to the receiver's or already in use, or any other
 error.
 
-It opens the ledger with SQLite `mode=ro` and `query_only`, never constructs `Ledger` and never takes the
-controller lock. It writes no FarmBot file or ledger row; SQLite can leave its `-wal`/`-shm` side files
-beside a ledger whose service is stopped, which is why the monitor runs as the same account as `serve`. It
-signals and inspects no processes, and makes no request other than `GET http://127.0.0.1:<port>/health`
-with proxies disabled, following no redirect. Only a 200 counts as answering; a 3xx, any other status
-and a failed request count as not answering. The JSON is an allowlist. It contains no descriptions,
-comments, checkpoints, questions, inbox or worker messages, evidence prose, logs, paths, PIDs, tokens,
-config values other than the instance's environment, ID, bot name and host, or raw stored errors. Older
-ledgers without optional tables or columns are read without migration.
+After startup, a status build that fails for a reason other than an unreadable ledger (shown as 未知)
+answers `/api/status` with 500 and the security headers every reply carries. The next request builds
+again. The first failure of each run of failures prints one `status_failed` JSON line. The page counts
+the 500 as a failed poll and shows 连接中断, although the monitor is running. The `status_failed` line
+tells this apart from a monitor the page cannot reach, which leaves no such line.
+
+The monitor opens the ledger with SQLite `mode=ro` and `query_only`, never constructs `Ledger` and never
+takes the controller lock. It writes no FarmBot file or ledger row; SQLite can leave its `-wal`/`-shm`
+side files beside a ledger whose service is stopped, which is why the monitor runs as the same account as
+`serve`. It signals and inspects no processes, and makes no request other than
+`GET http://127.0.0.1:<port>/health` with proxies disabled, following no redirect. Only a 200 counts as
+answering; a 3xx, any other status and a failed request count as not answering. The JSON is an allowlist.
+It contains no descriptions, comments, checkpoints, questions, inbox or worker messages, evidence prose,
+logs, paths, PIDs, tokens, config values other than the instance's environment, ID, bot name and host, or
+raw stored errors. Older ledgers without optional tables or columns are read without migration.
 
 `serve` writes `<local_root>/service-heartbeat.json` by replacement:
 - when it starts, with phase `starting`, before slot preparation;
@@ -555,9 +561,13 @@ ledgers without optional tables or columns are read without migration.
 
 The heartbeat records each loop's work timing and consecutive errors, the revision, in-memory webhook
 outcome counts, and the worker processes the launcher is managing, as start and budget-deadline times
-only. A failed write is skipped and never affects serving. The monitor reads the file as untrusted data
-(a regular file, at most 64 KiB, validated) and treats it as stale once it is 60 seconds old. A worker
-able to write the state root could forge it, so `/health` remains an independent signal.
+only. A failed write is skipped and never affects serving. The first failure of each run of failed writes
+prints one `heartbeat_error` JSON line naming the exception class, and the final `stopped` beat, which no
+later beat repairs, is retried once after 0.1 seconds. The monitor reads the file as untrusted data (a
+regular file, at most 64 KiB, validated) and treats it as stale once it is 60 seconds old. A read refused
+with `PermissionError`, as on Windows when it collides with the replace, is retried once after 0.1
+seconds. A worker able to write the state root could forge the heartbeat, so `/health` remains an
+independent signal.
 
 A running job's worker is shown with the first state that applies:
 
@@ -588,4 +598,6 @@ heartbeat is written and Python cleanup does not run. During a redeploy the page
 (`receiver_unreachable`) while the last heartbeat is still fresh, then 正在启动 once the new `serve`
 writes its `starting` heartbeat, then its usual verdict, normally 正常. If 60 seconds pass without a
 heartbeat in between, it shows 无响应 until the `starting` heartbeat arrives. It never shows 已停止: only a
-clean shutdown writes the `stopped` heartbeat.
+clean shutdown writes the `stopped` heartbeat. A clean shutdown closes the receiver first and writes
+`serving` heartbeats until its loops have drained, which can take minutes, so it shows 需要关注
+(`receiver_unreachable`) for that whole time and then 已停止.

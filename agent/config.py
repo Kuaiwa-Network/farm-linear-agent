@@ -88,8 +88,8 @@ class Config:
 def monitor_settings(config):
     """The monitor's listener with defaults applied, or ValueError for a block it cannot use.
 
-    This is the block's only validator, and only the monitor calls it: a mistake in the block must never stop
-    serve or a worker loading its config."""
+    This is the block's only validator, and only the monitor and `install-launchd` call it: a mistake in the
+    block must never stop serve or a worker loading its config."""
     block = config.monitor
     if not isinstance(block, dict) or set(block) - set(MONITOR_DEFAULTS):
         raise ValueError("monitor accepts bind, port and hostnames only")

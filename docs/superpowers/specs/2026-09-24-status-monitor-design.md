@@ -110,10 +110,14 @@ top-level keys before the block is added; see Rollout.
 
 - When `_serve` begins, with phase `starting`. The heartbeat thread starts before
   `pool.ensure()`, which can take minutes while slots are prepared.
-- Every 5 seconds from then on. The phase becomes `serving` once the loop threads have
-  started.
+- Every 5 seconds from then on, including while the loop threads drain at shutdown. The
+  phase becomes `serving` once the loop threads have started.
 - On clean shutdown, after the loop threads have joined, with phase `stopped` and
   `stopped_at`.
+
+A clean shutdown closes the receiver first and keeps beating `serving` while the loops
+drain, which can take minutes. It therefore shows 需要关注 (`receiver_unreachable`) for
+the whole drain, then 已停止.
 
 Until the first beat, which comes after `build()` has verified the Linear identity and
 opened the ledger (normally seconds), the file still holds the previous run's heartbeat.
@@ -125,13 +129,17 @@ without a beat, then 正在启动 and its usual verdict, normally 正常. It nev
 
 Each write goes through the existing replace-on-write helper (`_write_worker_file`). A
 failed write, such as a Windows sharing violation while the monitor reads the file, is
-skipped until the next beat. A writer failure never stops serving.
+skipped until the next beat. A writer failure never stops serving. The first failure of
+each run of failed writes prints one `heartbeat_error` JSON line, and the final `stopped`
+beat, which has no next beat, is retried once after 0.1 s.
 
 The file sits in the state root beside the controller lock and ownership marker. Codex
 workers are not given write access there, but a Claude-runtime worker has no OS
 sandbox. The monitor therefore treats the file as untrusted display data. It reads it
 with the bounded regular-file reader (`_read_worker_file`, capped at 64 KiB) and
-validates every field. An invalid file is reported as `unreadable`, never as healthy.
+validates every field. A read refused with `PermissionError`, as on Windows when it
+collides with `serve`'s replace or an antivirus scan, is retried once after 0.1 s. An
+invalid file, or a second refusal, is reported as `unreadable`, never as healthy.
 The `/health` probe remains an independent signal.
 
 Format (`schema_version` 1). Nothing in it is secret, and it records no PID:
@@ -151,12 +159,16 @@ Format (`schema_version` 1). Nothing in it is secret, and it records no PID:
   `progress` and `resource_recovery`. An iteration is recorded around each loop's work.
   The pause between iterations is not part of it, so a loop that sleeps between ticks is
   not reported as busy. `consecutive_errors` resets after a successful iteration.
-  `error_type` is an exception class name, as in the service log.
+  `error_type` is the exception's class name when it matches the reader's `_ERROR_TYPE`
+  pattern (at most 64 ASCII letters, digits, underscores and dots, not starting with a
+  digit or dot), and otherwise the literal `Error`, so `serve` never writes a beat its
+  reader refuses. The service log's `loop_error` line keeps the name unchanged.
 - `workers` lists the worker processes the launcher is managing, read from
   `Launcher.running()` at every write rather than after a scheduler tick. A tick can last
   minutes, and a list that lagged it would make a freshly claimed job look unmanaged. Each
-  entry keeps only the start and budget-deadline times, never a PID, at most 64 entries.
-  The value is `null` when that list cannot be read.
+  entry keeps only the start and budget-deadline times, never a PID. The value is `null`,
+  which the monitor reads as unknown, when that list cannot be read or when `serve`
+  manages more than 64 workers, the most the reader accepts.
 - `revision` is the first 12 characters of `git rev-parse HEAD` for the checkout running
   `serve`, read once at startup with a 5 s timeout. `dirty` is true when tracked files
   differ from it. Both are `null` when Git is unavailable or the directory is not a
@@ -340,14 +352,21 @@ periods, such as nights and weekends, are informational only.
     dimmed, shows a banner that the monitor connection has been lost since the first
     failure, and the header and tab title read 连接中断 instead of the last verdict. When
     the ledger cannot be read, the work sections keep their last good data, labelled
-    工作数据停留在 HH:MM.
+    工作数据停留在 HH:MM. Before any good read, one 账本无法读取，暂无工作数据
+    placeholder replaces the counts and the work sections.
   - A footer states that the page is read-only and that actions happen in Linear.
 
 ## Failure behaviour
 
 - A transient ledger error, such as a busy timeout or a mid-migration schema, is
-  reported in `ledger.error_type`. The page keeps the last good sections, and each poll
-  retries.
+  reported in `ledger.error_type`. The page keeps the last good sections, or shows its
+  no-data placeholder before any good read, and each poll retries.
+- Any other error while building the status answers `/api/status` with 500, with the
+  security headers above, and is never cached, so the next request builds again. The
+  first failure of each run of failures prints one `status_failed` JSON line. The page
+  counts the 500 as a failed poll, so it shows 连接中断 and the lost-connection banner
+  although the monitor is running. The `status_failed` line tells this apart from a
+  monitor the page cannot reach, which leaves no such line.
 - The monitor refuses to start, exiting with status 1 and one `monitor_failed` JSON
   line, on any startup error. These include an unreadable config, an ownership marker
   that does not match the config (the same read-only `check_ownership` other maintenance

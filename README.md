@@ -59,7 +59,8 @@ which contains no `codex`, `gh` or `cloudflared`, so the command captures the PA
 and writes that into every agent it writes. It refuses to write anything when the configured runtime or
 `cloudflared` is not on that PATH. It writes the serve and tunnel agents, and a monitor agent when the
 config has a non-empty `monitor` block, and prints the `launchctl bootstrap` lines to load them.
-Logs land in `.local/agent/logs/`. With no `tunnel` key in the host config it runs a quick tunnel, whose hostname
+Logs land in `<local_root>/agent/logs/` (`.local/agent/logs/` by default), the monitor agent's included.
+With no `tunnel` key in the host config it runs a quick tunnel, whose hostname
 changes at every restart and must be pasted into the Linear app settings again; set
 `"tunnel": {"name": "<tunnel>"}` once a named Cloudflare tunnel exists and the hostname stops moving.
 
@@ -203,30 +204,48 @@ run `launchctl bootout gui/$(id -u)/<label>` and delete `~/Library/LaunchAgents/
 is `com.kuaiwa.farmbot.monitor` for a legacy install, and
 `com.kuaiwa.farmbot.<environment>.<instance_id>.monitor` for an explicit profile.
 
-On the Windows production host:
+On the Windows production host, use the Python and checkout that the `FarmBot-Receiver` task uses. Run
+the commands below from that checkout; they show the Python as `C:\Path\To\python.exe` and the checkout
+as `C:\FarmBot`.
 
 1. Update the checkout, and run `.\scripts\redeploy-farmbot.ps1` as usual, so `serve` writes the
    heartbeat.
 2. Add the `monitor` block with a LAN `bind` to the host config, and check the edited file with `doctor`.
    `serve` needs no restart for it.
-3. Run the monitor once in a console from the same checkout, and check for its `monitor_ready` line.
-4. As an administrator, allow its port on the office network and start it at logon as the same user as
-   `serve`:
 
-```powershell
-New-NetFirewallRule -DisplayName "FarmBot monitor" -Direction Inbound -Protocol TCP -LocalPort 8780 `
-  -Profile Private -RemoteAddress LocalSubnet -Action Allow
-$action = New-ScheduledTaskAction -Execute "C:\Path\To\python.exe" `
-  -Argument '-u -m agent.service monitor --config "C:\FarmBot\.local\agent\config.json"' -WorkingDirectory "C:\FarmBot"
-$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 `
-  -RestartInterval (New-TimeSpan -Minutes 1)
-Register-ScheduledTask -TaskName "FarmBot monitor" -Action $action `
-  -Trigger (New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME") -Settings $settings
-```
+   ```powershell
+   & "C:\Path\To\python.exe" -m agent.service doctor --config "C:\FarmBot\.local\agent\config.json"
+   ```
 
-Use the Python and checkout that the `FarmBot-Receiver` task uses. The firewall rule needs the office
-network classified as Private. Check restart-on-failure on the host once. `redeploy-farmbot.ps1` does not
-restart the monitor; restart its task after updating the checkout.
+3. Run the monitor once in a PowerShell console, check for its `monitor_ready` line, and leave it
+   running until step 5.
+
+   ```powershell
+   & "C:\Path\To\python.exe" -u -m agent.service monitor --config "C:\FarmBot\.local\agent\config.json"
+   ```
+
+4. In an elevated PowerShell opened by the account that runs `FarmBot-Receiver`, allow the monitor's
+   port on the office network and register a task that starts the monitor at that account's logon.
+   `Register-ScheduledTask` registers the task for the account running the shell, and `$env:USERNAME`
+   in the trigger names that account, so a shell elevated as another administrator would run the
+   monitor as that administrator instead.
+
+   ```powershell
+   New-NetFirewallRule -DisplayName "FarmBot monitor" -Direction Inbound -Protocol TCP -LocalPort 8780 `
+     -Profile Private -RemoteAddress LocalSubnet -Action Allow
+   $action = New-ScheduledTaskAction -Execute "C:\Path\To\python.exe" `
+     -Argument '-u -m agent.service monitor --config "C:\FarmBot\.local\agent\config.json"' -WorkingDirectory "C:\FarmBot"
+   $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 `
+     -RestartInterval (New-TimeSpan -Minutes 1)
+   Register-ScheduledTask -TaskName "FarmBot monitor" -Action $action `
+     -Trigger (New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME") -Settings $settings
+   ```
+
+5. Nothing starts the task before the next logon. Stop the console run from step 3 with Ctrl+C, then
+   run `Start-ScheduledTask -TaskName "FarmBot monitor"`.
+
+The firewall rule needs the office network classified as Private. Check restart-on-failure on the host
+once. `redeploy-farmbot.ps1` does not restart the monitor; restart its task after updating the checkout.
 
 The helper stops the receiver with `Process.Kill()`, so `serve` writes no `stopped` heartbeat and its
 Python cleanup does not run. During a later redeploy the page therefore shows 需要关注
