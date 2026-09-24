@@ -224,28 +224,37 @@ as `C:\FarmBot`.
    & "C:\Path\To\python.exe" -u -m agent.service monitor --config "C:\FarmBot\.local\agent\config.json"
    ```
 
-4. In an elevated PowerShell opened by the account that runs `FarmBot-Receiver`, allow the monitor's
-   port on the office network and register a task that starts the monitor at that account's logon.
-   `Register-ScheduledTask` registers the task for the account running the shell, and `$env:USERNAME`
-   in the trigger names that account, so a shell elevated as another administrator would run the
-   monitor as that administrator instead.
+4. In an elevated PowerShell, as any administrator, allow the monitor's port on the office network and
+   register a task that starts the monitor at the logon of the account that runs `FarmBot-Receiver`. The
+   block reads that account from the `FarmBot-Receiver` task and gives the new task an explicit principal
+   for it.
 
    ```powershell
    New-NetFirewallRule -DisplayName "FarmBot monitor" -Direction Inbound -Protocol TCP -LocalPort 8780 `
      -Profile Private -RemoteAddress LocalSubnet -Action Allow
-   $action = New-ScheduledTaskAction -Execute "C:\Path\To\python.exe" `
-     -Argument '-u -m agent.service monitor --config "C:\FarmBot\.local\agent\config.json"' -WorkingDirectory "C:\FarmBot"
+   $account = (Get-ScheduledTask -TaskName "FarmBot-Receiver").Principal.UserId
+   $principal = New-ScheduledTaskPrincipal -UserId $account -LogonType Interactive
+   New-Item -ItemType Directory -Force -Path "C:\FarmBot\.local\agent\logs"
+   $action = New-ScheduledTaskAction -Execute "cmd.exe" -WorkingDirectory "C:\FarmBot" `
+     -Argument '/d /c ""C:\Path\To\python.exe" -u -m agent.service monitor --config "C:\FarmBot\.local\agent\config.json" >> "C:\FarmBot\.local\agent\logs\monitor.log" 2>&1"'
    $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 `
      -RestartInterval (New-TimeSpan -Minutes 1)
-   Register-ScheduledTask -TaskName "FarmBot monitor" -Action $action `
-     -Trigger (New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME") -Settings $settings
+   Register-ScheduledTask -TaskName "FarmBot monitor" -Action $action -Principal $principal `
+     -Trigger (New-ScheduledTaskTrigger -AtLogOn -User $account) -Settings $settings
    ```
+
+   The task appends the monitor's output to `C:\FarmBot\.local\agent\logs\monitor.log`, so its
+   `monitor_ready`, `monitor_failed` and `status_failed` lines are kept when Task Scheduler runs it. The
+   log stays small: request logging is off, and the monitor prints one line at startup and one where each
+   run of failed status builds starts, though a client that drops its connection before the reply can
+   add a traceback. `cmd /c` exits with Python's exit code, so restart-on-failure still applies.
 
 5. Nothing starts the task before the next logon. Stop the console run from step 3 with Ctrl+C, then
    run `Start-ScheduledTask -TaskName "FarmBot monitor"`.
 
-The firewall rule needs the office network classified as Private. Check restart-on-failure on the host
-once. `redeploy-farmbot.ps1` does not restart the monitor; restart its task after updating the checkout.
+The firewall rule needs the office network classified as Private. Check restart-on-failure, the task's
+account and its log on the host once. `redeploy-farmbot.ps1` does not restart the monitor; restart its
+task after updating the checkout.
 
 The helper stops the receiver with `Process.Kill()`, so `serve` writes no `stopped` heartbeat and its
 Python cleanup does not run. During a later redeploy the page therefore shows 需要关注
