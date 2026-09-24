@@ -5,6 +5,6 @@
   "writes": ["Farm-Client", "farm-hive", "farmgui", "common", "Farm-Contract"],
   "resources": ["unity_slot"],
   "gates": ["pr_review"],
-  "mcp": [],
+  "mcp": ["kw_ops"],
   "budget": {"lease_seconds": 2700, "max_hours": 8, "renew_minutes": 10}
 }

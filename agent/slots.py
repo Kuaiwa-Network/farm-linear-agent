@@ -13,6 +13,7 @@ import urllib.parse
 from pathlib import Path
 
 from .identity import collect, quiet, ready
+from .kw_ops import child_environment
 from .launcher import _read_worker_text, _write_worker_file
 from .ledger import Ledger, LedgerError
 from .unity import (UnityError, batch_test_command, editor_holds_project, editor_path, other_editor_project,
@@ -760,9 +761,11 @@ class UnityIdentity:
     one instance serves every slot.
     """
 
-    def __init__(self, probe_path, timeout=120, start_timeout=120, clock=time.time, sleep=time.sleep):
+    def __init__(self, probe_path, timeout=120, start_timeout=120, clock=time.time, sleep=time.sleep,
+                 token_env=None):
         self.probe_path = Path(probe_path)
         self.timeout = timeout
+        self.token_env = token_env
         # Task 0 Step 5 measured cold Editor start to a usable MCP endpoint at 16 s. 120 is generous headroom
         # over a measured number; the 600 an earlier draft carried was a guess at an unmeasured one.
         self.start_timeout = start_timeout
@@ -840,7 +843,7 @@ class UnityIdentity:
         """
         command = [str(editor_path(slot["folder"], override=entry.get("unity"))), "-projectPath",
                    str(slot["folder"]), "-logFile", str(Path(slot["folder"]) / "Logs" / "farmbot-editor.log")]
-        subprocess.Popen(command, start_new_session=True,
+        subprocess.Popen(command, start_new_session=True, env=child_environment(self.token_env),
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         deadline = self.clock() + self.start_timeout
         while True:

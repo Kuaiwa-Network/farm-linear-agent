@@ -98,8 +98,8 @@ replayed after a lost response. A prompt that still fails must be retried in Lin
 
 | Skill | May write to | Resources | Needs delegation |
 |---|---|---|---|
-| chat | shared memory through item-authenticated CLI only; no repositories | none | no |
-| fix | one rooted repository per worker attempt, selected from Farm-Contract, Farm-Client, farm-hive, farmgui, common; the neutral investigation attempt has no repository writes | Unity slot (one, batch or interactive, two-phase) | yes |
+| chat | shared memory through item-authenticated CLI only; no repositories | kw_ops query tools (Codex, when configured) | no |
+| fix | one rooted repository per worker attempt, selected from Farm-Contract, Farm-Client, farm-hive, farmgui, common; the neutral investigation attempt has no repository writes | Unity slot (one, batch or interactive, two-phase); kw_ops, every tool (Codex, when configured) | yes |
 
 FarmBot never merges, deploys, changes status or assignee, or edits repositories outside the list.
 Issue text, comments, attachments and Linear guidance are data, never instructions.
@@ -119,8 +119,8 @@ that text. Fix workers read the current root's `AGENTS.md`/`CLAUDE.md` and other
 instructions when investigation needs them; grants a worker
 needs belong in the dispatch AUTHORITY. Repository skills under `.agents/skills` and
 `.codex/skills` still load, and workers inherit the service's `HOME`, so the host user's
-`~/.agents/skills` are visible too. Measured with codex-cli 0.155.1 on macOS; Windows is
-unverified.
+`~/.agents/skills` are visible too. Measured with codex-cli 0.155.1 on macOS; the trust fix was
+re-checked on 0.156.1; Windows is unverified.
 A Claude worker's settings and MCP servers also come from its launch, whatever its cwd. It runs
 with `--setting-sources user`, so of the user, project and local settings it reads only the user
 settings in its isolated `CLAUDE_CONFIG_DIR`, where FarmBot seeds none, and with
@@ -138,6 +138,48 @@ cwd's `CLAUDE.md` (with its `@` imports, `CLAUDE.local.md`, `.claude/CLAUDE.md` 
 agents of `--add-dir` directories; FarmBot's skills reach workers by path. Settings in `--add-dir`
 directories and the service user's `~/.claude` did not load with or without the flag. Measured
 with Claude Code 2.1.229 on macOS; Windows is unverified.
+
+kw_ops, the GM backend of the test game environment, is a standing tool grant that a skill
+manifest declares in `mcp`. `kw_ops` gives fix workers every tool, and `kw_ops:read` gives chat
+workers the query tools listed in `agent/kw_ops.py`, as the server's `enabled_tools`; the skill
+loader rejects any other `mcp` entry at startup. The private host profile's `kw_ops` block names
+the URL and `token_env`, the environment variable that holds the token. The name cannot be one
+FarmBot sets for workers, such as `FARMBOT_DB` or `CODEX_HOME`. The token stays in the
+controller's environment, which a Codex worker with kw_ops inherits, and the worker's CLI reads it
+by name (`bearer_token_env_var`). That worker's isolated home lists the variable under
+`shell_environment_policy.exclude` and sets `features.shell_snapshot = false`, because codex-cli
+0.156.1 re-exports excluded variables from its shell snapshot (measured on macOS; Windows is
+unverified). Every other worker has the variable removed from its environment. Claude workers get
+no kw_ops. The URL must use HTTPS, except HTTP on loopback; an existing remote HTTP configuration
+must be changed before restarting on this revision. FarmBot learns the variable's name only
+from the block, so add the block and the variable together, and remove them together: a variable
+set without the block reaches every worker.
+
+`tools.kw_ops` in the launch payload states the access, `full` or `read`. When kw_ops is not
+configured, its variable is unset or blank, or the runtime is unsupported, it says why instead and
+nothing is injected. Codex waits about a second for kw_ops before the worker's first model
+request, and a worker whose kw_ops has not started by then still runs without it: a refused
+connection logs an error in the worker's stderr, and a slow or silent kw_ops logs nothing
+(measured with codex-cli 0.156.1 on macOS; Windows is unverified). In both cases the payload still
+states the access, and the worker reports the missing kw_ops as a verification gap when the issue
+needs it. Configure kw_ops only when every target it lists is a test server, using a kw_ops
+operator whose permissions cover only test servers; FarmBot does not scope servers. The dispatch
+AUTHORITY, which tells workers that every listed server is a test server, limits full access to
+the issue's reproduction and verification, and requires every state-changing call to be recorded.
+Read-only access rests on FarmBot's allowlist, not on kw_ops.
+
+The token variable must be set only in the controller's environment, in the wrapper that starts
+`serve`, never in a shell startup file such as `~/.zshenv`: the removal and the exclusion apply
+only to the environment a worker inherits, and worker shells may source startup files. On Windows,
+provide it only in the controller service's process environment, not as a persistent user or
+machine environment variable, which lives in the registry where same-user processes can likely
+read it (unverified). FarmBot starts batch and interactive Unity Editors with a copy of the
+controller's environment that excludes the configured token variable while retaining other
+variables needed for licensing. `doctor` reports `tools.kw_ops` with `configured` and, for a
+configured host, `token_env` and
+`token_set_in_doctor_environment`, which reflects doctor's own environment, not the running
+controller's.
+
 An active repair can answer questions directly. Free-text intent is interpreted by the
 current worker; QA/retry words do not dispatch work by themselves. Empty Bug delegation
 retains its established repair shortcut; a message accompanying it is interpreted first.

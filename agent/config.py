@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 
 from .linear_api import LinearAPI
+from .kw_ops import validate_config as validate_kw_ops_config
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = ROOT / ".local" / "agent" / "config.json"
@@ -30,6 +31,8 @@ class Config:
     slots: list = field(default_factory=list)
     tunnel: dict = field(default_factory=dict)
     codex_workers: dict = field(default_factory=dict)
+    # {"url": ..., "token_env": NAME}; the token itself lives in the controller's environment, never here.
+    kw_ops: dict = field(default_factory=dict)
     environment: str = "legacy"
     instance_id: str = "default"
     expected_bot_name: str = "FarmBot"
@@ -71,6 +74,7 @@ class Config:
             if "reasoning_effort" in settings and settings["reasoning_effort"] not in (
                     "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"):
                 raise ValueError("invalid codex worker reasoning_effort")
+        validate_kw_ops_config(self.kw_ops)
 
 
 class Paths:

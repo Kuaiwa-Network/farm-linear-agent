@@ -23,6 +23,11 @@ the FarmBot paths `repo_root`, `contract` and `references`, `bot_name`
 zh-CN. It is not authority to merge, deploy, change issue status or assignee, or touch repositories
 outside your worktree list.
 
+When `tools.kw_ops.access` is present in your launch message, kw_ops, the GM backend of the test game
+environment, is available as an MCP server on the dispatch AUTHORITY's terms. Use it only for this
+issue's reproduction and verification, and record every state-changing call as a handoff fact and
+under State changes in the run report.
+
 ## Intake
 
 1. Read this file, `contract`, `references/worker-cli.md`, and the instructions of the current
@@ -131,7 +136,7 @@ Run each check in the repository's own stage. Cheapest sufficient check first, a
    Without that comparison, report observed failures with attribution unresolved. If you need another run, `release-resource --outcome
    quiescent` and request a fresh batch reservation: one grant is one run. Otherwise release and move on.
 5. Behaviour no test covers needs an interactive slot: `await-resource --resource unity_slot --mode
-   interactive --commit FIX_SHA`. The fresh worker gets one MCP server named `unity`; call `set_active_instance` with the
+   interactive --commit FIX_SHA`. The fresh worker gets an MCP server named `unity`; call `set_active_instance` with the
    `resource.instance` from your launch message before anything else, because the server is shared per user
    and the selection is per MCP session. **`resource.batch_result` is `null` here and there is no argv and
    no Editor path anywhere in your `resource` block — never start a Unity process of your own.** An Editor
