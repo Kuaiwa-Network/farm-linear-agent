@@ -8,7 +8,7 @@ import math
 import re
 import sqlite3
 
-from .heartbeat import LOOPS
+from .heartbeat import _ERROR_TYPE, LOOPS
 from .readonly_db import snapshot_connection
 from .resource_recovery import MAX_REPAIR_ATTEMPTS
 
@@ -44,6 +44,8 @@ REQUIRED = {"work_items": ("id", "issue_id", "skill", "state", "stage", "created
 OPTIONAL_ITEM_COLUMNS = ("priority", "worker_pid", "next_root_repo", "root_repo", "retry_not_before",
                          "lease_expires_at")
 SLOT_FIELDS = ("slot_id", "kind", "state", "commit", "holder", "mode", "recovery")
+HEALTH_FIELDS = ("ok", "status", "latency_ms", "error_type", "checked_at")
+INSTANCE_FIELDS = ("environment", "instance_id", "bot_name", "host")
 _PR = re.compile(r"https://github\.com/([A-Za-z0-9_.-]{1,100})/([A-Za-z0-9_.-]{1,100})/pull/([1-9][0-9]{0,9})")
 _ISSUE_FIELDS = ", ".join(f"CASE WHEN json_valid(i.metadata) THEN json_extract(i.metadata,'$.{name}') END AS {name}"
                           for name in ("identifier", "title", "url"))
@@ -70,6 +72,23 @@ def _linear_url(value):
             and not any(character.isspace() for character in value)):
         return value
     return None
+
+
+def _error_type(value):
+    """A class name as given, and "Error" for anything else that is not None."""
+    if value is None:
+        return None
+    return value if isinstance(value, str) and _ERROR_TYPE.fullmatch(value) else "Error"
+
+
+def _health(raw):
+    health = {key: raw.get(key) for key in HEALTH_FIELDS}
+    health["error_type"] = _error_type(health["error_type"])
+    return health
+
+
+def _instance(raw):
+    return {key: _text(raw.get(key), 64) for key in INSTANCE_FIELDS}
 
 
 def _pr(url):
@@ -290,13 +309,17 @@ def _ledger_attention(db, schema, rows, slots, now):
         lease = _time(row["lease_expires_at"])
         if row["state"] == "running" and lease is not None and lease <= now:
             add("lease_expired", _text(row["identifier"], 32), lease)
-    if _has(schema, "job_cleanup", "item_id", "done", "updated_at"):
-        # set_worker and retry() reopen the row when a new attempt starts, without moving updated_at: for a job
-        # that is active again it means "clean up after this attempt", so only a finished job's row is overdue.
+    if _has(schema, "job_cleanup", "item_id", "done"):
+        # set_worker and retry() reopen the row when a new attempt starts: for a job that is active again it
+        # means "clean up after this attempt", so only a finished job's row can be overdue. Its age is the job's
+        # terminal time, not the row's: Scheduler._retire rewrites job_cleanup.updated_at on every failed attempt,
+        # about once a second, and a reopened row keeps the previous attempt's time. work_items.updated_at is
+        # the time the job last changed state, the same finished_at recent[] shows. Cancelling a blocked job moves
+        # its finish time once, which delays the flag by up to 10 minutes.
         pending = [dict(row) for row in db.execute(
-            f"""SELECT c.item_id, c.updated_at FROM job_cleanup c JOIN work_items w ON w.id=c.item_id
-                WHERE c.done=0 AND c.updated_at <= ? AND w.state IN ({_marks(TERMINAL)}) ORDER BY c.updated_at""",
-            (now - CLEANUP_GRACE, *TERMINAL))]
+            f"""SELECT c.item_id, w.updated_at FROM job_cleanup c JOIN work_items w ON w.id=c.item_id
+                WHERE c.done=0 AND w.state IN ({_marks(TERMINAL)}) AND w.updated_at <= ? ORDER BY w.updated_at""",
+            (*TERMINAL, now - CLEANUP_GRACE))]
         names = _identifiers(db, [row["item_id"] for row in pending])
         for row in pending:
             add("cleanup_pending", names.get(row["item_id"]), row["updated_at"])
@@ -401,6 +424,12 @@ def _verdict(ledger_ok, beat_state, beat, health, failing_since, attention):
         return "starting", beat["started_at"]
     if not health["ok"] and beat_state != "fresh":
         return "unresponsive", beat["written_at"] if beat else _time(failing_since)
+    # Rules 5 and 6 carry their own time, however old the other items are. Their items exist exactly when their
+    # conditions hold: after rules 2 and 3, a fresh beat with /health failing is a serving one.
+    for codes in (("receiver_unreachable",), ("heartbeat_stale", "heartbeat_unreadable")):
+        item = next((item for item in attention if item["code"] in codes), None)
+        if item:
+            return "attention", item["since"]
     if attention:
         times = [item["since"] for item in attention if item["since"] is not None]
         return "attention", min(times) if times else None
@@ -413,8 +442,10 @@ def build_status(ledger_path, *, heartbeat, health, instance, monitor_revision, 
     monitor.probe_health()'s result; `failing_since` is when the monitor first saw the current run of
     /health failures; `renew_seconds` maps a skill to its lease-renewal interval."""
     beat_state, beat = heartbeat
+    health = _health(health)  # the caller's dicts are never copied into the document whole
     document = {"schema_version": SCHEMA_VERSION, "generated_at": now, "verdict": None, "verdict_since": None,
-                "instance": instance, "monitor": {"revision": monitor_revision[0], "dirty": monitor_revision[1]},
+                "instance": _instance(instance),
+                "monitor": {"revision": monitor_revision[0], "dirty": monitor_revision[1]},
                 "service": _service(beat_state, beat, health, now), "counts": dict.fromkeys(ACTIVE, 0),
                 "active": [], "slots": None, "unity_queue": None, "recent": [], "attention": [],
                 "ledger": {"ok": False, "error_type": None, "missing_optional": []}}

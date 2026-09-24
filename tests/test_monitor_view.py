@@ -15,7 +15,7 @@ from test_ledger import PIN, comment, issue
 NOW = 1_000_000.0
 HEALTHY = {"ok": True, "status": 200, "latency_ms": 3, "error_type": None, "checked_at": NOW}
 DOWN = {"ok": False, "status": None, "latency_ms": 2000, "error_type": "ConnectionRefusedError", "checked_at": NOW}
-INSTANCE = {"environment": "production", "instance_id": "default", "bot_name": "FarmBot", "host": "farm-host"}
+INSTANCE = {"environment": "production", "instance_id": "default", "bot_name": "FarmBot", "host": "test-host"}
 
 
 def beat(phase="serving", written_at=NOW - 1, *, loops=None, rejected_at=None, rejected=0, stopped_at=None,
@@ -52,14 +52,14 @@ class ViewBase(unittest.TestCase):
         return self.ledger.create_work_item(issue_id=issue_id, session_id=f"session-{n}", skill=skill, target=PIN)
 
     def claim(self, item):
-        self.ledger.set_worker(item["id"], 515151, "farm-host")
+        self.ledger.set_worker(item["id"], 515151, "test-host")
         return self.ledger.claim(item["id"], worker_id="test")
 
     def sql(self, statement, *values):
         self.ledger.connection.execute(statement, values)
 
-    def status(self, heartbeat=("missing", None), health=HEALTHY, failing_since=None, now=NOW):
-        return build_status(self.path, heartbeat=heartbeat, health=health, instance=INSTANCE,
+    def status(self, heartbeat=("missing", None), health=HEALTHY, failing_since=None, now=NOW, instance=INSTANCE):
+        return build_status(self.path, heartbeat=heartbeat, health=health, instance=instance,
                             monitor_revision=("b1d5bd4a0c11", False), now=now, failing_since=failing_since,
                             renew_seconds={"fix": 600, "chat": 300})
 
@@ -95,7 +95,7 @@ class ActiveWorkTests(ViewBase):
     def test_queued_work_is_split_into_launching_switching_retry_and_queue_position(self):
         first, second, launching, switching, retrying = (self.job() for _ in range(5))
         self.sql("UPDATE work_items SET priority=1 WHERE id=?", second["id"])
-        self.ledger.set_worker(launching["id"], 5151, "farm-host")
+        self.ledger.set_worker(launching["id"], 5151, "test-host")
         self.sql("UPDATE work_items SET worker_pid=5252, next_root_repo='farm-hive' WHERE id=?", switching["id"])
         self.sql("UPDATE work_items SET retry_not_before=? WHERE id=?", NOW + 300, retrying["id"])
         states = {job["identifier"]: (job["display_state"], job["queue_position"], job["retry_at"])
@@ -223,7 +223,7 @@ class HistoryTests(ViewBase):
 
 class SlotTests(ViewBase):
     def slot(self, slot_id):
-        self.ledger.ensure_slot(slot_id, kind="unity_slot", host="farm-host",
+        self.ledger.ensure_slot(slot_id, kind="unity_slot", host="test-host",
                                 folder=str(Path(self.tmp.name) / slot_id.replace(":", "-")))
 
     def test_slots_show_their_holder_mode_commit_and_recovery(self):
@@ -231,12 +231,12 @@ class SlotTests(ViewBase):
         self.slot("unity_slot:2")
         holder = self.job()
         self.ledger.await_resource(holder["id"], self.claim(holder)["token"], "unity_slot", "interactive")
-        granted = self.ledger.acquire("unity_slot", owner="pool", host="farm-host")
+        granted = self.ledger.acquire("unity_slot", owner="pool", host="test-host")
         self.ledger.set_slot_state(granted["resource"], "interactive_busy", parked_commit="9f2e1c0" + "0" * 33)
         self.ledger.set_slot_state("unity_slot:2", "held")
         store = RecoveryStore(self.ledger)
-        store.discover("farm-host")
-        recovery = store.begin(store.pending("farm-host")[0]["id"])
+        store.discover("test-host")
+        recovery = store.begin(store.pending("test-host")[0]["id"])
         store.failed(recovery["id"], recovery["attempts"], "private repair error")
         slots = {slot["slot_id"]: slot for slot in self.status()["slots"]}
         self.assertEqual(slots["unity_slot:1"], {"slot_id": "unity_slot:1", "kind": "unity_slot",
@@ -249,9 +249,9 @@ class SlotTests(ViewBase):
         self.slot("unity_slot:1")
         self.ledger.set_slot_state("unity_slot:1", "held")
         store = RecoveryStore(self.ledger)
-        store.discover("farm-host")
+        store.discover("test-host")
         for _ in range(MAX_REPAIR_ATTEMPTS):  # every automatic repair fails, until recovery gives up
-            pending = store.pending("farm-host")[0]
+            pending = store.pending("test-host")[0]
             self.clock = max(self.clock, pending["due_at"])
             recovery = store.begin(pending["id"])
             store.failed(recovery["id"], recovery["attempts"], "private repair error")
@@ -268,14 +268,14 @@ class SlotTests(ViewBase):
         self.slot("unity_slot:1")
         self.ledger.set_slot_state("unity_slot:1", "held")
         store = RecoveryStore(self.ledger)
-        store.discover("farm-host")
-        recovery = store.begin(store.pending("farm-host")[0]["id"])
+        store.discover("test-host")
+        recovery = store.begin(store.pending("test-host")[0]["id"])
         store.detach(recovery["id"], recovery["attempts"])
         store.complete(recovery["id"], recovery["attempts"], "9f2e1c0" + "0" * 33, "instance-1")
         self.assertIsNone(self.status()["slots"][0]["recovery"])  # repaired and idle_open
         self.ledger.set_slot_state("unity_slot:1", "held")  # SlotPool.park_idle holds a slot it cannot park
         self.assertIsNone(self.status()["slots"][0]["recovery"])  # the newest recovery is the repaired one
-        store.discover("farm-host")
+        store.discover("test-host")
         self.assertEqual(self.status()["slots"][0]["recovery"],
                          {"state": "pending", "attempts": 0, "max_attempts": MAX_REPAIR_ATTEMPTS})
 
@@ -286,12 +286,11 @@ class AttentionTests(ViewBase):
 
     def test_ledger_conditions_raise_attention_only_past_their_thresholds(self):
         cleaned, fresh_cleanup, flaky, broken, expired = (self.job() for _ in range(5))
-        # Cleanup is overdue only for a job that has finished; both must be, or the grace goes untested.
-        self.sql("UPDATE work_items SET state='failed' WHERE id IN (?,?)", cleaned["id"], fresh_cleanup["id"])
-        self.sql("INSERT INTO job_cleanup(item_id, worker_pid, updated_at) VALUES(?,?,?)",
-                 cleaned["id"], 1, NOW - CLEANUP_GRACE - 1)
-        self.sql("INSERT INTO job_cleanup(item_id, worker_pid, updated_at) VALUES(?,?,?)",
-                 fresh_cleanup["id"], 1, NOW - CLEANUP_GRACE + 30)
+        # Cleanup is overdue only for a job that has finished, timed from when it finished; both must have
+        # finished, or the grace goes untested. Both rows were rewritten just now, as a failing _retire leaves them.
+        for item, finished_at in ((cleaned, NOW - CLEANUP_GRACE - 1), (fresh_cleanup, NOW - CLEANUP_GRACE + 30)):
+            self.sql("UPDATE work_items SET state='failed', updated_at=? WHERE id=?", finished_at, item["id"])
+            self.sql("INSERT INTO job_cleanup(item_id, worker_pid, updated_at) VALUES(?,?,?)", item["id"], 1, NOW - 1)
         self.sql("UPDATE issue_checks SET error='private', failures=2, checked_at=? WHERE issue_id=?", NOW - 5, flaky["issue_id"])
         self.sql("UPDATE issue_checks SET error='private', failures=3, checked_at=? WHERE issue_id=?", NOW - 5, broken["issue_id"])
         self.clock = NOW - 4000  # with a one-hour lease, this claim expired 400 seconds ago
@@ -320,14 +319,75 @@ class AttentionTests(ViewBase):
         self.assertEqual([item for item in self.status()["attention"] if item["code"] == "cleanup_pending"],
                          [{"code": "cleanup_pending", "subject": "FARM-3", "since": NOW - 3600, "count": None}])
 
+    def cleanup_items(self, document):
+        return [item for item in document["attention"] if item["code"] == "cleanup_pending"]
+
+    def test_a_cleanup_that_keeps_failing_is_flagged_from_when_the_job_finished(self):
+        # Scheduler._retire records each failed attempt, rewriting the row's updated_at about once a second.
+        item = self.job()
+        self.clock = NOW - 1260
+        self.claim(item)
+        self.clock = NOW - 1200
+        self.ledger.fail(item["id"], "worker failed")
+        for attempt in range(20):  # one failed cleanup a minute for 20 minutes
+            self.clock = NOW - 1200 + 60 * attempt
+            self.ledger.record_cleanup(item["id"], {}, error="reservation awaits quiescence")
+        record = self.ledger.cleanup_record(item["id"])
+        self.assertEqual((record["done"], record["updated_at"]), (False, NOW - 60))  # the row looks recent
+        document = self.status()
+        self.assertEqual(self.cleanup_items(document),
+                         [{"code": "cleanup_pending", "subject": "FARM-1", "since": NOW - 1200, "count": None}])
+        self.assertEqual((document["verdict"], document["verdict_since"]), ("attention", NOW - 1200))
+
+    def test_a_retried_job_that_has_just_failed_again_is_not_yet_overdue(self):
+        # retry() and set_worker reopen the first attempt's row without moving its updated_at.
+        item = self.job()
+        self.claim(item)
+        self.clock = NOW - 3000
+        self.ledger.fail(item["id"], "worker failed")
+        self.ledger.record_cleanup(item["id"], {}, done=True)  # the scheduler finished the first cleanup
+        self.clock = NOW - 1800
+        self.ledger.retry(item["id"], "重试")
+        self.claim(item)
+        self.clock = NOW - 1
+        self.ledger.fail(item["id"], "worker failed again")  # the next _retire has not run yet
+        record = self.ledger.cleanup_record(item["id"])
+        self.assertEqual((record["done"], record["updated_at"]), (False, NOW - 3000))  # older than the grace
+        self.assertEqual(self.ledger.item(item["id"])["state"], "failed")
+        document = self.status()
+        self.assertEqual(self.cleanup_items(document), [])
+        self.assertEqual(document["verdict"], "ok")
+
+    def test_cancelling_a_blocked_job_restarts_its_cleanup_grace_once(self):
+        # Accepted: cancel() turns a blocked job into a cancelled one and so moves its finish time, once.
+        item = self.job()
+        token = self.claim(item)["token"]
+        action = self.ledger.prepare_comment(item["id"], token, "blocker", "请补充复现步骤。")
+        self.ledger.confirm_comment(action["action_id"], "remote-comment-1")
+        self.clock = NOW - 1200
+        self.ledger.finish(item["id"], token, "blocked", {"summary": "需要设备信息",
+                                                          "comment_action_id": action["action_id"]})
+        for attempt in range(20):  # one failed cleanup a minute for 20 minutes
+            self.clock = NOW - 1200 + 60 * attempt
+            self.ledger.record_cleanup(item["id"], {}, error="reservation awaits quiescence")
+        self.assertEqual(self.cleanup_items(self.status()),
+                         [{"code": "cleanup_pending", "subject": "FARM-1", "since": NOW - 1200, "count": None}])
+        self.clock = NOW
+        self.ledger.cancel(item["id"], "Linear stop")
+        self.assertEqual(self.ledger.item(item["id"])["state"], "cancelled")
+        flagged = [{"code": "cleanup_pending", "subject": "FARM-1", "since": NOW, "count": None}]
+        for later, expected in ((1, []), (CLEANUP_GRACE - 1, []), (CLEANUP_GRACE, flagged)):
+            with self.subTest(seconds_after_cancel=later):
+                self.assertEqual(self.cleanup_items(self.status(now=NOW + later)), expected)
+
     def test_a_busy_slot_without_a_reservation_and_a_slow_cancellation_are_flagged(self):
         for slot in ("unity_slot:1", "unity_slot:2"):
-            self.ledger.ensure_slot(slot, kind="unity_slot", host="farm-host",
+            self.ledger.ensure_slot(slot, kind="unity_slot", host="test-host",
                                     folder=str(Path(self.tmp.name) / slot.replace(":", "-")))
         self.ledger.set_slot_state("unity_slot:1", "batch_busy")
         item = self.job()
         self.ledger.await_resource(item["id"], self.claim(item)["token"], "unity_slot", "batch")
-        self.ledger.acquire("unity_slot", owner="pool", host="farm-host")  # slot 1 is busy, so slot 2
+        self.ledger.acquire("unity_slot", owner="pool", host="test-host")  # slot 1 is busy, so slot 2
         self.clock = NOW - 400
         self.ledger.cancel(item["id"], "Linear stop")  # the active reservation becomes cancel_requested
         found = self.found(self.status())
@@ -356,6 +416,52 @@ class ServiceTests(ViewBase):
             with self.subTest(verdict=verdict, heartbeat=heartbeat[0], health=health["ok"]):
                 document = self.status(heartbeat=heartbeat, health=health, failing_since=NOW - 30)
                 self.assertEqual((document["verdict"], document["verdict_since"]), (verdict, since))
+
+    def test_rules_five_and_six_keep_their_own_time_beside_an_older_item(self):
+        item = self.job()
+        self.clock = NOW - 7200
+        self.claim(item)  # the one-hour lease expired an hour ago
+        cases = [
+            ("rule 5", ("fresh", beat("serving")), DOWN, "receiver_unreachable", NOW - 30),
+            ("rule 6, stale", ("stale", beat("serving", NOW - 120)), HEALTHY, "heartbeat_stale", NOW - 120),
+            ("rule 6, stopped", ("fresh", beat("stopped", NOW - 2, stopped_at=NOW - 2)), HEALTHY, "heartbeat_stale",
+             NOW - 2),
+            ("rule 6, unreadable", ("unreadable", None), HEALTHY, "heartbeat_unreadable", None),
+            ("rule 7", ("fresh", beat("serving")), HEALTHY, None, NOW - 3600),
+        ]
+        for rule, heartbeat, health, code, since in cases:
+            with self.subTest(rule=rule):
+                document = self.status(heartbeat=heartbeat, health=health, failing_since=NOW - 30)
+                codes = {entry["code"]: entry["since"] for entry in document["attention"]}
+                self.assertEqual(codes["lease_expired"], NOW - 3600)
+                if code:
+                    self.assertIn(code, codes)
+                self.assertEqual((document["verdict"], document["verdict_since"]), ("attention", since))
+
+    def test_health_and_instance_are_built_from_their_own_fields(self):
+        health = {**DOWN, "error_type": "<script>", "body": "PRIVATE-BODY", "url": "http://127.0.0.1:8787/health"}
+        instance = {**INSTANCE, "bot_name": "B" * 100, "token": "PRIVATE-TOKEN", "local_root": "/srv/private"}
+        document = self.status(heartbeat=("fresh", beat()), health=health, instance=instance)
+        self.assertEqual(document["service"]["health"], {"ok": False, "status": None, "latency_ms": 2000,
+                                                         "error_type": "Error", "checked_at": NOW})
+        self.assertEqual(document["instance"], {"environment": "production", "instance_id": "default",
+                                                "bot_name": "B" * 64, "host": "test-host"})
+        self.assertEqual(document["verdict"], "attention")  # the verdict still reads the probe's ok
+        self.assertIn("receiver_unreachable", {entry["code"] for entry in document["attention"]})
+        text = json.dumps(document, ensure_ascii=False)
+        for secret in ("PRIVATE-BODY", "127.0.0.1:8787", "PRIVATE-TOKEN", "/srv/private", "<script>"):
+            with self.subTest(secret=secret):
+                self.assertNotIn(secret, text)
+        for error_type, shown in (("Connection Error", "Error"), (42, "Error"), ("", "Error"),
+                                  ("ConnectionRefusedError", "ConnectionRefusedError"), (None, None)):
+            with self.subTest(error_type=error_type):
+                shown_type = self.status(health={**DOWN, "error_type": error_type})["service"]["health"]["error_type"]
+                self.assertEqual(shown_type, shown)
+        bare = self.status(health={"ok": True}, instance={})
+        self.assertEqual(bare["service"]["health"], {"ok": True, "status": None, "latency_ms": None,
+                                                     "error_type": None, "checked_at": None})
+        self.assertEqual(bare["instance"], dict.fromkeys(("environment", "instance_id", "bot_name", "host")))
+        self.assertEqual(bare["verdict"], "ok")
 
     def test_loops_and_webhooks_raise_attention_from_a_fresh_heartbeat(self):
         loops = {"receive": loop(NOW - 2, NOW - 1),
@@ -435,7 +541,7 @@ class PrivacyTests(ViewBase):
         self.sql("UPDATE work_items SET state='failed' WHERE id=?", finished["id"])
         self.sql("INSERT INTO job_cleanup(item_id, worker_pid, error, updated_at) VALUES(?,?,?,?)",
                  finished["id"], 424242, "PRIVATE-CLEANUP", NOW - 3600)
-        self.ledger.ensure_slot("unity_slot:1", kind="unity_slot", host="farm-host",
+        self.ledger.ensure_slot("unity_slot:1", kind="unity_slot", host="test-host",
                                 folder=str(Path(self.tmp.name) / "PRIVATE-FOLDER"))
         waiting = self.job()
         answer = self.claim(waiting)
