@@ -1,6 +1,7 @@
 """Private configuration under .local/agent and the Linear client factory (spec §8, §15)."""
 from dataclasses import dataclass, field
 import getpass
+import ipaddress
 import json
 import math
 import os
@@ -12,6 +13,11 @@ from .linear_api import LinearAPI
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = ROOT / ".local" / "agent" / "config.json"
 REQUIRED = ("client_id", "client_secret", "webhook_secret")
+# The status monitor's listener. Loopback unless a host config opts into the office LAN; serve and workers
+# never read this block, so editing it needs a monitor restart only.
+MONITOR_DEFAULTS = {"bind": "127.0.0.1", "port": 8780, "hostnames": ()}
+# One DNS name: dot-separated labels of lowercase letters, digits and inner hyphens.
+_HOSTNAME = re.compile(r"(?=.{1,253}\Z)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*")
 
 
 @dataclass
@@ -30,6 +36,7 @@ class Config:
     slots: list = field(default_factory=list)
     tunnel: dict = field(default_factory=dict)
     codex_workers: dict = field(default_factory=dict)
+    monitor: dict = field(default_factory=dict)
     environment: str = "legacy"
     instance_id: str = "default"
     expected_bot_name: str = "FarmBot"
@@ -71,6 +78,32 @@ class Config:
             if "reasoning_effort" in settings and settings["reasoning_effort"] not in (
                     "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"):
                 raise ValueError("invalid codex worker reasoning_effort")
+        self._validate_monitor()
+
+    def _validate_monitor(self):
+        if not isinstance(self.monitor, dict) or set(self.monitor) - set(MONITOR_DEFAULTS):
+            raise ValueError("monitor accepts bind, port and hostnames only")
+        bind = self.monitor.get("bind", MONITOR_DEFAULTS["bind"])
+        try:
+            valid = isinstance(bind, str) and str(ipaddress.IPv4Address(bind)) == bind
+        except ValueError:
+            valid = False
+        if not valid:
+            raise ValueError("monitor.bind must be an IPv4 address such as 127.0.0.1 or 0.0.0.0")
+        port = self.monitor.get("port", MONITOR_DEFAULTS["port"])
+        if type(port) is not int or not 1 <= port <= 65535 or port == self.port:
+            raise ValueError("monitor.port must be a TCP port other than the receiver's")
+        hostnames = self.monitor.get("hostnames", [])
+        if (not isinstance(hostnames, list) or len(hostnames) > 16
+                or any(not isinstance(name, str) or not _HOSTNAME.fullmatch(name) for name in hostnames)):
+            raise ValueError("monitor.hostnames must list at most 16 lowercase DNS names")
+
+
+def monitor_settings(config):
+    """The monitor's listener with defaults applied; Config has already validated the block."""
+    settings = {**MONITOR_DEFAULTS, **config.monitor}
+    settings["hostnames"] = tuple(settings["hostnames"])
+    return settings
 
 
 class Paths:
@@ -81,6 +114,7 @@ class Paths:
         self.worktrees = Path(config.local_root) / "worktrees"
         self.repos = Path(config.local_root) / "repos"
         self.editors = Path(config.local_root) / "editors"
+        self.heartbeat = Path(config.local_root) / "service-heartbeat.json"
 
 
 def load_config(path=None, *, secure_permissions=True):
