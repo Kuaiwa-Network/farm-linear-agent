@@ -78,7 +78,7 @@ class Receiver:
             return 401, "invalid signature"
         try:
             event = json.loads(raw)
-        except (ValueError, UnicodeError):
+        except (ValueError, UnicodeError, RecursionError):  # RecursionError: nested too deeply to parse
             return 400, "invalid json"
         if not isinstance(event, dict):
             return 400, "invalid event"
@@ -383,7 +383,7 @@ def make_server(receiver, port=8765):
                 event = json.loads(raw)
                 kind = event.get("type") if isinstance(event, dict) else None
                 action = event.get("action") if isinstance(event, dict) else None
-            except (ValueError, UnicodeError):
+            except (ValueError, UnicodeError, RecursionError):  # also an unsigned body nested too deeply to parse
                 kind = action = None
             print(json.dumps({"event": "webhook", "status": status, "result": message, "type": kind, "action": action}), flush=True)
             self.answer_webhook(kind, status, message)

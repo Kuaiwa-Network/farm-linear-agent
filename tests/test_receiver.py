@@ -404,6 +404,7 @@ class HttpTests(ReceiverBase):
             response = b""
             while chunk := connection.recv(65536):
                 response += chunk
+        self.assertTrue(response, "the connection closed without an answer")
         status_line, _, rest = response.partition(b"\r\n")
         return int(status_line.split()[1]), json.loads(rest.partition(b"\r\n\r\n")[2])["status"]
 
@@ -428,6 +429,41 @@ class HttpTests(ReceiverBase):
         # The handler reads the body with a 3 s timeout; the connection stays open with 8 bytes still to come.
         self.assertEqual(self.raw_webhook(url, b"Content-Length: 10\r\n", b"{}", finish=False), (408, "body timeout"))
         self.assert_counted_as_malformed(beat)
+
+    def post_nested_too_deeply(self, signed):
+        """(answer, log lines, stderr, counts) for a /webhook POST whose body nests further than json can parse.
+
+        100000 brackets are well under MAX_BODY, and parsing them raises RecursionError."""
+        beat = Heartbeat(runtime="fake")
+        url = self.serve_http(beat)
+        body = b"[" * 100_000
+        head = b"Content-Length: %d\r\n" % len(body)
+        if signed:
+            head += b"Linear-Signature: %s\r\n" % self.signed(body)["Linear-Signature"].encode()
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            answer = self.raw_webhook(url, head, body)
+        lines = [json.loads(line) for line in out.getvalue().splitlines()]
+        return answer, lines, err.getvalue(), beat.payload()["webhooks"]["counts"]
+
+    def test_an_unsigned_body_nested_too_deeply_to_parse_is_answered_logged_and_counted(self):
+        # Anyone who reaches the tunnel can send it. The log line's parse must survive it like any other bad body.
+        answer, lines, err, counts = self.post_nested_too_deeply(signed=False)
+        self.assertEqual(answer, (401, "invalid signature"))
+        self.assertEqual(lines, [{"event": "webhook", "status": 401, "result": "invalid signature", "type": None,
+                                  "action": None}])
+        self.assertEqual(err, "")
+        self.assertEqual(counts, {**dict.fromkeys(OUTCOMES, 0), "rejected": 1})
+
+    def test_a_signed_body_nested_too_deeply_to_parse_is_invalid_json_not_a_receiver_error(self):
+        # Only a holder of the signing secret can send it. Like any other body that is not JSON, it is malformed.
+        answer, lines, err, counts = self.post_nested_too_deeply(signed=True)
+        self.assertEqual(answer, (400, "invalid json"))
+        self.assertEqual(lines, [{"event": "webhook", "status": 400, "result": "invalid json", "type": None,
+                                  "action": None}])
+        self.assertEqual(err, "")
+        self.assertEqual(counts, {**dict.fromkeys(OUTCOMES, 0), "malformed": 1})
+        self.assertEqual(self.receiver.results(), [])
 
     def test_probes_that_gave_up_before_serving_began_leave_no_traceback(self):
         """While pool.ensure() runs, serve's socket is bound and listening but nothing accepts. Each status build's
