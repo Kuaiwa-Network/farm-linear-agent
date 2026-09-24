@@ -109,27 +109,43 @@ def make_monitor_server(config, *, port=None, clock=time.time):
     revision = source_revision(ROOT)
     renew_seconds = {name: skill.budget["renew_minutes"] * 60 for name, skill in load_skills(ROOT / "skills").items()}
     lock = threading.Lock()
-    cache = {"at": None, "body": None, "failing_since": None}
+    # `failed`: the last build failed, so the current run of failures has already printed its line.
+    cache = {"at": None, "body": None, "failing_since": None, "failed": False}
 
     def status_body():
+        """The status JSON, or None when building it failed. A failure is never cached: the next request builds
+        again."""
         # Serialized: however many teammates poll, the ledger is read at most once per SNAPSHOT_TTL.
         with lock:
             now = clock()
             if cache["body"] is not None and 0 <= now - cache["at"] < SNAPSHOT_TTL:
                 return cache["body"]
-            health = probe_health(config.port, timeout=HEALTH_TIMEOUT, now=now)
-            if health["ok"]:
-                cache["failing_since"] = None
-            elif cache["failing_since"] is None:
-                cache["failing_since"] = now
-            document = build_status(paths.ledger, heartbeat=read_heartbeat(paths.heartbeat, now=now),
-                                    health=health, instance=instance, monitor_revision=revision, now=now,
-                                    failing_since=cache["failing_since"], renew_seconds=renew_seconds)
-            cache["body"] = json.dumps(document, ensure_ascii=False, allow_nan=False).encode("utf-8")
+            try:
+                health = probe_health(config.port, timeout=HEALTH_TIMEOUT, now=now)
+                if health["ok"]:
+                    cache["failing_since"] = None
+                elif cache["failing_since"] is None:
+                    cache["failing_since"] = now
+                document = build_status(paths.ledger, heartbeat=read_heartbeat(paths.heartbeat, now=now),
+                                        health=health, instance=instance, monitor_revision=revision, now=now,
+                                        failing_since=cache["failing_since"], renew_seconds=renew_seconds)
+                body = json.dumps(document, ensure_ascii=False, allow_nan=False).encode("utf-8")
+            except Exception as exc:
+                # Every poll would otherwise drop its connection and print a traceback, to a log launchd never
+                # rotates. One line marks where failures start, and none follows until a build succeeds.
+                if not cache["failed"]:
+                    cache["failed"] = True
+                    try:
+                        print(json.dumps({"event": "status_failed", "error": type(exc).__name__}), flush=True)
+                    except Exception:
+                        pass  # an unwritable log must not turn the 500 into a dropped connection
+                return None
+            cache["failed"] = False
+            cache["body"] = body
             # Aged from the build's end, not its start: a probe that times out lasts as long as SNAPSHOT_TTL, and
             # the requests that waited for this build must reuse it rather than each start another.
             cache["at"] = clock()
-            return cache["body"]
+            return body
 
     class Handler(BaseHTTPRequestHandler):
         timeout = REQUEST_TIMEOUT
@@ -162,7 +178,10 @@ def make_monitor_server(config, *, port=None, clock=time.time):
                 return self.send(421, b"unknown host\n")
             path = self.path.split("?", 1)[0]
             if path == "/api/status":
-                return self.send(200, status_body(), "application/json; charset=utf-8")
+                body = status_body()
+                if body is None:
+                    return self.send(500, b"status unavailable\n")  # the page counts it as a failed poll
+                return self.send(200, body, "application/json; charset=utf-8")
             if path in assets:
                 body, kind = assets[path]
                 return self.send(200, body, kind)

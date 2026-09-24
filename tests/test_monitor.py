@@ -404,6 +404,51 @@ class MonitorServerTests(unittest.TestCase):
         # The probe read the shortened timeout at call time and gave up on the receiver, which answers after 1 s.
         self.assertEqual((len(calls), replies), (1, [(200, "TimeoutError")] * 4))
 
+    def test_a_failed_build_answers_500_and_prints_one_line_per_run_of_failures(self):
+        calls, failing = [], [True]
+        real = monitor.build_status
+
+        def flaky(*args, **kwargs):
+            calls.append(kwargs["now"])
+            if failing[0]:
+                raise TypeError("a document the view cannot build")
+            return real(*args, **kwargs)
+
+        def lines():
+            return [json.loads(line) for line in out.getvalue().splitlines()]
+
+        failed = {"event": "status_failed", "error": "TypeError"}
+        out, err = io.StringIO(), io.StringIO()
+        # The request threads print, and sys.stdout is process-wide, so their lines land here too.
+        with patch("agent.monitor.build_status", side_effect=flaky), contextlib.redirect_stdout(out), \
+                contextlib.redirect_stderr(err):
+            response, body = self.request(path="/api/status")
+            self.assertEqual((response.status, body), (500, b"status unavailable\n"))
+            self.assertEqual(response.getheader("Content-Type"), "text/plain; charset=utf-8")
+            for name, value in monitor.HEADERS:
+                self.assertEqual(response.getheader(name), value)
+            self.assertEqual(lines(), [failed])
+            # Within the same snapshot interval: a failure is never cached, so this builds and fails again, quietly.
+            self.assertEqual(self.request(path="/api/status")[0].status, 500)
+            self.assertEqual((len(calls), lines()), (2, [failed]))
+            failing[0] = False
+            self.assertEqual(self.request(path="/api/status")[0].status, 200)
+            failing[0] = True
+            self.now[0] += monitor.SNAPSHOT_TTL + 0.5
+            self.assertEqual(self.request(path="/api/status")[0].status, 500)
+            # Nor does a failure renew the last good snapshot: it is not served as fresh again.
+            self.assertEqual(self.request(path="/api/status")[0].status, 500)
+        # The recovery ended the first run of failures, so the second prints its own line, and only one.
+        self.assertEqual((len(calls), lines()), (5, [failed, failed]))
+        self.assertEqual(err.getvalue(), "")  # and no traceback for any of them
+
+    def test_an_unwritable_log_still_answers_500(self):
+        closed = io.StringIO()
+        closed.close()  # printing to it raises
+        with patch("agent.monitor.build_status", side_effect=TypeError("boom")), contextlib.redirect_stdout(closed):
+            response, body = self.request(path="/api/status")
+        self.assertEqual((response.status, body), (500, b"status unavailable\n"))
+
     def test_renewal_intervals_come_from_the_skill_manifests(self):
         calls = []
         real = monitor.build_status
@@ -448,7 +493,11 @@ class MonitorRunTests(unittest.TestCase):
 
     def run_monitor(self, path):
         out = io.StringIO()
-        with contextlib.redirect_stdout(out):
+        # Every case here must refuse. One that regressed would bind its port and serve forever, hanging the suite;
+        # serving fails the test at once instead.
+        serving = AssertionError("run() started serving instead of refusing")
+        with contextlib.redirect_stdout(out), patch.object(monitor.ExclusiveServer, "serve_forever",
+                                                           side_effect=serving):
             code = run(path)
         lines = [json.loads(line) for line in out.getvalue().splitlines()]
         self.assertEqual(len(lines), 1, lines)
