@@ -109,16 +109,18 @@ def make_monitor_server(config, *, port=None, clock=time.time):
     revision = source_revision(ROOT)
     renew_seconds = {name: skill.budget["renew_minutes"] * 60 for name, skill in load_skills(ROOT / "skills").items()}
     lock = threading.Lock()
-    # `failed`: the last build failed, so the current run of failures has already printed its line.
+    # The last build: when it ended, and its body, or None when it failed. `failed`: the last build failed, so the
+    # current run of failures has already printed its line.
     cache = {"at": None, "body": None, "failing_since": None, "failed": False}
 
     def status_body():
-        """The status JSON, or None when building it failed. A failure is never cached: the next request builds
-        again."""
-        # Serialized: however many teammates poll, the ledger is read at most once per SNAPSHOT_TTL.
+        """The status JSON, or None when building it failed. For SNAPSHOT_TTL after a build, every request gets
+        its answer, a failure's included; a failure replaces the last good body, which is never served again."""
+        # Serialized: however many teammates poll, the ledger is read at most once per SNAPSHOT_TTL, also while
+        # every build fails.
         with lock:
             now = clock()
-            if cache["body"] is not None and 0 <= now - cache["at"] < SNAPSHOT_TTL:
+            if cache["at"] is not None and 0 <= now - cache["at"] < SNAPSHOT_TTL:
                 return cache["body"]
             try:
                 health = probe_health(config.port, timeout=HEALTH_TIMEOUT, now=now)
@@ -134,16 +136,16 @@ def make_monitor_server(config, *, port=None, clock=time.time):
                 # Every poll would otherwise drop its connection and print a traceback, to a log launchd never
                 # rotates. One line marks where failures start, and none follows until a build succeeds.
                 if not cache["failed"]:
-                    cache["failed"] = True
                     try:
                         print(json.dumps({"event": "status_failed", "error": type(exc).__name__}), flush=True)
                     except Exception:
                         pass  # an unwritable log must not turn the 500 into a dropped connection
-                return None
-            cache["failed"] = False
+                body = None
+            cache["failed"] = body is None
             cache["body"] = body
-            # Aged from the build's end, not its start: a probe that times out lasts as long as SNAPSHOT_TTL, and
-            # the requests that waited for this build must reuse it rather than each start another.
+            # Aged from the build's end, not its start, a failed build's too: a probe that times out lasts as long
+            # as SNAPSHOT_TTL, and the requests that waited for this build must reuse its answer rather than each
+            # start another.
             cache["at"] = clock()
             return body
 

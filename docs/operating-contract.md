@@ -539,10 +539,18 @@ mismatch, a `monitor` block it cannot use, a port equal to the receiver's or alr
 error.
 
 After startup, a status build that fails for a reason other than an unreadable ledger (shown as 未知)
-answers `/api/status` with 500 and the security headers every reply carries. The next request builds
+answers `/api/status` with 500 and the security headers every reply carries. As a good build does, it
+answers every request for the next two seconds without another build, so the status is built at most
+once every two seconds however many pages poll; it replaces the last good build, which is never served
 again. The first failure of each run of failures prints one `status_failed` JSON line. The page counts
 the 500 as a failed poll and shows 连接中断, although the monitor is running. The `status_failed` line
 tells this apart from a monitor the page cannot reach, which leaves no such line.
+
+The page accepts only a status document of `schema_version` 1 and keeps no other body. Any other body is
+a failed poll, and one of another version, from a monitor upgraded under an open tab, makes the banner
+read 监控已更新，请刷新页面。 The page never reloads itself. If rendering a document throws, the header
+and tab title read 页面显示出错 and the content is dimmed until a render succeeds, so the page never keeps
+showing an earlier verdict.
 
 The monitor opens the ledger with SQLite `mode=ro` and `query_only`, never constructs `Ledger` and never
 takes the controller lock. It writes no FarmBot file or ledger row; SQLite can leave its `-wal`/`-shm`

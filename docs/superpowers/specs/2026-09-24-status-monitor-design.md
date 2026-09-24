@@ -354,6 +354,12 @@ periods, such as nights and weekends, are informational only.
     the ledger cannot be read, the work sections keep their last good data, labelled
     工作数据停留在 HH:MM. Before any good read, one 账本无法读取，暂无工作数据
     placeholder replaces the counts and the work sections.
+  - Only a status document of `schema_version` 1 is accepted and kept as the page's
+    data. Any other body is a failed poll, and a body of another version, from a monitor
+    upgraded under an open tab, makes the banner read 监控已更新，请刷新页面。 The page
+    never reloads itself.
+  - When rendering a document throws, the header and tab title read 页面显示出错 and the
+    content is dimmed until a render succeeds, so a stale verdict never stays up.
   - A footer states that the page is read-only and that actions happen in Linear.
 
 ## Failure behaviour
@@ -362,11 +368,14 @@ periods, such as nights and weekends, are informational only.
   reported in `ledger.error_type`. The page keeps the last good sections, or shows its
   no-data placeholder before any good read, and each poll retries.
 - Any other error while building the status answers `/api/status` with 500, with the
-  security headers above, and is never cached, so the next request builds again. The
-  first failure of each run of failures prints one `status_failed` JSON line. The page
-  counts the 500 as a failed poll, so it shows 连接中断 and the lost-connection banner
-  although the monitor is running. The `status_failed` line tells this apart from a
-  monitor the page cannot reach, which leaves no such line.
+  security headers above. Like a good build, a failed one answers every request for the
+  next 2 seconds without another build, so the status is built at most once every 2
+  seconds while builds fail too. The failure replaces the last good snapshot, which is
+  never served again. The first failure of each run of failures prints one
+  `status_failed` JSON line. The page counts the 500 as a failed poll, so it shows
+  连接中断 and the lost-connection banner although the monitor is running. The
+  `status_failed` line tells this apart from a monitor the page cannot reach, which
+  leaves no such line.
 - The monitor refuses to start, exiting with status 1 and one `monitor_failed` JSON
   line, on any startup error. These include an unreadable config, an ownership marker
   that does not match the config (the same read-only `check_ownership` other maintenance

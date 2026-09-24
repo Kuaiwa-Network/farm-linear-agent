@@ -19,7 +19,7 @@ from agent.config import Config, Paths, load_config, monitor_settings
 from agent.heartbeat import LOOPS
 from agent.ledger import Ledger
 from agent.monitor import allowed_host, make_monitor_server, probe_health, run
-from agent.monitor_view import ATTENTION_CODES, DISPLAY_STATES, OUTCOMES, VERDICTS, WORKER_STATES
+from agent.monitor_view import ATTENTION_CODES, DISPLAY_STATES, OUTCOMES, SCHEMA_VERSION, VERDICTS, WORKER_STATES
 from agent.service import main
 from agent.skills import load_skills
 
@@ -167,6 +167,67 @@ class PageTests(unittest.TestCase):
         held = self.block("slot_held: (a, work) => {")
         self.assertIn("? `${a.subject} 已隔离，${recoveryText(slot.recovery)}`", held)
         self.assertIn(": `${a.subject} 已隔离，控制器正在自动修复", held)
+
+    def test_only_a_status_document_of_the_views_version_is_accepted_and_kept(self):
+        script = self.text("monitor.js")
+        # The one version the page reads is the one agent/monitor_view.py emits.
+        self.assertIn(f"const SCHEMA_VERSION = {SCHEMA_VERSION};", script)
+        poll = self.block("async function poll() {")
+        gate = "if (version !== SCHEMA_VERSION) {"
+        # A body that is not an object has no version, and any other body fails the poll at the gate.
+        self.assertIn('const version = next !== null && typeof next === "object" ? next.schema_version : undefined;',
+                      poll)
+        self.assertIn(gate, poll)
+        self.assertIn("throw new Error(", self.block(gate))
+        # Only a body past the gate, whose ledger section has been read, is kept.
+        order = [gate, "const ledgerOk = next.ledger.ok;", "doc = next;", "if (ledgerOk) lastGood = next;"]
+        for step in order:
+            self.assertEqual(poll.count(step), 1, step)
+        self.assertEqual([poll.index(step) for step in order], sorted(poll.index(step) for step in order))
+        # Nothing else becomes the page's data: each is assigned at its declaration and past the gate, nowhere else.
+        self.assertEqual(re.findall(r"\b(doc|lastGood) = (\w+);", script),
+                         [("doc", "null"), ("lastGood", "null"), ("doc", "next"), ("lastGood", "next")])
+
+    def test_another_document_version_asks_for_a_refresh_and_the_page_never_reloads_itself(self):
+        script = self.text("monitor.js")
+        # Another version is a number: a monitor upgraded under the open tab. Other bodies are a lost connection.
+        self.assertIn('otherVersion = typeof version === "number";', self.block("if (version !== SCHEMA_VERSION) {"))
+        # Each completed poll decides afresh, before the render: a success clears it, as any other failure does.
+        poll = self.block("async function poll() {")
+        self.assertIn("let otherVersion = false;", poll)
+        self.assertIn("upgraded = otherVersion;", poll)
+        self.assertLess(poll.index("upgraded = otherVersion;"), poll.index("render();"))
+        banner = self.block("function renderBanner() {")
+        self.assertIn('if (upgraded) messages.push("监控已更新，请刷新页面。");', banner)
+        self.assertIn("else if (failingSince !== null) messages.push(`与监控的连接已中断", banner)
+        self.assertEqual(script.count("监控已更新，请刷新页面。"), 1)
+        # Refreshing is the viewer's decision: the script never navigates or reloads.
+        self.assertNotRegex(script, r"\blocation\b|\.reload\(|history\.go")
+
+    def test_a_render_that_throws_shows_a_page_error_instead_of_a_stale_verdict(self):
+        poll = self.block("async function poll() {")
+        # The render's exception is still logged, the error state is shown, and the next poll is still scheduled.
+        self.assertEqual(poll.count("render();"), 1)
+        rendered = poll[poll.index("render();"):]
+        caught = rendered[rendered.index("} catch (error) {"):rendered.index("} finally {")]
+        self.assertIn("console.error(error);", caught)
+        self.assertIn("showRenderError();", caught)
+        self.assertLess(caught.index("console.error(error);"), caught.index("showRenderError();"))
+        self.assertIn("setTimeout(poll, POLL_MS);", rendered[rendered.index("} finally {"):])
+        shown = self.block("function showRenderError() {")
+        # The pill in the bad tone, the tab title and the dimmed content; and no tick writes the pill again.
+        for write in ('verdict.textContent = "页面显示出错";', 'verdict.classList.add("bad");',
+                      'document.title = `页面显示出错 · ${byId("title").textContent}`;',
+                      'byId("content").classList.add("stale");', "clocks = [];"):
+            with self.subTest(write=write):
+                self.assertIn(write, shown)
+        # Every other verdict tone is removed, so the pill keeps no trace of the verdict the render left.
+        tones = set(re.findall(r'\["[^"]+", "([a-z]+)"\]', self.block("const VERDICT = {"))) - {"bad"}
+        removed = re.search(r"verdict\.classList\.remove\(([^)]*)\);", shown)
+        self.assertIsNotNone(removed)
+        self.assertEqual(set(re.findall(r'"([a-z]+)"', removed.group(1))), tones)
+        # Only writes that cannot throw: no document read, no rendering helper, no markup.
+        self.assertNotRegex(shown, r"\bdoc\b|\blastGood\b|timed\(|replaceChildren|append\(|className|\bel\(")
 
 
 def fake_receiver(status=200, delay=0.0, headers=()):
@@ -417,6 +478,9 @@ class MonitorServerTests(unittest.TestCase):
         def lines():
             return [json.loads(line) for line in out.getvalue().splitlines()]
 
+        def status():
+            return self.request(path="/api/status")[0].status
+
         failed = {"event": "status_failed", "error": "TypeError"}
         out, err = io.StringIO(), io.StringIO()
         # The request threads print, and sys.stdout is process-wide, so their lines land here too.
@@ -428,19 +492,53 @@ class MonitorServerTests(unittest.TestCase):
             for name, value in monitor.HEADERS:
                 self.assertEqual(response.getheader(name), value)
             self.assertEqual(lines(), [failed])
-            # Within the same snapshot interval: a failure is never cached, so this builds and fails again, quietly.
-            self.assertEqual(self.request(path="/api/status")[0].status, 500)
+            # Within the same snapshot interval, the failure's 500 is answered again without another build.
+            self.assertEqual(status(), 500)
+            self.assertEqual((len(calls), lines()), (1, [failed]))
+            # The next interval builds again, and fails in the same run of failures, so quietly.
+            self.now[0] += monitor.SNAPSHOT_TTL + 0.5
+            self.assertEqual(status(), 500)
             self.assertEqual((len(calls), lines()), (2, [failed]))
             failing[0] = False
-            self.assertEqual(self.request(path="/api/status")[0].status, 200)
+            self.now[0] += monitor.SNAPSHOT_TTL + 0.5
+            self.assertEqual(status(), 200)
             failing[0] = True
             self.now[0] += monitor.SNAPSHOT_TTL + 0.5
-            self.assertEqual(self.request(path="/api/status")[0].status, 500)
-            # Nor does a failure renew the last good snapshot: it is not served as fresh again.
-            self.assertEqual(self.request(path="/api/status")[0].status, 500)
+            self.assertEqual(status(), 500)
+            # Nor is the last good snapshot served within the failure's interval: the failure replaced it.
+            self.assertEqual(status(), 500)
         # The recovery ended the first run of failures, so the second prints its own line, and only one.
-        self.assertEqual((len(calls), lines()), (5, [failed, failed]))
+        self.assertEqual((len(calls), lines()), (4, [failed, failed]))
         self.assertEqual(err.getvalue(), "")  # and no traceback for any of them
+
+    def test_concurrent_requests_during_a_failure_streak_build_once_per_interval(self):
+        # However many teammates poll, a failing build reads the ledger at most once per interval, as a good one does.
+        calls = []
+
+        def failing(*args, **kwargs):
+            calls.append(kwargs["now"])
+            raise TypeError("a document the view cannot build")
+
+        def burst():
+            statuses = []
+            threads = [threading.Thread(target=lambda: statuses.append(self.request(path="/api/status")[0].status))
+                       for _ in range(8)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(20)
+            return statuses
+
+        out = io.StringIO()
+        with patch("agent.monitor.build_status", side_effect=failing), contextlib.redirect_stdout(out):
+            self.assertEqual(burst(), [500] * 8)
+            self.assertEqual(len(calls), 1)
+            self.now[0] += monitor.SNAPSHOT_TTL + 0.5
+            self.assertEqual(burst(), [500] * 8)
+        self.assertEqual(len(calls), 2)
+        # One run of failures, however long and however many requests: one line.
+        self.assertEqual([json.loads(line) for line in out.getvalue().splitlines()],
+                         [{"event": "status_failed", "error": "TypeError"}])
 
     def test_an_unwritable_log_still_answers_500(self):
         closed = io.StringIO()

@@ -7,6 +7,8 @@
   // while the page still shows the last verdict. An aborted poll is a failed one.
   const FETCH_TIMEOUT_MS = 10000;
   const TICK_MS = 1000;
+  // The one version of the /api/status document this script reads: the schema_version agent/monitor_view.py emits.
+  const SCHEMA_VERSION = 1;
   const BUSY_NOTICE_SECONDS = 5;
   const SAFE_LINK = /^https:\/\/(linear\.app|github\.com)\/\S*$/;
   const VERDICT = {
@@ -63,6 +65,8 @@
   let fetchedAt = 0;
   let lastGood = null;
   let failingSince = null;
+  // The last poll answered with another version of the status document: the monitor was upgraded under this tab.
+  let upgraded = false;
   // [node, format] for each text that reads the clock. Only a completed poll rebuilds the page, and with it this
   // list; in between, the one-second tick rewrites these texts alone, so links, focus and selections survive it.
   let clocks = [];
@@ -327,7 +331,10 @@
   function renderBanner() {
     // Rendering follows a completed poll, which leaves a document or a failure, so there is no connecting message.
     const messages = [];
-    if (failingSince !== null) messages.push(`与监控的连接已中断（自 ${clock(failingSince / 1000)}），正在重试。`);
+    // This script cannot read a newer monitor's documents, so only the viewer can bring the page back, by
+    // refreshing it; the page never does that itself.
+    if (upgraded) messages.push("监控已更新，请刷新页面。");
+    else if (failingSince !== null) messages.push(`与监控的连接已中断（自 ${clock(failingSince / 1000)}），正在重试。`);
     if (doc && !doc.ledger.ok) {
       const error = doc.ledger.error_type || "未知错误";
       messages.push(lastGood ? `账本暂时无法读取（${error}），工作数据停留在 ${clock(lastGood.generated_at)}。`
@@ -359,6 +366,18 @@
     renderRecent(work);
   }
 
+  // A render that threw may have left any verdict up, 正常 included. Until a render completes, the pill and the tab
+  // title say that the page itself failed, and the content is dimmed. Each write here is one that cannot throw.
+  function showRenderError() {
+    clocks = [];  // no tick may write the pill again, nor run the texts of a half-built page
+    const verdict = byId("verdict");
+    verdict.classList.remove("ok", "warn", "info", "neutral");
+    verdict.classList.add("bad");
+    verdict.textContent = "页面显示出错";
+    document.title = `页面显示出错 · ${byId("title").textContent}`;
+    byId("content").classList.add("stale");
+  }
+
   async function fetchStatus() {
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), FETCH_TIMEOUT_MS);
@@ -373,9 +392,17 @@
 
   async function poll() {
     try {
+      let otherVersion = false;
       try {
         const next = await fetchStatus();
-        const ledgerOk = next.ledger.ok;  // a body that is not a status document fails here, as a failed poll
+        const version = next !== null && typeof next === "object" ? next.schema_version : undefined;
+        // Only a status document of this script's version counts. Another version comes from a monitor upgraded
+        // under this open tab; any other body fails like a dropped connection. Neither is ever kept.
+        if (version !== SCHEMA_VERSION) {
+          otherVersion = typeof version === "number";
+          throw new Error("not a status document of this version");
+        }
+        const ledgerOk = next.ledger.ok;  // read before anything is kept, so a document without it is not
         doc = next;
         fetchedAt = Date.now();
         failingSince = null;
@@ -383,10 +410,12 @@
       } catch (error) {
         if (failingSince === null) failingSince = Date.now();
       }
+      upgraded = otherVersion;
       render();
     } catch (error) {
-      // The page keeps what it shows, and the next poll tries again.
+      // The next poll renders again.
       console.error(error);
+      showRenderError();
     } finally {
       setTimeout(poll, POLL_MS);
     }

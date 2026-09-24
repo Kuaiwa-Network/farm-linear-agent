@@ -20,6 +20,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import agent.service as service_module
 from agent.config import Config, Paths
 from agent.heartbeat import LOOPS, read
 from agent.launcher import Launcher, _write_worker_file
@@ -826,6 +827,61 @@ class ServeHeartbeatTests(unittest.TestCase):
         self.assertFalse(thread.is_alive())
         self.assertEqual(problems, [])
         self.assertEqual(refused, ["stopped"])
+        state, beat = read(self.path, now=time.time())
+        self.assertEqual((state, beat["phase"]), ("fresh", "stopped"))
+
+    def check_a_raising_shutdown_step(self, step):
+        """`step` raises when the shutdown reaches it: serve raises that error, and its beat thread still stops.
+
+        A beat thread left behind would go on writing fresh `serving` beats for a service that has exited."""
+        failure = OSError(f"{step} failed")
+        components = self.components()
+
+        def fail():
+            self.events.append(step)
+            raise failure
+
+        {"server_close": components.server.server_close,
+         "receiver.close": components.receiver.close}[step].side_effect = fail
+        writers = []
+
+        def refuse(phase):
+            writer = threading.current_thread()
+            writers.append(writer)
+            if writer is not writers[0]:
+                # serve writes the first beat itself, before it starts the beat thread, so this beat is that thread's.
+                # Its next wait reads this interval: from here on, only beat_stop can end the thread within the test,
+                # and the thread begins no beat that could land after serve has exited.
+                service_module.HEARTBEAT_INTERVAL = 3600
+            return None
+
+        with patch("agent.service.HEARTBEAT_INTERVAL", 0.02), \
+                patch("agent.heartbeat._write_worker_file", side_effect=self.writer(refuse)):
+            thread, problems = self.run_serve(components, io.StringIO())
+            self.assertTrue(self.wait_until(lambda: len(set(writers)) == 2))
+            self.released.set()
+            thread.join(timeout=20)
+            beat_thread = next(writer for writer in writers if writer is not writers[0])
+            beat_thread.join(timeout=5)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(problems, [failure])
+        self.assertFalse(beat_thread.is_alive())
+        # Both writers have ended, so this is final: no beat after the step raised, and so none after serve exited.
+        after = self.events[self.events.index(step) + 1:]
+        self.assertEqual([event for event in after if isinstance(event, tuple)], [])
+
+    def test_a_shutdown_step_that_raises_before_the_joins_still_stops_the_beat_thread(self):
+        self.check_a_raising_shutdown_step("server_close")
+        # The shutdown ended at its first step, before the joins, the beat thread's own stop and the stopped beat,
+        # so only the outer finally could stop that thread.
+        self.assertNotIn("stop_all_unsandboxed", self.events)
+        self.assertNotIn(("beat", "stopped"), self.events)
+
+    def test_a_shutdown_step_that_raises_after_the_joins_leaves_stopped_as_the_last_beat(self):
+        self.check_a_raising_shutdown_step("receiver.close")
+        beats = [event for event in self.events if isinstance(event, tuple)]
+        self.assertEqual(beats[-1], ("beat", "stopped"))
+        self.assertLess(self.events.index(("beat", "stopped")), self.events.index("receiver.close"))
         state, beat = read(self.path, now=time.time())
         self.assertEqual((state, beat["phase"]), ("fresh", "stopped"))
 
