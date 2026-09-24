@@ -21,6 +21,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from agent.config import Config, Paths
+from agent.heartbeat import LOOPS, read
 from agent.launcher import Launcher
 from agent.ledger import Ledger
 from agent.service import Components, build, enqueue, main, seed_clones, serve
@@ -319,6 +320,97 @@ class ServeTests(unittest.TestCase):
         self.assertEqual(failed, [True])
         self.assertIn("slot_pool_unavailable", out.getvalue())
 
+    def wait_for_beat(self, path, predicate):
+        deadline = time.time() + 20
+        while time.time() < deadline:
+            beat = read(path, now=time.time())[1]
+            if beat is not None and predicate(beat):
+                return beat
+            time.sleep(0.05)
+        self.fail(f"no matching heartbeat at {path}")
+
+    def test_serve_reports_starting_serving_and_stopped_in_its_heartbeat(self):
+        release = threading.Event()
+        pool = SimpleNamespace(ensure=lambda: release.wait(20), tick=lambda: None, close=lambda: None)
+        components = self.c._replace(pool=pool)
+        path = Paths(components.config).heartbeat
+        problems = []
+
+        def run():
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    serve(components=components)
+            except BaseException as exc:
+                problems.append(exc)
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 20)
+        self.addCleanup(release.set)
+        self.wait_for_beat(path, lambda beat: beat["phase"] == "starting")  # written while ensure() still runs
+        release.set()
+        self.assertTrue(self.wait_for_health(), problems)
+        self.addCleanup(self.c.server.shutdown)
+        self.wait_for_beat(path, lambda beat: beat["phase"] == "serving")
+        deadline = time.time() + 20
+        while set(LOOPS) - set(self.c.server.heartbeat.payload()["loops"]) and time.time() < deadline:
+            time.sleep(0.05)
+        self.c.server.shutdown()
+        thread.join(timeout=20)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(problems, [])
+        state, beat = read(path, now=time.time())
+        self.assertEqual((state, beat["phase"]), ("fresh", "stopped"))
+        self.assertIsNotNone(beat["stopped_at"])
+        self.assertEqual(set(beat["loops"]), set(LOOPS))
+        self.assertEqual(beat["workers"], {})  # the launcher's own list: this fixture launched no worker
+
+    def test_a_heartbeat_that_cannot_be_written_never_stops_serving(self):
+        problems = []
+
+        def run():
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    serve(components=self.c)
+            except BaseException as exc:
+                problems.append(exc)
+
+        with patch("agent.heartbeat._write_worker_file", side_effect=PermissionError("sharing violation")):
+            thread = threading.Thread(target=run, daemon=True)
+            thread.start()
+            self.addCleanup(thread.join, 20)
+            self.assertTrue(self.wait_for_health(), problems)
+            self.addCleanup(self.c.server.shutdown)
+            self.c.server.shutdown()
+            thread.join(timeout=20)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(problems, [])
+        self.assertFalse(Paths(self.c.config).heartbeat.exists())
+
+    def test_a_heartbeat_that_cannot_be_serialized_never_stops_serving(self):
+        """Not only OSError: json.dumps refuses a non-finite time with ValueError. The first beat runs on serve's
+        own thread before ensure(), so a failure escaping it would stop the service from starting."""
+        problems = []
+
+        def run():
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    serve(components=self.c)
+            except BaseException as exc:
+                problems.append(exc)
+
+        with patch("agent.heartbeat.Heartbeat.payload", return_value={"written_at": float("nan")}):
+            thread = threading.Thread(target=run, daemon=True)
+            thread.start()
+            self.addCleanup(thread.join, 20)
+            self.assertTrue(self.wait_for_health(), problems)
+            self.addCleanup(self.c.server.shutdown)
+            self.c.server.shutdown()
+            thread.join(timeout=20)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(problems, [])
+        self.assertFalse(Paths(self.c.config).heartbeat.exists())
+
 
 @unittest.skipIf(os.name == "nt", "POSIX service termination contract")
 class SignalShutdownTests(unittest.TestCase):
@@ -546,6 +638,8 @@ class LoopGuardTests(unittest.TestCase):
         self.assertEqual(logged[0], {"event": "loop_error", "loop": "receive", "error": "RuntimeError"})
         self.assertGreaterEqual(len(calls), 2)
         self.assertEqual(failures, [])
+        record = server.heartbeat.payload()["loops"]["receive"]
+        self.assertEqual((record["error_type"], record["consecutive_errors"]), ("RuntimeError", 0))
 
 
 class SeedCloneTests(unittest.TestCase):

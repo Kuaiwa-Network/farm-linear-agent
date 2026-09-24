@@ -1,8 +1,12 @@
+import contextlib
 import hashlib
 import hmac
+import io
 import json
 import sqlite3
 import tempfile
+import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -326,6 +330,61 @@ class HttpTests(ReceiverBase):
         self.assertNotIn("body", json.dumps(lines))  # outcomes only, never the payload
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=5) as response:
             self.assertEqual(json.load(response)["status"], "FarmBot ready")
+
+    def serve_http(self, heartbeat):
+        server = make_server(self.receiver, port=0)
+        server.heartbeat = heartbeat
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return f"http://127.0.0.1:{server.server_address[1]}/webhook"
+
+    def signed(self, body):
+        return {"Linear-Signature": hmac.new(b"signing-secret", body, hashlib.sha256).hexdigest()}
+
+    def test_every_webhook_outcome_is_counted_on_the_server_heartbeat(self):
+        from agent.heartbeat import Heartbeat
+        beat = Heartbeat(runtime="fake")
+        url = self.serve_http(beat)
+        body = json.dumps(self.event(webhookTimestamp=int(time.time() * 1000))).encode()
+        with contextlib.redirect_stdout(io.StringIO()):
+            with urllib.request.urlopen(urllib.request.Request(url, data=body, headers=self.signed(body)),
+                                        timeout=5) as response:
+                self.assertEqual(json.load(response)["status"], "accepted")
+            for request, code in ((urllib.request.Request(url, data=body), 401),
+                                  (urllib.request.Request(url, data=b"{", headers=self.signed(b"{")), 400)):
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    urllib.request.urlopen(request, timeout=5)
+                self.assertEqual(caught.exception.code, code)
+                caught.exception.close()
+        hooks = beat.payload()["webhooks"]
+        self.assertEqual((hooks["counts"]["accepted"], hooks["counts"]["rejected"], hooks["counts"]["malformed"]),
+                         (1, 1, 1))
+        self.assertIsNotNone(hooks["last_rejected_at"])
+
+    def test_a_failing_counter_never_changes_a_webhook_answer(self):
+        url = self.serve_http(Mock(webhook=Mock(side_effect=RuntimeError("counter broke"))))
+        body = json.dumps(self.event(webhookTimestamp=int(time.time() * 1000))).encode()
+        with contextlib.redirect_stdout(io.StringIO()):
+            with urllib.request.urlopen(urllib.request.Request(url, data=body, headers=self.signed(body)),
+                                        timeout=5) as response:
+                self.assertEqual(json.load(response)["status"], "accepted")
+
+    def test_answers_the_handler_gives_itself_are_counted_too(self):
+        """Every /webhook POST counts (spec), including a size rejection before the receiver runs and the 500
+        for a receiver that raises."""
+        from agent.heartbeat import Heartbeat
+        beat = Heartbeat(runtime="fake")
+        url = self.serve_http(beat)
+        with patch.object(self.receiver, "receive", side_effect=RuntimeError("receiver broke")):
+            for data, code in ((b"", 413), (b"{}", 500)):
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    urllib.request.urlopen(urllib.request.Request(url, data=data), timeout=5)
+                self.assertEqual(caught.exception.code, code)
+                caught.exception.close()
+        counts = beat.payload()["webhooks"]["counts"]
+        self.assertEqual((counts["malformed"], counts["failed"]), (1, 1))
 
 
 class IssueNotificationTests(ReceiverBase):

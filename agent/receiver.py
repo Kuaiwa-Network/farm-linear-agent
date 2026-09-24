@@ -332,6 +332,15 @@ def make_server(receiver, port=8765):
             self.end_headers()
             self.wfile.write(data)
 
+        def answer_webhook(self, kind, status, message):
+            heartbeat = getattr(self.server, "heartbeat", None)
+            if heartbeat is not None:
+                try:
+                    heartbeat.webhook(kind, status, message)
+                except Exception:
+                    pass  # counting feeds the status page and must never change a webhook's answer
+            self.respond(status, message)
+
         def do_GET(self):
             self.respond(200, "FarmBot ready") if self.path == "/health" else self.respond(404, "not found")
 
@@ -341,19 +350,19 @@ def make_server(receiver, port=8765):
             try:
                 length = int(self.headers.get("Content-Length", "0"))
             except ValueError:
-                return self.respond(400, "invalid length")
+                return self.answer_webhook(None, 400, "invalid length")
             if length <= 0 or length > MAX_BODY:
-                return self.respond(413, "invalid body size")
+                return self.answer_webhook(None, 413, "invalid body size")
             self.connection.settimeout(3)
             try:
                 raw = self.rfile.read(length)
                 if len(raw) != length:
-                    return self.respond(400, "incomplete body")
+                    return self.answer_webhook(None, 400, "incomplete body")
                 status, message = self.server.receiver.receive(raw, self.headers.get("Linear-Signature"))
             except TimeoutError:
-                return self.respond(408, "body timeout")
+                return self.answer_webhook(None, 408, "body timeout")
             except Exception:
-                return self.respond(500, "receiver error")
+                return self.answer_webhook(None, 500, "receiver error")
             # One line per delivery so an ignored or rejected event is visible in the service log; never the
             # body. Written before the response, so a caller holding its reply knows the line exists.
             try:
@@ -363,9 +372,10 @@ def make_server(receiver, port=8765):
             except (ValueError, UnicodeError):
                 kind = action = None
             print(json.dumps({"event": "webhook", "status": status, "result": message, "type": kind, "action": action}), flush=True)
-            self.respond(status, message)
+            self.answer_webhook(kind, status, message)
 
     server = ExclusiveServer(("127.0.0.1", port), Handler)
     server.receiver = receiver
+    server.heartbeat = None  # a serving process installs its Heartbeat here (service._serve)
     server.daemon_threads = True
     return server
