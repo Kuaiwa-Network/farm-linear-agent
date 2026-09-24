@@ -131,7 +131,8 @@ def fake_receiver(status=200, delay=0.0, headers=()):
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     server.requests = []
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+    # A short poll, so each cleanup's shutdown does not wait out serve_forever's default half second.
+    threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
     return server
 
 
@@ -147,7 +148,7 @@ class HostCheckTests(unittest.TestCase):
                        "farmbot-host.local:8780"):
             with self.subTest(header=header):
                 self.assertTrue(allowed_host(header, ("farmbot-host.local",)))
-        for header in ("evil.example", "127.0.0.1.nip.io:8780", "farmbot-host.local.evil.example", "[::1"):
+        for header in ("evil.example", "127.0.0.1.evil.example:8780", "farmbot-host.local.evil.example", "[::1"):
             with self.subTest(header=header):
                 self.assertFalse(allowed_host(header, ("farmbot-host.local",)))
         self.assertIsNone(allowed_host(None, ()))
@@ -185,10 +186,19 @@ class ProbeHealthTests(unittest.TestCase):
         elsewhere = fake_receiver()
         self.addCleanup(elsewhere.server_close)
         self.addCleanup(elsewhere.shutdown)
-        location = f"http://127.0.0.1:{elsewhere.server_address[1]}/health"
-        redirected = probe_health(self.serve(status=302, headers=(("Location", location),)))
-        self.assertEqual((redirected["ok"], redirected["status"]), (False, 302))
+        # A Location the probe could follow, and one urllib cannot even parse: the probe reads neither.
+        for location in (f"http://127.0.0.1:{elsewhere.server_address[1]}/health", "http://[::1"):
+            for code in (302, 301, 303, 307, 308):
+                with self.subTest(code=code, location=location):
+                    redirected = probe_health(self.serve(status=code, headers=(("Location", location),)))
+                    self.assertEqual((redirected["ok"], redirected["status"]), (False, code))
         self.assertEqual(elsewhere.requests, [])
+
+    def test_any_other_failure_is_not_answering(self):
+        # Whatever holds the receiver port is untrusted: an error the probe does not foresee must not escape it.
+        with patch.object(monitor._DIRECT, "open", side_effect=ValueError("boom")):
+            failed = probe_health(closed_port())
+        self.assertEqual((failed["ok"], failed["status"], failed["error_type"]), (False, None, "ValueError"))
 
 
 class MonitorServerTests(unittest.TestCase):
@@ -220,15 +230,26 @@ class MonitorServerTests(unittest.TestCase):
         response = connection.getresponse()
         return response, response.read()
 
+    def exchange(self, data):
+        """Send raw bytes and read until the server closes; return the reply's status line and header lines."""
+        with socket.create_connection(self.server.server_address, timeout=10) as connection:
+            connection.sendall(data)
+            reply = b""
+            while chunk := connection.recv(65536):
+                reply += chunk
+        status, *headers = reply.partition(b"\r\n\r\n")[0].decode("latin-1").split("\r\n")
+        return status, headers
+
     def test_the_page_and_its_assets_are_served_with_security_headers(self):
+        # The spec's policy, written out rather than read from monitor.HEADERS, so any weakening fails here.
+        policy = ("default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; "
+                  "base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
         for path, kind in (("/", "text/html"), ("/monitor.js", "text/javascript"), ("/monitor.css", "text/css")):
             with self.subTest(path=path):
                 response, body = self.request(path=path)
                 self.assertEqual(response.status, 200)
                 self.assertTrue(response.getheader("Content-Type").startswith(kind))
-                policy = response.getheader("Content-Security-Policy")
-                self.assertIn("script-src 'self'", policy)
-                self.assertIn("frame-ancestors 'none'", policy)
+                self.assertEqual(response.getheader("Content-Security-Policy"), policy)
                 for name, value in (("X-Content-Type-Options", "nosniff"), ("Referrer-Policy", "no-referrer"),
                                     ("X-Frame-Options", "DENY"), ("Cache-Control", "no-store")):
                     self.assertEqual(response.getheader(name), value)
@@ -268,15 +289,18 @@ class MonitorServerTests(unittest.TestCase):
         # status line or headers. The second names one but has a word too many.
         for line in (b"NONSENSE\r\n", b"GET / extra HTTP/1.1\r\n"):
             with self.subTest(line=line):
-                with socket.create_connection(self.server.server_address, timeout=10) as connection:
-                    connection.sendall(line)
-                    reply = b""
-                    while chunk := connection.recv(65536):
-                        reply += chunk
-                status, *headers = reply.partition(b"\r\n\r\n")[0].decode("latin-1").split("\r\n")
+                status, headers = self.exchange(line)
                 self.assertTrue(status.startswith("HTTP/1.0 400 "), status)
                 for name, value in monitor.HEADERS:
                     self.assertIn(f"{name}: {value}", headers)
+
+    def test_a_versionless_request_gets_a_versioned_reply_with_the_security_headers(self):
+        # A valid HTTP/0.9 GET never reaches send_error. The status is not asserted: 3.13 ignores headers after a
+        # versionless line and answers 400 for the missing Host, while an interpreter that reads them answers 200.
+        status, headers = self.exchange(b"GET /api/status\r\nHost: 127.0.0.1\r\n\r\n")
+        self.assertTrue(status.startswith("HTTP/1.0 "), status)
+        for name, value in monitor.HEADERS:
+            self.assertIn(f"{name}: {value}", headers)
 
     def test_the_status_is_built_at_most_once_per_snapshot_interval(self):
         calls = []
@@ -370,9 +394,20 @@ class MonitorRunTests(unittest.TestCase):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             code = run(path)
-        return code, [json.loads(line) for line in out.getvalue().splitlines()]
+        lines = [json.loads(line) for line in out.getvalue().splitlines()]
+        self.assertEqual(len(lines), 1, lines)
+        return code, lines
 
     def test_refusals_exit_one_with_one_json_line(self):
+        # An unreadable config: a missing file, then one that is not JSON.
+        broken = self.root / "broken 损坏.json"
+        broken.write_text("{not json", encoding="utf-8")
+        for path, error in ((self.root / "missing 缺失.json", "FileNotFoundError"), (broken, "JSONDecodeError")):
+            with self.subTest(path=path.name):
+                code, lines = self.run_monitor(path)
+                self.assertEqual((code, lines[0]["event"], lines[0]["error"]), (1, "monitor_failed", error))
+        code, lines = self.run_monitor(self.write_config(monitor={"bind": "localhost"}))
+        self.assertEqual((code, lines[0]["event"], lines[0]["error"]), (1, "monitor_failed", "ValueError"))
         code, lines = self.run_monitor(self.write_config(monitor={"port": 8765}))
         self.assertEqual((code, lines[0]["event"], lines[0]["error"]), (1, "monitor_failed", "ValueError"))
         with socket.socket() as busy:
@@ -387,6 +422,13 @@ class MonitorRunTests(unittest.TestCase):
                                                          expected_bot_name="TestBot", expected_app_user_id="app",
                                                          expected_organization_id="org"))
         self.assertEqual((code, lines[0]["event"], lines[0]["error"]), (1, "monitor_failed", "RuntimeError"))
+
+    def test_an_error_no_check_names_is_still_one_json_line(self):
+        # A slot entry with neither folder nor id makes the ownership check's path validation raise KeyError.
+        code, lines = self.run_monitor(self.write_config(environment="development", instance_id="dev-mac",
+                                                         expected_bot_name="TestBot", expected_app_user_id="app",
+                                                         expected_organization_id="org", slots=[{}]))
+        self.assertEqual((code, lines[0]["event"], lines[0]["error"]), (1, "monitor_failed", "KeyError"))
 
     def test_a_monitor_that_would_take_the_receivers_port_refuses_to_start(self):
         for changes in ({"port": 8780}, {"port": 8780, "monitor": {}}):

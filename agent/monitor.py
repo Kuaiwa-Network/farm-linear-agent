@@ -4,7 +4,6 @@ It runs beside `serve` on the same host, never inside it, so it can still report
 or wedged. It writes nothing, signals nothing, never takes the controller lock, and makes no request but the
 receiver's /health on loopback.
 """
-import http.client
 import ipaddress
 import json
 import threading
@@ -36,14 +35,22 @@ HEADERS = (("Content-Security-Policy", "default-src 'none'; script-src 'self'; s
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    """A 3xx is the probe's answer, never a hop: it surfaces as an HTTPError carrying that status."""
+    """A 3xx is the probe's answer, never a hop, and its Location is never parsed.
 
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
+    Each redirect status is declined before the base class would read Location, so it reaches
+    HTTPDefaultErrorHandler as an HTTPError carrying that status. Being a subclass, it also replaces urllib's own
+    redirect handler in build_opener."""
+
+    def http_error_302(self, req, fp, code, msg, headers):
         return None
+
+    # The base class binds these names to its own http_error_302, so each is rebound here.
+    http_error_301 = http_error_303 = http_error_307 = http_error_308 = http_error_302
 
 
 # An empty ProxyHandler: a desktop proxy's environment variables must not carry a loopback probe elsewhere. No
-# redirects either, so whatever holds the receiver port cannot send the probe past loopback /health.
+# redirects either: every 3xx surfaces as HTTPError(code) with its Location unparsed, so whatever holds the
+# receiver port can neither send the probe past loopback /health nor make it raise with a malformed Location.
 _DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
 
 
@@ -58,7 +65,9 @@ def probe_health(port, *, timeout=HEALTH_TIMEOUT, now=None):
     except urllib.error.HTTPError as exc:
         result["status"] = exc.code
         exc.close()
-    except (OSError, http.client.HTTPException) as exc:
+    except Exception as exc:
+        # Whatever holds the receiver port is untrusted, and a probe that raised would silence the whole monitor,
+        # so any other failure is simply not answering. URLError carries the underlying error as its reason.
         reason = getattr(exc, "reason", None)
         result["error_type"] = type(reason if isinstance(reason, BaseException) else exc).__name__
     result["latency_ms"] = round((time.monotonic() - started) * 1000)
@@ -131,6 +140,11 @@ def make_monitor_server(config, *, port=None, clock=time.time):
             pass
 
         def send(self, status, body, kind="text/plain; charset=utf-8", extra=()):
+            # A request line that names no version leaves the HTTP/0.9 default, and an HTTP/0.9 reply has no status
+            # line or headers at all. Every reply is sent as HTTP/1.0 instead, so each carries HEADERS on any
+            # interpreter, including one that still reads headers after a versionless GET.
+            if self.request_version == "HTTP/0.9":
+                self.request_version = "HTTP/1.0"
             self.send_response(status)
             for name, value in (*HEADERS, *extra):
                 self.send_header(name, value)
@@ -163,10 +177,8 @@ def make_monitor_server(config, *, port=None, clock=time.time):
 
         def send_error(self, code, message=None, explain=None):
             # The base class answers an unknown method or a malformed request itself, bypassing send() and with it
-            # HEADERS; its 501 for an unknown method is the spec's 405. A request line too malformed to name a
-            # version still gets an HTTP/1.0 reply, since an HTTP/0.9 one has no status line or headers at all.
-            if self.request_version == "HTTP/0.9":
-                self.request_version = "HTTP/1.0"
+            # HEADERS; routed through send(), each such reply gets them. Its 501 for an unknown method is the
+            # spec's 405.
             if code == HTTPStatus.NOT_IMPLEMENTED:
                 return self.refuse()
             self.send(code, f"{self.responses.get(code, ('error',))[0].lower()}\n".encode())
@@ -180,7 +192,9 @@ def run(config_path=None):
         config = load_config(config_path, secure_permissions=False)
         check_ownership(config)
         server = make_monitor_server(config)
-    except (OSError, ValueError, TypeError, RuntimeError) as exc:
+    except Exception as exc:
+        # The command's contract is one JSON line for any refusal, including an error no check names, such as
+        # a malformed slot entry reaching the ownership check's path validation.
         print(json.dumps({"event": "monitor_failed", "error": type(exc).__name__, "detail": str(exc)[:300]},
                          ensure_ascii=False), flush=True)
         return 1
