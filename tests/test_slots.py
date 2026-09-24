@@ -8,10 +8,11 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from agent.launcher import Launcher, RUNTIMES, Unsandboxed
 from agent.ledger import Ledger
-from agent.slots import SlotError, SlotPool, slot_entry
+from agent.slots import SlotError, SlotPool, UnityIdentity, slot_entry
 from agent.worktrees import WorktreeError, Worktrees
 from test_launcher import unblocked
 from test_ledger import ISSUE, OTHER, SELECTED_AT, issue
@@ -20,6 +21,23 @@ from test_ledger import ISSUE, OTHER, SELECTED_AT, issue
 def git(*args, cwd):
     subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=str(cwd), check=True,
                    capture_output=True)
+
+
+class UnityIdentityEnvironmentTests(unittest.TestCase):
+    def test_interactive_editor_does_not_inherit_the_kw_ops_token(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            binary = folder / "Unity"
+            binary.touch()
+            identity = UnityIdentity(folder / "probe.cs", token_env="KW_OPS_TOKEN")
+            slot = {"folder": str(folder)}
+            with patch.dict(os.environ, {"KW_OPS_TOKEN": "dummy-token", "UNITY_LICENSE_MARKER": "kept"}), \
+                    patch("agent.slots.subprocess.Popen") as popen, \
+                    patch.object(identity, "discover_instance", return_value="instance"):
+                self.assertEqual(identity.start(slot, {"unity": str(binary)}), "instance")
+            child = popen.call_args.kwargs["env"]
+            self.assertNotIn("KW_OPS_TOKEN", child)
+            self.assertEqual(child["UNITY_LICENSE_MARKER"], "kept")
 
 
 class SlotFixture(unittest.TestCase):

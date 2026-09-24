@@ -80,9 +80,11 @@ To give workers kw_ops, the test environment's GM backend, add its location to t
 and put the token only in the controller's environment:
 
 ```json
-"kw_ops": {"url": "http://<gm-host>/mcp", "token_env": "KW_OPS_TOKEN"}
+"kw_ops": {"url": "https://<gm-host>/mcp", "token_env": "KW_OPS_TOKEN"}
 ```
 
+Use HTTPS for a remote kw_ops server; HTTP is accepted only for loopback addresses.
+An existing remote HTTP URL must be changed to HTTPS before restarting on this revision.
 Configure kw_ops only when every target it lists is a test server, using a kw_ops operator whose
 permissions cover only test servers; FarmBot does not scope servers. Export the variable in the
 wrapper that starts `serve`, never in a shell startup file such as `~/.zshenv`: FarmBot removes or

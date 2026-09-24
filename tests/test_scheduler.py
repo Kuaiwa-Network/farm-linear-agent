@@ -706,7 +706,7 @@ class SchedulerTests(unittest.TestCase):
                                                       str(cwd.resolve()): {"trust_level": "untrusted"}})
         launcher.poll()
 
-    KW_OPS = {"url": "http://gm.test/mcp", "token_env": "KW_OPS_TOKEN"}
+    KW_OPS = {"url": "https://gm.test/mcp", "token_env": "KW_OPS_TOKEN"}
 
     def launched(self, launcher, item):
         """Launch through a real Launcher and return (home config, launch payload, handle)."""
@@ -734,7 +734,7 @@ class SchedulerTests(unittest.TestCase):
         with patch.dict(os.environ, {"KW_OPS_TOKEN": "dummy-token-value"}):
             config, payload, handle = self.launched(launcher, self.item())
         self.assertEqual(config["mcp_servers"]["kw_ops"],
-                         {"url": "http://gm.test/mcp", "bearer_token_env_var": "KW_OPS_TOKEN"})
+                         {"url": "https://gm.test/mcp", "bearer_token_env_var": "KW_OPS_TOKEN"})
         self.assertEqual(payload["tools"], {"kw_ops": {"access": "full"}})
         self.assertEqual(config["shell_environment_policy"], {"exclude": ["KW_OPS_TOKEN"]})
         for path in handle.run_dir.rglob("*"):

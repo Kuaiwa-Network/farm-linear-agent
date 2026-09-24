@@ -1,13 +1,15 @@
 import json
+import os
 import tempfile
 import traceback
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from agent import kw_ops
 from agent.config import Config, load_config
 
-URL = "http://gm.test/mcp"
+URL = "https://gm.test/mcp"
 CONFIG = {"url": URL, "token_env": "KW_OPS_TOKEN"}
 TOKEN = "dummy-token-value"
 ENV = {"KW_OPS_TOKEN": TOKEN}
@@ -18,7 +20,8 @@ class KwOpsConfigTests(unittest.TestCase):
         self.assertEqual(Config("c", "s", "w").kw_ops, {})
 
     def test_a_valid_block_is_accepted_and_loaded_from_the_private_profile(self):
-        for url in (URL, "https://gm.test/mcp", "http://gm.test:8080/mcp"):
+        for url in (URL, "https://gm.test:8080/mcp", "http://localhost:8080/mcp",
+                    "http://127.0.0.1/mcp", "http://[::1]/mcp"):
             with self.subTest(url=url):
                 block = {**CONFIG, "url": url}
                 self.assertEqual(Config("c", "s", "w", kw_ops=block).kw_ops, block)
@@ -30,6 +33,8 @@ class KwOpsConfigTests(unittest.TestCase):
 
     def test_invalid_blocks_are_rejected(self):
         for block in ([], {"url": URL}, {**CONFIG, "token": "inline-secret"}, {**CONFIG, "url": "ftp://gm.test/mcp"},
+                      {**CONFIG, "url": "http://gm.test/mcp"}, {**CONFIG, "url": "http://10.0.0.1/mcp"},
+                      {**CONFIG, "url": "http://localhost.evil/mcp"},
                       {**CONFIG, "url": "gm.test/mcp"}, {**CONFIG, "url": 5}, {**CONFIG, "token_env": "kw_ops_token"},
                       {**CONFIG, "token_env": "KW OPS"}, {**CONFIG, "token_env": ""}, {**CONFIG, "token_env": None}):
             with self.subTest(block=block), self.assertRaises(ValueError):
@@ -42,18 +47,30 @@ class KwOpsConfigTests(unittest.TestCase):
                 Config("c", "s", "w", kw_ops={**CONFIG, "token_env": name})
 
     def test_a_url_names_a_host_and_carries_no_credentials_or_stray_characters(self):
-        for url in ("http://?", "http://@", "http://:", "http:///mcp", "http://gm.test:dummy-secret/mcp",
-                    "http://gm.test:99999/mcp", "http://[dummy-secret]/mcp", "http://@gm.test/mcp",
-                    "http://user@gm.test/mcp", "http://user:dummy-secret@gm.test/mcp",
-                    "http://gm.test/mcp?token=dummy-secret", "http://gm.test/mcp#dummy-secret",
-                    "http://gm.test/mcp\x00", "http://gm.test/m cp", " http://gm.test/mcp", "http://gm.test/m\ncp",
-                    "http://gm\ttest/mcp"):
+        for url in ("http://?", "http://@", "http://:", "http:///mcp", "https://gm.test:dummy-secret/mcp",
+                    "https://gm.test:99999/mcp", "http://[dummy-secret]/mcp", "http://@gm.test/mcp",
+                    "https://user@gm.test/mcp", "https://user:dummy-secret@gm.test/mcp",
+                    "https://gm.test/mcp?token=dummy-secret", "https://gm.test/mcp#dummy-secret",
+                    "https://gm.test/mcp\x00", "https://gm.test/m cp", " https://gm.test/mcp", "https://gm.test/m\ncp",
+                    "https://gm\ttest/mcp"):
             with self.subTest(url=url):
                 with self.assertRaises(ValueError) as caught:
                     Config("c", "s", "w", kw_ops={**CONFIG, "url": url})
                 # One message for every URL failure; nothing in the error, even a chained one, repeats the value.
-                self.assertEqual(str(caught.exception), "kw_ops url must be an http or https URL")
+                self.assertEqual(str(caught.exception), "kw_ops url must use https, or http on loopback")
                 self.assertNotIn("dummy-secret", "".join(traceback.format_exception(caught.exception)))
+
+    def test_unity_child_environment_keeps_host_settings_but_removes_the_token(self):
+        with patch.dict(os.environ, {"KW_OPS_TOKEN": TOKEN, "UNITY_LICENSE_MARKER": "kept"}):
+            child = kw_ops.child_environment("KW_OPS_TOKEN")
+        self.assertNotIn("KW_OPS_TOKEN", child)
+        self.assertEqual(child["UNITY_LICENSE_MARKER"], "kept")
+        self.assertEqual(kw_ops.child_environment("KW_OPS_TOKEN", {"KW_OPS_TOKEN": TOKEN, "OTHER": "yes"}),
+                         {"OTHER": "yes"})
+        if os.name == "nt":
+            self.assertEqual(kw_ops.child_environment("KW_OPS_TOKEN", {"kw_ops_token": TOKEN, "OTHER": "yes"}),
+                             {"OTHER": "yes"})
+        self.assertIsNone(kw_ops.child_environment(None))
 
 
 class KwOpsResolutionTests(unittest.TestCase):

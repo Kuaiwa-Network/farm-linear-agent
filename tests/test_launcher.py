@@ -306,7 +306,7 @@ class LauncherTests(unittest.TestCase):
         import tomllib
         runtime = RUNTIMES["codex"]._replace(command=RUNTIMES["fake"].command, seed_files={})
         launcher = Launcher(self.runs, runtime, host="h")
-        server = {"url": "http://gm.test/mcp", "bearer_token_env_var": "KW_OPS_TOKEN"}
+        server = {"url": "https://gm.test/mcp", "bearer_token_env_var": "KW_OPS_TOKEN"}
         with patch.dict(os.environ, {"KW_OPS_TOKEN": "dummy-token-value"}):
             handle = launcher.spawn("item-secret", self.message, {"kw_ops": server}, 30, self.tmp.name,
                                     extra_env={"FAKE_CLI_MODE": "echo"})
@@ -665,6 +665,21 @@ class LauncherTests(unittest.TestCase):
         self.assertTrue(marker.exists(), "the slow child never started")
         self.assertFalse(Launcher.alive(int(marker.read_text())),
                          "the deadline expired and the process was left running")
+
+    def test_an_unsandboxed_unity_child_keeps_host_settings_without_the_kw_ops_token(self):
+        launcher = Launcher(Path(self.tmp.name) / "unity-runs", RUNTIMES["fake"], host="test",
+                            token_env="KW_OPS_TOKEN")
+        result_path = Path(self.tmp.name) / "unity-env.json"
+        script = ("import json,os,pathlib,sys; "
+                  "pathlib.Path(sys.argv[1]).write_text(json.dumps({"
+                  "'token': os.environ.get('KW_OPS_TOKEN'), "
+                  "'license': os.environ.get('UNITY_LICENSE_MARKER')}))")
+        with patch.dict(os.environ, {"KW_OPS_TOKEN": "dummy-token", "UNITY_LICENSE_MARKER": "kept"}):
+            result = launcher.run_unsandboxed([sys.executable, "-c", script, str(result_path)],
+                                              cwd=self.tmp.name, timeout=10)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(json.loads(result_path.read_text(encoding="utf-8")),
+                         {"token": None, "license": "kept"})
 
     def test_an_owned_unsandboxed_run_can_be_killed_by_item_and_takes_its_children_with_it(self):
         """The reachability hole the redesign opened. The batch Editor is a direct child of `serve`, not a

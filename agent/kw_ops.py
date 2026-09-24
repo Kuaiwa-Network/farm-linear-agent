@@ -2,9 +2,11 @@
 
 A skill's manifest grants it (`mcp`: `kw_ops` for every tool, `kw_ops:read` for the query tools). The host
 profile says where it is and which environment variable holds its token. The token itself never leaves the
-controller's environment: the worker's CLI reads it by name.
+controller's or an authorized Codex CLI's process environment: the CLI reads it by name.
 """
 from collections import namedtuple
+import ipaddress
+import os
 import re
 from urllib.parse import urlsplit
 
@@ -24,7 +26,7 @@ Resolution = namedtuple("Resolution", "tools server keep_env")
 
 
 def _is_http_url(url):
-    """An http(s) URL naming a host, with no credentials, query, fragment, whitespace or control character."""
+    """An HTTPS URL, or HTTP on loopback, without credentials or stray characters."""
     # Checked on the raw string: urlsplit silently drops tabs and newlines and strips leading spaces.
     if not isinstance(url, str) or not url.isprintable() or any(char.isspace() for char in url):
         return False
@@ -34,22 +36,43 @@ def _is_http_url(url):
     except ValueError:
         # Refused rather than chained: Python's own messages can repeat part of the value.
         return False
-    return (parts.scheme in ("http", "https") and bool(parts.hostname) and parts.username is None
-            and parts.password is None and not parts.query and not parts.fragment)
+    if not parts.hostname or parts.username is not None or parts.password is not None or parts.query or parts.fragment:
+        return False
+    if parts.scheme == "https":
+        return True
+    if parts.scheme != "http":
+        return False
+    if parts.hostname.rstrip(".").lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(parts.hostname).is_loopback
+    except ValueError:
+        return False
 
 
 def validate_config(block):
-    """The host profile's optional block: {} or exactly {"url": http(s) URL, "token_env": variable name}."""
+    """The host profile's optional block: {} or exactly {"url": secure URL, "token_env": name}."""
     if block == {}:
         return
     if not isinstance(block, dict) or set(block) != {"url", "token_env"}:
         raise ValueError("kw_ops accepts exactly url and token_env")
     if not _is_http_url(block["url"]):
-        raise ValueError("kw_ops url must be an http or https URL")
+        raise ValueError("kw_ops url must use https, or http on loopback")
     if not isinstance(block["token_env"], str) or not _ENV_NAME.fullmatch(block["token_env"]):
         raise ValueError("kw_ops token_env must be an environment variable name")
     if block["token_env"] in _WORKER_ENV:
         raise ValueError("kw_ops token_env conflicts with a worker environment variable")
+
+
+def child_environment(token_env, environ=None):
+    """Preserve the host environment for Unity while withholding the configured kw_ops token."""
+    if not token_env:
+        return environ
+    source = os.environ if environ is None else environ
+    # Windows environment names are case-insensitive, including when an explicit env dict is supplied.
+    denied = token_env.upper() if os.name == "nt" else token_env
+    return {name: value for name, value in source.items()
+            if (name.upper() if os.name == "nt" else name) != denied}
 
 
 def access(grants):

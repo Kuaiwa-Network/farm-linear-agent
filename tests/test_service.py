@@ -141,13 +141,16 @@ class ServeTests(unittest.TestCase):
         self.assertEqual(testbot.scheduler.bot_name, "TestBot")
 
     def test_build_hands_the_scheduler_the_kw_ops_block(self):
-        block = {"url": "http://gm.test/mcp", "token_env": "KW_OPS_TOKEN"}
+        block = {"url": "https://gm.test/mcp", "token_env": "KW_OPS_TOKEN"}
         config = Config(client_id="client", client_secret="s", webhook_secret="signing-secret", host="test",
                         runtime="fake", repos=self.c.config.repos, port=0,
                         local_root=Path(self.tmp.name) / "kw-ops", kw_ops=block)
         service = build(config)
         self.close_later(service)
         self.assertEqual(service.scheduler.kw_ops_config, block)
+        self.assertEqual(service.launcher.token_env, "KW_OPS_TOKEN")
+        self.assertEqual(service.pool.mcp.token_env, "KW_OPS_TOKEN")
+        self.assertEqual(service.recovery.pool.mcp.token_env, "KW_OPS_TOKEN")
 
     def test_build_gives_the_pool_its_own_connection_and_never_the_schedulers(self):
         """The rule this whole task exists for, asserted on the production wiring rather than on a SlotPool

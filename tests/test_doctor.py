@@ -230,7 +230,7 @@ class DoctorTests(unittest.TestCase):
             self.assertEqual(main(["doctor", "--config", str(self.config_path)]), 1)
 
     def test_kw_ops_configuration_is_reported_without_its_token(self):
-        self.config.kw_ops = {"url": "http://gm.test/mcp", "token_env": "KW_OPS_TOKEN"}
+        self.config.kw_ops = {"url": "https://gm.test/mcp", "token_env": "KW_OPS_TOKEN"}
         with patch.dict(os.environ, {"KW_OPS_TOKEN": "dummy-token-value"}):
             report = self.report()
         self.assertEqual(report["tools"]["kw_ops"], {"configured": True, "token_env": "KW_OPS_TOKEN",

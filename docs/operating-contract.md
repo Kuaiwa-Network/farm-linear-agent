@@ -146,8 +146,10 @@ by name (`bearer_token_env_var`). That worker's isolated home lists the variable
 `shell_environment_policy.exclude` and sets `features.shell_snapshot = false`, because codex-cli
 0.156.1 re-exports excluded variables from its shell snapshot (measured on macOS; Windows is
 unverified). Every other worker has the variable removed from its environment. Claude workers get
-no kw_ops. FarmBot learns the variable's name only from the block, so add the block and the
-variable together, and remove them together: a variable set without the block reaches every worker.
+no kw_ops. The URL must use HTTPS, except HTTP on loopback; an existing remote HTTP configuration
+must be changed before restarting on this revision. FarmBot learns the variable's name only
+from the block, so add the block and the variable together, and remove them together: a variable
+set without the block reaches every worker.
 
 `tools.kw_ops` in the launch payload states the access, `full` or `read`. When kw_ops is not
 configured, its variable is unset or blank, or the runtime is unsupported, it says why instead and
@@ -167,9 +169,10 @@ The token variable must be set only in the controller's environment, in the wrap
 only to the environment a worker inherits, and worker shells may source startup files. On Windows,
 provide it only in the controller service's process environment, not as a persistent user or
 machine environment variable, which lives in the registry where same-user processes can likely
-read it (unverified). One known limit: the Unity processes FarmBot starts (batch runs and the
-interactive Editor) inherit the controller's environment, token variable included. `doctor`
-reports `tools.kw_ops` with `configured` and, for a configured host, `token_env` and
+read it (unverified). FarmBot starts batch and interactive Unity Editors with a copy of the
+controller's environment that excludes the configured token variable while retaining other
+variables needed for licensing. `doctor` reports `tools.kw_ops` with `configured` and, for a
+configured host, `token_env` and
 `token_set_in_doctor_environment`, which reflects doctor's own environment, not the running
 controller's.
 

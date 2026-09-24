@@ -13,6 +13,8 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
+from .kw_ops import child_environment
+
 RuntimeConfig = namedtuple("RuntimeConfig", "name command home_env mcp_format seed_files writable_flag",
                            defaults=(None,))
 Handle = namedtuple("Handle", "item_id pid started_at deadline run_dir process last_message_path")
@@ -156,11 +158,12 @@ class Launcher:
     # How long an unreadable process table is retried while the exited worker stays unreaped.
     settle_retry_seconds = 60.0
 
-    def __init__(self, runs_root, runtime, host, clock=time.time):
+    def __init__(self, runs_root, runtime, host, clock=time.time, token_env=None):
         self.runs_root = Path(runs_root)
         self.runtime = runtime
         self.host = host
         self.clock = clock
+        self.token_env = token_env
         self._handles = {}
         self._stopping = {}
         self._jobs = {}
@@ -343,8 +346,9 @@ class Launcher:
         here writes an isolated home, a CODEX_HOME or a sandbox table; this is a plain subprocess, and the
         deadline exists because the thing it runs is the thing that was watched hang.
 
-        env=None on purpose: the Editor inherits the service's own environment, including the real HOME, and
-        Task 0 Steps 3 and 6 measured licensing resolving under exactly that — foreground and under launchd.
+        The Editor receives the service's environment, including the real HOME needed for licensing, with
+        only the configured kw_ops token removed. Task 0 Steps 3 and 6 measured licensing resolving under
+        the service environment — foreground and under launchd.
         """
         start = time.monotonic()
         handle = open(log, "w", encoding="utf-8") if log else subprocess.DEVNULL
@@ -357,7 +361,8 @@ class Launcher:
                 if (self._shutdown or owner in self._cancelled_runs
                         or (cancelled is not None and cancelled())):
                     return Unsandboxed(-signal.SIGTERM, False, time.monotonic() - start)
-                process = subprocess.Popen([str(part) for part in argv], cwd=str(cwd), env=env,
+                process = subprocess.Popen([str(part) for part in argv], cwd=str(cwd),
+                                           env=child_environment(self.token_env, env),
                                            stdin=subprocess.DEVNULL, stdout=handle, stderr=subprocess.STDOUT,
                                            **kwargs)
                 if owner is not None:
