@@ -9,6 +9,7 @@ import socket
 from socketserver import TCPServer
 import sqlite3
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -308,7 +309,8 @@ class Receiver:
 
 
 class ExclusiveServer(ThreadingHTTPServer):
-    """No port sharing on Windows and no reverse-DNS lookup at bind; the receiver and the status monitor use it.
+    """No port sharing on Windows, no reverse-DNS lookup at bind, and no traceback for a client that went away;
+    the receiver and the status monitor use it.
 
     HTTPServer adds a reverse-DNS lookup after binding; a slow host resolver must not gate startup."""
     allow_reuse_address = os.name != "nt"
@@ -319,6 +321,15 @@ class ExclusiveServer(ThreadingHTTPServer):
             self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
         TCPServer.server_bind(self)
         self.server_name, self.server_port = self.server_address
+
+    def handle_error(self, request, client_address):
+        # A client that resets or closes its connection before or during the reply: a poll the status page aborted,
+        # a phone that left the Wi-Fi, or a monitor probe that gave up while serve was bound but not yet accepting,
+        # answered once serve_forever starts. That is no fault of the server, and socketserver would print a
+        # traceback for each such client, to a log launchd never rotates. Any other error keeps that traceback.
+        if isinstance(sys.exc_info()[1], ConnectionError):
+            return
+        super().handle_error(request, client_address)
 
 
 def make_server(receiver, port=8765):

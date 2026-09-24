@@ -5,6 +5,7 @@ import io
 import json
 import socket
 import sqlite3
+import sys
 import tempfile
 import threading
 import time
@@ -18,6 +19,7 @@ from unittest.mock import Mock, patch
 
 from agent.heartbeat import OUTCOMES, Heartbeat
 from agent.ledger import Ledger
+from agent.monitor import probe_health
 from agent.receiver import Receiver, make_server
 from agent.worktrees import WorktreeError
 from test_ledger import ISSUE, issue
@@ -426,6 +428,81 @@ class HttpTests(ReceiverBase):
         # The handler reads the body with a 3 s timeout; the connection stays open with 8 bytes still to come.
         self.assertEqual(self.raw_webhook(url, b"Content-Length: 10\r\n", b"{}", finish=False), (408, "body timeout"))
         self.assert_counted_as_malformed(beat)
+
+    def test_probes_that_gave_up_before_serving_began_leave_no_traceback(self):
+        """While pool.ensure() runs, serve's socket is bound and listening but nothing accepts. Each status build's
+        /health probe then waits in the accept queue, times out and closes, and serve_forever answers it later, into
+        a closed connection. Under launchd stderr is a log that is never rotated, so no traceback may follow."""
+        server = make_server(self.receiver, port=0)
+        self.addCleanup(server.server_close)
+        # server_close joins only request threads that are not daemons: this way every handle_error call has
+        # returned, and printed whatever it prints, before stderr is read.
+        server.daemon_threads = False
+        port = server.server_address[1]
+        handler, errors, err = server.RequestHandlerClass, [], io.StringIO()
+        send_headers, handle_error = handler.end_headers, server.handle_error
+
+        def headers_then_a_pause(request):
+            send_headers(request)
+            # A closed probe's end answers this first write with a reset, and only a write after the reset has
+            # arrived fails. The body follows microseconds later, so whether it fails is a race; the pause settles it.
+            time.sleep(0.1)
+
+        def recording(request, client_address):
+            errors.append(sys.exc_info()[1])
+            handle_error(request, client_address)
+
+        server.handle_error = recording
+        with patch.object(handler, "end_headers", headers_then_a_pause), contextlib.redirect_stderr(err):
+            probes = [probe_health(port, timeout=0.2) for _ in range(4)]
+            thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+            thread.start()
+            self.addCleanup(thread.join, 5)
+            self.addCleanup(server.shutdown)
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=5) as response:
+                self.assertEqual(json.load(response)["status"], "FarmBot ready")
+            server.shutdown()
+            server.server_close()
+        self.assertEqual([probe["error_type"] for probe in probes], ["TimeoutError"] * 4)
+        # The probes' replies did meet their closed connections, and nothing was printed about it.
+        self.assertTrue(errors)
+        for error in errors:
+            self.assertIsInstance(error, ConnectionError)
+        self.assertEqual(err.getvalue(), "")
+
+    def test_a_lost_clients_errors_print_nothing_and_any_other_error_its_traceback(self):
+        server = make_server(self.receiver, port=0)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 5)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+
+        def printed(error):
+            """What reaches stderr when answering a GET raises `error` before any reply."""
+            err, reply = io.StringIO(), b""
+            with patch.object(server.RequestHandlerClass, "do_GET", side_effect=error), \
+                    contextlib.redirect_stderr(err), \
+                    socket.create_connection(server.server_address, timeout=10) as client:
+                client.sendall(b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+                # The server closes the connection only after handle_error has returned, so its output is complete.
+                while chunk := client.recv(65536):
+                    reply += chunk
+            self.assertEqual(reply, b"")
+            return err.getvalue()
+
+        # A lost client, whichever of these errors the platform raises for it.
+        for error in (ConnectionError(), BrokenPipeError(), ConnectionResetError(), ConnectionAbortedError()):
+            with self.subTest(error=type(error).__name__):
+                self.assertEqual(printed(error), "")
+        # Any other error, OSError included, still reaches socketserver's default handle_error and its traceback.
+        for error in (RuntimeError("a handler fault"), OSError("a handler fault")):
+            with self.subTest(error=type(error).__name__):
+                output = printed(error)
+                self.assertIn("Exception occurred during processing of request from", output)
+                self.assertIn(f"{type(error).__name__}: a handler fault", output)
+        with urllib.request.urlopen(f"http://127.0.0.1:{server.server_address[1]}/health", timeout=5) as response:
+            self.assertEqual(json.load(response)["status"], "FarmBot ready")
 
 
 class IssueNotificationTests(ReceiverBase):
