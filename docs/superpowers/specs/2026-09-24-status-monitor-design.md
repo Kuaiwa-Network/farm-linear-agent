@@ -68,7 +68,7 @@ request.
 |---|---|
 | `agent/readonly_db.py` | `snapshot_connection(path)`: opens the ledger with `mode=ro`, sets `PRAGMA query_only=ON` and begins one read transaction. `doctor` moves to it unchanged in behaviour |
 | `agent/heartbeat.py` | `Heartbeat` records loop iterations, phase and webhook outcomes in memory under a lock. Also writes and reads the heartbeat file, validates it, and reads the best-effort source revision |
-| `agent/monitor_view.py` | `build_status(...)`: a read-only ledger connection, a heartbeat result, a `/health` result, instance fields and the clock become the status JSON. It holds the verdict and attention rules and does no other I/O |
+| `agent/monitor_view.py` | `build_status(...)`: the ledger path, opened only through `snapshot_connection`, plus a heartbeat result, a `/health` result, instance fields and the clock, become the status JSON. It holds the verdict and attention rules and does no other I/O |
 | `agent/monitor.py` | The `monitor` command: config and ownership checks, the HTTP server, the `/health` probe and the snapshot cache |
 | `agent/monitor_static/` | `index.html`, `monitor.css` and `monitor.js`: vanilla JS with no external requests, loaded into memory when the monitor starts |
 
@@ -131,8 +131,7 @@ Format (`schema_version` 1). Nothing in it is secret, and it records no PID:
 
 ```json
 {"schema_version": 1, "phase": "serving", "started_at": 0.0, "written_at": 0.0, "stopped_at": null,
- "revision": "a3f9f77c1d2e", "dirty": false, "environment": "production", "instance_id": "default",
- "bot_name": "FarmBot", "runtime": "codex", "receiver_port": 8765,
+ "revision": "a3f9f77c1d2e", "dirty": false, "runtime": "codex",
  "loops": {"schedule": {"started_at": 0.0, "finished_at": 0.0, "consecutive_errors": 0,
                         "error_type": null, "error_at": null}},
  "webhooks": {"last_at": 0.0, "last_type": "Issue", "last_rejected_at": null,
@@ -141,9 +140,9 @@ Format (`schema_version` 1). Nothing in it is secret, and it records no PID:
 ```
 
 - `loops` has one entry per guarded loop: `receive`, `schedule`, `pool`, `lifecycle`,
-  `progress` and `resource_recovery`. An iteration is recorded around each call of the
-  loop body, including the body's own short pause. `consecutive_errors` resets after a
-  successful iteration. `error_type` is an exception class name, as in the service log.
+  `progress` and `resource_recovery`. An iteration is recorded around each loop's work.
+  The pause between iterations is not part of it, so a loop that sleeps between ticks is
+  not reported as busy. `consecutive_errors` resets after a successful iteration. `error_type` is an exception class name, as in the service log.
 - `revision` is the first 12 characters of `git rev-parse HEAD` for the checkout running
   `serve`, read once at startup with a 5 s timeout. `dirty` is true when tracked files
   differ from it. Both are `null` when Git is unavailable or the directory is not a
@@ -180,7 +179,7 @@ skew cannot distort them.
 | `service.linear` | `last_ok_at` (newest `issue_checks.checked_at` with no error), `failing_issues` | ledger |
 | `counts` | `running`, `queued`, `awaiting_input`, `awaiting_resource` | ledger |
 | `active[]` | `identifier`, `title`, `url`, `skill`, `state`, `display_state`, `stage`, `repo`, `created_at`, `state_since`, `checkpoint_at`, `retry_at`, `queue_position`, `prs[]` | ledger |
-| `slots[]` | `slot_id`, `kind`, `state`, `commit`, `holder`, `mode`, `recovery` (`state`, `attempts`) | ledger |
+| `slots[]` | `slot_id`, `kind`, `state`, `commit`, `holder`, `mode`, `recovery` (`state`, `attempts`, `max_attempts`) | ledger |
 | `unity_queue` | number of queued Unity reservations | ledger |
 | `recent[]` | `identifier`, `title`, `url`, `skill`, `outcome`, `finished_at`, `retried`, `prs[]` | ledger |
 | `attention[]` | `code`, `subject`, `since`, `count` | computed |
@@ -240,7 +239,7 @@ Rules are evaluated in order. The heartbeat is `fresh` when `written_at` is less
 | 3 | Fresh heartbeat with phase `starting` | `starting` | `started_at` |
 | 4 | `/health` failing and heartbeat `stale`, `missing` or `unreadable` | `unresponsive` | heartbeat `written_at`, else the monitor's first observed failure |
 | 5 | `/health` failing, heartbeat fresh | `attention` (`receiver_unreachable`) | first observed failure |
-| 6 | `/health` answering, heartbeat present but not a fresh `serving` or `starting` beat | `attention` (`heartbeat_stale`) | `written_at` |
+| 6 | `/health` answering, heartbeat present but not a fresh `serving` or `starting` beat | `attention` (`heartbeat_stale`, or `heartbeat_unreadable` for an invalid file) | `written_at` |
 | 7 | Any attention item | `attention` | earliest item |
 | 8 | Otherwise | `ok` | — |
 
@@ -260,7 +259,7 @@ Attention items, with named thresholds:
 | `loop_erroring` | A loop with 3 or more consecutive errors |
 | `loop_stalled` | A loop busy longer than its limit: receive 2 min, lifecycle and progress 10 min, schedule and resource_recovery 30 min, pool 90 min |
 | `webhook_rejected` | A rejected webhook in the last 15 minutes. A continuous secret mismatch keeps it raised, while a stray scanner clears |
-| `receiver_unreachable`, `heartbeat_stale` | Rules 5 and 6 above |
+| `receiver_unreachable`, `heartbeat_stale`, `heartbeat_unreadable` | Rules 5 and 6 above |
 
 Failed and blocked jobs appear in `recent` with their outcome. They are not attention
 items. Quiet webhook periods, such as nights and weekends, are informational only.
@@ -297,8 +296,10 @@ items. Quiet webhook periods, such as nights and weekends, are informational onl
     verdicts, states, skills, outcomes, loops and attention codes live in `monitor.js`;
     the JSON stays language-neutral.
   - The page polls every 5 seconds. When a poll fails, it keeps the last good data
-    dimmed, labelled 数据停留在 HH:MM, and shows a banner that the monitor connection has
-    been lost since the first failure.
+    dimmed, shows a banner that the monitor connection has been lost since the first
+    failure, and the header and tab title read 连接中断 instead of the last verdict. When
+    the ledger cannot be read, the work sections keep their last good data, labelled
+    工作数据停留在 HH:MM.
   - A footer states that the page is read-only and that actions happen in Linear.
 
 ## Failure behaviour
