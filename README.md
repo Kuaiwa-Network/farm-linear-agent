@@ -217,7 +217,8 @@ as `C:\FarmBot`.
    & "C:\Path\To\python.exe" -m agent.service doctor --config "C:\FarmBot\.local\agent\config.json"
    ```
 
-3. Run the monitor once in a PowerShell console, check for its `monitor_ready` line, and leave it
+3. In a PowerShell console of the account that runs `FarmBot-Receiver`, since the monitor runs as the
+   same account as `serve`, run the monitor once. Check for its `monitor_ready` line, and leave it
    running until step 5.
 
    ```powershell
@@ -227,34 +228,52 @@ as `C:\FarmBot`.
 4. In an elevated PowerShell, as any administrator, allow the monitor's port on the office network and
    register a task that starts the monitor at the logon of the account that runs `FarmBot-Receiver`. The
    block reads that account from the `FarmBot-Receiver` task and gives the new task an explicit principal
-   for it.
+   for it. That `Interactive` principal assumes an interactive user account, so first check that
+   `(Get-ScheduledTask -TaskName "FarmBot-Receiver").Principal` names one: its `UserId` is a user, not
+   `SYSTEM` or another service account, and its `LogonType` is `Interactive`. If not, the block does not
+   fit the receiver's task; do not run it.
 
    ```powershell
    New-NetFirewallRule -DisplayName "FarmBot monitor" -Direction Inbound -Protocol TCP -LocalPort 8780 `
      -Profile Private -RemoteAddress LocalSubnet -Action Allow
    $account = (Get-ScheduledTask -TaskName "FarmBot-Receiver").Principal.UserId
    $principal = New-ScheduledTaskPrincipal -UserId $account -LogonType Interactive
-   New-Item -ItemType Directory -Force -Path "C:\FarmBot\.local\agent\logs"
-   $action = New-ScheduledTaskAction -Execute "cmd.exe" -WorkingDirectory "C:\FarmBot" `
-     -Argument '/d /c ""C:\Path\To\python.exe" -u -m agent.service monitor --config "C:\FarmBot\.local\agent\config.json" >> "C:\FarmBot\.local\agent\logs\monitor.log" 2>&1"'
+   $action = New-ScheduledTaskAction -Execute "C:\Path\To\python.exe" `
+     -Argument '-u -m agent.service monitor --config "C:\FarmBot\.local\agent\config.json"' -WorkingDirectory "C:\FarmBot"
    $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 `
      -RestartInterval (New-TimeSpan -Minutes 1)
    Register-ScheduledTask -TaskName "FarmBot monitor" -Action $action -Principal $principal `
      -Trigger (New-ScheduledTaskTrigger -AtLogOn -User $account) -Settings $settings
    ```
 
-   The task appends the monitor's output to `C:\FarmBot\.local\agent\logs\monitor.log`, so its
-   `monitor_ready`, `monitor_failed` and `status_failed` lines are kept when Task Scheduler runs it. The
-   log stays small: request logging is off, and the monitor prints one line at startup and one where each
-   run of failed status builds starts, though a client that drops its connection before the reply can
-   add a traceback. `cmd /c` exits with Python's exit code, so restart-on-failure still applies.
+   The task runs `python.exe` itself, not a wrapper such as `cmd.exe`, because ending a task may end only
+   its wrapper and leave the `python.exe` child holding the port: the routine restart after an update
+   would then keep the old monitor serving, while each new instance exits with `monitor_failed` on the
+   busy port. If the monitor refuses to start, the task's Last Run Result shows a non-zero exit
+   (`LastTaskResult` in `Get-ScheduledTaskInfo -TaskName "FarmBot monitor"`). Repeat step 3's console run
+   to see why: it prints its `monitor_ready` line, or the `monitor_failed` line that names the problem.
 
 5. Nothing starts the task before the next logon. Stop the console run from step 3 with Ctrl+C, then
-   run `Start-ScheduledTask -TaskName "FarmBot monitor"`.
+   run `Start-ScheduledTask -TaskName "FarmBot monitor"`. Check that exactly one process listens on the
+   monitor port and that it is the task's Python. The check only reads; run it elevated, so that it can
+   read the command line of another account's process.
 
-The firewall rule needs the office network classified as Private. Check restart-on-failure, the task's
-account and its log on the host once. `redeploy-farmbot.ps1` does not restart the monitor; restart its
-task after updating the checkout.
+   ```powershell
+   Get-NetTCPConnection -LocalPort 8780 -State Listen |
+     Select-Object -ExpandProperty OwningProcess -Unique |
+     ForEach-Object { Get-CimInstance Win32_Process -Filter "ProcessId=$_" } |
+     Format-List ProcessId, CreationDate, ExecutablePath, CommandLine
+   ```
+
+   Expect one process whose `ExecutablePath` is `C:\Path\To\python.exe`, whose `CommandLine` ends with
+   the task's arguments, and whose `CreationDate` is the time of the start. An older process was already
+   holding the port, so the new instance has exited on the busy port. Stop it only if this check shows
+   it to be the monitor, with `Stop-Process -Id <ProcessId>`, then start the task again.
+
+The firewall rule needs the office network classified as Private. Check restart-on-failure and the
+task's account on the host once. `redeploy-farmbot.ps1` does not restart the monitor. After updating the
+checkout, restart its task in an elevated PowerShell, with `Stop-ScheduledTask` and then
+`Start-ScheduledTask`, each with `-TaskName "FarmBot monitor"`, and repeat step 5's check.
 
 The helper stops the receiver with `Process.Kill()`, so `serve` writes no `stopped` heartbeat and its
 Python cleanup does not run. During a later redeploy the page therefore shows 需要关注
