@@ -642,6 +642,25 @@ class MonitorServerTests(unittest.TestCase):
         self.assertEqual((first["verdict_since"], later["verdict_since"], later["generated_at"]),
                          (1_000_000.0, 1_000_000.0, 1_000_010.0))
 
+    def test_a_failure_seen_before_an_unwatched_gap_does_not_anchor_one_seen_after_it(self):
+        # Nobody polled in between, so the receiver may have recovered unseen: the later failure reads since its own
+        # first observation, not since the earlier one's.
+        first = json.loads(self.request(path="/api/status")[1])
+        self.now[0] += monitor.UNWATCHED_AFTER + 1
+        later = json.loads(self.request(path="/api/status")[1])
+        self.assertEqual((first["verdict"], first["verdict_since"]), ("unresponsive", 1_000_000.0))
+        self.assertEqual((later["verdict"], later["verdict_since"], later["generated_at"]),
+                         ("unresponsive", 1_000_000.0 + monitor.UNWATCHED_AFTER + 1,
+                          1_000_000.0 + monitor.UNWATCHED_AFTER + 1))
+
+    def test_polls_no_further_apart_than_the_gap_keep_the_first_anchor_however_long_the_failure(self):
+        # The gap runs from the previous build, not from the first failure, and only a longer one forgets it.
+        for poll in range(4):
+            document = json.loads(self.request(path="/api/status")[1])
+            self.assertEqual((document["generated_at"], document["verdict_since"]),
+                             (1_000_000.0 + poll * monitor.UNWATCHED_AFTER, 1_000_000.0))
+            self.now[0] += monitor.UNWATCHED_AFTER
+
     def test_serving_status_never_modifies_the_ledger_or_the_state_root(self):
         ledger = Paths(self.config).ledger
         before = (ledger.stat().st_mtime_ns, ledger.read_bytes())

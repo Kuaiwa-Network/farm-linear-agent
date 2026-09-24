@@ -27,6 +27,10 @@ ASSETS = {"/": ("index.html", "text/html; charset=utf-8"),
           "/monitor.css": ("monitor.css", "text/css; charset=utf-8")}
 SNAPSHOT_TTL = 2.0
 HEALTH_TIMEOUT = 2.0
+# Builds happen only while someone polls. One that starts more than this after the previous build ended forgets
+# the failure that build saw: nobody watched the gap, so the receiver may have recovered unseen, and a failure
+# observed before it must not anchor one observed after it.
+UNWATCHED_AFTER = 30.0
 REQUEST_TIMEOUT = 5
 HEADERS = (("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; "
             "connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"),
@@ -109,8 +113,9 @@ def make_monitor_server(config, *, port=None, clock=time.time):
     revision = source_revision(ROOT)
     renew_seconds = {name: skill.budget["renew_minutes"] * 60 for name, skill in load_skills(ROOT / "skills").items()}
     lock = threading.Lock()
-    # The last build: when it ended, and its body, or None when it failed. `failed`: the last build failed, so the
-    # current run of failures has already printed its line.
+    # The last build: when it ended, and its body, or None when it failed. `failing_since`: when builds no more than
+    # UNWATCHED_AFTER apart first saw /health failing. `failed`: the last build failed, so the current run of
+    # failures has already printed its line.
     cache = {"at": None, "body": None, "failing_since": None, "failed": False}
 
     def status_body():
@@ -122,6 +127,8 @@ def make_monitor_server(config, *, port=None, clock=time.time):
             now = clock()
             if cache["at"] is not None and 0 <= now - cache["at"] < SNAPSHOT_TTL:
                 return cache["body"]
+            if cache["at"] is not None and now - cache["at"] > UNWATCHED_AFTER:
+                cache["failing_since"] = None
             try:
                 health = probe_health(config.port, timeout=HEALTH_TIMEOUT, now=now)
                 if health["ok"]:
