@@ -6,6 +6,7 @@ receiver's /health on loopback.
 """
 import ipaddress
 import json
+import sys
 import threading
 import time
 import urllib.error
@@ -97,6 +98,18 @@ def allowed_host(header, hostnames):
     except ValueError:
         return False
     return True
+
+
+class MonitorServer(ExclusiveServer):
+    """The receiver's exclusive-bind server, silent about a client that goes away before or during its reply."""
+
+    def handle_error(self, request, client_address):
+        # A poll the page aborted, or a phone that left the Wi-Fi, resets its connection before or during the reply.
+        # That is no fault of the monitor, and socketserver would print a traceback for each such client, to a log
+        # launchd never rotates. Any other error while handling a request keeps that traceback.
+        if isinstance(sys.exc_info()[1], ConnectionError):
+            return
+        super().handle_error(request, client_address)
 
 
 def make_monitor_server(config, *, port=None, clock=time.time):
@@ -204,7 +217,7 @@ def make_monitor_server(config, *, port=None, clock=time.time):
                 return self.refuse()
             self.send(code, f"{self.responses.get(code, ('error',))[0].lower()}\n".encode())
 
-    return ExclusiveServer((settings["bind"], settings["port"] if port is None else port), Handler)
+    return MonitorServer((settings["bind"], settings["port"] if port is None else port), Handler)
 
 
 def run(config_path=None):

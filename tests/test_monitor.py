@@ -5,7 +5,10 @@ import io
 import json
 import os
 import re
+import select
 import socket
+import struct
+import sys
 import tempfile
 import threading
 import time
@@ -201,6 +204,13 @@ class PageTests(unittest.TestCase):
         self.assertIn('if (upgraded) messages.push("监控已更新，请刷新页面。");', banner)
         self.assertIn("else if (failingSince !== null) messages.push(`与监控的连接已中断", banner)
         self.assertEqual(script.count("监控已更新，请刷新页面。"), 1)
+        # The pill and the tab title say what to do, 需要刷新 in the bad tone, not 连接中断, and name no time: the
+        # refresh is due now, however long the polls have failed.
+        header = self.block("function renderHeader() {")
+        self.assertIn('const [label, tone] = upgraded ? ["需要刷新", "bad"] : lost ? ["连接中断", "bad"] : VERDICT[', header)
+        self.assertIn("const from = upgraded ? null : lost ? failingSince / 1000 : ", header)
+        self.assertIn("document.title = `${label} · ${bot} 状态`;", header)
+        self.assertEqual(script.count("需要刷新"), 1)
         # Refreshing is the viewer's decision: the script never navigates or reloads.
         self.assertNotRegex(script, r"\blocation\b|\.reload\(|history\.go")
 
@@ -418,6 +428,71 @@ class MonitorServerTests(unittest.TestCase):
         self.assertTrue(status.startswith("HTTP/1.0 "), status)
         for name, value in monitor.HEADERS:
             self.assertIn(f"{name}: {value}", headers)
+
+    def test_a_client_that_resets_before_the_reply_prints_nothing(self):
+        # A poll the page aborted, or a phone that left the Wi-Fi: the reply meets a reset connection. Under launchd
+        # stderr is a log that is never rotated, so no traceback may follow.
+        building, release, handled = threading.Event(), threading.Event(), threading.Event()
+        accepted, errors = [], []
+        real, get_request, handle_error = monitor.build_status, self.server.get_request, self.server.handle_error
+
+        def slow(*args, **kwargs):
+            building.set()
+            release.wait(10)
+            return real(*args, **kwargs)
+
+        def accepting():
+            connection, address = get_request()
+            accepted.append(connection)
+            return connection, address
+
+        def recording(request, client_address):
+            errors.append(sys.exc_info()[1])
+            try:
+                handle_error(request, client_address)
+            finally:
+                handled.set()
+
+        self.server.get_request, self.server.handle_error = accepting, recording
+        err = io.StringIO()
+        with patch("agent.monitor.build_status", side_effect=slow), contextlib.redirect_stderr(err):
+            client = socket.create_connection(self.server.server_address, timeout=10)
+            self.addCleanup(client.close)
+            client.sendall(b"GET /api/status HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+            self.assertTrue(building.wait(10))
+            client.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+            client.close()  # a zero linger sends a reset, not a FIN
+            # The server's end turns readable once the reset has arrived, so the reply is written only after it.
+            self.assertEqual(select.select(accepted, [], [], 10)[0], accepted)
+            release.set()
+            self.assertTrue(handled.wait(10))
+        # The reply did meet the reset, and nothing was printed about it.
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], ConnectionError)
+        self.assertEqual(err.getvalue(), "")
+        # The server goes on answering.
+        response, body = self.request(path="/api/status")
+        self.assertEqual((response.status, json.loads(body)["schema_version"]), (200, SCHEMA_VERSION))
+
+    def test_a_lost_clients_errors_print_nothing_and_any_other_error_its_traceback(self):
+        def printed(error):
+            """What reaches stderr when handling a request raises `error` before any reply."""
+            err = io.StringIO()
+            with patch("agent.monitor.allowed_host", side_effect=error), contextlib.redirect_stderr(err):
+                # The server closes the connection only after handle_error has returned, so its output is complete.
+                self.assertEqual(self.exchange(b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"), ("", []))
+            return err.getvalue()
+
+        # A lost client, whichever of these errors the platform raises for it.
+        for error in (ConnectionError(), BrokenPipeError(), ConnectionResetError(), ConnectionAbortedError()):
+            with self.subTest(error=type(error).__name__):
+                self.assertEqual(printed(error), "")
+        # Any other error, OSError included, still reaches socketserver's default handle_error and its traceback.
+        for error in (RuntimeError("a handler fault"), OSError("a handler fault")):
+            with self.subTest(error=type(error).__name__):
+                output = printed(error)
+                self.assertIn("Exception occurred during processing of request from", output)
+                self.assertIn(f"{type(error).__name__}: a handler fault", output)
 
     def test_the_status_is_built_at_most_once_per_snapshot_interval(self):
         calls = []

@@ -163,10 +163,11 @@
 
   function renderHeader() {
     // A lost connection overrides the last verdict, even before any data has arrived: the tab title must say
-    // 连接中断, not 正常 or its loading text.
+    // 连接中断, not 正常 or its loading text. A document of another version asks instead for the refresh that only
+    // the viewer can make, and names no time: the refresh is due now, however long the polls have failed.
     const lost = failingSince !== null;
-    const [label, tone] = lost ? ["连接中断", "bad"] : VERDICT[doc.verdict] || VERDICT.unknown;
-    const from = lost ? failingSince / 1000 : doc.verdict !== "ok" ? doc.verdict_since : null;
+    const [label, tone] = upgraded ? ["需要刷新", "bad"] : lost ? ["连接中断", "bad"] : VERDICT[doc.verdict] || VERDICT.unknown;
+    const from = upgraded ? null : lost ? failingSince / 1000 : doc.verdict !== "ok" ? doc.verdict_since : null;
     const bot = (doc && doc.instance.bot_name) || "FarmBot";
     document.title = `${label} · ${bot} 状态`;
     byId("title").textContent = `${bot} 状态`;
