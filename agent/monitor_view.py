@@ -366,6 +366,11 @@ def _read_ledger(db, now, beat_state, beat, renew_seconds):
     return sections, service, _ledger_attention(db, schema, rows, slots, now) + _worker_attention(jobs), missing
 
 
+def _live(beat_state, beat):
+    """Whether the beat comes from a serve that is running now: fresh, and not the beat a clean shutdown leaves."""
+    return beat is not None and beat_state == "fresh" and beat["phase"] != "stopped"
+
+
 def _loop_state(name, record, now):
     started, finished = record["started_at"], record["finished_at"]
     busy = started is not None and (finished is None or started > finished)
@@ -376,16 +381,25 @@ def _loop_state(name, record, now):
     return "busy" if busy else "idle"
 
 
+def _loops(beat_state, beat, now):
+    """Each loop the beat recorded, with the times and errors it recorded. Only a live beat's loops are judged; a
+    stale or stopped beat's get the state None. A busy time measured against `now` would grow without bound on a
+    service that has died, and any state would describe a service that is not running."""
+    if beat is None:
+        return []
+    live = _live(beat_state, beat)
+    return [{"name": name, "state": _loop_state(name, beat["loops"][name], now) if live else None,
+             **beat["loops"][name]} for name in LOOPS if name in beat["loops"]]
+
+
 def _service(beat_state, beat, health, now):
     fields = ("phase", "written_at", "started_at", "stopped_at", "revision", "dirty", "runtime")
     heartbeat = {"state": beat_state, **{key: (beat[key] if beat else None) for key in fields}}
-    loops = ([{"name": name, "state": _loop_state(name, beat["loops"][name], now), **beat["loops"][name]}
-              for name in LOOPS if name in beat["loops"]] if beat else [])
-    return {"health": health, "heartbeat": heartbeat, "loops": loops,
+    return {"health": health, "heartbeat": heartbeat, "loops": _loops(beat_state, beat, now),
             "webhooks": beat["webhooks"] if beat else None, "agent_event_at": None, "linear": None}
 
 
-def _service_attention(beat_state, beat, health, now, failing_since):
+def _service_attention(beat_state, beat, loops, health, now, failing_since):
     items = []
 
     def add(code, subject, since, count=None):
@@ -398,16 +412,14 @@ def _service_attention(beat_state, beat, health, now, failing_since):
         add("heartbeat_unreadable", None, None)
     elif health["ok"] and beat is not None and not (beat_state == "fresh" and phase in ("serving", "starting")):
         add("heartbeat_stale", None, beat["written_at"])
+    # From the loops' states in the document, so an item is raised exactly when its loop reads erroring or stalled,
+    # which only a live beat's loops can.
+    for loop in loops:
+        if loop["state"] == "erroring":
+            add("loop_erroring", loop["name"], loop["error_at"], loop["consecutive_errors"])
+        elif loop["state"] == "stalled":
+            add("loop_stalled", loop["name"], loop["started_at"])
     if beat is not None and beat_state == "fresh":
-        for name in LOOPS:
-            record = beat["loops"].get(name)
-            if record is None:
-                continue
-            state = _loop_state(name, record, now)
-            if state == "erroring":
-                add("loop_erroring", name, record["error_at"], record["consecutive_errors"])
-            elif state == "stalled":
-                add("loop_stalled", name, record["started_at"])
         rejected = beat["webhooks"]["last_rejected_at"]
         if rejected is not None and now - rejected < REJECT_WINDOW:
             add("webhook_rejected", None, rejected, beat["webhooks"]["counts"]["rejected"])
@@ -461,7 +473,7 @@ def build_status(ledger_path, *, heartbeat, health, instance, monitor_revision, 
         document["service"].update(service)
         document["ledger"].update(ok=True, missing_optional=missing)
         attention.extend(ledger_attention)
-    attention.extend(_service_attention(beat_state, beat, health, now, failing_since))
+    attention.extend(_service_attention(beat_state, beat, document["service"]["loops"], health, now, failing_since))
     document["attention"] = attention
     document["verdict"], document["verdict_since"] = _verdict(document["ledger"]["ok"], beat_state, beat,
                                                              health, failing_since, attention)

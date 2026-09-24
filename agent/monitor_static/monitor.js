@@ -209,8 +209,17 @@
     byId("attention-rows").replaceChildren(...rows);
   }
 
-  function loopPill(loop) {
+  // The later of a loop's recorded start and finish, or null when it recorded neither.
+  function lastRecorded(loop) {
+    const times = [loop.started_at, loop.finished_at].filter((t) => typeof t === "number");
+    return times.length ? Math.max(...times) : null;
+  }
+
+  function loopPill(loop, live) {
     const name = LOOP[loop.name] || loop.name;
+    // A stale or stopped heartbeat does not come from a running service. Its loops get no ok, busy, stalled or
+    // erroring pill, only the neutral tone and the last time the beat recorded.
+    if (!live) return pill(timed(() => `${name} ${ago(lastRecorded(loop))}`), "neutral");
     const busyFor = () => (typeof loop.started_at === "number" ? hostNow() - loop.started_at : 0);
     // Which pill a loop gets is decided when the page is rebuilt; the tick only moves its time on.
     if (loop.state === "erroring") return pill(`${name} 出错 ${loop.error_type || ""}`.trim(), "bad");
@@ -238,8 +247,10 @@
     const beat = service.heartbeat;
     rows.push(row("two", cell("label muted", "服务心跳"), cell("main", heartbeatText(beat))));
     if (service.loops.length) {
+      // Only a fresh beat that is not stopped shows live loops: the beats whose loops agent/monitor_view.py judges.
+      const live = beat.state === "fresh" && beat.phase !== "stopped";
       const pills = el("div", "pills");
-      pills.append(...service.loops.map(loopPill));
+      pills.append(...service.loops.map((loop) => loopPill(loop, live)));
       rows.push(row("two", cell("label muted", "后台循环"), cell("main", pills)));
     } else if (beat.state === "missing") {
       rows.push(row("two", cell("label muted", "后台循环"), cell("main muted", "此版本未提供")));

@@ -199,7 +199,7 @@ skew cannot distort them.
 | `monitor` | `revision`, `dirty` | the monitor's own checkout |
 | `service.health` | `ok`, `status`, `latency_ms`, `error_type`, `checked_at` | `/health` probe |
 | `service.heartbeat` | `state` (`fresh`, `stale`, `missing` or `unreadable`), `phase`, `written_at`, `started_at`, `stopped_at`, `revision`, `dirty`, `runtime` | heartbeat |
-| `service.loops` | per loop: `name`, `state` (`idle`, `busy`, `stalled` or `erroring`), `started_at`, `finished_at`, `consecutive_errors`, `error_type`, `error_at` | heartbeat |
+| `service.loops` | per loop: `name`, `state` (`idle`, `busy`, `stalled` or `erroring`, and `null` for a stale or stopped beat), `started_at`, `finished_at`, `consecutive_errors`, `error_type`, `error_at` | heartbeat |
 | `service.webhooks` | `last_at`, `last_type`, `last_rejected_at`, `counts` | heartbeat |
 | `service.agent_event_at` | newest `webhook_events.received_at` | ledger |
 | `service.linear` | `last_ok_at` (newest `issue_checks.checked_at` with no error), `failing_issues` | ledger |
@@ -240,6 +240,11 @@ Derivations:
       monitor checkout's `skills/*/skill.json`: 15 minutes for fix, 7.5 for chat) have
       passed since `renewed_at`;
     - `alive` otherwise.
+- `service.loops[].state` is judged only from a fresh heartbeat whose phase is not
+  `stopped`. For a stale or stopped beat it is `null`: no state is judged, and each loop
+  reports the times and errors its beat recorded. A busy time measured against the
+  monitor's clock would otherwise grow without bound on a service that has died, and an
+  idle or erroring state would describe a service that is not running.
 - `slots[].kind` is the resource kind (`unity_slot`). `holder` and `mode` (`batch` or
   `interactive`) come from the slot's active or `cancel_requested` reservation, and are
   `null` when the slot is free. `commit` is the first 7 characters of `parked_commit`.
@@ -310,9 +315,10 @@ Attention items, with named thresholds:
 | `worker_untracked` | A running job's worker is `untracked`: the ledger says running, but `serve` is managing no such worker |
 | `receiver_unreachable`, `heartbeat_stale`, `heartbeat_unreadable` | Rules 5 and 6 above |
 
-The loop and webhook items are raised only from a fresh heartbeat. Failed and blocked
-jobs appear in `recent` with their outcome. They are not attention items. Quiet webhook
-periods, such as nights and weekends, are informational only.
+The loop items follow the loop states, so they are raised only from a fresh heartbeat
+that is not `stopped`. The webhook item is raised only from a fresh heartbeat. Failed
+and blocked jobs appear in `recent` with their outcome. They are not attention items.
+Quiet webhook periods, such as nights and weekends, are informational only.
 
 ## HTTP surface and page
 
@@ -360,6 +366,9 @@ periods, such as nights and weekends, are informational only.
     header and tab title read 需要刷新. The page never reloads itself.
   - When rendering a document throws, the header and tab title read 页面显示出错 and the
     content is dimmed until a render succeeds, so a stale verdict never stays up.
+  - Loop pills show their state only from a fresh heartbeat that is not `stopped`.
+    Otherwise every loop pill takes the neutral tone, never the green one, and shows
+    the time of the loop's last recorded start or finish.
   - A footer states that the page is read-only and that actions happen in Linear.
 
 ## Failure behaviour

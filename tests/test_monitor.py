@@ -154,6 +154,20 @@ class PageTests(unittest.TestCase):
     def test_every_slot_state_has_a_label(self):
         self.assert_labelled("SLOT", Ledger.SLOT_STATES)
 
+    def test_loop_pills_are_neutral_unless_the_heartbeat_is_live(self):
+        # A stale or stopped beat's loops carry no state (monitor_view._loops), and their pills never read as live:
+        # no ok, busy, stalled or erroring pill, only the neutral tone and the last recorded time.
+        service = self.block("function renderService() {")
+        self.assertIn('const live = beat.state === "fresh" && beat.phase !== "stopped";', service)
+        self.assertIn("service.loops.map((loop) => loopPill(loop, live))", service)
+        self.assertEqual(self.text("monitor.js").count("loopPill("), 2)  # its definition and that one call
+        pill = self.block("function loopPill(loop, live) {")
+        neutral = 'if (!live) return pill(timed(() => `${name} ${ago(lastRecorded(loop))}`), "neutral");'
+        self.assertIn(neutral, pill)
+        # Ahead of every pill that reads the loop's state, the green ok one included.
+        self.assertLess(pill.index(neutral), pill.index("loop.state"))
+        self.assertIn("return times.length ? Math.max(...times) : null;", self.block("function lastRecorded(loop) {"))
+
     def test_a_held_slot_words_its_recovery_alike_in_its_row_and_its_attention_line(self):
         script = self.text("monitor.js")
         shared = self.block("function recoveryText(recovery) {")

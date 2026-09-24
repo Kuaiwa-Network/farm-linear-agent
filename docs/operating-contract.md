@@ -572,10 +572,12 @@ outcome counts, and the worker processes the launcher is managing, as start and 
 only. A failed write is skipped and never affects serving. The first failure of each run of failed writes
 prints one `heartbeat_error` JSON line naming the exception class, and the final `stopped` beat, which no
 later beat repairs, is retried once after 0.1 seconds. The monitor reads the file as untrusted data (a
-regular file, at most 64 KiB, validated) and treats it as stale once it is 60 seconds old. A read refused
-with `PermissionError`, as on Windows when it collides with the replace, is retried once after 0.1
-seconds. A worker able to write the state root could forge the heartbeat, so `/health` remains an
-independent signal.
+regular file, at most 64 KiB, validated) and treats it as stale once it is 60 seconds old. It judges
+loops as idle, busy, stalled or erroring only from a fresh heartbeat that is not `stopped`; a stale or
+stopped heartbeat's loops show only their last recorded times, in a neutral tone. A read refused with
+`PermissionError`, as on Windows when it collides with the replace, is retried once after 0.1 seconds. A
+worker able to write the state root could forge the heartbeat, so `/health` remains an independent
+signal.
 
 A running job's worker is shown with the first state that applies:
 

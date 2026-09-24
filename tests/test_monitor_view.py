@@ -476,6 +476,28 @@ class ServiceTests(ViewBase):
                           ("webhook_rejected", None, 4)})
         self.assertEqual(self.status(heartbeat=("fresh", beat(rejected_at=NOW - 901, rejected=4)))["attention"], [])
 
+    def test_only_a_live_heartbeat_judges_its_loops(self):
+        # As the beat recorded them: a loop idle, one busy, one busy past its limit and one erroring.
+        written = NOW - 600
+        loops = {"receive": loop(written - 2, written - 1), "schedule": loop(written - 30, written - 40),
+                 "pool": loop(written - LOOP_LIMITS["pool"] - 60, written - LOOP_LIMITS["pool"] - 70),
+                 "lifecycle": loop(written - 5, written - 4, errors=3, error_type="TimeoutError")}
+        judged = {"receive": "idle", "schedule": "busy", "pool": "stalled", "lifecycle": "erroring"}
+        cases = [("fresh", "serving", judged, {"loop_stalled", "loop_erroring"}),
+                 ("stale", "serving", dict.fromkeys(judged), set()),
+                 ("fresh", "stopped", dict.fromkeys(judged), set()),
+                 ("stale", "stopped", dict.fromkeys(judged), set())]
+        for state, phase, states, codes in cases:
+            with self.subTest(state=state, phase=phase):
+                last = beat(phase, written, loops=loops, stopped_at=written if phase == "stopped" else None)
+                # A fresh beat is read within seconds of its writing, a stale one ten minutes later.
+                document = self.status(heartbeat=(state, last), now=written + 1 if state == "fresh" else NOW)
+                shown = {entry.pop("name"): entry for entry in document["service"]["loops"]}
+                self.assertEqual({name: entry.pop("state") for name, entry in shown.items()}, states)
+                self.assertEqual(shown, loops)  # every loop keeps the times and errors its beat recorded
+                raised = {entry["code"] for entry in document["attention"]}
+                self.assertEqual(raised & {"loop_stalled", "loop_erroring"}, codes)
+
     def test_linear_and_agent_session_times_come_from_the_ledger(self):
         first, second = self.job(), self.job()
         self.sql("UPDATE issue_checks SET checked_at=? WHERE issue_id=?", NOW - 30, first["issue_id"])
