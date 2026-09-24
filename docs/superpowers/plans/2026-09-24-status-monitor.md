@@ -266,7 +266,7 @@ class MonitorConfigTests(unittest.TestCase):
     def test_invalid_blocks_are_refused(self):
         for block in ([], {"bind": "localhost"}, {"bind": "::"}, {"bind": "127.000.0.1"}, {"bind": 127},
                       {"port": 8765}, {"port": 0}, {"port": 70000}, {"port": "8780"}, {"port": True},
-                      {"hostnames": "farmbot.local"}, {"hostnames": ["Farmbot.local"]}, {"hostnames": ["a b"]},
+                      {"hostnames": "farmbot-host.local"}, {"hostnames": ["Farmbot-host.local"]}, {"hostnames": ["a b"]},
                       {"hostnames": ["x"] * 17}, {"host": "0.0.0.0"}):
             with self.subTest(block=block), self.assertRaises(ValueError):
                 config(monitor=block)
@@ -1302,7 +1302,7 @@ from test_ledger import PIN, comment, issue
 NOW = 1_000_000.0
 HEALTHY = {"ok": True, "status": 200, "latency_ms": 3, "error_type": None, "checked_at": NOW}
 DOWN = {"ok": False, "status": None, "latency_ms": 2000, "error_type": "ConnectionRefusedError", "checked_at": NOW}
-INSTANCE = {"environment": "production", "instance_id": "default", "bot_name": "FarmBot", "host": "farm-host"}
+INSTANCE = {"environment": "production", "instance_id": "default", "bot_name": "FarmBot", "host": "test-host"}
 
 
 def beat(phase="serving", written_at=NOW - 1, *, loops=None, rejected_at=None, rejected=0, stopped_at=None,
@@ -1339,7 +1339,7 @@ class ViewBase(unittest.TestCase):
         return self.ledger.create_work_item(issue_id=issue_id, session_id=f"session-{n}", skill=skill, target=PIN)
 
     def claim(self, item):
-        self.ledger.set_worker(item["id"], 515151, "farm-host")
+        self.ledger.set_worker(item["id"], 515151, "test-host")
         return self.ledger.claim(item["id"], worker_id="test")
 
     def sql(self, statement, *values):
@@ -1382,7 +1382,7 @@ class ActiveWorkTests(ViewBase):
     def test_queued_work_is_split_into_launching_switching_retry_and_queue_position(self):
         first, second, launching, switching, retrying = (self.job() for _ in range(5))
         self.sql("UPDATE work_items SET priority=1 WHERE id=?", second["id"])
-        self.ledger.set_worker(launching["id"], 5151, "farm-host")
+        self.ledger.set_worker(launching["id"], 5151, "test-host")
         self.sql("UPDATE work_items SET worker_pid=5252, next_root_repo='farm-hive' WHERE id=?", switching["id"])
         self.sql("UPDATE work_items SET retry_not_before=? WHERE id=?", NOW + 300, retrying["id"])
         states = {job["identifier"]: (job["display_state"], job["queue_position"], job["retry_at"])
@@ -1499,7 +1499,7 @@ class HistoryTests(ViewBase):
 
 class SlotTests(ViewBase):
     def slot(self, slot_id):
-        self.ledger.ensure_slot(slot_id, kind="unity_slot", host="farm-host",
+        self.ledger.ensure_slot(slot_id, kind="unity_slot", host="test-host",
                                 folder=str(Path(self.tmp.name) / slot_id.replace(":", "-")))
 
     def test_slots_show_their_holder_mode_commit_and_recovery(self):
@@ -1507,12 +1507,12 @@ class SlotTests(ViewBase):
         self.slot("unity_slot:2")
         holder = self.job()
         self.ledger.await_resource(holder["id"], self.claim(holder)["token"], "unity_slot", "interactive")
-        granted = self.ledger.acquire("unity_slot", owner="pool", host="farm-host")
+        granted = self.ledger.acquire("unity_slot", owner="pool", host="test-host")
         self.ledger.set_slot_state(granted["resource"], "interactive_busy", parked_commit="9f2e1c0" + "0" * 33)
         self.ledger.set_slot_state("unity_slot:2", "held")
         store = RecoveryStore(self.ledger)
-        store.discover("farm-host")
-        recovery = store.begin(store.pending("farm-host")[0]["id"])
+        store.discover("test-host")
+        recovery = store.begin(store.pending("test-host")[0]["id"])
         store.failed(recovery["id"], recovery["attempts"], "private repair error")
         slots = {slot["slot_id"]: slot for slot in self.status()["slots"]}
         self.assertEqual(slots["unity_slot:1"], {"slot_id": "unity_slot:1", "kind": "unity_slot",
@@ -1543,12 +1543,12 @@ class AttentionTests(ViewBase):
 
     def test_a_busy_slot_without_a_reservation_and_a_slow_cancellation_are_flagged(self):
         for slot in ("unity_slot:1", "unity_slot:2"):
-            self.ledger.ensure_slot(slot, kind="unity_slot", host="farm-host",
+            self.ledger.ensure_slot(slot, kind="unity_slot", host="test-host",
                                     folder=str(Path(self.tmp.name) / slot.replace(":", "-")))
         self.ledger.set_slot_state("unity_slot:1", "batch_busy")
         item = self.job()
         self.ledger.await_resource(item["id"], self.claim(item)["token"], "unity_slot", "batch")
-        self.ledger.acquire("unity_slot", owner="pool", host="farm-host")  # slot 1 is busy, so slot 2
+        self.ledger.acquire("unity_slot", owner="pool", host="test-host")  # slot 1 is busy, so slot 2
         self.clock = NOW - 400
         self.ledger.cancel(item["id"], "Linear stop")  # the active reservation becomes cancel_requested
         found = self.found(self.status())
@@ -1654,7 +1654,7 @@ class PrivacyTests(ViewBase):
                  "PRIVATE-ERROR /srv/private/secret", NOW, item["issue_id"])
         self.sql("INSERT INTO job_cleanup(item_id, worker_pid, error, updated_at) VALUES(?,?,?,?)",
                  item["id"], 424242, "PRIVATE-CLEANUP", NOW - 3600)
-        self.ledger.ensure_slot("unity_slot:1", kind="unity_slot", host="farm-host",
+        self.ledger.ensure_slot("unity_slot:1", kind="unity_slot", host="test-host",
                                 folder=str(Path(self.tmp.name) / "PRIVATE-FOLDER"))
         waiting = self.job()
         answer = self.claim(waiting)
