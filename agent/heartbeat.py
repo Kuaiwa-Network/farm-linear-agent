@@ -217,8 +217,10 @@ def source_revision(root):
     """(first 12 characters of HEAD, whether tracked files differ) for the checkout at `root`, or (None, None)
     when Git is missing, times out or `root` is not a checkout."""
     def git(*args):
-        return subprocess.run(["git", "-C", str(root), *args], capture_output=True, encoding="utf-8",
-                              errors="replace", timeout=5, check=True).stdout
+        # Without --no-optional-locks, status refreshes and rewrites .git/index under index.lock: a write the
+        # monitor must not make, and a lock an operator's git command in the same checkout could collide with.
+        return subprocess.run(["git", "--no-optional-locks", "-C", str(root), *args], capture_output=True,
+                              encoding="utf-8", errors="replace", timeout=5, check=True).stdout
 
     try:
         head = git("rev-parse", "HEAD").strip()

@@ -200,25 +200,39 @@ class HeartbeatFileTests(unittest.TestCase):
 
 
 class SourceRevisionTests(unittest.TestCase):
+    def checkout(self):
+        """A temporary one-commit repository holding tracked.txt, and its HEAD."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name) / "checkout 检出"
+        root.mkdir()
+
+        def git(*args):
+            return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=root,
+                                  check=True, capture_output=True, text=True).stdout.strip()
+
+        git("init", "-q", "-b", "main", ".")
+        (root / "tracked.txt").write_text("one", encoding="utf-8")
+        git("add", ".")
+        git("commit", "-qm", "init")
+        return root, git("rev-parse", "HEAD")
+
     def test_a_checkout_reports_its_commit_and_whether_tracked_files_changed(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp) / "checkout 检出"
-            root.mkdir()
+        root, head = self.checkout()
+        self.assertEqual(source_revision(root), (head[:12], False))
+        (root / "untracked.txt").write_text("ignored", encoding="utf-8")
+        self.assertEqual(source_revision(root), (head[:12], False))
+        (root / "tracked.txt").write_text("two", encoding="utf-8")
+        self.assertEqual(source_revision(root), (head[:12], True))
 
-            def git(*args):
-                return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=root,
-                                      check=True, capture_output=True, text=True).stdout.strip()
-
-            git("init", "-q", "-b", "main", ".")
-            (root / "tracked.txt").write_text("one", encoding="utf-8")
-            git("add", ".")
-            git("commit", "-qm", "init")
-            head = git("rev-parse", "HEAD")
-            self.assertEqual(source_revision(root), (head[:12], False))
-            (root / "untracked.txt").write_text("ignored", encoding="utf-8")
-            self.assertEqual(source_revision(root), (head[:12], False))
-            (root / "tracked.txt").write_text("two", encoding="utf-8")
-            self.assertEqual(source_revision(root), (head[:12], True))
+    def test_reading_the_revision_never_rewrites_the_index(self):
+        root, head = self.checkout()
+        tracked, index = root / "tracked.txt", root / ".git" / "index"
+        earlier = tracked.stat().st_mtime - 100  # new stat data, same content: a plain status refreshes the index
+        os.utime(tracked, (earlier, earlier))
+        before = (index.read_bytes(), index.stat().st_mtime_ns)
+        self.assertEqual(source_revision(root), (head[:12], False))
+        self.assertEqual((index.read_bytes(), index.stat().st_mtime_ns), before)
 
     def test_outside_a_checkout_or_without_git_there_is_no_revision(self):
         with tempfile.TemporaryDirectory() as tmp, \
