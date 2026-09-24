@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from agent.config import Config
-from agent.deploy import AGENTS, install, missing_tools, plist, tunnel_arguments
+from agent.deploy import AGENTS, MONITOR_AGENT, install, missing_tools, plist, tunnel_arguments
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -121,3 +121,23 @@ class DeployTests(unittest.TestCase):
         install(self.config, target, python="/usr/bin/python3", cloudflared="/usr/bin/cloudflared")
         plain = plistlib.loads((target / f"{AGENTS['serve']}.plist").read_bytes())
         self.assertNotIn("--config", plain["ProgramArguments"])
+
+    def test_the_monitor_agent_is_written_only_for_a_config_with_a_monitor_block(self):
+        target = self.root / "LaunchAgents"
+        self.assertEqual(sorted(install(self.config, target)), sorted(AGENTS.values()))
+        configured = replace(self.config, monitor={"bind": "0.0.0.0", "port": 8780})
+        configured.source_path = self.root / "profile 配置.json"
+        written = install(configured, target, python="/usr/bin/python3")
+        job = plistlib.loads(written[MONITOR_AGENT].read_bytes())
+        self.assertEqual(job["ProgramArguments"], ["/usr/bin/python3", "-u", "-m", "agent.service", "monitor",
+                                                   "--config", str(configured.source_path.resolve())])
+        self.assertTrue(job["RunAtLoad"] and job["KeepAlive"])
+        profile = replace(configured, environment="development", instance_id="mac-dev",
+                          local_root=self.root / "dev", expected_app_user_id="app", expected_organization_id="org")
+        self.assertIn("com.kuaiwa.farmbot.development.mac-dev.monitor", install(profile, target))
+
+    def test_a_block_the_monitor_would_refuse_stops_the_whole_install(self):
+        target = self.root / "LaunchAgents"
+        with self.assertRaises(ValueError):
+            install(replace(self.config, monitor={"bind": "localhost"}), target, python="/usr/bin/python3")
+        self.assertEqual(list(target.glob("*.plist")), [])
