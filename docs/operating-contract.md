@@ -531,7 +531,9 @@ and `HEAD`, answering other methods with 405, and only when the `Host` header is
 configuration choice, and anyone who can reach it can read issue identifiers, titles, job, worker and
 slot states and PR links. Only the monitor and `install-launchd` validate the `monitor` block; `serve`
 and workers neither read nor validate it. `install-launchd` writes a monitor agent only for a non-empty
-block that passes that validation, and never removes one.
+block that passes that validation, and never removes one. That agent restarts an exited monitor at most
+once a minute (`ThrottleInterval` 60), so a monitor that keeps refusing to start adds one line a minute
+to its log.
 
 At startup the command prints one JSON line, `monitor_ready`, once it listens. Any startup problem
 instead makes it exit 1 with one `monitor_failed` JSON line: an unreadable config, an ownership
@@ -544,7 +546,8 @@ answers every request for the next two seconds without another build, so the sta
 once every two seconds however many pages poll; it replaces the last good build, which is never served
 again. The first failure of each run of failures prints one `status_failed` JSON line. The page counts
 the 500 as a failed poll and shows 连接中断, although the monitor is running. The `status_failed` line
-tells this apart from a monitor the page cannot reach, which leaves no such line.
+tells this apart from a monitor the page cannot reach, which leaves no such line. A client that
+disconnects before or during its reply is not logged, by the monitor or by the receiver.
 
 The page accepts only a status document of `schema_version` 1 and keeps no other body. Any other body is
 a failed poll, and one of another version, from a monitor upgraded under an open tab, makes the banner
@@ -608,6 +611,10 @@ The verdict is the first that applies:
 | 正常 | None of the above |
 
 A verdict is evidence about these checks only, not proof that Linear, the tunnel or Unity work.
+
+Without a heartbeat time to use, the monitor dates a `/health` failure from the first status build that
+saw it. If more than 30 seconds pass between builds, so that no page was polling, the next failure starts
+a new date: a failure seen long ago never dates a new one.
 
 `scripts/redeploy-farmbot.ps1` stops the Windows receiver with `Process.Kill()`, so no `stopped`
 heartbeat is written and Python cleanup does not run. During a redeploy the page shows 需要关注
