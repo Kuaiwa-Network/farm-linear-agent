@@ -307,18 +307,21 @@ class Receiver:
             return [dict(r) for r in self.db.execute("SELECT event_key,session_id,status,received_at,completed_at,error FROM webhook_events ORDER BY received_at")]
 
 
+class ExclusiveServer(ThreadingHTTPServer):
+    """No port sharing on Windows and no reverse-DNS lookup at bind; the receiver and the status monitor use it.
+
+    HTTPServer adds a reverse-DNS lookup after binding; a slow host resolver must not gate startup."""
+    allow_reuse_address = os.name != "nt"
+    daemon_threads = True
+
+    def server_bind(self):
+        if os.name == "nt":
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address
+
+
 def make_server(receiver, port=8765):
-    class ExclusiveServer(ThreadingHTTPServer):
-        allow_reuse_address = os.name != "nt"
-
-        def server_bind(self):
-            if os.name == "nt":
-                self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
-            # HTTPServer adds a reverse-DNS lookup after binding. This listener is
-            # explicitly loopback-only; a slow host resolver must not gate startup.
-            TCPServer.server_bind(self)
-            self.server_name, self.server_port = self.server_address
-
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_args):
             pass
@@ -377,5 +380,4 @@ def make_server(receiver, port=8765):
     server = ExclusiveServer(("127.0.0.1", port), Handler)
     server.receiver = receiver
     server.heartbeat = None  # a serving process installs its Heartbeat here (service._serve)
-    server.daemon_threads = True
     return server
