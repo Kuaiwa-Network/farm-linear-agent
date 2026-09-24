@@ -3,17 +3,20 @@ import hashlib
 import hmac
 import io
 import json
+import socket
 import sqlite3
 import tempfile
 import threading
 import time
 import unittest
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from agent.heartbeat import OUTCOMES, Heartbeat
 from agent.ledger import Ledger
 from agent.receiver import Receiver, make_server
 from agent.worktrees import WorktreeError
@@ -364,12 +367,14 @@ class HttpTests(ReceiverBase):
         self.assertIsNotNone(hooks["last_rejected_at"])
 
     def test_a_failing_counter_never_changes_a_webhook_answer(self):
-        url = self.serve_http(Mock(webhook=Mock(side_effect=RuntimeError("counter broke"))))
+        heartbeat = Mock(webhook=Mock(side_effect=RuntimeError("counter broke")))
+        url = self.serve_http(heartbeat)
         body = json.dumps(self.event(webhookTimestamp=int(time.time() * 1000))).encode()
         with contextlib.redirect_stdout(io.StringIO()):
             with urllib.request.urlopen(urllib.request.Request(url, data=body, headers=self.signed(body)),
                                         timeout=5) as response:
                 self.assertEqual(json.load(response)["status"], "accepted")
+        self.assertEqual(heartbeat.webhook.call_count, 1)  # the guarded call ran, and raised
 
     def test_answers_the_handler_gives_itself_are_counted_too(self):
         """Every /webhook POST counts (spec), including a size rejection before the receiver runs and the 500
@@ -385,6 +390,42 @@ class HttpTests(ReceiverBase):
                 caught.exception.close()
         counts = beat.payload()["webhooks"]["counts"]
         self.assertEqual((counts["malformed"], counts["failed"]), (1, 1))
+
+    def raw_webhook(self, url, head, body, *, finish=True):
+        """(status, result) for one /webhook POST sent over a plain socket, for the answers urllib cannot provoke.
+        `finish` ends the request body with a half-close; otherwise the connection is held open."""
+        port = urllib.parse.urlsplit(url).port
+        with socket.create_connection(("127.0.0.1", port), timeout=10) as connection:
+            connection.sendall(b"POST /webhook HTTP/1.0\r\nHost: 127.0.0.1\r\n" + head + b"\r\n" + body)
+            if finish:
+                connection.shutdown(socket.SHUT_WR)
+            response = b""
+            while chunk := connection.recv(65536):
+                response += chunk
+        status_line, _, rest = response.partition(b"\r\n")
+        return int(status_line.split()[1]), json.loads(rest.partition(b"\r\n\r\n")[2])["status"]
+
+    def assert_counted_as_malformed(self, beat):
+        self.assertEqual(beat.payload()["webhooks"]["counts"], {**dict.fromkeys(OUTCOMES, 0), "malformed": 1})
+
+    def test_a_length_that_is_not_a_number_is_answered_400_and_counted(self):
+        beat = Heartbeat(runtime="fake")
+        url = self.serve_http(beat)
+        self.assertEqual(self.raw_webhook(url, b"Content-Length: x\r\n", b""), (400, "invalid length"))
+        self.assert_counted_as_malformed(beat)
+
+    def test_a_body_shorter_than_its_length_is_answered_400_and_counted(self):
+        beat = Heartbeat(runtime="fake")
+        url = self.serve_http(beat)
+        self.assertEqual(self.raw_webhook(url, b"Content-Length: 10\r\n", b"{}"), (400, "incomplete body"))
+        self.assert_counted_as_malformed(beat)
+
+    def test_a_body_held_past_the_read_timeout_is_answered_408_and_counted(self):
+        beat = Heartbeat(runtime="fake")
+        url = self.serve_http(beat)
+        # The handler reads the body with a 3 s timeout; the connection stays open with 8 bytes still to come.
+        self.assertEqual(self.raw_webhook(url, b"Content-Length: 10\r\n", b"{}", finish=False), (408, "body timeout"))
+        self.assert_counted_as_malformed(beat)
 
 
 class IssueNotificationTests(ReceiverBase):
