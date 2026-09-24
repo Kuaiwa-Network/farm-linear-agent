@@ -251,12 +251,15 @@ class Launcher:
             # Codex takes its roots from the isolated home's config; Claude takes them on the command line.
             for root in roots:
                 command += [self.runtime.writable_flag, root]
-        env = {k: v for k, v in os.environ.items() if k not in ("CODEX_HOME", "CLAUDE_CONFIG_DIR", *withheld_env)}
+        env = {k: v for k, v in os.environ.items() if k not in ("CODEX_HOME", "CLAUDE_CONFIG_DIR")}
         env[self.runtime.home_env] = str(home)
         env["FARMBOT_ITEM_ID"] = item_id
         env.update(extra_env or {})
         if self.runtime.name == "claude":
             env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
+        # Apply withholding last: per-worker overrides must not put a denied secret back.
+        for name in withheld_env:
+            env.pop(name, None)
         stdout = open(run_dir / "stdout.log", "w", encoding="utf-8")
         stderr = open(run_dir / "stderr.log", "w", encoding="utf-8")
         kwargs = {"start_new_session": True} if os.name != "nt" else {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}

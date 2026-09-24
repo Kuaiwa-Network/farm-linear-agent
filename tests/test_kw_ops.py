@@ -35,6 +35,12 @@ class KwOpsConfigTests(unittest.TestCase):
             with self.subTest(block=block), self.assertRaises(ValueError):
                 Config("c", "s", "w", kw_ops=block)
 
+    def test_a_token_variable_cannot_be_replaced_by_worker_setup(self):
+        for name in ("CODEX_HOME", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
+                     "FARMBOT_ITEM_ID", "FARMBOT_DB", "FARMBOT_CONFIG", "PYTHONPATH"):
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "conflicts with a worker"):
+                Config("c", "s", "w", kw_ops={**CONFIG, "token_env": name})
+
     def test_a_url_names_a_host_and_carries_no_credentials_or_stray_characters(self):
         for url in ("http://?", "http://@", "http://:", "http:///mcp", "http://gm.test:dummy-secret/mcp",
                     "http://gm.test:99999/mcp", "http://[dummy-secret]/mcp", "http://@gm.test/mcp",

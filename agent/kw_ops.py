@@ -14,6 +14,9 @@ GRANTS = {"kw_ops": "full", "kw_ops:read": "read"}
 READ_TOOLS = ("gm_list_targets", "gm_query_players", "gm_player_detail", "gm_guild_query", "gm_time_get",
               "gm_reward_types", "gm_reward_catalog")
 _ENV_NAME = re.compile(r"[A-Z_][A-Z0-9_]*")
+# Launcher and Scheduler set these for each worker. None can also carry the kw_ops token.
+_WORKER_ENV = frozenset({"CODEX_HOME", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
+                         "FARMBOT_ITEM_ID", "FARMBOT_DB", "FARMBOT_CONFIG", "PYTHONPATH"})
 
 # tools: the launch payload's tools.kw_ops entry, or None when the skill has no kw_ops grant.
 # server: the MCP server entry to inject, or None. keep_env: the token variable the worker keeps, or None.
@@ -45,6 +48,8 @@ def validate_config(block):
         raise ValueError("kw_ops url must be an http or https URL")
     if not isinstance(block["token_env"], str) or not _ENV_NAME.fullmatch(block["token_env"]):
         raise ValueError("kw_ops token_env must be an environment variable name")
+    if block["token_env"] in _WORKER_ENV:
+        raise ValueError("kw_ops token_env conflicts with a worker environment variable")
 
 
 def access(grants):

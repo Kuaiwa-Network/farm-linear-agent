@@ -296,7 +296,8 @@ class LauncherTests(unittest.TestCase):
         runtime = RUNTIMES["codex"]._replace(command=[sys.executable, "-c", script, "{last_message}"], seed_files={})
         launcher = Launcher(self.runs, runtime, host="h")
         with patch.dict(os.environ, {"KW_OPS_TOKEN": "dummy-token-value", "KEPT_MARKER": "kept"}):
-            launcher.spawn("item-withheld", self.message, {}, 30, self.tmp.name, withheld_env=["KW_OPS_TOKEN"])
+            launcher.spawn("item-withheld", self.message, {}, 30, self.tmp.name,
+                           extra_env={"KW_OPS_TOKEN": "reintroduced-token"}, withheld_env=["KW_OPS_TOKEN"])
         self.addCleanup(launcher.stop, "item-withheld")
         finished = self.finished_by(launcher)
         self.assertEqual(json.loads(finished[0].last_message), {"KW_OPS_TOKEN": None, "KEPT_MARKER": "kept"})

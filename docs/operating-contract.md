@@ -139,7 +139,8 @@ kw_ops, the GM backend of the test game environment, is a standing tool grant th
 manifest declares in `mcp`. `kw_ops` gives fix workers every tool, and `kw_ops:read` gives chat
 workers the query tools listed in `agent/kw_ops.py`, as the server's `enabled_tools`; the skill
 loader rejects any other `mcp` entry at startup. The private host profile's `kw_ops` block names
-the URL and `token_env`, the environment variable that holds the token. The token stays in the
+the URL and `token_env`, the environment variable that holds the token. The name cannot be one
+FarmBot sets for workers, such as `FARMBOT_DB` or `CODEX_HOME`. The token stays in the
 controller's environment, which a Codex worker with kw_ops inherits, and the worker's CLI reads it
 by name (`bearer_token_env_var`). That worker's isolated home lists the variable under
 `shell_environment_policy.exclude` and sets `features.shell_snapshot = false`, because codex-cli
