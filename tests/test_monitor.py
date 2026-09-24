@@ -85,6 +85,29 @@ class PageTests(unittest.TestCase):
     def text(self, name):
         return (self.STATIC / name).read_text(encoding="utf-8")
 
+    def block(self, opening):
+        """monitor.js from `opening`, which ends with a brace, to the brace that closes it.
+
+        No string or comment in the script holds a brace, and each template's `${` closes, so counting braces
+        finds the match."""
+        script = self.text("monitor.js")
+        self.assertEqual(script.count(opening), 1, opening)
+        start = script.index(opening) + len(opening) - 1
+        depth = 0
+        for end in range(start, len(script)):
+            depth += {"{": 1, "}": -1}.get(script[end], 0)
+            if depth == 0:
+                return script[start:end + 1]
+        self.fail(f"{opening} is never closed")
+
+    def assert_labelled(self, name, codes):
+        """Each code is a key of monitor.js's own `name` map, not merely a key somewhere in the script."""
+        keys = set(re.findall(r"(?:^|[{,])\s*([a-z_][a-z0-9_]*):", self.block(f"const {name} = {{"), re.M))
+        self.assertTrue(codes)
+        for code in codes:
+            with self.subTest(code=code):
+                self.assertIn(code, keys)
+
     def test_the_page_loads_only_its_own_assets_and_has_no_inline_code(self):
         html = self.text("index.html")
         self.assertIn('<html lang="zh-CN">', html)
@@ -94,23 +117,56 @@ class PageTests(unittest.TestCase):
 
     def test_the_script_never_turns_data_into_markup(self):
         script = self.text("monitor.js")
-        for forbidden in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(",
-                          "new Function", "setAttribute", ".style."):
+        # The spec's list as written (Verification), with `eval` as a word, since a plain substring would also
+        # refuse words such as "evaluate"; then this page's own additions.
+        for forbidden in (r"innerHTML", r"outerHTML", r"insertAdjacentHTML", r"\beval\b", r"Function\(",
+                          r"document\.write", r"eval\(", r"new Function", r"setAttribute", r"\.style\."):
             with self.subTest(forbidden=forbidden):
-                self.assertNotIn(forbidden, script)
+                self.assertNotRegex(script, forbidden)
 
-    def test_every_code_the_status_view_emits_has_a_label(self):
+    def test_every_verdict_has_a_label(self):
+        self.assert_labelled("VERDICT", VERDICTS)
+
+    def test_every_display_state_has_a_label(self):
+        self.assert_labelled("STATE", DISPLAY_STATES)
+
+    def test_every_skill_has_a_label(self):
+        self.assert_labelled("SKILL", load_skills(Path(__file__).resolve().parents[1] / "skills"))
+
+    def test_every_outcome_has_a_label(self):
+        self.assert_labelled("OUTCOME", OUTCOMES)
+
+    def test_every_loop_has_a_label(self):
+        self.assert_labelled("LOOP", LOOPS)
+
+    def test_every_attention_code_has_a_label(self):
+        self.assert_labelled("ATTENTION", ATTENTION_CODES)
+
+    def test_every_worker_state_has_a_label(self):
+        # lease_expired and renewal_overdue are attention codes as well: only WORKER's own keys count here.
+        self.assert_labelled("WORKER", WORKER_STATES)
+
+    def test_every_slot_state_has_a_label(self):
+        self.assert_labelled("SLOT", Ledger.SLOT_STATES)
+
+    def test_a_held_slot_words_its_recovery_alike_in_its_row_and_its_attention_line(self):
         script = self.text("monitor.js")
-        for code in (*VERDICTS, *DISPLAY_STATES, *OUTCOMES, *ATTENTION_CODES, *LOOPS, *Ledger.SLOT_STATES,
-                     *WORKER_STATES):
-            with self.subTest(code=code):
-                self.assertRegex(script, rf"\b{code}:")
-
-    def test_an_exhausted_slot_recovery_asks_for_a_person(self):
+        shared = self.block("function recoveryText(recovery) {")
+        # Every recovery text, each written once and only in the shared function, so no second copy can drift.
+        for text in ("等待修复", "修复中（第 ${attempts}/${most} 次）", "自动修复已放弃", "，需要人工处理"):
+            with self.subTest(text=text):
+                self.assertIn(text, shared)
+                self.assertEqual(script.count(text), 1)
         # The controller has given up automatic repair, so the page must not claim it is still repairing.
-        script = self.text("monitor.js")
-        self.assertIn('"exhausted"', script)
-        self.assertIn("自动修复已放弃", script)
+        self.assertRegex(shared, r'if \(recovery\.state === "exhausted"\) return `自动修复已放弃\$\{')
+        # The slot's row: the urgent style for an exhausted recovery, the muted one otherwise, in the shared words.
+        self.assertIn('cell(recovery.state === "exhausted" ? "side urgent" : "side muted", recoveryText(recovery))',
+                      self.block("function recoveryCell(recovery) {"))
+        # The attention line reads `<slot> 已隔离，<the row's words>`, so an exhausted slot's line reads
+        # 已隔离，自动修复已放弃… when the page runs. Without a slot record or its recovery, it keeps its own words.
+        held = self.block("slot_held: (a, work) => {")
+        self.assertIn("? `${a.subject} 已隔离，${recoveryText(slot.recovery)}`", held)
+        self.assertIn(": `${a.subject} 已隔离，控制器正在自动修复", held)
 
 
 def fake_receiver(status=200, delay=0.0, headers=()):

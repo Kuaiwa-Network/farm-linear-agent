@@ -27,9 +27,12 @@
     <div class="rows" id="attention-rows"></div>
   </section>
   <section class="card"><h2>服务</h2><div class="rows" id="service-rows"></div></section>
-  <section class="card"><h2>正在处理</h2><div class="rows" id="active-rows"></div></section>
-  <section class="card"><h2>Unity 槽位</h2><div class="rows" id="slot-rows"></div></section>
-  <section class="card"><h2>最近 7 天</h2><div class="rows" id="recent-rows"></div></section>
+  <section class="card" id="no-work" hidden><p class="empty muted">账本无法读取，暂无工作数据</p></section>
+  <div id="work">
+    <section class="card"><h2>正在处理</h2><div class="rows" id="active-rows"></div></section>
+    <section class="card"><h2>Unity 槽位</h2><div class="rows" id="slot-rows"></div></section>
+    <section class="card"><h2>最近 7 天</h2><div class="rows" id="recent-rows"></div></section>
+  </div>
 </main>
 <footer class="muted">只读页面：不能在这里停止或重试工作，请在 Linear 中操作。原始数据：<a class="link" href="/api/status">/api/status</a></footer>
 </body>

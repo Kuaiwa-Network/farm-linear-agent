@@ -3,6 +3,10 @@
 // text node; links are made only for Linear and GitHub URLs. The JSON stays language-neutral; labels live here.
 (() => {
   const POLL_MS = 5000;
+  // A poll whose packets are dropped would otherwise wait out the viewer's OS connect timeout, up to 75 s,
+  // while the page still shows the last verdict. An aborted poll is a failed one.
+  const FETCH_TIMEOUT_MS = 10000;
+  const TICK_MS = 1000;
   const BUSY_NOTICE_SECONDS = 5;
   const SAFE_LINK = /^https:\/\/(linear\.app|github\.com)\/\S*$/;
   const VERDICT = {
@@ -35,9 +39,9 @@
   const ATTENTION = {
     slot_held: (a, work) => {
       const slot = ((work && work.slots) || []).find((candidate) => candidate.slot_id === a.subject);
-      // An exhausted recovery means the controller has given up: a person must act, nothing is repairing.
-      return slot && slot.recovery && slot.recovery.state === "exhausted"
-        ? `${a.subject} 已隔离，自动修复已放弃，需要人工处理`
+      // The slot's own row words its recovery with the same function, so the two can never disagree.
+      return slot && slot.recovery
+        ? `${a.subject} 已隔离，${recoveryText(slot.recovery)}`
         : `${a.subject} 已隔离，控制器正在自动修复${a.count ? `（第 ${a.count} 次）` : ""}`;
     },
     slot_without_reservation: (a) => `${a.subject} 显示忙碌，但没有对应的占用记录`,
@@ -59,13 +63,16 @@
   let fetchedAt = 0;
   let lastGood = null;
   let failingSince = null;
+  // [node, format] for each text that reads the clock. Only a completed poll rebuilds the page, and with it this
+  // list; in between, the one-second tick rewrites these texts alone, so links, focus and selections survive it.
+  let clocks = [];
 
   const byId = (id) => document.getElementById(id);
 
-  function el(tag, className, text) {
+  function el(tag, className, content) {
     const node = document.createElement(tag);
     if (className) node.className = className;
-    if (text !== undefined && text !== null) node.textContent = String(text);
+    if (content !== undefined && content !== null) node.append(content);  // a string becomes a text node
     return node;
   }
 
@@ -83,8 +90,8 @@
     return node;
   }
 
-  function pill(label, tone) {
-    return el("span", `pill ${tone || "neutral"}`, label);
+  function pill(content, tone) {
+    return el("span", `pill ${tone || "neutral"}`, content);
   }
 
   function link(url, text) {
@@ -95,6 +102,23 @@
     anchor.rel = "noopener noreferrer";
     return anchor;
   }
+
+  // Text that reads the clock, written now and rewritten by every tick: a new text node, or `node` itself.
+  function timed(format, node = document.createTextNode("")) {
+    node.textContent = format();
+    clocks.push([node, format]);
+    return node;
+  }
+
+  function tick() {
+    for (const [node, format] of clocks) {
+      const text = format();
+      if (node.textContent !== text) node.textContent = text;  // an unchanged text keeps a selection inside it
+    }
+  }
+
+  // Strings and text nodes with " · " between them, to spread into cell().
+  const joined = (parts) => parts.flatMap((part, index) => (index ? [" · ", part] : [part]));
 
   const hostNow = () => doc.generated_at + (Date.now() - fetchedAt) / 1000;
 
@@ -134,22 +158,33 @@
   }
 
   function renderHeader() {
-    // A lost connection overrides the last verdict: the tab title must not keep saying 正常.
+    // A lost connection overrides the last verdict, even before any data has arrived: the tab title must say
+    // 连接中断, not 正常 or its loading text.
     const lost = failingSince !== null;
     const [label, tone] = lost ? ["连接中断", "bad"] : VERDICT[doc.verdict] || VERDICT.unknown;
     const from = lost ? failingSince / 1000 : doc.verdict !== "ok" ? doc.verdict_since : null;
-    const bot = doc.instance.bot_name || "FarmBot";
-    const beat = doc.service.heartbeat;
+    const bot = (doc && doc.instance.bot_name) || "FarmBot";
     document.title = `${label} · ${bot} 状态`;
     byId("title").textContent = `${bot} 状态`;
-    const parts = [doc.instance.environment, doc.instance.host];
-    if (beat.revision) parts.push(`版本 ${beat.revision.slice(0, 7)}${beat.dirty ? "（有未提交改动）" : ""}`);
-    if (beat.state === "fresh" && beat.phase === "serving") parts.push(`已运行 ${since(beat.started_at)}`);
-    byId("subtitle").textContent = parts.filter(Boolean).join(" · ");
     const verdict = byId("verdict");
     verdict.className = `pill ${tone}`;
-    verdict.textContent = typeof from === "number" ? `${label}（自 ${clock(from)}）` : label;
-    byId("updated").textContent = `更新于 ${ago(doc.generated_at)} · 每 5 秒刷新`;
+    if (typeof from === "number") timed(() => `${label}（自 ${clock(from)}）`, verdict);
+    else verdict.textContent = label;
+    if (!doc) {
+      // No data yet: nothing is known about the service, and the loading text would contradict the banner.
+      byId("subtitle").replaceChildren();
+      byId("updated").replaceChildren();
+      return;
+    }
+    const beat = doc.service.heartbeat;
+    const parts = [doc.instance.environment, doc.instance.host];
+    if (beat.revision) parts.push(`版本 ${beat.revision.slice(0, 7)}${beat.dirty ? "（有未提交改动）" : ""}`);
+    if (beat.state === "fresh" && beat.phase === "serving") parts.push(timed(() => `已运行 ${since(beat.started_at)}`));
+    byId("subtitle").replaceChildren(...joined(parts.filter(Boolean)));
+    // Two segments that CSS keeps whole, so a narrow screen breaks the line between them and nowhere else.
+    const generated = doc.generated_at;
+    byId("updated").replaceChildren(el("span", "nowrap", timed(() => `更新于 ${ago(generated)}`)), " · ",
+                                    el("span", "nowrap", "每 5 秒刷新"));
   }
 
   function renderCounts(work) {
@@ -161,20 +196,31 @@
 
   function renderAttention(work) {
     const items = doc.attention || [];
+    const rows = items.map((item) =>
+      row("pair", cell("main", (ATTENTION[item.code] || (() => item.code))(item, work)),
+          cell("side muted", item.since ? timed(() => since(item.since)) : "")));
     byId("attention").hidden = items.length === 0;
     byId("attention-count").textContent = items.length ? ` · ${items.length}` : "";
-    byId("attention-rows").replaceChildren(...items.map((item) =>
-      row("pair", cell("main", (ATTENTION[item.code] || (() => item.code))(item, work)),
-          cell("side muted", item.since ? since(item.since) : ""))));
+    byId("attention-rows").replaceChildren(...rows);
   }
 
   function loopPill(loop) {
     const name = LOOP[loop.name] || loop.name;
-    const busyFor = typeof loop.started_at === "number" ? hostNow() - loop.started_at : 0;
+    const busyFor = () => (typeof loop.started_at === "number" ? hostNow() - loop.started_at : 0);
+    // Which pill a loop gets is decided when the page is rebuilt; the tick only moves its time on.
     if (loop.state === "erroring") return pill(`${name} 出错 ${loop.error_type || ""}`.trim(), "bad");
-    if (loop.state === "stalled") return pill(`${name} 已运行 ${duration(busyFor)}`, "warn");
-    if (loop.state === "busy" && busyFor >= BUSY_NOTICE_SECONDS) return pill(`${name} 忙碌 ${duration(busyFor)}`, "info");
-    return pill(`${name} ${ago(loop.finished_at ?? loop.started_at)}`, "ok");
+    if (loop.state === "stalled") return pill(timed(() => `${name} 已运行 ${duration(busyFor())}`), "warn");
+    if (loop.state === "busy" && busyFor() >= BUSY_NOTICE_SECONDS) {
+      return pill(timed(() => `${name} 忙碌 ${duration(busyFor())}`), "info");
+    }
+    return pill(timed(() => `${name} ${ago(loop.finished_at ?? loop.started_at)}`), "ok");
+  }
+
+  function heartbeatText(beat) {
+    const stopped = beat.phase === "stopped" ? `已停止（${clock(beat.stopped_at)}）` : null;
+    if (beat.state === "fresh") return stopped || timed(() => `${ago(beat.written_at)}写入`);
+    if (beat.state === "stale") return stopped || `已过期（最后 ${clock(beat.written_at)}）`;
+    return {missing: "此版本未提供", unreadable: "无法读取"}[beat.state] || "";
   }
 
   function renderService() {
@@ -185,13 +231,7 @@
     rows.push(row("two", cell("label muted", "接收器 /health"),
       cell("main", health.ok ? pill("正常", "ok") : pill("无响应", "bad"), " ", el("span", "muted", detail))));
     const beat = service.heartbeat;
-    const stopped = beat.phase === "stopped" ? `已停止（${clock(beat.stopped_at)}）` : null;
-    const beatText = {
-      fresh: stopped || `${ago(beat.written_at)}写入`,
-      stale: stopped || `已过期（最后 ${clock(beat.written_at)}）`,
-      missing: "此版本未提供", unreadable: "无法读取",
-    }[beat.state] || "";
-    rows.push(row("two", cell("label muted", "服务心跳"), cell("main", beatText)));
+    rows.push(row("two", cell("label muted", "服务心跳"), cell("main", heartbeatText(beat))));
     if (service.loops.length) {
       const pills = el("div", "pills");
       pills.append(...service.loops.map(loopPill));
@@ -201,13 +241,18 @@
     }
     const hooks = service.webhooks;
     const bits = [];
-    if (hooks) bits.push(hooks.last_at ? `最近收到 ${ago(hooks.last_at)}${hooks.last_type ? `（${hooks.last_type}）` : ""}` : "启动以来尚未收到");
-    if (service.agent_event_at) bits.push(`会话事件 ${ago(service.agent_event_at)}`);
+    if (hooks) {
+      bits.push(hooks.last_at
+        ? timed(() => `最近收到 ${ago(hooks.last_at)}${hooks.last_type ? `（${hooks.last_type}）` : ""}`)
+        : "启动以来尚未收到");
+    }
+    if (service.agent_event_at) bits.push(timed(() => `会话事件 ${ago(service.agent_event_at)}`));
     if (hooks) bits.push(`拒绝 ${hooks.counts.rejected}`);
-    if (bits.length) rows.push(row("two", cell("label muted", "Webhook"), cell("main", bits.join(" · "))));
-    if (service.linear) {
-      const read = service.linear.last_ok_at ? `状态读取成功 ${ago(service.linear.last_ok_at)}` : "尚无成功的状态读取";
-      rows.push(row("two", cell("label muted", "Linear"), cell("main", `${read} · 失败 ${service.linear.failing_issues}`)));
+    if (bits.length) rows.push(row("two", cell("label muted", "Webhook"), cell("main", ...joined(bits))));
+    const linear = service.linear;
+    if (linear) {
+      const read = linear.last_ok_at ? timed(() => `状态读取成功 ${ago(linear.last_ok_at)}`) : "尚无成功的状态读取";
+      rows.push(row("two", cell("label muted", "Linear"), cell("main", ...joined([read, `失败 ${linear.failing_issues}`]))));
     }
     byId("service-rows").replaceChildren(...rows);
   }
@@ -224,26 +269,31 @@
       if (job.queue_position) state += ` · 第 ${job.queue_position} 位`;
       if (job.retry_at) state += ` · ${clock(job.retry_at)}`;
       const status = cell("state", pill(state, tone));
-      const timing = cell("side muted", `${job.state === "running" ? "已处理" : "已等待"} ${since(job.state_since)}`);
-      if (job.checkpoint_at) timing.append(el("div", "", `检查点 ${ago(job.checkpoint_at)}`));
+      const timing = cell("side muted",
+                          timed(() => `${job.state === "running" ? "已处理" : "已等待"} ${since(job.state_since)}`));
+      if (job.checkpoint_at) timing.append(el("div", "", timed(() => `检查点 ${ago(job.checkpoint_at)}`)));
       if (job.worker) {
         const [workerLabel, workerTone] = WORKER[job.worker.state] || [job.worker.state, "neutral"];
         status.append(pill(workerLabel, workerTone));
-        if (job.worker.renewed_at) timing.append(el("div", "", `上次续约 ${ago(job.worker.renewed_at)}`));
+        if (job.worker.renewed_at) timing.append(el("div", "", timed(() => `上次续约 ${ago(job.worker.renewed_at)}`)));
       }
       return row("four", cell("ident", link(job.url, job.identifier || "?")), main, status, timing);
     }));
   }
 
-  function recoveryCell(recovery) {
+  // How a held slot's recovery reads: the slot's row and its slot_held attention line both use these words.
+  function recoveryText(recovery) {
     const {attempts, max_attempts: most} = recovery;
     const counted = typeof attempts === "number";
-    // Exhausted: the controller has given up automatic repair, so the cell must stand out and ask for a person.
-    if (recovery.state === "exhausted") {
-      return cell("side urgent", `自动修复已放弃${counted ? `（${attempts}/${most} 次）` : ""}，需要人工处理`);
-    }
-    if (!counted || attempts === 0) return cell("side muted", "等待修复");
-    return cell("side muted", `修复中（第 ${attempts}/${most} 次）`);
+    // Exhausted: the controller has given up automatic repair, so a person must act and nothing is repairing.
+    if (recovery.state === "exhausted") return `自动修复已放弃${counted ? `（${attempts}/${most} 次）` : ""}，需要人工处理`;
+    if (!counted || attempts === 0) return "等待修复";
+    return `修复中（第 ${attempts}/${most} 次）`;
+  }
+
+  function recoveryCell(recovery) {
+    // The exhausted cell stands out, since it is the one that asks for a person.
+    return cell(recovery.state === "exhausted" ? "side urgent" : "side muted", recoveryText(recovery));
   }
 
   function renderSlots(work) {
@@ -275,11 +325,10 @@
   }
 
   function renderBanner() {
+    // Rendering follows a completed poll, which leaves a document or a failure, so there is no connecting message.
     const messages = [];
     if (failingSince !== null) messages.push(`与监控的连接已中断（自 ${clock(failingSince / 1000)}），正在重试。`);
-    if (!doc) {
-      messages.push("正在连接监控服务。");
-    } else if (!doc.ledger.ok) {
+    if (doc && !doc.ledger.ok) {
       const error = doc.ledger.error_type || "未知错误";
       messages.push(lastGood ? `账本暂时无法读取（${error}），工作数据停留在 ${clock(lastGood.generated_at)}。`
                              : `账本暂时无法读取（${error}）。`);
@@ -291,34 +340,58 @@
   }
 
   function render() {
-    if (doc) {
-      const work = doc.ledger.ok ? doc : lastGood || doc;
-      renderHeader();
-      renderCounts(work);
-      renderAttention(work);
-      renderService();
-      renderActive(work);
-      renderSlots(work);
-      renderRecent(work);
-    }
+    clocks = [];
     renderBanner();
+    renderHeader();
+    if (!doc) return;
+    // The work sections come from the ledger. While it cannot be read they keep the last good read; before any
+    // good read, one placeholder stands in for them, since zeros and empty lists would read as facts.
+    const work = doc.ledger.ok ? doc : lastGood;
+    byId("no-work").hidden = work !== null;
+    byId("counts").hidden = work === null;
+    byId("work").hidden = work === null;
+    renderAttention(work);
+    renderService();
+    if (work === null) return;
+    renderCounts(work);
+    renderActive(work);
+    renderSlots(work);
+    renderRecent(work);
+  }
+
+  async function fetchStatus() {
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), FETCH_TIMEOUT_MS);
+    try {
+      const response = await fetch("/api/status", {cache: "no-store", signal: abort.signal});
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();  // the signal covers the body too
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async function poll() {
     try {
-      const response = await fetch("/api/status", {cache: "no-store"});
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      doc = await response.json();
-      fetchedAt = Date.now();
-      failingSince = null;
-      if (doc.ledger.ok) lastGood = doc;
+      try {
+        const next = await fetchStatus();
+        const ledgerOk = next.ledger.ok;  // a body that is not a status document fails here, as a failed poll
+        doc = next;
+        fetchedAt = Date.now();
+        failingSince = null;
+        if (ledgerOk) lastGood = next;
+      } catch (error) {
+        if (failingSince === null) failingSince = Date.now();
+      }
+      render();
     } catch (error) {
-      if (failingSince === null) failingSince = Date.now();
+      // The page keeps what it shows, and the next poll tries again.
+      console.error(error);
+    } finally {
+      setTimeout(poll, POLL_MS);
     }
-    render();
-    setTimeout(poll, POLL_MS);
   }
 
-  setInterval(render, 1000);
+  setInterval(tick, TICK_MS);
   poll();
 })();

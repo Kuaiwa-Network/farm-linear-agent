@@ -27,6 +27,7 @@ p { margin: 0; }
 .muted { color: var(--muted); font-size: 12px; }
 .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
 .verdict-box { text-align: right; }
+.nowrap { white-space: nowrap; }
 .pill { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 12px; white-space: nowrap; }
 .pill.ok { background: var(--ok-bg); color: var(--ok); }
 .pill.warn { background: var(--warn-bg); color: var(--warn); }
