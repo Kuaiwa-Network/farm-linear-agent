@@ -8,11 +8,13 @@ import re
 import select
 import socket
 import struct
+import subprocess
 import sys
 import tempfile
 import threading
 import time
 import unittest
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
@@ -269,6 +271,21 @@ def closed_port():
         return probe.getsockname()[1]
 
 
+def held_proxies(opener):
+    """The proxies of each ProxyHandler an opener holds. urllib keeps only handlers that open something, so an
+    opener holds no empty ProxyHandler, while one built from proxy settings holds a handler naming the proxy."""
+    return [handler.proxies for handler in opener.handlers if isinstance(handler, urllib.request.ProxyHandler)]
+
+
+# Run by a new interpreter whose environment names a proxy, so the monitor's opener is built under it at import.
+PROBE_IN_A_PROXIED_PROCESS = """\
+import json, sys, urllib.request
+from agent import monitor
+held = [handler.proxies for handler in monitor._DIRECT.handlers if isinstance(handler, urllib.request.ProxyHandler)]
+print(json.dumps({"proxies": held, "ok": monitor.probe_health(int(sys.argv[1]))["ok"]}))
+"""
+
+
 class HostCheckTests(unittest.TestCase):
     def test_ip_literals_localhost_and_configured_names_are_allowed(self):
         for header in ("127.0.0.1:8780", "192.0.2.10", "LOCALHOST:8780", "localhost.", "[::1]:8780",
@@ -306,8 +323,19 @@ class ProbeHealthTests(unittest.TestCase):
     def test_proxy_settings_cannot_intercept_the_probe(self):
         port = self.serve()
         proxy = f"http://127.0.0.1:{closed_port()}"
-        with patch.dict(os.environ, {"http_proxy": proxy, "HTTP_PROXY": proxy, "no_proxy": "", "NO_PROXY": ""}):
+        # The probe's opener was built with an empty ProxyHandler, so it holds none.
+        self.assertEqual(held_proxies(monitor._DIRECT), [])
+        # An opener that consults proxy settings reads them when it is built: a module-level one at import, urlopen's
+        # shared one at the process's first urlopen, both before the patch below. So urlopen's is cleared, and a new
+        # interpreter imports the monitor with the variables already set, as one started from a proxied shell does.
+        with patch.dict(os.environ, {"http_proxy": proxy, "HTTP_PROXY": proxy, "no_proxy": "", "NO_PROXY": ""}), \
+                patch.object(urllib.request, "_opener", None):
             self.assertTrue(probe_health(port)["ok"])
+            started = subprocess.run([sys.executable, "-c", PROBE_IN_A_PROXIED_PROCESS, str(port)],
+                                     cwd=Path(__file__).resolve().parents[1], capture_output=True, encoding="utf-8",
+                                     timeout=60)
+        self.assertEqual(started.returncode, 0, started.stderr)
+        self.assertEqual(json.loads(started.stdout), {"proxies": [], "ok": True})
 
     def test_a_redirect_is_the_answer_and_is_never_followed(self):
         elsewhere = fake_receiver()
@@ -726,6 +754,28 @@ class MonitorRunTests(unittest.TestCase):
                                                          expected_bot_name="TestBot", expected_app_user_id="app",
                                                          expected_organization_id="org", slots=[{}]))
         self.assertEqual((code, lines[0]["event"], lines[0]["error"]), (1, "monitor_failed", "KeyError"))
+
+    def test_a_monitor_that_starts_prints_one_ready_line_then_serves_until_interrupted(self):
+        path = self.write_config(environment="development", instance_id="dev-mac", expected_bot_name="TestBot",
+                                 expected_app_user_id="app", expected_organization_id="org",
+                                 monitor={"bind": "127.0.0.1"})
+        real, served, out = monitor.make_monitor_server, [], io.StringIO()
+
+        def interrupted(server, *args, **kwargs):
+            served.append((server, out.getvalue()))  # with what was printed before serving began
+            raise KeyboardInterrupt
+
+        # Port 0 in place of the configured 8780, so the line must name the port the socket was bound to.
+        with patch("agent.monitor.make_monitor_server", side_effect=lambda loaded: real(loaded, port=0)), \
+                patch.object(monitor.ExclusiveServer, "serve_forever", interrupted), contextlib.redirect_stdout(out):
+            code = run(path)
+        self.assertEqual((code, len(served)), (0, 1))
+        server, before = served[0]
+        ready = {"event": "monitor_ready", "listen": "http://%s:%d" % server.server_address, "instance": "dev-mac"}
+        self.assertEqual(server.server_address[0], "127.0.0.1")
+        self.assertEqual([json.loads(line) for line in before.splitlines()], [ready])
+        self.assertEqual([json.loads(line) for line in out.getvalue().splitlines()], [ready])
+        self.assertEqual(server.socket.fileno(), -1)  # closed on the way out
 
     def test_a_monitor_that_would_take_the_receivers_port_refuses_to_start(self):
         for changes in ({"port": 8780}, {"port": 8780, "monitor": {}}):
