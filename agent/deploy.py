@@ -60,6 +60,9 @@ def tunnel_arguments(config, cloudflared="cloudflared"):
 
 def install(config, target_dir, *, python=sys.executable, cloudflared="cloudflared", repo_root=ROOT,
             path=None, config_path=None):
+    if config.monitor:
+        # The monitor would refuse this block at every start; refuse it here, before anything is created.
+        monitor_settings(config)
     # A launchd job inherits only /usr/bin:/bin:/usr/sbin:/sbin, which holds no codex, claude, gh or
     # cloudflared, so a worker spawned under it dies at Popen. Carry the installing shell's PATH instead.
     environment = {"PATH": path or os.environ.get("PATH", os.defpath), "HOME": str(Path.home())}
@@ -73,9 +76,7 @@ def install(config, target_dir, *, python=sys.executable, cloudflared="cloudflar
     names = labels(config)
     jobs = {names["serve"]: [python, "-u", "-m", "agent.service", "serve", *selected],
             names["tunnel"]: tunnel_arguments(config, cloudflared)}
-    if config.monitor:
-        # The monitor would refuse this block at every start; refuse it here, before any plist is written.
-        monitor_settings(config)
+    if config.monitor:  # already accepted by monitor_settings at the top
         jobs[names["monitor"]] = [python, "-u", "-m", "agent.service", "monitor", *selected]
     written = {}
     for label, arguments in jobs.items():

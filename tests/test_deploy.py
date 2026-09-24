@@ -141,3 +141,6 @@ class DeployTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             install(replace(self.config, monitor={"bind": "localhost"}), target, python="/usr/bin/python3")
         self.assertEqual(list(target.glob("*.plist")), [])
+        # Refused before anything is created: not even the target or the log directory.
+        self.assertFalse(target.exists())
+        self.assertFalse(self.config.local_root.exists())
