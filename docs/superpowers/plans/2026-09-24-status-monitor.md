@@ -4,7 +4,7 @@
 
 **Goal:** A read-only Chinese status page, served on the office LAN by a separate `monitor` process, showing what FarmBot is doing and whether it is running.
 
-**Architecture:** `serve` rewrites a small heartbeat file (phase, loop timings, revision, webhook counts) every 5 s. A new `python3 -m agent.service monitor` process on the same host reads the ledger strictly read-only, reads the heartbeat defensively, probes the receiver's `/health` on loopback, and serves a static page plus `/api/status` JSON from an allowlist. It never writes, signals, locks or calls anything else, so it can report a stopped or wedged service without touching production.
+**Architecture:** `serve` rewrites a small heartbeat file (phase, loop timings, revision, webhook counts and the worker processes it manages) every 5 s. A new `python3 -m agent.service monitor` process on the same host reads the ledger strictly read-only, reads the heartbeat defensively, probes the receiver's `/health` on loopback, and serves a static page plus `/api/status` JSON from an allowlist. It never writes, signals, locks or calls anything else, so it can report a stopped or wedged service without touching production.
 
 **Tech Stack:** Python 3.13 standard library only (`http.server`, `sqlite3`, `urllib`, `subprocess`), `unittest`, vanilla JavaScript/CSS with no external requests, launchd on macOS, Task Scheduler on Windows.
 
@@ -20,6 +20,8 @@
 - JSON is an allowlist of the spec's fields. Never emit issue descriptions, comments or labels, checkpoints, evidence prose, pending questions, inbox or worker messages, logs, host paths, PIDs, tokens or token hashes, config values beyond the instance fields, or raw stored errors.
 - Limits: snapshot cache 2 s; page poll 5 s; `/health` timeout 2 s; request socket timeout 5 s; recent history 7 days and 30 entries; titles 200 characters; stages 120 characters.
 - Attention thresholds: cleanup pending 600 s; issue status failures 3; cancel pending 300 s; webhook rejection window 900 s; loop errors 3; loop limits receive 120 s, lifecycle 600 s, progress 600 s, schedule 1800 s, resource_recovery 1800 s, pool 5400 s.
+- Worker status, running jobs only, first rule wins: `lease_expired` (lease run out); `untracked` (a fresh `serving` heartbeat lists no such worker, 30 s after the claim); `renewal_overdue` (1.5 × the skill's `renew_minutes` since the last renewal); otherwise `alive`. The heartbeat records workers as start and budget-deadline times only, never PIDs, read from `Launcher.running()` at every write.
+- The `monitor` block is validated only by `monitor_settings()`, which the monitor and `install-launchd` call; `serve` and workers neither read nor validate it (Task 2 ruling).
 - Page: `lang="zh-CN"`. Every value is rendered with `textContent` or text nodes, never `innerHTML`. Links only for `https://linear.app/` and `https://github.com/`. No inline script or style (CSP `script-src 'self'; style-src 'self'`).
 - Cross-platform: `pathlib`, explicit UTF-8, subprocess argument lists. Test paths with spaces and non-ASCII characters. POSIX-only tests (FIFO, symlink) must be skipped on Windows with a reason.
 - The repository is public. Put no hostnames, LAN addresses, credential locations or private paths in code, docs, commits or PR text. `farmbot-host.local`, `192.0.2.x` and `C:\FarmBot\...` are the only example names used.
@@ -186,6 +188,10 @@ EOF
 
 ### Task 2: `monitor` config block and heartbeat path
 
+> **As executed:** review rulings moved all monitor-block validation, including the port collision on the
+> effective port, into `monitor_settings()`, so `Config` and `load_config` never fail because of the block
+> (commits `5f52ea1`, `268b589`). The text below is the original plan; the branch holds the ruled version.
+
 **Files:**
 - Modify: `agent/config.py` (imports, constants, `Config` field and validation, `monitor_settings`, `Paths`)
 - Test: create `tests/test_monitor.py` (later tasks add classes to it)
@@ -337,8 +343,8 @@ EOF
 - Produces (all in `agent.heartbeat`):
   - Constants `SCHEMA_VERSION = 1`, `INTERVAL = 5.0`, `STALE_AFTER = 60.0`, `MAX_BYTES = 65536`, `LOOPS = ("receive", "schedule", "pool", "lifecycle", "progress", "resource_recovery")`, `PHASES = ("starting", "serving", "stopped")`, and `OUTCOMES = ("accepted", "duplicate", "ignored", "rejected", "malformed", "failed")`.
   - `webhook_outcome(status: int, result: str) -> str`.
-  - `class Heartbeat(*, runtime: str, revision=(None, False), clock=time.time)`, with methods `set_phase(phase)`, `loop_started(name)`, `loop_finished(name)`, `loop_failed(name, exc)`, `webhook(kind, status, result)`, `payload() -> dict` and `write(path)`.
-  - `validate(raw) -> dict` with keys `phase`, `started_at`, `written_at`, `stopped_at`, `revision`, `dirty`, `runtime`, `loops` (`{name: {started_at, finished_at, consecutive_errors, error_type, error_at}}`) and `webhooks` (`{last_at, last_type, last_rejected_at, counts}`).
+  - `class Heartbeat(*, runtime: str, revision=(None, False), workers=None, clock=time.time)`, with methods `set_phase(phase)`, `loop_started(name)`, `loop_finished(name)`, `loop_failed(name, exc)`, `webhook(kind, status, result)`, `payload() -> dict` and `write(path)`. `workers` is a zero-argument callable returning `{item_id: handle}` with `started_at` and `deadline` attributes, such as `Launcher.running`; the payload's `workers` is `{item_id: {"started_at", "deadline"}}`, or `None` without a source or when it raises.
+  - `validate(raw) -> dict` with keys `phase`, `started_at`, `written_at`, `stopped_at`, `revision`, `dirty`, `runtime`, `loops` (`{name: {started_at, finished_at, consecutive_errors, error_type, error_at}}`), `webhooks` (`{last_at, last_type, last_rejected_at, counts}`) and `workers` (`None` or at most `MAX_WORKERS = 64` UUID-keyed records).
   - `read(path, *, now) -> (state, beat_or_None)`, where the state is `fresh`, `stale`, `missing` or `unreadable`.
   - `source_revision(root) -> (str_or_None, bool)`.
 
@@ -348,6 +354,7 @@ Create `tests/test_heartbeat.py`:
 
 ```python
 """The heartbeat serve writes and the status monitor reads: recorded honestly, read defensively."""
+from collections import namedtuple
 import json
 import os
 import subprocess
@@ -416,6 +423,22 @@ class HeartbeatRecordTests(unittest.TestCase):
         self.assertEqual((hooks["last_at"], hooks["last_rejected_at"], hooks["last_type"]), (1020.0, 1020.0, None))
         self.assertEqual((hooks["counts"]["ignored"], hooks["counts"]["rejected"]), (1, 1))
 
+    def test_workers_are_published_as_times_only(self):
+        Handle = namedtuple("Handle", "item_id pid started_at deadline")
+        item = "0f8fad5b-d9cb-469f-a165-70867728950e"
+        beat = Heartbeat(runtime="codex", clock=self.clock,
+                         workers=lambda: {item: Handle(item, 424242, 990.0, 29790.0)})
+        payload = beat.payload()
+        self.assertEqual(payload["workers"], {item: {"started_at": 990.0, "deadline": 29790.0}})
+        self.assertNotIn("424242", json.dumps(payload))
+
+    def test_an_unreadable_worker_source_leaves_workers_unknown(self):
+        def broken():
+            raise RuntimeError("launcher busy")
+
+        self.assertIsNone(Heartbeat(runtime="codex", clock=self.clock, workers=broken).payload()["workers"])
+        self.assertIsNone(Heartbeat(runtime="codex", clock=self.clock).payload()["workers"])
+
     def test_stopping_records_when_and_unknown_phases_are_refused(self):
         self.clock.now = 1100.0
         self.beat.set_phase("stopped")
@@ -467,6 +490,18 @@ class HeartbeatFileTests(unittest.TestCase):
                 self.assertEqual(read(self.path, now=1000.0), ("unreadable", None))
         self.path.write_bytes(b"\xff\xfe")
         self.assertEqual(read(self.path, now=1000.0), ("unreadable", None))
+
+    def test_worker_records_are_validated(self):
+        item = "0f8fad5b-d9cb-469f-a165-70867728950e"
+        self.write(self.payload(workers={item: {"started_at": 990.0, "deadline": 29790.0}}))
+        self.assertEqual(read(self.path, now=1000.0)[1]["workers"], {item: {"started_at": 990.0, "deadline": 29790.0}})
+        too_many = {f"0f8fad5b-d9cb-469f-a165-{n:012d}": {"started_at": 1.0, "deadline": 2.0}
+                    for n in range(heartbeat.MAX_WORKERS + 1)}
+        for workers in ({"not-a-uuid": {"started_at": 1.0, "deadline": 2.0}}, {item: {"started_at": 1.0}},
+                        {item: []}, [], too_many):
+            with self.subTest(workers=str(workers)[:40]):
+                self.write(self.payload(workers=workers))
+                self.assertEqual(read(self.path, now=1000.0), ("unreadable", None))
 
     def test_an_oversized_file_is_unreadable(self):
         self.write(self.payload(padding="x" * heartbeat.MAX_BYTES))
@@ -579,6 +614,8 @@ _RUNTIME = re.compile(r"[a-z][a-z0-9_-]{0,31}")
 _REVISION = re.compile(r"[0-9a-f]{7,40}")
 _COMMIT = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
 _COUNT_LIMIT = 10 ** 12
+MAX_WORKERS = 64
+_ITEM_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
 def webhook_outcome(status, result):
@@ -599,10 +636,12 @@ def _empty_loop():
 class Heartbeat:
     """In-memory state of one serving process. Loop threads record into it; the heartbeat thread writes it."""
 
-    def __init__(self, *, runtime, revision=(None, False), clock=time.time):
+    def __init__(self, *, runtime, revision=(None, False), workers=None, clock=time.time):
         self.clock = clock
         self._lock = threading.Lock()
         self._runtime = runtime
+        # A zero-argument callable such as Launcher.running: the worker processes serve is managing.
+        self._workers = workers
         self._revision, self._dirty = revision
         self._phase = "starting"
         self._started_at = clock()
@@ -647,11 +686,23 @@ class Heartbeat:
             if outcome == "rejected":
                 self._webhooks["last_rejected_at"] = now
 
+    def _worker_snapshot(self):
+        """The workers serve is managing, as start and budget-deadline times only, never PIDs; None when the
+        source cannot say, which the monitor reads as unknown rather than as no workers."""
+        if self._workers is None:
+            return None
+        try:
+            return {str(item_id): {"started_at": float(handle.started_at), "deadline": float(handle.deadline)}
+                    for item_id, handle in dict(self._workers()).items()}
+        except Exception:  # a display snapshot must never stop the heartbeat thread
+            return None
+
     def payload(self):
+        workers = self._worker_snapshot()
         with self._lock:
             return {"schema_version": SCHEMA_VERSION, "phase": self._phase, "started_at": self._started_at,
                     "written_at": self.clock(), "stopped_at": self._stopped_at, "revision": self._revision,
-                    "dirty": self._dirty, "runtime": self._runtime,
+                    "dirty": self._dirty, "runtime": self._runtime, "workers": workers,
                     "loops": {name: dict(record) for name, record in self._loops.items()},
                     "webhooks": {**self._webhooks, "counts": dict(self._webhooks["counts"])}}
 
@@ -701,6 +752,19 @@ def _webhooks(raw):
             "counts": {outcome: _count(raw["counts"].get(outcome, 0)) for outcome in OUTCOMES}}
 
 
+def _worker_records(raw):
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or len(raw) > MAX_WORKERS:
+        raise ValueError("heartbeat workers")
+    workers = {}
+    for item_id, record in raw.items():
+        if not isinstance(item_id, str) or not _ITEM_ID.fullmatch(item_id) or not isinstance(record, dict):
+            raise ValueError("heartbeat worker")
+        workers[item_id] = {"started_at": _time(record.get("started_at")), "deadline": _time(record.get("deadline"))}
+    return workers
+
+
 def validate(raw):
     """The fields the monitor uses, checked one by one; ValueError for anything else."""
     if not isinstance(raw, dict) or raw.get("schema_version") != SCHEMA_VERSION:
@@ -715,7 +779,7 @@ def validate(raw):
             "revision": _matching(_REVISION, raw.get("revision")), "dirty": raw["dirty"],
             "runtime": _matching(_RUNTIME, raw.get("runtime"), optional=False),
             "loops": {name: _loop(loops[name]) for name in LOOPS if name in loops},
-            "webhooks": _webhooks(raw.get("webhooks"))}
+            "webhooks": _webhooks(raw.get("webhooks")), "workers": _worker_records(raw.get("workers"))}
 
 
 def read(path, *, now):
@@ -781,7 +845,7 @@ EOF
 **Interfaces:**
 - Consumes: `Heartbeat`, `INTERVAL`, `source_revision`, `read` and `LOOPS` from Task 3; `Paths.heartbeat` from Task 2.
 - Produces:
-  - `components.server.heartbeat`: the serving process's `Heartbeat`, and `None` on a server from `make_server`.
+  - `components.server.heartbeat`: the serving process's `Heartbeat`, and `None` on a server from `make_server`. Its `workers` source is `components.launcher.running`, read at every heartbeat write.
   - `_serve` writes `Paths(config).heartbeat` with phase `starting` before `pool.ensure()`, then `serving` every 5 s, then `stopped` on shutdown.
   - Each loop body returns its pause in seconds, and the heartbeat times only the work.
 
@@ -833,6 +897,7 @@ In `tests/test_service.py`, add `from agent.heartbeat import LOOPS, read` to the
         self.assertEqual((state, beat["phase"]), ("fresh", "stopped"))
         self.assertIsNotNone(beat["stopped_at"])
         self.assertEqual(set(beat["loops"]), set(LOOPS))
+        self.assertEqual(beat["workers"], {})  # the launcher's own list: this fixture launched no worker
 
     def test_a_heartbeat_that_cannot_be_written_never_stops_serving(self):
         problems = []
@@ -1003,7 +1068,8 @@ with:
 ```python
 def _serve(components):
     stop = threading.Event()
-    heartbeat = Heartbeat(runtime=components.launcher.runtime.name, revision=source_revision(ROOT))
+    heartbeat = Heartbeat(runtime=components.launcher.runtime.name, revision=source_revision(ROOT),
+                          workers=components.launcher.running)
     heartbeat_path = Paths(components.config).heartbeat
     # The receiver's handler counts each /webhook outcome into it (receiver.make_server).
     components.server.heartbeat = heartbeat
@@ -1179,8 +1245,9 @@ EOF
 **Interfaces:**
 - Consumes: `snapshot_connection` (Task 1), and `LOOPS`, `Heartbeat` and `validate` (Task 3). `agent.resource_recovery.MAX_REPAIR_ATTEMPTS` already exists.
 - Produces:
-  - `agent.monitor_view.build_status(ledger_path, *, heartbeat, health, instance, monitor_revision, now, failing_since=None) -> dict`. Its arguments: `heartbeat` is `read()`'s `(state, beat)`; `health` is `{"ok", "status", "latency_ms", "error_type", "checked_at"}`; `instance` is `{"environment", "instance_id", "bot_name", "host"}`; `monitor_revision` is `(revision, dirty)`.
-  - Constants `VERDICTS`, `DISPLAY_STATES`, `OUTCOMES`, `ATTENTION_CODES`, `RECENT_LIMIT`, `CLEANUP_GRACE` and `LOOP_LIMITS`, which Task 6's label test and Task 7 use.
+  - `agent.monitor_view.build_status(ledger_path, *, heartbeat, health, instance, monitor_revision, now, failing_since=None, renew_seconds=None) -> dict`. `renew_seconds` maps a skill name to its lease-renewal interval in seconds. Its arguments: `heartbeat` is `read()`'s `(state, beat)`; `health` is `{"ok", "status", "latency_ms", "error_type", "checked_at"}`; `instance` is `{"environment", "instance_id", "bot_name", "host"}`; `monitor_revision` is `(revision, dirty)`.
+  - Constants `VERDICTS`, `DISPLAY_STATES`, `OUTCOMES`, `ATTENTION_CODES`, `WORKER_STATES`, `RECENT_LIMIT`, `CLEANUP_GRACE`, `LOOP_LIMITS`, `RENEWAL_GRACE` and `UNTRACKED_GRACE`, which Task 6's label test and Task 7 use.
+  - Each `active[]` job has a `worker` entry: `None` unless the job is running, else `{"state", "tracked", "started_at", "deadline", "renewed_at", "lease_expires_at"}`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1207,9 +1274,10 @@ DOWN = {"ok": False, "status": None, "latency_ms": 2000, "error_type": "Connecti
 INSTANCE = {"environment": "production", "instance_id": "default", "bot_name": "FarmBot", "host": "farm-host"}
 
 
-def beat(phase="serving", written_at=NOW - 1, *, loops=None, rejected_at=None, rejected=0, stopped_at=None):
+def beat(phase="serving", written_at=NOW - 1, *, loops=None, rejected_at=None, rejected=0, stopped_at=None,
+         workers=None):
     payload = Heartbeat(runtime="codex", revision=("a3f9f77c1d2e", False), clock=lambda: NOW - 100).payload()
-    payload.update(phase=phase, written_at=written_at, stopped_at=stopped_at, loops=loops or {})
+    payload.update(phase=phase, written_at=written_at, stopped_at=stopped_at, loops=loops or {}, workers=workers)
     payload["webhooks"]["last_rejected_at"] = rejected_at
     payload["webhooks"]["counts"]["rejected"] = rejected
     return validate(payload)
@@ -1248,7 +1316,8 @@ class ViewBase(unittest.TestCase):
 
     def status(self, heartbeat=("missing", None), health=HEALTHY, failing_since=None, now=NOW):
         return build_status(self.path, heartbeat=heartbeat, health=health, instance=INSTANCE,
-                            monitor_revision=("b1d5bd4a0c11", False), now=now, failing_since=failing_since)
+                            monitor_revision=("b1d5bd4a0c11", False), now=now, failing_since=failing_since,
+                            renew_seconds={"fix": 600, "chat": 300})
 
     def active(self, document, identifier):
         return next(job for job in document["active"] if job["identifier"] == identifier)
@@ -1319,6 +1388,56 @@ class ActiveWorkTests(ViewBase):
         self.sql("UPDATE work_items SET stage=? WHERE id=?", "s" * 500, item["id"])
         job = self.status()["active"][0]
         self.assertEqual((len(job["title"]), len(job["stage"])), (200, 120))
+
+
+class WorkerTests(ViewBase):
+    def running(self, claimed_at, skill="fix"):
+        item = self.job(skill=skill)
+        self.clock = claimed_at
+        return item, self.claim(item)
+
+    def tracking(self, *items):
+        return ("fresh", beat(workers={item["id"]: {"started_at": NOW - 700, "deadline": NOW + 20000} for item in items}))
+
+    def test_a_tracked_worker_that_renews_on_time_is_alive(self):
+        item, claim = self.running(NOW - 600)
+        self.clock = NOW - 120
+        self.ledger.renew(item["id"], claim["token"])
+        worker = self.active(self.status(heartbeat=self.tracking(item)), "FARM-1")["worker"]
+        self.assertEqual(worker, {"state": "alive", "tracked": True, "started_at": NOW - 700, "deadline": NOW + 20000,
+                                  "renewed_at": NOW - 120, "lease_expires_at": NOW - 120 + 3600})
+
+    def test_missed_renewals_are_flagged_long_before_the_lease_expires(self):
+        overdue, _ = self.running(NOW - 1000)  # a fix worker renews every 600 s, and 1000 s is over 1.5 intervals
+        on_time, claim = self.running(NOW - 1000)
+        self.clock = NOW - 800
+        self.ledger.renew(on_time["id"], claim["token"])
+        document = self.status(heartbeat=self.tracking(overdue, on_time))
+        self.assertEqual(self.active(document, "FARM-1")["worker"]["state"], "renewal_overdue")
+        self.assertEqual(self.active(document, "FARM-2")["worker"]["state"], "alive")
+        self.assertIn({"code": "renewal_overdue", "subject": "FARM-1", "since": NOW - 1000, "count": None},
+                      document["attention"])
+
+    def test_a_running_job_serve_is_not_managing_is_untracked(self):
+        self.running(NOW - 600)
+        self.running(NOW - 10)  # claimed inside the grace period for a worker being reaped
+        document = self.status(heartbeat=("fresh", beat(workers={})))
+        self.assertEqual(self.active(document, "FARM-1")["worker"]["state"], "untracked")
+        self.assertEqual(self.active(document, "FARM-2")["worker"]["state"], "alive")
+        self.assertIn(("worker_untracked", "FARM-1"), {(item["code"], item["subject"]) for item in document["attention"]})
+        unknown = self.active(self.status(), "FARM-1")["worker"]  # no heartbeat: tracking cannot be checked
+        self.assertEqual((unknown["state"], unknown["tracked"]), ("alive", None))
+
+    def test_an_expired_lease_outranks_the_other_worker_states(self):
+        self.running(NOW - 4000)  # the one-hour lease ran out 400 s ago
+        document = self.status(heartbeat=("fresh", beat(workers={})))
+        self.assertEqual(self.active(document, "FARM-1")["worker"]["state"], "lease_expired")
+        self.assertEqual([item["code"] for item in document["attention"] if item["subject"] == "FARM-1"],
+                         ["lease_expired"])
+
+    def test_jobs_that_are_not_running_have_no_worker(self):
+        self.job()
+        self.assertIsNone(self.status()["active"][0]["worker"])
 
 
 class HistoryTests(ViewBase):
@@ -1559,7 +1678,9 @@ DISPLAY_STATES = ("queued", "launching", "switching_repo", "retry_wait", "runnin
 OUTCOMES = ("delivered", "no_change", "blocked", "failed", "cancelled")
 ATTENTION_CODES = ("slot_held", "slot_without_reservation", "lease_expired", "cleanup_pending",
                    "issue_status_error", "reservation_cancel_pending", "loop_erroring", "loop_stalled",
-                   "webhook_rejected", "receiver_unreachable", "heartbeat_stale", "heartbeat_unreadable")
+                   "webhook_rejected", "receiver_unreachable", "heartbeat_stale", "heartbeat_unreadable",
+                   "renewal_overdue", "worker_untracked")
+WORKER_STATES = ("alive", "renewal_overdue", "untracked", "lease_expired")
 RECENT_SECONDS = 7 * 86400
 RECENT_LIMIT = 30
 CLEANUP_GRACE = 600
@@ -1567,6 +1688,10 @@ STATUS_FAILURES = 3
 CANCEL_GRACE = 300
 REJECT_WINDOW = 900
 LOOP_ERRORS = 3
+# A worker renews its lease at least every renew_minutes (skill.json); 1.5 intervals without one is overdue.
+RENEWAL_GRACE = 1.5
+# A worker that exits is reaped before its job leaves running, so a missing worker is only flagged after this.
+UNTRACKED_GRACE = 30
 LOOP_LIMITS = {"receive": 120, "lifecycle": 600, "progress": 600, "schedule": 1800,
                "resource_recovery": 1800, "pool": 5400}
 KNOWN_TABLES = ("work_items", "issues", "audit", "published_prs", "slots", "reservations",
@@ -1649,7 +1774,7 @@ def _active_rows(db, schema):
 def _audit_times(db, schema, item_ids):
     if not item_ids or not _has(schema, "audit", "item_id", "kind", "created_at"):
         return {}
-    kinds = ("checkpoint", *ACTIVE)
+    kinds = ("checkpoint", "renew", *ACTIVE)
     rows = db.execute(f"""SELECT item_id, kind, MAX(created_at) AS at FROM audit
         WHERE item_id IN ({_marks(item_ids)}) AND kind IN ({_marks(kinds)}) GROUP BY item_id, kind""",
                       (*item_ids, *kinds))
@@ -1688,7 +1813,45 @@ def _display_state(row, now):
     return row["state"]
 
 
-def _jobs(rows, times, prs, unity_queue, now):
+def _worker(row, times, now, beat_state, beat, renew_seconds):
+    """The worker behind a running job, from its lease and renewals in the ledger and from the workers serve
+    says it is managing; None for a job that is not running."""
+    if row["state"] != "running":
+        return None
+    lease = _time(row["lease_expires_at"])
+    claimed = times.get((row["id"], "running")) or _time(row["created_at"])
+    renewals = [at for at in (times.get((row["id"], "renew")), claimed) if at is not None]
+    renewed = max(renewals) if renewals else None
+    live = beat is not None and beat_state == "fresh" and beat["phase"] == "serving" and beat["workers"] is not None
+    tracked = row["id"] in beat["workers"] if live else None
+    record = beat["workers"].get(row["id"], {}) if live else {}
+    interval = renew_seconds.get(row["skill"])
+    if lease is not None and lease <= now:
+        state = "lease_expired"
+    elif tracked is False and claimed is not None and beat["written_at"] - claimed > UNTRACKED_GRACE:
+        state = "untracked"
+    elif interval and renewed is not None and now - renewed > RENEWAL_GRACE * interval:
+        state = "renewal_overdue"
+    else:
+        state = "alive"
+    return {"state": state, "tracked": tracked, "started_at": record.get("started_at"),
+            "deadline": record.get("deadline"), "renewed_at": renewed, "lease_expires_at": lease}
+
+
+def _worker_attention(jobs):
+    items = []
+    for job in jobs:
+        worker = job["worker"]
+        if worker and worker["state"] == "renewal_overdue":
+            items.append({"code": "renewal_overdue", "subject": job["identifier"], "since": worker["renewed_at"],
+                          "count": None})
+        elif worker and worker["state"] == "untracked":
+            items.append({"code": "worker_untracked", "subject": job["identifier"], "since": job["state_since"],
+                          "count": None})
+    return items
+
+
+def _jobs(rows, times, prs, unity_queue, now, beat_state, beat, renew_seconds):
     waiting = sorted((row for row in rows if _display_state(row, now) == "queued"),
                      key=lambda row: (row["priority"] if type(row["priority"]) is int else 0,
                                       _time(row["created_at"]) or 0, row["id"]))
@@ -1706,7 +1869,8 @@ def _jobs(rows, times, prs, unity_queue, now):
                      "state_since": times.get((row["id"], row["state"])) or _time(row["created_at"]),
                      "checkpoint_at": times.get((row["id"], "checkpoint")),
                      "retry_at": _time(row["retry_not_before"]) if display == "retry_wait" else None,
-                     "queue_position": position, "prs": prs.get(row["issue_id"], [])})
+                     "queue_position": position, "prs": prs.get(row["issue_id"], []),
+                     "worker": _worker(row, times, now, beat_state, beat, renew_seconds)})
     return jobs
 
 
@@ -1800,7 +1964,7 @@ def _ledger_attention(db, schema, rows, slots, now):
     return items
 
 
-def _read_ledger(db, now):
+def _read_ledger(db, now, beat_state, beat, renew_seconds):
     schema = _schema(db)
     rows = _active_rows(db, schema)
     recent = _recent_rows(db, schema, now)
@@ -1818,13 +1982,14 @@ def _read_ledger(db, now):
         row = db.execute("""SELECT MAX(CASE WHEN error IS NULL AND checked_at > 0 THEN checked_at END) AS ok,
             COUNT(error) AS failing FROM issue_checks""").fetchone()
         service["linear"] = {"last_ok_at": _time(row["ok"]), "failing_issues": row["failing"]}
-    sections = {"counts": counts,
-                "active": _jobs(rows, _audit_times(db, schema, [row["id"] for row in rows]), prs, queue or [], now),
+    jobs = _jobs(rows, _audit_times(db, schema, [row["id"] for row in rows]), prs, queue or [], now,
+                 beat_state, beat, renew_seconds)
+    sections = {"counts": counts, "active": jobs,
                 "slots": None if slots is None else [{key: slot[key] for key in SLOT_FIELDS} for slot in slots],
                 "unity_queue": None if queue is None else len(queue),
                 "recent": _history(recent, prs)}
     missing = [name for name in KNOWN_TABLES if name not in schema]
-    return sections, service, _ledger_attention(db, schema, rows, slots, now), missing
+    return sections, service, _ledger_attention(db, schema, rows, slots, now) + _worker_attention(jobs), missing
 
 
 def _loop_state(name, record, now):
@@ -1891,10 +2056,11 @@ def _verdict(ledger_ok, beat_state, beat, health, failing_since, attention):
     return "ok", None
 
 
-def build_status(ledger_path, *, heartbeat, health, instance, monitor_revision, now, failing_since=None):
+def build_status(ledger_path, *, heartbeat, health, instance, monitor_revision, now, failing_since=None,
+                 renew_seconds=None):
     """The /api/status document. `heartbeat` is heartbeat.read()'s (state, beat) and `health` is
     monitor.probe_health()'s result; `failing_since` is when the monitor first saw the current run of
-    /health failures."""
+    /health failures; `renew_seconds` maps a skill to its lease-renewal interval."""
     beat_state, beat = heartbeat
     document = {"schema_version": SCHEMA_VERSION, "generated_at": now, "verdict": None, "verdict_since": None,
                 "instance": instance, "monitor": {"revision": monitor_revision[0], "dirty": monitor_revision[1]},
@@ -1904,7 +2070,8 @@ def build_status(ledger_path, *, heartbeat, health, instance, monitor_revision, 
     attention = []
     try:
         with snapshot_connection(ledger_path) as db:
-            sections, service, ledger_attention, missing = _read_ledger(db, now)
+            sections, service, ledger_attention, missing = _read_ledger(db, now, beat_state, beat,
+                                                                        renew_seconds or {})
     except (sqlite3.Error, OSError, ValueError) as exc:
         document["ledger"]["error_type"] = type(exc).__name__
     else:
@@ -1953,7 +2120,7 @@ EOF
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to the imports of `tests/test_monitor.py`: `import re`, `from agent.heartbeat import LOOPS`, `from agent.ledger import Ledger`, and `from agent.monitor_view import ATTENTION_CODES, DISPLAY_STATES, OUTCOMES, VERDICTS`. Then append:
+Add to the imports of `tests/test_monitor.py`: `import re`, `from agent.heartbeat import LOOPS`, `from agent.ledger import Ledger`, and `from agent.monitor_view import ATTENTION_CODES, DISPLAY_STATES, OUTCOMES, VERDICTS, WORKER_STATES`. Then append:
 
 ```python
 class PageTests(unittest.TestCase):
@@ -1978,7 +2145,8 @@ class PageTests(unittest.TestCase):
 
     def test_every_code_the_status_view_emits_has_a_label(self):
         script = self.text("monitor.js")
-        for code in (*VERDICTS, *DISPLAY_STATES, *OUTCOMES, *ATTENTION_CODES, *LOOPS, *Ledger.SLOT_STATES):
+        for code in (*VERDICTS, *DISPLAY_STATES, *OUTCOMES, *ATTENTION_CODES, *LOOPS, *Ledger.SLOT_STATES,
+                     *WORKER_STATES):
             with self.subTest(code=code):
                 self.assertRegex(script, rf"\b{code}:")
 ```
@@ -2082,6 +2250,7 @@ p { margin: 0; }
 .row.pair { grid-template-columns: minmax(0, 1fr) auto; }
 .title { overflow-wrap: anywhere; }
 .side { text-align: right; }
+.state { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .pills { display: flex; flex-wrap: wrap; gap: 6px; }
 .prs { font-size: 12px; }
 .empty { padding: 8px 0; }
@@ -2126,6 +2295,10 @@ Create `agent/monitor_static/monitor.js`:
     receive: "接收", schedule: "调度", pool: "Unity 池", lifecycle: "状态同步", progress: "进度汇报",
     resource_recovery: "资源恢复",
   };
+  const WORKER = {
+    alive: ["worker 运行中", "ok"], renewal_overdue: ["续约逾期", "warn"], untracked: ["未被服务跟踪", "bad"],
+    lease_expired: ["租约已过期", "bad"],
+  };
   const SLOT = {
     idle_closed: ["空闲", "neutral"], idle_open: ["空闲（编辑器已打开）", "ok"], switching: ["切换中", "info"],
     interactive_busy: ["交互测试中", "info"], batch_busy: ["批量测试中", "info"], held: ["已隔离", "bad"],
@@ -2143,6 +2316,8 @@ Create `agent/monitor_static/monitor.js`:
     receiver_unreachable: () => "接收器 /health 没有响应，但服务心跳正常",
     heartbeat_stale: () => "服务心跳已过期，但 /health 仍有响应",
     heartbeat_unreadable: () => "服务心跳文件无法读取",
+    renewal_overdue: (a) => `${a.subject || "一项工作"} 的 worker 超过预期时间没有续约，可能卡住了`,
+    worker_untracked: (a) => `${a.subject || "一项工作"} 显示处理中，但服务没有在管理对应的 worker 进程`,
   };
 
   let doc = null;
@@ -2313,10 +2488,15 @@ Create `agent/monitor_static/monitor.js`:
       let state = label;
       if (job.queue_position) state += ` · 第 ${job.queue_position} 位`;
       if (job.retry_at) state += ` · ${clock(job.retry_at)}`;
+      const status = cell("state", pill(state, tone));
       const timing = cell("side muted", `${job.state === "running" ? "已处理" : "已等待"} ${since(job.state_since)}`);
       if (job.checkpoint_at) timing.append(el("div", "", `检查点 ${ago(job.checkpoint_at)}`));
-      return row("four", cell("ident", link(job.url, job.identifier || "?")), main,
-                 cell("state", pill(state, tone)), timing);
+      if (job.worker) {
+        const [workerLabel, workerTone] = WORKER[job.worker.state] || [job.worker.state, "neutral"];
+        status.append(pill(workerLabel, workerTone));
+        if (job.worker.renewed_at) timing.append(el("div", "", `上次续约 ${ago(job.worker.renewed_at)}`));
+      }
+      return row("four", cell("ident", link(job.url, job.identifier || "?")), main, status, timing);
     }));
   }
 
@@ -2436,13 +2616,13 @@ EOF
   - `agent.receiver.ExclusiveServer`.
   - `agent.monitor.probe_health(port, *, timeout=2.0, now=None) -> {"ok", "status", "latency_ms", "error_type", "checked_at"}`.
   - `agent.monitor.allowed_host(header, hostnames) -> True | False | None`.
-  - `agent.monitor.make_monitor_server(config, *, port=None, clock=time.time)`.
+  - `agent.monitor.make_monitor_server(config, *, port=None, clock=time.time)`. It calls `monitor_settings(config)` first, so a block the monitor cannot use, or a port equal to the receiver's, refuses the start (Task 2 ruling), and it passes the skills' renewal intervals to `build_status`.
   - `agent.monitor.run(config_path=None) -> int`, and `agent.monitor.SNAPSHOT_TTL`.
   - `python3 -m agent.service monitor [--config PATH]`.
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to the imports of `tests/test_monitor.py`: `import contextlib`, `import http.client`, `import io`, `import os`, `import socket`, `import threading`, `import time`, `from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer`, `from unittest.mock import patch`, `from agent import monitor`, `from agent.monitor import allowed_host, make_monitor_server, probe_health, run` and `from agent.service import main`. Then append:
+Add to the imports of `tests/test_monitor.py`: `import contextlib`, `import http.client`, `import io`, `import os`, `import socket`, `import threading`, `import time`, `from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer`, `from unittest.mock import patch`, `from agent import monitor`, `from agent.monitor import allowed_host, make_monitor_server, probe_health, run`, `from agent.service import main` and `from agent.skills import load_skills`. Then append:
 
 ```python
 def fake_receiver(status=200, delay=0.0):
@@ -2591,6 +2771,19 @@ class MonitorServerTests(unittest.TestCase):
             self.request(path="/api/status")
         self.assertEqual(len(calls), 2)
 
+    def test_renewal_intervals_come_from_the_skill_manifests(self):
+        calls = []
+        real = monitor.build_status
+
+        def recording(*args, **kwargs):
+            calls.append(kwargs["renew_seconds"])
+            return real(*args, **kwargs)
+
+        with patch("agent.monitor.build_status", side_effect=recording):
+            self.request(path="/api/status")
+        skills = load_skills(Path(__file__).resolve().parents[1] / "skills")
+        self.assertEqual(calls, [{name: skill.budget["renew_minutes"] * 60 for name, skill in skills.items()}])
+
     def test_unresponsive_stays_anchored_to_the_first_observed_failure(self):
         first = json.loads(self.request(path="/api/status")[1])
         self.now[0] += 10
@@ -2641,6 +2834,12 @@ class MonitorRunTests(unittest.TestCase):
                                                          expected_bot_name="TestBot", expected_app_user_id="app",
                                                          expected_organization_id="org"))
         self.assertEqual((code, lines[0]["event"], lines[0]["error"]), (1, "monitor_failed", "RuntimeError"))
+
+    def test_a_monitor_that_would_take_the_receivers_port_refuses_to_start(self):
+        for changes in ({"port": 8780}, {"port": 8780, "monitor": {}}):
+            with self.subTest(changes=changes):
+                code, lines = self.run_monitor(self.write_config(**changes))
+                self.assertEqual((code, lines[0]["event"], lines[0]["error"]), (1, "monitor_failed", "ValueError"))
 
     def test_the_service_cli_dispatches_monitor(self):
         with patch("agent.monitor.run", return_value=0) as monitor_run:
@@ -2698,6 +2897,7 @@ from .environment import check_ownership
 from .heartbeat import read as read_heartbeat, source_revision
 from .monitor_view import build_status
 from .receiver import ExclusiveServer
+from .skills import load_skills
 
 STATIC = Path(__file__).resolve().parent / "monitor_static"
 ASSETS = {"/": ("index.html", "text/html; charset=utf-8"),
@@ -2765,6 +2965,7 @@ def make_monitor_server(config, *, port=None, clock=time.time):
     instance = {"environment": config.environment, "instance_id": config.instance_id,
                 "bot_name": config.expected_bot_name[:64], "host": str(config.host)[:64]}
     revision = source_revision(ROOT)
+    renew_seconds = {name: skill.budget["renew_minutes"] * 60 for name, skill in load_skills(ROOT / "skills").items()}
     lock = threading.Lock()
     cache = {"at": None, "body": None, "failing_since": None}
 
@@ -2781,7 +2982,7 @@ def make_monitor_server(config, *, port=None, clock=time.time):
                 cache["failing_since"] = now
             document = build_status(paths.ledger, heartbeat=read_heartbeat(paths.heartbeat, now=now),
                                     health=health, instance=instance, monitor_revision=revision, now=now,
-                                    failing_since=cache["failing_since"])
+                                    failing_since=cache["failing_since"], renew_seconds=renew_seconds)
             cache["at"] = now
             cache["body"] = json.dumps(document, ensure_ascii=False, allow_nan=False).encode("utf-8")
             return cache["body"]
@@ -2982,7 +3183,7 @@ EOF
 
 **Interfaces:**
 - Consumes: `Config.monitor` from Task 2.
-- Produces: `agent.deploy.MONITOR_AGENT == "com.kuaiwa.farmbot.monitor"`, a `"monitor"` key in `labels(config)`, and an `install()` that writes that agent only when `config.monitor` is non-empty. `AGENTS` stays `{"serve", "tunnel"}`, because every install writes those two.
+- Produces: `agent.deploy.MONITOR_AGENT == "com.kuaiwa.farmbot.monitor"`, a `"monitor"` key in `labels(config)`, and an `install()` that writes that agent only when `config.monitor` is non-empty, and writes no agent at all when `monitor_settings(config)` refuses the block. `AGENTS` stays `{"serve", "tunnel"}`, because every install writes those two.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3002,6 +3203,12 @@ In `tests/test_deploy.py`, change the import to `from agent.deploy import AGENTS
         profile = replace(configured, environment="development", instance_id="mac-dev",
                           local_root=self.root / "dev", expected_app_user_id="app", expected_organization_id="org")
         self.assertIn("com.kuaiwa.farmbot.development.mac-dev.monitor", install(profile, target))
+
+    def test_a_block_the_monitor_would_refuse_stops_the_whole_install(self):
+        target = self.root / "LaunchAgents"
+        with self.assertRaises(ValueError):
+            install(replace(self.config, monitor={"bind": "localhost"}), target, python="/usr/bin/python3")
+        self.assertEqual(list(target.glob("*.plist")), [])
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
@@ -3011,7 +3218,7 @@ Expected: ERROR, `ImportError: cannot import name 'MONITOR_AGENT'`.
 
 - [ ] **Step 3: Write the implementation**
 
-In `agent/deploy.py`, below `AGENTS`, add:
+In `agent/deploy.py`, change `from .config import Paths, ROOT` to `from .config import Paths, ROOT, monitor_settings`. Below `AGENTS`, add:
 
 ```python
 # Written only when the host config has a monitor block, so it is not part of AGENTS, which every install writes.
@@ -3038,6 +3245,8 @@ In `install`, replace the block from `serve = [python, "-u", "-m", "agent.servic
     jobs = {names["serve"]: [python, "-u", "-m", "agent.service", "serve", *selected],
             names["tunnel"]: tunnel_arguments(config, cloudflared)}
     if config.monitor:
+        # The monitor would refuse this block at every start; refuse it here, before any plist is written.
+        monitor_settings(config)
         jobs[names["monitor"]] = [python, "-u", "-m", "agent.service", "monitor", *selected]
 ```
 
@@ -3092,41 +3301,60 @@ the office network is explicit:
 
 `bind` is an IPv4 address. `port` must differ from the receiver's `port`, so the Cloudflare tunnel, which
 forwards only the receiver, never carries the monitor. Requests must name the host by IP address,
-`localhost` or one of `hostnames`. `serve` and workers ignore this block: after changing it, restart only
-the monitor. Teammates open `http://<host>:8780/`.
+`localhost` or one of `hostnames`. Only the monitor and `install-launchd` read this block. `serve` and
+workers neither read nor validate it, so a mistake in it stops only the monitor, which exits with a
+`monitor_failed` line naming the problem. After changing it, restart only the monitor. Teammates open
+`http://<host>:8780/`.
 
 The page is in Chinese, refreshes every five seconds and cannot stop, retry or change anything. It shows
 the service verdict, work in progress with Linear and PR links, Unity slots, attention items and the last
-seven days of results. It never shows issue descriptions, comments, checkpoints, questions, logs, paths,
-PIDs, tokens or raw errors; use `doctor` on the host for detail. There is no login: anyone who can reach
-the port can read issue identifiers, titles and job states.
+seven days of results. Each running job also shows its worker:
+
+- 运行中: `serve` is managing the process and it renews its lease on time.
+- 续约逾期: 1.5 renewal intervals have passed without a renewal (15 minutes for a fix, 7.5 for a chat).
+- 未被服务跟踪: `serve` is managing no worker for the job.
+- 租约已过期: the lease has run out.
+
+It never shows issue descriptions, comments, checkpoints, questions, logs, paths, PIDs, tokens or raw
+errors; use `doctor` on the host for detail. There is no login: anyone who can reach the port can read
+issue identifiers, titles and job states.
 
 The monitor reads the ledger read-only, probes the receiver's `/health` on loopback and reads
 `<local_root>/service-heartbeat.json`. `serve` rewrites that file every five seconds with its phase, loop
-timings, revision and webhook counts, so the page still reports a stopped or wedged service. A service
-revision that writes no heartbeat shows its loop rows as 此版本未提供. `/health` proves only that the
-receiver answers; the page is not proof of Linear, tunnel or Unity health beyond the signals it lists.
+timings, revision, webhook counts, and the start and deadline times of the workers it manages (never
+PIDs), so the page still reports a stopped or wedged service. A service revision that writes no heartbeat
+shows its loop rows as 此版本未提供. `/health` proves only that the receiver answers; the page is not proof
+of Linear, tunnel or Unity health beyond the signals it lists.
 
-`install-launchd` adds a third agent for the monitor when the config has a `monitor` block. On Windows,
-run the monitor once in a console to see its `monitor_ready` line. Then, as an administrator, allow its
-port on the office network and start it at logon as the same user as `serve`:
+Reading a ledger while `serve` is stopped can leave SQLite's `-wal` and `-shm` side files beside it; the
+ledger itself is never modified. Run the monitor as the same account as `serve`, so those files stay
+writable by the service.
+
+`install-launchd` adds a third agent for the monitor when the config has a non-empty `monitor` block. It
+writes no agent at all if the monitor would refuse that block.
+
+On the Windows production host:
+
+1. Update the checkout, and run `.\scripts\redeploy-farmbot.ps1` as usual, so `serve` writes the
+   heartbeat.
+2. Run the monitor once in a console from the same checkout, and check for its `monitor_ready` line.
+3. As an administrator, allow its port on the office network and start it at logon as the same user as
+   `serve`:
 
 ```powershell
 New-NetFirewallRule -DisplayName "FarmBot monitor" -Direction Inbound -Protocol TCP -LocalPort 8780 `
   -Profile Private -RemoteAddress LocalSubnet -Action Allow
 $action = New-ScheduledTaskAction -Execute "C:\Path\To\python.exe" `
-  -Argument '-u -m agent.service monitor --config "C:\FarmBot\config.json"' -WorkingDirectory "C:\FarmBot\monitor"
+  -Argument '-u -m agent.service monitor --config "C:\FarmBot\.local\agent\config.json"' -WorkingDirectory "C:\FarmBot"
 $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 `
   -RestartInterval (New-TimeSpan -Minutes 1)
 Register-ScheduledTask -TaskName "FarmBot monitor" -Action $action `
   -Trigger (New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME") -Settings $settings
 ```
 
-Use the configured Python and the directory holding the revision that runs the monitor. The firewall
-rule needs the office network classified as Private. Check restart-on-failure on the host once. When the
-monitor runs from a different directory than `serve`, the config needs an absolute `local_root`, because
-the default is the checkout running the command. `doctor --config` run from the monitor's directory must
-report the service's actual ledger path.
+Use the Python and checkout that the `FarmBot-Receiver` task uses. The firewall rule needs the office
+network classified as Private. Check restart-on-failure on the host once. `redeploy-farmbot.ps1` does not
+restart the monitor; restart its task after updating the checkout.
 ````
 
 - [ ] **Step 2: Add the operating contract section**
@@ -3138,28 +3366,42 @@ Append to `docs/operating-contract.md`:
 
 `python3 -m agent.service monitor` serves a read-only Chinese status page and `/api/status` JSON for one
 instance, as a separate process on the host running `serve`. It binds the config's `monitor.bind`
-(default `127.0.0.1`) and `monitor.port` (default 8780, never the receiver's port). It answers only
-`GET` and `HEAD`, and only when the `Host` header is an IP literal, `localhost` or a configured
+(default `127.0.0.1`) and `monitor.port` (default 8780, never the receiver's port). It answers only `GET`
+and `HEAD`, and only when the `Host` header is an IP literal, `localhost` or a configured
 `monitor.hostnames` entry. There is no authentication. Exposing it beyond loopback is an explicit
-configuration choice, and anyone who can reach it can read issue identifiers, titles, job and slot
-states and PR links.
+configuration choice, and anyone who can reach it can read issue identifiers, titles, job, worker and
+slot states and PR links. Only the monitor and `install-launchd` validate the `monitor` block; `serve`
+and workers neither read nor validate it.
 
 It opens the ledger with SQLite `mode=ro` and `query_only`, never constructs `Ledger` and never takes the
-controller lock. It writes nothing, signals and inspects no processes, and makes no request other than
-`GET http://127.0.0.1:<port>/health` with proxies disabled. The JSON is an allowlist. It contains no
-descriptions, comments, checkpoints, questions, inbox or worker messages, evidence prose, logs, paths,
-PIDs, tokens, config values or raw stored errors. Older ledgers without optional tables are read
-without migration.
+controller lock. It writes no FarmBot file or ledger row; SQLite can leave its `-wal`/`-shm` side files
+beside a ledger whose service is stopped, which is why the monitor runs as the same account as `serve`. It
+signals and inspects no processes, and makes no request other than `GET http://127.0.0.1:<port>/health`
+with proxies disabled. The JSON is an allowlist. It contains no descriptions, comments, checkpoints,
+questions, inbox or worker messages, evidence prose, logs, paths, PIDs, tokens, config values or raw
+stored errors. Older ledgers without optional tables are read without migration.
 
 `serve` writes `<local_root>/service-heartbeat.json` by replacement:
 - when it starts, with phase `starting`, before slot preparation;
 - every five seconds, with phase `serving` once its loops run;
 - on clean shutdown, with phase `stopped`.
 
-The heartbeat records each loop's work timing and consecutive errors, the revision, and in-memory
-webhook outcome counts. A failed write is skipped and never affects serving. The monitor reads the file
-as untrusted data (a regular file, at most 64 KiB, validated) and treats it as stale after 60 seconds.
-A worker able to write the state root could forge it, so `/health` remains an independent signal.
+The heartbeat records each loop's work timing and consecutive errors, the revision, in-memory webhook
+outcome counts, and the worker processes the launcher is managing, as start and budget-deadline times
+only. A failed write is skipped and never affects serving. The monitor reads the file as untrusted data
+(a regular file, at most 64 KiB, validated) and treats it as stale after 60 seconds. A worker able to
+write the state root could forge it, so `/health` remains an independent signal.
+
+A running job's worker is shown with the first state that applies:
+
+| State | When |
+|---|---|
+| 租约已过期 | The job's lease has run out |
+| 未被服务跟踪 | A fresh `serving` heartbeat lists no worker for the job, 30 seconds after its claim |
+| 续约逾期 | 1.5 of its skill's `renew_minutes` have passed without a lease renewal |
+| 运行中 | None of the above |
+
+The first three raise attention.
 
 Verdicts:
 
@@ -3168,7 +3410,7 @@ Verdicts:
 | 已停止 | A stopped heartbeat and no `/health` |
 | 正在启动 | A fresh heartbeat with phase `starting` |
 | 无响应 | No `/health` and no fresh heartbeat |
-| 需要关注 | A half-alive service, erroring or overlong loops, recent webhook rejections, held or orphaned slots, expired leases, cleanup pending for over 10 minutes, repeated Linear status failures, or a reservation cancellation not yet settled |
+| 需要关注 | A half-alive service, erroring or overlong loops, recent webhook rejections, held or orphaned slots, expired leases, overdue or untracked workers, cleanup pending for over 10 minutes, repeated Linear status failures, or a reservation cancellation not yet settled |
 | 正常 | None of the above |
 | 未知 | The ledger cannot be read |
 
@@ -3230,7 +3472,7 @@ EOF
 - [ ] **Step 1: Run the full offline suite**
 
 Run: `python3 -m unittest discover -s tests -v 2>&1 | tail -5`
-Expected: `OK (skipped=N)`. The baseline before this plan was 743 tests with 11 skips. The count grows by the new tests. Skips must still be only Windows-only checks on macOS. Report the exact totals. Do not present macOS results as Windows verification.
+Expected: `OK (skipped=N)`. The baseline before this plan was 743 tests with 11 skips; the 2026-09-24 merge of main added more, and the new tests add the rest. Skips must still be only Windows-only checks on macOS. Report the exact totals. Do not present macOS results as Windows verification.
 
 - [ ] **Step 2: Check the diff for whitespace and public-repository leaks**
 
@@ -3260,10 +3502,9 @@ Push the branch and open a PR against `main`. Summarize the behaviour and the ve
 
 ## Production rollout (operator, separately authorized; not part of this plan's execution)
 
-1. Place the merged revision in its own directory on the Windows production host. It runs only `monitor`; production `serve` stays on its accepted revision.
-2. Confirm that production's revision ignores unknown top-level config keys. Its `agent/config.py` loader must filter keys to `Config` fields.
-3. Make sure the production config has an absolute `local_root`. If it has none, add exactly the path production already uses. From the monitor directory, `doctor --config` must then report production's actual ledger path.
-4. Add the `monitor` block, and validate the edited file with `doctor --config` before anything else reads it. Production needs no restart.
-5. Create the firewall rule and the logon scheduled task from the README, running as the same user as `serve`. Check restart-on-failure once.
-6. From another office machine, check that the page loads, that its jobs match `doctor`, and that loop rows read 此版本未提供 until production is upgraded.
-7. Loop heartbeats appear after production's next normal upgrade, through the regular release process.
+1. Once work has settled, update the Windows production checkout to the merged, tested commit and run `.\scripts\redeploy-farmbot.ps1`. It checks that no work is active, restarts `serve` through the `FarmBot-Receiver` supervisor and waits for `/health`. `serve` then writes the heartbeat, including its workers.
+2. Add the `monitor` block with a LAN `bind` to the production config. Check the edited file with `doctor --config` first, since a JSON error would break every new worker's config load. `serve` and workers neither read nor validate the block, so no restart is needed.
+3. Run the monitor once in a console from the same checkout, so it validates the block and prints `monitor_ready`.
+4. Create the firewall rule and the logon scheduled task from the README, running as the same user as `serve`. Check restart-on-failure once.
+5. From another office machine, check that the page loads, that its jobs match `doctor`, and that its loop and worker rows are live.
+6. After any later redeploy, restart the monitor's task too; the redeploy script does not.

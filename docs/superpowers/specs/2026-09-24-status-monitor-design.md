@@ -29,8 +29,9 @@ Rejected alternatives:
 ## Scope
 
 In scope: the monitor command and page, a heartbeat written by `serve`, webhook arrival
-counts in the receiver, a `monitor` config block, a macOS launchd agent, Windows
-installation instructions, tests and documentation.
+counts in the receiver, a per-worker status for each running job (added at the user's
+request on 2026-09-24, during execution), a `monitor` config block, a macOS launchd agent,
+Windows installation instructions, tests and documentation.
 
 Out of scope, possible follow-ups: alerts (for example posting to a team chat when
 FarmBot goes down), controls, login or internet access, one page for several instances,
@@ -45,7 +46,7 @@ Production host (Windows first; macOS for TestBot)
 |        forwards)                                                      |
 |   + heartbeat thread: every 5 s replaces                              |
 |     <local_root>/service-heartbeat.json with phase, loop timings,     |
-|     revision and webhook counts                                       |
+|     revision, webhook counts and the workers it manages               |
 |                                                                       |
 | monitor (new process; <bind>:<monitor port>, never tunnelled)         |
 |   reads  ledger: read-only SQLite snapshot, never migrates            |
@@ -137,13 +138,20 @@ Format (`schema_version` 1). Nothing in it is secret, and it records no PID:
                         "error_type": null, "error_at": null}},
  "webhooks": {"last_at": 0.0, "last_type": "Issue", "last_rejected_at": null,
               "counts": {"accepted": 0, "duplicate": 0, "ignored": 0, "rejected": 0,
-                         "malformed": 0, "failed": 0}}}
+                         "malformed": 0, "failed": 0}},
+ "workers": {"<item id>": {"started_at": 0.0, "deadline": 0.0}}}
 ```
 
 - `loops` has one entry per guarded loop: `receive`, `schedule`, `pool`, `lifecycle`,
   `progress` and `resource_recovery`. An iteration is recorded around each loop's work.
   The pause between iterations is not part of it, so a loop that sleeps between ticks is
-  not reported as busy. `consecutive_errors` resets after a successful iteration. `error_type` is an exception class name, as in the service log.
+  not reported as busy. `consecutive_errors` resets after a successful iteration.
+  `error_type` is an exception class name, as in the service log.
+- `workers` lists the worker processes the launcher is managing, read from
+  `Launcher.running()` at every write rather than after a scheduler tick. A tick can last
+  minutes, and a list that lagged it would make a freshly claimed job look unmanaged. Each
+  entry keeps only the start and budget-deadline times, never a PID, at most 64 entries.
+  The value is `null` when that list cannot be read.
 - `revision` is the first 12 characters of `git rev-parse HEAD` for the checkout running
   `serve`, read once at startup with a 5 s timeout. `dirty` is true when tracked files
   differ from it. Both are `null` when Git is unavailable or the directory is not a
@@ -180,6 +188,7 @@ skew cannot distort them.
 | `service.linear` | `last_ok_at` (newest `issue_checks.checked_at` with no error), `failing_issues` | ledger |
 | `counts` | `running`, `queued`, `awaiting_input`, `awaiting_resource` | ledger |
 | `active[]` | `identifier`, `title`, `url`, `skill`, `state`, `display_state`, `stage`, `repo`, `created_at`, `state_since`, `checkpoint_at`, `retry_at`, `queue_position`, `prs[]` | ledger |
+| `active[].worker` | for running jobs only: `state` (`alive`, `renewal_overdue`, `untracked` or `lease_expired`), `tracked`, `started_at`, `deadline`, `renewed_at`, `lease_expires_at` | ledger, heartbeat and skill budgets |
 | `slots[]` | `slot_id`, `kind`, `state`, `commit`, `holder`, `mode`, `recovery` (`state`, `attempts`, `max_attempts`) | ledger |
 | `unity_queue` | number of queued Unity reservations | ledger |
 | `recent[]` | `identifier`, `title`, `url`, `skill`, `outcome`, `finished_at`, `retried`, `prs[]` | ledger |
@@ -200,6 +209,19 @@ Derivations:
   because `audit` has no index. `updated_at` is not used: lease renewal rewrites it. A
   new item's first audit row is `create`, not `queued`, so `state_since` falls back to
   `created_at`. `checkpoint_at` is `null` before the first checkpoint.
+- `worker` describes the process behind a running job, and is `null` for other states:
+  - `renewed_at` is the newest `renew` audit row, or the claim when there is none. Every
+    worker command that renews the lease writes one.
+  - `tracked` is whether a fresh `serving` heartbeat lists the job among its workers. It
+    is `null` when the heartbeat is missing, stale or cannot list workers.
+  - `state`, taking the first rule that applies:
+    - `lease_expired` once the lease has run out;
+    - `untracked` when `tracked` is false and the heartbeat was written more than 30 s
+      after the claim, a grace period that covers a worker being reaped;
+    - `renewal_overdue` when more than 1.5 of the skill's `renew_minutes` (from the
+      monitor checkout's `skills/*/skill.json`: 15 minutes for fix, 7.5 for chat) have
+      passed since `renewed_at`;
+    - `alive` otherwise.
 - `slots[].kind` is the resource kind (`unity_slot`). `holder` and `mode` (`batch` or
   `interactive`) come from the slot's active or `cancel_requested` reservation, and are
   `null` when the slot is free. `commit` is the first 7 characters of `parked_commit`.
@@ -260,6 +282,8 @@ Attention items, with named thresholds:
 | `loop_erroring` | A loop with 3 or more consecutive errors |
 | `loop_stalled` | A loop busy longer than its limit: receive 2 min, lifecycle and progress 10 min, schedule and resource_recovery 30 min, pool 90 min |
 | `webhook_rejected` | A rejected webhook in the last 15 minutes. A continuous secret mismatch keeps it raised, while a stray scanner clears |
+| `renewal_overdue` | A running job's worker is `renewal_overdue` (see `worker` above), the likely sign of a hung worker, well before its lease runs out |
+| `worker_untracked` | A running job's worker is `untracked`: the ledger says running, but `serve` is managing no such worker |
 | `receiver_unreachable`, `heartbeat_stale`, `heartbeat_unreadable` | Rules 5 and 6 above |
 
 Failed and blocked jobs appear in `recent` with their outcome. They are not attention
@@ -322,15 +346,21 @@ items. Quiet webhook periods, such as nights and weekends, are informational onl
 ## Deployment
 
 - **macOS:** `install-launchd` adds `<prefix>.monitor` beside `serve` and `tunnel` when
-  the config has a `monitor` block. It runs `python -u -m agent.service monitor --config
-  <absolute path>`, logs in the same directory, and loads nothing by itself.
-- **Windows:** the README documents two steps the operator performs with administrator
-  rights:
+  the config has a non-empty `monitor` block. It runs `python -u -m agent.service monitor
+  --config <absolute path>`, logs in the same directory, and loads nothing by itself. It
+  checks the block with `monitor_settings()` first and writes no agent at all if the
+  monitor would refuse it.
+- **Windows:** production runs from a git checkout under the `FarmBot-Receiver` scheduled
+  task, and `scripts/redeploy-farmbot.ps1` reloads the checked-out revision once work has
+  settled. The monitor runs from that same checkout and config, as the same user. The
+  README documents two steps the operator performs with administrator rights:
   - an inbound firewall rule for the monitor port, limited to the Private profile and
     `LocalSubnet`;
   - a scheduled task that starts at logon as the same user as `serve`, runs the
-    configured Python with the same arguments, appends output to a log file, and
-    restarts on failure.
+    configured Python with the same arguments, and restarts on failure.
+- **Same account:** reading a ledger whose service is stopped can leave SQLite's `-wal`
+  and `-shm` side files beside it. The ledger itself is never modified. Running the
+  monitor as the same account as `serve` keeps those files writable by the service.
 - **TestBot:** during live testing it runs in a terminal tab with a `monitor` block on
   port 8781, since TestBot's receiver uses 8766.
 
@@ -345,20 +375,21 @@ Each step needs its own authorization. Merging deploys nothing.
    - Stop the controller and see 无响应 within about a minute. Restart it and see 正常.
    - @TestBot on an issue the operator chooses, and watch the job appear and progress.
 3. Production on Windows, as an operator decision:
-   1. Place the merged revision in its own directory. It runs only `monitor`; production
-      `serve` stays on its accepted revision.
-   2. Confirm that production's revision ignores unknown top-level config keys.
-   3. Make sure the production config has an absolute `local_root`, because the default
-      is the checkout running the command. If it has none, add exactly the path
-      production already uses. From the monitor directory, `doctor --config` must then
-      report production's actual ledger path.
-   4. Add the `monitor` block and check the edited file with `doctor`, since a JSON
-      error would break every new worker's config load. Then run the monitor once so
-      it validates the block. Production needs no restart.
-   5. Create the firewall rule and the scheduled task.
-   6. From another office machine, check that the page loads and its jobs match
-      `doctor`.
-   7. Loop heartbeats appear after production's next normal upgrade.
+   1. Once work has settled, update the production checkout to the merged, tested commit
+      and run `scripts\redeploy-farmbot.ps1`, which checks that no work is active,
+      restarts `serve` through its supervisor and waits for `/health`. `serve` then
+      writes the heartbeat, including its workers.
+   2. Add the `monitor` block with a LAN `bind` to the production config, and check the
+      edited file with `doctor`, since a JSON error would break every new worker's
+      config load. `serve` and workers neither read nor validate the block, so no
+      restart is needed.
+   3. Run the monitor once in a console from the same checkout, so it validates the
+      block and prints `monitor_ready`.
+   4. Create the firewall rule and the logon scheduled task.
+   5. From another office machine, check that the page loads, that its jobs match
+      `doctor`, and that its loop rows are live.
+   6. A later redeploy does not restart the monitor. Restart its task after updating the
+      checkout.
 4. Documentation:
    - the README section;
    - an operating contract "Status monitor" section: read-only, what it shows and omits,
@@ -379,6 +410,10 @@ built in temporary directories: tests may construct `Ledger`, the monitor code m
   - Resources and history: `no_change` outcomes, `retried`, slots with holders and
     recoveries, and `unity_queue`.
   - Rules: the attention thresholds and the verdict table on a fake clock.
+  - Workers: `alive` for a tracked worker renewing on time, `renewal_overdue` well before
+    the lease runs out, `untracked` only after its grace period and never without a
+    fresh heartbeat, `lease_expired` outranking the others, and no worker for jobs that
+    are not running.
   - Older ledgers with optional tables and columns removed.
   - Redaction: tokens, host paths, raw errors, descriptions, comments, checkpoints and
     pending questions seeded into fixtures never appear in the JSON.
@@ -389,6 +424,8 @@ built in temporary directories: tests may construct `Ledger`, the monitor code m
   - File states: fresh, stale, stopped, missing, corrupt, oversized, and on POSIX a FIFO
     or symlink.
   - Replace-on-write, and a simulated `PermissionError` while writing.
+  - Worker records: times only, never PIDs; `null` when the launcher's list cannot be
+    read; invalid or too many records make the file unreadable.
   - Revision reading inside and outside a Git checkout.
 - `tests/test_monitor.py`, with a real server on `127.0.0.1` port 0:
   - Responses: every route, 404, 405, the 421 host check, and the security headers.
@@ -404,8 +441,9 @@ built in temporary directories: tests may construct `Ledger`, the monitor code m
     never stops serving (`test_service.py`).
   - Every webhook outcome is counted, and a failing recorder never changes a response
     (`test_receiver.py`).
-  - `monitor` config validation.
-  - The monitor launchd agent only when configured (`test_deploy.py`).
+  - `monitor` config validation, and a block that never stops `Config` or `load_config`.
+  - The monitor launchd agent only when configured, and no agent written for a block the
+    monitor would refuse (`test_deploy.py`).
   - `doctor` output unchanged after moving to `readonly_db`.
 - The full offline suite runs on macOS. CI runs it on macOS and Windows with Python
   3.13. Windows CI is test evidence, not production acceptance, and the production
