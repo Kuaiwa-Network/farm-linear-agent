@@ -356,8 +356,8 @@ periods, such as nights and weekends, are informational only.
     placeholder replaces the counts and the work sections.
   - Only a status document of `schema_version` 1 is accepted and kept as the page's
     data. Any other body is a failed poll, and a body of another version, from a monitor
-    upgraded under an open tab, makes the banner read 监控已更新，请刷新页面。 The page
-    never reloads itself.
+    upgraded under an open tab, makes the banner read 监控已更新，请刷新页面。 and the
+    header and tab title read 需要刷新. The page never reloads itself.
   - When rendering a document throws, the header and tab title read 页面显示出错 and the
     content is dimmed until a render succeeds, so a stale verdict never stays up.
   - A footer states that the page is read-only and that actions happen in Linear.

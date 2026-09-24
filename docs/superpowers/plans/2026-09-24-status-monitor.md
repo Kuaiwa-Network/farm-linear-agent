@@ -10,6 +10,37 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-24-status-monitor-design.md`. Read it before starting; this plan argues from it.
 
+## As executed (2026-09-25)
+
+The ten tasks were carried out subagent-driven, each with a review. A final fix round then took the reviewers'
+deferred findings. The task text below is the plan as it was dispatched, kept for the record. Where it differs
+from the code, the code and the updated spec are authoritative. The main differences:
+
+- Task 2: all `monitor` block validation lives in `monitor_settings(config)`. It also refuses a port equal to
+  the receiver's when the block is absent or `{}`. `Config` and `load_config` never validate the block.
+- Task 3: `dirty` is null when Git gives no revision, and `source_revision` runs Git with
+  `--no-optional-locks`. The writer records only error names its reader accepts, and no worker list above 64
+  entries. `read()` retries once on a Windows `PermissionError`.
+- Task 4: the beat thread has its own stop event, so it keeps beating through a slow shutdown drain. A failing
+  write prints one `heartbeat_error` line per run of failures, and the final `stopped` beat is retried once.
+- Task 5: `cleanup_pending` covers finished jobs only, timed from the job's finish. A slot reports a recovery
+  only while it is held. Rules 5 and 6 carry their own `verdict_since`.
+- Task 6: the page rebuilds its rows once per poll, and its one-second tick rewrites only time texts. Fetches
+  time out after 10 s. One recovery text serves both a slot's cell and its attention line. A document with
+  another `schema_version` shows 需要刷新 and asks for a refresh, and a render error shows 页面显示出错.
+- Task 7:
+  - The snapshot cache is aged from each build's end. Failed builds are rate-limited as well; they answer 500
+    and print one `status_failed` line per run of failures.
+  - The `/health` probe never parses or follows a redirect, and counts any other failure as not answering.
+  - Every reply carries the security headers. Unknown methods get 405, and versionless requests get an HTTP/1.0
+    reply. Client disconnects print nothing.
+  - Any startup error is one `monitor_failed` line.
+  - The host-check test uses `127.0.0.1.evil.example`; the test text below is updated to match.
+- Task 8: `install()` refuses a bad block before it creates any directory.
+- Task 9: the documentation corrects the brief's text against the code in many places. On Windows, the task
+  runs Python directly and is registered for the `FarmBot-Receiver` account, and a restart is checked by the
+  single process holding the monitor port.
+
 ## Global Constraints
 
 - Standard library only. Follow the existing `unittest` patterns; tests use temporary state, local fixtures and loopback listeners only.
@@ -2655,7 +2686,7 @@ class HostCheckTests(unittest.TestCase):
                        "farmbot-host.local:8780"):
             with self.subTest(header=header):
                 self.assertTrue(allowed_host(header, ("farmbot-host.local",)))
-        for header in ("evil.example", "127.0.0.1.nip.io:8780", "farmbot-host.local.evil.example", "[::1"):
+        for header in ("evil.example", "127.0.0.1.evil.example:8780", "farmbot-host.local.evil.example", "[::1"):
             with self.subTest(header=header):
                 self.assertFalse(allowed_host(header, ("farmbot-host.local",)))
         self.assertIsNone(allowed_host(None, ()))
