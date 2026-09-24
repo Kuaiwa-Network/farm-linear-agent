@@ -1,5 +1,4 @@
 """Read-only host diagnostics. Never open Ledger: its constructor migrates the DB."""
-from contextlib import closing
 import os
 import sqlite3
 import stat
@@ -8,6 +7,7 @@ import time
 from uuid import UUID
 
 from .config import Paths, load_config
+from .readonly_db import snapshot_connection
 
 
 class _SchemaMismatch(ValueError):
@@ -65,11 +65,8 @@ def _finding(report, code, hint, *, incomplete=False, **evidence):
 
 
 def _snapshot(path):
-    # mode=ro prevents creation; a transaction keeps all tables on the same snapshot.
-    with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=2)) as db:
-        db.row_factory = sqlite3.Row
-        db.execute("PRAGMA query_only=ON")
-        db.execute("BEGIN")
+    # One read transaction keeps all tables on the same snapshot; nothing here can create or migrate it.
+    with snapshot_connection(path) as db:
         tables = {row["name"] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         missing = [name for name in ("issue_checks", "job_cleanup") if name not in tables]
         columns = {row["name"] for row in db.execute("PRAGMA table_info(work_items)")}
