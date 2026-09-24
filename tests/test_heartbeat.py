@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -124,6 +125,74 @@ class HeartbeatFileTests(unittest.TestCase):
         Heartbeat(runtime="codex", clock=self.clock).write(self.path)
         state, read_back = read(self.path, now=1000.0)
         self.assertEqual((state, read_back["revision"], read_back["dirty"]), ("fresh", None, None))
+
+    def test_a_stopped_beat_reads_back_with_when_it_stopped(self):
+        beat = Heartbeat(runtime="codex", clock=self.clock)
+        self.clock.now = 1100.0
+        beat.set_phase("stopped")
+        self.clock.now = 1101.0
+        beat.write(self.path)
+        state, read_back = read(self.path, now=1110.0)
+        self.assertEqual((state, read_back["phase"], read_back["stopped_at"], read_back["written_at"]),
+                         ("fresh", "stopped", 1100.0, 1101.0))
+
+    def test_an_error_name_the_reader_would_refuse_is_written_as_error(self):
+        """The last error stays visible after recovery, so one odd name would make serve's own beat unreadable
+        until it restarts: a false heartbeat_unreadable."""
+        for name, recorded in (("错误", "Error"), ("E" * 65, "Error"), ("E" * 64, "E" * 64)):
+            with self.subTest(name=name[:8], length=len(name)):
+                beat = Heartbeat(runtime="codex", clock=self.clock)
+                beat.loop_failed("schedule", type(name, (Exception,), {})())
+                beat.write(self.path)
+                state, read_back = read(self.path, now=1000.0)
+                self.assertEqual(state, "fresh")
+                self.assertEqual(read_back["loops"]["schedule"]["error_type"], recorded)
+
+    def test_more_workers_than_the_reader_accepts_are_written_as_unknown(self):
+        Handle = namedtuple("Handle", "started_at deadline")
+        for count, published in ((heartbeat.MAX_WORKERS, heartbeat.MAX_WORKERS), (heartbeat.MAX_WORKERS + 1, None)):
+            with self.subTest(count=count):
+                running = {f"0f8fad5b-d9cb-469f-a165-{n:012d}": Handle(990.0, 29790.0) for n in range(count)}
+                Heartbeat(runtime="codex", clock=self.clock, workers=lambda running=running: running).write(self.path)
+                state, read_back = read(self.path, now=1000.0)
+                self.assertEqual(state, "fresh")
+                workers = read_back["workers"]
+                self.assertEqual(workers if workers is None else len(workers), published)
+
+    def test_the_schema_version_must_be_the_integer_one(self):
+        for version in (True, 1.0):  # both compare equal to 1
+            with self.subTest(version=version):
+                self.write(self.payload(schema_version=version))
+                self.assertEqual(read(self.path, now=1000.0), ("unreadable", None))
+        self.write(self.payload(schema_version=1))
+        self.assertEqual(read(self.path, now=1000.0)[0], "fresh")
+
+    def test_a_read_refused_with_permission_error_is_retried_once(self):
+        """On Windows a read that collides with serve's replace, or with an antivirus scan, fails this way."""
+        Heartbeat(runtime="codex", clock=self.clock).write(self.path)
+        data = self.path.read_bytes()
+        attempts = []
+
+        def refused_once(path):
+            attempts.append(time.perf_counter())
+            if len(attempts) == 1:
+                raise PermissionError("sharing violation")
+            return data
+
+        with patch("agent.heartbeat._read_worker_file", side_effect=refused_once):
+            self.assertEqual(read(self.path, now=1000.0)[0], "fresh")
+        self.assertEqual(len(attempts), 2)
+        self.assertGreaterEqual(attempts[1] - attempts[0], 0.08)  # after about 0.1 s
+        with patch("agent.heartbeat._read_worker_file", side_effect=PermissionError("sharing violation")) as refused:
+            self.assertEqual(read(self.path, now=1000.0), ("unreadable", None))
+        self.assertEqual(refused.call_count, 2)
+
+    def test_other_read_errors_are_not_retried(self):
+        for error, state in ((FileNotFoundError(), "missing"), (OSError("not a regular file"), "unreadable")):
+            with self.subTest(error=type(error).__name__):
+                with patch("agent.heartbeat._read_worker_file", side_effect=error) as failing:
+                    self.assertEqual(read(self.path, now=1000.0), (state, None))
+                self.assertEqual(failing.call_count, 1)
 
     def test_missing_and_hostile_files_are_never_healthy(self):
         self.assertEqual(read(self.path, now=1000.0), ("missing", None))

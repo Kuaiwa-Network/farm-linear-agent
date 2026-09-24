@@ -15,6 +15,9 @@ from .launcher import _read_worker_file, _write_worker_file
 SCHEMA_VERSION = 1
 INTERVAL = 5.0
 STALE_AFTER = 60.0
+# On Windows a read that collides with serve's replace, or with an antivirus scan, fails with PermissionError,
+# and so can the replace itself. The one retry of such a read, or of serve's final beat, waits this long.
+RETRY_AFTER = 0.1
 MAX_BYTES = 64 * 1024
 LOOPS = ("receive", "schedule", "pool", "lifecycle", "progress", "resource_recovery")
 PHASES = ("starting", "serving", "stopped")
@@ -80,11 +83,14 @@ class Heartbeat:
             record["consecutive_errors"] = 0
 
     def loop_failed(self, name, exc):
+        # Only a name the reader accepts. The last error stays visible after recovery, so one odd name would make
+        # serve's own beat unreadable until it restarts.
+        kind = type(exc).__name__
         with self._lock:
             record = self._loops.setdefault(name, _empty_loop())
             record["finished_at"] = record["error_at"] = self.clock()
             record["consecutive_errors"] += 1
-            record["error_type"] = type(exc).__name__
+            record["error_type"] = kind if _ERROR_TYPE.fullmatch(kind) else "Error"
 
     def webhook(self, kind, status, result):
         outcome = webhook_outcome(status, result)
@@ -103,8 +109,11 @@ class Heartbeat:
         if self._workers is None:
             return None
         try:
+            running = dict(self._workers())
+            if len(running) > MAX_WORKERS:
+                return None  # the reader refuses a longer list, so unknown instead of an unreadable beat
             return {str(item_id): {"started_at": float(handle.started_at), "deadline": float(handle.deadline)}
-                    for item_id, handle in dict(self._workers()).items()}
+                    for item_id, handle in running.items()}
         except Exception:  # a display snapshot must never stop the heartbeat thread
             return None
 
@@ -180,7 +189,9 @@ def _worker_records(raw):
 
 def validate(raw):
     """The fields the monitor uses, checked one by one; ValueError for anything else."""
-    if not isinstance(raw, dict) or raw.get("schema_version") != SCHEMA_VERSION:
+    # Exactly the integer: true and 1.0 compare equal to 1.
+    if (not isinstance(raw, dict) or type(raw.get("schema_version")) is not int
+            or raw["schema_version"] != SCHEMA_VERSION):
         raise ValueError("heartbeat schema")
     dirty = raw.get("dirty")  # null, like the revision, when Git could not say
     if raw.get("phase") not in PHASES or not (dirty is None or type(dirty) is bool):
@@ -196,10 +207,20 @@ def validate(raw):
             "webhooks": _webhooks(raw.get("webhooks")), "workers": _worker_records(raw.get("workers"))}
 
 
+def _read_bytes(path):
+    """The file's bytes, retrying once after RETRY_AFTER a read refused with PermissionError. Any other error, and
+    the retry's, is raised."""
+    try:
+        return _read_worker_file(path)
+    except PermissionError:
+        time.sleep(RETRY_AFTER)
+    return _read_worker_file(path)
+
+
 def read(path, *, now):
     """(state, beat): state is fresh, stale, missing or unreadable; beat is validate()'s result or None."""
     try:
-        data = _read_worker_file(path)
+        data = _read_bytes(path)
     except FileNotFoundError:
         return "missing", None
     except OSError:
