@@ -182,16 +182,20 @@ seven days of results. Each running job also shows its worker:
   claim.
 - 租约已过期: the lease has run out.
 
-It never shows issue descriptions, comments, checkpoints, questions, logs, paths, PIDs, tokens or raw
-errors; use `doctor` on the host for detail. There is no login: anyone who can reach the port can read
-issue identifiers, titles and job states.
+It shows a job's stage name, clamped to 120 characters, but never checkpoint contents, issue
+descriptions, comments, questions, logs, paths, PIDs, tokens or raw errors; use `doctor` on the host for
+detail. There is no login: anyone who can reach the port can read issue identifiers, titles and job
+states.
 
 The monitor reads the ledger read-only, probes the receiver's `/health` on loopback and reads
 `<local_root>/service-heartbeat.json`. `serve` rewrites that file every five seconds with its phase, loop
 timings, revision, webhook counts, and the start and deadline times of the workers it manages (never
 PIDs), so the page still reports a stopped or wedged service. A service revision that writes no heartbeat
-shows its loop rows as 此版本未提供. `/health` proves only that the receiver answers; the page is not proof
-of Linear, tunnel or Unity health beyond the signals it lists.
+shows its loop rows as 此版本未提供. After rolling back to such a revision, delete
+`<local_root>/service-heartbeat.json` once the newer `serve` has stopped. Otherwise its last heartbeat
+stays, and while the older `serve` answers `/health` the page shows 需要关注 (`heartbeat_stale`)
+indefinitely. `/health` proves only that the receiver answers; the page is not proof of Linear, tunnel or
+Unity health beyond the signals it lists.
 
 Reading a ledger while `serve` is stopped can leave SQLite's `-wal` and `-shm` side files beside it; the
 ledger itself is never modified. Run the monitor as the same account as `serve`, so those files stay
@@ -280,6 +284,12 @@ Python cleanup does not run. During a later redeploy the page therefore shows �
 (`receiver_unreachable`) while the last heartbeat is still fresh, then 正在启动 once the new `serve` writes
 its `starting` heartbeat, then its usual verdict, normally 正常. If 60 seconds pass without a heartbeat
 before the new one, it shows 无响应 in between. It never shows 已停止.
+
+A clean stop closes the receiver first and keeps writing `serving` heartbeats while the loops drain,
+which can take minutes, so the page shows 需要关注 (`receiver_unreachable`) for that time and then 已停止.
+Under launchd, `launchctl bootout` sends SIGKILL once the job's exit timeout has passed. The plists do
+not set it, so the system default applies. A drain longer than that ends without a `stopped` heartbeat,
+so the page shows 无响应 instead of 已停止 once the last heartbeat is 60 seconds old.
 
 ## Issue closure and cancelled work
 

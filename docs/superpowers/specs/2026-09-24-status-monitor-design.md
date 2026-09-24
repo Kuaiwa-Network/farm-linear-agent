@@ -117,7 +117,10 @@ top-level keys before the block is added; see Rollout.
 
 A clean shutdown closes the receiver first and keeps beating `serving` while the loops
 drain, which can take minutes. It therefore shows 需要关注 (`receiver_unreachable`) for
-the whole drain, then 已停止.
+the whole drain, then 已停止. Under launchd, `launchctl bootout` sends SIGKILL once the
+job's exit timeout has passed. The plists do not set it, so the system default applies.
+A longer drain ends without a `stopped` beat, so it shows 无响应 instead of 已停止 once
+the last beat is 60 seconds old.
 
 Until the first beat, which comes after `build()` has verified the Linear identity and
 opened the ledger (normally seconds), the file still holds the previous run's heartbeat.
@@ -269,10 +272,10 @@ Derivations:
   like a Python class name, otherwise `Error` is shown.
 
 Never emitted: config values beyond the instance fields; credentials, tokens or token
-hashes; issue descriptions, comments or labels; checkpoints, evidence prose, pending
-questions, inbox messages and worker last messages; logs and run files; raw stored
-errors; PIDs, host paths and command lines; memory notes. Deep diagnostics stay with
-`doctor` on the host.
+hashes; issue descriptions, comments or labels; checkpoint contents, of which only a
+job's stage name is shown; evidence prose, pending questions, inbox messages and worker
+last messages; logs and run files; raw stored errors; PIDs, host paths and command
+lines; memory notes. Deep diagnostics stay with `doctor` on the host.
 
 Schema tolerance: each snapshot reads `sqlite_master` and `PRAGMA table_info` first. Only
 `work_items` (`id`, `issue_id`, `skill`, `state`, `stage`, `created_at`, `updated_at`)

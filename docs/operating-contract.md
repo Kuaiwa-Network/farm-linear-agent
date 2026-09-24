@@ -558,9 +558,10 @@ side files beside a ledger whose service is stopped, which is why the monitor ru
 `serve`. It signals and inspects no processes, and makes no request other than
 `GET http://127.0.0.1:<port>/health` with proxies disabled, following no redirect. Only a 200 counts as
 answering; a 3xx, any other status and a failed request count as not answering. The JSON is an allowlist.
-It contains no descriptions, comments, checkpoints, questions, inbox or worker messages, evidence prose,
-logs, paths, PIDs, tokens, config values other than the instance's environment, ID, bot name and host, or
-raw stored errors. Older ledgers without optional tables or columns are read without migration.
+It carries a job's stage name, clamped to 120 characters, but no checkpoint contents, descriptions,
+comments, questions, inbox or worker messages, evidence prose, logs, paths, PIDs, tokens, config values
+other than the instance's environment, ID, bot name and host, or raw stored errors. Older ledgers without
+optional tables or columns are read without migration.
 
 `serve` writes `<local_root>/service-heartbeat.json` by replacement:
 - when it starts, with phase `starting`, before slot preparation;
@@ -578,6 +579,11 @@ stopped heartbeat's loops show only their last recorded times, in a neutral tone
 `PermissionError`, as on Windows when it collides with the replace, is retried once after 0.1 seconds. A
 worker able to write the state root could forge the heartbeat, so `/health` remains an independent
 signal.
+
+A revision that writes no heartbeat never replaces the file. After rolling back to such a revision,
+delete `<local_root>/service-heartbeat.json` once the newer `serve` has stopped. Otherwise its last
+heartbeat stays, and while the older `serve` answers `/health` the page shows 需要关注
+(`heartbeat_stale`) indefinitely.
 
 A running job's worker is shown with the first state that applies:
 
@@ -610,4 +616,7 @@ writes its `starting` heartbeat, then its usual verdict, normally 正常. If 60 
 heartbeat in between, it shows 无响应 until the `starting` heartbeat arrives. It never shows 已停止: only a
 clean shutdown writes the `stopped` heartbeat. A clean shutdown closes the receiver first and writes
 `serving` heartbeats until its loops have drained, which can take minutes, so it shows 需要关注
-(`receiver_unreachable`) for that whole time and then 已停止.
+(`receiver_unreachable`) for that whole time and then 已停止. Under launchd, `launchctl bootout` sends
+SIGKILL once the job's exit timeout has passed. The plists do not set it, so the system default applies.
+A drain longer than that ends without a `stopped` heartbeat, so the page shows 无响应 instead of 已停止
+once the last heartbeat is 60 seconds old.
