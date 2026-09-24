@@ -6,12 +6,13 @@ import json
 import shutil
 import signal
 import threading
+import time
 from pathlib import Path
 
 from .config import Paths, configure, linear_api, load_config, ROOT
 from .deploy import install, missing_tools
 from .environment import ControllerGuard, check_ownership, validate_runtime
-from .heartbeat import Heartbeat, INTERVAL as HEARTBEAT_INTERVAL, source_revision
+from .heartbeat import Heartbeat, INTERVAL as HEARTBEAT_INTERVAL, RETRY_AFTER as HEARTBEAT_RETRY, source_revision
 from .launcher import RUNTIMES, Launcher
 from .ledger import Ledger
 from .lifecycle import Lifecycle
@@ -173,20 +174,38 @@ def serve(config_path=None, components=None):
 
 def _serve(components):
     stop = threading.Event()
+    # The beats' own event, set only once the loop threads have joined. Draining can take minutes, and beats that
+    # stopped with the loops would age into 无响应 on the monitor during a clean shutdown.
+    beat_stop = threading.Event()
     heartbeat = Heartbeat(runtime=components.launcher.runtime.name, revision=source_revision(ROOT),
                           workers=components.launcher.running)
     heartbeat_path = Paths(components.config).heartbeat
     # The receiver's handler counts each /webhook outcome into it (receiver.make_server).
     components.server.heartbeat = heartbeat
+    beat_lock = threading.Lock()
+    beat_failing = False
 
     def beat():
-        try:
-            heartbeat.write(heartbeat_path)
-        except Exception:  # any failure is skipped, not only OSError: a writer failure never stops serving
-            pass  # a skipped beat shows on the monitor as age, never as a stopped service
+        """Write one beat; True when it was written. Any failure is skipped, not only OSError: a writer failure
+        never stops serving, and a skipped beat shows on the monitor as age, never as a stopped service. One
+        heartbeat_error line marks the start of each run of failed writes, so a persistent failure is logged once."""
+        nonlocal beat_failing
+        with beat_lock:  # one beat at a time, so the log follows the order of the writes
+            try:
+                heartbeat.write(heartbeat_path)
+            except Exception as exc:
+                if not beat_failing:
+                    beat_failing = True
+                    try:
+                        print(json.dumps({"event": "heartbeat_error", "error": type(exc).__name__}), flush=True)
+                    except Exception:
+                        pass  # the line is best effort too: it must never raise out of a beat
+                return False
+            beat_failing = False
+            return True
 
     def beat_loop():
-        while not stop.wait(HEARTBEAT_INTERVAL):
+        while not beat_stop.wait(HEARTBEAT_INTERVAL):
             beat()
 
     def guarded(name, work):
@@ -282,10 +301,15 @@ def _serve(components):
                     # Keep the root lock and DB connections until all controller
                     # mutations have stopped, even when an operation drains slowly.
                     thread.join()
+            beat_stop.set()
             if beat_thread.ident is not None:
                 beat_thread.join()
             heartbeat.set_phase("stopped")
-            beat()
+            # The one beat no later beat repairs, so only it is retried: a Windows sharing violation would
+            # otherwise leave the monitor on 无响应 instead of 已停止.
+            if not beat():
+                time.sleep(HEARTBEAT_RETRY)
+                beat()
             components.receiver.close()
             components.ledger.close()
             components.pool.close()
@@ -296,6 +320,7 @@ def _serve(components):
             if components.recovery is not None:
                 components.recovery.close()
         finally:
+            beat_stop.set()  # also when a join or close raised, so the beat thread stops with serve
             if main_thread:
                 signal.signal(signal.SIGTERM, previous_sigterm)
 
