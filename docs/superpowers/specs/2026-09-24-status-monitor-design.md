@@ -92,14 +92,15 @@ Changes to existing code:
 | Key | Default | Rule |
 |---|---|---|
 | `bind` | `127.0.0.1` | An IPv4 literal; no DNS lookup at startup. Exposing the page on the LAN means explicitly setting `0.0.0.0` or the host's LAN address |
-| `port` | `8780` | An integer from 1 to 65535, different from the receiver `port`, so the tunnel never carries the monitor. This is checked when the config loads if the block is present, even without `port`, and again by the monitor when it starts |
+| `port` | `8780` | An integer from 1 to 65535, different from the receiver `port`, so the tunnel never carries the monitor. The monitor checks this when it starts, even if the block is absent |
 | `hostnames` | `[]` | At most 16 lowercase DNS names that the `Host` header may carry besides IP literals and `localhost` |
 
-Unknown keys inside the block are rejected. A misspelled key would otherwise silently
-keep loopback or make every request fail the host check. `serve` and workers never read
-the block. Editing it requires restarting only the monitor, and the shared-config
-restart rule does not apply to it. Production's older revision must still be checked
-to ignore unknown top-level keys before the block is added; see Rollout.
+The monitor rejects unknown keys inside the block when it starts. A misspelled key would
+otherwise silently keep loopback or make every request fail the host check. `serve` and
+workers neither read nor validate the block, so editing it requires restarting only the
+monitor, and a mistake in it stops only the monitor. The shared-config restart rule does
+not apply to it. Production's older revision must still be checked to ignore unknown
+top-level keys before the block is added; see Rollout.
 
 ## Heartbeat
 
@@ -351,8 +352,9 @@ Each step needs its own authorization. Merging deploys nothing.
       is the checkout running the command. If it has none, add exactly the path
       production already uses. From the monitor directory, `doctor --config` must then
       report production's actual ledger path.
-   4. Add the `monitor` block and validate the edited file with `doctor`, since a JSON
-      error would break every new worker's config load. Production needs no restart.
+   4. Add the `monitor` block and check the edited file with `doctor`, since a JSON
+      error would break every new worker's config load. Then run the monitor once so
+      it validates the block. Production needs no restart.
    5. Create the firewall rule and the scheduled task.
    6. From another office machine, check that the page loads and its jobs match
       `doctor`.

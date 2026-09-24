@@ -13,8 +13,9 @@ from .linear_api import LinearAPI
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = ROOT / ".local" / "agent" / "config.json"
 REQUIRED = ("client_id", "client_secret", "webhook_secret")
-# The status monitor's listener. Loopback unless a host config opts into the office LAN; serve and workers
-# never read this block, so editing it needs a monitor restart only.
+# The status monitor's listener: loopback unless a host config opts into the office LAN. Serve and workers
+# neither read nor validate this block; the monitor validates it when it starts (monitor_settings), so a
+# mistake in it stops only the monitor, and editing it needs a monitor restart only.
 MONITOR_DEFAULTS = {"bind": "127.0.0.1", "port": 8780, "hostnames": ()}
 # One DNS name: dot-separated labels of lowercase letters, digits and inner hyphens.
 _HOSTNAME = re.compile(r"(?=.{1,253}\Z)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*")
@@ -78,36 +79,32 @@ class Config:
             if "reasoning_effort" in settings and settings["reasoning_effort"] not in (
                     "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"):
                 raise ValueError("invalid codex worker reasoning_effort")
-        self._validate_monitor()
-
-    def _validate_monitor(self):
-        if not isinstance(self.monitor, dict) or set(self.monitor) - set(MONITOR_DEFAULTS):
-            raise ValueError("monitor accepts bind, port and hostnames only")
-        bind = self.monitor.get("bind", MONITOR_DEFAULTS["bind"])
-        try:
-            valid = isinstance(bind, str) and str(ipaddress.IPv4Address(bind)) == bind
-        except ValueError:
-            valid = False
-        if not valid:
-            raise ValueError("monitor.bind must be an IPv4 address such as 127.0.0.1 or 0.0.0.0")
-        port = self.monitor.get("port", MONITOR_DEFAULTS["port"])
-        # Only a present block is compared with the receiver's port, its default included: serve and workers
-        # never read the block, so a config without one must keep loading whatever its receiver port.
-        if type(port) is not int or not 1 <= port <= 65535 or (self.monitor and port == self.port):
-            raise ValueError("monitor.port must be a TCP port other than the receiver's")
-        hostnames = self.monitor.get("hostnames", [])
-        if (not isinstance(hostnames, list) or len(hostnames) > 16
-                or any(not isinstance(name, str) or not _HOSTNAME.fullmatch(name) for name in hostnames)):
-            raise ValueError("monitor.hostnames must list at most 16 lowercase DNS names")
 
 
 def monitor_settings(config):
-    """The monitor's listener with defaults applied; Config has already validated the block.
+    """The monitor's listener with defaults applied, or ValueError for a block it cannot use.
 
-    A config without a block is not compared with the receiver's port, so whoever binds must check it."""
-    settings = {**MONITOR_DEFAULTS, **config.monitor}
-    settings["hostnames"] = tuple(settings["hostnames"])
-    return settings
+    This is the block's only validator, and only the monitor calls it: a mistake in the block must never stop
+    serve or a worker loading its config."""
+    block = config.monitor
+    if not isinstance(block, dict) or set(block) - set(MONITOR_DEFAULTS):
+        raise ValueError("monitor accepts bind, port and hostnames only")
+    bind = block.get("bind", MONITOR_DEFAULTS["bind"])
+    try:
+        valid = isinstance(bind, str) and str(ipaddress.IPv4Address(bind)) == bind
+    except ValueError:
+        valid = False
+    if not valid:
+        raise ValueError("monitor.bind must be an IPv4 address such as 127.0.0.1 or 0.0.0.0")
+    port = block.get("port", MONITOR_DEFAULTS["port"])
+    # The default counts too: a receiver on 8780 with no block would otherwise hand the monitor its own port.
+    if type(port) is not int or not 1 <= port <= 65535 or port == config.port:
+        raise ValueError("monitor.port must be a TCP port other than the receiver's")
+    hostnames = block.get("hostnames", [])
+    if (not isinstance(hostnames, list) or len(hostnames) > 16
+            or any(not isinstance(name, str) or not _HOSTNAME.fullmatch(name) for name in hostnames)):
+        raise ValueError("monitor.hostnames must list at most 16 lowercase DNS names")
+    return {"bind": bind, "port": port, "hostnames": tuple(hostnames)}
 
 
 class Paths:
