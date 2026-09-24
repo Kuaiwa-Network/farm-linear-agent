@@ -136,6 +136,22 @@ class DeployTests(unittest.TestCase):
                           local_root=self.root / "dev", expected_app_user_id="app", expected_organization_id="org")
         self.assertIn("com.kuaiwa.farmbot.development.mac-dev.monitor", install(profile, target))
 
+    def test_launchd_retries_a_refused_monitor_once_a_minute_and_the_other_agents_keep_its_default(self):
+        """A monitor that refuses its block or port exits at once. launchd starts a KeepAlive job again after 10 s by
+        default, and each start appends a monitor_failed line to a log that is never rotated."""
+        target = self.root / "LaunchAgents"
+        configured = replace(self.config, monitor={"port": 8780})
+        profile = replace(configured, environment="development", instance_id="mac-dev", local_root=self.root / "dev",
+                          expected_app_user_id="app", expected_organization_id="org")
+        for loaded, prefix in ((configured, "com.kuaiwa.farmbot"), (profile, "com.kuaiwa.farmbot.development.mac-dev")):
+            with self.subTest(prefix=prefix):
+                written = install(loaded, target, python="/usr/bin/python3", cloudflared="/usr/bin/cloudflared")
+                jobs = {label: plistlib.loads(path.read_bytes()) for label, path in written.items()}
+                self.assertEqual(sorted(jobs), sorted(f"{prefix}.{kind}" for kind in ("serve", "tunnel", "monitor")))
+                self.assertEqual(jobs[f"{prefix}.monitor"].get("ThrottleInterval"), 60)
+                for kind in AGENTS:
+                    self.assertNotIn("ThrottleInterval", jobs[f"{prefix}.{kind}"])
+
     def test_a_block_the_monitor_would_refuse_stops_the_whole_install(self):
         target = self.root / "LaunchAgents"
         with self.assertRaises(ValueError):
