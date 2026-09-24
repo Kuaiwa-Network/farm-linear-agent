@@ -27,6 +27,20 @@ python3 -m agent.service doctor                    # read-only JSON diagnostics 
 python3 -m agent --db .local/agent/ledger.sqlite3 status
 ```
 
+On the installed Windows production host, reload the revision already checked out
+after work has settled with one PowerShell command:
+
+```powershell
+.\scripts\redeploy-farmbot.ps1
+```
+
+The helper checks the production ledger for active work and reservations, verifies
+the receiver process belongs to this installation, then lets its scheduled
+supervisor restart it. It waits for a new receiver PID and HTTP health 200.
+`-CheckOnly` performs the checks without restarting. The helper does not fetch
+or select a Git revision; update the checkout to a tested commit before using it
+for a code release.
+
 Before the first `serve` on a new host: point the Linear app's webhook at a tunnel to port 8765
 (`cloudflared tunnel --url http://127.0.0.1:8765`), run `python3 -m agent.service seed-clones --from ~/WorkSpaces/Farm`
 so the bare clones exist before the first launch instead of being fetched inside a scheduler tick, and on a
@@ -75,6 +89,28 @@ Each new or resumed worker receives the default settings, merged with any
 per-skill override, in its isolated Codex home. Claude workers are unaffected.
 The model must be available to the host's account. This setting does
 not change `max_concurrent` or the number of configured Unity slots.
+
+To give workers kw_ops, the test environment's GM backend, add its location to the private config
+and put the token only in the controller's environment:
+
+```json
+"kw_ops": {"url": "https://<gm-host>/mcp", "token_env": "KW_OPS_TOKEN"}
+```
+
+Use HTTPS for a remote kw_ops server; HTTP is accepted only for loopback addresses.
+An existing remote HTTP URL must be changed to HTTPS before restarting on this revision.
+Configure kw_ops only when every target it lists is a test server, using a kw_ops operator whose
+permissions cover only test servers; FarmBot does not scope servers. Export the variable in the
+wrapper that starts `serve`, never in a shell startup file such as `~/.zshenv`: FarmBot removes or
+excludes it only from the environment a worker inherits, and worker shells may source startup
+files. `install-launchd` writes only `PATH` and `HOME` into its plists, so it cannot carry the
+variable; never add the token to a plist's `EnvironmentVariables`, where workers can read it.
+Instead, start a kw_ops controller through that wrapper yourself, as the
+[development workflow](docs/development-workflow.md) does for TestBot. Codex fix workers then get
+every kw_ops tool and chat workers its query tools; Claude workers get none. FarmBot learns the
+variable's name only from the block, so add the block and the export together, and remove them
+together: an export without the block reaches every worker. `doctor` shows whether kw_ops is
+configured and whether the variable is set in doctor's own environment.
 
 ## AI/operator diagnostics
 

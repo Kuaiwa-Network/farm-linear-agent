@@ -9,13 +9,14 @@ import threading
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from agent.launcher import Finished, Handle, Launcher, RUNTIMES
 from agent.ledger import Ledger
 from agent.scheduler import Scheduler
 from agent.skills import load_skills
 from agent.slots import SlotPool, slot_entry
+from agent import kw_ops
 from test_ledger import ISSUE, OTHER, PIN, SESSION, comment, issue
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -705,9 +706,102 @@ class SchedulerTests(unittest.TestCase):
                                                       str(cwd.resolve()): {"trust_level": "untrusted"}})
         launcher.poll()
 
+    KW_OPS = {"url": "https://gm.test/mcp", "token_env": "KW_OPS_TOKEN"}
+
+    def launched(self, launcher, item):
+        """Launch through a real Launcher and return (home config, launch payload, handle)."""
+        import tomllib
+        handle = self.scheduler.launch(self.ledger.item(item["id"]))
+        self.addCleanup(launcher.stop, item["id"])
+        handle.process.wait(timeout=10)
+        launcher.poll()
+        home = handle.run_dir / "home"
+        config = (tomllib.loads((home / "config.toml").read_text(encoding="utf-8"))
+                  if (home / "config.toml").exists() else None)
+        payload = json.loads((handle.run_dir / "prompt.md").read_text(encoding="utf-8").split("\n\n", 1)[1])
+        return config, payload, handle
+
+    def codex_with_kw_ops(self):
+        runtime = RUNTIMES["codex"]._replace(command=RUNTIMES["fake"].command, seed_files={})
+        launcher = Launcher(Path(self.tmp.name) / "real-runs", runtime, "h")
+        self.scheduler.launcher = launcher
+        self.scheduler.runtime_name = "codex"
+        self.scheduler.kw_ops_config = dict(self.KW_OPS)
+        return launcher
+
+    def test_a_codex_fix_worker_gets_every_kw_ops_tool_and_the_token_only_by_name(self):
+        launcher = self.codex_with_kw_ops()
+        with patch.dict(os.environ, {"KW_OPS_TOKEN": "dummy-token-value"}):
+            config, payload, handle = self.launched(launcher, self.item())
+        self.assertEqual(config["mcp_servers"]["kw_ops"],
+                         {"url": "https://gm.test/mcp", "bearer_token_env_var": "KW_OPS_TOKEN"})
+        self.assertEqual(payload["tools"], {"kw_ops": {"access": "full"}})
+        self.assertEqual(config["shell_environment_policy"], {"exclude": ["KW_OPS_TOKEN"]})
+        for path in handle.run_dir.rglob("*"):
+            if path.is_file():
+                self.assertNotIn("dummy-token-value", path.read_text(encoding="utf-8", errors="replace"), path)
+
+    def test_a_codex_chat_worker_gets_only_the_kw_ops_query_tools(self):
+        launcher = self.codex_with_kw_ops()
+        chat = self.item(issue_id=OTHER, session="chat-session", skill="chat")
+        with patch.dict(os.environ, {"KW_OPS_TOKEN": "dummy-token-value"}):
+            config, payload, _ = self.launched(launcher, chat)
+        self.assertEqual(config["mcp_servers"]["kw_ops"]["enabled_tools"], list(kw_ops.READ_TOOLS))
+        self.assertEqual(payload["tools"], {"kw_ops": {"access": "read"}})
+
+    def test_without_the_token_variable_no_server_is_injected_and_the_worker_is_told_why(self):
+        launcher = self.codex_with_kw_ops()
+        with patch.dict(os.environ, {"KW_OPS_TOKEN": ""}):
+            config, payload, _ = self.launched(launcher, self.item())
+        self.assertNotIn("kw_ops", config.get("mcp_servers", {}))
+        self.assertEqual(payload["tools"]["kw_ops"]["status"], "unavailable")
+        self.assertIn("KW_OPS_TOKEN", payload["tools"]["kw_ops"]["reason"])
+
+    def test_a_worker_denied_kw_ops_does_not_inherit_its_token(self):
+        # Braces are doubled: spawn formats every command part.
+        script = ("import json,os,pathlib,sys;sys.stdin.read();"
+                  "pathlib.Path(sys.argv[1]).write_text(json.dumps({{'token': os.environ.get('KW_OPS_TOKEN')}}))")
+        runtime = RUNTIMES["claude"]._replace(command=[sys.executable, "-c", script, "{last_message}"])
+        launcher = Launcher(Path(self.tmp.name) / "real-runs", runtime, "h")
+        self.scheduler.launcher = launcher
+        self.scheduler.runtime_name = "claude"
+        self.scheduler.kw_ops_config = dict(self.KW_OPS)
+        chat = self.item(skill="chat")
+        with patch.dict(os.environ, {"KW_OPS_TOKEN": "dummy-token-value"}):
+            _, payload, handle = self.launched(launcher, chat)
+        self.assertEqual(json.loads((handle.run_dir / "last_message.txt").read_text(encoding="utf-8")),
+                         {"token": None})
+        self.assertIn("claude", payload["tools"]["kw_ops"]["reason"])
+        servers = json.loads((handle.run_dir / "home" / "mcp.json").read_text(encoding="utf-8"))["mcpServers"]
+        self.assertNotIn("kw_ops", servers)
+
+    def test_a_codex_kw_ops_worker_keeps_the_token_variable_for_its_cli(self):
+        # Braces are doubled: spawn formats every command part. Only the variable's presence is recorded.
+        script = ("import json,os,pathlib,sys;sys.stdin.read();"
+                  "pathlib.Path(sys.argv[1]).write_text(json.dumps({{'present': bool(os.environ.get('KW_OPS_TOKEN'))}}))")
+        runtime = RUNTIMES["codex"]._replace(command=[sys.executable, "-c", script, "{last_message}"], seed_files={})
+        launcher = Launcher(Path(self.tmp.name) / "real-runs", runtime, "h")
+        self.scheduler.launcher = launcher
+        self.scheduler.runtime_name = "codex"
+        self.scheduler.kw_ops_config = dict(self.KW_OPS)
+        with patch.dict(os.environ, {"KW_OPS_TOKEN": "dummy-token-value"}):
+            _, payload, handle = self.launched(launcher, self.item())
+        self.assertEqual(payload["tools"], {"kw_ops": {"access": "full"}})
+        self.assertEqual(json.loads((handle.run_dir / "last_message.txt").read_text(encoding="utf-8")),
+                         {"present": True})
+
+    def test_an_unconfigured_host_injects_nothing_and_says_so(self):
+        launcher = self.codex_with_kw_ops()
+        self.scheduler.kw_ops_config = {}
+        with patch.dict(os.environ, {"KW_OPS_TOKEN": "dummy-token-value"}):
+            config, payload, _ = self.launched(launcher, self.item())
+        self.assertNotIn("kw_ops", config.get("mcp_servers", {}))
+        self.assertIn("not configured", payload["tools"]["kw_ops"]["reason"])
+
     def test_an_item_with_no_reservation_is_launched_with_no_tools_and_no_resource_block(self):
         """Enforcement is tool injection (spec §7): a fix worker that holds no slot must not reach the Unity
-        MCP, and the manifest's own `resources`/`mcp` fields must never be what decides that."""
+        MCP, and for a reservation-bound server such as that one the manifest's own `resources`/`mcp`
+        fields must never be what decides that."""
         self.waiting_item(mode="interactive")   # queued, never acquired: this item holds nothing
         self.item(issue_id=OTHER, session="s2", identifier="FARM-2")
         self.scheduler.tick()

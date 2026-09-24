@@ -159,6 +159,8 @@ existing production data or copy its marker.
      can wrap across terminal lines, and a one-line paste saves only part of it;
      test it with an empty `CLAUDE_CONFIG_DIR` before use. Copying Keychain
      credentials or `~/.claude.json` does not work.
+   - kw_ops reaches Codex workers only. Export the profile's `token_env` variable in the wrapper
+     that starts `serve`, never in the profile itself.
 5. **Endpoint.** Run
    `cloudflared tunnel --url http://127.0.0.1:<port> --no-autoupdate --protocol http2`.
    A quick tunnel's hostname changes on every restart and FarmBot never learns it,

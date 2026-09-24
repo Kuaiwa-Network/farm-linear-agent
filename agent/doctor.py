@@ -136,6 +136,11 @@ def diagnose(config, *, now=None):
     paths = Paths(config)
     report.update(host=config.host, ledger=str(paths.ledger),
                   service_logs=str(paths.config_dir / "logs"))
+    # Doctor sees its own environment, not the running controller's, and never reports the token itself.
+    kw_ops = config.kw_ops
+    report["tools"] = {"kw_ops": ({"configured": True, "token_env": kw_ops["token_env"],
+                                   "token_set_in_doctor_environment": bool(os.environ.get(kw_ops["token_env"], "").strip())}
+                                  if kw_ops else {"configured": False})}
     try:
         report.update(_snapshot(paths.ledger))
     except (OSError, sqlite3.Error, ValueError) as exc:

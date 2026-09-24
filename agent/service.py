@@ -40,7 +40,8 @@ def build(config, runtime_override=None):
     skills = load_skills(ROOT / "skills")
     worktrees = Worktrees(paths.repos, paths.worktrees, config.repos)
     runtime = RUNTIMES[runtime_override or config.runtime]
-    launcher = Launcher(paths.runs, runtime, config.host)
+    token_env = config.kw_ops.get("token_env")
+    launcher = Launcher(paths.runs, runtime, config.host, token_env=token_env)
     ledger = Ledger(paths.ledger, check_same_thread=False)
     # One list of entries, read by both: the pool switches and runs the slots it describes, and the
     # scheduler tells the worker which -buildTarget that slot was switched to.
@@ -51,6 +52,7 @@ def build(config, runtime_override=None):
                           config_path=config.source_path,
                           issue_prefix=config.issue_prefix,
                           bot_name=config.expected_bot_name,
+                          kw_ops=config.kw_ops,
                           slot_entries={entry["id"]: entry for entry in entries},
                           guidance_for=lambda item: (ledger.session(item["session_id"]) or {}).get("guidance") or "",
                           api=api, control_ledger_factory=lambda: Ledger(paths.ledger),
@@ -80,11 +82,14 @@ def build(config, runtime_override=None):
                     # The one process FarmBot starts outside the worker seatbelt, and the pool is what
                     # composes its argv: Unity cannot run inside sandbox_workspace_write at all.
                     run_unsandboxed=launcher.run_unsandboxed,
-                    mcp=UnityIdentity(ROOT / "agent" / "probes" / "editor-readiness.cs.txt"))
+                    mcp=UnityIdentity(ROOT / "agent" / "probes" / "editor-readiness.cs.txt",
+                                      token_env=token_env))
     progress = SessionProgress(Ledger(paths.ledger, check_same_thread=False), api)
     recovery_ledger = Ledger(paths.ledger, check_same_thread=False)
     recovery_pool = SlotPool(recovery_ledger, worktrees, entries, host=config.host, editors_root=paths.editors,
-                            state_dir=launcher.state_dir, mcp=UnityIdentity(ROOT / 'agent' / 'probes' / 'editor-readiness.cs.txt'),
+                            state_dir=launcher.state_dir,
+                            mcp=UnityIdentity(ROOT / 'agent' / 'probes' / 'editor-readiness.cs.txt',
+                                              token_env=token_env),
                             editor_pid=lambda folder: editor_holds_project(folder, strict=True))
     recovery = RecoveryController(recovery_ledger, recovery_pool, host=config.host,
                                   evidence_root=paths.config_dir / 'resource-recovery',

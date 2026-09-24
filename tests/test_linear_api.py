@@ -1,6 +1,8 @@
 import io
 import json
 import unittest
+import urllib.error
+from unittest.mock import patch
 
 from agent.linear_api import LinearAPI, strip_signed
 
@@ -19,7 +21,10 @@ class FakeHTTP:
         if req.full_url.endswith("/oauth/token"):
             return io.BytesIO(json.dumps({"access_token": "tok", "expires_in": 3600}).encode())
         name = body["query"].split("{")[0].split()[1].split("(")[0]
-        return io.BytesIO(json.dumps(self.answers[name].pop(0)).encode())
+        answer = self.answers[name].pop(0)
+        if isinstance(answer, BaseException):
+            raise answer
+        return io.BytesIO(json.dumps(answer).encode())
 
 
 def issue_page(cursor, has_next, comments):
@@ -142,6 +147,34 @@ class LinearAPITests(unittest.TestCase):
         issue = api.fetch_issue("FARM-1")
         self.assertEqual([c["author_kind"] for c in issue["comments"]], ["bot"])
         self.assertEqual([c[0].rsplit("/", 1)[-1] for c in self.http.calls][:2], ["token", "graphql"])
+
+    def test_fetch_issue_retries_only_the_timed_out_page(self):
+        api = self.api({"FarmBotIssue": [issue_page("next", True, []),
+                                           urllib.error.URLError(TimeoutError("read timed out")),
+                                           issue_page(None, False, [])]})
+        api.app_user_id, api.token, api.expires = APP, "tok", float("inf")
+        with patch("agent.linear_api.time.sleep") as sleep:
+            self.assertEqual(api.fetch_issue("FARM-1")["identifier"], "FARM-1")
+        self.assertEqual([call[2]["variables"]["after"] for call in self.http.calls], [None, "next", "next"])
+        sleep.assert_called_once_with(0.25)
+
+    def test_fetch_issue_stops_after_three_timeouts(self):
+        api = self.api({"FarmBotIssue": [TimeoutError("slow")] * 3})
+        api.app_user_id, api.token, api.expires = APP, "tok", float("inf")
+        with patch("agent.linear_api.time.sleep") as sleep:
+            with self.assertRaises(TimeoutError):
+                api.fetch_issue("FARM-1")
+        self.assertEqual(len(self.http.calls), 3)
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_fetch_issue_does_not_retry_unrelated_network_errors(self):
+        api = self.api({"FarmBotIssue": [urllib.error.URLError("certificate failure")]})
+        api.app_user_id, api.token, api.expires = APP, "tok", float("inf")
+        with patch("agent.linear_api.time.sleep") as sleep:
+            with self.assertRaises(urllib.error.URLError):
+                api.fetch_issue("FARM-1")
+        self.assertEqual(len(self.http.calls), 1)
+        sleep.assert_not_called()
 
     def test_strip_signed_removes_upload_query_only(self):
         self.assertEqual(strip_signed("https://uploads.linear.app/a/b?signature=1&x=2"), "https://uploads.linear.app/a/b")

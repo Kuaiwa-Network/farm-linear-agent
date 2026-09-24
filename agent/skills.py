@@ -3,6 +3,8 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 
+from .kw_ops import GRANTS
+
 TRIGGERS = ("delegation", "mention")
 REQUIRED = ("name", "trigger", "intents", "writes", "resources", "gates", "mcp", "budget")
 BUDGET_KEYS = ("lease_seconds", "max_hours", "renew_minutes")
@@ -43,6 +45,9 @@ def _load_one(directory):
     for key in ("trigger", "intents", "writes", "resources", "gates", "mcp"):
         if not isinstance(manifest[key], list) or not all(isinstance(v, str) and v for v in manifest[key]):
             raise SkillError(f"{manifest_path}: {key} must be a list of strings")
+    unknown = [grant for grant in manifest["mcp"] if grant not in GRANTS]
+    if unknown:
+        raise SkillError(f"{manifest_path}: unknown mcp grant {unknown[0]!r}")
     if not manifest["trigger"] or not set(manifest["trigger"]) <= set(TRIGGERS):
         raise SkillError(f"{manifest_path}: trigger must be a nonempty subset of {TRIGGERS}")
     budget = manifest["budget"]
