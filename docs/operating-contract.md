@@ -519,3 +519,73 @@ Missing initial Unity target pins remain recorded verification gaps, not publica
 Publication retries reuse preserved worktrees without an origin fetch. Their allowance counts
 launched attempts; a failed host Linear delegation preflight keeps the job queued under the
 existing lifecycle backoff without consuming another worker attempt.
+
+## Status monitor
+
+`python3 -m agent.service monitor` serves a read-only Chinese status page and `/api/status` JSON for one
+instance, as a separate process on the host running `serve`. It binds the config's `monitor.bind`
+(default `127.0.0.1`) and `monitor.port` (default 8780, never the receiver's port). It serves only `GET`
+and `HEAD`, answering other methods with 405, and only when the `Host` header is an IP literal,
+`localhost` or a configured `monitor.hostnames` entry; other hosts get 421, and a request without a
+`Host` header gets 400. There is no authentication. Exposing it beyond loopback is an explicit
+configuration choice, and anyone who can reach it can read issue identifiers, titles, job, worker and
+slot states and PR links. Only the monitor and `install-launchd` validate the `monitor` block; `serve`
+and workers neither read nor validate it. `install-launchd` writes a monitor agent only for a non-empty
+block that passes that validation, and never removes one.
+
+At startup the command prints one JSON line, `monitor_ready`, once it listens. Any startup problem
+instead makes it exit 1 with one `monitor_failed` JSON line: an unreadable config, an ownership
+mismatch, a `monitor` block it cannot use, a port equal to the receiver's or already in use, or any other
+error.
+
+It opens the ledger with SQLite `mode=ro` and `query_only`, never constructs `Ledger` and never takes the
+controller lock. It writes no FarmBot file or ledger row; SQLite can leave its `-wal`/`-shm` side files
+beside a ledger whose service is stopped, which is why the monitor runs as the same account as `serve`. It
+signals and inspects no processes, and makes no request other than `GET http://127.0.0.1:<port>/health`
+with proxies disabled, following no redirect. Only a 200 counts as answering; a 3xx, any other status
+and a failed request count as not answering. The JSON is an allowlist. It contains no descriptions,
+comments, checkpoints, questions, inbox or worker messages, evidence prose, logs, paths, PIDs, tokens,
+config values other than the instance's environment, ID, bot name and host, or raw stored errors. Older
+ledgers without optional tables or columns are read without migration.
+
+`serve` writes `<local_root>/service-heartbeat.json` by replacement:
+- when it starts, with phase `starting`, before slot preparation;
+- every five seconds, with phase `serving` once its loops run;
+- on clean shutdown, after its loops have stopped, with phase `stopped`.
+
+The heartbeat records each loop's work timing and consecutive errors, the revision, in-memory webhook
+outcome counts, and the worker processes the launcher is managing, as start and budget-deadline times
+only. A failed write is skipped and never affects serving. The monitor reads the file as untrusted data
+(a regular file, at most 64 KiB, validated) and treats it as stale once it is 60 seconds old. A worker
+able to write the state root could forge it, so `/health` remains an independent signal.
+
+A running job's worker is shown with the first state that applies:
+
+| State | When |
+|---|---|
+| 租约已过期 | The job's lease has run out |
+| 未被服务跟踪 | A fresh `serving` heartbeat lists no worker for the job, more than 30 seconds after its claim |
+| 续约逾期 | More than 1.5 times its skill's `renew_minutes` have passed since its last lease renewal or claim |
+| worker 运行中 | None of the above |
+
+The first three raise attention.
+
+The verdict is the first that applies:
+
+| Verdict | Meaning |
+|---|---|
+| 未知 | The ledger cannot be read |
+| 已停止 | A stopped heartbeat and no `/health` |
+| 正在启动 | A fresh heartbeat with phase `starting` |
+| 无响应 | No `/health` and no fresh heartbeat |
+| 需要关注 | A half-alive service, erroring or overlong loops, recent webhook rejections, held or orphaned slots, expired leases, overdue or untracked workers, cleanup still pending 10 minutes or more after a job finished, repeated Linear status failures, or a reservation cancellation unsettled for 5 minutes or more |
+| 正常 | None of the above |
+
+A verdict is evidence about these checks only, not proof that Linear, the tunnel or Unity work.
+
+`scripts/redeploy-farmbot.ps1` stops the Windows receiver with `Process.Kill()`, so no `stopped`
+heartbeat is written and Python cleanup does not run. During a redeploy the page shows 需要关注
+(`receiver_unreachable`) while the last heartbeat is still fresh, then 正在启动 once the new `serve`
+writes its `starting` heartbeat, then its usual verdict, normally 正常. If 60 seconds pass without a
+heartbeat in between, it shows 无响应 until the `starting` heartbeat arrives. It never shows 已停止: only a
+clean shutdown writes the `stopped` heartbeat.

@@ -145,7 +145,8 @@ existing production data or copy its marker.
    - `repos` naming the real Kuaiwa-Network remotes, as in the template;
    - `slots: []` until a development Unity slot exists inside `local_root`.
 
-   Unknown keys are silently ignored, so check their spelling.
+   Unknown top-level keys are silently ignored, so check their spelling. Inside the
+   `monitor` block, the monitor refuses them.
 3. **Git and GitHub.** The instance uses the host's ambient Git and `gh` login, as
    production does; the real repositories need no dedicated token. Workers inherit
    that login and its write access.
@@ -185,6 +186,14 @@ existing production data or copy its marker.
    only `PATH` and `HOME` into its plists, so it would drop those variables.
    `GET /health` only proves the handler answers; an unsigned `POST /webhook`
    returning 401 `invalid signature` shows that the tunnel reaches the receiver.
+
+   To watch TestBot from another device on the office network, set the profile's
+   `monitor` block to `{"bind": "0.0.0.0", "port": 8781}` (the template's binds
+   loopback only) and run
+   `python3 -m agent.service monitor --config /absolute/profile.json` beside the
+   controller; see the README's office status monitor section. macOS may ask
+   whether Python may accept incoming connections. Edit the profile with a command
+   that prints nothing from it, never with a tool that echoes file contents.
 
 Keep the game/server test environment in mind as well. The config's
 `default_server_environment` is descriptive; it does not enforce server isolation.

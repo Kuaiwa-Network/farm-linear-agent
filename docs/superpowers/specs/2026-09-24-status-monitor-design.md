@@ -82,7 +82,8 @@ Changes to existing code:
   record is swallowed and never changes the response. The receiver's exclusive-bind
   server class moves to module level so the monitor can reuse it.
 - `agent/config.py`: the `monitor` block and `Paths.heartbeat`.
-- `agent/deploy.py`: `install-launchd` writes a third agent when a `monitor` block exists.
+- `agent/deploy.py`: `install-launchd` writes a third agent when the config has a
+  non-empty `monitor` block.
 
 ## Configuration
 
@@ -116,7 +117,11 @@ top-level keys before the block is added; see Rollout.
 
 Until the first beat, which comes after `build()` has verified the Linear identity and
 opened the ledger (normally seconds), the file still holds the previous run's heartbeat.
-A restart therefore briefly shows the previous 已停止 before 正在启动.
+A restart after a clean shutdown therefore briefly shows the previous 已停止 before
+正在启动. A killed `serve` writes no `stopped` beat, and `scripts/redeploy-farmbot.ps1`
+stops the Windows receiver with `Process.Kill()`. A redeploy therefore shows 需要关注
+(`receiver_unreachable`) while the old `serving` beat is fresh, 无响应 if 60 seconds pass
+without a beat, then 正在启动 and its usual verdict, normally 正常. It never shows 已停止.
 
 Each write goes through the existing replace-on-write helper (`_write_worker_file`). A
 failed write, such as a Windows sharing violation while the monitor reads the file, is
@@ -210,10 +215,11 @@ Derivations:
   new item's first audit row is `create`, not `queued`, so `state_since` falls back to
   `created_at`. `checkpoint_at` is `null` before the first checkpoint.
 - `worker` describes the process behind a running job, and is `null` for other states:
-  - `renewed_at` is the newest `renew` audit row, or the claim when there is none. Every
-    worker command that renews the lease writes one.
+  - `renewed_at` is the later of the job's newest `renew` audit row and its claim, so a
+    retried job is not judged by an earlier attempt's renewals. Every worker command that
+    renews the lease writes one.
   - `tracked` is whether a fresh `serving` heartbeat lists the job among its workers. It
-    is `null` when the heartbeat is missing, stale or cannot list workers.
+    is `null` without a fresh `serving` heartbeat that can list workers.
   - `state`, taking the first rule that applies:
     - `lease_expired` once the lease has run out;
     - `untracked` when `tracked` is false and the heartbeat was written more than 30 s
@@ -225,6 +231,12 @@ Derivations:
 - `slots[].kind` is the resource kind (`unity_slot`). `holder` and `mode` (`batch` or
   `interactive`) come from the slot's active or `cancel_requested` reservation, and are
   `null` when the slot is free. `commit` is the first 7 characters of `parked_commit`.
+- `slots[].recovery` is the slot's newest recovery (`pending`, `repairing` or
+  `exhausted`), reported only while the slot is `held`. Otherwise it is `null`. It is also
+  `null` when that newest recovery is `recovered`: the pool can hold a slot again before
+  the recovery loop opens a new one, and an older recovery belongs to an earlier hold.
+  The page renders an exhausted recovery as 自动修复已放弃（N/M 次），需要人工处理, zero
+  attempts as 等待修复, and otherwise 修复中（第 N/M 次）.
 - `recent` holds terminal items updated in the last 7 days, newest first, at most 30:
   - `outcome` is `no_change` for a delivery whose evidence carries `no_change`, and
     otherwise the terminal state.
@@ -257,12 +269,12 @@ Rules are evaluated in order. The heartbeat is `fresh` when `written_at` is less
 
 | # | Condition | Verdict | `verdict_since` |
 |---|---|---|---|
-| 1 | Ledger missing or its required tables unreadable | `unknown` | — |
+| 1 | Ledger missing or unreadable, including a busy timeout or a missing required table or column | `unknown` | — |
 | 2 | Heartbeat phase `stopped` and `/health` failing | `stopped` | `stopped_at` |
 | 3 | Fresh heartbeat with phase `starting` | `starting` | `started_at` |
 | 4 | `/health` failing and heartbeat `stale`, `missing` or `unreadable` | `unresponsive` | heartbeat `written_at`, else the monitor's first observed failure |
 | 5 | `/health` failing, heartbeat fresh | `attention` (`receiver_unreachable`) | first observed failure |
-| 6 | `/health` answering, heartbeat present but not a fresh `serving` or `starting` beat | `attention` (`heartbeat_stale`, or `heartbeat_unreadable` for an invalid file) | `written_at` |
+| 6 | `/health` answering, heartbeat present but not a fresh `serving` or `starting` beat | `attention` (`heartbeat_stale`, or `heartbeat_unreadable` for an invalid file) | `written_at`; none for an invalid file |
 | 7 | Any attention item | `attention` | earliest item |
 | 8 | Otherwise | `ok` | — |
 
@@ -273,12 +285,12 @@ Attention items, with named thresholds:
 
 | Code | Condition |
 |---|---|
-| `slot_held` | A slot in state `held`, with its open recovery's attempts |
-| `slot_without_reservation` | A busy slot with no active reservation |
+| `slot_held` | A slot in state `held`, with its current recovery's attempts (see `slots[].recovery`) |
+| `slot_without_reservation` | A busy slot with no active or `cancel_requested` reservation |
 | `lease_expired` | A running item whose lease has expired |
-| `cleanup_pending` | A `job_cleanup` row not done for more than 10 minutes |
+| `cleanup_pending` | A finished job (`delivered`, `blocked`, `failed` or `cancelled`) whose `job_cleanup` row is not done 10 minutes or more after the job finished. The age runs from the job's finish time, `work_items.updated_at` (the `finished_at` of `recent[]`), not from the row's `updated_at`, which each failed cleanup attempt rewrites. A new attempt reopens an active job's row, which then means "clean up after this attempt", so an active job is never flagged. Cancelling a blocked job moves its finish time once, which delays the flag by up to 10 minutes |
 | `issue_status_error` | An issue whose status read has failed 3 or more times in a row |
-| `reservation_cancel_pending` | A reservation in `cancel_requested` for more than 5 minutes |
+| `reservation_cancel_pending` | A reservation still in `cancel_requested` 5 minutes or more after its job was cancelled, timed from `work_items.updated_at` |
 | `loop_erroring` | A loop with 3 or more consecutive errors |
 | `loop_stalled` | A loop busy longer than its limit: receive 2 min, lifecycle and progress 10 min, schedule and resource_recovery 30 min, pool 90 min |
 | `webhook_rejected` | A rejected webhook in the last 15 minutes. A continuous secret mismatch keeps it raised, while a stray scanner clears |
@@ -286,8 +298,9 @@ Attention items, with named thresholds:
 | `worker_untracked` | A running job's worker is `untracked`: the ledger says running, but `serve` is managing no such worker |
 | `receiver_unreachable`, `heartbeat_stale`, `heartbeat_unreadable` | Rules 5 and 6 above |
 
-Failed and blocked jobs appear in `recent` with their outcome. They are not attention
-items. Quiet webhook periods, such as nights and weekends, are informational only.
+The loop and webhook items are raised only from a fresh heartbeat. Failed and blocked
+jobs appear in `recent` with their outcome. They are not attention items. Quiet webhook
+periods, such as nights and weekends, are informational only.
 
 ## HTTP surface and page
 
@@ -307,13 +320,16 @@ items. Quiet webhook periods, such as nights and weekends, are informational onl
   - an explicit UTF-8 content type
 - Server: the receiver's exclusive-bind class, with `SO_EXCLUSIVEADDRUSE` on Windows and
   no reverse-DNS lookup. Daemon request threads have a 5 s socket timeout, and request
-  logging is suppressed. One JSON line is printed at startup (`monitor_ready`) and on a
-  fatal error.
+  logging is suppressed. One JSON line is printed at startup: `monitor_ready`, or
+  `monitor_failed` when the monitor cannot start (see Failure behaviour).
 - Cache: the status JSON is built at most once every 2 seconds, however many teammates
   are watching. Requests during a build wait for it.
 - `/health` probe: `http://127.0.0.1:<port>/health` with a 2 s timeout, through a
   `urllib` opener with an empty `ProxyHandler`, so a desktop proxy's environment
-  variables cannot intercept it. Only a 200 counts as answering.
+  variables cannot intercept it. Only a 200 counts as answering. The probe neither
+  follows nor parses redirects: a 3xx is the answer and counts as not answering. Any
+  other failure of the request also counts as not answering, recorded by its error
+  class.
 - Page:
   - `lang="zh-CN"`, a responsive layout for phones, and light and dark themes.
   - Every value is rendered with `textContent`, never `innerHTML`. Links are created only
@@ -332,12 +348,13 @@ items. Quiet webhook periods, such as nights and weekends, are informational onl
 - A transient ledger error, such as a busy timeout or a mid-migration schema, is
   reported in `ledger.error_type`. The page keeps the last good sections, and each poll
   retries.
-- The monitor refuses to start, exiting non-zero with one JSON line, for any of these:
-  an unreadable config, an ownership marker that does not match the config (the same
-  read-only `check_ownership` other maintenance commands use), a `bind` that is not an
-  IPv4 literal, a port equal to the receiver's, or a port already in use. It never
-  touches `.controller.lock`, since even a brief acquisition could make a starting
-  `serve` fail.
+- The monitor refuses to start, exiting with status 1 and one `monitor_failed` JSON
+  line, on any startup error. These include an unreadable config, an ownership marker
+  that does not match the config (the same read-only `check_ownership` other maintenance
+  commands use), a `monitor` block it cannot use (such as a `bind` that is not an IPv4
+  literal), a port equal to the receiver's, a port already in use, and any error no check
+  names. It never touches `.controller.lock`, since even a brief acquisition could make a
+  starting `serve` fail.
 - launchd `KeepAlive` restarts the monitor on the Mac. On Windows, the scheduled task's
   restart-on-failure setting does; that behaviour must be verified on the host.
 - The monitor keeps no durable state. After a restart, `unresponsive` is anchored to the
@@ -349,7 +366,9 @@ items. Quiet webhook periods, such as nights and weekends, are informational onl
   the config has a non-empty `monitor` block. It runs `python -u -m agent.service monitor
   --config <absolute path>`, logs in the same directory, and loads nothing by itself. It
   checks the block with `monitor_settings()` first and writes no agent at all if the
-  monitor would refuse it.
+  monitor would refuse it. It never deletes a plist: after the block is removed or set to
+  `{}`, an installed monitor agent stays until the operator runs `launchctl bootout` for
+  it and deletes its plist.
 - **Windows:** production runs from a git checkout under the `FarmBot-Receiver` scheduled
   task, and `scripts/redeploy-farmbot.ps1` reloads the checked-out revision once work has
   settled. The monitor runs from that same checkout and config, as the same user. The
@@ -372,7 +391,8 @@ Each step needs its own authorization. Merging deploys nothing.
    commits and PR text carry no hostnames or LAN addresses.
 2. Live on the Mac with TestBot:
    - Bind the monitor to the LAN on port 8781 and open it from a phone on office Wi-Fi.
-   - Stop the controller and see 无响应 within about a minute. Restart it and see 正常.
+   - Stop the controller and see 已停止 once it has shut down cleanly, or 无响应 within
+     about a minute if it was killed. Restart it and see 正常.
    - @TestBot on an issue the operator chooses, and watch the job appear and progress.
 3. Production on Windows, as an operator decision:
    1. Once work has settled, update the production checkout to the merged, tested commit
