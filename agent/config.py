@@ -91,7 +91,9 @@ class Config:
         if not valid:
             raise ValueError("monitor.bind must be an IPv4 address such as 127.0.0.1 or 0.0.0.0")
         port = self.monitor.get("port", MONITOR_DEFAULTS["port"])
-        if type(port) is not int or not 1 <= port <= 65535 or port == self.port:
+        # Only a present block is compared with the receiver's port, its default included: serve and workers
+        # never read the block, so a config without one must keep loading whatever its receiver port.
+        if type(port) is not int or not 1 <= port <= 65535 or (self.monitor and port == self.port):
             raise ValueError("monitor.port must be a TCP port other than the receiver's")
         hostnames = self.monitor.get("hostnames", [])
         if (not isinstance(hostnames, list) or len(hostnames) > 16
@@ -100,7 +102,9 @@ class Config:
 
 
 def monitor_settings(config):
-    """The monitor's listener with defaults applied; Config has already validated the block."""
+    """The monitor's listener with defaults applied; Config has already validated the block.
+
+    A config without a block is not compared with the receiver's port, so whoever binds must check it."""
     settings = {**MONITOR_DEFAULTS, **config.monitor}
     settings["hostnames"] = tuple(settings["hostnames"])
     return settings

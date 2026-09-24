@@ -92,7 +92,7 @@ Changes to existing code:
 | Key | Default | Rule |
 |---|---|---|
 | `bind` | `127.0.0.1` | An IPv4 literal; no DNS lookup at startup. Exposing the page on the LAN means explicitly setting `0.0.0.0` or the host's LAN address |
-| `port` | `8780` | An integer from 1 to 65535, different from the receiver `port`, so the tunnel never carries the monitor |
+| `port` | `8780` | An integer from 1 to 65535, different from the receiver `port`, so the tunnel never carries the monitor. This is checked when the config loads if the block is present, even without `port`, and again by the monitor when it starts |
 | `hostnames` | `[]` | At most 16 lowercase DNS names that the `Host` header may carry besides IP literals and `localhost` |
 
 Unknown keys inside the block are rejected. A misspelled key would otherwise silently
