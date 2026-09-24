@@ -11,6 +11,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -32,8 +33,18 @@ HEADERS = (("Content-Security-Policy", "default-src 'none'; script-src 'self'; s
             "connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"),
            ("X-Content-Type-Options", "nosniff"), ("Referrer-Policy", "no-referrer"),
            ("X-Frame-Options", "DENY"), ("Cache-Control", "no-store"))
-# An empty ProxyHandler: a desktop proxy's environment variables must not carry a loopback probe elsewhere.
-_DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A 3xx is the probe's answer, never a hop: it surfaces as an HTTPError carrying that status."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+# An empty ProxyHandler: a desktop proxy's environment variables must not carry a loopback probe elsewhere. No
+# redirects either, so whatever holds the receiver port cannot send the probe past loopback /health.
+_DIRECT = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
 
 
 def probe_health(port, *, timeout=HEALTH_TIMEOUT, now=None):
@@ -97,7 +108,7 @@ def make_monitor_server(config, *, port=None, clock=time.time):
             now = clock()
             if cache["body"] is not None and 0 <= now - cache["at"] < SNAPSHOT_TTL:
                 return cache["body"]
-            health = probe_health(config.port, now=now)
+            health = probe_health(config.port, timeout=HEALTH_TIMEOUT, now=now)
             if health["ok"]:
                 cache["failing_since"] = None
             elif cache["failing_since"] is None:
@@ -105,8 +116,10 @@ def make_monitor_server(config, *, port=None, clock=time.time):
             document = build_status(paths.ledger, heartbeat=read_heartbeat(paths.heartbeat, now=now),
                                     health=health, instance=instance, monitor_revision=revision, now=now,
                                     failing_since=cache["failing_since"], renew_seconds=renew_seconds)
-            cache["at"] = now
             cache["body"] = json.dumps(document, ensure_ascii=False, allow_nan=False).encode("utf-8")
+            # Aged from the build's end, not its start: a probe that times out lasts as long as SNAPSHOT_TTL, and
+            # the requests that waited for this build must reuse it rather than each start another.
+            cache["at"] = clock()
             return cache["body"]
 
     class Handler(BaseHTTPRequestHandler):
@@ -147,6 +160,16 @@ def make_monitor_server(config, *, port=None, clock=time.time):
             self.send(405, b"method not allowed\n", extra=(("Allow", "GET, HEAD"),))
 
         do_POST = do_PUT = do_DELETE = do_PATCH = do_OPTIONS = do_TRACE = do_CONNECT = refuse
+
+        def send_error(self, code, message=None, explain=None):
+            # The base class answers an unknown method or a malformed request itself, bypassing send() and with it
+            # HEADERS; its 501 for an unknown method is the spec's 405. A request line too malformed to name a
+            # version still gets an HTTP/1.0 reply, since an HTTP/0.9 one has no status line or headers at all.
+            if self.request_version == "HTTP/0.9":
+                self.request_version = "HTTP/1.0"
+            if code == HTTPStatus.NOT_IMPLEMENTED:
+                return self.refuse()
+            self.send(code, f"{self.responses.get(code, ('error',))[0].lower()}\n".encode())
 
     return ExclusiveServer((settings["bind"], settings["port"] if port is None else port), Handler)
 

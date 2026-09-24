@@ -113,20 +113,24 @@ class PageTests(unittest.TestCase):
         self.assertIn("自动修复已放弃", script)
 
 
-def fake_receiver(status=200, delay=0.0):
+def fake_receiver(status=200, delay=0.0, headers=()):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
 
         def do_GET(self):
+            self.server.requests.append(self.path)
             time.sleep(delay)
             body = b'{"status": "FarmBot ready"}'
             self.send_response(status)
+            for name, value in headers:
+                self.send_header(name, value)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server.requests = []
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
 
@@ -177,6 +181,15 @@ class ProbeHealthTests(unittest.TestCase):
         with patch.dict(os.environ, {"http_proxy": proxy, "HTTP_PROXY": proxy, "no_proxy": "", "NO_PROXY": ""}):
             self.assertTrue(probe_health(port)["ok"])
 
+    def test_a_redirect_is_the_answer_and_is_never_followed(self):
+        elsewhere = fake_receiver()
+        self.addCleanup(elsewhere.server_close)
+        self.addCleanup(elsewhere.shutdown)
+        location = f"http://127.0.0.1:{elsewhere.server_address[1]}/health"
+        redirected = probe_health(self.serve(status=302, headers=(("Location", location),)))
+        self.assertEqual((redirected["ok"], redirected["status"]), (False, 302))
+        self.assertEqual(elsewhere.requests, [])
+
 
 class MonitorServerTests(unittest.TestCase):
     def setUp(self):
@@ -186,15 +199,19 @@ class MonitorServerTests(unittest.TestCase):
         self.now = [1_000_000.0]
         self.config = config(local_root=self.root, port=closed_port(), monitor={"hostnames": ["farmbot-host.local"]})
         Ledger(Paths(self.config).ledger).close()
-        self.server = make_monitor_server(self.config, port=0, clock=lambda: self.now[0])
-        thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.server = self.start(self.config, clock=lambda: self.now[0])
+
+    def start(self, loaded, **kwargs):
+        server = make_monitor_server(loaded, port=0, **kwargs)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         self.addCleanup(thread.join, 5)
-        self.addCleanup(self.server.server_close)
-        self.addCleanup(self.server.shutdown)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return server
 
-    def request(self, method="GET", path="/", host="127.0.0.1"):
-        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_address[1], timeout=10)
+    def request(self, method="GET", path="/", host="127.0.0.1", server=None):
+        connection = http.client.HTTPConnection("127.0.0.1", (server or self.server).server_address[1], timeout=10)
         self.addCleanup(connection.close)
         connection.putrequest(method, path, skip_host=True)
         if host is not None:
@@ -240,6 +257,27 @@ class MonitorServerTests(unittest.TestCase):
         self.assertEqual(self.request(host="farmbot-host.local:8780")[0].status, 200)
         self.assertEqual(self.request(host=None)[0].status, 400)
 
+    def test_an_unknown_method_gets_405_with_the_security_headers(self):
+        response, _ = self.request("FOO", "/api/status")
+        self.assertEqual((response.status, response.getheader("Allow")), (405, "GET, HEAD"))
+        for name, value in monitor.HEADERS:
+            self.assertEqual(response.getheader(name), value)
+
+    def test_a_malformed_request_line_gets_400_with_the_security_headers(self):
+        # The first line names no version, so the base class alone would answer in HTTP/0.9: a bare body with no
+        # status line or headers. The second names one but has a word too many.
+        for line in (b"NONSENSE\r\n", b"GET / extra HTTP/1.1\r\n"):
+            with self.subTest(line=line):
+                with socket.create_connection(self.server.server_address, timeout=10) as connection:
+                    connection.sendall(line)
+                    reply = b""
+                    while chunk := connection.recv(65536):
+                        reply += chunk
+                status, *headers = reply.partition(b"\r\n\r\n")[0].decode("latin-1").split("\r\n")
+                self.assertTrue(status.startswith("HTTP/1.0 400 "), status)
+                for name, value in monitor.HEADERS:
+                    self.assertIn(f"{name}: {value}", headers)
+
     def test_the_status_is_built_at_most_once_per_snapshot_interval(self):
         calls = []
         real = monitor.build_status
@@ -258,6 +296,33 @@ class MonitorServerTests(unittest.TestCase):
             self.now[0] += monitor.SNAPSHOT_TTL + 0.5
             self.request(path="/api/status")
         self.assertEqual(len(calls), 2)
+
+    def test_requests_that_waited_for_a_slow_build_reuse_it(self):
+        # In production the /health timeout equals SNAPSHOT_TTL, so probing a hung receiver makes every build last
+        # the whole interval. Aged from its start, a build would be stale before a waiting request could read it.
+        receiver = fake_receiver(delay=1.0)
+        self.addCleanup(receiver.server_close)
+        self.addCleanup(receiver.shutdown)
+        server = self.start(config(local_root=self.root, port=receiver.server_address[1]))  # the real clock
+        calls, replies = [], []
+        real = monitor.build_status
+
+        def counting(*args, **kwargs):
+            calls.append(kwargs["now"])
+            return real(*args, **kwargs)
+
+        def fetch():
+            response, body = self.request(path="/api/status", server=server)
+            replies.append((response.status, json.loads(body)["service"]["health"]["error_type"]))
+
+        with patch.multiple("agent.monitor", HEALTH_TIMEOUT=0.3, SNAPSHOT_TTL=0.3, build_status=counting):
+            threads = [threading.Thread(target=fetch) for _ in range(4)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(20)
+        # The probe read the shortened timeout at call time and gave up on the receiver, which answers after 1 s.
+        self.assertEqual((len(calls), replies), (1, [(200, "TimeoutError")] * 4))
 
     def test_renewal_intervals_come_from_the_skill_manifests(self):
         calls = []
