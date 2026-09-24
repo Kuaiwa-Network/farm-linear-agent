@@ -24,7 +24,8 @@ MARKER = re.compile(r"\[farmbot:[0-9a-f]{64}\]")
 STATES = ("queued", "running", "awaiting_input", "awaiting_resource",
           "delivered", "blocked", "cancelled", "failed")
 ACTIVE_STATES = ("queued", "running", "awaiting_input", "awaiting_resource")
-TERMINAL_STATUS_TYPES = ("completed", "canceled")
+# Linear's closed workflow-state types. Duplicate reports its own type, not "canceled".
+TERMINAL_STATUS_TYPES = ("completed", "canceled", "duplicate")
 
 
 class LedgerError(ValueError):

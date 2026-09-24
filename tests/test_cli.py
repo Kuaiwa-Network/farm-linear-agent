@@ -142,6 +142,32 @@ class CliTests(unittest.TestCase):
             with self.assertRaisesRegex((RuntimeError, ValueError), 'configured host ledger'):
                 run(args, ledger, lambda: api)
 
+    def test_publication_check_and_repository_handoff_refuse_every_closed_issue(self):
+        from unittest.mock import patch
+        from agent.__main__ import parser, run
+        from agent.ledger import LedgerError
+        args, ledger, config, api, github = self.publication_fixture()
+        config.repos['Farm-Contract'] = 'https://github.com/Kuaiwa-Network/Farm-Contract.git'
+        ledger.set_worker(args.item, 12345, 'test')
+        ledger.checkpoint(args.item, args.token, {'handoff': {
+            'facts': [], 'hypotheses': [], 'checks': [], 'repositories': [], 'next_actions': ['Check contract']}})
+        handoff = parser().parse_args(['--db', str(self.db), 'handoff-repository', '--item', args.item,
+                                       '--token', args.token, '--to', 'Farm-Contract'])
+        current = api.fetch_issue(None)
+        opened = {key: current[key] for key in ('status', 'status_type', 'archived')}
+        with patch('agent.__main__.load_config', return_value=config), patch('agent.publication.github_api', side_effect=github):
+            for closed in ({'status_type': 'completed'}, {'status_type': 'canceled'}, {'status_type': 'duplicate'},
+                           {'archived': True}):
+                current.update(opened, **closed)
+                for command in (args, handoff):
+                    with self.subTest(closed=closed, command=command.command):
+                        with self.assertRaisesRegex(LedgerError, 'remain open'):
+                            run(command, ledger, lambda: api)
+            self.assertEqual((ledger.item(args.item)['state'], ledger.item(args.item)['next_root_repo']), ('running', None))
+            current.update(opened)
+            self.assertEqual(run(args, ledger, lambda: api)['status'], 'verified')
+            self.assertEqual(run(handoff, ledger, lambda: api)['next_root_repo'], 'Farm-Contract')
+
     def test_publication_check_fences_cancellation_during_remote_verification(self):
         from unittest.mock import patch
         from agent.__main__ import run
