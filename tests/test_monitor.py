@@ -1,10 +1,14 @@
 """The office status monitor: its configuration, its HTTP surface and its read-only guarantees."""
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
 
 from agent.config import Config, Paths, load_config, monitor_settings
+from agent.heartbeat import LOOPS
+from agent.ledger import Ledger
+from agent.monitor_view import ATTENTION_CODES, DISPLAY_STATES, OUTCOMES, VERDICTS, WORKER_STATES
 
 
 def config(**changes):
@@ -60,3 +64,37 @@ class MonitorConfigTests(unittest.TestCase):
     def test_the_heartbeat_lives_in_the_state_root_beside_the_controller_lock(self):
         root = Path(tempfile.gettempdir()) / "farm root 状态"
         self.assertEqual(Paths(config(local_root=root)).heartbeat, root / "service-heartbeat.json")
+
+
+class PageTests(unittest.TestCase):
+    STATIC = Path(__file__).resolve().parents[1] / "agent" / "monitor_static"
+
+    def text(self, name):
+        return (self.STATIC / name).read_text(encoding="utf-8")
+
+    def test_the_page_loads_only_its_own_assets_and_has_no_inline_code(self):
+        html = self.text("index.html")
+        self.assertIn('<html lang="zh-CN">', html)
+        self.assertEqual(re.findall(r"<script\b([^>]*)>(.*?)</script>", html, re.S), [(' src="/monitor.js" defer', "")])
+        self.assertEqual(re.findall(r'<link\b[^>]*href="([^"]+)"', html), ["/monitor.css"])
+        self.assertNotRegex(html, r"\sstyle=|\son[a-z]+=|https?://")
+
+    def test_the_script_never_turns_data_into_markup(self):
+        script = self.text("monitor.js")
+        for forbidden in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(",
+                          "new Function", "setAttribute", ".style."):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, script)
+
+    def test_every_code_the_status_view_emits_has_a_label(self):
+        script = self.text("monitor.js")
+        for code in (*VERDICTS, *DISPLAY_STATES, *OUTCOMES, *ATTENTION_CODES, *LOOPS, *Ledger.SLOT_STATES,
+                     *WORKER_STATES):
+            with self.subTest(code=code):
+                self.assertRegex(script, rf"\b{code}:")
+
+    def test_an_exhausted_slot_recovery_asks_for_a_person(self):
+        # The controller has given up automatic repair, so the page must not claim it is still repairing.
+        script = self.text("monitor.js")
+        self.assertIn('"exhausted"', script)
+        self.assertIn("自动修复已放弃", script)
