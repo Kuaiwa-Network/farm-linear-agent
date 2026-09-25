@@ -149,9 +149,9 @@ upgrading the running service applies its normal migrations separately.
 ## Issue closure and cancelled work
 
 Enable Issue webhooks alongside agent-session events on the configured Linear endpoint. Completed,
-canceled and archived issues cancel FarmBot's unfinished/blocked jobs. A separate status poll catches
-missed notifications; `reconcile_seconds` in private config defaults to 60. Failed status reads defer
-new launches. No Linear status or assignment is changed by reconciliation.
+canceled, duplicate and archived issues cancel FarmBot's unfinished/blocked jobs. A separate status
+poll catches missed notifications; `reconcile_seconds` in private config defaults to 60. Failed status
+reads defer new launches. No Linear status or assignment is changed by reconciliation.
 
 Owned processes stop before cleanup. Unfinished source and clean unpublished commits survive in local
 `refs/farmbot/recovery/<job-id>` refs. Unverified processes, unsettled slots and preservation failures

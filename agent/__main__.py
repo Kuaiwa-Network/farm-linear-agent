@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from .config import Paths, linear_api, load_config
-from .ledger import Ledger, LedgerError
+from .ledger import TERMINAL_STATUS_TYPES, Ledger, LedgerError
 from .memory import prune_snapshots
 from .router import WRITE_SKILLS
 from .stages import FIX_REPOSITORIES, write_repositories
@@ -291,7 +291,7 @@ def run(args, ledger, api_factory):
         issue = api.fetch_issue(item["issue_id"])
         ledger.observe_issue(issue)
         if (not api.app_user_id or issue.get("delegate_id") != api.app_user_id or issue.get("archived")
-                or issue.get("status_type") in ("completed", "canceled")):
+                or issue.get("status_type") in TERMINAL_STATUS_TYPES):
             raise LedgerError("issue must remain open and delegated to FarmBot")
         ledger.renew(args.item, token)
         return ledger.handoff_repository(args.item, token, args.to)
@@ -373,7 +373,7 @@ def run(args, ledger, api_factory):
             issue = api.fetch_issue(item['issue_id'])
             ledger.observe_issue(issue)
             if (not api.app_user_id or issue.get('delegate_id') != api.app_user_id or issue.get('archived')
-                    or issue.get('status_type') in ('completed', 'canceled')):
+                    or issue.get('status_type') in TERMINAL_STATUS_TYPES):
                 raise LedgerError("issue must remain open and delegated to FarmBot")
             trees = Worktrees(paths.repos, paths.worktrees, config.repos)
             branch = _git('branch', '--show-current', cwd=paths.worktrees / args.item / args.repo)

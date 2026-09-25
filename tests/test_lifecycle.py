@@ -26,7 +26,8 @@ class LifecycleTests(unittest.TestCase):
         return Lifecycle(self.ledger, self.status_api, self.scheduler, clock=lambda: self.now)
 
     def test_all_closure_types_cancel_every_unfinished_state(self):
-        for change in ({'status_type': 'completed'}, {'status_type': 'canceled'}, {'archived': True}):
+        for change in ({'status_type': 'completed'}, {'status_type': 'canceled'}, {'status_type': 'duplicate'},
+                       {'archived': True}):
             for state in ('queued', 'running', 'awaiting_input', 'awaiting_resource'):
                 with self.subTest(change=change, state=state):
                     iid = str(uuid4()); job = self.item(issue_id=iid, session=str(uuid4()))
@@ -43,6 +44,17 @@ class LifecycleTests(unittest.TestCase):
                     if token:
                         with self.assertRaises(LedgerError):
                             self.ledger.renew(job['id'], token)
+
+    def test_preflight_refuses_every_closure_type_and_admits_a_started_issue(self):
+        for change in ({'status_type': 'completed'}, {'status_type': 'canceled'}, {'status_type': 'duplicate'},
+                       {'archived': True}):
+            with self.subTest(change=change):
+                iid = str(uuid4()); job = self.item(issue_id=iid, session=str(uuid4()))
+                self.assertFalse(self.lifecycle({**status(iid), **change}).preflight(job))
+                self.assertEqual(self.ledger.item(job['id'])['state'], 'cancelled')
+        job = self.item()
+        self.assertTrue(self.lifecycle({**status(), 'status': 'In Review', 'status_type': 'started'}).preflight(job))
+        self.assertEqual(self.ledger.item(job['id'])['state'], 'queued')
 
     def test_api_failure_is_visible_and_backed_off_without_cancelling(self):
         job = self.item()

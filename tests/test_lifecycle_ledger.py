@@ -1,6 +1,6 @@
 """Cancellation is durable history; successor execution starts with fresh authority."""
 from agent.ledger import LedgerError
-from test_ledger import LedgerBase, ISSUE, PIN, issue
+from test_ledger import LedgerBase, ISSUE, PIN, SESSION, issue
 from test_receiver import APP
 
 
@@ -45,6 +45,16 @@ class LifecycleLedgerTests(LedgerBase):
         with self.assertRaisesRegex(LedgerError, 'terminal'):
             self.ledger.retry(job['id'], 'restart')
         self.assertEqual(len(self.ledger.status()['items']), 1)
+
+    def test_every_closed_status_type_leaves_scope_and_refuses_new_work(self):
+        for status_type in ('completed', 'canceled', 'duplicate'):
+            with self.subTest(status_type=status_type):
+                self.assertFalse(self.ledger.observe_issue(issue(status_type=status_type))['in_scope'])
+                self.ledger.ensure_session(SESSION, ISSUE, delegation=True)
+                with self.assertRaisesRegex(LedgerError, 'terminal'):
+                    self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill='fix', target=PIN)
+        self.assertTrue(self.ledger.observe_issue(issue(status='In Review', status_type='started'))['in_scope'])
+        self.assertEqual(self.ledger.status()['items'], [])
 
     def test_cleanup_evidence_survives_reopen_and_successor_sees_latest_record(self):
         job = self.new_item()

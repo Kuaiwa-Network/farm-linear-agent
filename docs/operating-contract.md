@@ -88,7 +88,7 @@ replayed after a lost response. A prompt that still fails must be retried in Lin
 | Reply in a session while a worker runs | the text reaches the worker at its next checkpoint |
 | Reply to a FarmBot question | the parked work item resumes with your answer |
 | Ask naturally to resume finished work, in its session or an @FarmBot mention | chat interprets intent, checks current delegation, and continues the fix with the complete reply (a cancelled fix gets a fresh linked job); no keyword is required. Negations and questions about restarting do not restart work |
-| Close, cancel or archive an issue | cancels unfinished/blocked work after a current status read, stops owned processes, preserves source and safely cleans worktrees; keeps logs |
+| Close an issue (a status of type `completed`, `canceled` or `duplicate`, such as Done, Canceled or Duplicate) or archive it | cancels unfinished/blocked work after a current status read, stops owned processes, preserves source and safely cleans worktrees; keeps logs |
 | Reopen an issue | starts nothing; request continuation or delegate explicitly |
 | Press Stop | the worker process is killed promptly, without waiting for the scheduler; the item is cancelled; FarmBot confirms in the session |
 | Delegate an issue that already has FarmBot work in another session | declines with a note naming the issue and the running skill; the existing work continues |
@@ -237,8 +237,11 @@ Issue events require the configured organization, valid signature and timestamp;
 fresh status for already-tracked issues. Their payload state never cancels work directly. A separate
 loop checks unfinished/blocked issues every `reconcile_seconds` (default 60); missed webhooks are
 covered by polling. With many issues, network latency can extend that interval. Status reads use
-source timestamps so older snapshots cannot undo a newer closure. Before every launch, a fresh
-status/delegation check must succeed. Errors defer launch with bounded retry delay; losing delegation
+source timestamps so older snapshots cannot undo a newer closure. An issue is closed when it is
+archived or its workflow-state type is `completed`, `canceled` or `duplicate`; Linear gives Duplicate
+a type of its own rather than `canceled`. Other types, including `started` review and acceptance
+statuses, leave work running. Before every launch, a fresh status/delegation check must succeed and
+find the issue open. Errors defer launch with bounded retry delay; losing delegation
 prevents new write workers from launching. Polling makes no Linear writes.
 
 Cleanup records the old PID and preserves dirty tracked/non-ignored untracked source as local WIP
