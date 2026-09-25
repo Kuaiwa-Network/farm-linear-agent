@@ -82,6 +82,37 @@ def checked_target(raw):
     return {key: raw[key] for key in TARGET_KEYS}
 
 
+# A Linear web URL: a person's profile, which Linear renders as a mention, or a comment's own link. It is the rule
+# of linear_api.LINEAR_URL, kept here because connectors stay outside this module.
+LINEAR_URL = re.compile(r"https://linear\.app/\S+")
+
+
+def _person(value, name):
+    """None, or exactly {"id": UUID, "name": text, "url": Linear profile URL}: never an email or other field."""
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) != {"id", "name", "url"}:
+        raise LedgerError(f"{name} must be null or exactly id, name and url")
+    if not isinstance(value["url"], str) or not LINEAR_URL.fullmatch(value["url"]):
+        raise LedgerError(f"{name} url must be an https://linear.app/ profile URL")
+    return {"id": _uuid(value["id"], f"{name} id"), "name": _text(value["name"], f"{name} name"), "url": value["url"]}
+
+
+def _label_groups(value, labels):
+    """Sorted, distinct {"group", "label"} pairs, each label one of the issue's labels and group its parent."""
+    if not isinstance(value, list):
+        raise LedgerError("label_groups must be an array")
+    pairs = set()
+    for entry in value:
+        if not isinstance(entry, dict) or set(entry) != {"group", "label"}:
+            raise LedgerError("each label group needs exactly group and label")
+        pair = (_text(entry["group"], "label group"), _text(entry["label"], "grouped label"))
+        if pair[1] not in labels:
+            raise LedgerError("a grouped label must be one of the issue's labels")
+        pairs.add(pair)
+    return [{"group": group, "label": label} for group, label in sorted(pairs)]
+
+
 def _normalize(raw):
     if not isinstance(raw, dict):
         raise LedgerError("issue must be an object")
@@ -112,6 +143,12 @@ def _normalize(raw):
         if not isinstance(value[field], list):
             raise LedgerError(f"{field} must be an array of stable strings")
         value[field] = sorted({_text(item, field) for item in value[field]})
+    # Optional keys. Rows stored before them, and older fetchers, lack them, which reads as unknown.
+    for field in ("assignee", "creator"):
+        if field in raw:
+            value[field] = _person(raw[field], field)
+    if "label_groups" in raw:
+        value["label_groups"] = _label_groups(raw["label_groups"], value["labels"])
     if not isinstance(value["comments"], list):
         raise LedgerError("comments must be an array")
     comments, seen = [], set()
@@ -124,6 +161,18 @@ def _normalize(raw):
         _text(comment["body"], "comment body", empty=True)
         if comment["author_kind"] not in ("human", "bot", "unknown"):
             raise LedgerError("comment author_kind must be human, bot or unknown")
+        if "author" in raw_comment:
+            comment["author"] = _person(raw_comment["author"], "comment author")
+            if comment["author"] is not None and comment["author_kind"] != "human":
+                raise LedgerError("only a human comment has an author")
+        if "parent_id" in raw_comment:
+            comment["parent_id"] = (None if raw_comment["parent_id"] is None
+                                    else _text(raw_comment["parent_id"], "comment parent_id"))
+        if "url" in raw_comment:
+            url = raw_comment["url"]
+            if url is not None and not (isinstance(url, str) and LINEAR_URL.fullmatch(url)):
+                raise LedgerError("comment url must be null or an https://linear.app/ URL")
+            comment["url"] = url
         for field in ["created_at", "updated_at"]:
             _timestamp(comment[field], f"comment {field}")
         if comment["id"] in seen:
@@ -144,6 +193,8 @@ def _in_scope(issue):
 
 
 def _fingerprint(issue, own_bodies, own_prs=()):
+    # Issue input only: labels, label groups, people, reply parents and comment links are left out, so reassigning
+    # or relabelling an issue never requeues its work.
     material = {key: issue[key] for key in ["title", "description", "attachments"]}
     material["attachments"] = [url for url in issue["attachments"] if url not in own_prs]
     material["comments"] = [{"id": comment["id"], "body": comment["body"]}

@@ -17,6 +17,12 @@ SELECTED_AT = "2026-09-19T00:00:00+00:00"
 # slot cannot be switched to a commit that does not exist.
 PIN = {"repository": "Farm-Client", "requested_ref": "main", "commit_sha": "a" * 40,
        "server_environment": "公共测试服", "selected_at": SELECTED_AT}
+# Fictional people, as the ledger stores them: id, name and profile URL only.
+DESIGNER = {"id": "20000000-0000-4000-8000-000000000001", "name": "Designer One",
+            "url": "https://linear.app/example/profiles/designer-one"}
+OWNER = {"id": "20000000-0000-4000-8000-000000000002", "name": "Owner Two",
+         "url": "https://linear.app/example/profiles/owner-two"}
+THREAD = "https://linear.app/example/issue/FARM-1/harvest-duplicates-rewards"
 
 
 def issue(id=ISSUE, **changes):
@@ -31,9 +37,10 @@ def issue(id=ISSUE, **changes):
     return value
 
 
-def comment(body="Repro on Android", kind="human", id="comment-1"):
+def comment(body="Repro on Android", kind="human", id="comment-1", **extra):
+    """`extra` adds optional keys such as author, parent_id and url."""
     return {"id": id, "body": body, "author_kind": kind,
-            "created_at": "2026-09-18T08:00:00Z", "updated_at": "2026-09-18T08:00:00Z"}
+            "created_at": "2026-09-18T08:00:00Z", "updated_at": "2026-09-18T08:00:00Z", **extra}
 
 
 class LedgerBase(unittest.TestCase):
@@ -88,6 +95,62 @@ class SnapshotTests(LedgerBase):
         self.assertEqual(first, second)
         third = self.ledger.observe_issue(issue(comments=[comment(kind="human")]))["fingerprint"]
         self.assertNotEqual(first, third)
+
+    def test_people_label_groups_and_replies_are_stored_and_reach_issue_context(self):
+        item = self.new_item(labels=["Android", "Bug", "Code"], assignee=OWNER, creator=DESIGNER,
+                             label_groups=[{"group": "平台", "label": "Android"}, {"group": "功能", "label": "Code"},
+                                           {"group": "功能", "label": "Code"}],
+                             comments=[comment(author=DESIGNER, parent_id=None, url=f"{THREAD}#comment-1"),
+                                       comment("收到", id="comment-2", author=OWNER, parent_id="comment-1", url=None),
+                                       comment("已开始处理", kind="bot", id="comment-3", author=None,
+                                               parent_id="comment-1", url=f"{THREAD}#comment-3")])
+        stored = self.ledger.issue(ISSUE)
+        self.assertEqual((stored["assignee"], stored["creator"]), (OWNER, DESIGNER))
+        self.assertEqual(stored["label_groups"], [{"group": "功能", "label": "Code"}, {"group": "平台", "label": "Android"}])
+        self.assertEqual([(c["author"], c["parent_id"], c["url"]) for c in stored["comments"]],
+                         [(DESIGNER, None, f"{THREAD}#comment-1"), (OWNER, "comment-1", None),
+                          (None, "comment-1", f"{THREAD}#comment-3")])
+        self.assertEqual(self.ledger.issue_context(item["id"])["issue"]["assignee"], OWNER)
+
+    def test_a_snapshot_without_the_new_keys_reads_as_unknown(self):
+        # The shape a29d078 stores and older fetchers still send: a missing key is unknown, never an error.
+        self.ledger.observe_issue(issue(comments=[comment()]))
+        stored = self.ledger.issue(ISSUE)
+        self.assertFalse({"label_groups", "assignee", "creator"} & stored.keys())
+        self.assertFalse({"author", "parent_id", "url"} & stored["comments"][0].keys())
+
+    def test_malformed_people_label_groups_and_replies_are_refused(self):
+        bad = {"a person with an email": {"assignee": {**OWNER, "email": "owner.two@example.com"}},
+               "a person without a url": {"creator": {"id": OWNER["id"], "name": "Owner Two"}},
+               "a url outside Linear": {"assignee": {**OWNER, "url": "https://example.com/profiles/owner-two"}},
+               "a url without https": {"assignee": {**OWNER, "url": "http://linear.app/example/profiles/owner-two"}},
+               "an id that is not a UUID": {"creator": {**OWNER, "id": "owner-two"}},
+               "a blank name": {"creator": {**OWNER, "name": " "}},
+               "a person as text": {"assignee": "Owner Two"},
+               "label groups that are not an array": {"label_groups": {"group": "功能", "label": "Bug"}},
+               "a label group with another key": {"label_groups": [{"group": "功能", "label": "Bug", "id": "x"}]},
+               "a blank group": {"label_groups": [{"group": "", "label": "Bug"}]},
+               "a grouped label the issue lacks": {"label_groups": [{"group": "功能", "label": "Code"}]},
+               "a comment author with an email": {"comments": [comment(author={**DESIGNER, "email": "d@example.com"})]},
+               "an author on a bot comment": {"comments": [comment(kind="bot", author=DESIGNER)]},
+               "a blank parent id": {"comments": [comment(parent_id="")]},
+               "a parent id that is not text": {"comments": [comment(parent_id=7)]},
+               "a comment url outside Linear": {"comments": [comment(url="https://example.com/FARM-1#comment-1")]},
+               "a comment url that is not text": {"comments": [comment(url=7)]}}
+        for label, changes in bad.items():
+            with self.subTest(label), self.assertRaises(LedgerError):
+                self.ledger.observe_issue(issue(**changes))
+
+    def test_people_label_groups_replies_and_comment_urls_are_not_material(self):
+        plain = issue(labels=["Bug", "Code"], comments=[comment(), comment("收到", id="comment-2")])
+        first = self.ledger.observe_issue(plain)["fingerprint"]
+        rich = issue(labels=["Bug", "Code"], assignee=OWNER, creator=DESIGNER,
+                     label_groups=[{"group": "功能", "label": "Code"}],
+                     comments=[comment(author=DESIGNER, parent_id=None, url=f"{THREAD}#comment-1"),
+                               comment("收到", id="comment-2", author=OWNER, parent_id="comment-1", url=None)])
+        self.assertEqual(self.ledger.observe_issue(rich)["fingerprint"], first)
+        reassigned = {**rich, "assignee": DESIGNER, "creator": None, "label_groups": []}
+        self.assertEqual(self.ledger.observe_issue(reassigned)["fingerprint"], first)
 
 
 class WorkItemTests(LedgerBase):

@@ -1,10 +1,13 @@
 import io
 import json
+import tempfile
 import unittest
 import urllib.error
+from pathlib import Path
 from unittest.mock import patch
 
-from agent.linear_api import ISSUE_QUERY, LinearAPI, person, strip_signed, upload_urls
+from agent import ledger as ledger_module
+from agent.linear_api import ISSUE_QUERY, LINEAR_URL, LinearAPI, person, strip_signed, upload_urls
 
 APP = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
 
@@ -296,3 +299,22 @@ class LinearAPITests(unittest.TestCase):
         self.assertEqual(upload_urls(text), [UNSIGNED, slices, video])
         self.assertEqual(upload_urls(strip_signed(text)), [UNSIGNED, slices, video])
         self.assertEqual(upload_urls(None), [])
+
+    def test_a_fetched_issue_is_stored_with_its_people_label_groups_and_replies(self):
+        fetched = self.fetched([comment_node("c1", DESIGNER), comment_node("c2", OWNER, parent="c1")],
+                               assignee=OWNER, creator=DESIGNER,
+                               labels={"nodes": [{"name": "Code", "parent": {"id": "label-1", "name": "功能"}}]})
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = ledger_module.Ledger(Path(tmp) / "ledger.sqlite3")
+            try:
+                ledger.observe_issue(fetched)
+                stored = ledger.issue(fetched["id"])
+            finally:
+                ledger.close()
+        for key in ("assignee", "creator", "label_groups"):
+            self.assertEqual(stored[key], fetched[key])
+        self.assertEqual([(c["author"], c["parent_id"], c["url"]) for c in stored["comments"]],
+                         [(as_person(DESIGNER), None, "https://linear.app/example/issue/FARM-1/t#comment-c1"),
+                          (as_person(OWNER), "c1", "https://linear.app/example/issue/FARM-1/t#comment-c2")])
+        # The ledger keeps its own copy of the Linear URL rule, because connectors stay outside it.
+        self.assertEqual(ledger_module.LINEAR_URL.pattern, LINEAR_URL.pattern)

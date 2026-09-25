@@ -80,6 +80,27 @@ Issue detail reads retry a timed-out Linear request up to three times before the
 an error activity. The retry applies to the current read page only; GraphQL mutations are never
 replayed after a lost response. A prompt that still fails must be retried in Linear.
 
+An issue read also keeps the group of each label that belongs to a label group (`label_groups`,
+beside the bare `labels`), the assignee, the creator and, for each comment, its own Linear link, the
+comment it replies to and, for a human comment, its author. A person is the Linear user's ID, name
+and profile URL, never an email. A user without a UUID or an `https://linear.app/` profile URL is
+stored as null, and so is a comment link outside `https://linear.app/`. Snapshots stored before
+this revision lack these fields, which reads as unknown. None of them is issue input: a claim
+covers the title, the description, attachments other than the job's own PRs, and the IDs and
+bodies of human comments, so reassigning or relabelling an issue neither requeues its work nor
+refuses a handoff.
+
+Linear signs upload URLs (`uploads.linear.app`) with a query string that changes between reads. An
+issue read removes that query string and any fragment, and leaves the Markdown, JSON or HTML around
+the URL as written. Earlier revisions also removed whatever followed a signed URL up to the next
+whitespace or `)`, such as the rest of a `<linear-image>` block. Deploying this revision therefore
+changes, once, the fingerprint of every tracked issue whose description or human comments lost text
+that way, at the issue's next read. A job whose claim predates that read, such as one running across
+the deploy, requeues at `finish` (its next attempt redoes the work and may comment again) or has its
+repository handoff refused. Settle running jobs before deploying, or accept one requeue. Rolling
+back changes those fingerprints back once, with the same effect; older revisions ignore the new
+fields.
+
 | You do | FarmBot does |
 |---|---|
 | Assign (delegate) an issue labelled Bug to @FarmBot | starts a `fix` work item; first activity within 10 s; posts 「👀 <bot_name> 已开始处理」 (「👀 FarmBot 已开始处理」 in production) once the worker claims |

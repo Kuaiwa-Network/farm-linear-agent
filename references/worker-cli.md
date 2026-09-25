@@ -21,6 +21,12 @@ python3 -m agent --db DATABASE checkpoint --help
 Neither accepts `--token-file`. Tokens never belong in argv as `--token` values.
 The argument table does not grant additional authority; use only your delegated item.
 
+`issue-context.issue` is the issue as last read. Besides the bare `labels` it may carry
+`label_groups` (a `{"group", "label"}` pair for each label inside a label group), `assignee` and
+`creator`, and on each comment `url` (the comment's own Linear link), `parent_id` (the comment it
+replies to) and, on a human comment, `author`. A person is `{"id", "name", "url"}`, never an email.
+`null` means none or unknown; a missing key means the snapshot predates these fields.
+
 `request-repair` refreshes Linear, then atomically retires read-only execution and queues
 the same issue's repair. It requires recorded delegation provenance and current delegation,
 but no prior fix or Bug label. It carries all current messages and the investigation summary
