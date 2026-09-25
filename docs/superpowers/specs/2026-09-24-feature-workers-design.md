@@ -4,11 +4,11 @@
 behaviour; that lives in [`docs/operating-contract.md`](../../operating-contract.md) and changes
 only when a phase of this design lands. Approving the design does not authorize running its phases
 (§13), each of which is authorized separately. It follows the operator decisions of 2026-09-24 and
-2026-09-25 (D1–D15, below) and supersedes the Phase 4 and 5 plans of the
+2026-09-25 (D1–D17, below) and supersedes the Phase 4 and 5 plans of the
 [2026-09-17 design](2026-09-17-farm-linear-agent-design.md) (§1 ladder rungs 3–4, §6 stage rows, §17):
 one continuous Code job across repository stages replaces parallel client and hive work items, and a
-human visual-approval gate replaces the old FGUI publish-approval step. Text marked **Proposed** goes
-beyond those decisions and needs the operator's agreement; §14 lists what is still to verify or decide.
+human visual-approval gate replaces the old FGUI publish-approval step. §14 lists what is still to
+verify or decide.
 
 ## 1. Summary
 
@@ -45,6 +45,8 @@ repository stages) is useful on its own, fix workers included, and lands first.
 | D13 | 2026-09-25: FarmBot may add whatever entries the change needs to farm-common's other definition files, and push the `-config` branch | §6.3, §6.4 |
 | D14 | 2026-09-25: the UI worker exports and commits every package it changes; composite previews are enough for visual approval | §7.3, §7.4 |
 | D15 | 2026-09-25: anyone who writes in the session may approve the previews and ask for the export; FarmBot records who and mentions the owner | §7.3 |
+| D16 | 2026-09-25: the remaining proposals are accepted: a reply re-routes after a label fix; waiting pauses skip `needs-more-info`; removing the delegation cancels a queued or parked job; no kw_ops for the new skills; 10- and 6-hour attempts with retry allowances reset per stage and one long attempt at a time; chat does not start feature work | §3, §4.3, §5.2, §5.8, §8.1, §9.8 |
+| D17 | 2026-09-25: besides the owner, FarmBot mentions the issue's creator, usually the 策划 who wrote the card, on comments that need 策划: questions for the lead designer and the config-needed comment | §5.1, §5.3, §6.3 |
 
 ## 2. Background
 
@@ -124,7 +126,7 @@ Non-goals:
 - Watching GitHub or polling repositories for merges or exports; GitHub review comments reach FarmBot
   only when a human relays them in Linear.
 - QA (`-测试`) cards, Feishu messages, SVN art batches and shared-icon imports.
-- Starting feature work from a mention or from chat (§14.2).
+- Starting feature work from a mention or from chat (D16).
 
 ## 4. Linear setup and routing
 
@@ -158,7 +160,7 @@ mid-feature is not finished (§9.8).
 
 ### 4.3 Routing rules
 
-Routing still happens once, when a delegation session is created (`agent/receiver.py:227`). Proposed
+Routing still happens once, when a delegation session is created (`agent/receiver.py:230`). The
 order for `created` delegation events:
 
 | Labels on the issue | Result |
@@ -170,10 +172,10 @@ order for `created` delegation events:
 | Bug, empty text | work item, skill `fix` (unchanged) |
 | anything else | chat (unchanged) |
 
-Mentions never start write work (`agent/receiver.py:257-258`), and the receiver already supports an
-elicit decision (`:279-280`). **Proposed mechanic (flagged):** a reply in a delegation session that
-never had a work item re-runs this table on fresh labels, so the human fixes the labels and replies
-in the same session (re-delegating also works). Label changes after a job exists do not re-route (§11).
+Mentions never start write work (`agent/receiver.py:260-261`), and the receiver already supports an
+elicit decision (`:282-283`). A reply in a delegation session that never had a work item re-runs
+this table on fresh labels (D16), so the human fixes the labels and replies in the same session
+(re-delegating also works). Label changes after a job exists do not re-route (§11).
 
 ### 4.4 Delegation text
 
@@ -202,13 +204,14 @@ publication gate would need a stored acknowledgement, so this design keeps evide
 
 FarmBot posts questions as one issue comment grouped by recipient role (主策 lead designer, 服务端
 server, 客户端 client), for contract gaps in Farm-Contract's confidence format with the low section
-first. It mentions the owner (§5.3), who routes it; role owners are named by role only (§14.2). The
-worker then parks with `await-input`, whose session elicitation points to the comment.
+first. It mentions the owner (§5.3), who routes it, and, when the comment has questions for the lead
+designer, the issue's creator (D17); other role owners are named by role only. The worker then parks
+with `await-input`, whose session elicitation points to the comment.
 
 People answer as ordinary comments under their own Linear identity. New comments change the issue
-fingerprint but never resume work (`agent/ledger.py:434`); the operator or assignee then tells
+fingerprint but never resume work (`agent/ledger.py:435`); the operator or assignee then tells
 FarmBot to read them, by a session reply or an @FarmBot mention while the issue is still delegated,
-both of which already resume a parked item (`agent/receiver.py:240-255`, `:274-278`). FarmBot reads
+both of which already resume a parked item (`agent/receiver.py:243-258`, `:277-281`). FarmBot reads
 human comments posted after its question, replies included, and records each ruling as
 `[DECIDED:<Linear user name>@<date>]` with the comment link, attributed only to that comment's
 author; a relayed ruling goes under the relayer, in Farm-Contract's `(代<role>)` form only when the
@@ -222,17 +225,17 @@ recipient's "默认的照此" (the defaults stand) settles a whole high or mediu
 person's name in Farm-Contract's forms (high: `[DECIDED:<name>(默认·高置信度)@<date>]`, keeping the
 `默认·` audit marker). High and medium items thus stand, like low ones, only when a named person
 answers. FarmBot stores only comment `author_kind` today (`agent/linear_api.py:186-194`;
-`agent/ledger.py:117-125`); §9.1 adds names.
+`agent/ledger.py:118-126`); §9.1 adds names.
 
 ### 5.2 Pauses and resumes
 
 Every pause reuses `await-input`: the worker checkpoints, posts a comment, parks and exits. The item
-holds no process (`agent/ledger.py:903-917`) and, with the refusal §9.4 adds, no Unity slot
-(`await_input` does not check reservations today, unlike `handoff_repository`, `:877-879`).
+holds no process (`agent/ledger.py:904-918`) and, with the refusal §9.4 adds, no Unity slot
+(`await_input` does not check reservations today, unlike `handoff_repository`, `:878-880`).
 `await-input` always adds `needs-more-info` (`agent/__main__.py:323`;
 `docs/operating-contract.md:214-220`), which misdescribes waiting for a human step elsewhere.
-**Proposed:** `await-input --reason question|waiting`, where `waiting` skips the label and the
-operating contract's "every elicitation adds it" changes accordingly.
+`await-input --reason question|waiting` (D16): `waiting` skips the label, and the operating
+contract's "every elicitation adds it" changes accordingly.
 
 | Pause | Reason | Comment says | Resumed by | On resume FarmBot verifies |
 |---|---|---|---|---|
@@ -252,8 +255,14 @@ The owner is the issue's assignee, else the human who created the delegation ses
 (`agentSession.creator`); with neither (for example an operator `enqueue`), FarmBot asks without a
 mention. It mentions the owner by putting their Linear profile URL (`User.url`) in the comment, which
 Linear renders as a mention. FarmBot fetches neither today (`agent/linear_api.py:11-20`;
-`agent/receiver.py:137-156`); §9.1–9.2 add both (id, name and URL, never the email) and
+`agent/receiver.py:140-159`); §9.1–9.2 add both (id, name and URL, never the email) and
 `issue-context` exposes an `owner` block. Whether an agent comment's mention notifies reliably is D10.
+
+The issue's creator, usually the 策划 who wrote the card (FARM-1263, FARM-1110 and FARM-1332 were
+created by designers), is mentioned as well on comments that need 策划: a question comment with a
+lead-designer section and the config-needed comment (D17). FarmBot skips the creator when it is the
+owner or not a human user, and fetches it with the issue (§9.1); `issue-context` adds a `creator`
+block beside `owner`.
 
 ### 5.4 Reading the 策划案 (D9, D12)
 
@@ -278,7 +287,7 @@ attachment as the app (§14.1).
 
 Workers download the claimed issue's uploads themselves with a new claim-authenticated CLI command,
 `download-uploads` (§9.9). Like every worker CLI command it builds its Linear client from the host
-config (`agent/config.py:187-194`), and the Codex sandbox has network access
+config (`agent/config.py:222-229`), and the Codex sandbox has network access
 (`agent/launcher.py:223`); D11 accepts that workers hold the app's secret. Any skill may use it, so a
 fix worker can at last open a bug report's screenshots and videos (§2.2). The UI worker runs it at
 intake and on every resume; the Code worker uses it for documents and images uploaded to the Code
@@ -312,11 +321,11 @@ from posting twice, and an image uploaded twice is only an unused asset.
 ### 5.7 Continuity across stages and days
 
 **Plan state.** The checkpoint gains an optional, validated `plan` beside the handoff, carried
-forward when a checkpoint omits it, as the handoff is (`agent/ledger.py:827-829`), exposed by
+forward when a checkpoint omits it, as the handoff is (`agent/ledger.py:828-830`), exposed by
 `issue-context` and handed to a successor by `recovery`. Its keys form an exact set, checked like the
-handoff's (`agent/ledger.py:154-177`) but with larger bounds: strings up to 2,000 characters as
+handoff's (`agent/ledger.py:155-178`) but with larger bounds: strings up to 2,000 characters as
 there, arrays up to 50 entries instead of 20 and 16,000 characters in all instead of 12,000; longer
-notes go to files in the state directory, which every attempt of the item shares. Proposed keys:
+notes go to files in the state directory, which every attempt of the item shares. Its keys:
 
 | Key | Content | Controller reads it for |
 |---|---|---|
@@ -356,17 +365,17 @@ carries newer designer data, it asks whether to re-pin rather than revert it.
 
 ### 5.8 Budgets, retries and worker slots
 
-- `max_hours` bounds each attempt, not the job; pauses cost nothing. Proposed: `feature` 10 hours
-  and `fgui` 6 hours, with the fix lease and renewal (`docs/operating-contract.md:503-505`).
+- `max_hours` bounds each attempt, not the job; pauses cost nothing. `feature` gets 10 hours and
+  `fgui` 6 hours (D16), with the fix lease and renewal (`docs/operating-contract.md:506-508`).
 - Automatic-retry allowances are job-lifetime counters (three capacity and three publication
-  retries, `agent/ledger.py:1289-1327`; the Unity execution and setup budgets,
-  `docs/operating-contract.md:325-332`), reset only by `retry` and chat-requested continuation.
-  **Proposed:** for `feature` and `fgui` they reset at each completed repository handoff and each
-  resume from a human gate, so they bound one stage rather than a weeks-long job.
+  retries, `agent/ledger.py:1290-1328`; the Unity execution and setup budgets,
+  `docs/operating-contract.md:328-335`), reset only by `retry` and chat-requested continuation.
+  For `feature` and `fgui` they reset at each completed repository handoff and each resume from a
+  human gate (D16), so they bound one stage rather than a weeks-long job.
 - A budget kill with a valid lease fails the job as today, and cleanup preserves source; `retry` or a
   continuation restarts at the initial root, whose worker reads the plan and hands off (§9.4).
-- The default host runs two workers (`agent/config.py:26`). **Proposed:** at most one `feature` or
-  `fgui` attempt at a time, leaving a slot for `fix` and chat.
+- The default host runs two workers (`agent/config.py:33`). At most one `feature` or `fgui` attempt
+  runs at a time (D16), leaving a slot for `fix` and chat.
 
 ## 6. Code worker (`feature`)
 
@@ -394,7 +403,7 @@ then hands off to Farm-Client: the hive-rooted one, or an earlier root's when st
 
 1. Intake: claim, `fetch-issue`, duplicate guard, confirm 功能/Code, and the started comment on the
    job's first attempt only (the plan records it; the outbox key changes with every answered
-   question, `agent/ledger.py:1516`). If `openspec/changes/` or an open PR already holds someone
+   question, `agent/ledger.py:1517`). If `openspec/changes/` or an open PR already holds someone
    else's change for the issue, ask whether to build on it (§4.5).
 2. Read the 策划案 (§5.4), the current specs, the authority table and the consumer repositories
    (read-only worktrees), and write the proposal and gap table by Farm-Contract's rules: gaps before
@@ -443,7 +452,7 @@ values become persistent player-data field names (farm-common `designer/CLAUDE.m
   absolute path because the launcher changes directory (`7db8dbe`). Update both kinds of count:
   `ss:ExpandedRowCount` and column counts in the edited XML, and the artifact-count constants at the
   places `designer/tools/check-config-artifact.sh:269-288` lists (a client-only table changes three;
-  `6044e5c` edited two Go tests and two tool scripts). No other configgen code. **Proposed:** leave
+  `6044e5c` edited two Go tests and two tool scripts). No other configgen code: FarmBot leaves
   `designer/configgen/profiles/farm-hive.json` alone, as `6044e5c` did: hive generates the tables its
   own `TABLES` names, and a profile change means all eight edits.
 - Never write data rows, data values or global-key values; a symbol the code depends on is named by
@@ -457,11 +466,12 @@ values become persistent player-data field names (farm-common `designer/CLAUDE.m
   (`designer/configgen/cmd/configgen/production.go:239`). On a host with dotnet SDK 8.0.423 under
   macOS or Linux the worker also runs `bash designer/tools/check-config-artifact.sh`, the CI job's
   script (§6.9).
-- Open the declarations draft PR and post the config-needed comment to the owner: a request to review
-  and merge it (its merge is the naming review); per table the file and sheet; per column the **exact
-  header text** (an undeclared or mismatched header is dropped silently, FARM-1193), its position as
-  策划 decide (`designer/CLAUDE.md:34-38`), type, kind of values and any non-neutral default to set;
-  new enum labels; and what "config ready" means (§6.4). Then pause.
+- Open the declarations draft PR and post the config-needed comment to the owner and the issue's
+  creator (D17): a request to review and merge it (its merge is the naming review); per table the
+  file and sheet; per column the **exact header text** (an undeclared or mismatched header is dropped
+  silently, FARM-1193), its position as 策划 decide (`designer/CLAUDE.md:34-38`), type, kind of values
+  and any non-neutral default to set; new enum labels; and what "config ready" means (§6.4). Then
+  pause.
 
 ### 6.4 Pause and stage C: config ready
 
@@ -700,7 +710,7 @@ It then pauses for visual approval. Corrections resume it to revise and post new
 request to export in the session, read from natural language as chat reads repair requests, moves it
 to export. Anyone who writes in the session may approve or ask for the export (D15): restricting
 this to the owner (§5.3) would add little, because anyone in the session can already steer, resume or
-stop the job (the receiver does not check who wrote, `agent/receiver.py:274-278`), and the export only
+stop the job (the receiver does not check who wrote, `agent/receiver.py:277-281`), and the export only
 opens a draft PR that the owner merges (D5). FarmBot records who approved and who asked, names them in
 the Farm-Client PR and mentions the owner there.
 
@@ -751,9 +761,9 @@ continuation request; comments alone never resume work.
 
 Read-only extras: `feature` gets detached Farm-Contract main and farmgui main checkouts (§9.6); the
 checkout at the config SHA is worker-made in the state directory (§6.4). Neither skill gets kw_ops in
-the first version: nothing it builds is deployed to the test environment before merge (§14.2).
+the first version (D16): nothing it builds is deployed to the test environment before merge.
 Publication keeps today's rules: verified private destinations, the issue branch with optional
-suffix, draft PRs, no run reports (`docs/operating-contract.md:337-370`).
+suffix, draft PRs, no run reports (`docs/operating-contract.md:340-373`).
 
 ### 8.2 Never
 
@@ -767,7 +777,7 @@ manifests as instructions.
 ### 8.3 Credentials
 
 - **Linear token.** Workers may hold the app's secret (D11): the worker CLI already builds its own
-  Linear client from the host config (`agent/config.py:187-194`), and downloads and preview uploads
+  Linear client from the host config (`agent/config.py:222-229`), and downloads and preview uploads
   are CLI commands too (§5.5, §5.6). No worker prompt, payload or log carries the token or a signed
   URL, and the AUTHORITY limits its use to FarmBot's CLI commands for the claimed issue (§8.4); no
   token-free worker config comes first.
@@ -793,7 +803,7 @@ The Codex approval reviewer trusts the dispatch text, not skill files, so every 
 on must be stated there (`docs/operating-contract.md:111-121`). Today one AUTHORITY string serves all
 skills (`agent/dispatch.py:5-66`), with bug-shaped wording such as kw_ops use limited to "this issue's
 reproduction or verification" (`:56-64`) and publishing that excludes "unrelated files" (`:22`).
-Proposed: a common part plus a per-skill part selected by `item.skill`.
+This design splits it into a common part and a per-skill part selected by `item.skill`.
 
 - Common additions: never merge or run Jenkins; use the Linear credentials only through FarmBot's CLI
   commands for the claimed issue, and download uploads only with `download-uploads`; run lark-cli
@@ -838,22 +848,23 @@ macOS-only) need Windows tests; Mac results do not establish Windows behaviour (
 ### 9.1 Linear reads and host transfers (`agent/linear_api.py`)
 
 - `ISSUE_QUERY` (`:11-20`): labels with `id name parent { id name }`; `assignee { id name url }`;
-  comments with `user { id name url }` and `parent { id }`.
-- `fetch_issue` (`:167-206`): keep `labels` as bare names (Bug routing and stored rows unchanged); add
-  `label_groups`, `assignee` (or null) and a comment `author` for human comments. Fingerprints hash
-  comment ids and bodies only (`agent/ledger.py:145-151`), so they are unaffected.
+  `creator { id name url }`; comments with `user { id name url }` and `parent { id }`.
+- `fetch_issue` (`:167-206`): keep `labels` as bare names (Bug routing and stored rows unchanged);
+  add `label_groups`, `assignee` (or null), `creator` (or null) and a comment `author` for human
+  comments. Fingerprints hash comment ids and bodies only (`agent/ledger.py:146-152`), so they are
+  unaffected.
 - Fix `strip_signed` (`:24-26`) for `<linear-image>` and extract upload URLs from both forms; add
   `download_upload` and `upload_file` (redirect refusal, host allowlist, caps) for the worker CLI
   commands of §9.9.
 
 ### 9.2 Receiver (`agent/receiver.py`)
 
-- `_prepare` (`:137-156`) keeps `agentSession.creator` and, for prompted events, the prompted
+- `_prepare` (`:140-159`) keeps `agentSession.creator` and, for prompted events, the prompted
   activity's `user` (id, name, URL; never the email). `ensure_session` stores the creator, and each
   inbox entry stores the user who wrote it (the activity's user, or a mention session's creator), so
   approvals, export requests and readiness reports are recorded by name (§5.2, §7.3).
 - Pass label groups to the router; implement the Bug-plus-功能 elicitation and the re-route rule of
-  §4.3; add ACK texts (`:26-27`) for `fgui` and `feature`; generalize the fix-worded refusal (`:278`).
+  §4.3; add ACK texts (`:29-30`) for `fgui` and `feature`; generalize the fix-worded refusal (`:281`).
 
 ### 9.3 Router (`agent/router.py`)
 
@@ -861,31 +872,31 @@ The table of §4.3, given label groups and the enabled skills (§9.11); mention 
 
 ### 9.4 Ledger (`agent/ledger.py`)
 
-- Additive state: `_normalize` (`:84-133`) accepts optional `label_groups`, `assignee` and comment
-  `author` in the `issues.metadata` JSON; new `sessions.creator_json` and `inbox.author_json` columns
-  (migration list `:356-370`); a `notices` table for the new comment kinds, deduplicated by an
-  item-scoped request id (the outbox key, `UNIQUE` at `:261`, suits started/blocker/delivery but not
+- Additive state: `_normalize` (`:85-134`) accepts optional `label_groups`, `assignee`, `creator` and
+  comment `author` in the `issues.metadata` JSON; new `sessions.creator_json` and `inbox.author_json`
+  columns (migration list `:357-371`); a `notices` table for the new comment kinds, deduplicated by an
+  item-scoped request id (the outbox key, `UNIQUE` at `:262`, suits started/blocker/delivery but not
   repeated question rounds, and changing it needs a table rebuild).
-- `checkpoint` (`:789-853`) validates `plan` (§5.7) and carries it forward when omitted, as it does
-  the handoff (`:827-829`); `issue_context` (`:1666-1700`) exposes it with `owner`, and
-  `recovery_context` (`:1481-1488`) passes a predecessor's plan on.
+- `checkpoint` (`:790-854`) validates `plan` (§5.7) and carries it forward when omitted, as it does
+  the handoff (`:828-830`); `issue_context` (`:1667-1701`) exposes it with `owner`, and
+  `recovery_context` (`:1482-1489`) passes a predecessor's plan on.
 - Initial root in one place: a NULL `root_repo` on a staged skill with an `initial_root` means that
   root wherever the root is read (`stages.write_repositories`, the dispatch `stage` block, handoff
-  checks), so `create_work_item`, `retry` (`:1340-1342`), `_cancelled_successor` (`:1428-1437`) and
-  `_repair_work` (`:1402-1417`) all restart a `feature` or `fgui` job there; cancelled predecessors
-  are linked for every write skill, not only `fix` (`:552-554`).
-- `handoff_repository` (`:855-901`) accepts staged skills (`:861-862`) and checks the target against
-  the manifest's `writes`, not `FIX_REPOSITORIES` (`:857`, `:894`). `await_input` stores the reason
-  and refuses while a Unity reservation is open, as `handoff_repository` does (`:877-879`);
-  `await_resource` (`:934`, `:942-944`) and the CLI's check (`agent/__main__.py:394-396`) allow Unity
+  checks), so `create_work_item`, `retry` (`:1341-1343`), `_cancelled_successor` (`:1429-1438`) and
+  `_repair_work` (`:1403-1418`) all restart a `feature` or `fgui` job there; cancelled predecessors
+  are linked for every write skill, not only `fix` (`:553-555`).
+- `handoff_repository` (`:856-902`) accepts staged skills (`:862-863`) and checks the target against
+  the manifest's `writes`, not `FIX_REPOSITORIES` (`:858`, `:895`). `await_input` stores the reason
+  and refuses while a Unity reservation is open, as `handoff_repository` does (`:878-880`);
+  `await_resource` (`:935`, `:943-945`) and the CLI's check (`agent/__main__.py:394-396`) allow Unity
   for `feature` and `fgui` only from the Farm-Client root.
 - `revalidate` (§9.9) swaps `claimed_fingerprint` for the fingerprint the worker just read, with an
-  audit row; without it any human comment during an attempt refuses the stage's handoff (`:882-883`)
-  and the registration of a PR Linear already attached (`:831-841`). Retry counters (`:1289-1327`)
-  reset as §5.8 proposes, in `complete_repository_handoff` (`:890-901`) and on resumes from a gate.
-- `_resumable_work` and `_repair_work` (`:1348-1420`): a continuation resumes the delegation's own
+  audit row; without it any human comment during an attempt refuses the stage's handoff (`:883-884`)
+  and the registration of a PR Linear already attached (`:832-842`). Retry counters (`:1290-1328`)
+  reset as §5.8 says, in `complete_repository_handoff` (`:891-902`) and on resumes from a gate.
+- `_resumable_work` and `_repair_work` (`:1349-1421`): a continuation resumes the delegation's own
   write skill; on a 功能-labelled issue without a `feature` or `fgui` job, `request-repair` refuses and
-  says how to start one instead of creating a `fix` (`:1400-1407`).
+  says how to start one instead of creating a `fix` (`:1401-1408`).
 
 **Migration and recovery.** All changes are additive; older issue rows read as having no author or
 assignee. The `strip_signed` fix changes, once, the fingerprint of every tracked issue with a signed
@@ -893,8 +904,8 @@ assignee. The `strip_signed` fix changes, once, the fingerprint of every tracked
 running items before deploying, or accept one requeue. A rollback leaves the new columns and tables
 unused and pending notices unsent. **Rollback hazard:** older revisions have no `skills/feature` or
 `skills/fgui` and never launch those items (`agent/scheduler.py:471`), yet replies still resume them
-(`agent/receiver.py:274-278`), queued ones keep getting heartbeats (`agent/session_progress.py:21-23`),
-and the one-active-item index (`agent/ledger.py:246-248`) blocks other work on their issues. Cancel
+(`agent/receiver.py:277-281`), queued ones keep getting heartbeats (`agent/session_progress.py:21-23`),
+and the one-active-item index (`agent/ledger.py:247-249`) blocks other work on their issues. Cancel
 unfinished `feature` and `fgui` items before rolling back, as with pending repository handoffs
 (`docs/operating-contract.md:222-227`).
 
@@ -943,13 +954,13 @@ added for downloads or previews. Standard library only; explicit UTF-8.
 ### 9.8 Lifecycle (`agent/lifecycle.py`)
 
 Preflight already requires delegation for `fgui` and `feature` (`:32-38`), but today losing it only
-prevents launches; D6 says removing it stops FarmBot at its next check. **Proposed mechanism:** a
+prevents launches; D6 says removing it stops FarmBot at its next check, by this mechanism (D16): a
 status read that finds the delegation removed cancels queued or parked `feature` and `fgui` items,
 with a notice that their branches and PRs remain for the new owner, and cleanup preserves source as
-recovery refs (`docs/operating-contract.md:244-252`); a running worker sees the change at its next
+recovery refs (`docs/operating-contract.md:247-255`); a running worker sees the change at its next
 `fetch-issue` or `verify-publication`, saves a checkpoint and finishes blocked.
 
-A completed or canceled status already cancels every unfinished item, parked ones included
+A completed, canceled or duplicate status already cancels every unfinished item, parked ones included
 (`:19-21`), and reopening starts nothing (`docs/operating-contract.md:91-92`). A Code job lives for
 days after its first PR, so a person who moves the card to Done or Canceled mid-feature ends the job
 and skips its closing steps, hence the second team rule of §4.2. The GitHub integration does not: its
@@ -958,9 +969,8 @@ Checked on 2026-09-25 against FarmBot's multi-repository issues: FARM-1332 moved
 merged, two hours after the first; FARM-1362 moved when its first PR merged while the other was still
 open, went back to In Progress seconds before the second merged, then to 待验收 again; FARM-1110
 and FARM-1263 also ended in 待验收. A Code card can therefore show 待验收 after any merge
-mid-feature. Separately, the team's Duplicate status has its own type, `duplicate`, which
-`TERMINAL_STATUS_TYPES` (`agent/ledger.py:27`) omits, so marking an issue Duplicate stops nothing
-today; #48 proposes that fix independently of this design.
+mid-feature. The team's Duplicate status has its own type, `duplicate`, which FarmBot treats as
+closed since #48 (`TERMINAL_STATUS_TYPES`, `agent/ledger.py:28`).
 
 ### 9.9 Worker CLI (`agent/__main__.py`)
 
@@ -994,7 +1004,7 @@ today; #48 proposes that fix independently of this design.
 
 - `docs/operating-contract.md`, updated as each phase lands: trigger rows for 功能/UI, 功能/Code and
   Bug plus 功能; authority rows; `await-input` reasons; comment kinds; the upload commands and
-  workers' use of the Linear credentials; delegation removal. The FGUI paragraph (`:404-417`) is
+  workers' use of the Linear credentials; delegation removal. The FGUI paragraph (`:407-420`) is
   reworded: CLI export needs no separate approval in an authorized FGUI bug fix, and in an `fgui` job
   follows the human's explicit export request after visual approval. Its claim that the rule "also
   applies to future `fgui` and `feature` workers" describes workers that do not exist and can go now,
@@ -1004,9 +1014,9 @@ today; #48 proposes that fix independently of this design.
   and a CJK font for previews, bash and coreutils on Windows, lark-cli presence and its FarmBot app
   identity without secrets, the FGUI CLI path on Windows), the enabled skills, and for `feature` and
   `fgui` items the current root, pending pause kind and age, and PR links. Doctor stays read-only.
-- `agent/service.py`: `enqueue` of `feature` or `fgui` (`:127-157`) also requires the matching label.
+- `agent/service.py`: `enqueue` of `feature` or `fgui` (`:129-159`) also requires the matching label.
 - Private host config: `enabled_skills` (today every skill directory in the deployed checkout is
-  live, `agent/service.py:40`, `:49`, `:73`) for the receiver, scheduler, `request-repair` and
+  live, `agent/service.py:42`, `:51`, `:75`) for the receiver, scheduler, `request-repair` and
   `enqueue`; the FGUI CLI path, the lark-cli location and the FarmBot app's credentials, download and
   upload size limits and optional pinned label IDs.
 
@@ -1030,8 +1040,8 @@ Owned by those repositories' owners or the operator; FarmBot's work does not inc
 |---|---|
 | Config or UI never ready | The job stays parked; nothing times out. The owner can remove the delegation (§9.8) or answer with a scope change; a UI that proves unnecessary is settled by a human reply, recorded in the plan, and the client stage proceeds without it. |
 | Contract changes after hive code exists | Relayed answers or review feedback send the worker back to a Farm-Contract-rooted attempt to update the PR; it then re-syncs hive and the client protos (`-unreachable` again) and adapts code. |
-| Others push to FarmBot's branches | The worker integrates their commits and never force-pushes (`docs/operating-contract.md:346-348`). |
-| Human comments during an attempt | The worker reads them and calls `revalidate` (§9.9) before its next handoff or PR registration; a later comment still requeues `finish` (`agent/ledger.py:1630-1634`), and the fresh worker re-reads and finishes. |
+| Others push to FarmBot's branches | The worker integrates their commits and never force-pushes (`docs/operating-contract.md:349-351`). |
+| Human comments during an attempt | The worker reads them and calls `revalidate` (§9.9) before its next handoff or PR registration; a later comment still requeues `finish` (`agent/ledger.py:1631-1635`), and the fresh worker re-reads and finishes. |
 | Contract PR closed without merging | FarmBot parks and asks whether to reopen, revise or abandon. |
 | A hive PR merged before its preconditions (§6.8) | An `-unreachable` contract snapshot on main fails `check_msg_proto` and `check_contract_sync` on main and later hive PRs, and a placeholder checksum fails the designer pin gate and the release pack (which runs only the pin gate, not the contract gates); FarmBot opens a follow-up draft PR on a suffix branch with the re-sync and pin and says main stays red until it merges. |
 | A client PR merged before its preconditions (§6.8) | Its protos are stamped with an unmerged contract commit and no Farm-Client check turns red; FarmBot re-exports from the merged contract commit in a follow-up draft PR on a suffix branch. |
@@ -1053,27 +1063,27 @@ on operator-chosen issues only, whose comments, labels, branches and draft PRs a
 | Area | Cases |
 |---|---|
 | Router and receiver | a standalone `UI` label does not route, 功能/UI and 功能/Code do, Bug alone is unchanged; Bug plus 功能 elicits, and a re-route after the label fix starts the right skill; labelled delegation text lands in the inbox; mentions never create `feature` or `fgui`; `enabled_skills` gates routing; the session creator and prompting user are stored without email |
-| Linear client and uploads | query shapes with a fake transport (authors, replies, assignee null and present); `strip_signed` on both upload forms; `download-uploads` refuses redirects, other hosts and URLs not in the claimed issue, enforces caps and never prints or logs the token; every name hazard of §5.5, zip bombs, paths with spaces and Unicode, image sizes and manifest stability; `upload-image` refuses non-images; the upload flow against a stub |
+| Linear client and uploads | query shapes with a fake transport (authors, replies, assignee and creator null and present); `strip_signed` on both upload forms; `download-uploads` refuses redirects, other hosts and URLs not in the claimed issue, enforces caps and never prints or logs the token; every name hazard of §5.5, zip bombs, paths with spaces and Unicode, image sizes and manifest stability; `upload-image` refuses non-images; the upload flow against a stub |
 | Ledger | migration of old files; optional fields tolerated and absent from fingerprints; notice deduplication; `retry` and a cancelled successor of a `feature` item start at its initial root; a checkpoint without `plan` keeps the plan; `await-input` refused with an open reservation; `revalidate` lets a handoff and a late PR registration proceed after a human comment; continuation resumes the delegation's skill; `await-resource` rules per root |
 | Stages, CLI and scheduler | staged handoff only within `writes`, `fix` unchanged; `verify-publication` only for the current root; `--reason waiting` skips `needs-more-info`; `foreign-work` against local remotes, predecessors' branches counted as own; read-only checkouts outside the item directory, refreshed each launch and cleaned up with the branch worktrees; successor worktrees on recorded branches; per-skill AUTHORITY free of tokens and signed URLs; skill and template texts |
 | Journey | one Code job through A, B, pause, C, D, pause, E, F, closing and G, asserting `root_repo`, write repositories, branch names, plan and notices at each step, with variants: skipped stages, a restart while parked, Stop then continuation, a budget kill then retry, a human comment mid-attempt, and merge-commit versus squash merges |
 | Windows | the offline suite and the input and path tests on the Windows host; no Mac result is reported as Windows verification |
-| Live, in order | read the 功能 group with parents; comment author names and the prompting user of a session reply; assignee mention notification; one `download-uploads` run with the app token (operator approval, D10); a worker's lark-cli fetch, as the FarmBot app, of a linked 策划案 docx page and an attachment; then one Code issue through stage A only, before any later stage is tried live |
+| Live, in order | read the 功能 group with parents; comment author names and the prompting user of a session reply; assignee and creator mention notification; one `download-uploads` run with the app token (operator approval, D10); a worker's lark-cli fetch, as the FarmBot app, of a linked 策划案 docx page and an attachment; then one Code issue through stage A only, before any later stage is tried live |
 
 ## 13. Phasing
 
 Each phase is useful alone and separately authorized.
 
-1. **Phase A, shared plumbing.** Label groups, comment authors and the prompting user, assignee and
-   session creator, owner mentions, `notices`, `await-input --reason`, `revalidate`,
-   `download-uploads`, the validated plan, per-skill AUTHORITY, manifest-driven stages with `fix`
-   unchanged, `enabled_skills`, `foreign-work`, and the operating contract's FGUI sentence fix.
-   Immediately useful: fix workers name deciders (the FARM-1263 gap), mention owners and open bug
-   reports' screenshots and videos.
+1. **Phase A, shared plumbing.** Label groups, comment authors and the prompting user, assignee,
+   issue creator and session creator, owner and creator mentions, `notices`, `await-input --reason`,
+   `revalidate`, `download-uploads`, the validated plan, per-skill AUTHORITY, manifest-driven stages
+   with `fix` unchanged, `enabled_skills`, `foreign-work`, and the operating contract's FGUI sentence
+   fix. Immediately useful: fix workers name deciders (the FARM-1263 gap), mention owners and open
+   bug reports' screenshots and videos.
 2. **Phase B, Code worker through the server.** `feature` stages A to D, whose last stage with work is
    followed by the closing comment (§6.8) with no UI pause; the contract and hive closing steps
    (waiver removal, hive re-sync after the contract merge, the published pin); the delegation-removal
-   handling of §9.8 if adopted, otherwise removal only prevents launches; the worker's lark-cli
+   handling of §9.8; the worker's lark-cli
    reading of the 策划案 as the FarmBot app (D12, §10). Delivers contract, declarations and a hive
    draft, and names the remaining client work.
 3. **Phase C, client stage.** Stages E and F, the Unity-free config export, the headless client proto
@@ -1115,13 +1125,5 @@ Found while writing this design:
 
 ### 14.2 Open questions
 
-- **Proposals to confirm:** re-routing on a reply for ambiguous labels (§4.3); waiting pauses without
-  `needs-more-info` (§5.2); cancelling parked jobs when the delegation is removed (§9.8); no kw_ops for
-  the new skills (§8.1); the budgets, the retry-counter resets and one long attempt at a time (§5.8).
-- **Chat and feature work:** may chat on an unlabelled delegated issue switch into feature work, as
-  it can request repair? Proposed: not in the first version; chat explains that the 功能 label and a
-  delegation start it.
-- **Whom to mention** besides the owner: the issue creator for config-needed comments, or a private
-  role-to-user map for questions.
-
-Answered on 2026-09-25 and folded in above: D11 to D15, and how merges move the card (§9.8).
+None at the moment. Answered on 2026-09-25 and folded in above: D11 to D17, and how merges move the
+card (§9.8).
