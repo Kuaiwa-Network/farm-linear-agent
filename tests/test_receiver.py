@@ -20,7 +20,7 @@ from unittest.mock import Mock, patch
 from agent.heartbeat import OUTCOMES, Heartbeat
 from agent.ledger import Ledger
 from agent.monitor import probe_health
-from agent.receiver import Receiver, make_server
+from agent.receiver import MAX_BODY, Receiver, make_server
 from agent.worktrees import WorktreeError
 from test_ledger import ISSUE, issue
 
@@ -539,6 +539,72 @@ class HttpTests(ReceiverBase):
                 self.assertIn(f"{type(error).__name__}: a handler fault", output)
         with urllib.request.urlopen(f"http://127.0.0.1:{server.server_address[1]}/health", timeout=5) as response:
             self.assertEqual(json.load(response)["status"], "FarmBot ready")
+
+    def serve(self):
+        """The receiver's listener on a free loopback port until the test ends; returns the port."""
+        server = make_server(self.receiver, port=0)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(thread.join, 5)
+        self.addCleanup(server.shutdown)
+        return server.server_address[1]
+
+    def deliver(self, port, event, signed):
+        """POST event to /webhook; returns the answer's status and result, and the one log line it wrote."""
+        body = json.dumps(event).encode()
+        self.assertLessEqual(len(body), MAX_BODY)
+        headers = {"Linear-Signature": hmac.new(b"signing-secret", body, hashlib.sha256).hexdigest()} if signed else {}
+        request = urllib.request.Request(f"http://127.0.0.1:{port}/webhook", data=body, headers=headers)
+        log = io.StringIO()
+        with contextlib.redirect_stdout(log):
+            try:
+                with urllib.request.urlopen(request, timeout=5) as response:
+                    status, result = response.status, json.load(response)["status"]
+            except urllib.error.HTTPError as error:
+                with error:
+                    status, result = error.code, json.load(error)["status"]
+        [line] = log.getvalue().splitlines()
+        return status, result, line
+
+    def test_an_unsigned_body_cannot_put_arbitrary_values_into_the_log(self):
+        """Unsigned deliveries are logged too, so type and action appear only as plain words of at most 40
+        letters: anyone who reaches the endpoint could otherwise add megabytes to the service log with each
+        request. The answer is unchanged."""
+        port = self.serve()
+        now = int(time.time() * 1000)
+        largest = {**self.event(webhookTimestamp=now), "type": "", "action": {"created": ["x" * 1000]}}
+        largest["type"] = "A" * (MAX_BODY - len(json.dumps(largest)))  # letters only, filling the body to MAX_BODY
+        cases = {"the largest body the endpoint reads": largest,
+                 "41 letters, and a list": {"type": "A" * 41, "action": ["created"]},
+                 "a number and a boolean": {"type": 7, "action": True},
+                 "a trailing newline and a trailing space": {"type": "Issue\n", "action": "update "},
+                 "a space and a non-ASCII letter": {"type": "Agent Session", "action": "créated"}}
+        for case, fields in cases.items():
+            with self.subTest(case):
+                status, result, line = self.deliver(port, {**self.event(webhookTimestamp=now), **fields}, signed=False)
+                self.assertEqual((status, result), (401, "invalid signature"))
+                self.assertEqual(json.loads(line), {"event": "webhook", "status": 401, "result": "invalid signature",
+                                                    "type": None, "action": None})
+                self.assertLess(len(line), 200)
+        self.assertEqual(self.receiver.results(), [])
+
+    def test_a_signed_delivery_still_logs_its_type_and_action(self):
+        """The plain-word filter keeps the receiver's real vocabulary, up to a word of exactly 40 letters."""
+        port = self.serve()
+        now = int(time.time() * 1000)
+        deliveries = [
+            (self.event(webhookTimestamp=now), (200, "accepted", "AgentSessionEvent", "created")),
+            (self.event("prompted", webhookTimestamp=now), (200, "accepted", "AgentSessionEvent", "prompted")),
+            ({"type": "Issue", "action": "update", "organizationId": "org", "webhookTimestamp": now, "data": {"id": ISSUE}},
+             (200, "ignored", "Issue", "update")),
+            ({"type": "A" * 40, "action": "b" * 40, "webhookTimestamp": now}, (200, "ignored", "A" * 40, "b" * 40))]
+        for event, expected in deliveries:
+            with self.subTest(expected[2:]):
+                status, result, line = self.deliver(port, event, signed=True)
+                logged = json.loads(line)
+                self.assertEqual((status, result), expected[:2])
+                self.assertEqual((logged["status"], logged["result"], logged["type"], logged["action"]), expected)
 
 
 class IssueNotificationTests(ReceiverBase):

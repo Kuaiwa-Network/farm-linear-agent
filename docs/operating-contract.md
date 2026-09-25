@@ -504,7 +504,7 @@ instance's `expected_bot_name`, passed to workers as `bot_name`.
   (`max_hours`, `lease_seconds`, `renew_minutes`); the launcher records the lease on the work item and the
   launch message tells the worker its own numbers.
 - Worker runtime: Codex CLI (`codex exec --approve-for-me`, with `sandbox_mode = "workspace-write"` in its isolated home and automatic approval review), one isolated `CODEX_HOME` per work item seeded with `auth.json`; Claude Code remains a chat fallback pending an equivalent fix sandbox and isolated-auth recipe. Details: `docs/superpowers/spikes/2026-09-18-runtime-spike.md`.
-- Receiver: HMAC-SHA256 and 60 s timestamp window. AgentSessionEvent matches client, app user and organization; Issue events match organization.
+- Receiver: HMAC-SHA256 and 60 s timestamp window. AgentSessionEvent matches client, app user and organization; Issue events match organization. Each delivery the receiver rules on, signed or not, adds one JSON line to the service log with its status, result, `type` and `action`, never the body; `type` and `action` appear only as words of 1 to 40 ASCII letters, anything else as null.
 
 ## Publication transport recovery
 
