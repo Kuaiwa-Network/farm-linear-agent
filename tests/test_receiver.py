@@ -366,6 +366,16 @@ class SessionPeopleTests(ReceiverBase):
         self.assertIsNone(self.ledger.session("session-1")["creator"])
         self.assertEqual(self.ledger.items_for_session("session-1")[0]["skill"], "fix")
 
+    def test_a_message_keeps_the_time_its_event_arrived_not_when_it_was_processed(self):
+        """A pending event survives a restart; the ruling in it must keep the day it was sent."""
+        self.api.fetch_issue.return_value = issue(labels=["Bug"], delegate_id=None)
+        self.receiver.clock = lambda: 1790380500.0  # 2026-09-25T23:55:00Z; the ledger's clock reads now
+        self.receive(self.mention("session-2", "@FarmBot 按服务端的做", DESIGNER))
+        self.receiver.process_one()
+        item = self.ledger.items_for_session("session-2")[0]
+        self.assertEqual([(m["author"], m["created_at"]) for m in self.ledger.issue_context(item["id"])["session_messages"]],
+                         [(DESIGNER, "2026-09-25T23:55:00+00:00")])
+
 
 class HardeningTests(ReceiverBase):
     def test_oversized_guidance_is_rejected_like_oversized_prompt_text(self):

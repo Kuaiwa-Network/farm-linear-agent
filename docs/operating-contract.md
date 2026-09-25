@@ -84,22 +84,29 @@ An issue read also keeps the group of each label that belongs to a label group (
 beside the bare `labels`), the assignee, the creator and, for each comment, its own Linear link, the
 comment it replies to and, for a human comment, its author. A person is the Linear user's ID, name
 and profile URL, never an email. A user without a UUID or an `https://linear.app/` profile URL is
-stored as null, and so is a comment link outside `https://linear.app/`. Snapshots stored before
-this revision lack these fields, which reads as unknown. None of them is issue input: a claim
-covers the title, the description, attachments other than the job's own PRs, and the IDs and
-bodies of human comments, so reassigning or relabelling an issue neither requeues its work nor
-refuses a handoff.
+stored as null, as is one whose name is blank, longer than 256 characters, holds control,
+bidirectional or zero-width characters, or contains an email address, and so is a comment link
+outside `https://linear.app/`. FarmBot's own app user is never the assignee or the creator.
+Snapshots stored before this revision lack these fields, which reads as unknown. None of them is
+issue input: a claim covers the title, the description, attachments other than the job's own PRs,
+and the IDs and bodies of the comments that are neither a bot's nor FarmBot's own, so reassigning
+or relabelling an issue neither requeues its work nor refuses a handoff.
 
 Linear signs upload URLs (`uploads.linear.app`) with a query string that changes between reads. An
-issue read removes that query string and any fragment, and leaves the Markdown, JSON or HTML around
-the URL as written. Earlier revisions also removed whatever followed a signed URL up to the next
-whitespace or `)`, such as the rest of a `<linear-image>` block. Deploying this revision therefore
-changes, once, the fingerprint of every tracked issue whose description or human comments lost text
-that way, at the issue's next read. A job whose claim predates that read, such as one running across
-the deploy, requeues at `finish` (its next attempt redoes the work and may comment again) or has its
-repository handoff refused. Settle running jobs before deploying, or accept one requeue. Rolling
-back changes those fingerprints back once, with the same effect; older revisions ignore the new
-fields.
+issue read removes that query string and any fragment, and leaves the Markdown, JSON, HTML or
+sentence around the URL as written. Earlier revisions removed everything from the first `?` or `#`
+after an upload URL up to the next whitespace or `)`, such as the rest of a `<linear-image>` block
+or of a sentence that went on after a question mark. Deploying this revision therefore changes,
+once, the fingerprint of every tracked issue whose description or comments lost text that way, at
+the issue's next full read (a worker's `fetch-issue` or an agent-session event; status checks do
+not count). Every unfinished job on such an issue whose claim is taken before that read then
+requeues at `finish` (its next attempt redoes the work and posts its start comment again), has its
+repository handoff refused and cannot register a PR that Linear attached before its checkpoint.
+That includes a job that is only queued, waiting for a resource or between repository stages at the
+deploy: nothing re-reads the issue before a claim, so its own first `fetch-issue` stores the new
+text. Settle or cancel unfinished jobs on affected issues before deploying, or accept one requeue
+and a repeated start comment for each. Rolling back changes those fingerprints back once, with the
+same effect; older revisions ignore the new fields.
 
 | You do | FarmBot does |
 |---|---|
@@ -503,25 +510,29 @@ creator (Linear's `agentSession.creator`, unset when automation or an agent star
 and each session message's author: the user who wrote a session reply, or the creator of the
 mention session whose comment opened it. Both are Linear users in the same `{id, name, url}`
 form, never with an email. `issue-context` shows each message's author and the time FarmBot
-received it (`created_at`, ISO 8601 UTC) on `session_messages` and on `conversation_history`
-messages, and a chat's messages keep both when a repair takes them over. The nullable
-`sessions.creator_json` and `inbox.author_json` columns are added when a ledger opens. Existing
-rows are not rewritten: they read as unknown (null), as do operator-enqueued sessions, and their
-messages keep the time they were received. Older code ignores the columns, so rolling back keeps
-working; what it records meanwhile names nobody.
+received it (`created_at`, ISO 8601 UTC; an event processed later, for example after a restart,
+keeps its arrival time) on `session_messages` and on `conversation_history` messages, and a chat's
+messages keep both when a repair takes them over. The nullable `sessions.creator_json` and
+`inbox.author_json` columns are added when a ledger opens. Existing rows are not rewritten: they
+read as unknown (null), as do operator-enqueued sessions, and their messages keep the time they
+were stored, which for a copy an older revision's repair made is that repair's time. Older code
+ignores the columns, so rolling back keeps working; what it records meanwhile names nobody.
 
-`issue-context` also gives workers an `owner`: the issue's assignee, else the human who created
-the item's delegation session, else nobody (for example an operator `enqueue`). Its `creator` is
-the issue's creator when that is a person other than the owner. Fix workers record a human
-ruling as `[DECIDED:<Linear user name>@<date>]` under the full Linear name (`User.name`) of the
-author of the comment or session message that gave it, dated by its `created_at` and linked to
-the comment's own `url`; only for a comment without one do they build the link from the issue
-URL and the comment id. They attribute no ruling to anyone else, record none that nobody gave and
-write no silent-consent default. A blocker, a delivery's request to review and merge, and an
-`await-input` question mention the owner by profile URL, which Linear renders as a mention;
-without an owner they mention nobody. A question for 策划 also mentions the creator. FarmBot asks
-the owner to merge, cannot enforce who does, and never merges. Whether an agent's mention
-notifies anyone reliably is still to be checked live (spec §14.1).
+`issue-context` also gives workers an `owner`: the issue's assignee, else the human who delegated
+the issue most recently (the creator of its latest delegation session, even for an item started
+under an earlier one), else nobody (for example an operator `enqueue`, or a delegation whose
+creator is unknown). Its `creator` is the issue's creator when that is a person other than the
+owner. Fix workers record a human ruling as `[DECIDED:<Linear user name>@<date>]` under the full
+Linear name (`User.name`) of the author of the comment or session message that gave it, dated by
+the calendar date of its `created_at` in UTC+8, the team's time zone, and linked to the comment's
+own `url`; only for a comment without one do they build the link from the issue URL and the
+comment id. They attribute no ruling to anyone else or to a comment a FarmBot instance posted,
+record none that nobody gave and write no silent-consent default. A blocker, a delivery's request
+to review and merge, and an `await-input` question mention the owner by profile URL, which Linear
+renders as a mention; without an owner nobody is mentioned in the owner's place. A question for
+策划 also mentions the creator. FarmBot asks the owner to merge, cannot enforce who does, and never
+merges. Whether an agent's mention notifies anyone reliably is still to be checked live (spec
+§14.1).
 
 ## Comments
 

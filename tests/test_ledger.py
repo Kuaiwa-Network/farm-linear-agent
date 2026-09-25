@@ -139,6 +139,16 @@ class SnapshotTests(LedgerBase):
         self.assertFalse({"label_groups", "assignee", "creator"} & stored.keys())
         self.assertFalse({"author", "parent_id", "url"} & stored["comments"][0].keys())
 
+    def test_a_known_nobody_is_stored_as_null_not_dropped(self):
+        # null means "none", a missing key means "not read yet" (references/worker-cli.md): keep them apart.
+        self.ledger.observe_issue(issue(assignee=None, creator=None, label_groups=[],
+                                        comments=[comment(author=None, parent_id=None, url=None),
+                                                  comment(kind="unknown", id="comment-2", author=None)]))
+        stored = self.ledger.issue(ISSUE)
+        self.assertEqual((stored["assignee"], stored["creator"], stored["label_groups"]), (None, None, []))
+        self.assertEqual([{key: c[key] for key in ("author", "parent_id", "url") if key in c} for c in stored["comments"]],
+                         [{"author": None, "parent_id": None, "url": None}, {"author": None}])
+
     def test_malformed_people_label_groups_and_replies_are_refused(self):
         bad = {"a person with an email": {"assignee": {**OWNER, "email": "owner.two@example.com"}},
                "a person without a url": {"creator": {"id": OWNER["id"], "name": "Owner Two"}},
@@ -153,6 +163,7 @@ class SnapshotTests(LedgerBase):
                "a grouped label the issue lacks": {"label_groups": [{"group": "功能", "label": "Code"}]},
                "a comment author with an email": {"comments": [comment(author={**DESIGNER, "email": "d@example.com"})]},
                "an author on a bot comment": {"comments": [comment(kind="bot", author=DESIGNER)]},
+               "an author on an unknown comment": {"comments": [comment(kind="unknown", author=DESIGNER)]},
                "a blank parent id": {"comments": [comment(parent_id="")]},
                "a parent id that is not text": {"comments": [comment(parent_id=7)]},
                "a comment url outside Linear": {"comments": [comment(url="https://example.com/FARM-1#comment-1")]},
@@ -463,6 +474,16 @@ class SessionPeopleTests(LedgerBase):
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
         self.assertEqual(self.ledger.pop_inbox(item["id"], token), ["先看服务端日志", "（无正文）"])
 
+    def test_a_message_keeps_the_time_farmbot_received_it_when_given(self):
+        item = self.new_item()  # the clock reads 1000.0, long after the webhook arrived
+        self.ledger.push_inbox(item["id"], "先看服务端日志", received_at=1790380500.0)  # 2026-09-25T23:55:00Z
+        self.assertEqual(self.ledger.issue_context(item["id"])["session_messages"][0]["created_at"],
+                         "2026-09-25T23:55:00+00:00")
+        for bad in ("1790380500", float("nan"), float("inf"), True):
+            with self.subTest(bad=bad), self.assertRaises(LedgerError):
+                self.ledger.push_inbox(item["id"], "x", received_at=bad)
+        self.assertEqual(len(self.ledger.issue_context(item["id"])["session_messages"]), 1)
+
     def test_anything_but_exactly_a_person_is_refused_and_never_stored(self):
         item = self.new_item()
         for bad in ("Designer One", {"id": DESIGNER["id"], "name": "Designer One"},
@@ -551,6 +572,19 @@ class OwnerTests(LedgerBase):
         context = self.ledger.issue_context(chat["id"])
         self.assertEqual(context["owner"], {"person": LEAD, "source": "delegator"})
         self.assertEqual(context["delegation_session"], SESSION)
+
+    def test_a_redelegation_hands_the_issue_to_whoever_delegated_it_last(self):
+        """spec §4.2: whoever takes an unassigned card over delegates it again; an item started earlier follows."""
+        item_id = self.context_for(assignee=None, creator=DESIGNER, delegator=LEAD)["coordination"]["id"]
+        self.now += 60
+        self.ledger.ensure_session("session-2", ISSUE, delegation=True, creator=OWNER)
+        context = self.ledger.issue_context(item_id)
+        self.assertEqual(context["owner"], {"person": OWNER, "source": "delegator"})
+        self.assertEqual(context["delegation_session"], SESSION)  # the item's own authority is unchanged
+        self.assertEqual(context["creator"], DESIGNER)
+        self.now += 60
+        self.ledger.ensure_session("session-3", ISSUE, delegation=True)  # the latest delegator is unknown
+        self.assertIsNone(self.ledger.issue_context(item_id)["owner"])
 
 
 class OutboxTests(LedgerBase):

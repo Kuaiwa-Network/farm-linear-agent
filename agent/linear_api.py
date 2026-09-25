@@ -8,13 +8,23 @@ import urllib.request
 from uuid import UUID
 
 SCOPES = "read,write,app:mentionable,app:assignable"
-# The characters a URL may contain (RFC 3986) except ' ( ) [ ], which delimit URLs in Markdown and HTML. An upload
-# URL ends at the first other character (such as whitespace, a quote, a bracket, "<", ">", a backtick or any
-# non-ASCII character), so the Markdown, JSON or HTML around it survives. Linear signs only the query string.
-_URL_CHARACTERS = r"A-Za-z0-9\-._~%!$&*+,;=:@/"
-UPLOAD = re.compile(rf"(https://uploads\.linear\.app/[{_URL_CHARACTERS}]+)(?:[?#][{_URL_CHARACTERS}?#]*)?")
+# An upload URL's path is ASCII ID segments; its query and fragment are what Linear signs (a signature and its
+# parameters, percent-encoded or HTML-escaped as &amp;). Neither class holds characters that follow a URL in prose
+# or markup: whitespace, quotes, brackets, "<", ">", backticks, "*", ",", "!" and any non-ASCII character end it,
+# and a query never ends in ".", ":", ";" or "?". So the Markdown, JSON, HTML or sentence around the URL survives,
+# and two URLs joined by a comma stay two.
+_PATH_CHARACTERS = r"A-Za-z0-9\-._~%/"
+_QUERY_CHARACTERS = r"A-Za-z0-9\-._~%=&;+/:@?#"
+UPLOAD = re.compile(rf"(https://uploads\.linear\.app/[{_PATH_CHARACTERS}]+)"
+                    rf"(?:[?#][{_QUERY_CHARACTERS}]+(?<![.:;?]))?")
 # A Linear web URL: a person's profile, which Linear renders as a mention in a comment, or a comment's own link.
 LINEAR_URL = re.compile(r"https://linear\.app/\S+")
+# A person's name as FarmBot keeps it (it is printed into comments and ruling markers): at most NAME_LIMIT
+# characters, with no control, bidirectional or zero-width characters and no unpaired surrogate, and never an
+# email address, which FarmBot does not store.
+NAME_LIMIT = 256
+_HIDDEN = re.compile("[\x00-\x1f\x7f-\x9f؜​‎‏‪-‮⁦-⁩﻿\ud800-\udfff]")
+_EMAIL = re.compile(r"""[^\s@<>()\[\],;:"']+@[^\s@<>()\[\],;:"']+\.[A-Za-z]{2,}""")
 ISSUE_QUERY = """query FarmBotIssue($id: String!, $after: String) {
   issue(id: $id) {
     id identifier url branchName title description priority archivedAt updatedAt
@@ -32,7 +42,8 @@ ISSUE_READ_ATTEMPTS = 3
 def strip_signed(text):
     """Drop signed query strings (and fragments) from Linear upload URLs so fingerprints stay stable.
 
-    Only the URL changes: the Markdown, JSON or HTML around it, a <linear-image> block included, stays as written.
+    Only the URL changes: the Markdown, JSON, HTML or sentence around it, a <linear-image> block included, stays
+    as written.
     """
     return UPLOAD.sub(r"\1", text or "")
 
@@ -54,13 +65,17 @@ def _linear_url(value):
 def person(node):
     """A Linear User node as exactly {"id", "name", "url"}, or None.
 
-    None unless the node has a UUID id, a name and an https://linear.app/ profile URL. Every other field,
+    None unless the node has a UUID id, a name and an https://linear.app/ profile URL. The name is trimmed, and a
+    name that is too long, holds hidden characters or contains an email address names nobody. Every other field,
     the email included, is dropped.
     """
     if not isinstance(node, dict):
         return None
     user_id, name, url = node.get("id"), node.get("name"), _linear_url(node.get("url"))
-    if not (isinstance(user_id, str) and isinstance(name, str) and name.strip() and url):
+    if not (isinstance(user_id, str) and isinstance(name, str) and url):
+        return None
+    name = name.strip()
+    if not name or len(name) > NAME_LIMIT or _HIDDEN.search(name) or _EMAIL.search(name):
         return None
     try:
         return {"id": str(UUID(user_id)), "name": name, "url": url}
@@ -252,12 +267,16 @@ class LinearAPI:
             if not page["hasNextPage"]:
                 break
             after = page["endCursor"]
+        # FarmBot's own app user is never the issue's owner or its author, whatever Linear reports.
+        people = {field: person(issue.get(field)) for field in ("assignee", "creator")}
+        people = {field: None if found and found["id"] == (self.app_user_id or "").lower() else found
+                  for field, found in people.items()}
         return {"id": issue["id"], "identifier": issue["identifier"], "team_id": issue["team"]["id"], "url": issue["url"],
                 "updated_at": issue.get("updatedAt"), "branch_name": issue.get("branchName") or "", "title": issue["title"],
                 "description": strip_signed(issue.get("description") or ""), "status": issue["state"]["name"],
                 "status_type": issue["state"]["type"], "labels": [n["name"] for n in issue["labels"]["nodes"]],
                 "label_groups": _label_groups(issue["labels"]["nodes"]),
-                "assignee": person(issue.get("assignee")), "creator": person(issue.get("creator")),
+                "assignee": people["assignee"], "creator": people["creator"],
                 "priority": int(issue["priority"] or 0), "archived": issue.get("archivedAt") is not None,
                 "delegate_id": (issue.get("delegate") or {}).get("id"),
                 "attachments": sorted({strip_signed(n["url"]) for n in issue["attachments"]["nodes"]}),

@@ -124,8 +124,10 @@ class PeopleInstructionTests(unittest.TestCase):
     def test_the_fix_skill_names_deciders_from_authors_and_mentions_the_owner_and_creator(self):
         text = (ROOT / "skills" / "fix" / "SKILL.md").read_text(encoding="utf-8")
         for phrase in ("`[DECIDED:<Linear user name>@<date>]`", "`author.name`", "the `displayName` handle",
-                       "date part of its `created_at`", "the comment's own `url`", "Only when the comment has no `url`",
-                       "`owner.person.url`", "`creator.url`", "Never invent a name", "`默认·3 个工作日未异议`"):
+                       "calendar date of its `created_at` in UTC+8", "the comment's own `url`",
+                       "Only when the comment has no `url`", "`owner.person.url`", "`creator.url`", "Never invent a name",
+                       "`默认·3 个工作日未异议`", "it is never a human's ruling",
+                       "as an issue comment when it came in the session"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, text)
 

@@ -261,6 +261,32 @@ class LinearAPITests(unittest.TestCase):
         self.assertEqual((issue["assignee"], issue["creator"]), (None, None))
         self.assertEqual((issue["comments"][0]["author_kind"], issue["comments"][0]["author"]), ("human", None))
 
+    def test_a_name_is_trimmed_and_one_that_could_hide_text_or_hold_an_email_names_nobody(self):
+        good = as_person(DESIGNER)
+        self.assertEqual(person({**DESIGNER, "name": "  Designer One\t"}), good)
+        self.assertEqual(person({**DESIGNER, "name": "主策 👩‍🎨"})["name"], "主策 👩‍🎨")  # a joiner is not hidden
+        self.assertEqual(person({**DESIGNER, "name": "x" * 256})["name"], "x" * 256)
+        for name in (7, "x" * 257, "Designer\nOne", "Designer\x00One", "Designer\x1b[31mOne",
+                     "Designer ‮enO", "Designer​One", "Designer \ud800", "designer.one@example.com",
+                     "Designer One <designer.one@example.com>"):
+            with self.subTest(name=name):
+                self.assertIsNone(person({**DESIGNER, "name": name}))
+
+    def test_only_a_human_comment_has_an_author_and_farmbot_is_never_a_person_on_the_issue(self):
+        # Linear reports FarmBot's own comments with its app user, which has a name and a profile URL too.
+        farmbot = {"id": APP, "name": "FarmBot", "url": "https://linear.app/example/profiles/farmbot"}
+        issue = self.fetched([comment_node("c1", farmbot), comment_node("c2", DESIGNER, bot=True),
+                              comment_node("c3", OWNER)], assignee=farmbot, creator=farmbot)
+        self.assertEqual([(c["author_kind"], c["author"]) for c in issue["comments"]],
+                         [("bot", None), ("bot", None), ("human", as_person(OWNER))])
+        self.assertEqual((issue["assignee"], issue["creator"]), (None, None))
+        with tempfile.TemporaryDirectory() as tmp:  # and the ledger accepts what the read produced
+            ledger = ledger_module.Ledger(Path(tmp) / "ledger.sqlite3")
+            try:
+                ledger.observe_issue(issue)
+            finally:
+                ledger.close()
+
     def test_label_groups_pair_each_grouped_label_with_its_parent(self):
         self.assertEqual(self.fetched([])["label_groups"], [])
         issue = self.fetched([], labels={"nodes": [
@@ -268,16 +294,35 @@ class LinearAPITests(unittest.TestCase):
             {"name": "Android", "parent": {"id": "label-2", "name": "平台"}}, {"name": "程序"}]})
         self.assertEqual(issue["labels"], ["Bug", "UI", "Android", "程序"])
         self.assertEqual(issue["label_groups"], [{"group": "功能", "label": "UI"}, {"group": "平台", "label": "Android"}])
+        # Sorted and distinct whatever order Linear returns; a parent without a usable name is no group.
+        issue = self.fetched([], labels={"nodes": [
+            {"name": "iOS", "parent": {"id": "label-2", "name": "平台"}}, {"name": "Code", "parent": {"id": "label-1", "name": "功能"}},
+            {"name": "iOS", "parent": {"id": "label-2", "name": "平台"}}, {"name": "A", "parent": {"id": "label-3", "name": " "}},
+            {"name": "B", "parent": {"id": "label-4"}}, {"name": "C", "parent": {"id": "label-5", "name": 7}}]})
+        self.assertEqual(issue["label_groups"], [{"group": "功能", "label": "Code"}, {"group": "平台", "label": "iOS"}])
 
     def test_strip_signed_leaves_the_markdown_and_text_around_an_upload_as_written(self):
+        one, two = "https://uploads.linear.app/o/a/one", "https://uploads.linear.app/o/b/two"
         cases = {f"![效果图]({SIGNED})": f"![效果图]({UNSIGNED})",
                  f"[{SIGNED}]({SIGNED}#page)": f"[{UNSIGNED}]({UNSIGNED})",
                  f"`{SIGNED}` 截图{SIGNED}见上": f"`{UNSIGNED}` 截图{UNSIGNED}见上",
                  f"<linear-image src='{SIGNED}'>": f"<linear-image src='{UNSIGNED}'>",
-                 "https://uploads.linear.app.example.com/a?signature=1": "https://uploads.linear.app.example.com/a?signature=1"}
+                 "https://uploads.linear.app.example.com/a?signature=1": "https://uploads.linear.app.example.com/a?signature=1",
+                 f"**{SIGNED}**": f"**{UNSIGNED}**",
+                 f"见 {SIGNED}. 下一句": f"见 {UNSIGNED}. 下一句",
+                 f"see {SIGNED}, then": f"see {UNSIGNED}, then",
+                 f"{SIGNED}; 然后": f"{UNSIGNED}; 然后",
+                 f"{one}?signature=x.y,{two}?signature=z 两张图": f"{one},{two} 两张图",
+                 f'<img src="{UNSIGNED}?signature=x&amp;expires=9">': f'<img src="{UNSIGNED}">',
+                 f"{UNSIGNED}#page": UNSIGNED,
+                 f"截图是 {UNSIGNED}? 对": f"截图是 {UNSIGNED}? 对",
+                 f"见 {UNSIGNED}# 标题": f"见 {UNSIGNED}# 标题",
+                 f"截图是 {UNSIGNED}?对": f"截图是 {UNSIGNED}?对"}
         for text, expected in cases.items():
             with self.subTest(text=text):
                 self.assertEqual(strip_signed(text), expected)
+                resigned = text.replace("s-_1", "Zq9").replace("signature=x", "signature=Q").replace("=z", "=Z")
+                self.assertEqual(strip_signed(resigned), expected)  # another signature, the same stored text
         self.assertEqual(strip_signed(None), "")
 
     def test_strip_signed_keeps_a_linear_image_block_valid_json(self):
@@ -299,6 +344,11 @@ class LinearAPITests(unittest.TestCase):
         self.assertEqual(upload_urls(text), [UNSIGNED, slices, video])
         self.assertEqual(upload_urls(strip_signed(text)), [UNSIGNED, slices, video])
         self.assertEqual(upload_urls(None), [])
+        # Markup or a comma after an unsigned URL is not part of it.
+        for text, expected in ((f"**{slices}**", [slices]), (f"{slices},{video}", [slices, video]),
+                               (f"src=&quot;{slices}&quot;", [slices])):
+            with self.subTest(text=text):
+                self.assertEqual(upload_urls(text), expected)
 
     def test_a_fetched_issue_is_stored_with_its_people_label_groups_and_replies(self):
         fetched = self.fetched([comment_node("c1", DESIGNER), comment_node("c2", OWNER, parent="c1")],

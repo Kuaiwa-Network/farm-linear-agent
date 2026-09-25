@@ -201,7 +201,9 @@ class Receiver:
                             (status, self.clock(), error, row["stop_key"]))
         return True
 
-    def _decide_and_act(self, prepared, ack_id):
+    def _decide_and_act(self, prepared, ack_id, received_at=None):
+        """received_at: when this event reached FarmBot. A pending event may be processed much later (it survives a
+        restart), and the messages it adds keep that time, which dates a ruling given in one of them."""
         issue = self.api.fetch_issue(prepared["issue_id"])
         self.ledger.observe_issue(issue)
         session = self.ledger.session(prepared["session_id"])
@@ -258,7 +260,7 @@ class Receiver:
             if decision.kind == "chat":
                 can_resume = elsewhere["skill"] == "chat" or issue.get("delegate_id") == self.identity["appUserId"]
                 delivered = self.ledger.push_inbox(elsewhere["id"], prepared["text"] or "（无正文）",
-                                                   resume_waiting=can_resume, author=author)
+                                                   resume_waiting=can_resume, author=author, received_at=received_at)
                 notice = "该 issue 正在处理中，你的消息已转给正在处理的 worker。"
                 if elsewhere["state"] == "awaiting_input" and delivered["state"] == "queued":
                     notice = "收到回复，原工作项已恢复，worker 会先读取你的回答。"
@@ -272,21 +274,22 @@ class Receiver:
             item = self.ledger.create_work_item(issue_id=issue["id"], session_id=session_id, skill=decision.skill,
                                                 target=(session or {}).get("target"))
             if prepared["text"]:
-                self.ledger.push_inbox(item["id"], prepared["text"], author=author)
+                self.ledger.push_inbox(item["id"], prepared["text"], author=author, received_at=received_at)
             acknowledge("thought", ACK.get(decision.skill, ACK["chat"]).format(bot=self.bot_name))
         elif decision.kind == "chat":
             item = self.ledger.create_work_item(issue_id=issue["id"], session_id=session_id, skill="chat")
             if prepared["text"]:
-                self.ledger.push_inbox(item["id"], prepared["text"], author=author)
+                self.ledger.push_inbox(item["id"], prepared["text"], author=author, received_at=received_at)
             body = (decision.text if decision.text and decision.text != prepared["text"]
                     else ACK["chat"].format(bot=self.bot_name))
             acknowledge("thought", body)
         elif decision.kind == "steer":
-            self.ledger.push_inbox(active["id"], decision.text, author=author)
+            self.ledger.push_inbox(active["id"], decision.text, author=author, received_at=received_at)
             acknowledge("thought", "已转给正在处理的 worker，会在下一次检查点读取。")
         elif decision.kind == "resume":
             can_resume = active["skill"] == "chat" or issue.get("delegate_id") == self.identity["appUserId"]
-            self.ledger.push_inbox(active["id"], decision.text, resume_waiting=can_resume, author=author)
+            self.ledger.push_inbox(active["id"], decision.text, resume_waiting=can_resume, author=author,
+                                   received_at=received_at)
             acknowledge("thought", "收到回复，继续处理。" if can_resume
                         else f"已保存回复；issue 已不再委派给 {self.bot_name}，暂不继续修复。")
         elif decision.kind == "elicit":
@@ -303,7 +306,7 @@ class Receiver:
             self.db.commit()
         status, error = "done", None
         try:
-            self._decide_and_act(json.loads(row["payload"]), row["ack_id"])
+            self._decide_and_act(json.loads(row["payload"]), row["ack_id"], row["received_at"])
         except (LedgerError, RuntimeError, ValueError, KeyError, OSError, sqlite3.Error) as exc:
             status, error = "uncertain", type(exc).__name__
             try:

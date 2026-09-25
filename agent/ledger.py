@@ -200,8 +200,10 @@ def _message(row):
 
 
 def _owner(issue, delegation):
-    """spec §5.3: the assignee, else the human who created the item's delegation session, else nobody (an operator
-    enqueue, or a delegation whose creator Linear did not report or an older ledger did not keep)."""
+    """spec §4.2, §5.3: the assignee, else the human who last delegated the issue (the creator of its latest
+    delegation session: a re-delegation hands the issue on, even to an item started under an earlier one), else
+    nobody (an operator enqueue, or a delegation whose creator Linear did not report or an older ledger did not
+    keep)."""
     if issue.get("assignee"):
         return {"person": dict(issue["assignee"]), "source": "assignee"}
     if delegation is not None and delegation["creator_json"]:
@@ -1731,11 +1733,14 @@ class Ledger:
                             evidence=_json(evidence), generation=row["generation"] + int(state == "queued"))
             return self._view(self._row(row["id"]))
 
-    def push_inbox(self, item_id, body, *, resume_waiting=False, author=None):
+    def push_inbox(self, item_id, body, *, resume_waiting=False, author=None, received_at=None):
         """author: the person who wrote the message (a session reply's prompting user, or the creator of the mention
-        session it opened), or None when unknown."""
+        session it opened), or None when unknown. received_at: when FarmBot received it, in epoch seconds (the
+        receiver passes its webhook's time, which a pending event keeps across a restart), else now."""
         _text(body, "body")
         author_json = _person_json(author, "message author")
+        if received_at is not None and (type(received_at) not in (int, float) or not math.isfinite(received_at)):
+            raise LedgerError("received_at must be a finite number of seconds")
         with self._transaction():
             row = self._row(item_id)
             # A receiver may have selected the chat just before resume_work handed it
@@ -1749,7 +1754,7 @@ class Ledger:
             if row["state"] not in ACTIVE_STATES:
                 raise LedgerError("cannot steer a terminal work item")
             self.connection.execute("INSERT INTO inbox(item_id,body,author_json,created_at) VALUES(?,?,?,?)",
-                                    (row["id"], body, author_json, self.clock()))
+                                    (row["id"], body, author_json, self.clock() if received_at is None else received_at))
             self._audit(row["id"], "inbox", "steering message")
             if resume_waiting and row["state"] == "awaiting_input":
                 self._set_state(row["id"], "queued", "human answered in Linear", token=None,
@@ -1781,7 +1786,7 @@ class Ledger:
         coordination = {key: view[key] for key in ("id", "identifier", "skill", "state", "stage", "generation",
                                                   "root_repo", "next_root_repo", "target")}
         authority = self._delegation_session(row["issue_id"], row["session_id"])
-        owner = _owner(issue, authority)
+        owner = _owner(issue, self._delegation_session(row["issue_id"], None))
         return {"issue": issue, "coordination": coordination, "handoff": handoff,
                 "conversation_history": self._conversation_history(row["issue_id"]),
                 "delegation_session": authority["session_id"] if authority else None,

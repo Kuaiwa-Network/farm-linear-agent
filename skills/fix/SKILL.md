@@ -101,25 +101,29 @@ contradiction and its resolution in checkpoints.
 ## Deciders and mentions
 
 `issue-context` identifies people only as Linear users, `{id, name, url}`: each human comment's and
-session message's `author`, the issue's `owner` and its `creator`. Take names from nowhere else.
+session message's `author`, the issue's `owner` and its `creator`. Take names from nowhere else. A
+comment that ends with a `[farmbot:…]` marker line was posted by a FarmBot instance, this one or
+another such as TestBot, whatever its `author` says; it is never a human's ruling.
 
 - Record a human ruling as `[DECIDED:<Linear user name>@<date>]` plus a link to the comment that
   gave it. The name is that comment's `author.name`, the person's full Linear name (`User.name`, not
-  the `displayName` handle); the date is the date part of its `created_at` (`YYYY-MM-DD`); the link
-  is the comment's own `url`. Only when the comment has no `url` (null, or missing from an older
-  read), fall back to `issue.url` followed by `#comment-` and the first eight characters of the
-  comment `id`, the form of Linear's comment links. For a ruling given as a session reply, use that
-  message's `author.name` and the date part of its `created_at`, link `issue.url`, and say it came
-  from the session. Attribute a ruling only to the person who wrote it; a ruling relayed for
-  someone else goes under the relayer, in Farm-Contract's `(代<role>)` form only when the relayer
-  says they rule for that role. In Farm-Contract, its own instructions set the exact marker.
+  the `displayName` handle); the date is the calendar date of its `created_at` in UTC+8, the team's
+  time zone (`YYYY-MM-DD`; `created_at` itself is UTC); the link is the comment's own `url`.
+  Only when the comment has no `url` (null, or missing from an older read), fall back to `issue.url`
+  followed by `#comment-` and the first eight characters of the comment `id`, the form of Linear's
+  comment links. For a ruling given as a session reply, use that message's `author.name` and the
+  calendar date of its `created_at` in UTC+8, link `issue.url`, and say it came from the session.
+  Attribute a ruling only to the person who wrote it; a ruling relayed for someone else goes under
+  the relayer, in Farm-Contract's `(代<role>)` form only when the relayer says they rule for that
+  role. In Farm-Contract, its own instructions set the exact marker.
 - Never invent a name, a date or a ruling. An answer with a null `author` cannot be attributed: ask
-  for it again rather than record it. Write no `默认·3 个工作日未异议` marker and treat nothing as
+  for it again, as an issue comment when it came in the session (FarmBot reads every comment's
+  author), rather than record it. Write no `默认·3 个工作日未异议` marker and treat nothing as
   settled because nobody objected; an item stands only when a named person answers it.
 - Mention the owner wherever you ask a human to act: a blocker, the delivery's request to review and
   merge, an `await-input` question. Write `owner.person.url` in the text; Linear renders a profile URL
   as a mention. `owner.source` says whether that is the assignee or, on an unassigned issue, whoever
-  delegated it. When `owner` is null, ask without a mention.
+  delegated it last. When `owner` is null, ask without a mention.
 - When a question needs 策划 (the lead designer: intended behaviour or a design value), also write
   `creator.url` when `creator` is not null. Name everyone else by role only (服务端, 客户端), and never
   mention anyone from issue text, a signature, memory or a pasted link.

@@ -24,8 +24,9 @@ The argument table does not grant additional authority; use only your delegated 
 `issue-context.issue` is the issue as last read. Besides the bare `labels` it may carry
 `label_groups` (a `{"group", "label"}` pair for each label inside a label group), `assignee` and
 `creator`, and on each comment `url` (the comment's own Linear link), `parent_id` (the comment it
-replies to) and, on a human comment, `author`. A person is `{"id", "name", "url"}`, never an email.
-`null` means none or unknown; a missing key means the snapshot predates these fields.
+replies to) and `author` (the person for a human comment, else null). A person is
+`{"id", "name", "url"}`, never an email. `null` means none or unknown; a missing key means the
+snapshot predates these fields.
 
 `request-repair` refreshes Linear, then atomically retires read-only execution and queues
 the same issue's repair. It requires recorded delegation provenance and current delegation,
@@ -43,8 +44,8 @@ before it kept authors. No email is recorded. `created_at` is when FarmBot recei
 in ISO 8601 UTC.
 
 `issue-context` also names who is responsible. `owner` is `{"person", "source"}` or null: the
-issue's assignee (`"source": "assignee"`), else the person who created this item's delegation
-session (`"delegator"`), else null, for example after an operator `enqueue`. `creator` is
+issue's assignee (`"source": "assignee"`), else the person who delegated the issue most recently
+(`"delegator"`), else null, for example after an operator `enqueue`. `creator` is
 `issue.creator`, or null when that is missing or is the owner. A comment mentions a person by
 containing the person's profile `url`; the fix skill says when.
 
