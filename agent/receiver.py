@@ -5,6 +5,7 @@ import hmac
 import json
 import math
 import os
+import re
 import socket
 from socketserver import TCPServer
 import sqlite3
@@ -19,6 +20,7 @@ from .router import WRITE_SKILLS, route
 from .worktrees import WorktreeError
 
 MAX_BODY = 1024 * 1024
+_PLAIN_WORD = re.compile(r"[A-Za-z]{1,40}")
 TARGET_REPO = "Farm-Client"
 PIN_TIMEOUT = 8
 # {bot} is the instance's configured Linear app name: a development instance shares the workspace with
@@ -307,6 +309,13 @@ class Receiver:
             return [dict(r) for r in self.db.execute("SELECT event_key,session_id,status,received_at,completed_at,error FROM webhook_events ORDER BY received_at")]
 
 
+def _plain_word(value):
+    """value if it is a plain word of 1 to 40 ASCII letters, else None. The delivery log line takes type and action
+    from a body that may be unsigned, and logging any other value would let whoever reaches the endpoint add
+    megabytes to the service log with each request."""
+    return value if isinstance(value, str) and _PLAIN_WORD.fullmatch(value) else None
+
+
 def make_server(receiver, port=8765):
     class ExclusiveServer(ThreadingHTTPServer):
         allow_reuse_address = os.name != "nt"
@@ -355,11 +364,12 @@ def make_server(receiver, port=8765):
             except Exception:
                 return self.respond(500, "receiver error")
             # One line per delivery so an ignored or rejected event is visible in the service log; never the
-            # body. Written before the response, so a caller holding its reply knows the line exists.
+            # body, and its type and action only as plain words, since unsigned deliveries are logged too.
+            # Written before the response, so a caller holding its reply knows the line exists.
             try:
                 event = json.loads(raw)
-                kind = event.get("type") if isinstance(event, dict) else None
-                action = event.get("action") if isinstance(event, dict) else None
+                kind = _plain_word(event.get("type")) if isinstance(event, dict) else None
+                action = _plain_word(event.get("action")) if isinstance(event, dict) else None
             except (ValueError, UnicodeError):
                 kind = action = None
             print(json.dumps({"event": "webhook", "status": status, "result": message, "type": kind, "action": action}), flush=True)
