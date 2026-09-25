@@ -199,6 +199,25 @@ def _message(row):
             "created_at": datetime.fromtimestamp(row["created_at"], timezone.utc).isoformat(timespec="seconds")}
 
 
+def _owner(issue, delegation):
+    """spec §5.3: the assignee, else the human who created the item's delegation session, else nobody (an operator
+    enqueue, or a delegation whose creator Linear did not report or an older ledger did not keep)."""
+    if issue.get("assignee"):
+        return {"person": dict(issue["assignee"]), "source": "assignee"}
+    if delegation is not None and delegation["creator_json"]:
+        return {"person": json.loads(delegation["creator_json"]), "source": "delegator"}
+    return None
+
+
+def _issue_creator(issue, owner):
+    """D17: the issue's creator, usually the 策划 who wrote the card, or None when it is unknown, was not a person
+    (Linear gives no creator user for an app or integration) or is the owner, whom a comment already mentions."""
+    creator = issue.get("creator")
+    if not creator or (owner is not None and owner["person"]["id"] == creator["id"]):
+        return None
+    return dict(creator)
+
+
 def _hash_token(token):
     """Only the digest is stored: a leaked ledger file must not hand out live claims."""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
@@ -1749,6 +1768,7 @@ class Ledger:
         """Everything one worker needs about its own item; no token, no other items."""
         row = self._row(item_id)
         issue_row = self._issue_row(row["issue_id"])
+        issue = json.loads(issue_row["metadata"])
         checkpoint = json.loads(row["checkpoint"])
         meta = checkpoint.get("handoff_meta")
         handoff = None
@@ -1760,10 +1780,12 @@ class Ledger:
         view = self._view(row)
         coordination = {key: view[key] for key in ("id", "identifier", "skill", "state", "stage", "generation",
                                                   "root_repo", "next_root_repo", "target")}
-        return {"issue": json.loads(issue_row["metadata"]), "coordination": coordination, "handoff": handoff,
+        authority = self._delegation_session(row["issue_id"], row["session_id"])
+        owner = _owner(issue, authority)
+        return {"issue": issue, "coordination": coordination, "handoff": handoff,
                 "conversation_history": self._conversation_history(row["issue_id"]),
-                "delegation_session": (authority["session_id"] if
-                                       (authority := self._delegation_session(row["issue_id"], row["session_id"])) else None),
+                "delegation_session": authority["session_id"] if authority else None,
+                "owner": owner, "creator": _issue_creator(issue, owner),
                 "resource_recovery": {"attempts": RecoveryStore(self).job_attempts(item_id),
                                       "setup_attempts": RecoveryStore(self).job_attempts(item_id, recovery_kind='setup'),
                                       "records": [dict(r) for r in self.connection.execute(

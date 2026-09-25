@@ -510,11 +510,25 @@ rows are not rewritten: they read as unknown (null), as do operator-enqueued ses
 messages keep the time they were received. Older code ignores the columns, so rolling back keeps
 working; what it records meanwhile names nobody.
 
+`issue-context` also gives workers an `owner`: the issue's assignee, else the human who created
+the item's delegation session, else nobody (for example an operator `enqueue`). Its `creator` is
+the issue's creator when that is a person other than the owner. Fix workers record a human
+ruling as `[DECIDED:<Linear user name>@<date>]` under the full Linear name (`User.name`) of the
+author of the comment or session message that gave it, dated by its `created_at` and linked to
+the comment's own `url`; only for a comment without one do they build the link from the issue
+URL and the comment id. They attribute no ruling to anyone else, record none that nobody gave and
+write no silent-consent default. A blocker, a delivery's request to review and merge, and an
+`await-input` question mention the owner by profile URL, which Linear renders as a mention;
+without an owner they mention nobody. A question for 策划 also mentions the creator. FarmBot asks
+the owner to merge, cannot enforce who does, and never merges. Whether an agent's mention
+notifies anyone reliably is still to be checked live (spec §14.1).
+
 ## Comments
 
 Chinese, concise, one marker line `[farmbot:<id>]` appended by the ledger. Kinds: started (once
 per item), blocker, delivery. Templates: `references/comment-templates.md`; `<bot_name>` there is the
-instance's `expected_bot_name`, passed to workers as `bot_name`.
+instance's `expected_bot_name`, passed to workers as `bot_name`, and `<owner.person.url>` is the
+owner's profile URL from `issue-context` (see People).
 
 ## Resource execution limits
 

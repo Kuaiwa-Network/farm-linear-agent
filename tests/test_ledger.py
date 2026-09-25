@@ -22,6 +22,8 @@ DESIGNER = {"id": "20000000-0000-4000-8000-000000000001", "name": "Designer One"
             "url": "https://linear.app/example/profiles/designer-one"}
 OWNER = {"id": "20000000-0000-4000-8000-000000000002", "name": "Owner Two",
          "url": "https://linear.app/example/profiles/owner-two"}
+LEAD = {"id": "20000000-0000-4000-8000-000000000003", "name": "主策三号",
+        "url": "https://linear.app/example/profiles/lead-three"}
 THREAD = "https://linear.app/example/issue/FARM-1/harvest-duplicates-rewards"
 
 
@@ -489,6 +491,66 @@ class SessionPeopleTests(LedgerBase):
         self.assertEqual([(m["body"], m["author"], m["created_at"])
                           for m in self.ledger.issue_context(fix["id"])["session_messages"]],
                          [("请修复，保留现有排序", DESIGNER, "2026-09-25T03:30:00+00:00")])
+
+
+class OwnerTests(LedgerBase):
+    """issue-context's owner and creator (spec §5.3, D5, D17), from Task 2's issue metadata and Task 3's sessions."""
+
+    def context_for(self, issue_id=ISSUE, session=SESSION, *, delegator=None, **changes):
+        """issue-context of a fix item on an issue with these fields, delegated in a session `delegator` opened."""
+        self.ledger.observe_issue(issue(id=issue_id, **changes))
+        self.ledger.ensure_session(session, issue_id, delegation=True, creator=delegator)
+        item = self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill="fix", target=PIN)
+        return self.ledger.issue_context(item["id"])
+
+    def test_the_assignee_owns_the_issue_and_its_creator_is_named_beside_them(self):
+        context = self.context_for(assignee=OWNER, creator=DESIGNER, delegator=LEAD)
+        self.assertEqual(context["owner"], {"person": OWNER, "source": "assignee"})
+        self.assertEqual(context["creator"], DESIGNER)
+
+    def test_an_unassigned_issue_is_owned_by_whoever_delegated_it(self):
+        context = self.context_for(assignee=None, creator=DESIGNER, delegator=LEAD)
+        self.assertEqual(context["owner"], {"person": LEAD, "source": "delegator"})
+        self.assertEqual(context["creator"], DESIGNER)
+
+    def test_without_an_assignee_or_a_recorded_delegator_nobody_owns_the_issue(self):
+        # An operator enqueue, or a session whose creator Linear did not report: FarmBot asks without a mention.
+        context = self.context_for(assignee=None, creator=DESIGNER)
+        self.assertIsNone(context["owner"])
+        self.assertEqual(context["creator"], DESIGNER)
+
+    def test_the_creator_is_left_out_when_it_is_the_owner_or_unknown(self):
+        third = "10000000-0000-4000-8000-000000000003"
+        cases = {"the assignee": self.context_for(assignee=OWNER, creator=OWNER),
+                 "the delegator": self.context_for(OTHER, "session-2", identifier="FARM-2", assignee=None,
+                                                   creator=LEAD, delegator=LEAD),
+                 "unknown": self.context_for(third, "session-3", identifier="FARM-3", assignee=OWNER,
+                                             creator=None)}
+        for case, context in cases.items():
+            with self.subTest(case):
+                self.assertIsNotNone(context["owner"])
+                self.assertIsNone(context["creator"])
+
+    def test_an_issue_and_session_recorded_before_people_were_kept_name_nobody(self):
+        self.ledger.observe_issue(issue())
+        metadata = self.ledger.issue(ISSUE)
+        for key in ("assignee", "creator"):
+            metadata.pop(key, None)
+        self.ledger.connection.execute("UPDATE issues SET metadata=? WHERE id=?", (json.dumps(metadata), ISSUE))
+        self.ledger.ensure_session(SESSION, ISSUE, delegation=True)
+        item = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix", target=PIN)
+        context = self.ledger.issue_context(item["id"])
+        self.assertEqual((context["owner"], context["creator"]), (None, None))
+
+    def test_a_mention_does_not_make_its_author_the_owner(self):
+        self.ledger.observe_issue(issue(assignee=None, creator=DESIGNER))
+        self.ledger.ensure_session("mention", ISSUE, delegation=False, creator=OWNER)
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id="mention", skill="chat")
+        self.assertIsNone(self.ledger.issue_context(chat["id"])["owner"])
+        self.ledger.ensure_session(SESSION, ISSUE, delegation=True, creator=LEAD)
+        context = self.ledger.issue_context(chat["id"])
+        self.assertEqual(context["owner"], {"person": LEAD, "source": "delegator"})
+        self.assertEqual(context["delegation_session"], SESSION)
 
 
 class OutboxTests(LedgerBase):

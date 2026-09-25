@@ -42,6 +42,12 @@ person whose mention opened it. It is null when FarmBot does not know, as for me
 before it kept authors. No email is recorded. `created_at` is when FarmBot received the message,
 in ISO 8601 UTC.
 
+`issue-context` also names who is responsible. `owner` is `{"person", "source"}` or null: the
+issue's assignee (`"source": "assignee"`), else the person who created this item's delegation
+session (`"delegator"`), else null, for example after an operator `enqueue`. `creator` is
+`issue.creator`, or null when that is missing or is the owner. A comment mentions a person by
+containing the person's profile `url`; the fix skill says when.
+
 ```bash
 python3 -m agent --db DATABASE fetch-issue --item ITEM_ID
 python3 -m agent --db DATABASE issue-context --item ITEM_ID

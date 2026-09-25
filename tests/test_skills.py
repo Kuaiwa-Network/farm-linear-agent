@@ -118,6 +118,25 @@ class RunReportInstructionTests(unittest.TestCase):
         self.assertIn("references/memory.md", text)
 
 
+class PeopleInstructionTests(unittest.TestCase):
+    """Fix workers name deciders and mention people only from issue-context's Linear users (spec §5.1, §5.3, D17)."""
+
+    def test_the_fix_skill_names_deciders_from_authors_and_mentions_the_owner_and_creator(self):
+        text = (ROOT / "skills" / "fix" / "SKILL.md").read_text(encoding="utf-8")
+        for phrase in ("`[DECIDED:<Linear user name>@<date>]`", "`author.name`", "the `displayName` handle",
+                       "date part of its `created_at`", "the comment's own `url`", "Only when the comment has no `url`",
+                       "`owner.person.url`", "`creator.url`", "Never invent a name", "`默认·3 个工作日未异议`"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, text)
+
+    def test_the_comments_that_ask_a_human_to_act_mention_the_owner(self):
+        text = (ROOT / "references" / "comment-templates.md").read_text(encoding="utf-8")
+        for kind in ("blocker", "delivery"):
+            with self.subTest(kind=kind):
+                section = text.split(f"\n## {kind}\n", 1)[1].split("\n## ", 1)[0]
+                self.assertIn("<owner.person.url>", section)
+
+
 class SkillRegistryTests(unittest.TestCase):
     def test_repository_skills_load_with_expected_authority(self):
         skills = load_skills(ROOT / "skills")
