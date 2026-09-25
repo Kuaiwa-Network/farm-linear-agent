@@ -150,6 +150,7 @@ class PageTests(unittest.TestCase):
     def test_every_worker_state_has_a_label(self):
         # lease_expired and renewal_overdue are attention codes as well: only WORKER's own keys count here.
         self.assert_labelled("WORKER", WORKER_STATES)
+        self.assertIn('unknown: ["worker 状态未知", "neutral"]', self.block("const WORKER = {"))
 
     def test_every_slot_state_has_a_label(self):
         self.assert_labelled("SLOT", Ledger.SLOT_STATES)
@@ -173,6 +174,8 @@ class PageTests(unittest.TestCase):
         self.assertIn('heartbeat_stale: () => "服务心跳没有在正常更新，但 /health 仍有响应",',
                       self.block("const ATTENTION = {"))
         self.assertNotIn("心跳已过期", self.text("monitor.js"))
+        self.assertIn('heartbeat_missing: () => "服务心跳文件不存在，无法确认后台循环状态",',
+                      self.block("const ATTENTION = {"))
 
     def test_a_held_slot_words_its_recovery_alike_in_its_row_and_its_attention_line(self):
         script = self.text("monitor.js")

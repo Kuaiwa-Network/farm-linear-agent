@@ -175,7 +175,9 @@ The page is in Chinese, refreshes every five seconds and cannot stop, retry or c
 the service verdict, work in progress with Linear and PR links, Unity slots, attention items and the last
 seven days of results. Each running job also shows its worker:
 
-- worker 运行中: none of the states below applies.
+- worker 运行中: a fresh serving heartbeat lists the worker, and its lease and renewal are current.
+- worker 状态未知: no fresh serving heartbeat can confirm tracking, or the claim is within its first
+  30 seconds and the heartbeat has not listed the worker yet.
 - 续约逾期: more than 1.5 renewal intervals have passed without a renewal (15 minutes for a fix, 7.5 for
   a chat).
 - 未被服务跟踪: `serve` is serving but manages no worker for the job, more than 30 seconds after its
@@ -190,8 +192,9 @@ states.
 The monitor reads the ledger read-only, probes the receiver's `/health` on loopback and reads
 `<local_root>/service-heartbeat.json`. `serve` rewrites that file every five seconds with its phase, loop
 timings, revision, webhook counts, and the start and deadline times of the workers it manages (never
-PIDs), so the page still reports a stopped or wedged service. A service revision that writes no heartbeat
-shows its loop rows as 此版本未提供. After rolling back to such a revision, delete
+PIDs), so the page still reports a stopped or wedged service. A missing heartbeat while `/health` answers
+shows 需要关注 (`heartbeat_missing`): a failed initial write and an older service revision look the same to
+the monitor. An older revision's loop rows read 此版本未提供. After rolling back to such a revision, delete
 `<local_root>/service-heartbeat.json` once the newer `serve` has stopped. Otherwise its last heartbeat
 stays, and while the older `serve` answers `/health` the page shows 需要关注 (`heartbeat_stale`)
 indefinitely. `/health` proves only that the receiver answers; the page is not proof of Linear, tunnel or

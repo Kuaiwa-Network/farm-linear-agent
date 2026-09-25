@@ -587,6 +587,9 @@ A revision that writes no heartbeat never replaces the file. After rolling back 
 delete `<local_root>/service-heartbeat.json` once the newer `serve` has stopped. Otherwise its last
 heartbeat stays, and while the older `serve` answers `/health` the page shows 需要关注
 (`heartbeat_stale`) indefinitely.
+With no heartbeat file, a healthy `/health` still shows 需要关注 (`heartbeat_missing`): it cannot distinguish
+an older service revision from a failed initial heartbeat write. An older revision's loop rows show
+此版本未提供.
 
 A running job's worker is shown with the first state that applies:
 
@@ -595,9 +598,10 @@ A running job's worker is shown with the first state that applies:
 | 租约已过期 | The job's lease has run out |
 | 未被服务跟踪 | A fresh `serving` heartbeat lists no worker for the job, more than 30 seconds after its claim |
 | 续约逾期 | More than 1.5 times its skill's `renew_minutes` have passed since its last lease renewal or claim |
-| worker 运行中 | None of the above |
+| worker 状态未知 | No fresh serving heartbeat can confirm tracking, or the claim is within its first 30 seconds and the heartbeat has not listed the worker yet |
+| worker 运行中 | A fresh serving heartbeat lists the worker, and none of the above applies |
 
-The first three raise attention.
+Expired, untracked and overdue states raise attention; unknown is neutral.
 
 The verdict is the first that applies:
 

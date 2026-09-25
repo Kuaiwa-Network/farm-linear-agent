@@ -21,9 +21,10 @@ DISPLAY_STATES = ("queued", "launching", "switching_repo", "retry_wait", "runnin
 OUTCOMES = ("delivered", "no_change", "blocked", "failed", "cancelled")
 ATTENTION_CODES = ("slot_held", "slot_without_reservation", "lease_expired", "cleanup_pending",
                    "issue_status_error", "reservation_cancel_pending", "loop_erroring", "loop_stalled",
-                   "webhook_rejected", "receiver_unreachable", "heartbeat_stale", "heartbeat_unreadable",
+                   "webhook_rejected", "receiver_unreachable", "heartbeat_stale", "heartbeat_missing",
+                   "heartbeat_unreadable",
                    "renewal_overdue", "worker_untracked")
-WORKER_STATES = ("alive", "renewal_overdue", "untracked", "lease_expired")
+WORKER_STATES = ("alive", "unknown", "renewal_overdue", "untracked", "lease_expired")
 RECENT_SECONDS = 7 * 86400
 RECENT_LIMIT = 30
 CLEANUP_GRACE = 600
@@ -196,6 +197,10 @@ def _worker(row, times, now, beat_state, beat, renew_seconds):
         state = "untracked"
     elif interval and renewed is not None and now - renewed > RENEWAL_GRACE * interval:
         state = "renewal_overdue"
+    elif tracked is not True:
+        # A recent claim or renewal is evidence of a lease, not of a live worker. This also covers the first
+        # 30 seconds of an untracked claim, while the controller still has time to record the worker.
+        state = "unknown"
     else:
         state = "alive"
     return {"state": state, "tracked": tracked, "started_at": record.get("started_at"),
@@ -410,7 +415,11 @@ def _service_attention(beat_state, beat, loops, health, now, failing_since):
     phase = beat["phase"] if beat else None
     if not health["ok"] and beat_state == "fresh" and phase == "serving":
         add("receiver_unreachable", None, failing_since)
-    if health["ok"] and beat_state == "unreadable":
+    if health["ok"] and beat_state == "missing":
+        # serve keeps answering /health after a failed initial heartbeat write. An older revision also has no
+        # heartbeat, but /health alone cannot distinguish it from a controller whose loops are not running.
+        add("heartbeat_missing", None, None)
+    elif health["ok"] and beat_state == "unreadable":
         add("heartbeat_unreadable", None, None)
     elif health["ok"] and beat is not None and not (beat_state == "fresh" and phase in ("serving", "starting")):
         add("heartbeat_stale", None, beat["written_at"])
@@ -440,7 +449,7 @@ def _verdict(ledger_ok, beat_state, beat, health, failing_since, attention):
         return "unresponsive", beat["written_at"] if beat else _time(failing_since)
     # Rules 5 and 6 carry their own time, however old the other items are. Their items exist exactly when their
     # conditions hold: after rules 2 and 3, a fresh beat with /health failing is a serving one.
-    for codes in (("receiver_unreachable",), ("heartbeat_stale", "heartbeat_unreadable")):
+    for codes in (("receiver_unreachable",), ("heartbeat_stale", "heartbeat_missing", "heartbeat_unreadable")):
         item = next((item for item in attention if item["code"] in codes), None)
         if item:
             return "attention", item["since"]

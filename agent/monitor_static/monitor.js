@@ -30,7 +30,8 @@
     resource_recovery: "资源恢复",
   };
   const WORKER = {
-    alive: ["worker 运行中", "ok"], renewal_overdue: ["续约逾期", "warn"], untracked: ["未被服务跟踪", "bad"],
+    alive: ["worker 运行中", "ok"], unknown: ["worker 状态未知", "neutral"],
+    renewal_overdue: ["续约逾期", "warn"], untracked: ["未被服务跟踪", "bad"],
     lease_expired: ["租约已过期", "bad"],
   };
   const SLOT = {
@@ -56,6 +57,7 @@
     webhook_rejected: (a) => `最近有 webhook 被拒绝（签名、时间或身份不符；启动以来共 ${a.count} 个）`,
     receiver_unreachable: () => "接收器 /health 没有响应，但服务心跳正常",
     heartbeat_stale: () => "服务心跳没有在正常更新，但 /health 仍有响应",
+    heartbeat_missing: () => "服务心跳文件不存在，无法确认后台循环状态",
     heartbeat_unreadable: () => "服务心跳文件无法读取",
     renewal_overdue: (a) => `${a.subject || "一项工作"} 的 worker 超过预期时间没有续约，可能卡住了`,
     worker_untracked: (a) => `${a.subject || "一项工作"} 显示处理中，但服务没有在管理对应的 worker 进程`,

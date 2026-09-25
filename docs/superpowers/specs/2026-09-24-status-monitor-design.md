@@ -208,7 +208,7 @@ skew cannot distort them.
 | `service.linear` | `last_ok_at` (newest `issue_checks.checked_at` with no error), `failing_issues` | ledger |
 | `counts` | `running`, `queued`, `awaiting_input`, `awaiting_resource` | ledger |
 | `active[]` | `identifier`, `title`, `url`, `skill`, `state`, `display_state`, `stage`, `repo`, `created_at`, `state_since`, `checkpoint_at`, `retry_at`, `queue_position`, `prs[]` | ledger |
-| `active[].worker` | for running jobs only: `state` (`alive`, `renewal_overdue`, `untracked` or `lease_expired`), `tracked`, `started_at`, `deadline`, `renewed_at`, `lease_expires_at` | ledger, heartbeat and skill budgets |
+| `active[].worker` | for running jobs only: `state` (`alive`, `unknown`, `renewal_overdue`, `untracked` or `lease_expired`), `tracked`, `started_at`, `deadline`, `renewed_at`, `lease_expires_at` | ledger, heartbeat and skill budgets |
 | `slots[]` | `slot_id`, `kind`, `state`, `commit`, `holder`, `mode`, `recovery` (`state`, `attempts`, `max_attempts`) | ledger |
 | `unity_queue` | number of queued Unity reservations | ledger |
 | `recent[]` | `identifier`, `title`, `url`, `skill`, `outcome`, `finished_at`, `retried`, `prs[]` | ledger |
@@ -244,7 +244,9 @@ Derivations:
     - `renewal_overdue` when more than 1.5 of the skill's `renew_minutes` (from the
       monitor checkout's `skills/*/skill.json`: 15 minutes for fix, 7.5 for chat) have
       passed since `renewed_at`;
-    - `alive` otherwise.
+    - `unknown` when tracking cannot be confirmed, including the first 30 seconds of
+      an untracked claim;
+    - `alive` only when a fresh serving heartbeat lists the worker.
 - `service.loops[].state` is judged only from a fresh heartbeat whose phase is not
   `stopped`. For a stale or stopped beat it is `null`: no state is judged, and each loop
   reports the times and errors its beat recorded. A busy time measured against the
@@ -296,12 +298,13 @@ Rules are evaluated in order. The heartbeat is `fresh` when `written_at` is less
 | 3 | Fresh heartbeat with phase `starting` | `starting` | `started_at` |
 | 4 | `/health` failing and heartbeat `stale`, `missing` or `unreadable` | `unresponsive` | heartbeat `written_at`, else the monitor's first observed failure |
 | 5 | `/health` failing, heartbeat fresh | `attention` (`receiver_unreachable`) | first observed failure |
-| 6 | `/health` answering, heartbeat present but not a fresh `serving` or `starting` beat | `attention` (`heartbeat_stale`, or `heartbeat_unreadable` for an invalid file) | `written_at`; none for an invalid file |
+| 6 | `/health` answering, heartbeat absent, unreadable or not a fresh `serving` or `starting` beat | `attention` (`heartbeat_missing`, `heartbeat_unreadable` or `heartbeat_stale`) | `written_at` for a stale beat; otherwise none |
 | 7 | Any attention item | `attention` | earliest item |
 | 8 | Otherwise | `ok` | — |
 
-A missing heartbeat with a healthy `/health` is not an attention item: it is what an
-older production revision looks like, and its loop rows read 此版本未提供.
+A missing heartbeat with a healthy `/health` raises attention: the monitor cannot
+distinguish an older revision from a failed initial heartbeat write. An older revision's
+loop rows read 此版本未提供.
 
 Attention items, with named thresholds:
 
@@ -318,7 +321,7 @@ Attention items, with named thresholds:
 | `webhook_rejected` | A rejected webhook in the last 15 minutes. A continuous secret mismatch keeps it raised, while a stray scanner clears |
 | `renewal_overdue` | A running job's worker is `renewal_overdue` (see `worker` above), the likely sign of a hung worker, well before its lease runs out |
 | `worker_untracked` | A running job's worker is `untracked`: the ledger says running, but `serve` is managing no such worker |
-| `receiver_unreachable`, `heartbeat_stale`, `heartbeat_unreadable` | Rules 5 and 6 above |
+| `receiver_unreachable`, `heartbeat_stale`, `heartbeat_missing`, `heartbeat_unreadable` | Rules 5 and 6 above |
 
 The loop items follow the loop states, so they are raised only from a fresh heartbeat
 that is not `stopped`. The webhook item is raised only from a fresh heartbeat. Failed

@@ -65,7 +65,9 @@ class ViewBase(unittest.TestCase):
     def sql(self, statement, *values):
         self.ledger.connection.execute(statement, values)
 
-    def status(self, heartbeat=("missing", None), health=HEALTHY, failing_since=None, now=NOW, instance=INSTANCE):
+    def status(self, heartbeat=None, health=HEALTHY, failing_since=None, now=NOW, instance=INSTANCE):
+        if heartbeat is None:
+            heartbeat = ("fresh", beat())
         return build_status(self.path, heartbeat=heartbeat, health=health, instance=instance,
                             monitor_revision=("b1d5bd4a0c11", False), now=now, failing_since=failing_since,
                             renew_seconds={"fix": 600, "chat": 300})
@@ -174,10 +176,10 @@ class WorkerTests(ViewBase):
         self.running(NOW - 10)  # claimed 10 s ago, inside the 30 s grace that follows every claim
         document = self.status(heartbeat=("fresh", beat(workers={})))
         self.assertEqual(self.active(document, "FARM-1")["worker"]["state"], "untracked")
-        self.assertEqual(self.active(document, "FARM-2")["worker"]["state"], "alive")
+        self.assertEqual(self.active(document, "FARM-2")["worker"]["state"], "unknown")
         self.assertIn(("worker_untracked", "FARM-1"), {(item["code"], item["subject"]) for item in document["attention"]})
-        unknown = self.active(self.status(), "FARM-1")["worker"]  # no heartbeat: tracking cannot be checked
-        self.assertEqual((unknown["state"], unknown["tracked"]), ("alive", None))
+        unknown = self.active(self.status(heartbeat=("missing", None)), "FARM-1")["worker"]
+        self.assertEqual((unknown["state"], unknown["tracked"]), ("unknown", None))
 
     def test_a_stopped_heartbeat_that_still_lists_the_worker_leaves_tracking_unknown(self):
         # serve's shutdown beat keeps listing the workers it left running; only a serving beat's list is trusted.
@@ -187,8 +189,20 @@ class WorkerTests(ViewBase):
         stopped = beat("stopped", NOW - 2, stopped_at=NOW - 2,
                        workers={item["id"]: {"started_at": NOW - 700, "deadline": NOW + 20000}})
         worker = self.active(self.status(heartbeat=("fresh", stopped)), "FARM-1")["worker"]
-        self.assertEqual(worker, {"state": "alive", "tracked": None, "started_at": None, "deadline": None,
+        self.assertEqual(worker, {"state": "unknown", "tracked": None, "started_at": None, "deadline": None,
                                   "renewed_at": NOW - 120, "lease_expires_at": NOW - 120 + 3600})
+
+    def test_missing_stale_and_unavailable_worker_snapshots_never_claim_a_worker_is_alive(self):
+        item, claim = self.running(NOW - 600)
+        self.clock = NOW - 120
+        self.ledger.renew(item["id"], claim["token"])
+        cases = (("missing", None), ("unreadable", None),
+                 ("stale", beat(workers={item["id"]: {"started_at": NOW - 700, "deadline": NOW + 20000}})),
+                 ("fresh", beat("starting", workers={})), ("fresh", beat(workers=None)))
+        for state, payload in cases:
+            with self.subTest(state=state, phase=payload["phase"] if payload else None):
+                worker = self.active(self.status(heartbeat=(state, payload)), "FARM-1")["worker"]
+                self.assertEqual((worker["state"], worker["tracked"]), ("unknown", None))
 
     def test_a_retried_job_is_judged_from_its_new_claim_not_an_earlier_attempts_renewals(self):
         item, claim = self.running(NOW - 3000)
@@ -447,7 +461,7 @@ class ServiceTests(ViewBase):
             ("attention", ("fresh", beat("stopped", NOW - 2, stopped_at=NOW - 2)), HEALTHY, NOW - 2),
             ("attention", ("unreadable", None), HEALTHY, None),
             ("ok", ("fresh", beat("serving")), HEALTHY, None),
-            ("ok", ("missing", None), HEALTHY, None),
+            ("attention", ("missing", None), HEALTHY, None),
         ]
         for verdict, heartbeat, health, since in cases:
             with self.subTest(verdict=verdict, heartbeat=heartbeat[0], health=health["ok"]):
@@ -464,6 +478,7 @@ class ServiceTests(ViewBase):
             ("rule 6, stopped", ("fresh", beat("stopped", NOW - 2, stopped_at=NOW - 2)), HEALTHY, "heartbeat_stale",
              NOW - 2),
             ("rule 6, unreadable", ("unreadable", None), HEALTHY, "heartbeat_unreadable", None),
+            ("rule 6, missing", ("missing", None), HEALTHY, "heartbeat_missing", None),
             ("rule 7", ("fresh", beat("serving")), HEALTHY, None, NOW - 3600),
         ]
         for rule, heartbeat, health, code, since in cases:
@@ -494,7 +509,7 @@ class ServiceTests(ViewBase):
             with self.subTest(error_type=error_type):
                 shown_type = self.status(health={**DOWN, "error_type": error_type})["service"]["health"]["error_type"]
                 self.assertEqual(shown_type, shown)
-        bare = self.status(health={"ok": True}, instance={})
+        bare = self.status(heartbeat=("fresh", beat()), health={"ok": True}, instance={})
         self.assertEqual(bare["service"]["health"], {"ok": True, "status": None, "latency_ms": None,
                                                      "error_type": None, "checked_at": None})
         self.assertEqual(bare["instance"], dict.fromkeys(("environment", "instance_id", "bot_name", "host")))
@@ -660,7 +675,8 @@ class OlderLedgerTests(unittest.TestCase):
         self.assertEqual(set(document["ledger"]["missing_optional"]),
                          {"audit", "published_prs", "slots", "reservations", "resource_recoveries", "job_cleanup",
                           "issue_checks", "webhook_events"})
-        self.assertEqual(document["verdict"], "ok")
+        self.assertEqual(document["verdict"], "attention")  # old service provides no heartbeat to verify its loops
+        self.assertEqual([item["code"] for item in document["attention"]], ["heartbeat_missing"])
 
     def test_optional_tables_without_their_optional_columns_still_fill_their_sections(self):
         # slots without parked_commit or updated_at, and published_prs without created_at.
@@ -689,7 +705,8 @@ class OlderLedgerTests(unittest.TestCase):
                          [{"slot_id": "unity_slot:1", "kind": "unity_slot", "state": "idle_open", **free},
                           {"slot_id": "unity_slot:2", "kind": "unity_slot", "state": "held", **free}])
         self.assertEqual(document["attention"],
-                         [{"code": "slot_held", "subject": "unity_slot:2", "since": None, "count": None}])
+                         [{"code": "slot_held", "subject": "unity_slot:2", "since": None, "count": None},
+                          {"code": "heartbeat_missing", "subject": None, "since": None, "count": None}])
         # Without created_at, a job's PRs come in URL order.
         self.assertEqual(document["active"][0]["prs"],
                          [{"url": "https://github.com/Kuaiwa-Network/common/pull/3", "label": "common#3"},
