@@ -34,6 +34,14 @@ into `issue-context`. Success retires your token: exit immediately. A newer-mess
 means reread the conversation before deciding again. `conversation_history` provides earlier
 answers/findings across execution profiles; only current `session_messages` authorize a request.
 
+Each `session_messages` entry, like each message in `conversation_history`, is
+`{"id", "body", "author", "created_at"}`, and so is each entry of the launch message's
+`user_requests`. `author` is the Linear user who wrote it, `{"id", "name", "url"}` with the full
+name (`User.name`, not the `displayName` handle): the user who replied in the session, or the
+person whose mention opened it. It is null when FarmBot does not know, as for messages recorded
+before it kept authors. No email is recorded. `created_at` is when FarmBot received the message,
+in ISO 8601 UTC.
+
 ```bash
 python3 -m agent --db DATABASE fetch-issue --item ITEM_ID
 python3 -m agent --db DATABASE issue-context --item ITEM_ID

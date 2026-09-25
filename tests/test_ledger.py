@@ -77,6 +77,24 @@ class SchemaTests(LedgerBase):
         self.assertIn("root_repo", columns)
         self.assertIn("next_root_repo", columns)
 
+    def test_an_older_ledger_opens_and_its_sessions_and_messages_name_nobody(self):
+        """A file written before sessions and inbox entries recorded people: its rows read as unattributed, and its
+        messages keep the time they were received."""
+        item = self.new_item()
+        self.ledger.push_inbox(item["id"], "先看服务端日志")
+        self.ledger.connection.execute("ALTER TABLE sessions DROP COLUMN creator_json")
+        self.ledger.connection.execute("ALTER TABLE inbox DROP COLUMN author_json")
+        self.ledger.close()
+        reopened = self.open_ledger()
+        for table, column in (("sessions", "creator_json"), ("inbox", "author_json")):
+            self.assertIn(column, {row["name"] for row in reopened.connection.execute(f"PRAGMA table_info({table})")})
+        self.assertIsNone(reopened.session(SESSION)["creator"])
+        # LedgerBase's clock reads 1000.0 seconds after the epoch.
+        self.assertEqual(reopened.issue_context(item["id"])["session_messages"],
+                         [{"id": 1, "body": "先看服务端日志", "author": None, "created_at": "1970-01-01T00:16:40+00:00"}])
+        reopened.ensure_session(SESSION, ISSUE, delegation=True, creator=OWNER)
+        self.assertEqual(reopened.session(SESSION)["creator"], OWNER)
+
 
 class SnapshotTests(LedgerBase):
     def test_observe_stores_normalized_issue_and_fingerprint(self):
@@ -415,6 +433,62 @@ class LeaseTests(LedgerBase):
         self.assertNotEqual(view["id"], item["id"])
         with self.assertRaises(LedgerError):
             self.ledger.retry(item["id"], "already queued")
+
+
+class SessionPeopleTests(LedgerBase):
+    """Who opened a session, and who wrote each message and when (spec §5.3, §9.2), in Task 2's person shape."""
+
+    def test_a_session_keeps_its_first_creator_and_a_later_event_only_fills_a_missing_one(self):
+        self.ledger.observe_issue(issue())
+        self.ledger.ensure_session(SESSION, ISSUE, delegation=True)
+        self.assertIsNone(self.ledger.session(SESSION)["creator"])
+        self.ledger.ensure_session(SESSION, ISSUE, delegation=True, creator=OWNER)
+        self.assertEqual(self.ledger.session(SESSION)["creator"], OWNER)
+        self.ledger.ensure_session(SESSION, ISSUE, delegation=True, creator=DESIGNER)
+        self.assertEqual(self.ledger.session(SESSION)["creator"], OWNER)
+
+    def test_each_message_carries_its_author_and_time_and_pop_inbox_still_returns_bodies(self):
+        item = self.new_item()
+        self.now = 1790307000.0  # 2026-09-25T03:30:00Z
+        self.ledger.push_inbox(item["id"], "先看服务端日志", author=DESIGNER)
+        self.now += 90
+        self.ledger.push_inbox(item["id"], "（无正文）")
+        expected = [{"id": 1, "body": "先看服务端日志", "author": DESIGNER, "created_at": "2026-09-25T03:30:00+00:00"},
+                    {"id": 2, "body": "（无正文）", "author": None, "created_at": "2026-09-25T03:31:30+00:00"}]
+        context = self.ledger.issue_context(item["id"])
+        self.assertEqual(context["session_messages"], expected)
+        self.assertEqual(context["conversation_history"][0]["messages"], expected)
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        self.assertEqual(self.ledger.pop_inbox(item["id"], token), ["先看服务端日志", "（无正文）"])
+
+    def test_anything_but_exactly_a_person_is_refused_and_never_stored(self):
+        item = self.new_item()
+        for bad in ("Designer One", {"id": DESIGNER["id"], "name": "Designer One"},
+                    {**DESIGNER, "url": "https://example.com/designer-one"},
+                    {**DESIGNER, "email": "designer.one@example.com"}):
+            with self.subTest(bad=bad):
+                with self.assertRaises(LedgerError):
+                    self.ledger.push_inbox(item["id"], "x", author=bad)
+                with self.assertRaises(LedgerError):
+                    self.ledger.ensure_session("session-9", ISSUE, delegation=False, creator=bad)
+        self.assertEqual(self.ledger.issue_context(item["id"])["session_messages"], [])
+        self.assertIsNone(self.ledger.session("session-9"))
+        self.assertNotIn("designer.one@example.com", "\n".join(self.ledger.connection.iterdump()))
+
+    def test_a_chat_handed_to_repair_keeps_who_wrote_each_message_and_when(self):
+        app_user = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
+        self.ledger.observe_issue(issue(delegate_id=app_user))
+        self.ledger.ensure_session(SESSION, ISSUE, delegation=True, creator=OWNER)
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="chat")
+        self.now = 1790307000.0  # 2026-09-25T03:30:00Z
+        self.ledger.push_inbox(chat["id"], "请修复，保留现有排序", author=DESIGNER)
+        self.now += 1800  # the repair starts half an hour later; the copied message keeps its own time
+        token = self.ledger.claim(chat["id"], worker_id="investigator")["token"]
+        message_id = self.ledger.issue_context(chat["id"])["session_messages"][-1]["id"]
+        fix = self.ledger.request_repair(chat["id"], token, message_id, app_user, "Sorting view confirmed.")
+        self.assertEqual([(m["body"], m["author"], m["created_at"])
+                          for m in self.ledger.issue_context(fix["id"])["session_messages"]],
+                         [("请修复，保留现有排序", DESIGNER, "2026-09-25T03:30:00+00:00")])
 
 
 class OutboxTests(LedgerBase):

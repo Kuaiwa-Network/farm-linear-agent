@@ -17,7 +17,7 @@ from agent.scheduler import Scheduler
 from agent.skills import load_skills
 from agent.slots import SlotPool, slot_entry
 from agent import kw_ops
-from test_ledger import ISSUE, OTHER, PIN, SESSION, comment, issue
+from test_ledger import DESIGNER, ISSUE, OTHER, PIN, SESSION, comment, issue
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = load_skills(ROOT / "skills")
@@ -317,6 +317,17 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(payload['publication']['repositories']['farmgui']['branch'], 'farmbot/farm-1')
         self.assertEqual(payload['user_requests'][0]['body'], 'Create the draft PR.')
         self.assertTrue(scopes[0]['delegated'])
+
+    def test_a_resumed_worker_is_told_who_wrote_each_reply_and_when(self):
+        item = self.item()
+        token = self.ledger.claim(item['id'], worker_id='old')['token']
+        self.ledger.await_input(item['id'], token, 'Which server?')
+        self.ledger.push_inbox(item['id'], '公共测试服', resume_waiting=True, author=DESIGNER)
+        self.scheduler.tick()
+        payload = json.loads(self.launcher.spawned[-1][1].split('\n\n', 1)[1])
+        # The fixture's clock reads 1000.0 seconds after the epoch.
+        self.assertEqual([(r['body'], r['author'], r['created_at']) for r in payload['user_requests']],
+                         [('公共测试服', DESIGNER, '1970-01-01T00:16:40+00:00')])
 
     def waiting_item(self, mode="batch", issue_id=ISSUE, session=SESSION):
         """An item whose slot request is still queued: nothing has been acquired, so no slot is held."""

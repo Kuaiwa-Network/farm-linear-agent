@@ -373,8 +373,9 @@ merges or deployment. Chat workers and sessions without delegation receive no pu
 
 At every launch, including resumes, the controller supplies `publication.repositories` with
 verified destinations or explicit gaps, plus `user_requests` containing the job's direct Linear
-session messages. It does not promote issue descriptions, ordinary comments, attachments or
-memory to user requests. Verification failures withhold publishing scope, not local investigation.
+session messages, each with its `author` and `created_at` (see People). It does not promote issue
+descriptions, ordinary comments, attachments or memory to user requests. Verification failures
+withhold publishing scope, not local investigation.
 
 Verification compares the effective origin push URL (including Git URL rewrites) with the configured
 repository, requires a single destination and the job's own worktree/issue branch, and reads GitHub
@@ -494,6 +495,20 @@ existing work-item rows are not rewritten. Pending sends and their retry timing 
 in that table across restarts. Rolling back to older code stops periodic reporting and
 leaves the table unused; it does not reverse or delete saved work. Deploy or roll back
 the host code and worker skill files together after the service has been settled.
+
+## People
+
+Besides the people an issue read keeps (see Triggers), the receiver records each agent session's
+creator (Linear's `agentSession.creator`, unset when automation or an agent started the session)
+and each session message's author: the user who wrote a session reply, or the creator of the
+mention session whose comment opened it. Both are Linear users in the same `{id, name, url}`
+form, never with an email. `issue-context` shows each message's author and the time FarmBot
+received it (`created_at`, ISO 8601 UTC) on `session_messages` and on `conversation_history`
+messages, and a chat's messages keep both when a repair takes them over. The nullable
+`sessions.creator_json` and `inbox.author_json` columns are added when a ledger opens. Existing
+rows are not rewritten: they read as unknown (null), as do operator-enqueued sessions, and their
+messages keep the time they were received. Older code ignores the columns, so rolling back keeps
+working; what it records meanwhile names nobody.
 
 ## Comments
 
