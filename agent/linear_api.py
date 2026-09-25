@@ -5,15 +5,23 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from uuid import UUID
 
 SCOPES = "read,write,app:mentionable,app:assignable"
-UPLOAD = re.compile(r"(https://uploads\.linear\.app/[^\s?#)]+)[^\s)]*")
+# The characters a URL may contain (RFC 3986) except ' ( ) [ ], which delimit URLs in Markdown and HTML. An upload
+# URL ends at the first other character (such as whitespace, a quote, a bracket, "<", ">", a backtick or any
+# non-ASCII character), so the Markdown, JSON or HTML around it survives. Linear signs only the query string.
+_URL_CHARACTERS = r"A-Za-z0-9\-._~%!$&*+,;=:@/"
+UPLOAD = re.compile(rf"(https://uploads\.linear\.app/[{_URL_CHARACTERS}]+)(?:[?#][{_URL_CHARACTERS}?#]*)?")
+# A Linear web URL: a person's profile, which Linear renders as a mention in a comment, or a comment's own link.
+LINEAR_URL = re.compile(r"https://linear\.app/\S+")
 ISSUE_QUERY = """query FarmBotIssue($id: String!, $after: String) {
   issue(id: $id) {
     id identifier url branchName title description priority archivedAt updatedAt
-    state { name type } team { id } labels { nodes { name } } attachments { nodes { url } } delegate { id }
+    state { name type } team { id } labels { nodes { name parent { id name } } } attachments { nodes { url } }
+    delegate { id } assignee { id name url } creator { id name url }
     comments(first: 50, after: $after) {
-      nodes { id body createdAt updatedAt user { id } botActor { id } }
+      nodes { id url body createdAt updatedAt user { id name url } botActor { id } parent { id } }
       pageInfo { hasNextPage endCursor }
     }
   }
@@ -22,8 +30,52 @@ ISSUE_READ_ATTEMPTS = 3
 
 
 def strip_signed(text):
-    """Drop signed query strings from Linear upload URLs so fingerprints stay stable."""
+    """Drop signed query strings (and fragments) from Linear upload URLs so fingerprints stay stable.
+
+    Only the URL changes: the Markdown, JSON or HTML around it, a <linear-image> block included, stays as written.
+    """
     return UPLOAD.sub(r"\1", text or "")
+
+
+def upload_urls(text):
+    """The uploads.linear.app URLs in text, unsigned, each once, sorted.
+
+    Markdown images and links, bare URLs (less the sentence punctuation after one) and the src of <linear-image>
+    and <linear-embed> blocks, in signed text or in stored text that strip_signed has already cleaned.
+    """
+    return sorted({match.group(1).rstrip(".,:;!") for match in UPLOAD.finditer(text or "")})
+
+
+def _linear_url(value):
+    """value when it is an https://linear.app/ URL, else None."""
+    return value if isinstance(value, str) and LINEAR_URL.fullmatch(value) else None
+
+
+def person(node):
+    """A Linear User node as exactly {"id", "name", "url"}, or None.
+
+    None unless the node has a UUID id, a name and an https://linear.app/ profile URL. Every other field,
+    the email included, is dropped.
+    """
+    if not isinstance(node, dict):
+        return None
+    user_id, name, url = node.get("id"), node.get("name"), _linear_url(node.get("url"))
+    if not (isinstance(user_id, str) and isinstance(name, str) and name.strip() and url):
+        return None
+    try:
+        return {"id": str(UUID(user_id)), "name": name, "url": url}
+    except ValueError:
+        return None
+
+
+def _label_groups(nodes):
+    """Sorted, distinct {"group": parent name, "label": name} pairs for the labels inside a label group."""
+    pairs = set()
+    for node in nodes:
+        group, label = (node.get("parent") or {}).get("name"), node.get("name")
+        if isinstance(group, str) and group.strip() and isinstance(label, str) and label.strip():
+            pairs.add((group, label))
+    return [{"group": group, "label": label} for group, label in sorted(pairs)]
 
 
 class LinearAPI:
@@ -190,7 +242,11 @@ class LinearAPI:
                     kind = "human"
                 else:
                     kind = "unknown"
-                comments.append({"id": node["id"], "body": strip_signed(node["body"]), "author_kind": kind,
+                # Only a human comment has an author: FarmBot's own and integrations' comments have none.
+                comments.append({"id": node["id"], "url": _linear_url(node.get("url")),
+                                 "body": strip_signed(node["body"]), "author_kind": kind,
+                                 "author": person(node.get("user")) if kind == "human" else None,
+                                 "parent_id": (node.get("parent") or {}).get("id"),
                                  "created_at": node["createdAt"], "updated_at": node["updatedAt"]})
             page = issue["comments"]["pageInfo"]
             if not page["hasNextPage"]:
@@ -200,6 +256,8 @@ class LinearAPI:
                 "updated_at": issue.get("updatedAt"), "branch_name": issue.get("branchName") or "", "title": issue["title"],
                 "description": strip_signed(issue.get("description") or ""), "status": issue["state"]["name"],
                 "status_type": issue["state"]["type"], "labels": [n["name"] for n in issue["labels"]["nodes"]],
+                "label_groups": _label_groups(issue["labels"]["nodes"]),
+                "assignee": person(issue.get("assignee")), "creator": person(issue.get("creator")),
                 "priority": int(issue["priority"] or 0), "archived": issue.get("archivedAt") is not None,
                 "delegate_id": (issue.get("delegate") or {}).get("id"),
                 "attachments": sorted({strip_signed(n["url"]) for n in issue["attachments"]["nodes"]}),

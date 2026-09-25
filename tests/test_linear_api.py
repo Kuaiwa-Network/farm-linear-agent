@@ -4,9 +4,21 @@ import unittest
 import urllib.error
 from unittest.mock import patch
 
-from agent.linear_api import LinearAPI, strip_signed
+from agent.linear_api import ISSUE_QUERY, LinearAPI, person, strip_signed, upload_urls
 
 APP = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
+
+# Fictional people as Linear User nodes. The fake transport adds an email FarmBot never asks for.
+DESIGNER = {"id": "20000000-0000-4000-8000-000000000001", "name": "Designer One",
+            "url": "https://linear.app/example/profiles/designer-one", "email": "designer.one@example.com"}
+OWNER = {"id": "20000000-0000-4000-8000-000000000002", "name": "Owner Two",
+         "url": "https://linear.app/example/profiles/owner-two", "email": "owner.two@example.com"}
+UNSIGNED = "https://uploads.linear.app/o/a/mockup"
+SIGNED = UNSIGNED + "?signature=eyJhbGciOiJIUzI1NiJ9.e30.s-_1&expires=9"
+
+
+def as_person(node):
+    return {key: node[key] for key in ("id", "name", "url")}
 
 
 class FakeHTTP:
@@ -27,14 +39,26 @@ class FakeHTTP:
         return io.BytesIO(json.dumps(answer).encode())
 
 
-def issue_page(cursor, has_next, comments):
-    return {"data": {"issue": {
+def issue_page(cursor, has_next, comments, **fields):
+    """One FarmBotIssue page. `fields` add or replace issue fields, such as labels, assignee and creator."""
+    issue = {
         "id": "10000000-0000-4000-8000-000000000001", "identifier": "FARM-1", "url": "https://linear.app/k/issue/FARM-1",
         "branchName": "farmbot/farm-1", "title": "T", "description": "see https://uploads.linear.app/a/b/c?signature=xyz", "priority": 2,
         "archivedAt": None, "state": {"name": "Todo", "type": "unstarted"}, "team": {"id": "9676b5f9-eff3-485b-80ed-900ed137e21a"},
         "labels": {"nodes": [{"name": "Bug"}]}, "attachments": {"nodes": [{"url": "https://github.com/o/r/pull/1"}]},
         "delegate": {"id": APP},
-        "comments": {"nodes": comments, "pageInfo": {"hasNextPage": has_next, "endCursor": cursor}}}}}
+        "comments": {"nodes": comments, "pageInfo": {"hasNextPage": has_next, "endCursor": cursor}}}
+    issue.update(fields)
+    return {"data": {"issue": issue}}
+
+
+def comment_node(id, user=None, *, bot=False, parent=None, **fields):
+    """One Comment node. `fields` add or replace node fields, such as url."""
+    node = {"id": id, "url": f"https://linear.app/example/issue/FARM-1/t#comment-{id}", "body": f"text {id}",
+            "createdAt": "2026-09-18T01:00:00.000Z", "updatedAt": "2026-09-18T01:00:00.000Z", "user": user,
+            "botActor": {"id": APP} if bot else None, "parent": {"id": parent} if parent else None}
+    node.update(fields)
+    return node
 
 
 class LinearAPITests(unittest.TestCase):
@@ -90,6 +114,13 @@ class LinearAPITests(unittest.TestCase):
     def api(self, answers):
         self.http = FakeHTTP(answers)
         return LinearAPI("client", "secret", request=self.http)
+
+    def fetched(self, comments, **fields):
+        """fetch_issue over one page whose issue carries `fields`."""
+        api = self.api({"FarmBotIdentity": [{"data": {"viewer": {"id": APP, "name": "FarmBot"},
+                                                      "organization": {"id": "org", "name": "K"}}}],
+                        "FarmBotIssue": [issue_page(None, False, comments, **fields)]})
+        return api.fetch_issue("FARM-1")
 
     def test_lightweight_status_has_version_archive_and_delegate(self):
         api = self.api({"FarmBotIssueStatus": [{"data": {"issue": {
@@ -179,3 +210,89 @@ class LinearAPITests(unittest.TestCase):
     def test_strip_signed_removes_upload_query_only(self):
         self.assertEqual(strip_signed("https://uploads.linear.app/a/b?signature=1&x=2"), "https://uploads.linear.app/a/b")
         self.assertEqual(strip_signed("https://github.com/o/r/pull/1?x=1"), "https://github.com/o/r/pull/1?x=1")
+
+    def test_the_issue_query_reads_people_label_parents_and_reply_parents(self):
+        query = " ".join(ISSUE_QUERY.split())
+        for part in ("labels { nodes { name parent { id name } } }", "assignee { id name url }",
+                     "creator { id name url }",
+                     "nodes { id url body createdAt updatedAt user { id name url } botActor { id } parent { id } }"):
+            self.assertIn(part, query)
+        self.assertNotIn("email", query)
+        self.fetched([])
+        self.assertEqual(self.http.calls[-1][2]["query"], ISSUE_QUERY)
+
+    def test_fetch_issue_keeps_people_as_id_name_and_url_and_replies_as_parent_ids(self):
+        issue = self.fetched([comment_node("c1", DESIGNER), comment_node("c2", OWNER, parent="c1"),
+                              comment_node("c3", {"id": APP}, parent="c2"), comment_node("c4", bot=True),
+                              comment_node("c5")],
+                             assignee=OWNER, creator=DESIGNER)
+        self.assertEqual((issue["assignee"], issue["creator"]), (as_person(OWNER), as_person(DESIGNER)))
+        self.assertEqual([(c["id"], c["author_kind"], c["author"], c["parent_id"]) for c in issue["comments"]],
+                         [("c1", "human", as_person(DESIGNER), None), ("c2", "human", as_person(OWNER), "c1"),
+                          ("c3", "bot", None, "c2"), ("c4", "bot", None, None), ("c5", "unknown", None, None)])
+        self.assertNotIn("email", json.dumps(issue))
+        self.assertNotIn("@example.com", json.dumps(issue))
+
+    def test_each_comment_keeps_its_own_linear_url_or_none(self):
+        issue = self.fetched([comment_node("c1", DESIGNER), comment_node("c2", bot=True),
+                              comment_node("c3", OWNER, url="https://example.com/issue/FARM-1#comment-c3"),
+                              comment_node("c4", url="https://linear.app/example/issue/FARM-1 t"),
+                              comment_node("c5", url=None)])
+        self.assertEqual([c["url"] for c in issue["comments"]],
+                         ["https://linear.app/example/issue/FARM-1/t#comment-c1",
+                          "https://linear.app/example/issue/FARM-1/t#comment-c2", None, None, None])
+
+    def test_a_user_without_a_uuid_a_name_or_a_linear_profile_url_is_null(self):
+        good = as_person(DESIGNER)
+        self.assertEqual(person(DESIGNER), good)
+        for node in (None, "Designer One", {"id": good["id"], "url": good["url"]}, {**good, "name": " "},
+                     {**good, "id": "designer-one"}, {**good, "id": None},
+                     {**good, "url": "https://example.com/profiles/designer-one"},
+                     {**good, "url": "http://linear.app/example/profiles/designer-one"},
+                     {**good, "url": "https://linear.app.example.com/profiles/designer-one"},
+                     {**good, "url": "https://linear.app/example/profiles/designer one"}):
+            with self.subTest(node=node):
+                self.assertIsNone(person(node))
+        issue = self.fetched([comment_node("c1", {**DESIGNER, "url": "https://example.com/u/designer-one"})],
+                             creator=None)
+        self.assertEqual((issue["assignee"], issue["creator"]), (None, None))
+        self.assertEqual((issue["comments"][0]["author_kind"], issue["comments"][0]["author"]), ("human", None))
+
+    def test_label_groups_pair_each_grouped_label_with_its_parent(self):
+        self.assertEqual(self.fetched([])["label_groups"], [])
+        issue = self.fetched([], labels={"nodes": [
+            {"name": "Bug", "parent": None}, {"name": "UI", "parent": {"id": "label-1", "name": "功能"}},
+            {"name": "Android", "parent": {"id": "label-2", "name": "平台"}}, {"name": "程序"}]})
+        self.assertEqual(issue["labels"], ["Bug", "UI", "Android", "程序"])
+        self.assertEqual(issue["label_groups"], [{"group": "功能", "label": "UI"}, {"group": "平台", "label": "Android"}])
+
+    def test_strip_signed_leaves_the_markdown_and_text_around_an_upload_as_written(self):
+        cases = {f"![效果图]({SIGNED})": f"![效果图]({UNSIGNED})",
+                 f"[{SIGNED}]({SIGNED}#page)": f"[{UNSIGNED}]({UNSIGNED})",
+                 f"`{SIGNED}` 截图{SIGNED}见上": f"`{UNSIGNED}` 截图{UNSIGNED}见上",
+                 f"<linear-image src='{SIGNED}'>": f"<linear-image src='{UNSIGNED}'>",
+                 "https://uploads.linear.app.example.com/a?signature=1": "https://uploads.linear.app.example.com/a?signature=1"}
+        for text, expected in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(strip_signed(text), expected)
+        self.assertEqual(strip_signed(None), "")
+
+    def test_strip_signed_keeps_a_linear_image_block_valid_json(self):
+        data = {"src": SIGNED, "alt": "效果图 1", "width": 640}
+        for separators in ((",", ":"), (", ", ": ")):
+            with self.subTest(separators=separators):
+                block = json.dumps(data, ensure_ascii=False, separators=separators)
+                text = strip_signed(f"<linear-image>{block}</linear-image>")
+                self.assertEqual(json.loads(text.removeprefix("<linear-image>").removesuffix("</linear-image>")),
+                                 {**data, "src": UNSIGNED})
+
+    def test_upload_urls_lists_each_upload_once_and_unsigned(self):
+        slices, video = "https://uploads.linear.app/o/b/slices", "https://uploads.linear.app/o/c/video"
+        text = "\n".join([f"![效果图]({SIGNED}) [切图.zip]({slices}?signature=2)",
+                          "<linear-image>" + json.dumps({"src": SIGNED, "alt": "效果图"}) + "</linear-image>",
+                          "<linear-embed>" + json.dumps({"src": video + "?signature=3", "type": "video"}) + "</linear-embed>",
+                          f"原图 {slices}. 另见{video}，谢谢",
+                          "https://github.com/o/r/pull/1 https://uploads.linear.app.example.com/o/d/x"])
+        self.assertEqual(upload_urls(text), [UNSIGNED, slices, video])
+        self.assertEqual(upload_urls(strip_signed(text)), [UNSIGNED, slices, video])
+        self.assertEqual(upload_urls(None), [])
