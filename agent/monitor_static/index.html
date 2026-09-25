@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>FarmBot 状态</title>
+<link rel="stylesheet" href="/monitor.css">
+<script src="/monitor.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div>
+    <h1 id="title">FarmBot 状态</h1>
+    <p class="muted" id="subtitle">正在连接监控服务…</p>
+  </div>
+  <div class="verdict-box">
+    <span id="verdict" class="pill neutral">…</span>
+    <p class="muted" id="updated"></p>
+  </div>
+</header>
+<div id="banner" class="banner" hidden></div>
+<main id="content">
+  <section class="counts" id="counts"></section>
+  <section class="card attention" id="attention" hidden>
+    <h2>需要关注<span id="attention-count"></span></h2>
+    <div class="rows" id="attention-rows"></div>
+  </section>
+  <section class="card"><h2>服务</h2><div class="rows" id="service-rows"></div></section>
+  <section class="card" id="no-work" hidden><p class="empty muted">账本无法读取，暂无工作数据</p></section>
+  <div id="work">
+    <section class="card"><h2>正在处理</h2><div class="rows" id="active-rows"></div></section>
+    <section class="card"><h2>Unity 槽位</h2><div class="rows" id="slot-rows"></div></section>
+    <section class="card"><h2>最近 7 天</h2><div class="rows" id="recent-rows"></div></section>
+  </div>
+</main>
+<footer class="muted">只读页面：不能在这里停止或重试工作，请在 Linear 中操作。原始数据：<a class="link" href="/api/status">/api/status</a></footer>
+</body>
+</html>

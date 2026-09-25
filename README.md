@@ -56,9 +56,11 @@ python3 -m agent.service install-launchd
 
 Run it from your normal interactive shell: a launchd job inherits only `/usr/bin:/bin:/usr/sbin:/sbin`,
 which contains no `codex`, `gh` or `cloudflared`, so the command captures the PATH of the shell that ran it
-and writes that into both agents. It refuses to write anything when the configured runtime or `cloudflared`
-is not on that PATH. It writes two launchd agents and prints the `launchctl bootstrap` lines to load them.
-Logs land in `.local/agent/logs/`. With no `tunnel` key in the host config it runs a quick tunnel, whose hostname
+and writes that into every agent it writes. It refuses to write anything when the configured runtime or
+`cloudflared` is not on that PATH. It writes the serve and tunnel agents, and a monitor agent when the
+config has a non-empty `monitor` block, and prints the `launchctl bootstrap` lines to load them.
+Logs land in `<local_root>/agent/logs/` (`.local/agent/logs/` by default), the monitor agent's included.
+With no `tunnel` key in the host config it runs a quick tunnel, whose hostname
 changes at every restart and must be pasted into the Linear app settings again; set
 `"tunnel": {"name": "<tunnel>"}` once a named Cloudflare tunnel exists and the hostname stops moving.
 
@@ -145,6 +147,152 @@ No jobs, configuration permissions, logs or resource assignments are modified;
 the ledger is opened read-only without creating or migrating it.
 An older ledger reports `incomplete` and lists missing lifecycle schema entries;
 upgrading the running service applies its normal migrations separately.
+
+## Office status monitor
+
+A read-only web page for the team, served by a separate process beside `serve` on the same host:
+
+```bash
+python3 -m agent.service monitor --config /absolute/path/to/config.json
+```
+
+It listens on `127.0.0.1:8780` unless the host config's `monitor` block says otherwise, so exposing it on
+the office network is explicit:
+
+```json
+"monitor": {"bind": "0.0.0.0", "port": 8780, "hostnames": ["farmbot-host.local"]}
+```
+
+`bind` is an IPv4 address, not a hostname. `port` must differ from the receiver's `port`, so the
+Cloudflare tunnel, which forwards only the receiver, never carries the monitor. Requests must name the
+host by IP address, `localhost` or one of `hostnames`, which lists at most 16 lowercase DNS names. Only
+the monitor and `install-launchd` read this block. `serve` and workers neither read nor validate it, so a
+mistake in its keys or values stops only the monitor, which exits with a `monitor_failed` line naming the
+problem. A JSON syntax error still breaks every config load, so check the edited file with `doctor`.
+After changing the block, restart only the monitor. Teammates open `http://<host>:8780/`.
+
+The page is in Chinese, refreshes every five seconds and cannot stop, retry or change anything. It shows
+the service verdict, work in progress with Linear and PR links, Unity slots, attention items and the last
+seven days of results. Each running job also shows its worker:
+
+- worker 运行中: a fresh serving heartbeat lists the worker, and its lease and renewal are current.
+- worker 状态未知: no fresh serving heartbeat can confirm tracking, or the claim is within its first
+  30 seconds and the heartbeat has not listed the worker yet.
+- 续约逾期: more than 1.5 renewal intervals have passed without a renewal (15 minutes for a fix, 7.5 for
+  a chat).
+- 未被服务跟踪: `serve` is serving but manages no worker for the job, more than 30 seconds after its
+  claim.
+- 租约已过期: the lease has run out.
+
+It shows a job's stage name, clamped to 120 characters, but never checkpoint contents, issue
+descriptions, comments, questions, logs, paths, PIDs, tokens or raw errors; use `doctor` on the host for
+detail. There is no login: anyone who can reach the port can read issue identifiers, titles and job
+states.
+
+The monitor reads the ledger read-only, probes the receiver's `/health` on loopback and reads
+`<local_root>/service-heartbeat.json`. `serve` rewrites that file every five seconds with its phase, loop
+timings, revision, webhook counts, and the start and deadline times of the workers it manages (never
+PIDs), so the page still reports a stopped or wedged service. A missing heartbeat while `/health` answers
+shows 需要关注 (`heartbeat_missing`): a failed initial write and an older service revision look the same to
+the monitor. An older revision's loop rows read 此版本未提供. After rolling back to such a revision, delete
+`<local_root>/service-heartbeat.json` once the newer `serve` has stopped. Otherwise its last heartbeat
+stays, and while the older `serve` answers `/health` the page shows 需要关注 (`heartbeat_stale`)
+indefinitely. `/health` proves only that the receiver answers; the page is not proof of Linear, tunnel or
+Unity health beyond the signals it lists.
+
+Reading a ledger while `serve` is stopped can leave SQLite's `-wal` and `-shm` side files beside it; the
+ledger itself is never modified. Run the monitor as the same account as `serve`, so those files stay
+writable by the service.
+
+`install-launchd` adds a third agent for the monitor when the config has a non-empty `monitor` block. It
+writes no agent at all if the monitor would refuse that block. It never deletes a plist, so removing the
+block, or setting it to `{}`, and reinstalling leaves an installed monitor agent in place. To remove it,
+run `launchctl bootout gui/$(id -u)/<label>` and delete `~/Library/LaunchAgents/<label>.plist`. The label
+is `com.kuaiwa.farmbot.monitor` for a legacy install, and
+`com.kuaiwa.farmbot.<environment>.<instance_id>.monitor` for an explicit profile.
+
+On the Windows production host, use the Python and checkout that the `FarmBot-Receiver` task uses. Run
+the commands below from that checkout; they show the Python as `C:\Path\To\python.exe` and the checkout
+as `C:\FarmBot`.
+
+1. Update the checkout, and run `.\scripts\redeploy-farmbot.ps1` as usual, so `serve` writes the
+   heartbeat.
+2. Add the `monitor` block with a LAN `bind` to the host config, and check the edited file with `doctor`.
+   `serve` needs no restart for it.
+
+   ```powershell
+   & "C:\Path\To\python.exe" -m agent.service doctor --config "C:\FarmBot\.local\agent\config.json"
+   ```
+
+3. In a PowerShell console of the account that runs `FarmBot-Receiver`, since the monitor runs as the
+   same account as `serve`, run the monitor once. Check for its `monitor_ready` line, and leave it
+   running until step 5.
+
+   ```powershell
+   & "C:\Path\To\python.exe" -u -m agent.service monitor --config "C:\FarmBot\.local\agent\config.json"
+   ```
+
+4. In an elevated PowerShell, as any administrator, allow the monitor's port on the office network and
+   register a task that starts the monitor at the logon of the account that runs `FarmBot-Receiver`. The
+   block reads that account from the `FarmBot-Receiver` task and gives the new task an explicit principal
+   for it. That `Interactive` principal assumes an interactive user account, so first check that
+   `(Get-ScheduledTask -TaskName "FarmBot-Receiver").Principal` names one: its `UserId` is a user, not
+   `SYSTEM` or another service account, and its `LogonType` is `Interactive`. If not, the block does not
+   fit the receiver's task; do not run it.
+
+   ```powershell
+   New-NetFirewallRule -DisplayName "FarmBot monitor" -Direction Inbound -Protocol TCP -LocalPort 8780 `
+     -Profile Private -RemoteAddress LocalSubnet -Action Allow
+   $account = (Get-ScheduledTask -TaskName "FarmBot-Receiver").Principal.UserId
+   $principal = New-ScheduledTaskPrincipal -UserId $account -LogonType Interactive
+   $action = New-ScheduledTaskAction -Execute "C:\Path\To\python.exe" `
+     -Argument '-u -m agent.service monitor --config "C:\FarmBot\.local\agent\config.json"' -WorkingDirectory "C:\FarmBot"
+   $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 `
+     -RestartInterval (New-TimeSpan -Minutes 1)
+   Register-ScheduledTask -TaskName "FarmBot monitor" -Action $action -Principal $principal `
+     -Trigger (New-ScheduledTaskTrigger -AtLogOn -User $account) -Settings $settings
+   ```
+
+   The task runs `python.exe` itself, not a wrapper such as `cmd.exe`, because ending a task may end only
+   its wrapper and leave the `python.exe` child holding the port: the routine restart after an update
+   would then keep the old monitor serving, while each new instance exits with `monitor_failed` on the
+   busy port. If the monitor refuses to start, the task's Last Run Result shows a non-zero exit
+   (`LastTaskResult` in `Get-ScheduledTaskInfo -TaskName "FarmBot monitor"`). Repeat step 3's console run
+   to see why: it prints its `monitor_ready` line, or the `monitor_failed` line that names the problem.
+
+5. Nothing starts the task before the next logon. Stop the console run from step 3 with Ctrl+C, then
+   run `Start-ScheduledTask -TaskName "FarmBot monitor"`. Check that exactly one process listens on the
+   monitor port and that it is the task's Python. The check only reads; run it elevated, so that it can
+   read the command line of another account's process.
+
+   ```powershell
+   Get-NetTCPConnection -LocalPort 8780 -State Listen |
+     Select-Object -ExpandProperty OwningProcess -Unique |
+     ForEach-Object { Get-CimInstance Win32_Process -Filter "ProcessId=$_" } |
+     Format-List ProcessId, CreationDate, ExecutablePath, CommandLine
+   ```
+
+   Expect one process whose `ExecutablePath` is `C:\Path\To\python.exe`, whose `CommandLine` ends with
+   the task's arguments, and whose `CreationDate` is the time of the start. An older process was already
+   holding the port, so the new instance has exited on the busy port. Stop it only if this check shows
+   it to be the monitor, with `Stop-Process -Id <ProcessId>`, then start the task again.
+
+The firewall rule needs the office network classified as Private. Check restart-on-failure and the
+task's account on the host once. `redeploy-farmbot.ps1` does not restart the monitor. After updating the
+checkout, restart its task in an elevated PowerShell, with `Stop-ScheduledTask` and then
+`Start-ScheduledTask`, each with `-TaskName "FarmBot monitor"`, and repeat step 5's check.
+
+The helper stops the receiver with `Process.Kill()`, so `serve` writes no `stopped` heartbeat and its
+Python cleanup does not run. During a later redeploy the page therefore shows 需要关注
+(`receiver_unreachable`) while the last heartbeat is still fresh, then 正在启动 once the new `serve` writes
+its `starting` heartbeat, then its usual verdict, normally 正常. If 60 seconds pass without a heartbeat
+before the new one, it shows 无响应 in between. It never shows 已停止.
+
+A clean stop closes the receiver first and keeps writing `serving` heartbeats while the loops drain,
+which can take minutes, so the page shows 需要关注 (`receiver_unreachable`) for that time and then 已停止.
+Under launchd, `launchctl bootout` sends SIGKILL once the job's exit timeout has passed. The plists do
+not set it, so the system default applies. A drain longer than that ends without a `stopped` heartbeat,
+so the page shows 无响应 instead of 已停止 once the last heartbeat is 60 seconds old.
 
 ## Issue closure and cancelled work
 

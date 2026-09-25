@@ -522,3 +522,115 @@ Missing initial Unity target pins remain recorded verification gaps, not publica
 Publication retries reuse preserved worktrees without an origin fetch. Their allowance counts
 launched attempts; a failed host Linear delegation preflight keeps the job queued under the
 existing lifecycle backoff without consuming another worker attempt.
+
+## Status monitor
+
+`python3 -m agent.service monitor` serves a read-only Chinese status page and `/api/status` JSON for one
+instance, as a separate process on the host running `serve`. It binds the config's `monitor.bind`
+(default `127.0.0.1`) and `monitor.port` (default 8780, never the receiver's port). It serves only `GET`
+and `HEAD`, answering other methods with 405, and only when the `Host` header is an IP literal,
+`localhost` or a configured `monitor.hostnames` entry; other hosts get 421, and a request without a
+`Host` header gets 400. There is no authentication. Exposing it beyond loopback is an explicit
+configuration choice, and anyone who can reach it can read issue identifiers, titles, job, worker and
+slot states and PR links. Only the monitor and `install-launchd` validate the `monitor` block; `serve`
+and workers neither read nor validate it. `install-launchd` writes a monitor agent only for a non-empty
+block that passes that validation, and never removes one. That agent restarts an exited monitor at most
+once a minute (`ThrottleInterval` 60), so a monitor that keeps refusing to start adds one line a minute
+to its log.
+
+At startup the command prints one JSON line, `monitor_ready`, once it listens. Any startup problem
+instead makes it exit 1 with one `monitor_failed` JSON line: an unreadable config, an ownership
+mismatch, a `monitor` block it cannot use, a port equal to the receiver's or already in use, or any other
+error.
+
+After startup, a status build that fails for a reason other than an unreadable ledger (shown as 未知)
+answers `/api/status` with 500 and the security headers every reply carries. As a good build does, it
+answers every request for the next two seconds without another build, so the status is built at most
+once every two seconds however many pages poll; it replaces the last good build, which is never served
+again. The first failure of each run of failures prints one `status_failed` JSON line. The page counts
+the 500 as a failed poll and shows 连接中断, although the monitor is running. The `status_failed` line
+tells this apart from a monitor the page cannot reach, which leaves no such line. A client that
+disconnects before or during its reply is not logged, by the monitor or by the receiver.
+
+The page accepts only a status document of `schema_version` 1 and keeps no other body. Any other body is
+a failed poll, and one of another version, from a monitor upgraded under an open tab, makes the banner
+read 监控已更新，请刷新页面。 and the header and tab title read 需要刷新. The page never reloads itself. If
+rendering a document throws, the header and tab title read 页面显示出错 and the content is dimmed until a
+render succeeds, so the page never keeps showing an earlier verdict.
+
+The monitor opens the ledger with SQLite `mode=ro` and `query_only`, never constructs `Ledger` and never
+takes the controller lock. It writes no FarmBot file or ledger row; SQLite can leave its `-wal`/`-shm`
+side files beside a ledger whose service is stopped, which is why the monitor runs as the same account as
+`serve`. It signals and inspects no processes, and makes no request other than
+`GET http://127.0.0.1:<port>/health` with proxies disabled, following no redirect. Only a 200 counts as
+answering; a 3xx, any other status and a failed request count as not answering. The JSON is an allowlist.
+It carries a job's stage name, clamped to 120 characters, but no checkpoint contents, descriptions,
+comments, questions, inbox or worker messages, evidence prose, logs, paths, PIDs, tokens, config values
+other than the instance's environment, ID, bot name and host, or raw stored errors. Older ledgers without
+optional tables or columns are read without migration.
+
+`serve` writes `<local_root>/service-heartbeat.json` by replacement:
+- when it starts, with phase `starting`, before slot preparation;
+- every five seconds, with phase `serving` once its loops run;
+- on clean shutdown, after its loops have stopped, with phase `stopped`.
+
+The heartbeat records each loop's work timing and consecutive errors, the revision, in-memory webhook
+outcome counts, and the worker processes the launcher is managing, as start and budget-deadline times
+only. A failed write is skipped and never affects serving. The first failure of each run of failed writes
+prints one `heartbeat_error` JSON line naming the exception class, and the final `stopped` beat, which no
+later beat repairs, is retried once after 0.1 seconds. The monitor reads the file as untrusted data (a
+regular file, at most 64 KiB, validated) and treats it as stale once it is 60 seconds old. It judges
+loops as idle, busy, stalled or erroring only from a fresh heartbeat that is not `stopped`; a stale or
+stopped heartbeat's loops show only their last recorded times, in a neutral tone. A read refused with
+`PermissionError`, as on Windows when it collides with the replace, is retried once after 0.1 seconds. A
+worker able to write the state root could forge the heartbeat, so `/health` remains an independent
+signal.
+
+A revision that writes no heartbeat never replaces the file. After rolling back to such a revision,
+delete `<local_root>/service-heartbeat.json` once the newer `serve` has stopped. Otherwise its last
+heartbeat stays, and while the older `serve` answers `/health` the page shows 需要关注
+(`heartbeat_stale`) indefinitely.
+With no heartbeat file, a healthy `/health` still shows 需要关注 (`heartbeat_missing`): it cannot distinguish
+an older service revision from a failed initial heartbeat write. An older revision's loop rows show
+此版本未提供.
+
+A running job's worker is shown with the first state that applies:
+
+| State | When |
+|---|---|
+| 租约已过期 | The job's lease has run out |
+| 未被服务跟踪 | A fresh `serving` heartbeat lists no worker for the job, more than 30 seconds after its claim |
+| 续约逾期 | More than 1.5 times its skill's `renew_minutes` have passed since its last lease renewal or claim |
+| worker 状态未知 | No fresh serving heartbeat can confirm tracking, or the claim is within its first 30 seconds and the heartbeat has not listed the worker yet |
+| worker 运行中 | A fresh serving heartbeat lists the worker, and none of the above applies |
+
+Expired, untracked and overdue states raise attention; unknown is neutral.
+
+The verdict is the first that applies:
+
+| Verdict | Meaning |
+|---|---|
+| 未知 | The ledger cannot be read |
+| 已停止 | A stopped heartbeat and no `/health` |
+| 正在启动 | A fresh heartbeat with phase `starting` |
+| 无响应 | No `/health` and no fresh heartbeat |
+| 需要关注 | A half-alive service, erroring or overlong loops, recent webhook rejections, held or orphaned slots, expired leases, overdue or untracked workers, cleanup still pending 10 minutes or more after a job finished, repeated Linear status failures, or a reservation cancellation unsettled for 5 minutes or more |
+| 正常 | None of the above |
+
+A verdict is evidence about these checks only, not proof that Linear, the tunnel or Unity work.
+
+Without a heartbeat time to use, the monitor dates a `/health` failure from the first status build that
+saw it. If more than 30 seconds pass between builds, so that no page was polling, the next failure starts
+a new date: a failure seen long ago never dates a new one.
+
+`scripts/redeploy-farmbot.ps1` stops the Windows receiver with `Process.Kill()`, so no `stopped`
+heartbeat is written and Python cleanup does not run. During a redeploy the page shows 需要关注
+(`receiver_unreachable`) while the last heartbeat is still fresh, then 正在启动 once the new `serve`
+writes its `starting` heartbeat, then its usual verdict, normally 正常. If 60 seconds pass without a
+heartbeat in between, it shows 无响应 until the `starting` heartbeat arrives. It never shows 已停止: only a
+clean shutdown writes the `stopped` heartbeat. A clean shutdown closes the receiver first and writes
+`serving` heartbeats until its loops have drained, which can take minutes, so it shows 需要关注
+(`receiver_unreachable`) for that whole time and then 已停止. Under launchd, `launchctl bootout` sends
+SIGKILL once the job's exit timeout has passed. The plists do not set it, so the system default applies.
+A drain longer than that ends without a `stopped` heartbeat, so the page shows 无响应 instead of 已停止
+once the last heartbeat is 60 seconds old.

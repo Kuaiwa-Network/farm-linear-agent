@@ -6,11 +6,13 @@ import json
 import shutil
 import signal
 import threading
+import time
 from pathlib import Path
 
 from .config import Paths, configure, linear_api, load_config, ROOT
 from .deploy import install, missing_tools
 from .environment import ControllerGuard, check_ownership, validate_runtime
+from .heartbeat import Heartbeat, INTERVAL as HEARTBEAT_INTERVAL, RETRY_AFTER as HEARTBEAT_RETRY, source_revision
 from .launcher import RUNTIMES, Launcher
 from .ledger import Ledger
 from .lifecycle import Lifecycle
@@ -172,51 +174,90 @@ def serve(config_path=None, components=None):
 
 def _serve(components):
     stop = threading.Event()
+    # The beats' own event, set only once the loop threads have joined. Draining can take minutes, and beats that
+    # stopped with the loops would age into 无响应 on the monitor during a clean shutdown.
+    beat_stop = threading.Event()
+    heartbeat = Heartbeat(runtime=components.launcher.runtime.name, revision=source_revision(ROOT),
+                          workers=components.launcher.running)
+    heartbeat_path = Paths(components.config).heartbeat
+    # The receiver's handler counts each /webhook outcome into it (receiver.make_server).
+    components.server.heartbeat = heartbeat
+    beat_lock = threading.Lock()
+    beat_failing = False
 
-    def guarded(name, body):
-        """One loop iteration never kills its thread: log the kind of failure and back off."""
+    def beat():
+        """Write one beat; True when it was written. Any failure is skipped, not only OSError: a writer failure
+        never stops serving, and a skipped beat shows on the monitor as age, never as a stopped service. One
+        heartbeat_error line marks the start of each run of failed writes, so a persistent failure is logged once."""
+        nonlocal beat_failing
+        with beat_lock:  # one beat at a time, so the log follows the order of the writes
+            try:
+                heartbeat.write(heartbeat_path)
+            except Exception as exc:
+                if not beat_failing:
+                    beat_failing = True
+                    try:
+                        print(json.dumps({"event": "heartbeat_error", "error": type(exc).__name__}), flush=True)
+                    except Exception:
+                        pass  # the line is best effort too: it must never raise out of a beat
+                return False
+            beat_failing = False
+            return True
+
+    def beat_loop():
+        while not beat_stop.wait(HEARTBEAT_INTERVAL):
+            beat()
+
+    def guarded(name, work):
+        """One loop iteration never kills its thread: log the kind of failure and back off.
+
+        `work` returns how long to pause before the next iteration. The heartbeat times the work and not the
+        pause, so a loop that sleeps between ticks is not reported as busy."""
         def loop():
             while not stop.is_set():
+                heartbeat.loop_started(name)
                 try:
-                    body()
+                    pause = work()
                 except Exception as exc:
+                    heartbeat.loop_failed(name, exc)
                     print(json.dumps({"event": "loop_error", "loop": name, "error": type(exc).__name__}), flush=True)
-                    stop.wait(1.0)
+                    pause = 1.0
+                else:
+                    heartbeat.loop_finished(name)
+                stop.wait(pause)
         return loop
 
     def receive_once():
-        if not components.receiver.process_one():
-            stop.wait(0.1)
+        return 0.0 if components.receiver.process_one() else 0.1
 
     def schedule_once():
         components.scheduler.tick()
-        stop.wait(1.0)
+        return 1.0
 
     def pool_once():
         # A slot switch is git checkout plus git lfs checkout on a multi-GB .git, an Editor refresh and a
         # compile wait — minutes. Scheduler.tick() holds its lock for its whole body and runs every second,
         # so running a switch inside one would freeze reaping, recovery and Stop.
         components.pool.tick()
-        stop.wait(2.0)
+        return 2.0
 
     threads = [threading.Thread(target=guarded("receive", receive_once), daemon=True),
                threading.Thread(target=guarded("schedule", schedule_once), daemon=True),
                threading.Thread(target=guarded("pool", pool_once), daemon=True)]
     if components.lifecycle is not None:
         def reconcile_once():
-            result = components.lifecycle.tick()
-            stop.wait(0.1 if result["checked"] else 1.0)
+            return 0.1 if components.lifecycle.tick()["checked"] else 1.0
         threads.append(threading.Thread(target=guarded("lifecycle", reconcile_once), daemon=True))
     if components.progress is not None:
         def progress_once():
-            sent = components.progress.tick()
-            stop.wait(0.1 if sent else 5.0)
+            return 0.1 if components.progress.tick() else 5.0
         threads.append(threading.Thread(target=guarded("progress", progress_once), daemon=True))
     if components.recovery is not None:
         def recover_resources_once():
             components.recovery.tick()
-            stop.wait(15.0)
+            return 15.0
         threads.append(threading.Thread(target=guarded('resource_recovery', recover_resources_once), daemon=True))
+    beat_thread = threading.Thread(target=beat_loop, daemon=True)
     main_thread = threading.current_thread() is threading.main_thread()
     previous_sigterm = signal.getsignal(signal.SIGTERM) if main_thread else None
 
@@ -229,6 +270,9 @@ def _serve(components):
     try:
         if main_thread:
             signal.signal(signal.SIGTERM, terminate)
+        # The first beat precedes ensure(): preparing slots can take minutes, and the monitor shows 正在启动.
+        beat()
+        beat_thread.start()
         try:
             components.pool.ensure()
         except SlotError as exc:
@@ -237,6 +281,8 @@ def _serve(components):
             print(json.dumps({"event": "slot_pool_unavailable", "error": str(exc)}), flush=True)
         for thread in threads:
             thread.start()
+        heartbeat.set_phase("serving")
+        beat()
         print(json.dumps({"event": "ready", "listen": f"http://127.0.0.1:{components.server.server_address[1]}",
                           "runtime": components.launcher.runtime.name, "host": components.config.host,
                           "skills": sorted(components.skills)}), flush=True)
@@ -255,6 +301,15 @@ def _serve(components):
                     # Keep the root lock and DB connections until all controller
                     # mutations have stopped, even when an operation drains slowly.
                     thread.join()
+            beat_stop.set()
+            if beat_thread.ident is not None:
+                beat_thread.join()
+            heartbeat.set_phase("stopped")
+            # The one beat no later beat repairs, so only it is retried: a Windows sharing violation would
+            # otherwise leave the monitor on 无响应 instead of 已停止.
+            if not beat():
+                time.sleep(HEARTBEAT_RETRY)
+                beat()
             components.receiver.close()
             components.ledger.close()
             components.pool.close()
@@ -265,6 +320,7 @@ def _serve(components):
             if components.recovery is not None:
                 components.recovery.close()
         finally:
+            beat_stop.set()  # also when a join or close raised, so the beat thread stops with serve
             if main_thread:
                 signal.signal(signal.SIGTERM, previous_sigterm)
 
@@ -272,7 +328,7 @@ def _serve(components):
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="python3 -m agent.service")
     parser.add_argument("command", choices=["configure", "serve", "status", "seed-clones", "install-launchd",
-                                            "enqueue", "slots", "doctor", "recover-worker-cleanup"])
+                                            "enqueue", "slots", "doctor", "recover-worker-cleanup", "monitor"])
     parser.add_argument("--config")
     parser.add_argument("--from", dest="source_root", help="directory holding local checkouts to seed from")
     parser.add_argument("--issue", help="Linear issue id or identifier to enqueue work for")
@@ -281,6 +337,9 @@ def main(argv=None):
     parser.add_argument("--item", help="terminal work item whose legacy cleanup needs recovery")
     parser.add_argument("--reason", help="operator explanation for cleanup recovery")
     args = parser.parse_args(argv)
+    if args.command == "monitor":
+        from .monitor import run
+        return run(args.config)
     if args.command == "recover-worker-cleanup":
         from .cleanup_recovery import recover_after_boot
         if not args.item or not args.reason:

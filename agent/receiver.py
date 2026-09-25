@@ -10,6 +10,7 @@ import socket
 from socketserver import TCPServer
 import sqlite3
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -79,7 +80,7 @@ class Receiver:
             return 401, "invalid signature"
         try:
             event = json.loads(raw)
-        except (ValueError, UnicodeError):
+        except (ValueError, UnicodeError, RecursionError):  # RecursionError: nested too deeply to parse
             return 400, "invalid json"
         if not isinstance(event, dict):
             return 400, "invalid event"
@@ -309,6 +310,30 @@ class Receiver:
             return [dict(r) for r in self.db.execute("SELECT event_key,session_id,status,received_at,completed_at,error FROM webhook_events ORDER BY received_at")]
 
 
+class ExclusiveServer(ThreadingHTTPServer):
+    """No port sharing on Windows, no reverse-DNS lookup at bind, and no traceback for a client that went away;
+    the receiver and the status monitor use it.
+
+    HTTPServer adds a reverse-DNS lookup after binding; a slow host resolver must not gate startup."""
+    allow_reuse_address = os.name != "nt"
+    daemon_threads = True
+
+    def server_bind(self):
+        if os.name == "nt":
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address
+
+    def handle_error(self, request, client_address):
+        # A client that resets or closes its connection before or during the reply: a poll the status page aborted,
+        # a phone that left the Wi-Fi, or a monitor probe that gave up while serve was bound but not yet accepting,
+        # answered once serve_forever starts. That is no fault of the server, and socketserver would print a
+        # traceback for each such client, to a log launchd never rotates. Any other error keeps that traceback.
+        if isinstance(sys.exc_info()[1], ConnectionError):
+            return
+        super().handle_error(request, client_address)
+
+
 def _plain_word(value):
     """value if it is a plain word of 1 to 40 ASCII letters, else None. The delivery log line takes type and action
     from a body that may be unsigned, and logging any other value would let whoever reaches the endpoint add
@@ -317,17 +342,6 @@ def _plain_word(value):
 
 
 def make_server(receiver, port=8765):
-    class ExclusiveServer(ThreadingHTTPServer):
-        allow_reuse_address = os.name != "nt"
-
-        def server_bind(self):
-            if os.name == "nt":
-                self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
-            # HTTPServer adds a reverse-DNS lookup after binding. This listener is
-            # explicitly loopback-only; a slow host resolver must not gate startup.
-            TCPServer.server_bind(self)
-            self.server_name, self.server_port = self.server_address
-
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_args):
             pass
@@ -341,6 +355,15 @@ def make_server(receiver, port=8765):
             self.end_headers()
             self.wfile.write(data)
 
+        def answer_webhook(self, kind, status, message):
+            heartbeat = getattr(self.server, "heartbeat", None)
+            if heartbeat is not None:
+                try:
+                    heartbeat.webhook(kind, status, message)
+                except Exception:
+                    pass  # counting feeds the status page and must never change a webhook's answer
+            self.respond(status, message)
+
         def do_GET(self):
             self.respond(200, "FarmBot ready") if self.path == "/health" else self.respond(404, "not found")
 
@@ -350,19 +373,19 @@ def make_server(receiver, port=8765):
             try:
                 length = int(self.headers.get("Content-Length", "0"))
             except ValueError:
-                return self.respond(400, "invalid length")
+                return self.answer_webhook(None, 400, "invalid length")
             if length <= 0 or length > MAX_BODY:
-                return self.respond(413, "invalid body size")
+                return self.answer_webhook(None, 413, "invalid body size")
             self.connection.settimeout(3)
             try:
                 raw = self.rfile.read(length)
                 if len(raw) != length:
-                    return self.respond(400, "incomplete body")
+                    return self.answer_webhook(None, 400, "incomplete body")
                 status, message = self.server.receiver.receive(raw, self.headers.get("Linear-Signature"))
             except TimeoutError:
-                return self.respond(408, "body timeout")
+                return self.answer_webhook(None, 408, "body timeout")
             except Exception:
-                return self.respond(500, "receiver error")
+                return self.answer_webhook(None, 500, "receiver error")
             # One line per delivery so an ignored or rejected event is visible in the service log; never the
             # body, and its type and action only as plain words, since unsigned deliveries are logged too.
             # Written before the response, so a caller holding its reply knows the line exists.
@@ -370,12 +393,12 @@ def make_server(receiver, port=8765):
                 event = json.loads(raw)
                 kind = _plain_word(event.get("type")) if isinstance(event, dict) else None
                 action = _plain_word(event.get("action")) if isinstance(event, dict) else None
-            except (ValueError, UnicodeError):
+            except (ValueError, UnicodeError, RecursionError):  # also an unsigned body nested too deeply to parse
                 kind = action = None
             print(json.dumps({"event": "webhook", "status": status, "result": message, "type": kind, "action": action}), flush=True)
-            self.respond(status, message)
+            self.answer_webhook(kind, status, message)
 
     server = ExclusiveServer(("127.0.0.1", port), Handler)
     server.receiver = receiver
-    server.daemon_threads = True
+    server.heartbeat = None  # a serving process installs its Heartbeat here (service._serve)
     return server

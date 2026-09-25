@@ -12,6 +12,7 @@
   "runtime": "codex",
   "local_root": "SET_AN_ABSOLUTE_STABLE_STATE_ROOT_OUTSIDE_ANY_CHECKOUT",
   "port": 8766,
+  "monitor": {"bind": "127.0.0.1", "port": 8781},
   "max_concurrent": 1,
   "repos": {
     "Farm-Client": "https://github.com/Kuaiwa-Network/Farm-Client.git",

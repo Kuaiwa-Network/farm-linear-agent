@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from agent.config import Config
-from agent.deploy import AGENTS, install, missing_tools, plist, tunnel_arguments
+from agent.deploy import AGENTS, MONITOR_AGENT, install, missing_tools, plist, tunnel_arguments
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -121,3 +121,42 @@ class DeployTests(unittest.TestCase):
         install(self.config, target, python="/usr/bin/python3", cloudflared="/usr/bin/cloudflared")
         plain = plistlib.loads((target / f"{AGENTS['serve']}.plist").read_bytes())
         self.assertNotIn("--config", plain["ProgramArguments"])
+
+    def test_the_monitor_agent_is_written_only_for_a_config_with_a_monitor_block(self):
+        target = self.root / "LaunchAgents"
+        self.assertEqual(sorted(install(self.config, target)), sorted(AGENTS.values()))
+        configured = replace(self.config, monitor={"bind": "0.0.0.0", "port": 8780})
+        configured.source_path = self.root / "profile 配置.json"
+        written = install(configured, target, python="/usr/bin/python3")
+        job = plistlib.loads(written[MONITOR_AGENT].read_bytes())
+        self.assertEqual(job["ProgramArguments"], ["/usr/bin/python3", "-u", "-m", "agent.service", "monitor",
+                                                   "--config", str(configured.source_path.resolve())])
+        self.assertTrue(job["RunAtLoad"] and job["KeepAlive"])
+        profile = replace(configured, environment="development", instance_id="mac-dev",
+                          local_root=self.root / "dev", expected_app_user_id="app", expected_organization_id="org")
+        self.assertIn("com.kuaiwa.farmbot.development.mac-dev.monitor", install(profile, target))
+
+    def test_launchd_retries_a_refused_monitor_once_a_minute_and_the_other_agents_keep_its_default(self):
+        """A monitor that refuses its block or port exits at once. launchd starts a KeepAlive job again after 10 s by
+        default, and each start appends a monitor_failed line to a log that is never rotated."""
+        target = self.root / "LaunchAgents"
+        configured = replace(self.config, monitor={"port": 8780})
+        profile = replace(configured, environment="development", instance_id="mac-dev", local_root=self.root / "dev",
+                          expected_app_user_id="app", expected_organization_id="org")
+        for loaded, prefix in ((configured, "com.kuaiwa.farmbot"), (profile, "com.kuaiwa.farmbot.development.mac-dev")):
+            with self.subTest(prefix=prefix):
+                written = install(loaded, target, python="/usr/bin/python3", cloudflared="/usr/bin/cloudflared")
+                jobs = {label: plistlib.loads(path.read_bytes()) for label, path in written.items()}
+                self.assertEqual(sorted(jobs), sorted(f"{prefix}.{kind}" for kind in ("serve", "tunnel", "monitor")))
+                self.assertEqual(jobs[f"{prefix}.monitor"].get("ThrottleInterval"), 60)
+                for kind in AGENTS:
+                    self.assertNotIn("ThrottleInterval", jobs[f"{prefix}.{kind}"])
+
+    def test_a_block_the_monitor_would_refuse_stops_the_whole_install(self):
+        target = self.root / "LaunchAgents"
+        with self.assertRaises(ValueError):
+            install(replace(self.config, monitor={"bind": "localhost"}), target, python="/usr/bin/python3")
+        self.assertEqual(list(target.glob("*.plist")), [])
+        # Refused before anything is created: not even the target or the log directory.
+        self.assertFalse(target.exists())
+        self.assertFalse(self.config.local_root.exists())

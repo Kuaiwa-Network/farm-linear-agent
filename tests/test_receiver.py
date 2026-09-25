@@ -3,18 +3,23 @@ import hashlib
 import hmac
 import io
 import json
+import socket
 import sqlite3
+import sys
 import tempfile
 import threading
 import time
 import unittest
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from agent.heartbeat import OUTCOMES, Heartbeat
 from agent.ledger import Ledger
+from agent.monitor import probe_health
 from agent.receiver import MAX_BODY, Receiver, make_server
 from agent.worktrees import WorktreeError
 from test_ledger import ISSUE, issue
@@ -329,6 +334,210 @@ class HttpTests(ReceiverBase):
                          [(200, "accepted", "AgentSessionEvent", "created"), (401, "invalid signature", "AgentSessionEvent", "created")])
         self.assertNotIn("body", json.dumps(lines))  # outcomes only, never the payload
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=5) as response:
+            self.assertEqual(json.load(response)["status"], "FarmBot ready")
+
+    def serve_http(self, heartbeat):
+        server = make_server(self.receiver, port=0)
+        server.heartbeat = heartbeat
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return f"http://127.0.0.1:{server.server_address[1]}/webhook"
+
+    def signed(self, body):
+        return {"Linear-Signature": hmac.new(b"signing-secret", body, hashlib.sha256).hexdigest()}
+
+    def test_every_webhook_outcome_is_counted_on_the_server_heartbeat(self):
+        from agent.heartbeat import Heartbeat
+        beat = Heartbeat(runtime="fake")
+        url = self.serve_http(beat)
+        body = json.dumps(self.event(webhookTimestamp=int(time.time() * 1000))).encode()
+        with contextlib.redirect_stdout(io.StringIO()):
+            with urllib.request.urlopen(urllib.request.Request(url, data=body, headers=self.signed(body)),
+                                        timeout=5) as response:
+                self.assertEqual(json.load(response)["status"], "accepted")
+            for request, code in ((urllib.request.Request(url, data=body), 401),
+                                  (urllib.request.Request(url, data=b"{", headers=self.signed(b"{")), 400)):
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    urllib.request.urlopen(request, timeout=5)
+                self.assertEqual(caught.exception.code, code)
+                caught.exception.close()
+        hooks = beat.payload()["webhooks"]
+        self.assertEqual((hooks["counts"]["accepted"], hooks["counts"]["rejected"], hooks["counts"]["malformed"]),
+                         (1, 1, 1))
+        self.assertIsNotNone(hooks["last_rejected_at"])
+
+    def test_a_failing_counter_never_changes_a_webhook_answer(self):
+        heartbeat = Mock(webhook=Mock(side_effect=RuntimeError("counter broke")))
+        url = self.serve_http(heartbeat)
+        body = json.dumps(self.event(webhookTimestamp=int(time.time() * 1000))).encode()
+        with contextlib.redirect_stdout(io.StringIO()):
+            with urllib.request.urlopen(urllib.request.Request(url, data=body, headers=self.signed(body)),
+                                        timeout=5) as response:
+                self.assertEqual(json.load(response)["status"], "accepted")
+        self.assertEqual(heartbeat.webhook.call_count, 1)  # the guarded call ran, and raised
+
+    def test_answers_the_handler_gives_itself_are_counted_too(self):
+        """Every /webhook POST counts (spec), including a size rejection before the receiver runs and the 500
+        for a receiver that raises."""
+        from agent.heartbeat import Heartbeat
+        beat = Heartbeat(runtime="fake")
+        url = self.serve_http(beat)
+        with patch.object(self.receiver, "receive", side_effect=RuntimeError("receiver broke")):
+            for data, code in ((b"", 413), (b"{}", 500)):
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    urllib.request.urlopen(urllib.request.Request(url, data=data), timeout=5)
+                self.assertEqual(caught.exception.code, code)
+                caught.exception.close()
+        counts = beat.payload()["webhooks"]["counts"]
+        self.assertEqual((counts["malformed"], counts["failed"]), (1, 1))
+
+    def raw_webhook(self, url, head, body, *, finish=True):
+        """(status, result) for one /webhook POST sent over a plain socket, for the answers urllib cannot provoke.
+        `finish` ends the request body with a half-close; otherwise the connection is held open."""
+        port = urllib.parse.urlsplit(url).port
+        with socket.create_connection(("127.0.0.1", port), timeout=10) as connection:
+            connection.sendall(b"POST /webhook HTTP/1.0\r\nHost: 127.0.0.1\r\n" + head + b"\r\n" + body)
+            if finish:
+                connection.shutdown(socket.SHUT_WR)
+            response = b""
+            while chunk := connection.recv(65536):
+                response += chunk
+        self.assertTrue(response, "the connection closed without an answer")
+        status_line, _, rest = response.partition(b"\r\n")
+        return int(status_line.split()[1]), json.loads(rest.partition(b"\r\n\r\n")[2])["status"]
+
+    def assert_counted_as_malformed(self, beat):
+        self.assertEqual(beat.payload()["webhooks"]["counts"], {**dict.fromkeys(OUTCOMES, 0), "malformed": 1})
+
+    def test_a_length_that_is_not_a_number_is_answered_400_and_counted(self):
+        beat = Heartbeat(runtime="fake")
+        url = self.serve_http(beat)
+        self.assertEqual(self.raw_webhook(url, b"Content-Length: x\r\n", b""), (400, "invalid length"))
+        self.assert_counted_as_malformed(beat)
+
+    def test_a_body_shorter_than_its_length_is_answered_400_and_counted(self):
+        beat = Heartbeat(runtime="fake")
+        url = self.serve_http(beat)
+        self.assertEqual(self.raw_webhook(url, b"Content-Length: 10\r\n", b"{}"), (400, "incomplete body"))
+        self.assert_counted_as_malformed(beat)
+
+    def test_a_body_held_past_the_read_timeout_is_answered_408_and_counted(self):
+        beat = Heartbeat(runtime="fake")
+        url = self.serve_http(beat)
+        # The handler reads the body with a 3 s timeout; the connection stays open with 8 bytes still to come.
+        self.assertEqual(self.raw_webhook(url, b"Content-Length: 10\r\n", b"{}", finish=False), (408, "body timeout"))
+        self.assert_counted_as_malformed(beat)
+
+    def post_nested_too_deeply(self, signed):
+        """(answer, log lines, stderr, counts) for a /webhook POST whose body nests further than json can parse.
+
+        100000 brackets are well under MAX_BODY, and parsing them raises RecursionError."""
+        beat = Heartbeat(runtime="fake")
+        url = self.serve_http(beat)
+        body = b"[" * 100_000
+        head = b"Content-Length: %d\r\n" % len(body)
+        if signed:
+            head += b"Linear-Signature: %s\r\n" % self.signed(body)["Linear-Signature"].encode()
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            answer = self.raw_webhook(url, head, body)
+        lines = [json.loads(line) for line in out.getvalue().splitlines()]
+        return answer, lines, err.getvalue(), beat.payload()["webhooks"]["counts"]
+
+    def test_an_unsigned_body_nested_too_deeply_to_parse_is_answered_logged_and_counted(self):
+        # Anyone who reaches the tunnel can send it. The log line's parse must survive it like any other bad body.
+        answer, lines, err, counts = self.post_nested_too_deeply(signed=False)
+        self.assertEqual(answer, (401, "invalid signature"))
+        self.assertEqual(lines, [{"event": "webhook", "status": 401, "result": "invalid signature", "type": None,
+                                  "action": None}])
+        self.assertEqual(err, "")
+        self.assertEqual(counts, {**dict.fromkeys(OUTCOMES, 0), "rejected": 1})
+
+    def test_a_signed_body_nested_too_deeply_to_parse_is_invalid_json_not_a_receiver_error(self):
+        # Only a holder of the signing secret can send it. Like any other body that is not JSON, it is malformed.
+        answer, lines, err, counts = self.post_nested_too_deeply(signed=True)
+        self.assertEqual(answer, (400, "invalid json"))
+        self.assertEqual(lines, [{"event": "webhook", "status": 400, "result": "invalid json", "type": None,
+                                  "action": None}])
+        self.assertEqual(err, "")
+        self.assertEqual(counts, {**dict.fromkeys(OUTCOMES, 0), "malformed": 1})
+        self.assertEqual(self.receiver.results(), [])
+
+    def test_probes_that_gave_up_before_serving_began_leave_no_traceback(self):
+        """While pool.ensure() runs, serve's socket is bound and listening but nothing accepts. Each status build's
+        /health probe then waits in the accept queue, times out and closes, and serve_forever answers it later, into
+        a closed connection. Under launchd stderr is a log that is never rotated, so no traceback may follow."""
+        server = make_server(self.receiver, port=0)
+        self.addCleanup(server.server_close)
+        # server_close joins only request threads that are not daemons: this way every handle_error call has
+        # returned, and printed whatever it prints, before stderr is read.
+        server.daemon_threads = False
+        port = server.server_address[1]
+        handler, errors, err = server.RequestHandlerClass, [], io.StringIO()
+        send_headers, handle_error = handler.end_headers, server.handle_error
+
+        def headers_then_a_pause(request):
+            send_headers(request)
+            # A closed probe's end answers this first write with a reset, and only a write after the reset has
+            # arrived fails. The body follows microseconds later, so whether it fails is a race; the pause settles it.
+            time.sleep(0.1)
+
+        def recording(request, client_address):
+            errors.append(sys.exc_info()[1])
+            handle_error(request, client_address)
+
+        server.handle_error = recording
+        with patch.object(handler, "end_headers", headers_then_a_pause), contextlib.redirect_stderr(err):
+            probes = [probe_health(port, timeout=0.2) for _ in range(4)]
+            thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+            thread.start()
+            self.addCleanup(thread.join, 5)
+            self.addCleanup(server.shutdown)
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=5) as response:
+                self.assertEqual(json.load(response)["status"], "FarmBot ready")
+            server.shutdown()
+            server.server_close()
+        self.assertEqual([probe["error_type"] for probe in probes], ["TimeoutError"] * 4)
+        # The probes' replies did meet their closed connections, and nothing was printed about it.
+        self.assertTrue(errors)
+        for error in errors:
+            self.assertIsInstance(error, ConnectionError)
+        self.assertEqual(err.getvalue(), "")
+
+    def test_a_lost_clients_errors_print_nothing_and_any_other_error_its_traceback(self):
+        server = make_server(self.receiver, port=0)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 5)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+
+        def printed(error):
+            """What reaches stderr when answering a GET raises `error` before any reply."""
+            err, reply = io.StringIO(), b""
+            with patch.object(server.RequestHandlerClass, "do_GET", side_effect=error), \
+                    contextlib.redirect_stderr(err), \
+                    socket.create_connection(server.server_address, timeout=10) as client:
+                client.sendall(b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+                # The server closes the connection only after handle_error has returned, so its output is complete.
+                while chunk := client.recv(65536):
+                    reply += chunk
+            self.assertEqual(reply, b"")
+            return err.getvalue()
+
+        # A lost client, whichever of these errors the platform raises for it.
+        for error in (ConnectionError(), BrokenPipeError(), ConnectionResetError(), ConnectionAbortedError()):
+            with self.subTest(error=type(error).__name__):
+                self.assertEqual(printed(error), "")
+        # Any other error, OSError included, still reaches socketserver's default handle_error and its traceback.
+        for error in (RuntimeError("a handler fault"), OSError("a handler fault")):
+            with self.subTest(error=type(error).__name__):
+                output = printed(error)
+                self.assertIn("Exception occurred during processing of request from", output)
+                self.assertIn(f"{type(error).__name__}: a handler fault", output)
+        with urllib.request.urlopen(f"http://127.0.0.1:{server.server_address[1]}/health", timeout=5) as response:
             self.assertEqual(json.load(response)["status"], "FarmBot ready")
 
     def serve(self):

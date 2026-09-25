@@ -1,6 +1,7 @@
 """Private configuration under .local/agent and the Linear client factory (spec §8, §15)."""
 from dataclasses import dataclass, field
 import getpass
+import ipaddress
 import json
 import math
 import os
@@ -13,6 +14,12 @@ from .kw_ops import validate_config as validate_kw_ops_config
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = ROOT / ".local" / "agent" / "config.json"
 REQUIRED = ("client_id", "client_secret", "webhook_secret")
+# The status monitor's listener: loopback unless a host config opts into the office LAN. Serve and workers
+# neither read nor validate this block; the monitor validates it when it starts (monitor_settings), so a
+# mistake in it stops only the monitor, and editing it needs a monitor restart only.
+MONITOR_DEFAULTS = {"bind": "127.0.0.1", "port": 8780, "hostnames": ()}
+# One DNS name: dot-separated labels of lowercase letters, digits and inner hyphens.
+_HOSTNAME = re.compile(r"(?=.{1,253}\Z)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*")
 
 
 @dataclass
@@ -33,6 +40,7 @@ class Config:
     codex_workers: dict = field(default_factory=dict)
     # {"url": ..., "token_env": NAME}; the token itself lives in the controller's environment, never here.
     kw_ops: dict = field(default_factory=dict)
+    monitor: dict = field(default_factory=dict)
     environment: str = "legacy"
     instance_id: str = "default"
     expected_bot_name: str = "FarmBot"
@@ -77,6 +85,32 @@ class Config:
         validate_kw_ops_config(self.kw_ops)
 
 
+def monitor_settings(config):
+    """The monitor's listener with defaults applied, or ValueError for a block it cannot use.
+
+    This is the block's only validator, and only the monitor and `install-launchd` call it: a mistake in the
+    block must never stop serve or a worker loading its config."""
+    block = config.monitor
+    if not isinstance(block, dict) or set(block) - set(MONITOR_DEFAULTS):
+        raise ValueError("monitor accepts bind, port and hostnames only")
+    bind = block.get("bind", MONITOR_DEFAULTS["bind"])
+    try:
+        valid = isinstance(bind, str) and str(ipaddress.IPv4Address(bind)) == bind
+    except ValueError:
+        valid = False
+    if not valid:
+        raise ValueError("monitor.bind must be an IPv4 address such as 127.0.0.1 or 0.0.0.0")
+    port = block.get("port", MONITOR_DEFAULTS["port"])
+    # The default counts too: a receiver on 8780 with no block would otherwise hand the monitor its own port.
+    if type(port) is not int or not 1 <= port <= 65535 or port == config.port:
+        raise ValueError("monitor.port must be a TCP port other than the receiver's")
+    hostnames = block.get("hostnames", [])
+    if (not isinstance(hostnames, list) or len(hostnames) > 16
+            or any(not isinstance(name, str) or not _HOSTNAME.fullmatch(name) for name in hostnames)):
+        raise ValueError("monitor.hostnames must list at most 16 lowercase DNS names")
+    return {"bind": bind, "port": port, "hostnames": tuple(hostnames)}
+
+
 class Paths:
     def __init__(self, config):
         self.config_dir = Path(config.local_root) / "agent"
@@ -85,6 +119,7 @@ class Paths:
         self.worktrees = Path(config.local_root) / "worktrees"
         self.repos = Path(config.local_root) / "repos"
         self.editors = Path(config.local_root) / "editors"
+        self.heartbeat = Path(config.local_root) / "service-heartbeat.json"
 
 
 def load_config(path=None, *, secure_permissions=True):

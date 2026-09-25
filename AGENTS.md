@@ -34,6 +34,10 @@ keep runtime authority and behavior changes in those sources and their tests.
 - `agent/__main__.py`, `agent/dispatch.py`, `skills/`, `references/`: worker-facing
   CLI, launch context and instructions.
 - `agent/deploy.py`, `agent/doctor.py`: installation and diagnostics.
+- `agent/monitor.py`, `agent/monitor_view.py`, `agent/monitor_static/`,
+  `agent/heartbeat.py`, `agent/readonly_db.py`: read-only office status monitor,
+  the heartbeat `serve` writes for it, and the read-only ledger snapshots it
+  shares with `doctor`.
 - `tests/`: unittest suite, fake CLI, local Git fixtures and mocked integrations.
 
 ## Development and production
