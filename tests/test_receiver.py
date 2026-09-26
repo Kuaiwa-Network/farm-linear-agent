@@ -327,6 +327,7 @@ class SessionPeopleTests(ReceiverBase):
         item = self.ledger.items_for_session("session-1")[0]
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
         self.receive(self.reply("先看服务端日志", DESIGNER)); self.receiver.process_one()     # steers
+        self.ledger.pop_inbox(item["id"], token)  # read, so that await_input parks instead of requeueing at once
         self.ledger.await_input(item["id"], token, "which server?")
         self.receive(self.reply("公共测试服", OWNER, activity="act-2")); self.receiver.process_one()  # resumes
         self.assertEqual(self.ledger.item(item["id"])["state"], "queued")
@@ -375,6 +376,29 @@ class SessionPeopleTests(ReceiverBase):
         item = self.ledger.items_for_session("session-2")[0]
         self.assertEqual([(m["author"], m["created_at"]) for m in self.ledger.issue_context(item["id"])["session_messages"]],
                          [(DESIGNER, "2026-09-25T23:55:00+00:00")])
+
+    def test_a_steer_a_resume_and_a_forwarded_mention_keep_the_time_they_arrived_too(self):
+        """The same for every way a message reaches a fix item: a reply that steers it, a reply that resumes it
+        after await-input (where answers to a worker's question arrive), and a mention forwarded from another
+        session. Each arrives a minute apart, all processed with the ledger's clock reading now."""
+        def received(event, at):
+            self.receiver.clock = lambda: at
+            self.receive(event); self.receiver.process_one()
+
+        self.receive(self.delegation(creator=OWNER)); self.receiver.process_one()
+        item = self.ledger.items_for_session("session-1")[0]
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        received(self.reply("先看服务端日志", DESIGNER), 1790380500.0)                           # steers
+        self.ledger.pop_inbox(item["id"], token)
+        self.ledger.await_input(item["id"], token, "which server?")
+        self.assertEqual(self.ledger.item(item["id"])["state"], "awaiting_input")
+        received(self.reply("公共测试服", OWNER, activity="act-2"), 1790380560.0)                # resumes
+        self.assertEqual(self.ledger.item(item["id"])["state"], "queued")
+        self.api.fetch_issue.return_value = issue(labels=["Bug"], delegate_id=None)
+        received(self.mention("session-3", "@FarmBot 安卓上也能复现", DESIGNER), 1790380620.0)  # forwarded
+        self.assertEqual([(m["body"], m["created_at"]) for m in self.ledger.issue_context(item["id"])["session_messages"]],
+                         [("先看服务端日志", "2026-09-25T23:55:00+00:00"), ("公共测试服", "2026-09-25T23:56:00+00:00"),
+                          ("@FarmBot 安卓上也能复现", "2026-09-25T23:57:00+00:00")])
 
 
 class HardeningTests(ReceiverBase):

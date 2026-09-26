@@ -116,10 +116,13 @@ another such as TestBot, whatever its `author` says; it is never a human's rulin
   Attribute a ruling only to the person who wrote it; a ruling relayed for someone else goes under
   the relayer, in Farm-Contract's `(代<role>)` form only when the relayer says they rule for that
   role. In Farm-Contract, its own instructions set the exact marker.
-- Never invent a name, a date or a ruling. An answer with a null `author` cannot be attributed: ask
-  for it again, as an issue comment when it came in the session (FarmBot reads every comment's
-  author), rather than record it. Write no `默认·3 个工作日未异议` marker and treat nothing as
-  settled because nobody objected; an item stands only when a named person answers it.
+- Never invent a name, a date or a ruling. An answer with a null `author` (Linear reported no user,
+  or a name FarmBot does not keep) cannot be attributed: do not record it. Ask for it once more
+  with `await-input`, saying whose answer you need; the session reply or the `bot_name` mention
+  that resumes you carries its author. If that answer has no author either, stop asking: finish
+  blocked, naming the ruling you could not attribute, so the owner settles it. Write no
+  `默认·3 个工作日未异议` marker and treat nothing as settled because nobody objected; an item stands
+  only when a named person answers it.
 - Mention the owner wherever you ask a human to act: a blocker, the delivery's request to review and
   merge, an `await-input` question. Write `owner.person.url` in the text; Linear renders a profile URL
   as a mention. `owner.source` says whether that is the assignee or, on an unassigned issue, whoever

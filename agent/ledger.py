@@ -201,9 +201,9 @@ def _message(row):
 
 def _owner(issue, delegation):
     """spec §4.2, §5.3: the assignee, else the human who last delegated the issue (the creator of its latest
-    delegation session: a re-delegation hands the issue on, even to an item started under an earlier one), else
-    nobody (an operator enqueue, or a delegation whose creator Linear did not report or an older ledger did not
-    keep)."""
+    delegation session in Linear: a re-delegation hands the issue on, even to an item started under an earlier
+    one, while an operator enqueue delegates to nobody and is skipped), else nobody (an issue only ever enqueued,
+    or a delegation whose creator Linear did not report or an older ledger did not keep)."""
     if issue.get("assignee"):
         return {"person": dict(issue["assignee"]), "source": "assignee"}
     if delegation is not None and delegation["creator_json"]:
@@ -1466,6 +1466,13 @@ class Ledger:
         return self.connection.execute("""SELECT * FROM sessions WHERE issue_id=? AND delegation=1
             ORDER BY (session_id=?) DESC,created_at DESC,rowid DESC LIMIT 1""", (issue_id, preferred)).fetchone()
 
+    def _owner_delegation(self, issue_id):
+        """The latest delegation session a person could have opened. `agent.service enqueue` mints a `local-`
+        session in the ledger, not in Linear (even when the enqueue is then refused): it delegates to nobody and
+        takes the issue from nobody, so it never decides the owner. Authority still uses _delegation_session."""
+        return self.connection.execute("""SELECT * FROM sessions WHERE issue_id=? AND delegation=1
+            AND session_id NOT LIKE 'local-%' ORDER BY created_at DESC,rowid DESC LIMIT 1""", (issue_id,)).fetchone()
+
     def _repair_work(self, item_id, token, message_id, app_user_id, *, allow_start, summary):
         """Atomically retire read-only execution and queue its authorized repair.
 
@@ -1786,7 +1793,7 @@ class Ledger:
         coordination = {key: view[key] for key in ("id", "identifier", "skill", "state", "stage", "generation",
                                                   "root_repo", "next_root_repo", "target")}
         authority = self._delegation_session(row["issue_id"], row["session_id"])
-        owner = _owner(issue, self._delegation_session(row["issue_id"], None))
+        owner = _owner(issue, self._owner_delegation(row["issue_id"]))
         return {"issue": issue, "coordination": coordination, "handoff": handoff,
                 "conversation_history": self._conversation_history(row["issue_id"]),
                 "delegation_session": authority["session_id"] if authority else None,

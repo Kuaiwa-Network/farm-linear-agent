@@ -124,12 +124,19 @@ class PeopleInstructionTests(unittest.TestCase):
     def test_the_fix_skill_names_deciders_from_authors_and_mentions_the_owner_and_creator(self):
         text = (ROOT / "skills" / "fix" / "SKILL.md").read_text(encoding="utf-8")
         for phrase in ("`[DECIDED:<Linear user name>@<date>]`", "`author.name`", "the `displayName` handle",
-                       "calendar date of its `created_at` in UTC+8", "the comment's own `url`",
-                       "Only when the comment has no `url`", "`owner.person.url`", "`creator.url`", "Never invent a name",
-                       "`默认·3 个工作日未异议`", "it is never a human's ruling",
-                       "as an issue comment when it came in the session"):
+                       "the date is the calendar date of its `created_at` in UTC+8", "`created_at` itself is UTC",
+                       "the comment's own `url`", "Only when the comment has no `url`", "`owner.person.url`",
+                       "`creator.url`", "Never invent a name", "`默认·3 个工作日未异议`",
+                       # A FarmBot instance's comment is known by its marker, not by what Linear says its author is.
+                       "ends with a `[farmbot:…]` marker line", "whatever its `author` says", "it is never a human's ruling",
+                       # An unattributable answer is asked for once more through the one channel A1 has, then given up.
+                       "Ask for it once more", "with `await-input`, saying whose answer you need",
+                       "If that answer has no author either, stop asking"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, text)
+        # Both ruling sources, a comment and a session reply, are dated in UTC+8; neither falls back to the UTC date.
+        self.assertEqual(text.count("calendar date of its `created_at` in UTC+8"), 2)
+        self.assertNotIn("date part of its `created_at`", text)
 
     def test_the_comments_that_ask_a_human_to_act_mention_the_owner(self):
         text = (ROOT / "references" / "comment-templates.md").read_text(encoding="utf-8")

@@ -31,7 +31,7 @@
 
 These shapes are shared by several tasks. Implement them exactly; a task that needs a change updates this section first.
 
-**Person.** `{"id": <Linear user UUID>, "name": <Linear `User.name`, the full name, not the `displayName` handle>, "url": <Linear profile URL>}`. Built only from a Linear `User` node (`id name url`); any other field, email included, is dropped. `url` must be an `https://linear.app/` URL, or the whole person is `null`. The name is trimmed; a name that is blank, longer than 256 characters, holds control, bidirectional or zero-width characters, or contains an email address also makes the person `null`. FarmBot's own app user is never an issue's `assignee` or `creator`. A comment's profile URL in its body is what Linear renders as a mention (spec §5.3).
+**Person.** `{"id": <Linear user UUID>, "name": <Linear `User.name`, the full name, not the `displayName` handle>, "url": <Linear profile URL>}`. Built only from a Linear `User` node (`id name url`); any other field, email included, is dropped. `url` must be an `https://linear.app/` URL, or the whole person is `null`. The name is trimmed; a name that is blank, longer than 256 characters, holds a control, format (a bidirectional mark or an invisible character, other than the joiners emoji sequences use), private-use or line-separator character, or contains an email address also makes the person `null`. FarmBot's own app user is never an issue's `assignee` or `creator`. A comment's profile URL in its body is what Linear renders as a mention (spec §5.3).
 
 **Issue metadata (`fetch_issue` → `Ledger.observe_issue`), new optional keys.** All are absent in rows written before Task 2, and `_normalize` treats absence as "unknown" (not an error).
 - `label_groups`: sorted list of `{"group": <parent label name>, "label": <child label name>}` for every label that has a parent. `labels` keeps every label's bare name, unchanged (Bug routing and stored rows depend on it).
@@ -1526,19 +1526,23 @@ that code. Where they differ, the code and the operating contract in the PR are 
 Shared Interfaces above describe it.
 
 - `strip_signed` and `upload_urls` (Task 1) use narrower URL classes: an upload path is ASCII ID
-  segments, and a signed query holds only the characters a signature and its parameters use and never
-  ends in `.`, `:`, `;` or `?`. A closing `**`, a comma or a full stop after a signed URL survives, two
-  URLs joined by a comma stay two, and `upload_urls` no longer returns such text as part of a URL.
-- `person()` (Task 1) trims the name and returns null for a name longer than 256 characters, with
-  control, bidirectional or zero-width characters, or containing an email address. `fetch_issue` never
-  reports FarmBot's own app user as the assignee or the creator.
+  segments, and a signed query holds only the characters a signature and its parameters use, takes `&`
+  only before another parameter and never ends in `.`, `:`, `?` or `#`. A closing `**`, a comma, a full
+  stop or an HTML entity such as `&quot;` after a signed URL survives, two URLs joined by a comma stay
+  two, and `upload_urls` no longer returns such text as part of a URL.
+- `person()` (Task 1) trims the name and returns null for a name longer than 256 characters, with a
+  control, format (a bidirectional mark or an invisible character, other than the joiners emoji
+  sequences use), private-use or line-separator character, or containing an email address, judged by
+  Unicode category. `fetch_issue` never reports FarmBot's own app user as the assignee or the creator.
 - `Ledger.push_inbox` (Task 3) takes `received_at`, which the receiver passes from its webhook row, so a
   message processed after a restart keeps the time it arrived.
-- `owner` (Task 4) comes from the issue's latest delegation session, not the item's own: a re-delegation
-  hands an unassigned issue on (spec §4.2). `delegation_session` is unchanged.
+- `owner` (Task 4) comes from the issue's latest delegation session in Linear, not the item's own: a
+  re-delegation hands an unassigned issue on (spec §4.2), and an operator `enqueue`'s `local-` session,
+  a delegation to nobody, is skipped. `delegation_session` is unchanged.
 - The fix skill dates rulings by the calendar date of `created_at` in UTC+8, the team's time zone,
-  never takes a ruling from a comment ending in a `[farmbot:…]` marker, whatever its author, and asks
-  for an unattributable session answer again as an issue comment.
+  never takes a ruling from a comment ending in a `[farmbot:…]` marker, whatever its author, asks for
+  an unattributable answer once more with `await-input` and, if that answer has no author either,
+  finishes blocked rather than asking again.
 - New tests pin what the review found unguarded: bot comments carry no author, null and empty values
   stay distinct from missing keys, label groups are sorted and distinct, and the name and URL rules.
 - The deploy note (Task 2) covers every unfinished job on an affected issue, not only running ones, and
@@ -4081,8 +4085,9 @@ git commit -m "Let await-input wait without needs-more-info and refuse to park w
 ### Task 8: `revalidate --item ID --fingerprint FP`
 
 A claim records the issue fingerprint it started on (`claimed_fingerprint`, `agent/ledger.py:682`).
-Any human change to the title, description, attachments or human comments during the attempt makes
-the stored fingerprint differ, which refuses the stage's handoff (`:883-884`) and the registration of a
+Any change to the title, description or attachments, or a comment that is neither a bot's nor FarmBot's
+own (the fingerprint scope Triggers states), during the attempt makes the stored fingerprint differ,
+which refuses the stage's handoff (`:883-884`) and the registration of a
 PR Linear already attached (`:841-842`), and requeues `finish` (`:1631-1635`). A worker that has read
 the change re-baselines its claim with `revalidate` (spec §9.9, §11): the ledger accepts the
 fingerprint only if it is still the stored one, moves `claimed_fingerprint` to it and writes an
@@ -4463,8 +4468,9 @@ repository rules." (`:211-212`):
 
 ```markdown
 
-A human change to the issue during an attempt (title, description, attachments or a human comment)
-refuses that attempt's repository handoff and the registration of a PR Linear has already attached,
+A change to the issue during an attempt (title, description, attachments, or a comment that is
+neither a bot's nor FarmBot's own, as Triggers says) refuses that attempt's repository handoff and
+the registration of a PR Linear has already attached,
 and makes `finish` requeue the item for a fresh worker. A worker that has read the change can call
 `revalidate` with the fingerprint `fetch-issue` printed: the ledger accepts only the fingerprint it
 currently stores, moves the claim onto it and records both fingerprints in `audit`. The handoff saved
@@ -7755,9 +7761,10 @@ session's creator (Linear's `agentSession.creator`, unset when automation or an 
 session) and each session message's author: the user who wrote a session reply, or the creator of
 the mention session whose comment opened it. A person is always the Linear user's ID, name and
 profile URL (`{id, name, url}`), never an email. A user without a UUID or an `https://linear.app/`
-profile URL is stored as null, as is one whose name is blank, longer than 256 characters, holds
-control, bidirectional or zero-width characters, or contains an email address, and so is a comment
-link outside `https://linear.app/`. FarmBot's own app user is never the assignee or the creator.
+profile URL is stored as null, as is one whose name is blank, longer than 256 characters, holds a
+control, format (a bidirectional mark or an invisible character, other than the joiners emoji
+sequences use), private-use or line-separator character, or contains an email address, and so is a
+comment link outside `https://linear.app/`. FarmBot's own app user is never the assignee or the creator.
 None of this is issue input: a claim covers the title, the description, attachments other than
 the job's own PRs, and the IDs and bodies of the comments that are neither a bot's nor FarmBot's
 own, so reassigning or relabelling an issue neither requeues its work nor refuses a handoff.
@@ -7842,7 +7849,10 @@ Expected: `OK`. The Windows-only upload cases (reserved device names, trailing d
   3. **Mentions.** A notice that puts the owner's and the creator's profile URLs in the body renders as mentions, and both people receive a Linear notification. This is D10's "does an agent comment's mention notify reliably"; record the answer either way.
   4. **One upload download.** `download-uploads` on an issue with one screenshot returns the file with its pixel size in the manifest, using the TestBot app's credentials, and no token or signed URL appears in the output or files (D10). If every download fails because Linear answers with a redirect to signed storage, record the redirect's host: the follow-up is to follow one redirect to that allowlisted host without the `Authorization` header (Task 5 refuses all redirects today).
   5. **Windows worker approval, only with the operator's go-ahead for the production host.** A Codex worker on the Windows host runs `download-uploads` without the approval reviewer escalating it. FARM-1282 saw unexplained escalations of actions inside writable roots there, and the command's Linear-credential rule lives in the skill and reference, not in the frozen AUTHORITY (Task 11).
+  6. **An app-created issue's creator.** On an issue an integration or an API token created, `fetch-issue` shows `creator: null`. If it shows that app's user as a person instead, record it: the creator filter then needs Linear's `User.app` flag before a 策划 question mentions it (Task 4's note).
+  7. **Another app's comments.** On the chosen issue, a comment TestBot posted appears in FarmBot's `issue-context` with `author_kind` `bot` and `author` null. If it reads as `human` with a person, record whether Linear sets `User.app` on that user. Until telling apps from people lands as a follow-up, such a comment is issue input, and only the fix skill's `[farmbot:…]` marker rule keeps it from being a ruling.
+  A check not run is recorded as a skip with its reason in Step 5, never left out.
 
 - [ ] **Step 5: Record results.** Add the "As executed" section to this plan with the date, the commands run, the results and every skip. Record the D10 answers (mention notification, upload download) in spec §14.1. If a live check fails, stop and report; fixing it is a new task.
 
-- [ ] **Step 6: Deployment is separate.** Deploying Phase A to production needs its own go-ahead. Before it, settle running items or accept one requeue each (Task 2's fingerprint note), and restart the settled service after config edits (AGENTS.md).
+- [ ] **Step 6: Deployment is separate.** Deploying Phase A to production needs its own go-ahead. Before it, settle or cancel unfinished jobs on affected issues (including ones only queued, waiting for a resource or between stages), or accept one requeue and a repeated start comment for each (Task 2's fingerprint note), and restart the settled service after config edits (AGENTS.md).

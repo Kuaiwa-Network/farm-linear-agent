@@ -264,13 +264,33 @@ class LinearAPITests(unittest.TestCase):
     def test_a_name_is_trimmed_and_one_that_could_hide_text_or_hold_an_email_names_nobody(self):
         good = as_person(DESIGNER)
         self.assertEqual(person({**DESIGNER, "name": "  Designer One\t"}), good)
-        self.assertEqual(person({**DESIGNER, "name": "主策 👩‍🎨"})["name"], "主策 👩‍🎨")  # a joiner is not hidden
-        self.assertEqual(person({**DESIGNER, "name": "x" * 256})["name"], "x" * 256)
-        for name in (7, "x" * 257, "Designer\nOne", "Designer\x00One", "Designer\x1b[31mOne",
-                     "Designer ‮enO", "Designer​One", "Designer \ud800", "designer.one@example.com",
+        # The joiners are not hidden: emoji sequences use U+200D, Persian and Indic names U+200C.
+        for name in ("主策 👩‍🎨", "Designer\u200cOne", "x" * 256, "Ünïcødé Näme 名字 🏆"):
+            with self.subTest(name=name):
+                self.assertEqual(person({**DESIGNER, "name": name})["name"], name)
+        # One representative of each family the rule refuses, written as an escape so that a review can see it:
+        # C0 and C1 controls, bidirectional marks and embeddings/isolates, zero-width and invisible format characters
+        # (a tag character carries invisible ASCII text), the BOM, private use, line and paragraph separators, and
+        # an unpaired surrogate.
+        for name in (7, "x" * 257, "Designer\nOne", "Designer\x00One", "Designer\x1b[31mOne", "Designer\x85One",
+                     "Designer\u061cOne", "Designer\u200eOne", "Designer\u202aOne", "Designer \u202eenO",
+                     "Designer\u2066One", "Designer\u200bOne", "Designer\u2060One", "Designer\u00adOne",
+                     "Designer\U000e0049One", "Designer\ufeffOne", "Designer\ue000One", "Designer\u2028One",
+                     "Designer\u2029One", "Designer \ud800", "designer.one@example.com",
                      "Designer One <designer.one@example.com>"):
             with self.subTest(name=name):
                 self.assertIsNone(person({**DESIGNER, "name": name}))
+
+    def test_the_own_app_user_is_recognised_whatever_case_linear_gives_its_id(self):
+        farmbot = {"id": APP.upper(), "name": "FarmBot", "url": "https://linear.app/example/profiles/farmbot"}
+        api = self.api({"FarmBotIdentity": [{"data": {"viewer": {"id": APP.upper(), "name": "FarmBot"},
+                                                      "organization": {"id": "org", "name": "K"}}}],
+                        "FarmBotIssue": [issue_page(None, False, [comment_node("c1", farmbot), comment_node("c2", OWNER)],
+                                                    assignee=farmbot, creator=farmbot)]})
+        issue = api.fetch_issue("FARM-1")
+        self.assertEqual((issue["assignee"], issue["creator"]), (None, None))
+        self.assertEqual([(c["author_kind"], c["author"]) for c in issue["comments"]],
+                         [("bot", None), ("human", as_person(OWNER))])
 
     def test_only_a_human_comment_has_an_author_and_farmbot_is_never_a_person_on_the_issue(self):
         # Linear reports FarmBot's own comments with its app user, which has a name and a profile URL too.
@@ -312,6 +332,14 @@ class LinearAPITests(unittest.TestCase):
                  f"见 {SIGNED}. 下一句": f"见 {UNSIGNED}. 下一句",
                  f"see {SIGNED}, then": f"see {UNSIGNED}, then",
                  f"{SIGNED}; 然后": f"{UNSIGNED}; 然后",
+                 f"{SIGNED}: 见下": f"{UNSIGNED}: 见下",
+                 f"{SIGNED}? 对吗": f"{UNSIGNED}? 对吗",
+                 f"{SIGNED}! 好": f"{UNSIGNED}! 好",
+                 f"见 {SIGNED}# 标题": f"见 {UNSIGNED}# 标题",
+                 # Entity-escaped markup after the URL is not part of its query; an escaped "&amp;" inside it is.
+                 f"<linear-image src=&quot;{SIGNED}&quot; alt=&quot;图&quot;>": f"<linear-image src=&quot;{UNSIGNED}&quot; alt=&quot;图&quot;>",
+                 f"&lt;{UNSIGNED}?signature=x&amp;expires=9&gt;": f"&lt;{UNSIGNED}&gt;",
+                 f"{SIGNED}&nbsp;见上": f"{UNSIGNED}&nbsp;见上",
                  f"{one}?signature=x.y,{two}?signature=z 两张图": f"{one},{two} 两张图",
                  f'<img src="{UNSIGNED}?signature=x&amp;expires=9">': f'<img src="{UNSIGNED}">',
                  f"{UNSIGNED}#page": UNSIGNED,

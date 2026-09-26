@@ -45,7 +45,8 @@ in ISO 8601 UTC.
 
 `issue-context` also names who is responsible. `owner` is `{"person", "source"}` or null: the
 issue's assignee (`"source": "assignee"`), else the person who delegated the issue most recently
-(`"delegator"`), else null, for example after an operator `enqueue`. `creator` is
+(`"delegator"`; an operator `enqueue` is no delegation and changes nothing here), else null, for
+example on an issue only ever enqueued. `creator` is
 `issue.creator`, or null when that is missing or is the owner. A comment mentions a person by
 containing the person's profile `url`; the fix skill says when.
 

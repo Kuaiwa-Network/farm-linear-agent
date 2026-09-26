@@ -586,6 +586,19 @@ class OwnerTests(LedgerBase):
         self.ledger.ensure_session("session-3", ISSUE, delegation=True)  # the latest delegator is unknown
         self.assertIsNone(self.ledger.issue_context(item_id)["owner"])
 
+    def test_an_operator_enqueue_hands_the_issue_to_nobody_and_takes_it_from_nobody(self):
+        """`service enqueue` records a `local-` delegation session in the ledger, not in Linear, even when the
+        enqueue is then refused because an item is active. Nobody delegated anything, so the latest human
+        delegator keeps the issue, and an issue only ever enqueued has no owner (spec §5.3)."""
+        item_id = self.context_for(assignee=None, creator=DESIGNER, delegator=LEAD)["coordination"]["id"]
+        self.now += 60
+        self.ledger.ensure_session(f"local-{ISSUE}", ISSUE, delegation=True)
+        context = self.ledger.issue_context(item_id)
+        self.assertEqual(context["owner"], {"person": LEAD, "source": "delegator"})
+        self.assertEqual(context["delegation_session"], SESSION)
+        self.assertIsNone(self.context_for(OTHER, f"local-{OTHER}", identifier="FARM-2", assignee=None,
+                                           creator=DESIGNER)["owner"])
+
 
 class OutboxTests(LedgerBase):
     def running(self):

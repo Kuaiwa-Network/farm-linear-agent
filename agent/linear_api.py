@@ -2,6 +2,7 @@
 import json
 import re
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -9,21 +10,25 @@ from uuid import UUID
 
 SCOPES = "read,write,app:mentionable,app:assignable"
 # An upload URL's path is ASCII ID segments; its query and fragment are what Linear signs (a signature and its
-# parameters, percent-encoded or HTML-escaped as &amp;). Neither class holds characters that follow a URL in prose
-# or markup: whitespace, quotes, brackets, "<", ">", backticks, "*", ",", "!" and any non-ASCII character end it,
-# and a query never ends in ".", ":", ";" or "?". So the Markdown, JSON, HTML or sentence around the URL survives,
-# and two URLs joined by a comma stay two.
+# parameters, percent-encoded or with "&" HTML-escaped as "&amp;"). Neither class holds characters that follow a
+# URL in prose or markup: whitespace, quotes, brackets, "<", ">", backticks, "*", ",", "!" and any non-ASCII
+# character end it; "&" continues a query only before another parameter, so an entity after the URL such as
+# "&quot;" or "&gt;" stays; and a query never ends in ".", ":", "?" or "#". So the Markdown, JSON, HTML or
+# sentence around the URL survives, and two URLs joined by a comma stay two.
 _PATH_CHARACTERS = r"A-Za-z0-9\-._~%/"
-_QUERY_CHARACTERS = r"A-Za-z0-9\-._~%=&;+/:@?#"
+_QUERY_CHARACTERS = r"A-Za-z0-9\-._~%=+/:@?#"
+_PARAMETER = r"&(?:amp;)?(?=[A-Za-z0-9_\-]+=)"
 UPLOAD = re.compile(rf"(https://uploads\.linear\.app/[{_PATH_CHARACTERS}]+)"
-                    rf"(?:[?#][{_QUERY_CHARACTERS}]+(?<![.:;?]))?")
+                    rf"(?:[?#](?:[{_QUERY_CHARACTERS}]|{_PARAMETER})+(?<![.:?#]))?")
 # A Linear web URL: a person's profile, which Linear renders as a mention in a comment, or a comment's own link.
 LINEAR_URL = re.compile(r"https://linear\.app/\S+")
 # A person's name as FarmBot keeps it (it is printed into comments and ruling markers): at most NAME_LIMIT
-# characters, with no control, bidirectional or zero-width characters and no unpaired surrogate, and never an
-# email address, which FarmBot does not store.
+# characters, none of them a control, format (a bidirectional mark or an invisible character, other than the
+# joiners emoji sequences and some scripts use), private-use or line-separator character or an unpaired
+# surrogate, and never an email address, which FarmBot does not store.
 NAME_LIMIT = 256
-_HIDDEN = re.compile("[\x00-\x1f\x7f-\x9f؜​‎‏‪-‮⁦-⁩﻿\ud800-\udfff]")
+_HIDDEN_CATEGORIES = {"Cc", "Cf", "Cs", "Co", "Zl", "Zp"}
+_JOINERS = {"\u200c", "\u200d"}
 _EMAIL = re.compile(r"""[^\s@<>()\[\],;:"']+@[^\s@<>()\[\],;:"']+\.[A-Za-z]{2,}""")
 ISSUE_QUERY = """query FarmBotIssue($id: String!, $after: String) {
   issue(id: $id) {
@@ -62,6 +67,11 @@ def _linear_url(value):
     return value if isinstance(value, str) and LINEAR_URL.fullmatch(value) else None
 
 
+def _hides_text(name):
+    """True when a character of name could hide, reorder or split text once the name is printed."""
+    return any(unicodedata.category(ch) in _HIDDEN_CATEGORIES and ch not in _JOINERS for ch in name)
+
+
 def person(node):
     """A Linear User node as exactly {"id", "name", "url"}, or None.
 
@@ -75,7 +85,7 @@ def person(node):
     if not (isinstance(user_id, str) and isinstance(name, str) and url):
         return None
     name = name.strip()
-    if not name or len(name) > NAME_LIMIT or _HIDDEN.search(name) or _EMAIL.search(name):
+    if not name or len(name) > NAME_LIMIT or _hides_text(name) or _EMAIL.search(name):
         return None
     try:
         return {"id": str(UUID(user_id)), "name": name, "url": url}
