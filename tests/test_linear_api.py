@@ -216,9 +216,9 @@ class LinearAPITests(unittest.TestCase):
 
     def test_the_issue_query_reads_people_label_parents_and_reply_parents(self):
         query = " ".join(ISSUE_QUERY.split())
-        for part in ("labels { nodes { name parent { id name } } }", "assignee { id name url }",
-                     "creator { id name url }",
-                     "nodes { id url body createdAt updatedAt user { id name url } botActor { id } parent { id } }"):
+        for part in ("labels { nodes { name parent { id name } } }", "assignee { id name url app }",
+                     "creator { id name url app }",
+                     "nodes { id url body createdAt updatedAt user { id name url app } botActor { id } parent { id } }"):
             self.assertIn(part, query)
         self.assertNotIn("email", query)
         self.fetched([])
@@ -280,6 +280,22 @@ class LinearAPITests(unittest.TestCase):
                      "Designer One <designer.one@example.com>"):
             with self.subTest(name=name):
                 self.assertIsNone(person({**DESIGNER, "name": name}))
+
+    def test_an_app_user_is_never_a_person_whichever_app_it_is(self):
+        """Linear marks every app user with User.app: FarmBot, TestBot, Codex and its own integration user (checked
+        live on 2026-09-27), and sends their comments with a `user` and no `botActor`. Such a comment is a bot's
+        with no author, and an app is never the assignee or the creator. A node without the key, as an older read
+        or a webhook payload gives, is still judged by its id."""
+        codex = {"id": "20000000-0000-4000-8000-0000000000aa", "name": "Codex",
+                 "url": "https://linear.app/example/profiles/codex", "app": True}
+        self.assertIsNone(person(codex))
+        self.assertEqual(person({**DESIGNER, "app": False}), as_person(DESIGNER))
+        issue = self.fetched([comment_node("c1", codex), comment_node("c2", {**DESIGNER, "app": False}),
+                              comment_node("c3", {**OWNER, "app": True})],
+                             assignee=codex, creator={**DESIGNER, "app": True})
+        self.assertEqual([(c["author_kind"], c["author"]) for c in issue["comments"]],
+                         [("bot", None), ("human", as_person(DESIGNER)), ("bot", None)])
+        self.assertEqual((issue["assignee"], issue["creator"]), (None, None))
 
     def test_the_own_app_user_is_recognised_whatever_case_linear_gives_its_id(self):
         farmbot = {"id": APP.upper(), "name": "FarmBot", "url": "https://linear.app/example/profiles/farmbot"}

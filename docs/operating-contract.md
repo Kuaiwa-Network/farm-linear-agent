@@ -87,7 +87,9 @@ and profile URL, never an email. A user without a UUID or an `https://linear.app
 stored as null, as is one whose name is blank, longer than 256 characters, holds a control, format
 (a bidirectional mark or an invisible character, other than the joiners emoji sequences use),
 private-use or line-separator character, or contains an email address, and so is a comment link
-outside `https://linear.app/`. FarmBot's own app user is never the assignee or the creator.
+outside `https://linear.app/`. An app user, which Linear marks with `User.app` (FarmBot itself,
+another FarmBot instance, Codex or Linear's integration user), is never a person: its comments are
+a bot's, with no author, and it is never the assignee or the creator.
 Snapshots stored before this revision lack these fields, which reads as unknown. None of them is
 issue input: a claim covers the title, the description, attachments other than the job's own PRs,
 and the IDs and bodies of the comments that are neither a bot's nor FarmBot's own, so reassigning
@@ -108,7 +110,9 @@ That includes a job that is only queued, waiting for a resource or between repos
 deploy: nothing re-reads the issue before a claim, so its own first `fetch-issue` stores the new
 text. Settle or cancel unfinished jobs on affected issues before deploying, or accept one requeue
 and a repeated start comment for each. Rolling back changes those fingerprints back once, with the
-same effect; older revisions ignore the new fields.
+same effect; older revisions ignore the new fields. Another app's comments, which earlier revisions
+counted as a person's, are a bot's from this revision, so an issue another app commented on changes
+fingerprint once in the same way.
 
 | You do | FarmBot does |
 |---|---|
