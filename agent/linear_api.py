@@ -2,18 +2,41 @@
 import json
 import re
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
+from uuid import UUID
 
 SCOPES = "read,write,app:mentionable,app:assignable"
-UPLOAD = re.compile(r"(https://uploads\.linear\.app/[^\s?#)]+)[^\s)]*")
+# An upload URL's path is ASCII ID segments; its query and fragment are what Linear signs (a signature and its
+# parameters, percent-encoded or with "&" HTML-escaped as "&amp;"). Neither class holds characters that follow a
+# URL in prose or markup: whitespace, quotes, brackets, "<", ">", backticks, "*", ",", "!" and any non-ASCII
+# character end it; "&" continues a query only before another parameter, so an entity after the URL such as
+# "&quot;" or "&gt;" stays; and a query never ends in ".", ":", "?" or "#". So the Markdown, JSON, HTML or
+# sentence around the URL survives, and two URLs joined by a comma stay two.
+_PATH_CHARACTERS = r"A-Za-z0-9\-._~%/"
+_QUERY_CHARACTERS = r"A-Za-z0-9\-._~%=+/:@?#"
+_PARAMETER = r"&(?:amp;)?(?=[A-Za-z0-9_\-]+=)"
+UPLOAD = re.compile(rf"(https://uploads\.linear\.app/[{_PATH_CHARACTERS}]+)"
+                    rf"(?:[?#](?:[{_QUERY_CHARACTERS}]|{_PARAMETER})+(?<![.:?#]))?")
+# A Linear web URL: a person's profile, which Linear renders as a mention in a comment, or a comment's own link.
+LINEAR_URL = re.compile(r"https://linear\.app/\S+")
+# A person's name as FarmBot keeps it (it is printed into comments and ruling markers): at most NAME_LIMIT
+# characters, none of them a control, format (a bidirectional mark or an invisible character, other than the
+# joiners emoji sequences and some scripts use), private-use or line-separator character or an unpaired
+# surrogate, and never an email address, which FarmBot does not store.
+NAME_LIMIT = 256
+_HIDDEN_CATEGORIES = {"Cc", "Cf", "Cs", "Co", "Zl", "Zp"}
+_JOINERS = {"\u200c", "\u200d"}
+_EMAIL = re.compile(r"""[^\s@<>()\[\],;:"']+@[^\s@<>()\[\],;:"']+\.[A-Za-z]{2,}""")
 ISSUE_QUERY = """query FarmBotIssue($id: String!, $after: String) {
   issue(id: $id) {
     id identifier url branchName title description priority archivedAt updatedAt
-    state { name type } team { id } labels { nodes { name } } attachments { nodes { url } } delegate { id }
+    state { name type } team { id } labels { nodes { name parent { id name } } } attachments { nodes { url } }
+    delegate { id } assignee { id name url } creator { id name url }
     comments(first: 50, after: $after) {
-      nodes { id body createdAt updatedAt user { id } botActor { id } }
+      nodes { id url body createdAt updatedAt user { id name url } botActor { id } parent { id } }
       pageInfo { hasNextPage endCursor }
     }
   }
@@ -22,8 +45,62 @@ ISSUE_READ_ATTEMPTS = 3
 
 
 def strip_signed(text):
-    """Drop signed query strings from Linear upload URLs so fingerprints stay stable."""
+    """Drop signed query strings (and fragments) from Linear upload URLs so fingerprints stay stable.
+
+    Only the URL changes: the Markdown, JSON, HTML or sentence around it, a <linear-image> block included, stays
+    as written.
+    """
     return UPLOAD.sub(r"\1", text or "")
+
+
+def upload_urls(text):
+    """The uploads.linear.app URLs in text, unsigned, each once, sorted.
+
+    Markdown images and links, bare URLs (less the sentence punctuation after one) and the src of <linear-image>
+    and <linear-embed> blocks, in signed text or in stored text that strip_signed has already cleaned.
+    """
+    return sorted({match.group(1).rstrip(".,:;!") for match in UPLOAD.finditer(text or "")})
+
+
+def _linear_url(value):
+    """value when it is an https://linear.app/ URL, else None."""
+    return value if isinstance(value, str) and LINEAR_URL.fullmatch(value) else None
+
+
+def _hides_text(name):
+    """True when a character of name could hide, reorder or split text once the name is printed."""
+    return any(unicodedata.category(ch) in _HIDDEN_CATEGORIES and ch not in _JOINERS for ch in name)
+
+
+def person(node):
+    """A Linear User node as exactly {"id", "name", "url"}, or None.
+
+    None unless the node has a UUID id, a name and an https://linear.app/ profile URL. The name is trimmed, and a
+    name that is too long, holds hidden characters or contains an email address names nobody. Every other field,
+    the email included, is dropped.
+    """
+    if not isinstance(node, dict):
+        return None
+    user_id, name, url = node.get("id"), node.get("name"), _linear_url(node.get("url"))
+    if not (isinstance(user_id, str) and isinstance(name, str) and url):
+        return None
+    name = name.strip()
+    if not name or len(name) > NAME_LIMIT or _hides_text(name) or _EMAIL.search(name):
+        return None
+    try:
+        return {"id": str(UUID(user_id)), "name": name, "url": url}
+    except ValueError:
+        return None
+
+
+def _label_groups(nodes):
+    """Sorted, distinct {"group": parent name, "label": name} pairs for the labels inside a label group."""
+    pairs = set()
+    for node in nodes:
+        group, label = (node.get("parent") or {}).get("name"), node.get("name")
+        if isinstance(group, str) and group.strip() and isinstance(label, str) and label.strip():
+            pairs.add((group, label))
+    return [{"group": group, "label": label} for group, label in sorted(pairs)]
 
 
 class LinearAPI:
@@ -190,16 +267,26 @@ class LinearAPI:
                     kind = "human"
                 else:
                     kind = "unknown"
-                comments.append({"id": node["id"], "body": strip_signed(node["body"]), "author_kind": kind,
+                # Only a human comment has an author: FarmBot's own and integrations' comments have none.
+                comments.append({"id": node["id"], "url": _linear_url(node.get("url")),
+                                 "body": strip_signed(node["body"]), "author_kind": kind,
+                                 "author": person(node.get("user")) if kind == "human" else None,
+                                 "parent_id": (node.get("parent") or {}).get("id"),
                                  "created_at": node["createdAt"], "updated_at": node["updatedAt"]})
             page = issue["comments"]["pageInfo"]
             if not page["hasNextPage"]:
                 break
             after = page["endCursor"]
+        # FarmBot's own app user is never the issue's owner or its author, whatever Linear reports.
+        people = {field: person(issue.get(field)) for field in ("assignee", "creator")}
+        people = {field: None if found and found["id"] == (self.app_user_id or "").lower() else found
+                  for field, found in people.items()}
         return {"id": issue["id"], "identifier": issue["identifier"], "team_id": issue["team"]["id"], "url": issue["url"],
                 "updated_at": issue.get("updatedAt"), "branch_name": issue.get("branchName") or "", "title": issue["title"],
                 "description": strip_signed(issue.get("description") or ""), "status": issue["state"]["name"],
                 "status_type": issue["state"]["type"], "labels": [n["name"] for n in issue["labels"]["nodes"]],
+                "label_groups": _label_groups(issue["labels"]["nodes"]),
+                "assignee": people["assignee"], "creator": people["creator"],
                 "priority": int(issue["priority"] or 0), "archived": issue.get("archivedAt") is not None,
                 "delegate_id": (issue.get("delegate") or {}).get("id"),
                 "attachments": sorted({strip_signed(n["url"]) for n in issue["attachments"]["nodes"]}),

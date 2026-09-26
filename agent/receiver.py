@@ -17,6 +17,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .ledger import LedgerError
+from .linear_api import person
 from .router import WRITE_SKILLS, route
 from .worktrees import WorktreeError
 
@@ -143,10 +144,15 @@ class Receiver:
         issue_id = issue.get("id")
         if not isinstance(issue_id, str) or not issue_id:
             raise ValueError("session without issue")
+        # People only as the shared person shape: Linear's webhook users also carry an email and an avatar, which
+        # FarmBot never keeps. Linear leaves `creator` unset when automation or an agent started the session.
+        creator = _person(session.get("creator"))
         if event["action"] == "prompted":
             text = event["agentActivity"]["content"].get("body") or ""
+            author = _person(event["agentActivity"].get("user"))
         else:
             text = (session.get("sourceComment") or session.get("comment") or {}).get("body") or ""
+            author = creator  # whoever opened the session wrote the comment that opened it
         if not isinstance(text, str) or len(text) > 32000:
             raise ValueError("oversized prompt")
         guidance = event.get("guidance")
@@ -156,7 +162,7 @@ class Receiver:
         return {"action": event["action"], "session_id": session["id"], "issue_id": issue_id, "text": text,
                 "is_mention": bool(session.get("comment") or session.get("commentId")
                                    or session.get("sourceComment") or session.get("sourceCommentId")),
-                "guidance": guidance}
+                "guidance": guidance, "creator": creator, "author": author}
 
     def _receive_stop(self, event):
         session_id = event["agentSession"]["id"]
@@ -195,7 +201,9 @@ class Receiver:
                             (status, self.clock(), error, row["stop_key"]))
         return True
 
-    def _decide_and_act(self, prepared, ack_id):
+    def _decide_and_act(self, prepared, ack_id, received_at=None):
+        """received_at: when this event reached FarmBot. A pending event may be processed much later (it survives a
+        restart), and the messages it adds keep that time, which dates a ruling given in one of them."""
         issue = self.api.fetch_issue(prepared["issue_id"])
         self.ledger.observe_issue(issue)
         session = self.ledger.session(prepared["session_id"])
@@ -208,7 +216,10 @@ class Receiver:
         is_delegation = (session["delegation"] if session else
                          prepared["action"] == "created" and not prepared.get("is_mention")
                          and issue.get("delegate_id") == self.identity["appUserId"])
-        session = self.ledger.ensure_session(prepared["session_id"], issue["id"], is_delegation, prepared["guidance"])
+        # .get: an event the previous revision accepted, still pending at upgrade, carries neither person.
+        session = self.ledger.ensure_session(prepared["session_id"], issue["id"], is_delegation, prepared["guidance"],
+                                             creator=prepared.get("creator"))
+        author = prepared.get("author")
         pin = ""
         if session.get("target") is None and self.worktrees is not None:
             try:
@@ -248,7 +259,8 @@ class Receiver:
                 return
             if decision.kind == "chat":
                 can_resume = elsewhere["skill"] == "chat" or issue.get("delegate_id") == self.identity["appUserId"]
-                delivered = self.ledger.push_inbox(elsewhere["id"], prepared["text"] or "（无正文）", resume_waiting=can_resume)
+                delivered = self.ledger.push_inbox(elsewhere["id"], prepared["text"] or "（无正文）",
+                                                   resume_waiting=can_resume, author=author, received_at=received_at)
                 notice = "该 issue 正在处理中，你的消息已转给正在处理的 worker。"
                 if elsewhere["state"] == "awaiting_input" and delivered["state"] == "queued":
                     notice = "收到回复，原工作项已恢复，worker 会先读取你的回答。"
@@ -262,21 +274,22 @@ class Receiver:
             item = self.ledger.create_work_item(issue_id=issue["id"], session_id=session_id, skill=decision.skill,
                                                 target=(session or {}).get("target"))
             if prepared["text"]:
-                self.ledger.push_inbox(item["id"], prepared["text"])
+                self.ledger.push_inbox(item["id"], prepared["text"], author=author, received_at=received_at)
             acknowledge("thought", ACK.get(decision.skill, ACK["chat"]).format(bot=self.bot_name))
         elif decision.kind == "chat":
             item = self.ledger.create_work_item(issue_id=issue["id"], session_id=session_id, skill="chat")
             if prepared["text"]:
-                self.ledger.push_inbox(item["id"], prepared["text"])
+                self.ledger.push_inbox(item["id"], prepared["text"], author=author, received_at=received_at)
             body = (decision.text if decision.text and decision.text != prepared["text"]
                     else ACK["chat"].format(bot=self.bot_name))
             acknowledge("thought", body)
         elif decision.kind == "steer":
-            self.ledger.push_inbox(active["id"], decision.text)
+            self.ledger.push_inbox(active["id"], decision.text, author=author, received_at=received_at)
             acknowledge("thought", "已转给正在处理的 worker，会在下一次检查点读取。")
         elif decision.kind == "resume":
             can_resume = active["skill"] == "chat" or issue.get("delegate_id") == self.identity["appUserId"]
-            self.ledger.push_inbox(active["id"], decision.text, resume_waiting=can_resume)
+            self.ledger.push_inbox(active["id"], decision.text, resume_waiting=can_resume, author=author,
+                                   received_at=received_at)
             acknowledge("thought", "收到回复，继续处理。" if can_resume
                         else f"已保存回复；issue 已不再委派给 {self.bot_name}，暂不继续修复。")
         elif decision.kind == "elicit":
@@ -293,7 +306,7 @@ class Receiver:
             self.db.commit()
         status, error = "done", None
         try:
-            self._decide_and_act(json.loads(row["payload"]), row["ack_id"])
+            self._decide_and_act(json.loads(row["payload"]), row["ack_id"], row["received_at"])
         except (LedgerError, RuntimeError, ValueError, KeyError, OSError, sqlite3.Error) as exc:
             status, error = "uncertain", type(exc).__name__
             try:
@@ -332,6 +345,11 @@ class ExclusiveServer(ThreadingHTTPServer):
         if isinstance(sys.exc_info()[1], ConnectionError):
             return
         super().handle_error(request, client_address)
+
+
+def _person(value):
+    """A webhook user as the shared person shape, or None: anything but an object names nobody."""
+    return person(value) if isinstance(value, dict) else None
 
 
 def _plain_word(value):

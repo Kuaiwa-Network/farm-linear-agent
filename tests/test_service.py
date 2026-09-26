@@ -24,10 +24,10 @@ import agent.service as service_module
 from agent.config import Config, Paths
 from agent.heartbeat import LOOPS, read
 from agent.launcher import Launcher, _write_worker_file
-from agent.ledger import Ledger
+from agent.ledger import Ledger, LedgerError
 from agent.service import Components, build, enqueue, main, seed_clones, serve
 from agent.slots import SlotError
-from test_ledger import ISSUE, issue
+from test_ledger import ISSUE, LEAD, PIN, issue
 
 APP = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
 REPOS = ("Farm-Client", "farm-hive", "farmgui", "common", "Farm-Contract")
@@ -552,6 +552,21 @@ class EnqueueTests(unittest.TestCase):
         self.assertTrue(item["session_id"].startswith("local-"), item["session_id"])
         self.assertEqual([row["kind"] for row in ledger.connection.execute(
             "SELECT kind FROM audit WHERE item_id=?", (item_id,))].count("enqueue"), 1)
+
+    def test_an_enqueue_refused_for_an_active_item_leaves_the_issue_with_whoever_delegated_it(self):
+        """enqueue records its `local-` session before create_work_item can refuse. That session is a delegation
+        in the ledger only, so the human who delegated the issue in Linear stays the owner the running item
+        mentions (spec §5.3)."""
+        paths = Paths(self.config)
+        paths.config_dir.mkdir(parents=True, exist_ok=True)
+        ledger = Ledger(paths.ledger)
+        self.addCleanup(ledger.close)
+        ledger.observe_issue(issue(labels=["Bug"], delegate_id=APP, assignee=None))
+        ledger.ensure_session("session-1", ISSUE, delegation=True, creator=LEAD)
+        item = ledger.create_work_item(issue_id=ISSUE, session_id="session-1", skill="fix", target=PIN)
+        with self.assertRaises(LedgerError):
+            enqueue(self.config, issue_ref=ISSUE, skill="fix", commit="a" * 40)
+        self.assertEqual(ledger.issue_context(item["id"])["owner"], {"person": LEAD, "source": "delegator"})
 
     def test_enqueue_refuses_a_write_capable_skill_on_an_issue_nobody_delegated(self):
         """spec §4: fix, fgui and feature start only from delegation, so that every code change traces back

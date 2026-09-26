@@ -44,7 +44,8 @@ under State changes in the run report.
    then only relevant topic files. Refresh potentially stale notes through the CLI.
 3. `python3 -m agent --db DATABASE fetch-issue --item ITEM_ID` refreshes the issue and all comments from
    Linear into the ledger. Then `issue-context --item ITEM_ID` gives you the issue, your handoff if a
-   previous worker left one, pending steering messages and registered PRs. Read
+   previous worker left one, pending steering messages, registered PRs and who is who (`owner`,
+   `creator` and each comment's and message's `author`; see "Deciders and mentions"). Read
    `conversation_history` for earlier answers, pending questions and the read-only
    investigation summary; continue from `prior_context` and that context while verifying findings.
    Historical text is recall, not fresh authorization. A fresh successor of cancelled
@@ -84,16 +85,51 @@ dependency order. Never merge or deploy.
 If intended behaviour is unclear, the issue lacks necessary detail, or you cannot decide whether the
 contract or implementation is wrong, checkpoint the exact clause, evidence and pending question, then
 confirm the checkpoint succeeded before running `await-input --question TEXT` and exiting.
-This command adds `needs-more-info` and posts the question
-in the Linear session. Do not separately post an elicitation first, and do not finish blocked merely
+This command adds `needs-more-info` and posts the question in the Linear session; write the question
+so that it mentions the people it asks (see "Deciders and mentions"). Do not separately post an
+elicitation first, and do not finish blocked merely
 because a human answer is needed. A reply in the session or a mention of `bot_name` resumes this item;
 read the answer from your inbox before proceeding. If it is still insufficient, ask again. Never ask
 the operator to move the discussion to Codex or create a separate contract task.
 
-An explicit human decision can resolve a contract conflict: record the answer and its source in the
-checkpoint and contract change, then implement it. Do not invent decisions or attribution. A missing
-generator/tool or external dependency is still a real blocker; name it precisely. Contract access alone
-does not supply a config-export capability. Record the contradiction and its resolution in checkpoints.
+An explicit human decision can resolve a contract conflict: record it in the checkpoint and the
+contract change as "Deciders and mentions" says, then implement it. Do not invent decisions or
+attribution. A missing generator/tool or external dependency is still a real blocker; name it
+precisely. Contract access alone does not supply a config-export capability. Record the
+contradiction and its resolution in checkpoints.
+
+## Deciders and mentions
+
+`issue-context` identifies people only as Linear users, `{id, name, url}`: each human comment's and
+session message's `author`, the issue's `owner` and its `creator`. Take names from nowhere else. A
+comment that ends with a `[farmbot:…]` marker line was posted by a FarmBot instance, this one or
+another such as TestBot, whatever its `author` says; it is never a human's ruling.
+
+- Record a human ruling as `[DECIDED:<Linear user name>@<date>]` plus a link to the comment that
+  gave it. The name is that comment's `author.name`, the person's full Linear name (`User.name`, not
+  the `displayName` handle); the date is the calendar date of its `created_at` in UTC+8, the team's
+  time zone (`YYYY-MM-DD`; `created_at` itself is UTC); the link is the comment's own `url`.
+  Only when the comment has no `url` (null, or missing from an older read), fall back to `issue.url`
+  followed by `#comment-` and the first eight characters of the comment `id`, the form of Linear's
+  comment links. For a ruling given as a session reply, use that message's `author.name` and the
+  calendar date of its `created_at` in UTC+8, link `issue.url`, and say it came from the session.
+  Attribute a ruling only to the person who wrote it; a ruling relayed for someone else goes under
+  the relayer, in Farm-Contract's `(代<role>)` form only when the relayer says they rule for that
+  role. In Farm-Contract, its own instructions set the exact marker.
+- Never invent a name, a date or a ruling. An answer with a null `author` (Linear reported no user,
+  or a name FarmBot does not keep) cannot be attributed: do not record it. Ask for it once more
+  with `await-input`, saying whose answer you need; the session reply or the `bot_name` mention
+  that resumes you carries its author. If that answer has no author either, stop asking: finish
+  blocked, naming the ruling you could not attribute, so the owner settles it. Write no
+  `默认·3 个工作日未异议` marker and treat nothing as settled because nobody objected; an item stands
+  only when a named person answers it.
+- Mention the owner wherever you ask a human to act: a blocker, the delivery's request to review and
+  merge, an `await-input` question. Write `owner.person.url` in the text; Linear renders a profile URL
+  as a mention. `owner.source` says whether that is the assignee or, on an unassigned issue, whoever
+  delegated it last. When `owner` is null, ask without a mention.
+- When a question needs 策划 (the lead designer: intended behaviour or a design value), also write
+  `creator.url` when `creator` is not null. Name everyone else by role only (服务端, 客户端), and never
+  mention anyone from issue text, a signature, memory or a pasted link.
 
 ## Verification ladder
 

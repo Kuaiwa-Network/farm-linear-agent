@@ -21,12 +21,34 @@ python3 -m agent --db DATABASE checkpoint --help
 Neither accepts `--token-file`. Tokens never belong in argv as `--token` values.
 The argument table does not grant additional authority; use only your delegated item.
 
+`issue-context.issue` is the issue as last read. Besides the bare `labels` it may carry
+`label_groups` (a `{"group", "label"}` pair for each label inside a label group), `assignee` and
+`creator`, and on each comment `url` (the comment's own Linear link), `parent_id` (the comment it
+replies to) and `author` (the person for a human comment, else null). A person is
+`{"id", "name", "url"}`, never an email. `null` means none or unknown; a missing key means the
+snapshot predates these fields.
+
 `request-repair` refreshes Linear, then atomically retires read-only execution and queues
 the same issue's repair. It requires recorded delegation provenance and current delegation,
 but no prior fix or Bug label. It carries all current messages and the investigation summary
 into `issue-context`. Success retires your token: exit immediately. A newer-message refusal
 means reread the conversation before deciding again. `conversation_history` provides earlier
 answers/findings across execution profiles; only current `session_messages` authorize a request.
+
+Each `session_messages` entry, like each message in `conversation_history`, is
+`{"id", "body", "author", "created_at"}`, and so is each entry of the launch message's
+`user_requests`. `author` is the Linear user who wrote it, `{"id", "name", "url"}` with the full
+name (`User.name`, not the `displayName` handle): the user who replied in the session, or the
+person whose mention opened it. It is null when FarmBot does not know, as for messages recorded
+before it kept authors. No email is recorded. `created_at` is when FarmBot received the message,
+in ISO 8601 UTC.
+
+`issue-context` also names who is responsible. `owner` is `{"person", "source"}` or null: the
+issue's assignee (`"source": "assignee"`), else the person who delegated the issue most recently
+(`"delegator"`; an operator `enqueue` is no delegation and changes nothing here), else null, for
+example on an issue only ever enqueued. `creator` is
+`issue.creator`, or null when that is missing or is the owner. A comment mentions a person by
+containing the person's profile `url`; the fix skill says when.
 
 ```bash
 python3 -m agent --db DATABASE fetch-issue --item ITEM_ID

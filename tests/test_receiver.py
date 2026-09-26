@@ -22,7 +22,7 @@ from agent.ledger import Ledger
 from agent.monitor import probe_health
 from agent.receiver import MAX_BODY, Receiver, make_server
 from agent.worktrees import WorktreeError
-from test_ledger import ISSUE, issue
+from test_ledger import DESIGNER, ISSUE, OWNER, issue
 
 APP = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
 IDENTITY = {"oauthClientId": "client", "appUserId": APP, "organizationId": "org"}
@@ -269,6 +269,136 @@ class ReceiverTests(ReceiverBase):
         self.receive()
         self.assertTrue(self.receiver.process_one())
         self.assertEqual(self.ledger.session("session-1")["target"]["commit_sha"], "c" * 40)
+
+
+class SessionPeopleTests(ReceiverBase):
+    """Who opened each session and who wrote each message (spec §5.3, §9.2). Linear's webhook users also carry an
+    email and an avatar; FarmBot keeps only id, name and profile URL."""
+    EMAILS = {"Owner Two": "owner.two@example.com", "Designer One": "designer.one@example.com"}
+
+    def user(self, person):
+        """A webhook user payload: the person plus the fields FarmBot must not keep."""
+        return {**person, "email": self.EMAILS[person["name"]], "avatarUrl": "https://example.com/avatar.png"}
+
+    def delegation(self, creator=None):
+        event = self.event()
+        if creator is not None:
+            event["agentSession"]["creator"] = self.user(creator)
+        return event
+
+    def reply(self, body, author, activity="act-1"):
+        event = self.event("prompted", body=body)
+        event["agentSession"]["creator"] = self.user(OWNER)
+        event["agentActivity"].update(id=activity, user=self.user(author))
+        return event
+
+    def mention(self, session, body, creator):
+        return self.event(agentSession={"id": session, "issue": {"id": ISSUE, "identifier": "FARM-1", "url": "u"},
+                                        "comment": {"body": body}, "creator": self.user(creator)})
+
+    def messages(self, item_id):
+        return [(m["body"], m["author"]) for m in self.ledger.issue_context(item_id)["session_messages"]]
+
+    def assert_no_email_stored(self):
+        stored = "\n".join(self.ledger.connection.iterdump())  # every table in the file, the receiver's included
+        for email in self.EMAILS.values():
+            self.assertNotIn(email, stored)
+
+    def test_a_delegation_records_who_opened_the_session_and_never_their_email(self):
+        self.receive(self.delegation(creator=OWNER))
+        self.assert_no_email_stored()  # the prepared event waits in webhook_events until it is processed
+        self.receiver.process_one()
+        self.assertEqual(self.ledger.session("session-1")["creator"], OWNER)
+        self.assertEqual(self.ledger.items_for_session("session-1")[0]["skill"], "fix")
+        self.assert_no_email_stored()
+
+    def test_a_mention_records_its_creator_as_the_author_of_the_message_that_opened_it(self):
+        self.api.fetch_issue.return_value = issue(labels=["Bug"], delegate_id=None)
+        self.receive(self.mention("session-2", "@FarmBot 这个 bug 是客户端还是服务端的？", DESIGNER))
+        self.receiver.process_one()
+        item = self.ledger.items_for_session("session-2")[0]
+        self.assertEqual(item["skill"], "chat")
+        self.assertEqual(self.ledger.session("session-2")["creator"], DESIGNER)
+        self.assertEqual(self.messages(item["id"]), [("@FarmBot 这个 bug 是客户端还是服务端的？", DESIGNER)])
+        self.assert_no_email_stored()
+
+    def test_session_replies_record_the_prompting_user_as_their_author(self):
+        self.receive(self.delegation(creator=OWNER)); self.receiver.process_one()
+        item = self.ledger.items_for_session("session-1")[0]
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        self.receive(self.reply("先看服务端日志", DESIGNER)); self.receiver.process_one()     # steers
+        self.ledger.pop_inbox(item["id"], token)  # read, so that await_input parks instead of requeueing at once
+        self.ledger.await_input(item["id"], token, "which server?")
+        self.receive(self.reply("公共测试服", OWNER, activity="act-2")); self.receiver.process_one()  # resumes
+        self.assertEqual(self.ledger.item(item["id"])["state"], "queued")
+        self.assertEqual(self.messages(item["id"]), [("先看服务端日志", DESIGNER), ("公共测试服", OWNER)])
+        self.assertEqual(self.ledger.session("session-1")["creator"], OWNER)
+        self.assert_no_email_stored()
+
+    def test_a_mention_forwarded_to_another_sessions_worker_keeps_its_author(self):
+        self.receive(); self.receiver.process_one()
+        item = self.ledger.items_for_session("session-1")[0]
+        self.api.fetch_issue.return_value = issue(labels=["Bug"], delegate_id=None)
+        self.receive(self.mention("session-3", "@FarmBot 安卓上也能复现", DESIGNER)); self.receiver.process_one()
+        self.assertEqual(self.messages(item["id"]), [("@FarmBot 安卓上也能复现", DESIGNER)])
+
+    def test_a_session_recorded_without_a_creator_gets_it_from_a_later_event(self):
+        self.receive(self.delegation()); self.receiver.process_one()
+        self.assertIsNone(self.ledger.session("session-1")["creator"])
+        self.receive(self.reply("先看服务端日志", DESIGNER)); self.receiver.process_one()
+        self.assertEqual(self.ledger.session("session-1")["creator"], OWNER)
+
+    def test_a_user_without_a_linear_profile_url_is_not_recorded(self):
+        event = self.event()
+        event["agentSession"]["creator"] = {**OWNER, "url": "https://example.com/owner-two"}
+        self.receive(event); self.receiver.process_one()
+        self.assertIsNone(self.ledger.session("session-1")["creator"])
+        self.assertEqual(self.ledger.items_for_session("session-1")[0]["skill"], "fix")
+
+    def test_an_event_accepted_before_the_upgrade_is_processed_with_nobody_recorded(self):
+        """A pending event prepared by the previous revision has neither key; it must still be processed."""
+        prepared = {"action": "created", "session_id": "session-1", "issue_id": ISSUE, "text": "",
+                    "is_mention": False, "guidance": ""}
+        with self.receiver.db:
+            self.receiver.db.execute("INSERT INTO webhook_events VALUES (?,?,?,'pending',?,?,NULL,NULL)",
+                                     ("org:created:session-1", "session-1", "ack-1", json.dumps(prepared), 1.0))
+        self.assertTrue(self.receiver.process_one())
+        self.assertEqual(self.receiver.results()[-1]["status"], "done")
+        self.assertIsNone(self.ledger.session("session-1")["creator"])
+        self.assertEqual(self.ledger.items_for_session("session-1")[0]["skill"], "fix")
+
+    def test_a_message_keeps_the_time_its_event_arrived_not_when_it_was_processed(self):
+        """A pending event survives a restart; the ruling in it must keep the day it was sent."""
+        self.api.fetch_issue.return_value = issue(labels=["Bug"], delegate_id=None)
+        self.receiver.clock = lambda: 1790380500.0  # 2026-09-25T23:55:00Z; the ledger's clock reads now
+        self.receive(self.mention("session-2", "@FarmBot 按服务端的做", DESIGNER))
+        self.receiver.process_one()
+        item = self.ledger.items_for_session("session-2")[0]
+        self.assertEqual([(m["author"], m["created_at"]) for m in self.ledger.issue_context(item["id"])["session_messages"]],
+                         [(DESIGNER, "2026-09-25T23:55:00+00:00")])
+
+    def test_a_steer_a_resume_and_a_forwarded_mention_keep_the_time_they_arrived_too(self):
+        """The same for every way a message reaches a fix item: a reply that steers it, a reply that resumes it
+        after await-input (where answers to a worker's question arrive), and a mention forwarded from another
+        session. Each arrives a minute apart, all processed with the ledger's clock reading now."""
+        def received(event, at):
+            self.receiver.clock = lambda: at
+            self.receive(event); self.receiver.process_one()
+
+        self.receive(self.delegation(creator=OWNER)); self.receiver.process_one()
+        item = self.ledger.items_for_session("session-1")[0]
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        received(self.reply("先看服务端日志", DESIGNER), 1790380500.0)                           # steers
+        self.ledger.pop_inbox(item["id"], token)
+        self.ledger.await_input(item["id"], token, "which server?")
+        self.assertEqual(self.ledger.item(item["id"])["state"], "awaiting_input")
+        received(self.reply("公共测试服", OWNER, activity="act-2"), 1790380560.0)                # resumes
+        self.assertEqual(self.ledger.item(item["id"])["state"], "queued")
+        self.api.fetch_issue.return_value = issue(labels=["Bug"], delegate_id=None)
+        received(self.mention("session-3", "@FarmBot 安卓上也能复现", DESIGNER), 1790380620.0)  # forwarded
+        self.assertEqual([(m["body"], m["created_at"]) for m in self.ledger.issue_context(item["id"])["session_messages"]],
+                         [("先看服务端日志", "2026-09-25T23:55:00+00:00"), ("公共测试服", "2026-09-25T23:56:00+00:00"),
+                          ("@FarmBot 安卓上也能复现", "2026-09-25T23:57:00+00:00")])
 
 
 class HardeningTests(ReceiverBase):

@@ -5,7 +5,7 @@ remote-readback attestation; it cannot verify Linear itself.
 """
 
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import json
 import math
@@ -82,6 +82,37 @@ def checked_target(raw):
     return {key: raw[key] for key in TARGET_KEYS}
 
 
+# A Linear web URL: a person's profile, which Linear renders as a mention, or a comment's own link. It is the rule
+# of linear_api.LINEAR_URL, kept here because connectors stay outside this module.
+LINEAR_URL = re.compile(r"https://linear\.app/\S+")
+
+
+def _person(value, name):
+    """None, or exactly {"id": UUID, "name": text, "url": Linear profile URL}: never an email or other field."""
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) != {"id", "name", "url"}:
+        raise LedgerError(f"{name} must be null or exactly id, name and url")
+    if not isinstance(value["url"], str) or not LINEAR_URL.fullmatch(value["url"]):
+        raise LedgerError(f"{name} url must be an https://linear.app/ profile URL")
+    return {"id": _uuid(value["id"], f"{name} id"), "name": _text(value["name"], f"{name} name"), "url": value["url"]}
+
+
+def _label_groups(value, labels):
+    """Sorted, distinct {"group", "label"} pairs, each label one of the issue's labels and group its parent."""
+    if not isinstance(value, list):
+        raise LedgerError("label_groups must be an array")
+    pairs = set()
+    for entry in value:
+        if not isinstance(entry, dict) or set(entry) != {"group", "label"}:
+            raise LedgerError("each label group needs exactly group and label")
+        pair = (_text(entry["group"], "label group"), _text(entry["label"], "grouped label"))
+        if pair[1] not in labels:
+            raise LedgerError("a grouped label must be one of the issue's labels")
+        pairs.add(pair)
+    return [{"group": group, "label": label} for group, label in sorted(pairs)]
+
+
 def _normalize(raw):
     if not isinstance(raw, dict):
         raise LedgerError("issue must be an object")
@@ -112,6 +143,12 @@ def _normalize(raw):
         if not isinstance(value[field], list):
             raise LedgerError(f"{field} must be an array of stable strings")
         value[field] = sorted({_text(item, field) for item in value[field]})
+    # Optional keys. Rows stored before them, and older fetchers, lack them, which reads as unknown.
+    for field in ("assignee", "creator"):
+        if field in raw:
+            value[field] = _person(raw[field], field)
+    if "label_groups" in raw:
+        value["label_groups"] = _label_groups(raw["label_groups"], value["labels"])
     if not isinstance(value["comments"], list):
         raise LedgerError("comments must be an array")
     comments, seen = [], set()
@@ -124,6 +161,18 @@ def _normalize(raw):
         _text(comment["body"], "comment body", empty=True)
         if comment["author_kind"] not in ("human", "bot", "unknown"):
             raise LedgerError("comment author_kind must be human, bot or unknown")
+        if "author" in raw_comment:
+            comment["author"] = _person(raw_comment["author"], "comment author")
+            if comment["author"] is not None and comment["author_kind"] != "human":
+                raise LedgerError("only a human comment has an author")
+        if "parent_id" in raw_comment:
+            comment["parent_id"] = (None if raw_comment["parent_id"] is None
+                                    else _text(raw_comment["parent_id"], "comment parent_id"))
+        if "url" in raw_comment:
+            url = raw_comment["url"]
+            if url is not None and not (isinstance(url, str) and LINEAR_URL.fullmatch(url)):
+                raise LedgerError("comment url must be null or an https://linear.app/ URL")
+            comment["url"] = url
         for field in ["created_at", "updated_at"]:
             _timestamp(comment[field], f"comment {field}")
         if comment["id"] in seen:
@@ -132,6 +181,43 @@ def _normalize(raw):
         comments.append(comment)
     value["comments"] = sorted(comments, key=lambda item: item["id"])
     return value
+
+
+def _person_json(value, name):
+    """A person for a nullable people column, as JSON, or None. `_person` accepts exactly an id, a name and a
+    linear.app profile URL, so an email or avatar never reaches these columns."""
+    checked = _person(value, name)
+    return None if checked is None else _json(checked)
+
+
+def _message(row):
+    """An inbox entry as workers read it. `author` is None for entries recorded before authors were kept and for
+    those with no Linear author (an operator's enqueue, an event Linear sent without a user); `created_at` is when
+    FarmBot received the entry, in ISO 8601 UTC."""
+    return {"id": row["id"], "body": row["body"],
+            "author": json.loads(row["author_json"]) if row["author_json"] else None,
+            "created_at": datetime.fromtimestamp(row["created_at"], timezone.utc).isoformat(timespec="seconds")}
+
+
+def _owner(issue, delegation):
+    """spec §4.2, §5.3: the assignee, else the human who last delegated the issue (the creator of its latest
+    delegation session in Linear: a re-delegation hands the issue on, even to an item started under an earlier
+    one, while an operator enqueue delegates to nobody and is skipped), else nobody (an issue only ever enqueued,
+    or a delegation whose creator Linear did not report or an older ledger did not keep)."""
+    if issue.get("assignee"):
+        return {"person": dict(issue["assignee"]), "source": "assignee"}
+    if delegation is not None and delegation["creator_json"]:
+        return {"person": json.loads(delegation["creator_json"]), "source": "delegator"}
+    return None
+
+
+def _issue_creator(issue, owner):
+    """D17: the issue's creator, usually the 策划 who wrote the card, or None when it is unknown, was not a person
+    (Linear gives no creator user for an app or integration) or is the owner, whom a comment already mentions."""
+    creator = issue.get("creator")
+    if not creator or (owner is not None and owner["person"]["id"] == creator["id"]):
+        return None
+    return dict(creator)
 
 
 def _hash_token(token):
@@ -144,6 +230,8 @@ def _in_scope(issue):
 
 
 def _fingerprint(issue, own_bodies, own_prs=()):
+    # Issue input only: labels, label groups, people, reply parents and comment links are left out, so reassigning
+    # or relabelling an issue never requeues its work.
     material = {key: issue[key] for key in ["title", "description", "attachments"]}
     material["attachments"] = [url for url in issue["attachments"] if url not in own_prs]
     material["comments"] = [{"id": comment["id"], "body": comment["body"]}
@@ -365,7 +453,10 @@ class Ledger:
                                                 ("work_items", "retry_not_before", "REAL NOT NULL DEFAULT 0"),
                                                 ("work_items", "root_repo", "TEXT"),
                                                 ("work_items", "next_root_repo", "TEXT"),
-                                                ("job_cleanup", "removing", "INTEGER NOT NULL DEFAULT 0")):
+                                                ("job_cleanup", "removing", "INTEGER NOT NULL DEFAULT 0"),
+                                                # People, as the shared person shape in JSON; NULL means unknown.
+                                                ("sessions", "creator_json", "TEXT"),
+                                                ("inbox", "author_json", "TEXT")):
                 present = {row["name"] for row in self.connection.execute(f"PRAGMA table_info({table})")}
                 if column not in present:
                     self.connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
@@ -509,16 +600,21 @@ class Ledger:
         return [self._view(r) for r in self.connection.execute("""SELECT * FROM work_items WHERE issue_id=?
             AND state IN ('queued','running','awaiting_input','awaiting_resource','blocked')""", (issue_id,))]
 
-    def ensure_session(self, session_id, issue_id, delegation, guidance=None):
-        """Guidance is Linear's operator text for this session; later events may add it."""
+    def ensure_session(self, session_id, issue_id, delegation, guidance=None, creator=None):
+        """Guidance is Linear's operator text for this session; later events may add it. They may also add the
+        creator, the human who opened the session (Linear's agentSession.creator), never replaced once recorded."""
         _text(session_id, "session_id")
         if guidance is not None:
             _text(guidance, "guidance", empty=True)
+        creator_json = _person_json(creator, "session creator")
         with self._transaction():
             self.connection.execute("""INSERT OR IGNORE INTO sessions(session_id,issue_id,delegation,guidance,created_at)
                 VALUES(?,?,?,?,?)""", (session_id, issue_id, int(bool(delegation)), guidance, self.clock()))
             if isinstance(guidance, str) and guidance.strip():
                 self.connection.execute("UPDATE sessions SET guidance=? WHERE session_id=?", (guidance, session_id))
+            if creator_json is not None:
+                self.connection.execute("UPDATE sessions SET creator_json=? WHERE session_id=? AND creator_json IS NULL",
+                                        (creator_json, session_id))
         return self.session(session_id)
 
     def set_session_target(self, session_id, target):
@@ -536,7 +632,8 @@ class Ledger:
         if row is None:
             return None
         return {"session_id": row["session_id"], "issue_id": row["issue_id"], "delegation": bool(row["delegation"]),
-                "target": json.loads(row["target_json"]) if row["target_json"] else None, "guidance": row["guidance"]}
+                "target": json.loads(row["target_json"]) if row["target_json"] else None, "guidance": row["guidance"],
+                "creator": json.loads(row["creator_json"]) if row["creator_json"] else None}
 
     def create_work_item(self, *, issue_id, session_id, skill, target=None):
         _text(skill, "skill")
@@ -1369,6 +1466,13 @@ class Ledger:
         return self.connection.execute("""SELECT * FROM sessions WHERE issue_id=? AND delegation=1
             ORDER BY (session_id=?) DESC,created_at DESC,rowid DESC LIMIT 1""", (issue_id, preferred)).fetchone()
 
+    def _owner_delegation(self, issue_id):
+        """The latest delegation session a person could have opened. `agent.service enqueue` mints a `local-`
+        session in the ledger, not in Linear (even when the enqueue is then refused): it delegates to nobody and
+        takes the issue from nobody, so it never decides the owner. Authority still uses _delegation_session."""
+        return self.connection.execute("""SELECT * FROM sessions WHERE issue_id=? AND delegation=1
+            AND session_id NOT LIKE 'local-%' ORDER BY created_at DESC,rowid DESC LIMIT 1""", (issue_id,)).fetchone()
+
     def _repair_work(self, item_id, token, message_id, app_user_id, *, allow_start, summary):
         """Atomically retire read-only execution and queue its authorized repair.
 
@@ -1382,8 +1486,8 @@ class Ledger:
             issue = json.loads(self._issue_row(chat["issue_id"])["metadata"])
             if not _in_scope(issue) or not app_user_id or issue.get("delegate_id") != app_user_id:
                 raise LedgerError("issue must remain open and delegated to FarmBot")
-            messages = self.connection.execute("SELECT id,body FROM inbox WHERE item_id=? ORDER BY id",
-                                               (item_id,)).fetchall()
+            messages = self.connection.execute(
+                "SELECT id,body,author_json,created_at FROM inbox WHERE item_id=? ORDER BY id", (item_id,)).fetchall()
             if message_id not in {m["id"] for m in messages if m["body"].strip() not in ("", "（无正文）")}:
                 raise LedgerError("repair transition requires a real message from this chat")
             if message_id != messages[-1]["id"]:
@@ -1420,8 +1524,9 @@ class Ledger:
             self.connection.execute("UPDATE work_items SET evidence=? WHERE id=?", (
                 _json({"summary": summary, "prs": [],
                        "resumed_item": destination, "message_id": message_id}), item_id))
-            self.connection.executemany("INSERT INTO inbox(item_id,body,created_at) VALUES(?,?,?)",
-                                        [(destination, m["body"], self.clock()) for m in messages])
+            # Each copy keeps its author and the time it was received, which date a ruling given in that message.
+            self.connection.executemany("INSERT INTO inbox(item_id,body,author_json,created_at) VALUES(?,?,?,?)",
+                                        [(destination, m["body"], m["author_json"], m["created_at"]) for m in messages])
             self._audit(destination, "resume_request" if work else "repair_request",
                         details={"chat_item": item_id, "message_id": message_id, "summary": summary})
             return self._view(self._row(destination))
@@ -1635,8 +1740,14 @@ class Ledger:
                             evidence=_json(evidence), generation=row["generation"] + int(state == "queued"))
             return self._view(self._row(row["id"]))
 
-    def push_inbox(self, item_id, body, *, resume_waiting=False):
+    def push_inbox(self, item_id, body, *, resume_waiting=False, author=None, received_at=None):
+        """author: the person who wrote the message (a session reply's prompting user, or the creator of the mention
+        session it opened), or None when unknown. received_at: when FarmBot received it, in epoch seconds (the
+        receiver passes its webhook's time, which a pending event keeps across a restart), else now."""
         _text(body, "body")
+        author_json = _person_json(author, "message author")
+        if received_at is not None and (type(received_at) not in (int, float) or not math.isfinite(received_at)):
+            raise LedgerError("received_at must be a finite number of seconds")
         with self._transaction():
             row = self._row(item_id)
             # A receiver may have selected the chat just before resume_work handed it
@@ -1649,7 +1760,8 @@ class Ledger:
                         row = target
             if row["state"] not in ACTIVE_STATES:
                 raise LedgerError("cannot steer a terminal work item")
-            self.connection.execute("INSERT INTO inbox(item_id,body,created_at) VALUES(?,?,?)", (row["id"], body, self.clock()))
+            self.connection.execute("INSERT INTO inbox(item_id,body,author_json,created_at) VALUES(?,?,?,?)",
+                                    (row["id"], body, author_json, self.clock() if received_at is None else received_at))
             self._audit(row["id"], "inbox", "steering message")
             if resume_waiting and row["state"] == "awaiting_input":
                 self._set_state(row["id"], "queued", "human answered in Linear", token=None,
@@ -1668,6 +1780,7 @@ class Ledger:
         """Everything one worker needs about its own item; no token, no other items."""
         row = self._row(item_id)
         issue_row = self._issue_row(row["issue_id"])
+        issue = json.loads(issue_row["metadata"])
         checkpoint = json.loads(row["checkpoint"])
         meta = checkpoint.get("handoff_meta")
         handoff = None
@@ -1679,10 +1792,12 @@ class Ledger:
         view = self._view(row)
         coordination = {key: view[key] for key in ("id", "identifier", "skill", "state", "stage", "generation",
                                                   "root_repo", "next_root_repo", "target")}
-        return {"issue": json.loads(issue_row["metadata"]), "coordination": coordination, "handoff": handoff,
+        authority = self._delegation_session(row["issue_id"], row["session_id"])
+        owner = _owner(issue, self._owner_delegation(row["issue_id"]))
+        return {"issue": issue, "coordination": coordination, "handoff": handoff,
                 "conversation_history": self._conversation_history(row["issue_id"]),
-                "delegation_session": (authority["session_id"] if
-                                       (authority := self._delegation_session(row["issue_id"], row["session_id"])) else None),
+                "delegation_session": authority["session_id"] if authority else None,
+                "owner": owner, "creator": _issue_creator(issue, owner),
                 "resource_recovery": {"attempts": RecoveryStore(self).job_attempts(item_id),
                                       "setup_attempts": RecoveryStore(self).job_attempts(item_id, recovery_kind='setup'),
                                       "records": [dict(r) for r in self.connection.execute(
@@ -1692,8 +1807,8 @@ class Ledger:
                 "recovery": self.recovery_context(item_id),
                 "resumable_work": (self._view(candidate) if row["skill"] == "chat"
                                    and (candidate := self._resumable_work(row["issue_id"], row["session_id"])) else None),
-                "session_messages": [dict(r) for r in self.connection.execute(
-                    "SELECT id,body FROM inbox WHERE item_id=? ORDER BY id", (item_id,))],
+                "session_messages": [_message(r) for r in self.connection.execute(
+                    "SELECT id,body,author_json,created_at FROM inbox WHERE item_id=? ORDER BY id", (item_id,))],
                 "pending_question": checkpoint.get("pending_question"),
                 "published_prs": [r["url"] for r in self.connection.execute(
                     "SELECT url FROM published_prs WHERE issue_id=? ORDER BY url", (row["issue_id"],))],
@@ -1709,8 +1824,9 @@ class Ledger:
                             "state": row["state"], "summary": evidence.get("summary"),
                             "pending_question": checkpoint.get("pending_question"),
                             "handoff": checkpoint.get("handoff"),
-                            "messages": [dict(m) for m in self.connection.execute(
-                                "SELECT id,body FROM inbox WHERE item_id=? ORDER BY id", (row["id"],))]})
+                            "messages": [_message(m) for m in self.connection.execute(
+                                "SELECT id,body,author_json,created_at FROM inbox WHERE item_id=? ORDER BY id",
+                                (row["id"],))]})
         return history
 
     # Memory is shared recall data. These operations never widen work-item authority.

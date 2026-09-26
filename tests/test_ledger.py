@@ -17,6 +17,14 @@ SELECTED_AT = "2026-09-19T00:00:00+00:00"
 # slot cannot be switched to a commit that does not exist.
 PIN = {"repository": "Farm-Client", "requested_ref": "main", "commit_sha": "a" * 40,
        "server_environment": "公共测试服", "selected_at": SELECTED_AT}
+# Fictional people, as the ledger stores them: id, name and profile URL only.
+DESIGNER = {"id": "20000000-0000-4000-8000-000000000001", "name": "Designer One",
+            "url": "https://linear.app/example/profiles/designer-one"}
+OWNER = {"id": "20000000-0000-4000-8000-000000000002", "name": "Owner Two",
+         "url": "https://linear.app/example/profiles/owner-two"}
+LEAD = {"id": "20000000-0000-4000-8000-000000000003", "name": "主策三号",
+        "url": "https://linear.app/example/profiles/lead-three"}
+THREAD = "https://linear.app/example/issue/FARM-1/harvest-duplicates-rewards"
 
 
 def issue(id=ISSUE, **changes):
@@ -31,9 +39,10 @@ def issue(id=ISSUE, **changes):
     return value
 
 
-def comment(body="Repro on Android", kind="human", id="comment-1"):
+def comment(body="Repro on Android", kind="human", id="comment-1", **extra):
+    """`extra` adds optional keys such as author, parent_id and url."""
     return {"id": id, "body": body, "author_kind": kind,
-            "created_at": "2026-09-18T08:00:00Z", "updated_at": "2026-09-18T08:00:00Z"}
+            "created_at": "2026-09-18T08:00:00Z", "updated_at": "2026-09-18T08:00:00Z", **extra}
 
 
 class LedgerBase(unittest.TestCase):
@@ -70,6 +79,24 @@ class SchemaTests(LedgerBase):
         self.assertIn("root_repo", columns)
         self.assertIn("next_root_repo", columns)
 
+    def test_an_older_ledger_opens_and_its_sessions_and_messages_name_nobody(self):
+        """A file written before sessions and inbox entries recorded people: its rows read as unattributed, and its
+        messages keep the time they were received."""
+        item = self.new_item()
+        self.ledger.push_inbox(item["id"], "先看服务端日志")
+        self.ledger.connection.execute("ALTER TABLE sessions DROP COLUMN creator_json")
+        self.ledger.connection.execute("ALTER TABLE inbox DROP COLUMN author_json")
+        self.ledger.close()
+        reopened = self.open_ledger()
+        for table, column in (("sessions", "creator_json"), ("inbox", "author_json")):
+            self.assertIn(column, {row["name"] for row in reopened.connection.execute(f"PRAGMA table_info({table})")})
+        self.assertIsNone(reopened.session(SESSION)["creator"])
+        # LedgerBase's clock reads 1000.0 seconds after the epoch.
+        self.assertEqual(reopened.issue_context(item["id"])["session_messages"],
+                         [{"id": 1, "body": "先看服务端日志", "author": None, "created_at": "1970-01-01T00:16:40+00:00"}])
+        reopened.ensure_session(SESSION, ISSUE, delegation=True, creator=OWNER)
+        self.assertEqual(reopened.session(SESSION)["creator"], OWNER)
+
 
 class SnapshotTests(LedgerBase):
     def test_observe_stores_normalized_issue_and_fingerprint(self):
@@ -88,6 +115,73 @@ class SnapshotTests(LedgerBase):
         self.assertEqual(first, second)
         third = self.ledger.observe_issue(issue(comments=[comment(kind="human")]))["fingerprint"]
         self.assertNotEqual(first, third)
+
+    def test_people_label_groups_and_replies_are_stored_and_reach_issue_context(self):
+        item = self.new_item(labels=["Android", "Bug", "Code"], assignee=OWNER, creator=DESIGNER,
+                             label_groups=[{"group": "平台", "label": "Android"}, {"group": "功能", "label": "Code"},
+                                           {"group": "功能", "label": "Code"}],
+                             comments=[comment(author=DESIGNER, parent_id=None, url=f"{THREAD}#comment-1"),
+                                       comment("收到", id="comment-2", author=OWNER, parent_id="comment-1", url=None),
+                                       comment("已开始处理", kind="bot", id="comment-3", author=None,
+                                               parent_id="comment-1", url=f"{THREAD}#comment-3")])
+        stored = self.ledger.issue(ISSUE)
+        self.assertEqual((stored["assignee"], stored["creator"]), (OWNER, DESIGNER))
+        self.assertEqual(stored["label_groups"], [{"group": "功能", "label": "Code"}, {"group": "平台", "label": "Android"}])
+        self.assertEqual([(c["author"], c["parent_id"], c["url"]) for c in stored["comments"]],
+                         [(DESIGNER, None, f"{THREAD}#comment-1"), (OWNER, "comment-1", None),
+                          (None, "comment-1", f"{THREAD}#comment-3")])
+        self.assertEqual(self.ledger.issue_context(item["id"])["issue"]["assignee"], OWNER)
+
+    def test_a_snapshot_without_the_new_keys_reads_as_unknown(self):
+        # The shape a29d078 stores and older fetchers still send: a missing key is unknown, never an error.
+        self.ledger.observe_issue(issue(comments=[comment()]))
+        stored = self.ledger.issue(ISSUE)
+        self.assertFalse({"label_groups", "assignee", "creator"} & stored.keys())
+        self.assertFalse({"author", "parent_id", "url"} & stored["comments"][0].keys())
+
+    def test_a_known_nobody_is_stored_as_null_not_dropped(self):
+        # null means "none", a missing key means "not read yet" (references/worker-cli.md): keep them apart.
+        self.ledger.observe_issue(issue(assignee=None, creator=None, label_groups=[],
+                                        comments=[comment(author=None, parent_id=None, url=None),
+                                                  comment(kind="unknown", id="comment-2", author=None)]))
+        stored = self.ledger.issue(ISSUE)
+        self.assertEqual((stored["assignee"], stored["creator"], stored["label_groups"]), (None, None, []))
+        self.assertEqual([{key: c[key] for key in ("author", "parent_id", "url") if key in c} for c in stored["comments"]],
+                         [{"author": None, "parent_id": None, "url": None}, {"author": None}])
+
+    def test_malformed_people_label_groups_and_replies_are_refused(self):
+        bad = {"a person with an email": {"assignee": {**OWNER, "email": "owner.two@example.com"}},
+               "a person without a url": {"creator": {"id": OWNER["id"], "name": "Owner Two"}},
+               "a url outside Linear": {"assignee": {**OWNER, "url": "https://example.com/profiles/owner-two"}},
+               "a url without https": {"assignee": {**OWNER, "url": "http://linear.app/example/profiles/owner-two"}},
+               "an id that is not a UUID": {"creator": {**OWNER, "id": "owner-two"}},
+               "a blank name": {"creator": {**OWNER, "name": " "}},
+               "a person as text": {"assignee": "Owner Two"},
+               "label groups that are not an array": {"label_groups": {"group": "功能", "label": "Bug"}},
+               "a label group with another key": {"label_groups": [{"group": "功能", "label": "Bug", "id": "x"}]},
+               "a blank group": {"label_groups": [{"group": "", "label": "Bug"}]},
+               "a grouped label the issue lacks": {"label_groups": [{"group": "功能", "label": "Code"}]},
+               "a comment author with an email": {"comments": [comment(author={**DESIGNER, "email": "d@example.com"})]},
+               "an author on a bot comment": {"comments": [comment(kind="bot", author=DESIGNER)]},
+               "an author on an unknown comment": {"comments": [comment(kind="unknown", author=DESIGNER)]},
+               "a blank parent id": {"comments": [comment(parent_id="")]},
+               "a parent id that is not text": {"comments": [comment(parent_id=7)]},
+               "a comment url outside Linear": {"comments": [comment(url="https://example.com/FARM-1#comment-1")]},
+               "a comment url that is not text": {"comments": [comment(url=7)]}}
+        for label, changes in bad.items():
+            with self.subTest(label), self.assertRaises(LedgerError):
+                self.ledger.observe_issue(issue(**changes))
+
+    def test_people_label_groups_replies_and_comment_urls_are_not_material(self):
+        plain = issue(labels=["Bug", "Code"], comments=[comment(), comment("收到", id="comment-2")])
+        first = self.ledger.observe_issue(plain)["fingerprint"]
+        rich = issue(labels=["Bug", "Code"], assignee=OWNER, creator=DESIGNER,
+                     label_groups=[{"group": "功能", "label": "Code"}],
+                     comments=[comment(author=DESIGNER, parent_id=None, url=f"{THREAD}#comment-1"),
+                               comment("收到", id="comment-2", author=OWNER, parent_id="comment-1", url=None)])
+        self.assertEqual(self.ledger.observe_issue(rich)["fingerprint"], first)
+        reassigned = {**rich, "assignee": DESIGNER, "creator": None, "label_groups": []}
+        self.assertEqual(self.ledger.observe_issue(reassigned)["fingerprint"], first)
 
 
 class WorkItemTests(LedgerBase):
@@ -352,6 +446,158 @@ class LeaseTests(LedgerBase):
         self.assertNotEqual(view["id"], item["id"])
         with self.assertRaises(LedgerError):
             self.ledger.retry(item["id"], "already queued")
+
+
+class SessionPeopleTests(LedgerBase):
+    """Who opened a session, and who wrote each message and when (spec §5.3, §9.2), in Task 2's person shape."""
+
+    def test_a_session_keeps_its_first_creator_and_a_later_event_only_fills_a_missing_one(self):
+        self.ledger.observe_issue(issue())
+        self.ledger.ensure_session(SESSION, ISSUE, delegation=True)
+        self.assertIsNone(self.ledger.session(SESSION)["creator"])
+        self.ledger.ensure_session(SESSION, ISSUE, delegation=True, creator=OWNER)
+        self.assertEqual(self.ledger.session(SESSION)["creator"], OWNER)
+        self.ledger.ensure_session(SESSION, ISSUE, delegation=True, creator=DESIGNER)
+        self.assertEqual(self.ledger.session(SESSION)["creator"], OWNER)
+
+    def test_each_message_carries_its_author_and_time_and_pop_inbox_still_returns_bodies(self):
+        item = self.new_item()
+        self.now = 1790307000.0  # 2026-09-25T03:30:00Z
+        self.ledger.push_inbox(item["id"], "先看服务端日志", author=DESIGNER)
+        self.now += 90
+        self.ledger.push_inbox(item["id"], "（无正文）")
+        expected = [{"id": 1, "body": "先看服务端日志", "author": DESIGNER, "created_at": "2026-09-25T03:30:00+00:00"},
+                    {"id": 2, "body": "（无正文）", "author": None, "created_at": "2026-09-25T03:31:30+00:00"}]
+        context = self.ledger.issue_context(item["id"])
+        self.assertEqual(context["session_messages"], expected)
+        self.assertEqual(context["conversation_history"][0]["messages"], expected)
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        self.assertEqual(self.ledger.pop_inbox(item["id"], token), ["先看服务端日志", "（无正文）"])
+
+    def test_a_message_keeps_the_time_farmbot_received_it_when_given(self):
+        item = self.new_item()  # the clock reads 1000.0, long after the webhook arrived
+        self.ledger.push_inbox(item["id"], "先看服务端日志", received_at=1790380500.0)  # 2026-09-25T23:55:00Z
+        self.assertEqual(self.ledger.issue_context(item["id"])["session_messages"][0]["created_at"],
+                         "2026-09-25T23:55:00+00:00")
+        for bad in ("1790380500", float("nan"), float("inf"), True):
+            with self.subTest(bad=bad), self.assertRaises(LedgerError):
+                self.ledger.push_inbox(item["id"], "x", received_at=bad)
+        self.assertEqual(len(self.ledger.issue_context(item["id"])["session_messages"]), 1)
+
+    def test_anything_but_exactly_a_person_is_refused_and_never_stored(self):
+        item = self.new_item()
+        for bad in ("Designer One", {"id": DESIGNER["id"], "name": "Designer One"},
+                    {**DESIGNER, "url": "https://example.com/designer-one"},
+                    {**DESIGNER, "email": "designer.one@example.com"}):
+            with self.subTest(bad=bad):
+                with self.assertRaises(LedgerError):
+                    self.ledger.push_inbox(item["id"], "x", author=bad)
+                with self.assertRaises(LedgerError):
+                    self.ledger.ensure_session("session-9", ISSUE, delegation=False, creator=bad)
+        self.assertEqual(self.ledger.issue_context(item["id"])["session_messages"], [])
+        self.assertIsNone(self.ledger.session("session-9"))
+        self.assertNotIn("designer.one@example.com", "\n".join(self.ledger.connection.iterdump()))
+
+    def test_a_chat_handed_to_repair_keeps_who_wrote_each_message_and_when(self):
+        app_user = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
+        self.ledger.observe_issue(issue(delegate_id=app_user))
+        self.ledger.ensure_session(SESSION, ISSUE, delegation=True, creator=OWNER)
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="chat")
+        self.now = 1790307000.0  # 2026-09-25T03:30:00Z
+        self.ledger.push_inbox(chat["id"], "请修复，保留现有排序", author=DESIGNER)
+        self.now += 1800  # the repair starts half an hour later; the copied message keeps its own time
+        token = self.ledger.claim(chat["id"], worker_id="investigator")["token"]
+        message_id = self.ledger.issue_context(chat["id"])["session_messages"][-1]["id"]
+        fix = self.ledger.request_repair(chat["id"], token, message_id, app_user, "Sorting view confirmed.")
+        self.assertEqual([(m["body"], m["author"], m["created_at"])
+                          for m in self.ledger.issue_context(fix["id"])["session_messages"]],
+                         [("请修复，保留现有排序", DESIGNER, "2026-09-25T03:30:00+00:00")])
+
+
+class OwnerTests(LedgerBase):
+    """issue-context's owner and creator (spec §5.3, D5, D17), from Task 2's issue metadata and Task 3's sessions."""
+
+    def context_for(self, issue_id=ISSUE, session=SESSION, *, delegator=None, **changes):
+        """issue-context of a fix item on an issue with these fields, delegated in a session `delegator` opened."""
+        self.ledger.observe_issue(issue(id=issue_id, **changes))
+        self.ledger.ensure_session(session, issue_id, delegation=True, creator=delegator)
+        item = self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill="fix", target=PIN)
+        return self.ledger.issue_context(item["id"])
+
+    def test_the_assignee_owns_the_issue_and_its_creator_is_named_beside_them(self):
+        context = self.context_for(assignee=OWNER, creator=DESIGNER, delegator=LEAD)
+        self.assertEqual(context["owner"], {"person": OWNER, "source": "assignee"})
+        self.assertEqual(context["creator"], DESIGNER)
+
+    def test_an_unassigned_issue_is_owned_by_whoever_delegated_it(self):
+        context = self.context_for(assignee=None, creator=DESIGNER, delegator=LEAD)
+        self.assertEqual(context["owner"], {"person": LEAD, "source": "delegator"})
+        self.assertEqual(context["creator"], DESIGNER)
+
+    def test_without_an_assignee_or_a_recorded_delegator_nobody_owns_the_issue(self):
+        # An operator enqueue, or a session whose creator Linear did not report: FarmBot asks without a mention.
+        context = self.context_for(assignee=None, creator=DESIGNER)
+        self.assertIsNone(context["owner"])
+        self.assertEqual(context["creator"], DESIGNER)
+
+    def test_the_creator_is_left_out_when_it_is_the_owner_or_unknown(self):
+        third = "10000000-0000-4000-8000-000000000003"
+        cases = {"the assignee": self.context_for(assignee=OWNER, creator=OWNER),
+                 "the delegator": self.context_for(OTHER, "session-2", identifier="FARM-2", assignee=None,
+                                                   creator=LEAD, delegator=LEAD),
+                 "unknown": self.context_for(third, "session-3", identifier="FARM-3", assignee=OWNER,
+                                             creator=None)}
+        for case, context in cases.items():
+            with self.subTest(case):
+                self.assertIsNotNone(context["owner"])
+                self.assertIsNone(context["creator"])
+
+    def test_an_issue_and_session_recorded_before_people_were_kept_name_nobody(self):
+        self.ledger.observe_issue(issue())
+        metadata = self.ledger.issue(ISSUE)
+        for key in ("assignee", "creator"):
+            metadata.pop(key, None)
+        self.ledger.connection.execute("UPDATE issues SET metadata=? WHERE id=?", (json.dumps(metadata), ISSUE))
+        self.ledger.ensure_session(SESSION, ISSUE, delegation=True)
+        item = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix", target=PIN)
+        context = self.ledger.issue_context(item["id"])
+        self.assertEqual((context["owner"], context["creator"]), (None, None))
+
+    def test_a_mention_does_not_make_its_author_the_owner(self):
+        self.ledger.observe_issue(issue(assignee=None, creator=DESIGNER))
+        self.ledger.ensure_session("mention", ISSUE, delegation=False, creator=OWNER)
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id="mention", skill="chat")
+        self.assertIsNone(self.ledger.issue_context(chat["id"])["owner"])
+        self.ledger.ensure_session(SESSION, ISSUE, delegation=True, creator=LEAD)
+        context = self.ledger.issue_context(chat["id"])
+        self.assertEqual(context["owner"], {"person": LEAD, "source": "delegator"})
+        self.assertEqual(context["delegation_session"], SESSION)
+
+    def test_a_redelegation_hands_the_issue_to_whoever_delegated_it_last(self):
+        """spec §4.2: whoever takes an unassigned card over delegates it again; an item started earlier follows."""
+        item_id = self.context_for(assignee=None, creator=DESIGNER, delegator=LEAD)["coordination"]["id"]
+        self.now += 60
+        self.ledger.ensure_session("session-2", ISSUE, delegation=True, creator=OWNER)
+        context = self.ledger.issue_context(item_id)
+        self.assertEqual(context["owner"], {"person": OWNER, "source": "delegator"})
+        self.assertEqual(context["delegation_session"], SESSION)  # the item's own authority is unchanged
+        self.assertEqual(context["creator"], DESIGNER)
+        self.now += 60
+        self.ledger.ensure_session("session-3", ISSUE, delegation=True)  # the latest delegator is unknown
+        self.assertIsNone(self.ledger.issue_context(item_id)["owner"])
+
+    def test_an_operator_enqueue_hands_the_issue_to_nobody_and_takes_it_from_nobody(self):
+        """`service enqueue` records a `local-` delegation session in the ledger, not in Linear, even when the
+        enqueue is then refused because an item is active. Nobody delegated anything, so the latest human
+        delegator keeps the issue, and an issue only ever enqueued has no owner (spec §5.3)."""
+        item_id = self.context_for(assignee=None, creator=DESIGNER, delegator=LEAD)["coordination"]["id"]
+        self.now += 60
+        self.ledger.ensure_session(f"local-{ISSUE}", ISSUE, delegation=True)
+        context = self.ledger.issue_context(item_id)
+        self.assertEqual(context["owner"], {"person": LEAD, "source": "delegator"})
+        self.assertEqual(context["delegation_session"], SESSION)
+        self.assertIsNone(self.context_for(OTHER, f"local-{OTHER}", identifier="FARM-2", assignee=None,
+                                           creator=DESIGNER)["owner"])
 
 
 class OutboxTests(LedgerBase):
