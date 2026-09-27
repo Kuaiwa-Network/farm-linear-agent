@@ -11,7 +11,7 @@ python3 -m agent --db DATABASE checkpoint --help
 | --- | --- |
 | `claim` | `--item ITEM_ID --worker-id WORKER_ID`; returns the claim token |
 | `fetch-issue`, `issue-context` | `--item ITEM_ID` only; no token flags |
-| `renew`, `checkpoint`, `pop-inbox`, `download-uploads`, `verify-publication`, `handoff-repository`, `prepare-comment`, `post-comment`, `confirm-comment`, `prepare-notice`, `post-notice`, `activity`, `await-input`, `await-resource`, `finish` | `--item ITEM_ID --token-file STATE_DIR/token`, plus command-specific arguments from `--help` |
+| `renew`, `checkpoint`, `pop-inbox`, `download-uploads`, `verify-publication`, `handoff-repository`, `revalidate`, `prepare-comment`, `post-comment`, `confirm-comment`, `prepare-notice`, `post-notice`, `activity`, `await-input`, `await-resource`, `finish` | `--item ITEM_ID --token-file STATE_DIR/token`, plus command-specific arguments from `--help` |
 | `request-repair` | Read-only profile only: claim-token arguments, `--message-id LATEST_MESSAGE_ID --summary-file STATE_DIR/repair-summary.md` |
 | `resume-work` | Legacy resume-only command: claim-token arguments and `--message-id LATEST_MESSAGE_ID`; cannot start a first repair |
 | `memory-list`, `memory-read`, `memory-save`, `memory-forget` | Same claim-token arguments; see `references/memory.md` |
@@ -169,3 +169,20 @@ python3 -m agent --db DATABASE post-notice --item ITEM_ID --token-file STATE_DIR
 notice, and a different body under that id is refused. `post-notice` reconciles the marker against live
 comments before creating one, so rerunning it after an interruption never posts twice.
 `issue-context.notices` lists your item's notices; `remote_id` is set once a notice is on the issue.
+
+## Issue changes during an attempt
+
+`fetch-issue` prints the stored issue's `fingerprint`. When a human changes the issue while you work (a
+comment, an edited description), `handoff-repository` refuses with `issue changed; revalidate`, a
+checkpoint that registers a PR Linear already attached is refused, and `finish` would requeue the item
+for a fresh worker. To go on in this attempt, read the change in `issue-context`, act on it, then run
+`revalidate` with the fingerprint `fetch-issue` just printed:
+
+```bash
+python3 -m agent --db DATABASE revalidate --item ITEM_ID --token-file STATE_DIR/token --fingerprint FINGERPRINT
+```
+
+A newer observation refuses it: fetch and read again. After it, save a fresh `handoff` before
+`handoff-repository` and retry the refused PR registration. Revalidate before you prepare your final
+blocker or delivery comment, never after posting it. A change after `revalidate` still refuses the
+handoff and requeues `finish`, and the fresh worker reads it.

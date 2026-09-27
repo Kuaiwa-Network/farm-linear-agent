@@ -245,6 +245,16 @@ Claude fallback has no equivalent repository write boundary and is refused for t
 A Contract-root worker follows Farm-Contract's OpenSpec instructions and
 its Superpowers restriction. Consumer workers use their own repository rules.
 
+A human change to the issue during an attempt (title, description, attachments or a human comment)
+refuses that attempt's repository handoff and the registration of a PR Linear has already attached,
+and makes `finish` requeue the item for a fresh worker. A worker that has read the change can call
+`revalidate` with the fingerprint `fetch-issue` printed: the ledger accepts only the fingerprint it
+currently stores, moves the claim onto it and records both fingerprints in `audit`. The handoff saved
+before must be saved again, and a later change still refuses the handoff and requeues `finish`. A PR
+that Linear attached before the claim or its last re-read is issue input: only a claim that revalidated
+since may register it as this job's output, and only if nothing else changed. The additive
+`work_items.revalidated_fingerprint` column records a revalidated claim; older code ignores it.
+
 A fix worker may update Farm-Contract in its Contract-root attempt for a confirmed bug
 requirement, before the affected implementation. Uncertain behaviour or missing
 information is a question in Linear via `await-input`, which adds `needs-more-info`, emits the

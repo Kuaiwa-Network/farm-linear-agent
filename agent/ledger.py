@@ -71,6 +71,7 @@ def _timestamp(value, name):
 
 
 COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
+FINGERPRINT = re.compile(r"[0-9a-f]{64}")
 TARGET_KEYS = ("repository", "requested_ref", "commit_sha", "server_environment", "selected_at")
 
 
@@ -472,6 +473,7 @@ class Ledger:
                                                 ("work_items", "retry_not_before", "REAL NOT NULL DEFAULT 0"),
                                                 ("work_items", "root_repo", "TEXT"),
                                                 ("work_items", "next_root_repo", "TEXT"),
+                                                ("work_items", "revalidated_fingerprint", "TEXT"),
                                                 ("job_cleanup", "removing", "INTEGER NOT NULL DEFAULT 0"),
                                                 # People, as the shared person shape in JSON; NULL means unknown.
                                                 ("sessions", "creator_json", "TEXT"),
@@ -801,8 +803,8 @@ class Ledger:
             checkpoint["worker_id"] = worker_id
             self._set_state(item_id, "running", "claim", token=_hash_token(token),
                             lease_expires_at=self.clock() + (row["lease_seconds"] or self.lease_seconds),
-                            claimed_fingerprint=issue_row["fingerprint"], generation=generation, requeue_requested=0,
-                            resume_authorized=0, checkpoint=_json(checkpoint))
+                            claimed_fingerprint=issue_row["fingerprint"], revalidated_fingerprint=None,
+                            generation=generation, requeue_requested=0, resume_authorized=0, checkpoint=_json(checkpoint))
             result = self._view(self._row(item_id))
             result["token"] = token  # the only time the raw token exists outside the worker
             return result
@@ -941,15 +943,6 @@ class Ledger:
                 if "worker_id" in progress and progress["worker_id"] != previous["worker_id"]:
                     raise LedgerError("checkpoint cannot change the running worker identity")
                 progress["worker_id"] = previous["worker_id"]
-            progress.pop("handoff_meta", None)
-            if "handoff" in progress:
-                progress["handoff_meta"] = {"fingerprint": row["claimed_fingerprint"],
-                                            "generation": row["generation"], "worker_id": progress.get("worker_id"),
-                                            "claim_token_hash": row["token"],
-                                            "recorded_at": self.clock()}
-            elif "handoff" in previous:
-                progress["handoff"] = previous["handoff"]
-                progress["handoff_meta"] = previous.get("handoff_meta")
             known = {r["url"] for r in self.connection.execute("SELECT url FROM published_prs WHERE issue_id=?", (row["issue_id"],))}
             issue = json.loads(self._issue_row(row["issue_id"])["metadata"])
             existing_input = set(issue["attachments"])
@@ -957,23 +950,74 @@ class Ledger:
             late_prs = new_prs & existing_input
             own_bodies = self._own_bodies(row["issue_id"])
             fingerprint = _fingerprint(issue, own_bodies, known | new_prs)
+            claimed = row["claimed_fingerprint"]
             # A PR can reach Linear before its checkpoint (including during the next
             # verify-publication call). Only verified job output which exactly restores
             # the claimed input can repair that echo. Real human changes still requeue.
-            if late_prs and (not late_prs <= set(verified_prs) or fingerprint != row["claimed_fingerprint"]):
+            if late_prs and not late_prs <= set(verified_prs):
                 raise LedgerError("published PR was already issue input; reconcile it instead of registering it as new output")
+            if late_prs and fingerprint != claimed:
+                # A claim this worker revalidated may already count the echo as input: it re-read the issue with the
+                # PR attached. If nothing else changed since, registering the PR moves the claim with the input.
+                if (row["revalidated_fingerprint"] != claimed
+                        or _fingerprint(issue, own_bodies, known | (new_prs - late_prs)) != claimed):
+                    raise LedgerError("published PR was already issue input; read the issue and revalidate before registering it")
+                claimed = fingerprint
+            progress.pop("handoff_meta", None)
+            if "handoff" in progress:
+                progress["handoff_meta"] = {"fingerprint": claimed,
+                                            "generation": row["generation"], "worker_id": progress.get("worker_id"),
+                                            "claim_token_hash": row["token"],
+                                            "recorded_at": self.clock()}
+            elif "handoff" in previous:
+                progress["handoff"] = previous["handoff"]
+                progress["handoff_meta"] = previous.get("handoff_meta")
             for url in sorted(set(published) - known):
                 self.connection.execute("INSERT INTO published_prs(issue_id,url,generation,created_at) VALUES(?,?,?,?)",
                                         (row["issue_id"], url, row["generation"], self.clock()))
                 self._audit(row["id"], "published_pr", details={"url": url})
             if late_prs:
                 self.connection.execute("UPDATE issues SET fingerprint=? WHERE id=?", (fingerprint, row["issue_id"]))
+            if claimed != row["claimed_fingerprint"]:
+                self.connection.execute("UPDATE work_items SET claimed_fingerprint=?,revalidated_fingerprint=? WHERE id=?",
+                                        (claimed, claimed, row["id"]))
+                self._audit(row["id"], "revalidate", "registered a pull request Linear had attached",
+                            {"from": row["claimed_fingerprint"], "to": claimed})
             self.connection.execute("UPDATE work_items SET checkpoint=?,stage=COALESCE(?,stage),updated_at=? WHERE id=?",
                                     (_json(progress), stage, self.clock(), row["id"]))
             self._audit(row["id"], "checkpoint", stage or "")
             if handoff_updated:
                 self._audit(row["id"], "handoff_saved")
             return self._view(self._row(row["id"]))
+
+    def revalidate(self, item_id, token, fingerprint):
+        """Move a live claim onto the issue input its worker has just read (spec §9.9, §11).
+
+        `fetch-issue` stores a snapshot and prints its fingerprint; the worker reads that snapshot through
+        `issue-context` and passes the fingerprint back. Only the stored fingerprint is accepted, so an
+        observation in between sends the worker back to read again, and a change after this one still
+        refuses the next handoff and requeues `finish`. A handoff saved before the re-read stays stale.
+
+        `requeue_requested` refuses rather than being cleared. No code path sets it: the input change is
+        carried by the stored fingerprint alone. Its readers (claim, finish, handoff, issue_context) treat
+        it as a restart request of its own, which a re-read must not cancel.
+        """
+        if not isinstance(fingerprint, str) or not FINGERPRINT.fullmatch(fingerprint):
+            raise LedgerError("fingerprint must be the 64-character value fetch-issue printed")
+        with self._transaction():
+            row = self._owned(item_id, token)
+            issue_row = self._issue_row(row["issue_id"])
+            if not _in_scope(json.loads(issue_row["metadata"])):
+                raise LedgerError("issue left scope; cancel instead of revalidating")
+            if row["requeue_requested"]:
+                raise LedgerError("a requeue is already requested for this item; revalidate cannot cancel it")
+            if fingerprint != issue_row["fingerprint"]:
+                raise LedgerError("issue changed since that read; run fetch-issue, read the new input and revalidate again")
+            self.connection.execute("UPDATE work_items SET claimed_fingerprint=?,revalidated_fingerprint=?,updated_at=? "
+                                    "WHERE id=?", (fingerprint, fingerprint, self.clock(), row["id"]))
+            self._audit(row["id"], "revalidate", "", {"from": row["claimed_fingerprint"], "to": fingerprint})
+            return {**self._view(self._row(row["id"])), "claimed_fingerprint": fingerprint,
+                    "previous_fingerprint": row["claimed_fingerprint"]}
 
     def handoff_repository(self, item_id, token, to_repo):
         """Retire a claim while retaining its PID; only the controller may finish the handoff."""

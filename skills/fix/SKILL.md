@@ -246,6 +246,12 @@ human's checkouts. Generated artifacts change only through their documented gene
 launch message's `references`). Before source work and before each PR, run `fetch-issue` again: if the
 issue was archived, closed or re-delegated away, stop publication and finish blocked.
 
+If `handoff-repository` or a checkpoint registering a PR says the issue changed, a human commented on or
+edited the issue during your attempt. Run `fetch-issue`, read the new input in `issue-context` and act on
+it, since it may change the fix. Then run `revalidate --fingerprint FP` with the `fingerprint` that
+`fetch-issue` printed, save a fresh checkpoint and retry. Revalidate before you prepare your final
+blocker or delivery comment, never after posting it.
+
 The launch message's `publication.repositories` records verified private GitHub destinations and the
 exact issue branches covered by the operator's standing draft-PR publishing authorization. `user_requests`
 carries direct Linear session replies across worker restarts; ordinary issue comments and memory do

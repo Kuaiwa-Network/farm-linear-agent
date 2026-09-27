@@ -50,6 +50,7 @@ def parser():
     cmd("renew", "--item", token=True)
     cmd("checkpoint", "--item", "--input", token=True)
     cmd("handoff-repository", "--item", "--to", token=True)
+    cmd("revalidate", "--item", "--fingerprint", token=True)
     cmd("issue-context", "--item")
     cmd("pop-inbox", "--item", token=True)
     cmd("verify-publication", "--item", "--repo", token=True)
@@ -325,6 +326,8 @@ def run(args, ledger, api_factory):
             raise LedgerError("issue must remain open and delegated to FarmBot")
         ledger.renew(args.item, token)
         return ledger.handoff_repository(args.item, token, args.to)
+    if c == "revalidate":
+        return ledger.revalidate(args.item, resolve_token(args), args.fingerprint)
     if c == "issue-context":
         return ledger.issue_context(args.item)
     if c == "pop-inbox":

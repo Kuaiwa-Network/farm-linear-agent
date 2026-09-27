@@ -70,6 +70,33 @@ class CliTests(unittest.TestCase):
         with self.assertRaises(Exception):
             ledger.renew(args.item, args.token)
 
+    def test_a_handoff_refused_by_a_human_comment_proceeds_after_revalidate(self):
+        from unittest.mock import patch
+        from agent.__main__ import parser, run
+        from agent.ledger import LedgerError
+        args, ledger, config, api, _ = self.publication_fixture()
+        config.repos['Farm-Contract'] = 'https://github.com/Kuaiwa-Network/Farm-Contract.git'
+        ledger.set_worker(args.item, 12345, 'test')
+        handoff = {'facts': [], 'hypotheses': [], 'checks': [], 'repositories': [], 'next_actions': ['Check contract']}
+        ledger.checkpoint(args.item, args.token, {'handoff': handoff})
+        api.fetch_issue(None)['comments'] = [{'id': 'c-human', 'body': '初始值为零', 'author_kind': 'human',
+                                              'created_at': '2026-09-18T00:00:00Z', 'updated_at': '2026-09-18T00:00:00Z'}]
+
+        def cli(*argv):
+            return run(parser().parse_args(['--db', str(self.db), *argv]), ledger, lambda: api)
+        move = ('handoff-repository', '--item', args.item, '--token', args.token, '--to', 'Farm-Contract')
+        with patch('agent.__main__.load_config', return_value=config):
+            with self.assertRaisesRegex(LedgerError, 'issue changed; revalidate'):
+                cli(*move)
+            fetched = cli('fetch-issue', '--item', args.item)
+            self.assertEqual([c['body'] for c in cli('issue-context', '--item', args.item)['issue']['comments']],
+                             ['初始值为零'])
+            revalidated = cli('revalidate', '--item', args.item, '--token', args.token,
+                              '--fingerprint', fetched['fingerprint'])
+            self.assertEqual(revalidated['claimed_fingerprint'], fetched['fingerprint'])
+            ledger.checkpoint(args.item, args.token, {'handoff': handoff})
+            self.assertEqual(cli(*move)['next_root_repo'], 'Farm-Contract')
+
     def test_neutral_fix_cannot_verify_publication(self):
         from unittest.mock import patch
         from agent.__main__ import run

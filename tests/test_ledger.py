@@ -790,6 +790,112 @@ class PauseTests(LedgerBase):
         self.assertEqual(self.ledger.await_input(item_id, token, "需要哪个环境？")["state"], "awaiting_input")
 
 
+class RevalidateTests(LedgerBase):
+    URL = "https://github.com/Kuaiwa-Network/Farm-Contract/pull/12"
+    HANDOFF = {"facts": [], "hypotheses": [], "checks": [], "repositories": [], "next_actions": ["Implement the client"]}
+
+    def running(self, **issue_changes):
+        item = self.new_item(**issue_changes)
+        self.ledger.set_worker(item["id"], 4321, "test")
+        return item["id"], self.ledger.claim(item["id"], worker_id="w")["token"]
+
+    def test_revalidate_accepts_only_the_current_fingerprint_and_audits_both(self):
+        item_id, token = self.running()
+        claimed = self.ledger.observe_issue(issue())["fingerprint"]
+        current = self.ledger.observe_issue(issue(comments=[comment("初始值为零")]))["fingerprint"]
+        with self.assertRaisesRegex(LedgerError, "issue changed since that read"):
+            self.ledger.revalidate(item_id, token, claimed)
+        for malformed in ("A" * 64, "0" * 63, "", None):
+            with self.subTest(fingerprint=malformed), self.assertRaisesRegex(LedgerError, "64-character"):
+                self.ledger.revalidate(item_id, token, malformed)
+        with self.assertRaisesRegex(LedgerError, "running claim"):
+            self.ledger.revalidate(item_id, "claim_wrong", current)
+        view = self.ledger.revalidate(item_id, token, current)
+        self.assertEqual((view["previous_fingerprint"], view["claimed_fingerprint"]), (claimed, current))
+        rows = self.ledger.connection.execute("SELECT details FROM audit WHERE item_id=? AND kind='revalidate'",
+                                              (item_id,)).fetchall()
+        self.assertEqual([json.loads(row["details"]) for row in rows], [{"from": claimed, "to": current}])
+        self.ledger.observe_issue(issue(comments=[comment("初始值为零")], status_type="completed"))
+        with self.assertRaisesRegex(LedgerError, "left scope"):
+            self.ledger.revalidate(item_id, token, current)
+
+    def test_a_human_comment_refuses_the_handoff_until_revalidate_and_a_fresh_checkpoint(self):
+        item_id, token = self.running()
+        self.ledger.checkpoint(item_id, token, {"handoff": self.HANDOFF})
+        current = self.ledger.observe_issue(issue(comments=[comment("初始值为零")]))["fingerprint"]
+        with self.assertRaisesRegex(LedgerError, "issue changed; revalidate"):
+            self.ledger.handoff_repository(item_id, token, "Farm-Contract")
+        self.ledger.revalidate(item_id, token, current)
+        # The saved handoff predates the re-read, so it stays stale until it is saved again.
+        self.assertTrue(self.ledger.issue_context(item_id)["handoff"]["stale"])
+        with self.assertRaisesRegex(LedgerError, "save a current worker checkpoint"):
+            self.ledger.handoff_repository(item_id, token, "Farm-Contract")
+        self.ledger.checkpoint(item_id, token, {"handoff": self.HANDOFF})
+        self.assertEqual(self.ledger.handoff_repository(item_id, token, "Farm-Contract")["next_root_repo"],
+                         "Farm-Contract")
+
+    def test_a_late_pr_registration_after_a_human_comment_proceeds_after_revalidate(self):
+        item_id, token = self.running()
+        # Linear attached the worker's PR, and a human commented, before the worker registered the PR.
+        current = self.ledger.observe_issue(issue(attachments=[self.URL], comments=[comment("初始值为零")]))["fingerprint"]
+        with self.assertRaisesRegex(LedgerError, "revalidate before registering"):
+            self.ledger.checkpoint(item_id, token, {"published_prs": [self.URL]}, verified_prs=[self.URL])
+        self.ledger.revalidate(item_id, token, current)
+        with self.assertRaisesRegex(LedgerError, "already issue input"):  # still only verified job output
+            self.ledger.checkpoint(item_id, token, {"published_prs": [self.URL]})
+        self.ledger.checkpoint(item_id, token, {"published_prs": [self.URL], "handoff": self.HANDOFF},
+                               verified_prs=[self.URL])
+        self.assertEqual(self.ledger.issue_context(item_id)["published_prs"], [self.URL])
+        # Registering the echo moved the claim with the stored input, so the handoff saved with it is current.
+        self.assertEqual(self.ledger.handoff_repository(item_id, token, "Farm-Contract")["next_root_repo"],
+                         "Farm-Contract")
+
+    def test_a_pr_attached_before_the_claim_is_registered_only_after_this_claim_revalidates(self):
+        item_id, token = self.running(attachments=[self.URL])
+        refused = {"published_prs": [self.URL]}
+        with self.assertRaisesRegex(LedgerError, "revalidate before registering"):
+            self.ledger.checkpoint(item_id, token, refused, verified_prs=[self.URL])
+        current = self.ledger.observe_issue(issue(attachments=[self.URL]))["fingerprint"]
+        self.ledger.revalidate(item_id, token, current)
+        self.now += 61
+        self.ledger.recover(item_id, "worker exited")
+        token = self.ledger.claim(item_id, worker_id="w2")["token"]  # a new claim starts a new baseline
+        with self.assertRaisesRegex(LedgerError, "revalidate before registering"):
+            self.ledger.checkpoint(item_id, token, refused, verified_prs=[self.URL])
+        self.ledger.revalidate(item_id, token, current)
+        self.ledger.checkpoint(item_id, token, refused, verified_prs=[self.URL])
+        self.assertEqual(self.ledger.issue_context(item_id)["published_prs"], [self.URL])
+
+    def revalidated_blocker(self):
+        item_id, token = self.running()
+        current = self.ledger.observe_issue(issue(comments=[comment("初始值为零")]))["fingerprint"]
+        self.ledger.revalidate(item_id, token, current)
+        blocker = self.ledger.prepare_comment(item_id, token, "blocker", "需要策划确认。")
+        self.ledger.confirm_comment(blocker["action_id"], "remote-1")
+        return item_id, token, {"summary": "需要确认", "comment_action_id": blocker["action_id"]}
+
+    def test_finish_after_revalidate_settles_on_the_input_the_worker_read(self):
+        item_id, token, outcome = self.revalidated_blocker()
+        self.assertEqual(self.ledger.finish(item_id, token, "blocked", outcome)["state"], "blocked")
+
+    def test_a_comment_after_revalidate_still_requeues_finish(self):
+        """Spec §11: the fresh worker re-reads the later comment and finishes."""
+        item_id, token, outcome = self.revalidated_blocker()
+        self.ledger.observe_issue(issue(comments=[comment("初始值为零"), comment("改成一", id="comment-2")]))
+        view = self.ledger.finish(item_id, token, "blocked", outcome)
+        self.assertEqual((view["state"], view["generation"]), ("queued", 1))
+
+    def test_revalidate_refuses_rather_than_clearing_a_requested_requeue(self):
+        """No code path sets requeue_requested; its readers treat it as a restart request a re-read must not cancel."""
+        item_id, token = self.running()
+        self.ledger.connection.execute("UPDATE work_items SET requeue_requested=1 WHERE id=?", (item_id,))
+        current = self.ledger.observe_issue(issue())["fingerprint"]
+        with self.assertRaisesRegex(LedgerError, "requeue is already requested"):
+            self.ledger.revalidate(item_id, token, current)
+        self.assertEqual(self.ledger.connection.execute("SELECT requeue_requested FROM work_items WHERE id=?",
+                                                        (item_id,)).fetchone()[0], 1)
+
+
 class NoticeTests(LedgerBase):
     def running(self):
         item = self.new_item()
