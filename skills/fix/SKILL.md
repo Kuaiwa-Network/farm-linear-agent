@@ -282,6 +282,10 @@ access), preserve local work and explain the specific gap through `await-input` 
 `needs-more-info`). If automatic approval rejects the action, keep the rejection in the report;
 gather the missing evidence or request concrete approval. Never switch execution paths to bypass it.
 
+A fix that spans several repositories may keep a `plan` in its checkpoint (`references/worker-cli.md`),
+such as `prs` with each repository's branch, head and PR URL. It survives stages, pauses and restarts, and
+a successor of cancelled work reads it from `recovery.plan`; verify it like any recall.
+
 Checkpoint often using the complete JSON in `references/worker-cli.md`, with `stage`, `handoff` and
 `published_prs` immediately after a PR exists. Check every mutation's exit status and returned state.
 A rejected handoff must be repaired and successfully saved before `await-input`, `await-resource` or

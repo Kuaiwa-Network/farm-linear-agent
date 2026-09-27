@@ -247,6 +247,34 @@ def _fingerprint(issue, own_bodies, own_prs=()):
     return hashlib.sha256(_json(material).encode("utf-8")).hexdigest()
 
 
+PLAN_KEYS = ("stages", "pause", "change", "ui", "config", "prs", "closing", "events", "started")
+
+
+def _validate_plan(value):
+    """Bound the cross-stage plan like the handoff (spec §5.7), with room for a job that lasts weeks."""
+    if not isinstance(value, dict):
+        raise LedgerError("plan must be an object")
+    unknown = sorted(str(key) for key in value if key not in PLAN_KEYS)
+    if unknown:
+        raise LedgerError(f"plan accepts only {', '.join(PLAN_KEYS)}; unknown: {', '.join(unknown)}")
+    if len(_json(value)) > 16000:
+        raise LedgerError("plan exceeds 16000 characters; store longer notes in files in the state directory")
+    pending = [("plan", value)]
+    while pending:
+        where, item = pending.pop()
+        if isinstance(item, dict):
+            for key, entry in item.items():
+                if not isinstance(key, str) or len(key) > 2000:
+                    raise LedgerError(f"{where} keys must be strings of at most 2000 characters")
+                pending.append((f"{where}.{key}", entry))
+        elif isinstance(item, list):
+            if len(item) > 50:
+                raise LedgerError(f"{where} must be an array of at most 50 entries")
+            pending.extend((f"{where}[{index}]", entry) for index, entry in enumerate(item))
+        elif isinstance(item, str) and len(item) > 2000:
+            raise LedgerError(f"{where} text exceeds 2000 characters")
+
+
 def _validate_handoff(value):
     """Bound resumable memory and separate evidence from conjecture."""
     schemas = {"facts": {"claim", "evidence"}, "hypotheses": None,
@@ -925,6 +953,8 @@ class Ledger:
                     self._owned(item_id, token)
                     self._audit(item_id, "handoff_rejected", str(exc))
                 raise
+        if "plan" in progress:
+            _validate_plan(progress["plan"])  # refused outright: a plan is not a handoff, so no rejection is kept
         published = progress.get("published_prs", [])
         if not isinstance(published, list):
             raise LedgerError("published_prs must be an array of canonical HTTPS PR URLs")
@@ -972,6 +1002,8 @@ class Ledger:
             elif "handoff" in previous:
                 progress["handoff"] = previous["handoff"]
                 progress["handoff_meta"] = previous.get("handoff_meta")
+            if "plan" not in progress and "plan" in previous:
+                progress["plan"] = previous["plan"]
             for url in sorted(set(published) - known):
                 self.connection.execute("INSERT INTO published_prs(issue_id,url,generation,created_at) VALUES(?,?,?,?)",
                                         (row["issue_id"], url, row["generation"], self.clock()))
@@ -1670,7 +1702,20 @@ class Ledger:
         previous = self._row(row["predecessor_id"])
         return {"predecessor_id": previous["id"], "checkpoint": json.loads(previous["checkpoint"]),
                 "evidence": json.loads(previous["evidence"]), "cleanup": self.cleanup_record(previous["id"]),
-                "revalidation_required": True}
+                "plan": self._predecessor_plan(previous), "revalidation_required": True}
+
+    def _predecessor_plan(self, row):
+        """The plan of the nearest item up this predecessor chain that saved one. A successor stopped before
+        its first checkpoint saved none, and must not hide the plan of the job it continued."""
+        seen = set()
+        while row is not None and row["id"] not in seen:
+            seen.add(row["id"])
+            plan = json.loads(row["checkpoint"]).get("plan")
+            if plan is not None:
+                return plan
+            row = (self.connection.execute("SELECT * FROM work_items WHERE id=?", (row["predecessor_id"],)).fetchone()
+                   if row["predecessor_id"] else None)
+        return None
 
     def prepare_comment(self, item_id, token, kind, body):
         """Claim the one outbox row for this issue, claimed input, generation and kind, and say plainly
@@ -1947,6 +1992,7 @@ class Ledger:
                     "SELECT id,body,author_json,created_at FROM inbox WHERE item_id=? ORDER BY id", (item_id,))],
                 "pending_question": checkpoint.get("pending_question"),
                 "pending_reason": checkpoint.get("pending_reason"),
+                "plan": checkpoint.get("plan"),
                 "notices": [{key: notice[key] for key in ("request_id", "kind", "remote_id", "created_at", "confirmed_at")}
                             for notice in self.notices(item_id)],
                 "published_prs": [r["url"] for r in self.connection.execute(

@@ -255,6 +255,11 @@ that Linear attached before the claim or its last re-read is issue input: only a
 since may register it as this job's output, and only if nothing else changed. The additive
 `work_items.revalidated_fingerprint` column records a revalidated claim; older code ignores it.
 
+A checkpoint may also carry a validated `plan` for work that spans stages and days (keys and bounds in
+`references/worker-cli.md`). The ledger carries it forward when a checkpoint omits it, shows it in
+`issue-context`, and hands the nearest predecessor's plan to a successor as `recovery.plan`. It is recall
+that the worker verifies, never authority, and it is not a handoff.
+
 A fix worker may update Farm-Contract in its Contract-root attempt for a confirmed bug
 requirement, before the affected implementation. Uncertain behaviour or missing
 information is a question in Linear via `await-input`, which adds `needs-more-info`, emits the

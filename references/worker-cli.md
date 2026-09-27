@@ -186,3 +186,37 @@ A newer observation refuses it: fetch and read again. After it, save a fresh `ha
 `handoff-repository` and retry the refused PR registration. Revalidate before you prepare your final
 blocker or delivery comment, never after posting it. A change after `revalidate` still refuses the
 handoff and requeues `finish`, and the fresh worker reads it.
+
+## Plan
+
+A checkpoint may carry `plan`, an object for work that spans stages and days. Its keys are a subset of
+`stages`, `pause`, `change`, `ui`, `config`, `prs`, `closing`, `events` and `started`; values are any JSON,
+with strings of at most 2,000 characters, arrays of at most 50 entries and 16,000 serialized characters
+in all. Keep longer notes in files under STATE_DIR. For example:
+
+```json
+{
+  "stage": "contract",
+  "handoff": {
+    "facts": [],
+    "hypotheses": [],
+    "checks": [],
+    "repositories": [
+      {"path": "WORKTREE_PATH", "branch": "ISSUE_BRANCH", "head": "FULL_HEAD_SHA"}
+    ],
+    "next_actions": [
+      "Register the contract PR, then hand off to the consumer repository."
+    ]
+  },
+  "plan": {
+    "prs": {"Farm-Contract": [{"branch": "ISSUE_BRANCH", "role": "issue", "head": "FULL_HEAD_SHA", "url": "PR_URL"}]},
+    "pause": {"kind": "waiting", "request_id": "config-ready"}
+  },
+  "published_prs": []
+}
+```
+
+A checkpoint that omits `plan` keeps the saved one, and one that includes it replaces it whole. A plan is
+not a handoff: a plan-only checkpoint neither satisfies `handoff-repository` nor repairs a rejected
+handoff. `issue-context.plan` shows your item's plan. A successor of cancelled work reads the nearest
+predecessor's plan from `issue-context.recovery.plan`; like the rest of `recovery`, verify it first.

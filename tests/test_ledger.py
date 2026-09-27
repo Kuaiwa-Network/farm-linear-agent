@@ -896,6 +896,75 @@ class RevalidateTests(LedgerBase):
                                                         (item_id,)).fetchone()[0], 1)
 
 
+class PlanTests(LedgerBase):
+    PLAN = {"stages": {"A": "done", "B": "pending"}, "pause": None, "started": True,
+            "prs": {"Farm-Contract": [{"branch": "farmbot/farm-1", "role": "issue", "head": "a" * 40,
+                                       "url": "https://github.com/Kuaiwa-Network/Farm-Contract/pull/12",
+                                       "state": "draft"}]}}
+
+    def running(self):
+        item = self.new_item()
+        self.ledger.set_worker(item["id"], 4321, "test")
+        return item["id"], self.ledger.claim(item["id"], worker_id="w")["token"]
+
+    def test_a_plan_is_carried_forward_until_a_checkpoint_replaces_it(self):
+        item_id, token = self.running()
+        self.assertIsNone(self.ledger.issue_context(item_id)["plan"])
+        self.ledger.checkpoint(item_id, token, {"stage": "contract", "plan": self.PLAN})
+        self.ledger.checkpoint(item_id, token, {"stage": "declarations"})
+        self.assertEqual(self.ledger.issue_context(item_id)["plan"], self.PLAN)
+        self.ledger.await_input(item_id, token, "配置发布后请回复。", reason="waiting")
+        self.ledger.resume(item_id, "human replied")
+        token = self.ledger.claim(item_id, worker_id="w2")["token"]
+        self.assertEqual(self.ledger.issue_context(item_id)["plan"], self.PLAN)
+        replaced = {"stages": {"A": "done", "B": "done"}}
+        self.ledger.checkpoint(item_id, token, {"plan": replaced})
+        self.assertEqual(self.ledger.issue_context(item_id)["plan"], replaced)  # replaced whole, never merged
+
+    def test_invalid_plans_are_refused_and_the_saved_plan_stays(self):
+        item_id, token = self.running()
+        self.ledger.checkpoint(item_id, token, {"plan": self.PLAN})
+        for label, plan in (("not an object", ["stages"]), ("null", None), ("unknown key", {"notes": "x"}),
+                            ("long string", {"change": "x" * 2001}), ("long key", {"config": {"k" * 2001: 1}}),
+                            ("long array", {"events": list(range(51))}),
+                            ("nested long string", {"prs": {"Farm-Client": [{"url": "x" * 2001}]}}),
+                            ("over 16000 characters", {"closing": {str(n): "x" * 1990 for n in range(9)}}),
+                            ("not JSON", {"ui": float("nan")})):
+            with self.subTest(label), self.assertRaises(LedgerError):
+                self.ledger.checkpoint(item_id, token, {"plan": plan})
+        self.assertEqual(self.ledger.issue_context(item_id)["plan"], self.PLAN)
+        self.assertIsNone(self.ledger.checkpoint_error(item_id))  # a plan is not a handoff: nothing to repair
+        edge = {"change": "x" * 2000, "events": list(range(50))}
+        self.assertEqual(self.ledger.checkpoint(item_id, token, {"plan": edge})["checkpoint"]["plan"], edge)
+
+    def test_a_plan_only_checkpoint_is_not_a_handoff(self):
+        item_id, token = self.running()
+        self.ledger.checkpoint(item_id, token, {"plan": self.PLAN})
+        context = self.ledger.issue_context(item_id)
+        self.assertEqual((context["plan"], context["handoff"]), (self.PLAN, None))
+        with self.assertRaisesRegex(LedgerError, "save a current worker checkpoint"):
+            self.ledger.handoff_repository(item_id, token, "Farm-Contract")
+        with self.assertRaises(LedgerError):
+            self.ledger.checkpoint(item_id, token, {"handoff": {"facts": []}})
+        self.ledger.checkpoint(item_id, token, {"plan": self.PLAN})
+        self.assertIn("handoff", self.ledger.checkpoint_error(item_id))  # a plan-only save does not repair it
+        with self.assertRaisesRegex(LedgerError, "repair the rejected checkpoint handoff"):
+            self.ledger.await_input(item_id, token, "配置发布后请回复。", reason="waiting")
+
+    def test_a_successor_reads_the_nearest_predecessor_plan_from_recovery(self):
+        item_id, token = self.running()
+        self.ledger.checkpoint(item_id, token, {"plan": self.PLAN})
+        self.ledger.cancel(item_id, "Stop")
+        successor = self.ledger.retry(item_id, "continue the feature")["id"]
+        recovery = self.ledger.issue_context(successor)["recovery"]
+        self.assertEqual((recovery["predecessor_id"], recovery["plan"]), (item_id, self.PLAN))
+        self.assertIsNone(self.ledger.issue_context(successor)["plan"])  # recall to verify, not its own plan yet
+        self.ledger.cancel(successor, "stopped before its first checkpoint")
+        third = self.ledger.retry(successor, "continue again")["id"]
+        recovery = self.ledger.issue_context(third)["recovery"]
+        self.assertEqual((recovery["predecessor_id"], recovery["plan"]), (successor, self.PLAN))
+
+
 class NoticeTests(LedgerBase):
     def running(self):
         item = self.new_item()
