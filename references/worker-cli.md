@@ -11,7 +11,7 @@ python3 -m agent --db DATABASE checkpoint --help
 | --- | --- |
 | `claim` | `--item ITEM_ID --worker-id WORKER_ID`; returns the claim token |
 | `fetch-issue`, `issue-context` | `--item ITEM_ID` only; no token flags |
-| `renew`, `checkpoint`, `pop-inbox`, `verify-publication`, `handoff-repository`, `prepare-comment`, `post-comment`, `confirm-comment`, `activity`, `await-input`, `await-resource`, `finish` | `--item ITEM_ID --token-file STATE_DIR/token`, plus command-specific arguments from `--help` |
+| `renew`, `checkpoint`, `pop-inbox`, `download-uploads`, `verify-publication`, `handoff-repository`, `prepare-comment`, `post-comment`, `confirm-comment`, `activity`, `await-input`, `await-resource`, `finish` | `--item ITEM_ID --token-file STATE_DIR/token`, plus command-specific arguments from `--help` |
 | `request-repair` | Read-only profile only: claim-token arguments, `--message-id LATEST_MESSAGE_ID --summary-file STATE_DIR/repair-summary.md` |
 | `resume-work` | Legacy resume-only command: claim-token arguments and `--message-id LATEST_MESSAGE_ID`; cannot start a first repair |
 | `memory-list`, `memory-read`, `memory-save`, `memory-forget` | Same claim-token arguments; see `references/memory.md` |
@@ -63,6 +63,30 @@ running a dependent command. A nonzero exit means the operation failed. A zero e
 still requires checking the returned state/status, including publication retry states.
 On a usage error, read that command's `--help` and correct the arguments; do not try
 speculative aliases. Never print a token while diagnosing a command.
+
+## Linear uploads
+
+Screenshots, recordings and archives uploaded to the issue need FarmBot's Linear credentials.
+Use them only through these commands, for your item. Download uploads into your state directory:
+
+```bash
+python3 -m agent --db DATABASE download-uploads --item ITEM_ID --token-file STATE_DIR/token --out STATE_DIR/inputs/linear
+```
+
+Without `--url` it takes every `uploads.linear.app` file in the description and human comments;
+`--url URL` (repeatable) takes only those, each exactly as `fetch-issue` shows it. `--out` must be
+an absolute directory path without `..` that is not a link; it is created if missing, once every
+`--url` is checked. Name a directory of your own under `STATE_DIR`, never `STATE_DIR` itself or a
+worktree: the controller keeps its own files at the state directory's top level. The command prints
+one JSON object: `manifest`, the path of `manifest.json` in `--out`; `identifier`; `uploads`, one
+entry per requested upload with its `url_path`, `result` (`downloaded`, `unchanged` or `failed`),
+`error`, local `name`, `size`, `content_type`, `pixels` and, for a `.zip`, `members` counts; and
+totals under `counts`. `manifest.json` lists every file, zip members included, with its `sources`
+(`description` or `comment:<id>`) and `sha256`; a refused member carries the reason and its stored
+name. A rerun fetches only new uploads, files that no longer match the manifest and downloads that
+failed. The claim is renewed before each download and every minute during one; a claim lost on the
+way ends that download and the ones after it, the manifest is still written, and the command
+fails. Run one at a time per directory. Never fetch `uploads.linear.app` another way.
 
 ## Checkpoint JSON
 

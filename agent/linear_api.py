@@ -1,11 +1,16 @@
 """Linear GraphQL client using the application's own client-credentials token."""
+import hashlib
+import http.client
 import json
+import os
 import re
+import tempfile
 import time
 import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from uuid import UUID
 
 SCOPES = "read,write,app:mentionable,app:assignable"
@@ -42,6 +47,14 @@ ISSUE_QUERY = """query FarmBotIssue($id: String!, $after: String) {
   }
 }"""
 ISSUE_READ_ATTEMPTS = 3
+
+# Upload downloads (spec §5.5): this origin only, with a plain path; no query, fragment, userinfo or port.
+UPLOADS_ORIGIN = "https://uploads.linear.app"
+_UPLOAD_PATH = re.compile(r"(?:/[A-Za-z0-9._~%-]+)+")
+UPLOAD_TIMEOUT = 30    # seconds to connect, and for each read
+UPLOAD_DEADLINE = 600  # seconds for one whole file
+KEEPALIVE_SECONDS = 60  # how often a transfer calls its keepalive: a claim's lease is never shorter than this by much
+_CHUNK = 1 << 16
 
 
 def strip_signed(text):
@@ -103,6 +116,96 @@ def _label_groups(nodes):
         if isinstance(group, str) and group.strip() and isinstance(label, str) and label.strip():
             pairs.add((group, label))
     return [{"group": group, "label": label} for group, label in sorted(pairs)]
+
+
+class UploadError(RuntimeError):
+    """An upload could not be fetched or stored. The message names the cause, never the token or a URL."""
+
+
+class TooLarge(UploadError):
+    def __init__(self, limit):
+        super().__init__(f"larger than {limit} bytes")
+        self.limit = limit
+
+
+class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
+    """No redirect is followed: an upload must come from the allowlisted origin itself. The refusal names the
+    host Linear pointed at, never the path or query (the signed part), because if uploads.linear.app redirects
+    to signed storage, that host is what the operator records (plan Task 15)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        fp.close()
+        try:
+            host = urllib.parse.urlsplit(newurl).hostname
+        except ValueError:
+            host = None
+        raise UploadError(f"redirect refused (HTTP {code} to {host})" if host else f"redirect refused (HTTP {code})")
+
+
+def upload_opener(*handlers):
+    """An opener that follows no redirect. Tests add a fake HTTPS handler; production adds none."""
+    return urllib.request.build_opener(_RefuseRedirects, *handlers)
+
+
+def _store(operation, *args, **kwargs):
+    """A local file operation, whose failure is reported as storage, named by its kind, never as the transfer."""
+    try:
+        return operation(*args, **kwargs)
+    except OSError as exc:
+        raise UploadError(f"could not store the file ({type(exc).__name__})") from None
+
+
+def save_stream(read, destination, *, max_bytes, expected_size=None, deadline=None, keepalive=None):
+    """Copy `read(size)` chunks into a new file beside `destination`, then rename it into place.
+
+    `read` should return after one receive (HTTPResponse.read1), so that `deadline` (a time.monotonic() value)
+    is checked while a slow transfer trickles, and `keepalive()` is called once every KEEPALIVE_SECONDS of a
+    long one: a worker renews its claim there, and whatever it raises ends the copy. More than `max_bytes`, a
+    total other than `expected_size`, passing `deadline` or a storage failure raises UploadError and leaves no
+    file behind. Returns (size, sha256 hex digest).
+    """
+    destination = Path(destination)
+    fd, temporary = _store(tempfile.mkstemp, prefix=".farmbot-", suffix=".part", dir=destination.parent)
+    digest, size = hashlib.sha256(), 0
+    next_keepalive = time.monotonic() + KEEPALIVE_SECONDS
+    try:
+        with open(fd, "wb") as stream:
+            while True:
+                now = time.monotonic()
+                if deadline is not None and now >= deadline:
+                    raise UploadError("timed out")
+                if keepalive is not None and now >= next_keepalive:
+                    keepalive()
+                    next_keepalive = now + KEEPALIVE_SECONDS
+                chunk = read(_CHUNK)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > max_bytes:
+                    raise TooLarge(max_bytes)
+                digest.update(chunk)
+                _store(stream.write, chunk)
+            _store(stream.flush)
+        if expected_size is not None and size != expected_size:
+            raise UploadError("transfer ended early")
+        _store(os.replace, temporary, destination)
+    except BaseException:
+        Path(temporary).unlink(missing_ok=True)
+        raise
+    return size, digest.hexdigest()
+
+
+def _media_type(value):
+    kind = (value or "").split(";", 1)[0].strip().lower()
+    return kind if re.fullmatch(r"[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*", kind) else None
+
+
+def _transport_error(exc):
+    """A download failure named by its kind only: exception messages may carry hosts or request details."""
+    reason = getattr(exc, "reason", exc)
+    if isinstance(exc, TimeoutError) or isinstance(reason, TimeoutError):
+        return "timed out"
+    return f"network error ({type(reason).__name__})"
 
 
 class LinearAPI:
@@ -296,3 +399,58 @@ class LinearAPI:
                 "delegate_id": (issue.get("delegate") or {}).get("id"),
                 "attachments": sorted({strip_signed(n["url"]) for n in issue["attachments"]["nodes"]}),
                 "comments": comments, "detail_complete": True, "comments_complete": True}
+
+    def download_upload(self, url, destination, *, max_bytes, opener=None, timeout=UPLOAD_TIMEOUT,
+                        deadline_seconds=UPLOAD_DEADLINE, keepalive=None):
+        """Fetch one unsigned Linear upload into `destination` with the app's bearer token (spec §5.5).
+
+        `keepalive()` is called every KEEPALIVE_SECONDS while the body streams, so that a transfer as long as the
+        deadline allows outlives no claim lease; whatever it raises ends the download.
+
+        Only https://uploads.linear.app with a plain path and no dot segment, percent-encoded or not. The token
+        goes as an unredirected header, and every redirect is refused: the file must come from that origin
+        itself, and the refusal names the redirect's host, never its path or query. The body is read one receive
+        at a time, so the per-file deadline holds against a trickling transfer, is capped at `max_bytes` while
+        it streams, and lands in a temporary file beside `destination`, which is then renamed into place.
+        Returns {"size", "sha256", "content_type"}. Every failure is UploadError, whose message names neither
+        the token nor the URL; a token-endpoint failure and a storage failure are named as such.
+        """
+        path = url[len(UPLOADS_ORIGIN):] if isinstance(url, str) and url.startswith(UPLOADS_ORIGIN + "/") else ""
+        segments = urllib.parse.unquote(path).split("/")
+        if not _UPLOAD_PATH.fullmatch(path) or any(segment in (".", "..") for segment in segments):
+            raise UploadError("only unsigned https://uploads.linear.app URLs are downloaded")
+        opener = opener or upload_opener()
+        for attempt in range(2):
+            if not self.token or time.time() >= self.expires:
+                try:
+                    self.authenticate()
+                except urllib.error.HTTPError as exc:
+                    exc.close()
+                    raise UploadError(f"token endpoint refused (HTTP {exc.code})") from None
+                except (OSError, http.client.HTTPException, ValueError, KeyError) as exc:
+                    raise UploadError(f"token endpoint: {_transport_error(exc)}") from None
+            try:
+                request = urllib.request.Request(url, headers={"Accept": "*/*"})
+                request.add_unredirected_header("Authorization", f"Bearer {self.token}")
+                with opener.open(request, timeout=timeout) as response:
+                    if response.status != 200:
+                        raise UploadError(f"HTTP {response.status}")
+                    declared = response.headers.get("Content-Length", "")
+                    expected = int(declared) if declared.isdigit() else None
+                    if expected is not None and expected > max_bytes:
+                        raise TooLarge(max_bytes)
+                    read = getattr(response, "read1", response.read)  # one receive per call; read(n) waits for n bytes
+                    size, digest = save_stream(read, destination, max_bytes=max_bytes, expected_size=expected,
+                                               deadline=time.monotonic() + deadline_seconds, keepalive=keepalive)
+                    return {"size": size, "sha256": digest,
+                            "content_type": _media_type(response.headers.get("Content-Type"))}
+            except UploadError:
+                raise
+            except urllib.error.HTTPError as exc:
+                exc.close()
+                if exc.code == 401 and not attempt:
+                    self.token = None  # expired or rotated: authenticate once more
+                    continue
+                raise UploadError(f"HTTP {exc.code}") from None
+            except (OSError, http.client.HTTPException, ValueError, KeyError) as exc:
+                raise UploadError(_transport_error(exc)) from None

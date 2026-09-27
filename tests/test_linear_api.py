@@ -1,13 +1,21 @@
+import hashlib
+import http.client
 import io
 import json
+import socket
 import tempfile
 import unittest
 import urllib.error
+import urllib.request
+import urllib.response
 from pathlib import Path
 from unittest.mock import patch
 
 from agent import ledger as ledger_module
-from agent.linear_api import ISSUE_QUERY, LINEAR_URL, LinearAPI, person, strip_signed, upload_urls
+from agent import linear_api as linear_api_module
+from agent.linear_api import UPLOAD_TIMEOUT
+from agent.linear_api import (ISSUE_QUERY, LINEAR_URL, LinearAPI, TooLarge, UploadError, person, strip_signed,
+                              upload_opener, upload_urls)
 
 APP = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
 
@@ -412,3 +420,252 @@ class LinearAPITests(unittest.TestCase):
                           (as_person(OWNER), "c1", "https://linear.app/example/issue/FARM-1/t#comment-c2")])
         # The ledger keeps its own copy of the Linear URL rule, because connectors stay outside it.
         self.assertEqual(ledger_module.LINEAR_URL.pattern, LINEAR_URL.pattern)
+
+
+class FakeUploadServer(urllib.request.HTTPSHandler):
+    """Answers HTTPS requests from a script instead of the network, and keeps every request it was sent."""
+
+    def __init__(self, *answers):
+        super().__init__()
+        self.answers, self.requests = list(answers), []
+
+    def https_open(self, req):
+        self.requests.append(req)
+        answer = self.answers.pop(0)
+        if isinstance(answer, BaseException):  # the transport itself fails
+            raise answer
+        status, headers, body = answer
+        head = "".join(f"{name}: {value}\r\n" for name, value in headers.items()) + "\r\n"
+        body = body if hasattr(body, "read") else io.BytesIO(body)
+        response = urllib.response.addinfourl(body, http.client.parse_headers(io.BytesIO(head.encode())),
+                                              req.full_url, status)
+        response.msg = "scripted"
+        return response
+
+
+class RecordingBody(io.BytesIO):
+    """A response body that records the size of every read it is asked for."""
+
+    def __init__(self, data, on_read=None):
+        super().__init__(data)
+        self.sizes, self.on_read = [], on_read
+
+    def read1(self, size=-1):
+        self.sizes.append(size)
+        if self.on_read:
+            self.on_read()
+        return super().read1(size)
+
+    read = read1
+
+
+class StallingBody(io.BytesIO):
+    """A body whose socket times out on the first receive."""
+
+    def read1(self, size=-1):
+        raise socket.timeout("timed out reading from uploads.linear.app")
+
+    read = read1
+
+
+class UploadDownloadTests(unittest.TestCase):
+    URL = "https://uploads.linear.app/7b0c6c4e-2f7a-4c55-9d0e-3a1f5e6d7c8b/0f1e2d3c/4b5a6978"
+    TOKEN = "dummy-token-value"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.destination = Path(self.tmp.name) / "截图 1.png"
+        tokens = iter([self.TOKEN, "dummy-token-renewed", "dummy-token-third"])
+        self.token_requests = []
+
+        def token_endpoint(req, timeout=None):
+            self.token_requests.append(req.full_url)
+            return io.BytesIO(json.dumps({"access_token": next(tokens), "expires_in": 3600}).encode())
+        self.api = LinearAPI("client", "secret", request=token_endpoint)
+
+    def download(self, *answers, url=None, **options):
+        self.server = FakeUploadServer(*answers)
+        return self.api.download_upload(url or self.URL, self.destination, opener=upload_opener(self.server),
+                                        **{"max_bytes": 1 << 20, **options})
+
+    def refused(self, *answers, **options):
+        with self.assertRaises(UploadError) as caught:
+            self.download(*answers, **options)
+        self.assertFalse(self.destination.exists())
+        self.assertEqual(list(Path(self.tmp.name).iterdir()), [], "no temporary file may stay behind")
+        self.assertNotIn(self.TOKEN, str(caught.exception))
+        return caught.exception
+
+    def test_the_token_goes_only_as_an_unredirected_header_and_never_into_the_result(self):
+        result = self.download((200, {"Content-Type": "image/png; charset=binary", "Content-Length": "4"}, b"\x89PNG"))
+        self.assertEqual(result, {"size": 4, "sha256": hashlib.sha256(b"\x89PNG").hexdigest(),
+                                  "content_type": "image/png"})
+        self.assertEqual(self.destination.read_bytes(), b"\x89PNG")
+        request = self.server.requests[0]
+        self.assertEqual(request.full_url, self.URL)
+        self.assertEqual(request.unredirected_hdrs["Authorization"], f"Bearer {self.TOKEN}")
+        self.assertNotIn("Authorization", request.headers)
+        self.assertNotIn(self.TOKEN, json.dumps(result))
+
+    def test_every_redirect_is_refused_naming_only_the_host_it_points_at(self):
+        """Following one would fetch from wherever Linear points. If uploads.linear.app redirects to signed
+        storage, the host is what the operator records (plan Task 15); the signed path and query never appear."""
+        for code in (301, 302, 303, 307, 308):
+            for target in ("https://collector.example/steal?signature=secret-signature",
+                           "https://uploads.linear.app/o/u/other"):
+                with self.subTest(code=code, target=target):
+                    error = self.refused((code, {"Location": target}, b""), (200, {}, b"payload"))
+                    self.assertEqual(str(error), f"redirect refused (HTTP {code} to {target.split('/')[2]})")
+                    self.assertEqual([request.full_url for request in self.server.requests], [self.URL])
+        self.assertEqual(str(self.refused((302, {}, b""))), "HTTP 302")  # no Location: nothing to follow
+
+    def test_other_hosts_signed_urls_and_odd_paths_are_refused_before_any_request(self):
+        for url in ("https://collector.example/a/b", "http://uploads.linear.app/a/b",
+                    "https://uploads.linear.app.collector.example/a/b", "https://user@uploads.linear.app/a/b",
+                    "https://uploads.linear.app:8443/a/b", f"{self.URL}?signature=abc", f"{self.URL}#x",
+                    "https://uploads.linear.app/a/../b", "https://uploads.linear.app//a",
+                    "https://uploads.linear.app/"):
+            with self.subTest(url=url):
+                error = self.refused(url=url)
+                self.assertNotIn("collector.example", str(error))
+                self.assertEqual(self.server.requests, [])
+        self.assertEqual(self.token_requests, [])
+
+    def test_the_cap_holds_while_streaming_and_against_a_declared_length(self):
+        self.assertIsInstance(self.refused((200, {}, b"x" * 11), max_bytes=10), TooLarge)
+        self.assertIsInstance(self.refused((200, {"Content-Length": "11"}, b"x" * 11), max_bytes=10), TooLarge)
+        self.assertEqual(self.download((200, {}, b"x" * 10), max_bytes=10)["size"], 10)
+
+    def test_a_short_body_an_http_error_or_a_stalled_transfer_leaves_no_file(self):
+        self.assertIn("ended early", str(self.refused((200, {"Content-Length": "20"}, b"x" * 11))))
+        self.assertEqual(str(self.refused((404, {}, b"not found"))), "HTTP 404")
+        self.assertEqual(str(self.refused((200, {}, b"x"), deadline_seconds=0)), "timed out")
+
+    def test_an_expired_token_is_renewed_once_then_the_refusal_is_reported(self):
+        self.download((401, {}, b""), (200, {}, b"ok"))
+        self.assertEqual(len(self.token_requests), 2)
+        self.assertEqual(self.server.requests[1].unredirected_hdrs["Authorization"], "Bearer dummy-token-renewed")
+        self.destination.unlink()
+        self.assertEqual(str(self.refused((401, {}, b""), (401, {}, b""))), "HTTP 401")
+        self.assertEqual(len(self.token_requests), 3)
+
+    def test_an_expired_token_is_renewed_before_the_request(self):
+        self.api.token, self.api.expires = "stale-token", 0
+        self.download((200, {}, b"ok"))
+        self.assertEqual(len(self.token_requests), 1)
+        self.assertEqual(self.server.requests[0].unredirected_hdrs["Authorization"], f"Bearer {self.TOKEN}")
+
+    def test_a_token_endpoint_failure_is_named_as_such_and_sends_no_request(self):
+        def unreachable(req, timeout=None):
+            raise urllib.error.URLError(OSError("no route to api.linear.app"))
+        self.api = LinearAPI("client", "secret", request=unreachable)
+        self.assertEqual(str(self.refused()), "token endpoint: network error (OSError)")
+
+        def refusing(req, timeout=None):
+            raise urllib.error.HTTPError(req.full_url, 401, "unauthorized", {}, io.BytesIO(b""))
+        self.api = LinearAPI("client", "secret", request=refusing)
+        self.assertEqual(str(self.refused()), "token endpoint refused (HTTP 401)")
+        self.assertEqual(self.server.requests, [])
+
+    def test_a_trickling_transfer_stops_at_the_deadline_not_at_its_end(self):
+        """HTTPResponse.read(n) waits until n bytes arrive, each resetting the socket timeout, so the body is read
+        through read1, which returns after one receive: a server sending a byte at a time is cut off at the
+        deadline instead of being read to its end."""
+        clock = [100.0]
+
+        class Trickle(io.BytesIO):
+            served = 0
+
+            def read1(self, size=-1):  # one receive: a byte, a quarter second later
+                clock[0] += 0.25
+                self.served += 1
+                return super().read(1)
+
+            def read(self, size=-1):  # what a blocking read does: wait for all of it
+                data = super().read(size)
+                clock[0] += 0.25 * len(data)
+                self.served += len(data)
+                return data
+
+        body = Trickle(b"x" * 40)
+        with patch.object(linear_api_module.time, "monotonic", lambda: clock[0]):
+            self.assertEqual(str(self.refused((200, {}, body), deadline_seconds=1)), "timed out")
+        self.assertLessEqual(body.served, 5)
+
+    def test_every_read_is_bounded_and_the_request_carries_the_timeout(self):
+        body = RecordingBody(b"x" * 200_000)
+        self.assertEqual(self.download((200, {}, body))["size"], 200_000)
+        self.assertTrue(body.sizes and all(0 < size <= 1 << 16 for size in body.sizes), body.sizes)
+        self.assertEqual(self.server.requests[0].timeout, UPLOAD_TIMEOUT)
+
+    def test_a_declared_length_over_the_cap_is_refused_before_any_read(self):
+        body = RecordingBody(b"")
+        self.assertIsInstance(self.refused((200, {"Content-Length": "11"}, body), max_bytes=10), TooLarge)
+        self.assertEqual(body.sizes, [])
+
+    def test_a_network_failure_names_only_its_kind(self):
+        refusal = urllib.error.URLError(ConnectionRefusedError(61, "refused by uploads.linear.app/4b5a6978"))
+        for answer, message in ((refusal, "network error (ConnectionRefusedError)"),
+                                (socket.timeout("uploads.linear.app timed out"), "timed out"),
+                                ((200, {}, StallingBody(b"")), "timed out")):
+            with self.subTest(message=message):
+                error = self.refused(answer)
+                self.assertEqual(str(error), message)
+                self.assertNotIn("uploads.linear.app", str(error))
+                self.assertNotIn("4b5a6978", str(error))
+
+    def test_only_a_200_answer_is_a_download(self):
+        self.assertEqual(str(self.refused((206, {}, b"x"))), "HTTP 206")
+        self.assertEqual(str(self.refused((204, {}, b""))), "HTTP 204")
+
+    def test_the_temporary_file_is_written_beside_the_destination_and_a_storage_failure_is_named(self):
+        seen = []
+        body = RecordingBody(b"ok", on_read=lambda: seen.append(sorted(p.suffix for p in self.destination.parent.iterdir())))
+        self.download((200, {}, body))
+        self.assertIn([".part"], seen)
+        self.destination.unlink()
+        self.destination = Path(self.tmp.name) / "missing" / "截图.png"
+        self.assertEqual(str(self.refused((200, {}, b"ok"))), "could not store the file (FileNotFoundError)")
+
+    def test_a_dot_segment_is_refused_however_it_is_encoded(self):
+        for url in ("https://uploads.linear.app/a/./b", "https://uploads.linear.app/a/%2E%2E/b",
+                    "https://uploads.linear.app/%2e%2e/x", "https://uploads.linear.app/a%2F..%2Fb"):
+            with self.subTest(url=url):
+                self.refused(url=url)
+                self.assertEqual(self.server.requests, [])
+
+    def test_a_long_transfer_calls_keepalive_every_minute_and_stops_when_it_raises(self):
+        """A file may take the whole ten-minute deadline, and a chat worker's lease is as long, so the claim is
+        renewed on the way; whatever the renewal raises ends the download and leaves no file."""
+        clock = [100.0]
+
+        class Slow(io.BytesIO):
+            def read1(self, size=-1):
+                data = super().read(1)
+                if data:
+                    clock[0] += 30  # one receive every 30 s
+                return data
+
+            read = read1
+
+        renewals = []
+        with patch.object(linear_api_module.time, "monotonic", lambda: clock[0]):
+            result = self.download((200, {}, Slow(b"x" * 12)), keepalive=lambda: renewals.append(clock[0]))
+            self.assertEqual((result["size"], renewals), (12, [160.0, 220.0, 280.0, 340.0, 400.0, 460.0]))
+            self.destination.unlink()
+
+            def lost():
+                raise UploadError("interrupted: the claim was lost")
+            error = self.refused((200, {}, Slow(b"x" * 12)), keepalive=lost)
+        self.assertEqual(str(error), "interrupted: the claim was lost")
+
+    def test_the_default_opener_refuses_redirects_too(self):
+        """download-uploads passes no opener; the one built for it must refuse a redirect like the test one."""
+        server = FakeUploadServer((302, {"Location": "https://collector.example/steal"}, b""), (200, {}, b"payload"))
+        with patch.object(urllib.request.HTTPSHandler, "https_open", server.https_open):
+            with self.assertRaises(UploadError) as caught:
+                self.api.download_upload(self.URL, self.destination, max_bytes=1 << 20)
+        self.assertEqual(str(caught.exception), "redirect refused (HTTP 302 to collector.example)")
+        self.assertEqual([request.full_url for request in server.requests], [self.URL])
+        self.assertFalse(self.destination.exists())

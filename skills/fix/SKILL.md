@@ -56,7 +56,15 @@ under State changes in the run report.
 4. Post the start marker before investigating: write the body from the `started` template to a file, then
    `prepare-comment --kind started --body-file FILE` and `post-comment --action-id ACTION_ID`. The CLI
    reconciles the marker against live comments, so a restarted worker never posts twice.
-5. Run `renew` at least every `renew_minutes` minutes from your launch message and `pop-inbox` at every
+5. When the description or human comments carry uploads (screenshots, screen recordings, logs,
+   archives), download them before diagnosing with `download-uploads --item ITEM_ID --token-file
+   STATE_DIR/token --out STATE_DIR/inputs/linear` (`references/worker-cli.md`), and open the files its
+   manifest names instead of guessing what they show. Run it again after a resume for new uploads.
+   FarmBot's Linear credentials are for its CLI commands on this item only: never fetch
+   `uploads.linear.app` another way. An upload the diagnosis depends on that failed to download or
+   that you cannot open, or art the issue needs but does not carry, is a question: name it and ask
+   with `await-input`.
+6. Run `renew` at least every `renew_minutes` minutes from your launch message and `pop-inbox` at every
    checkpoint; steering text from the human arrives there. Your lease is `lease_seconds` long.
 
 A handoff's facts are prior assertions with evidence; its hypotheses are unverified. `stale: true` means

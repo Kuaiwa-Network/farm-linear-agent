@@ -424,6 +424,53 @@ commit and the resumed worker sees it as `resource.commit`. Batch summaries addi
 `runs/<job>/unity/<reservation-id>/`. The job-root summary points to the latest run. A baseline
 run cannot establish that a later fix works; reports must name the tested commit and any gaps.
 
+## Linear uploads
+
+Any worker may download the claimed issue's uploads with the claim-authenticated
+`download-uploads --item ITEM_ID --out DIR [--url URL ...]`. Its sources are the
+`uploads.linear.app` URLs in the issue's description and human comments, in Markdown, bare or
+`<linear-image>` form; GraphQL `attachments` are linked resources such as PRs, not uploads.
+Without `--url` it takes every upload there, and each `--url` must be one of them, unsigned as
+`fetch-issue` shows it. It refreshes the issue in the ledger as `fetch-issue` does. `DIR` must be
+an absolute path without `..` that is not a symlink, junction or other reparse point; it is created
+if missing, once every `--url` is checked. The command runs in the worker's own process and
+sandbox. The skill names a directory of the worker's own under its state directory
+(`STATE_DIR/inputs/linear`), which no controller step reads or writes; the state directory's own
+top level is the controller's.
+
+Workers may hold the Linear app's secret (feature-workers design, D11): the worker CLI builds its
+Linear client from the host config, as every Linear-facing CLI command already does. Workers use it
+only through FarmBot's CLI commands for the claimed item and never fetch `uploads.linear.app`
+another way. The fix skill and the worker CLI reference state this rule; the dispatch AUTHORITY
+does not mention uploads. A download sends the app's bearer token as an unredirected header, over
+HTTPS to `uploads.linear.app` only, refuses every redirect (the file must come from that origin
+itself; the refusal names only the host the redirect pointed at, which is what the operator records
+if Linear redirects to signed storage), and gives up after 30 seconds without data or 10 minutes for
+one file, however slowly it trickles. No output, manifest, error text or log carries the token or a
+signed URL; a failure is named by its kind, and a token-endpoint or local storage failure as such.
+
+Limits apply per run: 100 downloads, 256 MiB for one file and 1 GiB in all; archives of at most
+2,000 entries; 1 GiB extracted in all, each member expanding to at most 100 times its compressed
+size or 1 MiB, whichever is more. A failed download, including a web page returned for a file not
+named `.html` or `.htm`, is recorded in the manifest and the run goes on. Missing art or an unreadable upload
+is a question for the issue, never a guess.
+
+`DIR/manifest.json` lists every file: its sources (`description` or `comment:<id>`), unsigned URL
+path, local name, sha256, size, content type, PNG or JPEG pixel size and, for a member of a `.zip`
+upload, the archive and the member's stored name. An upload whose files still match the manifest is
+not fetched again, and a directory holding another issue's manifest is refused. Local names come
+from a `<linear-image>` title or Markdown link text, else from the URL path; Windows-forbidden and
+unprintable characters become `_`, device names get a `_` prefix, and names that collide ignoring
+case are numbered. A file in `DIR` that the manifest does not list is never overwritten. Archive
+members are extracted under a directory named after the archive, never through a link. A member is
+refused for an absolute, drive-relative or `..` path in either separator style, a link, a Windows
+device name, a trailing dot or space, a `:`, a name that collides with another ignoring case, or a
+name that is neither UTF-8 nor GBK. A member name is UTF-8 when its UTF-8 flag or an Info-ZIP
+Unicode Path field says so; otherwise strict UTF-8 is tried first, because macOS Archive Utility
+omits the flag, then GBK. Refused members are listed with the reason, decoded legacy names keep
+their raw bytes, and nested archives are not extracted. The Windows cases (junctions, device names,
+trailing dots, streams) have tests that run only on Windows.
+
 ## UI source ownership
 
 For UI fixes, inspect the relevant farmgui source before choosing an implementation. When the

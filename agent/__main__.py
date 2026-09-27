@@ -53,6 +53,10 @@ def parser():
     cmd("issue-context", "--item")
     cmd("pop-inbox", "--item", token=True)
     cmd("verify-publication", "--item", "--repo", token=True)
+    uploads = cmd("download-uploads", "--item", "--out", token=True)
+    uploads.add_argument("--url", action="append",
+                         help="one of the claimed issue's upload URLs, unsigned as fetch-issue shows it; repeatable; "
+                              "default: every upload in its description and human comments")
     prepare = cmd("prepare-comment", "--item", "--body-file", token=True)
     prepare.add_argument("--kind", required=True, choices=["started", "blocker", "delivery"])
     cmd("post-comment", "--item", "--action-id", token=True)
@@ -347,6 +351,25 @@ def run(args, ledger, api_factory):
         except Exception as exc:
             print(json.dumps({"warning": "repair queued; acknowledgment failed", "error": type(exc).__name__}), file=sys.stderr)
         return resumed
+    if c == "download-uploads":
+        from .uploads import download_issue_uploads, issue_uploads, output_directory
+        token = resolve_token(args)
+        ledger.renew(args.item, token)  # authenticate before touching the disk or Linear
+        output_directory(args.out, create=False)  # a bad --out is refused before Linear is asked
+        item = ledger.item(args.item)
+        api = api_factory()
+        issue = api.fetch_issue(item["issue_id"])
+        ledger.observe_issue(issue)
+        available = issue_uploads(issue)
+        for number, url in enumerate(args.url or [], 1):
+            if url not in available:
+                raise LedgerError(f"--url {number} is not an upload of the claimed issue; pass an unsigned URL "
+                                  "from its description or human comments, as fetch-issue shows it")
+        out = output_directory(args.out)  # created only once every --url is known to be the issue's
+        summary = download_issue_uploads(api, issue, out, urls=args.url,
+                                         renew=lambda: ledger.renew(args.item, token))
+        ledger.renew(args.item, token)  # a claim lost during the transfers still fails the command
+        return summary
     if c == "verify-publication":
         from .config import ROOT
         from .publication import PublicationVerifier
