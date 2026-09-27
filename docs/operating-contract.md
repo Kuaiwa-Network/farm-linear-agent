@@ -249,8 +249,11 @@ A fix worker may update Farm-Contract in its Contract-root attempt for a confirm
 requirement, before the affected implementation. Uncertain behaviour or missing
 information is a question in Linear via `await-input`, which adds `needs-more-info`, emits the
 elicitation and parks the item. A reply resumes it; insufficient answers lead to another question.
-The label is not automatically removed just because a reply arrived. Every elicitation path adds it,
-including chat and intake. Status and assignee remain unchanged. Contract access does not bypass
+The label is not automatically removed just because a reply arrived. Every question elicitation adds
+it, including chat and intake. `await-input --reason waiting` parks the same way without the label, for
+a pause that waits on a human step elsewhere rather than on an answer; the checkpoint records the reason
+as `pending_reason` beside `pending_question`. `await-input` refuses while the item holds or awaits a
+Unity reservation. Status and assignee remain unchanged. Contract access does not bypass
 generator requirements or add Unity export tools.
 
 Existing hosts must add `Farm-Contract` to their private `repos` configuration and seed its bare clone

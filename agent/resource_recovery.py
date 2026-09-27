@@ -115,6 +115,7 @@ class RecoveryStore:
         if resume:
             checkpoint = dict(item['checkpoint'])
             checkpoint.pop('pending_question', None)
+            checkpoint.pop('pending_reason', None)
             self.ledger._set_state(item['id'], 'awaiting_resource', 'automatic Unity recovery',
                                    stage='waiting_for_recovery', token=None, lease_expires_at=None, worker_pid=None,
                                    needs_resource=f"{reservation['kind']}:{reservation['mode']}",

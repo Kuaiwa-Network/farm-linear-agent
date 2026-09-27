@@ -58,6 +58,11 @@ python3 -m agent --db DATABASE checkpoint --item ITEM_ID --token-file STATE_DIR/
 python3 -m agent --db DATABASE await-input --item ITEM_ID --token-file STATE_DIR/token --question "Which environment should reproduce this issue?"
 ```
 
+`await-input` parks the item for a human. `--reason question`, the default, adds `needs-more-info`;
+`--reason waiting`, for a pause on a human step elsewhere such as a merge or a publish, does not.
+Release any Unity reservation first: the command refuses while one is open, before anything reaches
+Linear. The resumed worker finds the pause in `issue-context` as `pending_question` and `pending_reason`.
+
 Run each mutation separately and inspect its exit status and returned JSON before
 running a dependent command. A nonzero exit means the operation failed. A zero exit
 still requires checking the returned state/status, including publication retry states.

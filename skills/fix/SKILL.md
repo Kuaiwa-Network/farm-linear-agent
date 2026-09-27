@@ -106,6 +106,12 @@ recipient: `prepare-notice --kind question --request-id questions-N --body-file 
 one-line question that points to that comment. After an interruption, rerun `post-notice` with the same
 request id instead of preparing a new round; `issue-context.notices` shows which rounds were posted.
 
+Use `await-input --reason waiting --question TEXT` only when you need no answer but must wait for a
+named human step elsewhere that you cannot perform, such as a merge, a designer or Jenkins publish, or
+an export: say what you wait for and who should reply when it is done. It posts the same session
+elicitation without adding `needs-more-info`. Missing information or a decision is always a question.
+Release any Unity reservation (`release-resource --outcome quiescent`) before either kind of pause.
+
 An explicit human decision can resolve a contract conflict: record it in the checkpoint and the
 contract change as "Deciders and mentions" says, then implement it. Do not invent decisions or
 attribution. A missing generator/tool or external dependency is still a real blocker; name it

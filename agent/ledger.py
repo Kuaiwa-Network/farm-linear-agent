@@ -30,6 +30,8 @@ TERMINAL_STATUS_TYPES = ("completed", "canceled", "duplicate")
 # table rebuild, which is what the outbox's CHECK and UNIQUE key would demand.
 NOTICE_KINDS = ("question", "waiting", "foreign_work")
 REQUEST_ID = re.compile(r"[A-Za-z0-9._-]{1,64}")
+# Why a pause waits (spec §5.2): a question needs an answer and adds needs-more-info; waiting is a human step elsewhere.
+AWAIT_REASONS = ("question", "waiting")
 
 
 class LedgerError(ValueError):
@@ -1021,13 +1023,23 @@ class Ledger:
             self._audit(item_id, "repository_handoff_complete", details={"to": target})
             return self._view(self._row(item_id))
 
-    def await_input(self, item_id, token, question):
+    def require_no_reservation(self, item_id):
+        """A pause holds no process and no Unity slot (spec §5.2): release or withdraw the request first."""
+        if self.connection.execute(f"""SELECT 1 FROM reservations WHERE item_id=? AND state IN
+                ({','.join('?' * len(self.RESERVATION_OPEN))}) LIMIT 1""", (item_id, *self.RESERVATION_OPEN)).fetchone():
+            raise LedgerError("release the resource reservation before pausing for input")
+
+    def await_input(self, item_id, token, question, *, reason="question"):
         _text(question, "question")
+        if reason not in AWAIT_REASONS:
+            raise LedgerError("await-input reason must be question or waiting")
         with self._transaction():
             self.require_valid_checkpoint(item_id, token)
             row = self._owned(item_id, token)
+            self.require_no_reservation(row["id"])
             checkpoint = json.loads(row["checkpoint"])
             checkpoint["pending_question"] = question
+            checkpoint["pending_reason"] = reason
             # Linear may deliver the answer between posting the question and this
             # transaction. Do not strand that reply behind an awaiting-input gate.
             pending = self.connection.execute("SELECT 1 FROM inbox WHERE item_id=? AND consumed_at IS NULL",
@@ -1890,6 +1902,7 @@ class Ledger:
                 "session_messages": [_message(r) for r in self.connection.execute(
                     "SELECT id,body,author_json,created_at FROM inbox WHERE item_id=? ORDER BY id", (item_id,))],
                 "pending_question": checkpoint.get("pending_question"),
+                "pending_reason": checkpoint.get("pending_reason"),
                 "notices": [{key: notice[key] for key in ("request_id", "kind", "remote_id", "created_at", "confirmed_at")}
                             for notice in self.notices(item_id)],
                 "published_prs": [r["url"] for r in self.connection.execute(

@@ -745,6 +745,51 @@ class OutboxTests(LedgerBase):
                                 "verification": "dotnet test", "prs": []})
 
 
+class PauseTests(LedgerBase):
+    def running(self):
+        item = self.new_item()
+        return item["id"], self.ledger.claim(item["id"], worker_id="w")["token"]
+
+    def running_with_slot(self):
+        item_id, token = self.running()
+        self.ledger.await_resource(item_id, token, "unity_slot", "interactive")
+        self.ledger.ensure_slot("unity_slot:1", kind="unity_slot", host="h", folder=str(self.path.parent / "slot-1"))
+        granted = self.ledger.acquire("unity_slot", owner="pool", host="h")
+        self.ledger.resume(item_id, "the pool granted the slot")
+        return item_id, self.ledger.claim(item_id, worker_id="w2")["token"], granted
+
+    def test_await_input_records_its_reason_beside_the_question(self):
+        item_id, token = self.running()
+        with self.assertRaisesRegex(LedgerError, "question or waiting"):
+            self.ledger.await_input(item_id, token, "需要哪个环境？", reason="later")
+        self.assertEqual(self.ledger.item(item_id)["state"], "running")
+        view = self.ledger.await_input(item_id, token, "需要哪个环境？")
+        self.assertEqual((view["checkpoint"]["pending_question"], view["checkpoint"]["pending_reason"]),
+                         ("需要哪个环境？", "question"))
+        self.ledger.resume(item_id, "human replied")
+        token = self.ledger.claim(item_id, worker_id="w2")["token"]
+        self.ledger.await_input(item_id, token, "等待策划发布配置。", reason="waiting")
+        context = self.ledger.issue_context(item_id)
+        self.assertEqual((context["pending_question"], context["pending_reason"]), ("等待策划发布配置。", "waiting"))
+
+    def test_await_input_refuses_while_any_reservation_is_open(self):
+        """A pause holds no process and no Unity slot (spec §5.2), like a repository handoff."""
+        item_id, token, granted = self.running_with_slot()
+        for state in ("active", "cancel_requested", "queued"):
+            with self.subTest(state=state):
+                if state == "cancel_requested":
+                    self.ledger.cancel_reservations(item_id, "operator withdrew the slot")
+                if state == "queued":
+                    self.ledger.release(granted["reservation_id"], granted["token"], "probe settled")
+                    self.ledger.requeue_reservation(granted["reservation_id"], "retryable switch failure")
+                self.assertEqual([r["state"] for r in self.ledger.reservations(Ledger.RESERVATION_OPEN)], [state])
+                with self.assertRaisesRegex(LedgerError, "release the resource reservation"):
+                    self.ledger.await_input(item_id, token, "需要哪个环境？", reason="waiting")
+                self.assertEqual(self.ledger.item(item_id)["state"], "running")
+        self.ledger.cancel_reservations(item_id, "request withdrawn")
+        self.assertEqual(self.ledger.await_input(item_id, token, "需要哪个环境？")["state"], "awaiting_input")
+
+
 class NoticeTests(LedgerBase):
     def running(self):
         item = self.new_item()

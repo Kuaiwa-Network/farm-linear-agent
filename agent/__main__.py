@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from .config import Paths, linear_api, load_config
-from .ledger import NOTICE_KINDS, TERMINAL_STATUS_TYPES, Ledger, LedgerError
+from .ledger import AWAIT_REASONS, NOTICE_KINDS, TERMINAL_STATUS_TYPES, Ledger, LedgerError
 from .memory import prune_snapshots
 from .router import WRITE_SKILLS
 from .stages import FIX_REPOSITORIES, write_repositories
@@ -66,7 +66,9 @@ def parser():
     cmd("post-notice", "--item", "--request-id", token=True)
     activity = cmd("activity", "--item", "--body-file", token=True)
     activity.add_argument("--type", required=True, choices=["thought", "action", "response", "error", "elicitation"])
-    cmd("await-input", "--item", "--question", token=True)
+    pause = cmd("await-input", "--item", "--question", token=True)
+    pause.add_argument("--reason", choices=AWAIT_REASONS, default="question",
+                       help="question (default) adds needs-more-info; waiting, for a human step elsewhere, does not")
     resume = cmd("resume-work", "--item", token=True)
     resume.add_argument("--message-id", type=int, required=True)
     repair = cmd("request-repair", "--item", "--summary-file", token=True)
@@ -353,10 +355,12 @@ def run(args, ledger, api_factory):
         item = ledger.item(args.item)
         ledger.renew(args.item, token)
         ledger.require_valid_checkpoint(args.item, token)
+        ledger.require_no_reservation(args.item)  # refuse before anything reaches Linear
         api = api_factory()
-        api.needs_more_info(item["issue_id"])
+        if args.reason == "question":
+            api.needs_more_info(item["issue_id"])
         api.create_activity(item["session_id"], {"type": "elicitation", "body": args.question})
-        return ledger.await_input(args.item, token, args.question)
+        return ledger.await_input(args.item, token, args.question, reason=args.reason)
     if c in ("resume-work", "request-repair"):
         token = resolve_token(args)
         ledger.renew(args.item, token)

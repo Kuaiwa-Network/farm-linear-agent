@@ -482,6 +482,33 @@ class CliTests(unittest.TestCase):
         self.assertIn("running claim", wrong.stderr)
         self.assertNotIn("create_comment", [c["method"] for c in self.calls()])
 
+    def test_only_a_question_pause_adds_needs_more_info(self):
+        question = self.seeded_item()
+        waiting = self.seeded_item(issue_id=OTHER, session="session-2")
+        for item, flags, reason in ((question, [], "question"), (waiting, ["--reason", "waiting"], "waiting")):
+            token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
+            parked = self.run_cli("await-input", "--item", item, "--token", token, *flags,
+                                  "--question", "等待确认。")
+            self.assertEqual((parked["state"], parked["checkpoint"]["pending_reason"]), ("awaiting_input", reason))
+            self.assertEqual(self.run_cli("issue-context", "--item", item)["pending_reason"], reason)
+        self.assertEqual([c["issue_id"] for c in self.calls() if c["method"] == "needs_more_info"], [ISSUE])
+        self.assertEqual([c["content"]["type"] for c in self.calls() if c["method"] == "create_activity"],
+                         ["elicitation", "elicitation"])
+
+    def test_await_input_refuses_before_posting_while_a_reservation_is_open(self):
+        from agent.ledger import Ledger
+        item, _ = self.granted_item(mode="interactive")
+        ledger = Ledger(self.db)
+        ledger.resume(item, "the pool granted the slot")  # SlotPool.hand_over, so a fresh worker may claim
+        ledger.close()
+        token = self.run_cli("claim", "--item", item, "--worker-id", "fresh")["token"]
+        before = len(self.calls())
+        refused = self.run_cli("await-input", "--item", item, "--token", token, "--question", "需要哪个环境？",
+                               success=False)
+        self.assertIn("release the resource reservation", refused.stderr)
+        self.assertEqual(len(self.calls()), before)  # neither the label nor the elicitation reached Linear
+        self.assertEqual(self.run_cli("issue-context", "--item", item)["coordination"]["state"], "running")
+
     def test_activity_and_await_input_park_the_item(self):
         item = self.seeded_item()
         token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
