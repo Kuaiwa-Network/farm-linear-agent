@@ -14,6 +14,56 @@
 
 **Baseline:** `main` at `a29d078`. Line numbers cited below are for that commit; re-check them when a task starts, because other work may have landed. Tasks 1–14 were rehearsed in order on an export of `a29d078` on 2026-09-25; each step applies on top of the tasks before it, and where an earlier task moved an anchor the step names the text to find.
 
+## As executed (2026-09-27, Task 15 for PR A1)
+
+PR A1 (Tasks 1–4) merged as #52 on 2026-09-26 with two review-fix commits, and #53 on 2026-09-27 added the
+`User.app` rule that Task 15 found necessary. Task 15 ran for A1 alone; every check that needs Tasks 5–14 is
+recorded as skipped below. The task text further down is the plan as dispatched: where it differs from the code,
+the code and the operating contract are authoritative, and the note after Task 4 lists the differences.
+
+- **Step 1, macOS offline suite:** `python3 -B -m unittest discover -s tests` at the #53 change (a tree identical
+  to `main` after its merge): 969 tests OK, 11 skipped, all Windows-only. The same change applied on top of the
+  rehearsed Tasks 1–14 with #52's fixes: 1116 OK, 15 skipped.
+- **Step 2, Windows suite:** not run; no Windows host took part. Mac results are not Windows verification.
+- **Step 3, doctor:** read-only with the TestBot profile from the A1 checkout: `status: attention` with one
+  finding, the `cleanup_pending` warning on FARM-1300's chat item of 2026-09-23 (a worker that exited on its own
+  before #31; its process is dead). No other finding. Doctor lists no skills, since Task 12 is not implemented; the
+  controller's `ready` line lists `chat` and `fix`.
+- **Step 4, live checks on TestBot,** read-only through TestBot's own token unless noted, on FARM-1313 (the
+  operator's earlier test issue), FARM-1353 and FARM-1127, each named by the operator:
+  1. **Label groups:** FARM-1353 reads `label_groups` as `[{"group": "部门", "label": "程序"}]`. The 功能 group with
+     UI and Code exists; no card carries it yet. Routing: skipped, Task 12 is not implemented.
+  2. **Authors and the prompting user:** TestBot ran from the A1 checkout (revision `8a84023`, runtime `claude`)
+     behind a quick tunnel. The operator @TestBot-mentioned FARM-1313 and, after the answer, replied once in the
+     session. Read through `readonly_db`, the ledger holds the session's creator and both messages' authors as
+     `{id, name, url}` with the operator's full Linear name (not the `displayName` handle) and profile URL, and
+     `created_at` is each webhook's arrival time (mention 01:39:44Z, reply 01:42:03Z). The reply's author came
+     from `agentActivity.user` and the session's creator from `agentSession.creator`, so Task 3's field names
+     are right. Neither of the workspace's email domains nor `avatarUrl` occurs anywhere in the ledger file or
+     the run directories. Both chats ran as Claude workers; the first answered in about 80 s.
+  3. **Mentions:** notices are Task 6, so the check used one plain comment posted through TestBot's token on
+     FARM-1313 containing the operator's profile URL. It rendered as a mention and Linear notified the operator
+     (D10: yes, one observation). With #53, TestBot reads that comment back as its own, `author_kind` `bot`.
+  4. **One upload download:** skipped, Task 5 is not implemented. Found meanwhile: through the app token, GraphQL
+     returns the uploads in FARM-1313 and FARM-1353 as Markdown images, `![name](https://uploads.linear.app/...)`,
+     with no signature, while the Linear MCP shows the same description as `<linear-image>` JSON with signed
+     URLs. `strip_signed` therefore had nothing to remove on these issues; replies come through `parent`.
+  5. **Windows worker approval:** skipped, Task 11 is not implemented and no Windows host took part.
+  6. **An app-created issue's creator:** skipped, the workspace has no issue created by an app or an
+     integration (checked through the Linear MCP for the Codex and Linear integration users). The schema has
+     `Issue.botActor` and `Issue.externalUserCreator` for that case, and `person()` drops an app creator since #53.
+  7. **Another app's comments:** at #52, production FarmBot's five comments on FARM-1127 read as `human` with
+     FarmBot as the author, because Linear sends an app's comment with a `user` and no `botActor`; only Linear's
+     own "This thread is for an agent session" comment carries a `botActor`. Linear marks app users with
+     `User.app` (true for FarmBot, TestBot, Codex and the Linear integration user, false for people), which #53
+     uses: re-read, the five comments are `bot` with no author and the three human comments keep their authors.
+- **Also settled:** Linear serves every new `ISSUE_QUERY` field (one missing field would fail every issue read),
+  and the review's open question about a user whose name FarmBot refuses stays as implemented, every name in the
+  workspace being plain.
+- **Evidence:** the TestBot ledger and run directories under its `local_root`, and its controller log
+  (`AgentSessionEvent` `created` and `prompted`, both `accepted`). The read-only probes were throwaway scripts
+  built on `agent.config.linear_api` and `agent.readonly_db`, not part of the repository.
+
 ## Global Constraints
 
 - **Keep `fix` and `chat` working as today.** Every existing test must still pass; a task that has to change an existing test's setup (never its assertions) says so, as Task 7 does for three resource-recovery tests, Task 10 for the direct handoff calls (including those Tasks 8 and 9 add) and Task 12 for two scheduler fixtures of Tasks 10 and 11. Each task says exactly which `fix` behaviour it changes. The only intended `fix` changes: the `strip_signed` repair keeps signed upload URLs from swallowing the text after them, which changes stored issue text and, once, fingerprints (Task 2's migration note); fix workers see who wrote each session message and when it arrived, in `issue-context` and the launch message's `user_requests` (Task 3); fix workers read comment authors, the owner and the creator from `issue-context` and name deciders and mention people with them (Task 4); they can download Linear uploads (Task 5); they can post notices, pause with `--reason waiting`, and call `revalidate` (Tasks 6–8); a Bug card that also carries a 功能 label elicits instead of starting `fix`, and a chat on a 功能 card can no longer request a repair (Task 12); and fix workers record each branch in the plan's `prs` before its first push, so `foreign-work` counts it as their own (Task 13).
