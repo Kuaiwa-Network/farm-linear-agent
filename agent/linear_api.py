@@ -34,9 +34,9 @@ ISSUE_QUERY = """query FarmBotIssue($id: String!, $after: String) {
   issue(id: $id) {
     id identifier url branchName title description priority archivedAt updatedAt
     state { name type } team { id } labels { nodes { name parent { id name } } } attachments { nodes { url } }
-    delegate { id } assignee { id name url } creator { id name url }
+    delegate { id } assignee { id name url app } creator { id name url app }
     comments(first: 50, after: $after) {
-      nodes { id url body createdAt updatedAt user { id name url } botActor { id } parent { id } }
+      nodes { id url body createdAt updatedAt user { id name url app } botActor { id } parent { id } }
       pageInfo { hasNextPage endCursor }
     }
   }
@@ -76,10 +76,12 @@ def person(node):
     """A Linear User node as exactly {"id", "name", "url"}, or None.
 
     None unless the node has a UUID id, a name and an https://linear.app/ profile URL. The name is trimmed, and a
-    name that is too long, holds hidden characters or contains an email address names nobody. Every other field,
-    the email included, is dropped.
+    name that is too long, holds hidden characters or contains an email address names nobody. An app user is
+    nobody too: Linear sets `User.app` on FarmBot itself, another FarmBot instance, Codex and its own integration
+    user, and none of them is ever an owner, a creator or an author. Every other field, the email included, is
+    dropped; a node without `app`, as an older read or a webhook payload gives, is judged by its id alone.
     """
-    if not isinstance(node, dict):
+    if not isinstance(node, dict) or node.get("app"):
         return None
     user_id, name, url = node.get("id"), node.get("name"), _linear_url(node.get("url"))
     if not (isinstance(user_id, str) and isinstance(name, str) and url):
@@ -261,13 +263,15 @@ class LinearAPI:
             if issue is None:
                 raise RuntimeError("Issue not found")
             for node in issue["comments"]["nodes"]:
-                if node.get("botActor") or (self.app_user_id and (node.get("user") or {}).get("id") == self.app_user_id):
+                user = node.get("user") or {}
+                if node.get("botActor") or user.get("app") or (self.app_user_id and user.get("id") == self.app_user_id):
                     kind = "bot"
-                elif node.get("user"):
+                elif user:
                     kind = "human"
                 else:
                     kind = "unknown"
-                # Only a human comment has an author: FarmBot's own and integrations' comments have none.
+                # Only a human comment has an author. An app's comment (Linear's `User.app`: FarmBot's own, another
+                # instance's, Codex's) arrives with a `user` and no `botActor`; an integration's has neither.
                 comments.append({"id": node["id"], "url": _linear_url(node.get("url")),
                                  "body": strip_signed(node["body"]), "author_kind": kind,
                                  "author": person(node.get("user")) if kind == "human" else None,
@@ -277,7 +281,8 @@ class LinearAPI:
             if not page["hasNextPage"]:
                 break
             after = page["endCursor"]
-        # FarmBot's own app user is never the issue's owner or its author, whatever Linear reports.
+        # An app user is never the issue's owner or creator: person() drops one Linear marks, and FarmBot's own id
+        # is checked as well, for a read that lacks `app`.
         people = {field: person(issue.get(field)) for field in ("assignee", "creator")}
         people = {field: None if found and found["id"] == (self.app_user_id or "").lower() else found
                   for field, found in people.items()}

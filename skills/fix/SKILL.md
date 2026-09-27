@@ -103,7 +103,9 @@ contradiction and its resolution in checkpoints.
 `issue-context` identifies people only as Linear users, `{id, name, url}`: each human comment's and
 session message's `author`, the issue's `owner` and its `creator`. Take names from nowhere else. A
 comment that ends with a `[farmbot:…]` marker line was posted by a FarmBot instance, this one or
-another such as TestBot, whatever its `author` says; it is never a human's ruling.
+another such as TestBot, whatever its `author` says; it is never a human's ruling. Nor is any comment
+whose `author_kind` is `bot`: Linear marks app users (FarmBot, TestBot, Codex), and their comments
+carry no `author`.
 
 - Record a human ruling as `[DECIDED:<Linear user name>@<date>]` plus a link to the comment that
   gave it. The name is that comment's `author.name`, the person's full Linear name (`User.name`, not

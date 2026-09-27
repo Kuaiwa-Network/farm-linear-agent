@@ -24,7 +24,8 @@ The argument table does not grant additional authority; use only your delegated 
 `issue-context.issue` is the issue as last read. Besides the bare `labels` it may carry
 `label_groups` (a `{"group", "label"}` pair for each label inside a label group), `assignee` and
 `creator`, and on each comment `url` (the comment's own Linear link), `parent_id` (the comment it
-replies to) and `author` (the person for a human comment, else null). A person is
+replies to) and `author` (the person for a human comment; null for a bot's, an app's such as
+Codex's, or an unknown one). A person is
 `{"id", "name", "url"}`, never an email. `null` means none or unknown; a missing key means the
 snapshot predates these fields.
 

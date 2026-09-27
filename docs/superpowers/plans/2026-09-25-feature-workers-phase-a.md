@@ -31,7 +31,7 @@
 
 These shapes are shared by several tasks. Implement them exactly; a task that needs a change updates this section first.
 
-**Person.** `{"id": <Linear user UUID>, "name": <Linear `User.name`, the full name, not the `displayName` handle>, "url": <Linear profile URL>}`. Built only from a Linear `User` node (`id name url`); any other field, email included, is dropped. `url` must be an `https://linear.app/` URL, or the whole person is `null`. The name is trimmed; a name that is blank, longer than 256 characters, holds a control, format (a bidirectional mark or an invisible character, other than the joiners emoji sequences use), private-use or line-separator character, or contains an email address also makes the person `null`. FarmBot's own app user is never an issue's `assignee` or `creator`. A comment's profile URL in its body is what Linear renders as a mention (spec §5.3).
+**Person.** `{"id": <Linear user UUID>, "name": <Linear `User.name`, the full name, not the `displayName` handle>, "url": <Linear profile URL>}`. Built only from a Linear `User` node (`id name url`); any other field, email included, is dropped. `url` must be an `https://linear.app/` URL, or the whole person is `null`. The name is trimmed; a name that is blank, longer than 256 characters, holds a control, format (a bidirectional mark or an invisible character, other than the joiners emoji sequences use), private-use or line-separator character, or contains an email address also makes the person `null`. An app user, which Linear marks with `User.app` (FarmBot's own included), is never a person: never an issue's `assignee` or `creator`, and its comments are a bot's with no author. A comment's profile URL in its body is what Linear renders as a mention (spec §5.3).
 
 **Issue metadata (`fetch_issue` → `Ledger.observe_issue`), new optional keys.** All are absent in rows written before Task 2, and `_normalize` treats absence as "unknown" (not an error).
 - `label_groups`: sorted list of `{"group": <parent label name>, "label": <child label name>}` for every label that has a parent. `labels` keeps every label's bare name, unchanged (Bug routing and stored rows depend on it).
@@ -1534,6 +1534,12 @@ Shared Interfaces above describe it.
   control, format (a bidirectional mark or an invisible character, other than the joiners emoji
   sequences use), private-use or line-separator character, or containing an email address, judged by
   Unicode category. `fetch_issue` never reports FarmBot's own app user as the assignee or the creator.
+- `person()` (Task 1) also names nobody for an app user, which Linear marks with `User.app` (true for
+  FarmBot, TestBot, Codex and Linear's integration user, checked live on 2026-09-27), and the comment
+  classifier reads an app's comment, which arrives with a `user` and no `botActor`, as a bot's. So
+  another app's comment carries no author and is no ruling, and an app is never the assignee or the
+  creator. At deploy, an issue another app commented on changes fingerprint once, like the
+  `strip_signed` repair.
 - `Ledger.push_inbox` (Task 3) takes `received_at`, which the receiver passes from its webhook row, so a
   message processed after a restart keeps the time it arrived.
 - `owner` (Task 4) comes from the issue's latest delegation session in Linear, not the item's own: a
@@ -1548,11 +1554,11 @@ Shared Interfaces above describe it.
 - The deploy note (Task 2) covers every unfinished job on an affected issue, not only running ones, and
   the refused late PR registration.
 
-Left for Task 15's live checks: that Linear serves every new `ISSUE_QUERY` field (one missing field fails
-every issue read); that `User.name` is the full name and never an email; whether `Issue.creator` is null
-for an issue an app created; and whether Linear marks app users (`User.app`), so that another app's
-comments, such as TestBot's, stop reading as a person's. `LINEAR_URL` still accepts any non-space
-character after `https://linear.app/`.
+Checked live through TestBot on 2026-09-27 (Task 15's read-only part): Linear serves every new
+`ISSUE_QUERY` field; `User.name` is the full name, never an email; `User.app` marks app users, which the
+note above now uses; an issue an app created does not exist in the workspace, so `Issue.creator` on one
+is unchecked (the schema's `Issue.botActor` covers that case, and `person()` drops an app creator).
+`LINEAR_URL` still accepts any non-space character after `https://linear.app/`.
 
 ---
 
@@ -7764,7 +7770,9 @@ profile URL (`{id, name, url}`), never an email. A user without a UUID or an `ht
 profile URL is stored as null, as is one whose name is blank, longer than 256 characters, holds a
 control, format (a bidirectional mark or an invisible character, other than the joiners emoji
 sequences use), private-use or line-separator character, or contains an email address, and so is a
-comment link outside `https://linear.app/`. FarmBot's own app user is never the assignee or the creator.
+comment link outside `https://linear.app/`. An app user, which Linear marks with `User.app` (FarmBot
+itself, another FarmBot instance, Codex or Linear's integration user), is never a person: its comments
+are a bot's, with no author, and it is never the assignee or the creator.
 None of this is issue input: a claim covers the title, the description, attachments other than
 the job's own PRs, and the IDs and bodies of the comments that are neither a bot's nor FarmBot's
 own, so reassigning or relabelling an issue neither requeues its work nor refuses a handoff.
@@ -7849,8 +7857,8 @@ Expected: `OK`. The Windows-only upload cases (reserved device names, trailing d
   3. **Mentions.** A notice that puts the owner's and the creator's profile URLs in the body renders as mentions, and both people receive a Linear notification. This is D10's "does an agent comment's mention notify reliably"; record the answer either way.
   4. **One upload download.** `download-uploads` on an issue with one screenshot returns the file with its pixel size in the manifest, using the TestBot app's credentials, and no token or signed URL appears in the output or files (D10). If every download fails because Linear answers with a redirect to signed storage, record the redirect's host: the follow-up is to follow one redirect to that allowlisted host without the `Authorization` header (Task 5 refuses all redirects today).
   5. **Windows worker approval, only with the operator's go-ahead for the production host.** A Codex worker on the Windows host runs `download-uploads` without the approval reviewer escalating it. FARM-1282 saw unexplained escalations of actions inside writable roots there, and the command's Linear-credential rule lives in the skill and reference, not in the frozen AUTHORITY (Task 11).
-  6. **An app-created issue's creator.** On an issue an integration or an API token created, `fetch-issue` shows `creator: null`. If it shows that app's user as a person instead, record it: the creator filter then needs Linear's `User.app` flag before a 策划 question mentions it (Task 4's note).
-  7. **Another app's comments.** On the chosen issue, a comment TestBot posted appears in FarmBot's `issue-context` with `author_kind` `bot` and `author` null. If it reads as `human` with a person, record whether Linear sets `User.app` on that user. Until telling apps from people lands as a follow-up, such a comment is issue input, and only the fix skill's `[farmbot:…]` marker rule keeps it from being a ruling.
+  6. **An app-created issue's creator.** On an issue an integration or an API token created, `fetch-issue` shows `creator: null`, because `person()` drops a user Linear marks with `User.app`. If it shows that app's user as a person instead, the query or `person()` regressed.
+  7. **Another app's comments.** On the chosen issue, a comment TestBot posted appears in FarmBot's `issue-context` with `author_kind` `bot` and `author` null, because Linear marks the poster with `User.app` (A1's note). If it reads as `human` with a person, the query or the classifier regressed.
   A check not run is recorded as a skip with its reason in Step 5, never left out.
 
 - [ ] **Step 5: Record results.** Add the "As executed" section to this plan with the date, the commands run, the results and every skip. Record the D10 answers (mention notification, upload download) in spec §14.1. If a live check fails, stop and report; fixing it is a new task.
