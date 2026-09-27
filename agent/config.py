@@ -8,7 +8,7 @@ import os
 import re
 from pathlib import Path
 
-from .linear_api import LinearAPI
+from .linear_api import LinearAPI, UploadError, save_stream
 from .kw_ops import validate_config as validate_kw_ops_config
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -199,6 +199,16 @@ class StubLinear:
 
     def needs_more_info(self, issue_id):
         self._record("needs_more_info", issue_id=issue_id)
+
+    def download_upload(self, url, destination, *, max_bytes):
+        """Serves `uploads/<last URL segment>` from the stub directory, stored as LinearAPI.download_upload does."""
+        self._record("download_upload", url=url)
+        source = self.directory / "uploads" / url.rsplit("/", 1)[-1]
+        if not source.is_file():
+            raise UploadError("HTTP 404")
+        with source.open("rb") as stream:
+            size, digest = save_stream(stream.read, destination, max_bytes=max_bytes)
+        return {"size": size, "sha256": digest, "content_type": "application/octet-stream"}
 
 
 def linear_api(config=None):

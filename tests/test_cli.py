@@ -656,6 +656,74 @@ class CliTests(unittest.TestCase):
                                "--outcome", "quiescent", success=False)
         self.assertIn("holds no resource", process.stderr)
 
+    SHOT = "https://uploads.linear.app/7b0c6c4e-2f7a-4c55-9d0e-3a1f5e6d7c8b/0f1e2d3c/4b5a6978"
+
+    def upload_fixture(self):
+        """A claimed item whose issue shows one screenshot, which the stub serves; returns (item, token file)."""
+        from test_uploads import png
+        described = issue(labels=["Bug"], description=f"![截图 1.png]({self.SHOT})")
+        (self.stub / "issue.json").write_text(json.dumps(described), encoding="utf-8")
+        (self.stub / "uploads").mkdir()
+        (self.stub / "uploads" / "4b5a6978").write_bytes(png(2, 3))
+        item = self.seeded_item()
+        token_file = self.root / "token"
+        token_file.write_text(self.run_cli("claim", "--item", item, "--worker-id", "w")["token"], encoding="utf-8")
+        return item, token_file
+
+    def test_download_uploads_needs_the_claim_and_an_absolute_directory_that_is_not_a_link(self):
+        item, token_file = self.upload_fixture()
+        out = self.root / "状态 目录" / "inputs" / "linear"
+        self.assertIn("claim token required",
+                      self.run_cli("download-uploads", "--item", item, "--out", str(out), success=False).stderr)
+        wrong = self.root / "wrong-token"
+        wrong.write_text("claim_not-this-one", encoding="utf-8")
+        self.assertIn("running claim and matching token required",
+                      self.run_cli("download-uploads", "--item", item, "--token-file", str(wrong), "--out", str(out),
+                                   success=False).stderr)
+        for bad in ("inputs/linear", str(self.root / "a" / ".." / "b")):
+            refused = self.run_cli("download-uploads", "--item", item, "--token-file", str(token_file), "--out", bad,
+                                   success=False)
+            self.assertIn("absolute path", refused.stderr)
+        link = self.root / "linked"
+        try:
+            os.symlink(self.root, link, target_is_directory=True)
+        except OSError:
+            pass  # Windows without the symlink privilege; test_uploads covers junctions there
+        else:
+            refused = self.run_cli("download-uploads", "--item", item, "--token-file", str(token_file), "--out",
+                                   str(link), success=False)
+            self.assertIn("symlink", refused.stderr)
+        self.assertFalse(out.exists())
+        self.assertEqual(self.calls(), [])  # nothing reached Linear
+
+    def test_download_uploads_refuses_a_url_that_is_not_one_of_the_claimed_issues_uploads(self):
+        item, token_file = self.upload_fixture()
+        for url in (self.SHOT.replace("4b5a6978", "00000000"), self.SHOT + "?signature=abc",
+                    "https://example.com/a.png"):
+            with self.subTest(url=url):
+                refused = self.run_cli("download-uploads", "--item", item, "--token-file", str(token_file),
+                                       "--out", str(self.root / "out"), "--url", url, success=False)
+                self.assertIn("--url 1 is not an upload of the claimed issue", refused.stderr)
+                self.assertNotIn("signature", refused.stderr)
+        self.assertNotIn("download_upload", [call["method"] for call in self.calls()])
+
+    def test_download_uploads_writes_the_manifest_prints_one_summary_and_fetches_once(self):
+        item, token_file = self.upload_fixture()
+        out = self.root / "状态 目录" / "inputs" / "linear"
+        summary = self.run_cli("download-uploads", "--item", item, "--token-file", str(token_file), "--out", str(out))
+        self.assertEqual(summary["manifest"], str(out / "manifest.json"))
+        self.assertEqual([(upload["name"], upload["result"], upload["pixels"]) for upload in summary["uploads"]],
+                         [("截图 1.png", "downloaded", {"width": 2, "height": 3})])
+        manifest = (out / "manifest.json").read_text(encoding="utf-8")
+        self.assertEqual(json.loads(manifest)["files"][0]["url_path"], self.SHOT[len("https://uploads.linear.app"):])
+        claim_token = token_file.read_text(encoding="utf-8")
+        self.assertNotIn(claim_token, json.dumps(summary) + manifest)
+        again = self.run_cli("download-uploads", "--item", item, "--token-file", str(token_file), "--out", str(out),
+                             "--url", self.SHOT)
+        self.assertEqual(again["uploads"][0]["result"], "unchanged")
+        self.assertEqual([call["method"] for call in self.calls()].count("download_upload"), 1)
+        self.assertEqual(self.run_cli("issue-context", "--item", item)["coordination"]["state"], "running")
+
     def test_a_no_change_delivery_completes_the_session_as_no_change(self):
         item = self.seeded_item()
         token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
