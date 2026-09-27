@@ -154,6 +154,45 @@ class ServeTests(unittest.TestCase):
         self.assertEqual(service.pool.mcp.token_env, "KW_OPS_TOKEN")
         self.assertEqual(service.recovery.pool.mcp.token_env, "KW_OPS_TOKEN")
 
+    def test_build_routes_and_schedules_only_the_enabled_skills(self):
+        config = Config(client_id="client", client_secret="s", webhook_secret="signing-secret", host="test",
+                        runtime="fake", repos=self.c.config.repos, port=0,
+                        local_root=Path(self.tmp.name) / "chat-only", enabled_skills=["chat"])
+        service = build(config)
+        self.close_later(service)
+        self.assertEqual(service.receiver.skills, {"chat"})
+        self.assertEqual(service.scheduler.enabled_skills, {"chat"})
+        # Still loaded, so the scheduler can refuse a queued fix instead of leaving it waiting.
+        self.assertEqual(set(service.scheduler.skills), {"chat", "fix"})
+        # A config without the key runs every skill in the checkout.
+        self.assertEqual((self.c.receiver.skills, self.c.scheduler.enabled_skills), ({"chat", "fix"}, {"chat", "fix"}))
+
+    def test_build_refuses_an_unknown_enabled_skill_before_opening_any_state(self):
+        from agent.skills import SkillError
+        root = Path(self.tmp.name) / "unknown-skill"
+        config = Config(client_id="client", client_secret="s", webhook_secret="signing-secret", host="test",
+                        runtime="fake", repos=self.c.config.repos, port=0, local_root=root,
+                        enabled_skills=["chat", "feature"])
+        with self.assertRaisesRegex(SkillError, "does not have: feature"):
+            build(config)
+        self.assertFalse((root / "agent" / "ledger.sqlite3").exists())
+
+    def test_build_refuses_an_enabled_skill_the_dispatch_cannot_brief(self):
+        from agent.skills import SkillError
+        root = Path(self.tmp.name) / "unbriefed-skill"
+        config = Config(client_id="client", client_secret="s", webhook_secret="signing-secret", host="test",
+                        runtime="fake", repos=self.c.config.repos, port=0, local_root=root)
+        with patch("agent.service.SKILL_AUTHORITY", {"chat": "the chat part"}):
+            with self.assertRaisesRegex(SkillError, "AUTHORITY part for enabled skills: fix"):
+                build(config)
+            self.assertFalse((root / "agent" / "ledger.sqlite3").exists())
+            chat_only = Config(client_id="client", client_secret="s", webhook_secret="signing-secret", host="test",
+                               runtime="fake", repos=self.c.config.repos, port=0, local_root=root,
+                               enabled_skills=["chat"])
+            service = build(chat_only)
+            self.close_later(service)
+        self.assertEqual(service.receiver.skills, {"chat"})
+
     def test_build_gives_the_pool_its_own_connection_and_never_the_schedulers(self):
         """The rule this whole task exists for, asserted on the production wiring rather than on a SlotPool
         a test constructed. serve() runs pool.tick() on a third thread while the scheduler ticks on its own
@@ -611,6 +650,16 @@ class EnqueueTests(unittest.TestCase):
                                               encoding="utf-8")
         item = enqueue(self.config, issue_ref=ISSUE, skill="chat", commit="a" * 40)
         self.assertEqual((item["state"], item["skill"]), ("queued", "chat"))
+
+    def test_enqueue_refuses_a_skill_this_instance_does_not_run(self):
+        """spec §9.11: enqueue is a way past the webhook, not past the host's choice of skills."""
+        for enabled, skill in ((["chat"], "fix"), (None, "qa")):
+            with self.subTest(enabled=enabled, skill=skill):
+                self.config.enabled_skills = enabled
+                with self.assertRaisesRegex(RuntimeError, "not a skill this instance runs"):
+                    enqueue(self.config, issue_ref=ISSUE, skill=skill, commit="a" * 40)
+        self.assertFalse(Paths(self.config).ledger.exists())
+        self.assertFalse((self.stub / "calls.jsonl").exists())  # refused before Linear was asked anything
 
 
 class LoopGuardTests(unittest.TestCase):

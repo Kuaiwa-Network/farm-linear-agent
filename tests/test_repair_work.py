@@ -166,6 +166,61 @@ class RepairWorkTests(LedgerBase):
             run(args, self.ledger, lambda: api)
         self.assertEqual(self.ledger.queue(), [])
 
+    def test_cli_refuses_repair_on_a_host_that_does_not_run_fix(self):
+        from unittest.mock import patch
+        from agent.config import Config
+        chat, token = self.conversation()
+        args = self.cli_request(chat, token)
+        sent = []
+        api = SimpleNamespace(app_user_id=APP, fetch_issue=lambda _: issue(delegate_id=APP),
+                              create_activity=lambda session, content: sent.append(content))
+        resume = parser().parse_args(["--db", str(self.path), "resume-work", "--item", chat["id"], "--token", token,
+                                      "--message-id", str(args.message_id)])
+        with patch("agent.__main__.load_config", return_value=Config("c", "s", "w", enabled_skills=["chat"])):
+            for command in (args, resume):
+                with self.subTest(command=command.command), \
+                        self.assertRaisesRegex(LedgerError, "repair execution is not available on this host"):
+                    run(command, self.ledger, lambda: api)
+        self.assertEqual((self.ledger.item(chat["id"])["state"], self.ledger.queue(), sent), ("running", [], []))
+        with patch("agent.__main__.load_config", return_value=Config("c", "s", "w", enabled_skills=["chat", "fix"])):
+            self.assertEqual(run(args, self.ledger, lambda: api)["skill"], "fix")
+
+    def feature_card(self):
+        return issue(delegate_id=APP, labels=["Code"], label_groups=[{"group": "功能", "label": "Code"}])
+
+    def test_cli_refuses_a_first_fix_on_a_feature_card_and_says_how_feature_work_starts(self):
+        """spec §9.4, D16: a conversation on a 功能 card never becomes a fix; its work starts from a delegation."""
+        from unittest.mock import patch
+        from agent.config import Config
+        chat, token = self.conversation()
+        args = self.cli_request(chat, token)
+        sent = []
+        api = SimpleNamespace(app_user_id=APP, fetch_issue=lambda _: self.feature_card(),
+                              create_activity=lambda session, content: sent.append(content))
+        with patch("agent.__main__.load_config", return_value=Config("c", "s", "w")):
+            with self.assertRaises(LedgerError) as refused:
+                run(args, self.ledger, lambda: api)
+            self.assertEqual(str(refused.exception),
+                             "this issue carries 功能/Code, so it is feature work, not a fix; feature work starts only "
+                             "when an issue labelled 功能/Code is delegated, and this instance does not run feature yet")
+            self.assertEqual((self.ledger.item(chat["id"])["state"], self.ledger.queue(), sent), ("running", [], []))
+            # The same conversation on a plain Bug card still gets its fix.
+            api.fetch_issue = lambda _: issue(delegate_id=APP)
+            self.assertEqual(run(args, self.ledger, lambda: api)["skill"], "fix")
+
+    def test_cli_still_continues_an_earlier_fix_on_a_card_now_labelled_for_feature_work(self):
+        """Only a first fix is refused: continuing the delegation's own fix job is unchanged."""
+        from unittest.mock import patch
+        from agent.config import Config
+        previous = self.new_item(delegate_id=APP)
+        self.ledger.cancel(previous["id"], "Stop")
+        chat, token = self.conversation()
+        api = SimpleNamespace(app_user_id=APP, fetch_issue=lambda _: self.feature_card(),
+                              create_activity=lambda session, content: None)
+        with patch("agent.__main__.load_config", return_value=Config("c", "s", "w")):
+            fix = run(self.cli_request(chat, token), self.ledger, lambda: api)
+        self.assertEqual((fix["skill"], fix["predecessor_id"]), ("fix", previous["id"]))
+
 
 class RepairReceiverTests(ReceiverBase):
     def test_farm_1261_delegation_question_reply_can_start_first_repair(self):

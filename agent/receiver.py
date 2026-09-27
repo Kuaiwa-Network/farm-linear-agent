@@ -28,7 +28,11 @@ PIN_TIMEOUT = 8
 # {bot} is the instance's configured Linear app name: a development instance shares the workspace with
 # production, and an acknowledgement in the wrong name gets the wrong bot stopped.
 ACK = {"fix": "{bot} 已收到委派，正在排队处理这个缺陷。进展和草稿 PR 会更新在这里。",
+       "fgui": "{bot} 已收到委派，正在排队处理这张 UI 卡。进展、预览和草稿 PR 会更新在这里。",
+       "feature": "{bot} 已收到委派，正在排队处理这张功能卡。进展、问题和草稿 PR 会更新在这里。",
        "chat": "{bot} 已收到，正在查看。", "qa": "{bot} 已收到测试请求，正在排队。"}
+# The work a reply saved after undelegation says is not continuing; fix keeps the words it always had.
+PAUSED_WORK = {"fix": "修复"}
 
 
 class Receiver:
@@ -238,9 +242,14 @@ class Receiver:
                 pin = "\n暂时无法锁定客户端提交，本次将不做 Unity 验证。"
         active = self.ledger.active_item_for_session(prepared["session_id"])
         history = self.ledger.items_for_session(prepared["session_id"])
+        # D16: a reply in a delegation session that never had a work item (it asked about conflicting labels, or
+        # another session's work declined it) routes again on the labels fetched above. Only while the issue is
+        # still delegated to this app: routing is what grants write work.
+        reroute = (prepared["action"] == "prompted" and is_delegation and active is None and not history
+                   and issue.get("delegate_id") == self.identity["appUserId"])
         decision = route(action=prepared["action"], is_delegation=is_delegation, text=prepared["text"], labels=issue["labels"],
                          active_state=active["state"] if active else None, terminal_exists=bool(history) and active is None,
-                         available_skills=self.skills)
+                         available_skills=self.skills, label_groups=issue.get("label_groups") or (), reroute=reroute)
         session_id = prepared["session_id"]
 
         def acknowledge(kind, body):
@@ -291,7 +300,8 @@ class Receiver:
             self.ledger.push_inbox(active["id"], decision.text, resume_waiting=can_resume, author=author,
                                    received_at=received_at)
             acknowledge("thought", "收到回复，继续处理。" if can_resume
-                        else f"已保存回复；issue 已不再委派给 {self.bot_name}，暂不继续修复。")
+                        else f"已保存回复；issue 已不再委派给 {self.bot_name}，"
+                             f"暂不继续{PAUSED_WORK.get(active['skill'], '这项工作')}。")
         elif decision.kind == "elicit":
             acknowledge("elicitation", decision.text)
 

@@ -22,7 +22,7 @@ from agent.ledger import Ledger
 from agent.monitor import probe_health
 from agent.receiver import MAX_BODY, Receiver, make_server
 from agent.worktrees import WorktreeError
-from test_ledger import DESIGNER, ISSUE, OWNER, issue
+from test_ledger import DESIGNER, ISSUE, OTHER, OWNER, issue
 
 APP = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
 IDENTITY = {"oauthClientId": "client", "appUserId": APP, "organizationId": "org"}
@@ -814,3 +814,140 @@ class BotNameTests(ReceiverBase):
         self.receive(self.event(agentSession={"id": "session-9", "issue": {"id": ISSUE}})); self.receiver.process_one()
         self.assertEqual(self.activities()[-1]["body"], "TestBot 处理这条消息时出错（KeyError），请稍后重试或联系维护者。")
         self.assertFalse([a for a in self.activities() if "FarmBot" in a["body"]])
+
+
+UI = [{"group": "功能", "label": "UI"}]
+CODE = [{"group": "功能", "label": "Code"}]
+
+
+class FeatureRoutingReceiverTests(ReceiverBase):
+    """Spec §4.3 and D16 at the receiver, which reads the labels afresh for every event."""
+
+    def running(self, *skills):
+        self.receiver = Receiver(self.db, "signing-secret", IDENTITY, self.api, lambda: Ledger(self.db),
+                                 skills={"chat", "fix", *skills}, scheduler=self.scheduler)
+        self.addCleanup(self.receiver.close)
+
+    def labelled(self, labels, groups, **changes):
+        self.api.fetch_issue.return_value = issue(labels=labels, delegate_id=APP, label_groups=groups, **changes)
+
+    def test_bug_with_a_feature_label_elicits_and_creates_no_work(self):
+        self.running("fgui", "feature")
+        self.labelled(["Bug", "UI"], UI)
+        self.receive(); self.receiver.process_one()
+        self.assertEqual(self.ledger.items_for_session("session-1"), [])
+        self.assertEqual(self.activities()[-1], {"type": "elicitation", "body":
+                         "这张卡同时带有 Bug 和 功能/UI；请移除不适用的那个标签，然后在这里回复。"})
+        self.api.needs_more_info.assert_called_once_with(ISSUE)
+        self.assertEqual(self.receiver.results()[-1]["status"], "done")
+
+    def test_an_enabled_feature_label_starts_its_worker(self):
+        self.running("fgui", "feature")
+        for session, issue_id, label, groups, skill, ack in (
+                ("session-ui", ISSUE, "UI", UI, "fgui",
+                 "FarmBot 已收到委派，正在排队处理这张 UI 卡。进展、预览和草稿 PR 会更新在这里。"),
+                ("session-code", OTHER, "Code", CODE, "feature",
+                 "FarmBot 已收到委派，正在排队处理这张功能卡。进展、问题和草稿 PR 会更新在这里。")):
+            with self.subTest(skill=skill):
+                self.labelled([label], groups, id=issue_id)
+                self.receive(self.event(agentSession={"id": session, "issue": {"id": issue_id, "identifier": "FARM-1",
+                                                                                "url": "u"}}))
+                self.receiver.process_one()
+                [item] = self.ledger.items_for_session(session)
+                self.assertEqual((item["skill"], item["state"]), (skill, "queued"))
+                self.assertEqual(self.activities()[-1], {"type": "thought", "body": ack})
+
+    def test_a_feature_label_this_instance_does_not_run_starts_an_explaining_conversation(self):
+        self.labelled(["UI"], UI)
+        self.receive(); self.receiver.process_one()
+        [item] = self.ledger.items_for_session("session-1")
+        self.assertEqual(item["skill"], "chat")
+        body = self.activities()[-1]["body"]
+        self.assertIn("功能/UI，由 fgui 处理，但本实例没有启用 fgui", body)
+        self.assertIn("本实例运行：chat、fix", body)
+
+    def test_an_unknown_feature_child_starts_an_explaining_conversation(self):
+        self.running("fgui", "feature")
+        self.labelled(["Art"], [{"group": "功能", "label": "Art"}])
+        self.receive(); self.receiver.process_one()
+        self.assertEqual(self.ledger.items_for_session("session-1")[0]["skill"], "chat")
+        self.assertIn("功能/Art", self.activities()[-1]["body"])
+
+    def test_a_standalone_ui_label_is_not_a_feature_label(self):
+        self.running("fgui", "feature")
+        self.labelled(["Bug", "UI"], [])
+        self.receive(); self.receiver.process_one()
+        self.assertEqual(self.ledger.items_for_session("session-1")[0]["skill"], "fix")
+        self.api.needs_more_info.assert_not_called()
+
+    def test_a_snapshot_without_label_groups_routes_as_before(self):
+        self.running("fgui", "feature")
+        self.api.fetch_issue.return_value = issue(labels=["Bug", "UI"], delegate_id=APP)
+        self.receive(); self.receiver.process_one()
+        self.assertEqual(self.ledger.items_for_session("session-1")[0]["skill"], "fix")
+
+    def test_a_mention_on_a_feature_card_never_starts_feature_work(self):
+        self.running("fgui", "feature")
+        self.api.fetch_issue.return_value = issue(labels=["UI"], delegate_id=None, label_groups=UI)
+        self.receive(self.event(agentSession={"id": "session-2", "issue": {"id": ISSUE, "identifier": "FARM-1", "url": "u"},
+                                              "comment": {"body": "@FarmBot 按效果图做"}}))
+        self.receiver.process_one()
+        self.assertEqual(self.ledger.items_for_session("session-2")[0]["skill"], "chat")
+
+    def test_a_reply_after_the_label_fix_routes_the_same_session_again(self):
+        self.running("feature")
+        self.labelled(["Bug", "Code"], CODE)
+        self.receive(); self.receiver.process_one()
+        self.assertEqual(self.ledger.items_for_session("session-1"), [])
+        self.labelled(["Code"], CODE)
+        self.receive(self.event("prompted", body="已去掉 Bug 标签")); self.receiver.process_one()
+        [item] = self.ledger.items_for_session("session-1")
+        self.assertEqual((item["skill"], item["state"]), ("feature", "queued"))
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        self.assertEqual(self.ledger.pop_inbox(item["id"], token), ["已去掉 Bug 标签"])
+        self.assertEqual([a["type"] for a in self.activities()], ["elicitation", "thought"])
+
+    def test_a_reply_that_leaves_both_labels_asks_again(self):
+        self.labelled(["Bug", "UI"], UI)
+        self.receive(); self.receiver.process_one()
+        self.receive(self.event("prompted", body="改好了")); self.receiver.process_one()
+        self.assertEqual(self.ledger.items_for_session("session-1"), [])
+        self.assertEqual([a["type"] for a in self.activities()], ["elicitation", "elicitation"])
+
+    def test_a_reply_that_keeps_only_bug_is_interpreted_by_the_conversation_first(self):
+        self.labelled(["Bug", "UI"], UI)
+        self.receive(); self.receiver.process_one()
+        self.labelled(["Bug"], [])
+        self.receive(self.event("prompted", body="去掉了功能标签，请修复")); self.receiver.process_one()
+        self.assertEqual([item["skill"] for item in self.ledger.items_for_session("session-1")], ["chat"])
+
+    def test_a_reply_reroutes_only_while_the_issue_is_still_delegated(self):
+        self.running("feature")
+        self.labelled(["Bug", "Code"], CODE)
+        self.receive(); self.receiver.process_one()
+        self.api.fetch_issue.return_value = issue(labels=["Code"], delegate_id=None, label_groups=CODE)
+        self.receive(self.event("prompted", body="已去掉 Bug 标签")); self.receiver.process_one()
+        self.assertEqual([item["skill"] for item in self.ledger.items_for_session("session-1")], ["chat"])
+
+    def test_label_changes_after_a_job_exists_do_not_reroute(self):
+        self.running("feature")
+        self.labelled(["需求"], [])
+        self.receive(); self.receiver.process_one()
+        [chat] = self.ledger.items_for_session("session-1")
+        token = self.ledger.claim(chat["id"], worker_id="w")["token"]
+        self.ledger.finish(chat["id"], token, "delivered", {"summary": "answered", "comment_action_id": None,
+                                                            "verification": "answered in session", "prs": []})
+        self.labelled(["Code"], CODE)
+        self.receive(self.event("prompted", body="那就做吧")); self.receiver.process_one()
+        self.assertEqual([item["skill"] for item in self.ledger.items_for_session("session-1")], ["chat", "chat"])
+
+    def test_a_reply_saved_after_undelegation_names_no_repair_for_other_write_work(self):
+        self.running("feature")
+        self.labelled(["Code"], CODE)
+        self.receive(); self.receiver.process_one()
+        [item] = self.ledger.items_for_session("session-1")
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        self.ledger.await_input(item["id"], token, "哪个服？")
+        self.api.fetch_issue.return_value = issue(labels=["Code"], delegate_id=None, label_groups=CODE)
+        self.receive(self.event("prompted", body="公共测试服")); self.receiver.process_one()
+        self.assertEqual(self.activities()[-1]["body"], "已保存回复；issue 已不再委派给 FarmBot，暂不继续这项工作。")

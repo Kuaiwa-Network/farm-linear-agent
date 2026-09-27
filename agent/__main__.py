@@ -137,6 +137,35 @@ def resolve_token(args):
     raise LedgerError("claim token required: pass --token-file PATH, set FARMBOT_TOKEN, or pass --token")
 
 
+def enabled_skill_names():
+    """The skills this host runs (spec §9.11). With no readable private config, as in test fixtures, every loaded
+    skill: the scheduler still refuses to launch one the controller's config leaves out."""
+    from .config import ROOT
+    from .dispatch import SKILL_AUTHORITY
+    from .skills import enabled_skills, load_skills
+    try:
+        names = load_config(secure_permissions=False).enabled_skills
+    except (OSError, ValueError):
+        names = None
+    return set(enabled_skills(load_skills(ROOT / "skills"), names, authority=SKILL_AUTHORITY))
+
+
+def feature_card_refusal(ledger, item_id, issue, running):
+    """spec §9.4, D16: a conversation on a 功能 card does not start a first fix. The refusal says how that work
+    starts. None when nothing changes: no 功能 child, a fix to continue, or a feature or fgui job on the issue
+    already (a later phase continues that job). While the chat item is active no other item can appear on the
+    issue, so this cannot change before the ledger's transaction."""
+    from .router import FEATURE_SKILLS, feature_children, feature_repair_refusal
+    children = feature_children(issue.get("label_groups"))
+    if not children:
+        return None
+    context = ledger.issue_context(item_id)
+    if (context["coordination"]["skill"] != "chat" or context["resumable_work"] is not None
+            or any(entry["skill"] in FEATURE_SKILLS.values() for entry in context["conversation_history"])):
+        return None
+    return feature_repair_refusal(children, running)
+
+
 def verify_late_prs(ledger, args, token, progress):
     """Only consult GitHub when Linear has already observed unregistered output."""
     published = progress.get("published_prs", []) if isinstance(progress, dict) else []
@@ -374,13 +403,17 @@ def run(args, ledger, api_factory):
         token = resolve_token(args)
         ledger.renew(args.item, token)
         item = ledger.item(args.item)
+        # Both queue fix work, which this host may not run (spec §9.11): refuse before asking Linear anything.
+        running = enabled_skill_names()
+        if "fix" not in running:
+            raise LedgerError("repair execution is not available on this host")
         api = api_factory()
-        ledger.observe_issue(api.fetch_issue(item["issue_id"]))
+        current = api.fetch_issue(item["issue_id"])
+        ledger.observe_issue(current)
         if c == "request-repair":
-            from .config import ROOT
-            from .skills import load_skills
-            if "fix" not in load_skills(ROOT / "skills"):
-                raise LedgerError("repair execution is not available on this host")
+            refusal = feature_card_refusal(ledger, args.item, current, running)
+            if refusal is not None:
+                raise LedgerError(refusal)
             resumed = ledger.request_repair(args.item, token, args.message_id, api.app_user_id,
                                              read_text(args.summary_file))
         else:

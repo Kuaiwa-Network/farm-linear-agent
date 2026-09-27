@@ -36,6 +36,10 @@ into `issue-context`. Success retires your token: exit immediately. A newer-mess
 means reread the conversation before deciding again. `conversation_history` provides earlier
 answers/findings across execution profiles; only current `session_messages` authorize a request.
 
+On a host whose `enabled_skills` leaves out `fix`, `request-repair` and `resume-work` are refused
+before anything changes; tell the human instead of retrying. On an issue labelled with a 功能 child,
+`request-repair` refuses to start a first fix; relay its message, which says how that work starts.
+
 Each `session_messages` entry, like each message in `conversation_history`, is
 `{"id", "body", "author", "created_at"}`, and so is each entry of the launch message's
 `user_requests`. `author` is the Linear user who wrote it, `{"id", "name", "url"}` with the full

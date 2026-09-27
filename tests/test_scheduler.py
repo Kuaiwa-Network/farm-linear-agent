@@ -468,10 +468,11 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(self.trees.added, [])
 
     def use_staged_skill(self):
-        """Serve the fixture staged skill (initial root Farm-Contract) beside the repository's own skills, with
-        the dispatch AUTHORITY entry every dispatched skill needs."""
+        """Serve and enable the fixture staged skill (initial root Farm-Contract) beside the repository's own
+        skills, with the dispatch AUTHORITY entry every dispatched skill needs."""
         staged = staged_skill(Path(self.tmp.name) / "fixture-skills")
         self.scheduler.skills = {**SKILLS, staged.name: staged}
+        self.scheduler.enabled_skills.add(staged.name)
         authority = patch.dict(dispatch.SKILL_AUTHORITY, {staged.name: "Fixture staged-skill grants. "})
         authority.start()
         self.addCleanup(authority.stop)
@@ -480,6 +481,7 @@ class SchedulerTests(unittest.TestCase):
     def test_a_skill_without_dispatch_authority_fails_at_launch_and_spawns_nothing(self):
         staged = staged_skill(Path(self.tmp.name) / "fixture-skills")
         self.scheduler.skills = {**SKILLS, staged.name: staged}
+        self.scheduler.enabled_skills.add(staged.name)  # enabled, but with no AUTHORITY entry
         item = self.item(skill=staged.name)
         self.assertEqual(self.scheduler.tick()["launched"], 0)
         self.assertEqual(self.launcher.spawned, [])
@@ -600,6 +602,43 @@ class SchedulerTests(unittest.TestCase):
         self.scheduler.tick()
         self.assertEqual(len(self.launcher.spawned), 1)
         self.assertEqual([row["issue_id"] for row in self.ledger.queue()], [OTHER])
+
+    def test_a_loaded_skill_this_host_does_not_enable_fails_with_a_session_error(self):
+        self.scheduler.enabled_skills = {"chat"}
+        item = self.item()
+        self.assertEqual(self.scheduler.tick()["launched"], 0)
+        self.assertEqual(self.launcher.spawned, [])
+        self.assertEqual(self.ledger.item(item["id"])["state"], "failed")
+        session, kind, body = self.api.activities[-1]
+        self.assertEqual((session, kind), (SESSION, "error"))
+        for words in ("本实例没有启用 fix", "本实例运行：chat", "「重试」"):
+            self.assertIn(words, body)
+        self.assertIsNone(self.ledger.active_item_for_issue(ISSUE))  # the issue is free for other work
+        self.assertIn(("removed", item["id"], None), self.trees.added)  # retired like any other failure
+
+    def test_a_refused_item_takes_no_worker_slot_and_blocks_no_other_work(self):
+        self.scheduler.enabled_skills = {"chat"}
+        refused = self.item(priority=1)
+        chat = self.item(issue_id=OTHER, session="s2", identifier="FARM-2", skill="chat", priority=4)
+        self.scheduler.tick()
+        self.assertEqual(self.ledger.item(refused["id"])["state"], "failed")
+        self.assertEqual([spawned[0] for spawned in self.launcher.spawned], [chat["id"]])
+
+    def test_retry_after_the_skill_is_enabled_launches_the_refused_item(self):
+        self.scheduler.enabled_skills = {"chat"}
+        item = self.item()
+        self.scheduler.tick()
+        self.scheduler.enabled_skills = {"chat", "fix"}
+        self.ledger.retry(item["id"], "operator enabled fix")
+        self.scheduler.tick()
+        self.assertEqual(self.launcher.spawned[-1][0], item["id"])
+
+    def test_an_item_whose_skill_the_checkout_lacks_still_waits(self):
+        """Only a rollback leaves one behind; the operating contract says to settle those items first."""
+        item = self.item(skill="qa")
+        self.scheduler.tick()
+        self.assertEqual(self.ledger.item(item["id"])["state"], "queued")
+        self.assertEqual((self.launcher.spawned, self.api.activities), ([], []))
 
     def test_reaped_worker_that_never_finished_is_failed_and_worktrees_removed(self):
         item = self.item()

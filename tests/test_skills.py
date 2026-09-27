@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent.skills import SkillError, load_skills
+from agent.skills import SkillError, enabled_skills, load_skills
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -242,3 +242,54 @@ class StageManifestTests(unittest.TestCase):
                 write_skill(tmp, "bad", **manifest)
                 with self.assertRaisesRegex(SkillError, key):
                     load_skills(Path(tmp))
+
+
+class EnabledSkillsTests(unittest.TestCase):
+    """spec §9.11: the private host config chooses which of the checkout's skills an instance runs."""
+
+    def setUp(self):
+        from agent.dispatch import SKILL_AUTHORITY
+        self.skills = load_skills(ROOT / "skills")
+        self.authority = SKILL_AUTHORITY
+
+    def test_without_the_key_every_loaded_skill_runs(self):
+        from agent.config import Config
+        self.assertIsNone(Config("c", "s", "w").enabled_skills)
+        self.assertEqual(enabled_skills(self.skills, None, authority=self.authority), self.skills)
+
+    def test_a_list_selects_skills_and_loads_from_the_private_profile(self):
+        from agent.config import load_config
+        self.assertEqual(set(enabled_skills(self.skills, ["chat"], authority=self.authority)), {"chat"})
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            base = {"client_id": "c", "client_secret": "s", "webhook_secret": "w"}
+            path.write_text(json.dumps({**base, "enabled_skills": ["chat", "fix"]}), encoding="utf-8")
+            self.assertEqual(load_config(path).enabled_skills, ["chat", "fix"])
+            path.write_text(json.dumps(base), encoding="utf-8")
+            self.assertIsNone(load_config(path).enabled_skills)
+
+    def test_an_unknown_name_or_a_missing_chat_is_a_configuration_error(self):
+        with self.assertRaisesRegex(SkillError, "does not have: feature"):
+            enabled_skills(self.skills, ["chat", "feature"], authority=self.authority)
+        for names in (["fix"], []):
+            with self.subTest(names=names), self.assertRaisesRegex(SkillError, "must include chat"):
+                enabled_skills(self.skills, names, authority=self.authority)
+
+    def test_a_skill_the_dispatch_cannot_brief_is_refused_only_while_it_is_enabled(self):
+        """Task 11 builds no launch message for a skill without its AUTHORITY part; refusing at startup beats
+        failing every launch after its worktrees were made."""
+        briefs_chat_only = {"chat": "the chat part"}
+        for names in (None, ["chat", "fix"]):
+            with self.subTest(names=names), self.assertRaisesRegex(SkillError, "AUTHORITY part for enabled skills: fix"):
+                enabled_skills(self.skills, names, authority=briefs_chat_only)
+        self.assertEqual(set(enabled_skills(self.skills, ["chat"], authority=briefs_chat_only)), {"chat"})
+
+    def test_every_repository_skill_has_its_authority_part(self):
+        from agent.dispatch import SKILL_AUTHORITY
+        self.assertLessEqual(set(self.skills), set(SKILL_AUTHORITY))
+
+    def test_the_list_must_name_distinct_skills(self):
+        from agent.config import Config
+        for value in ("chat", ["chat", "chat"], ["chat", ""], ["chat", 3], {"chat": True}):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                Config("c", "s", "w", enabled_skills=value)

@@ -40,6 +40,8 @@ class Config:
     codex_workers: dict = field(default_factory=dict)
     # {"url": ..., "token_env": NAME}; the token itself lives in the controller's environment, never here.
     kw_ops: dict = field(default_factory=dict)
+    # Names of the skills this instance runs (spec §9.11); None runs every skill in the checkout's skills/.
+    enabled_skills: list | None = None
     monitor: dict = field(default_factory=dict)
     environment: str = "legacy"
     instance_id: str = "default"
@@ -83,6 +85,11 @@ class Config:
                     "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"):
                 raise ValueError("invalid codex worker reasoning_effort")
         validate_kw_ops_config(self.kw_ops)
+        if self.enabled_skills is not None and (
+                not isinstance(self.enabled_skills, list)
+                or any(not isinstance(name, str) or not name.strip() for name in self.enabled_skills)
+                or len(set(self.enabled_skills)) != len(self.enabled_skills)):
+            raise ValueError("enabled_skills must be a list of distinct skill names")
 
 
 def monitor_settings(config):

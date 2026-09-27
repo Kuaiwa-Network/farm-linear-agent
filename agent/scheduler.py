@@ -24,7 +24,7 @@ class Scheduler:
     def __init__(self, ledger, launcher, skills, worktrees, *, skill_root, db_path, runtime_name, host,
                  max_concurrent=2, guidance_for=lambda item: "", claim_timeout=600, api=None,
                  slot_entries=None, preflight=None, control_ledger_factory=None, publication=None, codex_workers=None,
-                 config_path=None, issue_prefix='FARM', bot_name='FarmBot', kw_ops=None):
+                 config_path=None, issue_prefix='FARM', bot_name='FarmBot', kw_ops=None, enabled_skills=None):
         self.publication = publication
         self.preflight = preflight
         self.control_ledger_factory = control_ledger_factory
@@ -43,6 +43,8 @@ class Scheduler:
         self.issue_prefix = issue_prefix
         self.bot_name = bot_name
         self.kw_ops_config = dict(kw_ops or {})
+        # The loaded skills this host runs (spec §9.11); tick() refuses a queued item of any other loaded skill.
+        self.enabled_skills = set(skills or ()) if enabled_skills is None else set(enabled_skills)
         self.guidance_for = guidance_for
         self.claim_timeout = claim_timeout
         # {slot_id: entry}, the same entries service.build hands the pool. The only thing read out of them
@@ -230,6 +232,20 @@ class Scheduler:
             return
         self._retire(item_id, "failed")
         self._notify(item_id, "error", f"{self.bot_name} 无法启动工作进程（{type(exc).__name__}），工作项已标记失败；可回复「重试」。")
+
+    def _refuse_disabled(self, item_id, skill):
+        """A loaded skill this host's `enabled_skills` leaves out is never launched (spec §9.11). Its item fails
+        rather than waits: a queued one would keep its issue's one active slot, collect "still queued" heartbeats
+        and swallow replies for work this instance will not do. Cleanup preserves any earlier attempt's source,
+        and `retry`, or a requested continuation of a fix, brings the item back once the skill is enabled."""
+        try:
+            self.ledger.fail_queued(item_id, f"skill {skill} is not enabled on this host")
+        except LedgerError:
+            return  # it left the queue meanwhile (Stop, closure)
+        self._retire(item_id, "failed")
+        runs = "、".join(sorted(self.enabled_skills))
+        self._notify(item_id, "error", f"{self.bot_name} 本实例没有启用 {skill}（本实例运行：{runs}），这项工作没有启动，"
+                                       "工作项已标记失败；启用后可回复「重试」。")
 
     def stop(self, item_id, reason):
         # Revoke the claim durably before signalling; a late worker may no longer write the ledger.
@@ -470,6 +486,10 @@ class Scheduler:
         launched = 0
         for item in queue:
             with self.lock:
+                if item["skill"] in self.skills and item["skill"] not in self.enabled_skills:
+                    # Ahead of the cap: a refusal takes no worker slot and must not wait for one.
+                    self._refuse_disabled(item["id"], item["skill"])
+                    continue
                 if len(self.active) >= self.max_concurrent:
                     break
                 if item["skill"] not in self.skills or item["id"] in self.active:

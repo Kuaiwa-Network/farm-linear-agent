@@ -90,3 +90,25 @@ def load_skills(root):
     if not skills:
         raise SkillError(f"{root}: no skills found")
     return skills
+
+
+def enabled_skills(skills, names, *, authority):
+    """The loaded skills this host runs: every one when its private config names none (spec §9.11).
+
+    A name the checkout lacks is a configuration error, not a skill silently left off; `chat` must stay, because
+    every route that is not write work falls back to it; and every skill that runs needs its part of the dispatch
+    AUTHORITY (`authority`, keyed by skill name), without which each of its launches would fail only after its
+    worktrees were made."""
+    if names is None:
+        selected = dict(skills)
+    else:
+        unknown = sorted(set(names) - set(skills))
+        if unknown:
+            raise SkillError(f"enabled_skills names skills this checkout does not have: {', '.join(unknown)}")
+        if "chat" not in names:
+            raise SkillError("enabled_skills must include chat: every route that is not write work falls back to it")
+        selected = {name: skill for name, skill in skills.items() if name in names}
+    unbriefed = sorted(set(selected) - set(authority))
+    if unbriefed:
+        raise SkillError(f"no dispatch AUTHORITY part for enabled skills: {', '.join(unbriefed)}")
+    return selected

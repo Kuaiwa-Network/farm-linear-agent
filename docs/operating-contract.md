@@ -28,6 +28,17 @@ Codex workers default to `gpt-6-sol` at `xhigh` reasoning. Private
 retain the FarmBot default. The selected settings are written into each new or
 resumed worker's isolated Codex home. Claude workers do not use these settings.
 
+Private `enabled_skills` lists the skills an instance runs, from those in its checkout's `skills/`;
+without the key every one runs. The list must include `chat`, the conversation every other route
+falls back to. A name the checkout lacks, or an enabled skill the dispatch AUTHORITY does not cover,
+is a configuration error: `serve` and `enqueue` stop, and `doctor` reports `enabled_skills_invalid`.
+The receiver routes only to enabled skills, and `enqueue`, `request-repair` and `resume-work` refuse
+the others. A queued item whose skill is loaded but not enabled fails before launch with an error
+activity naming 重试; `retry` or a requested continuation brings it back once the skill is enabled.
+An item whose skill the checkout lacks, which only a rollback leaves, stays queued as before.
+`doctor` reports `skills` with the loaded and enabled names. Restart a settled service after
+changing the list; an older revision ignores the key and runs every skill.
+
 Explicit profiles select `environment` (`development`, `production`, or `offline`)
 and a lowercase `instance_id`. Existing configs default to `legacy` for compatibility.
 Live profiles require `expected_bot_name`, pinned `expected_app_user_id` and
@@ -117,7 +128,10 @@ fingerprint once in the same way.
 
 | You do | FarmBot does |
 |---|---|
-| Assign (delegate) an issue labelled Bug to @FarmBot | starts a `fix` work item; first activity within 10 s; posts 「👀 <bot_name> 已开始处理」 (「👀 FarmBot 已开始处理」 in production) once the worker claims |
+| Assign (delegate) an issue labelled Bug, and no 功能 label, to @FarmBot | starts a `fix` work item; first activity within 10 s; posts 「👀 <bot_name> 已开始处理」 (「👀 FarmBot 已开始处理」 in production) once the worker claims |
+| Delegate an issue labelled Bug and a 功能 child (功能/UI or 功能/Code) | asks in the session, with no work item and adding `needs-more-info`, that you remove the label that does not apply and reply |
+| Delegate an issue labelled 功能/UI or 功能/Code | starts `fgui` or `feature` when this instance enables it (neither exists yet); otherwise, and for any other 功能 child, the read-only conversation, whose first activity says what this instance runs and which cannot start a fix. A standalone `UI` or `Code` label outside the group routes like any other label |
+| Reply in a delegation session that never had a work item, for example after fixing the labels | while the issue is still delegated to FarmBot, routes again on its current labels with your reply as the delegation's text: a 功能 card starts its worker, and Bug alone goes to the read-only conversation first |
 | Delegate an issue without a Bug label | starts read-only conversation; investigates, answers or clarifies intent; a reply requesting repair can enter writable execution |
 | @FarmBot in a comment or the session | interprets intent in read-only execution; can start or resume repair when this issue has recorded delegation and is still delegated to FarmBot |
 | Reply in a session while a worker runs | the text reaches the worker at its next checkpoint |
@@ -222,12 +236,17 @@ controller's.
 
 An active repair can answer questions directly. Free-text intent is interpreted by the
 current worker; QA/retry words do not dispatch work by themselves. Empty Bug delegation
-retains its established repair shortcut; a message accompanying it is interpreted first.
+retains its established repair shortcut; a message accompanying it is interpreted first. A 功能
+label chooses the workflow instead: an enabled worker starts whatever text accompanies the
+delegation, and that text is its first session message.
 
 `request-repair` checks a fresh Linear snapshot, a live read-only claim, the latest session
 message and a recorded delegation session on the same issue. It atomically retires that
 claim and queues the prior fix or creates the first fix under the recorded delegation and
-target. A mention alone grants no new authority. `resume-work` remains a resume-only
+target. A mention alone grants no new authority. On an issue that carries a 功能 child and has no
+`feature` or `fgui` job, it refuses to create a first fix and says that such work starts when the
+labelled issue is delegated, and, when this instance does not run that skill, that it does not yet;
+continuing an earlier fix of the issue is unchanged. `resume-work` remains a resume-only
 compatibility command. Cancelled fixes stay cancelled and receive a fresh successor ID;
 other terminal retries retain their ID. A chat-to-fix transition restarts at the neutral
 investigation root. The launch includes one bounded `prior_context` summary from the
@@ -572,7 +591,7 @@ running → awaiting_resource (Unity slot); any active state or blocked → canc
 A waiting item has no process. A repository handoff is queued with its retired worker PID retained;
 it cannot be claimed or launched until the controller certifies teardown and clears that PID.
 An item in awaiting_resource holds a queued reservation; only the pool's grant turns
-it back into queued work. A launched worker must claim its item within 10 minutes or it is stopped and the item fails. A confirmed terminal Codex model-capacity error returns the same queued or running item to the queue after 60, 180, then 600 seconds, with at most three automatic retries. The old claim is revoked; worktrees, checkpoints, model settings and reservations are retained. Retry timing is durable and all normal concurrency/delegation checks still apply. Cancelled, completed, waiting and deliberately stopped work is not automatically retried. Other pre-claim exits fail the item; a worker that dies with an expired lease requeues the item once for a fresh worker.
+it back into queued work. A launched worker must claim its item within 10 minutes or it is stopped and the item fails. A confirmed terminal Codex model-capacity error returns the same queued or running item to the queue after 60, 180, then 600 seconds, with at most three automatic retries. The old claim is revoked; worktrees, checkpoints, model settings and reservations are retained. Retry timing is durable and all normal concurrency/delegation checks still apply. Cancelled, completed, waiting and deliberately stopped work is not automatically retried. Other pre-claim exits fail the item; a worker that dies with an expired lease requeues the item once for a fresh worker. A queued item whose skill is loaded but not in `enabled_skills` fails before launch.
 The Linear session follows the item: `finish` posts the final response that completes the session (a chat
 answer is its own response); a worker that dies or never starts leaves an error activity naming 重试 as the
 way back, and a requeue leaves a thought.
@@ -655,7 +674,8 @@ any unposted notice unsent.
   `python3 -m agent.service enqueue --issue <id> --skill fix`. An enqueued item has a local session that
   Linear does not know about, so it reports through issue comments and posts no session activities;
   `enqueue` still refuses a write-capable skill on an issue that was never delegated to FarmBot, because
-  the rule of authority is not what the missing webhook excuses. `python3 -m agent.service slots` is the
+  the rule of authority is not what the missing webhook excuses. It also refuses a skill the instance does
+  not run (`enabled_skills`). `python3 -m agent.service slots` is the
   operator's view of the pool: slot states, parked commits and the open reservations behind them.
 - A fix that finds nothing to change (already fixed, duplicate, does not reproduce) delivers with an
   empty PR list and a `no_change` reason, and FarmBot's session response says 无需改动. Blocked stays
