@@ -1109,9 +1109,11 @@ Checked on 2026-09-27 through TestBot (plan Task 15, for A1): a profile URL in a
 app's token rendered as a mention and notified the person, one observation; through the app token, GraphQL
 returned uploads as Markdown images with no signature (the Linear MCP shows `<linear-image>` JSON with signed
 URLs) and replies through `parent`; Linear marks app users with `User.app`, which #53 uses so that another
-app's comments are a bot's. Still open here: the LFS push, the upload download with the app token (Task 5),
-lark-cli as the FarmBot app, the Windows PATH tools, the proto export, and whether `fileUpload` works with the
-client-credentials token.
+app's comments are a bot's. Checked the same day after Tasks 5–14 merged: `download-uploads` with the app's token
+returned an issue's screenshot, served directly with no redirect, one observation; an issue an integration
+created has no `creator` at all, only a `botActor`. Still open here: the LFS push, lark-cli as the FarmBot app,
+the Windows PATH tools, the proto export, whether `fileUpload` works with the client-credentials token, and
+routing a 功能-labelled card, which no card carries yet.
 
 Found while writing this design:
 
