@@ -91,21 +91,6 @@ Issue detail reads retry a timed-out Linear request up to three times before the
 an error activity. The retry applies to the current read page only; GraphQL mutations are never
 replayed after a lost response. A prompt that still fails must be retried in Linear.
 
-An issue read also keeps the group of each label that belongs to a label group (`label_groups`,
-beside the bare `labels`), the assignee, the creator and, for each comment, its own Linear link, the
-comment it replies to and, for a human comment, its author. A person is the Linear user's ID, name
-and profile URL, never an email. A user without a UUID or an `https://linear.app/` profile URL is
-stored as null, as is one whose name is blank, longer than 256 characters, holds a control, format
-(a bidirectional mark or an invisible character, other than the joiners emoji sequences use),
-private-use or line-separator character, or contains an email address, and so is a comment link
-outside `https://linear.app/`. An app user, which Linear marks with `User.app` (FarmBot itself,
-another FarmBot instance, Codex or Linear's integration user), is never a person: its comments are
-a bot's, with no author, and it is never the assignee or the creator.
-Snapshots stored before this revision lack these fields, which reads as unknown. None of them is
-issue input: a claim covers the title, the description, attachments other than the job's own PRs,
-and the IDs and bodies of the comments that are neither a bot's nor FarmBot's own, so reassigning
-or relabelling an issue neither requeues its work nor refuses a handoff.
-
 Linear signs upload URLs (`uploads.linear.app`) with a query string that changes between reads. An
 issue read removes that query string and any fragment, and leaves the Markdown, JSON, HTML (an
 entity such as `&quot;` right after the URL included) or sentence around the URL as written.
@@ -568,11 +553,8 @@ design documents. Follow the tested command, staging and validation workflow in
 `references/repo-map.md`, then integrate the generated assets into the issue's authorized client
 worktree and verify them. Never hand-edit generated `.bytes`/atlases or claim runtime verification
 against stale outputs. Missing or failed export tooling calls for diagnosis, not a code workaround
-for a structural defect. If the intended UI is unclear, ask in Linear using `await-input`
-(which adds `needs-more-info`).
-
-This also applies to future `fgui` and `feature` workers. It does not imply those workers exist
-today or expand the job's repository, PR, merge or deployment scope.
+for a structural defect. If the intended UI is unclear, ask in Linear using
+`await-input --reason question` (which adds `needs-more-info`).
 
 ## Shared memory
 
@@ -631,18 +613,32 @@ the host code and worker skill files together after the service has been settled
 
 ## People
 
-Besides the people an issue read keeps (see Triggers), the receiver records each agent session's
-creator (Linear's `agentSession.creator`, unset when automation or an agent started the session)
-and each session message's author: the user who wrote a session reply, or the creator of the
-mention session whose comment opened it. Both are Linear users in the same `{id, name, url}`
-form, never with an email. `issue-context` shows each message's author and the time FarmBot
-received it (`created_at`, ISO 8601 UTC; an event processed later, for example after a restart,
-keeps its arrival time) on `session_messages` and on `conversation_history` messages, and a chat's
-messages keep both when a repair takes them over. The nullable `sessions.creator_json` and
-`inbox.author_json` columns are added when a ledger opens. Existing rows are not rewritten: they
-read as unknown (null), as do operator-enqueued sessions, and their messages keep the time they
-were stored, which for a copy an older revision's repair made is that repair's time. Older code
-ignores the columns, so rolling back keeps working; what it records meanwhile names nobody.
+An issue read keeps the group of each label that belongs to a label group (`label_groups`,
+beside the bare `labels`), the assignee, the creator and, for each comment, its own Linear link, the
+comment it replies to and, for a human comment, its author. The receiver also records each agent
+session's creator (Linear's `agentSession.creator`, unset when automation or an agent started the
+session) and each session message's author: the user who wrote a session reply, or the creator of
+the mention session whose comment opened it. A person is always the Linear user's ID, name and
+profile URL (`{id, name, url}`), never an email. A user without a UUID or an `https://linear.app/`
+profile URL is stored as null, as is one whose name is blank, longer than 256 characters, holds a
+control, format (a bidirectional mark or an invisible character, other than the joiners emoji
+sequences use), private-use or line-separator character, or contains an email address, and so is a
+comment link outside `https://linear.app/`. An app user, which Linear marks with `User.app` (FarmBot
+itself, another FarmBot instance, Codex or Linear's integration user), is never a person: its comments
+are a bot's, with no author, and it is never the assignee or the creator.
+None of this is issue input: a claim covers the title, the description, attachments other than
+the job's own PRs, and the IDs and bodies of the comments that are neither a bot's nor FarmBot's
+own, so reassigning or relabelling an issue neither requeues its work nor refuses a handoff.
+
+Issue snapshots stored before this revision lack these fields, which reads as unknown.
+`issue-context` shows each message's author and the time FarmBot received it (`created_at`, ISO
+8601 UTC; an event processed later, for example after a restart, keeps its arrival time) on
+`session_messages` and on `conversation_history` messages, and a chat's messages keep both when a
+repair takes them over. The nullable `sessions.creator_json` and `inbox.author_json` columns are
+added when a ledger opens. Existing rows are not rewritten: they read as unknown (null), as do
+operator-enqueued sessions, and their messages keep the time they were stored, which for a copy an
+older revision's repair made is that repair's time. Older code ignores the columns, so rolling back
+keeps working; what it records meanwhile names nobody.
 
 `issue-context` also gives workers an `owner`: the issue's assignee, else the human who delegated
 the issue most recently (the creator of its latest delegation session in Linear, even for an item
