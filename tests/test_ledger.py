@@ -783,11 +783,37 @@ class PauseTests(LedgerBase):
                     self.ledger.release(granted["reservation_id"], granted["token"], "probe settled")
                     self.ledger.requeue_reservation(granted["reservation_id"], "retryable switch failure")
                 self.assertEqual([r["state"] for r in self.ledger.reservations(Ledger.RESERVATION_OPEN)], [state])
-                with self.assertRaisesRegex(LedgerError, "release the resource reservation"):
-                    self.ledger.await_input(item_id, token, "需要哪个环境？", reason="waiting")
+                for reason in ("question", "waiting"):
+                    with self.assertRaisesRegex(LedgerError, "release the resource reservation"):
+                        self.ledger.await_input(item_id, token, "需要哪个环境？", reason=reason)
                 self.assertEqual(self.ledger.item(item_id)["state"], "running")
         self.ledger.cancel_reservations(item_id, "request withdrawn")
         self.assertEqual(self.ledger.await_input(item_id, token, "需要哪个环境？")["state"], "awaiting_input")
+
+    def test_only_the_items_own_reservation_blocks_its_pause(self):
+        item_id, token, granted = self.running_with_slot()
+        self.ledger.observe_issue(issue(id=OTHER, identifier="FARM-2"))
+        self.ledger.ensure_session("session-2", OTHER, delegation=True)
+        other = self.ledger.create_work_item(issue_id=OTHER, session_id="session-2", skill="fix", target=PIN)["id"]
+        other_token = self.ledger.claim(other, worker_id="w3")["token"]
+        self.assertEqual(self.ledger.await_input(other, other_token, "需要哪个环境？")["state"], "awaiting_input")
+        with self.assertRaisesRegex(LedgerError, "release the resource reservation"):
+            self.ledger.await_input(item_id, token, "需要哪个环境？")
+
+    def test_either_pause_resumes_on_a_reply_and_keeps_a_reply_that_came_first(self):
+        """The receiver resumes both reasons through push_inbox, and an answer that lands between the elicitation
+        and the pause requeues the item at once (spec §5.2) whatever the reason."""
+        for reason in ("question", "waiting"):
+            with self.subTest(reason=reason):
+                self.setUp()
+                item_id, token = self.running()
+                self.ledger.await_input(item_id, token, "等待策划发布配置。", reason=reason)
+                delivered = self.ledger.push_inbox(item_id, "发布好了", resume_waiting=True)
+                self.assertEqual((delivered["state"], self.ledger.item(item_id)["state"]), ("queued", "queued"))
+                token = self.ledger.claim(item_id, worker_id="w2")["token"]
+                self.ledger.push_inbox(item_id, "先回答了")
+                view = self.ledger.await_input(item_id, token, "需要哪个环境？", reason=reason)
+                self.assertEqual((view["state"], view["resume_authorized"]), ("queued", True))
 
 
 class RevalidateTests(LedgerBase):
@@ -895,6 +921,73 @@ class RevalidateTests(LedgerBase):
         self.assertEqual(self.ledger.connection.execute("SELECT requeue_requested FROM work_items WHERE id=?",
                                                         (item_id,)).fetchone()[0], 1)
 
+    PR_URL = "https://github.com/Kuaiwa-Network/Farm-Contract/pull/12"
+    HANDOFF = {"facts": [], "hypotheses": [], "checks": [], "repositories": [], "next_actions": ["Implement the client"]}
+
+    def claim_state(self, item_id):
+        row = self.ledger.connection.execute(
+            "SELECT claimed_fingerprint, revalidated_fingerprint FROM work_items WHERE id=?", (item_id,)).fetchone()
+        audits = self.ledger.connection.execute(
+            "SELECT count(*) FROM audit WHERE item_id=? AND kind='revalidate'", (item_id,)).fetchone()[0]
+        return tuple(row), audits
+
+    def test_a_comment_after_revalidate_refuses_the_late_pr_registration(self):
+        """The late-PR rule has two halves: a revalidated claim, and nothing else changed since."""
+        item_id, token = self.running()
+        read = self.ledger.observe_issue(issue(attachments=[self.PR_URL], comments=[comment("初始值为零")]))["fingerprint"]
+        self.ledger.revalidate(item_id, token, read)
+        self.ledger.observe_issue(issue(attachments=[self.PR_URL],
+                                        comments=[comment("初始值为零"), comment("改成一", id="comment-2")]))
+        before = self.claim_state(item_id)
+        with self.assertRaisesRegex(LedgerError, "revalidate before registering"):
+            self.ledger.checkpoint(item_id, token, {"published_prs": [self.PR_URL]}, verified_prs=[self.PR_URL])
+        self.assertEqual(self.ledger.issue_context(item_id)["published_prs"], [])
+        self.assertEqual(self.claim_state(item_id), before)
+
+    def test_a_comment_after_revalidate_refuses_the_handoff(self):
+        item_id, token = self.running()
+        read = self.ledger.observe_issue(issue(comments=[comment("初始值为零")]))["fingerprint"]
+        self.assertEqual(self.ledger.issue_context(item_id)["fingerprint"], read)  # what the worker read, to revalidate on
+        self.ledger.revalidate(item_id, token, read)
+        self.ledger.checkpoint(item_id, token, {"handoff": self.HANDOFF})
+        self.ledger.observe_issue(issue(comments=[comment("初始值为零"), comment("改成一", id="comment-2")]))
+        with self.assertRaisesRegex(LedgerError, "issue changed; revalidate"):
+            self.ledger.handoff_repository(item_id, token, "Farm-Contract")
+
+    def test_a_retired_or_expired_claim_cannot_revalidate(self):
+        for retire in ("cancel", "handoff", "expire"):
+            with self.subTest(retire=retire):
+                self.setUp()
+                item_id, token = self.running()
+                current = self.ledger.observe_issue(issue(comments=[comment("初始值为零")]))["fingerprint"]
+                if retire == "cancel":
+                    self.ledger.cancel(item_id, "stop")
+                elif retire == "handoff":
+                    self.ledger.checkpoint(item_id, token, {"handoff": self.HANDOFF})
+                    self.ledger.revalidate(item_id, token, current)
+                    self.ledger.checkpoint(item_id, token, {"handoff": self.HANDOFF})
+                    self.ledger.handoff_repository(item_id, token, "Farm-Contract")
+                    current = self.ledger.observe_issue(issue(comments=[comment("x", id="c-3")]))["fingerprint"]
+                else:
+                    self.now += 61
+                before = self.claim_state(item_id)
+                with self.assertRaisesRegex(LedgerError, "running claim|lease expired"):
+                    self.ledger.revalidate(item_id, token, current)
+                self.assertEqual(self.claim_state(item_id), before)
+
+    def test_the_late_pr_move_is_audited_and_stays_revalidated(self):
+        item_id, token = self.running()
+        claimed = self.claim_state(item_id)[0][0]
+        read = self.ledger.observe_issue(issue(attachments=[self.PR_URL], comments=[comment("初始值为零")]))["fingerprint"]
+        self.ledger.revalidate(item_id, token, read)
+        self.ledger.checkpoint(item_id, token, {"published_prs": [self.PR_URL]}, verified_prs=[self.PR_URL])
+        moved = self.ledger.connection.execute("SELECT fingerprint FROM issues").fetchone()[0]
+        rows = self.ledger.connection.execute("SELECT details FROM audit WHERE item_id=? AND kind='revalidate' ORDER BY id",
+                                              (item_id,)).fetchall()
+        self.assertEqual([json.loads(r["details"]) for r in rows],
+                         [{"from": claimed, "to": read}, {"from": read, "to": moved}])
+        self.assertEqual(self.claim_state(item_id)[0], (moved, moved))
+
 
 class PlanTests(LedgerBase):
     PLAN = {"stages": {"A": "done", "B": "pending"}, "pause": None, "started": True,
@@ -963,6 +1056,63 @@ class PlanTests(LedgerBase):
         third = self.ledger.retry(successor, "continue again")["id"]
         recovery = self.ledger.issue_context(third)["recovery"]
         self.assertEqual((recovery["predecessor_id"], recovery["plan"]), (successor, self.PLAN))
+
+    @staticmethod
+    def serialized(value):
+        return len(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")))  # as ledger._json
+
+    @classmethod
+    def plan_of(cls, size):
+        """A plan of exactly `size` serialized characters, every string at most 2,000 characters."""
+        plan = {"closing": {}}
+        index = 0
+        while cls.serialized(plan) < size:
+            plan["closing"][f"{index:02d}"] = ""
+            plan["closing"][f"{index:02d}"] = "x" * min(2000, size - cls.serialized(plan))
+            index += 1
+        assert cls.serialized(plan) == size, cls.serialized(plan)
+        return plan
+
+    def test_the_bounds_hold_exactly_at_their_edges(self):
+        item_id, token = self.running()
+        full = self.plan_of(16000)
+        self.assertEqual(self.ledger.checkpoint(item_id, token, {"plan": full})["checkpoint"]["plan"], full)
+        with self.assertRaisesRegex(LedgerError, "16000"):
+            self.ledger.checkpoint(item_id, token, {"plan": self.plan_of(16001)})
+        self.assertEqual(self.ledger.issue_context(item_id)["plan"], full)
+        edge = {"config": {"k" * 2000: 1}}
+        self.assertEqual(self.ledger.checkpoint(item_id, token, {"plan": edge})["checkpoint"]["plan"], edge)
+
+    def test_recovery_keeps_the_predecessor_plan_after_the_successor_saves_its_own(self):
+        item_id, token = self.running()
+        self.ledger.checkpoint(item_id, token, {"plan": self.PLAN})
+        self.ledger.cancel(item_id, "Stop")
+        successor = self.ledger.retry(item_id, "continue")["id"]
+        self.ledger.set_worker(successor, 4322, "test")
+        token = self.ledger.claim(successor, worker_id="w2")["token"]
+        own = {"stages": {"A": "done", "B": "pending"}}
+        self.ledger.checkpoint(successor, token, {"plan": own})
+        context = self.ledger.issue_context(successor)
+        self.assertEqual((context["plan"], context["recovery"]["plan"]), (own, self.PLAN))
+        # `{}` is the one way to clear a plan (null is refused), and a cleared plan is what the next successor sees.
+        self.ledger.checkpoint(successor, token, {"plan": {}})
+        self.ledger.cancel(successor, "Stop")
+        third = self.ledger.retry(successor, "again")["id"]
+        self.assertEqual(self.ledger.issue_context(third)["recovery"]["plan"], {})
+
+    def test_a_stale_claim_cannot_write_a_plan(self):
+        """Claim fencing guards the checkpoint write itself, not only the handoff path (AGENTS.md)."""
+        item_id, token = self.running()
+        self.ledger.checkpoint(item_id, token, {"plan": self.PLAN})
+        self.ledger.await_input(item_id, token, "配置发布后请回复。", reason="waiting")
+        self.ledger.resume(item_id, "human replied")
+        fresh = self.ledger.claim(item_id, worker_id="w2")["token"]
+        with self.assertRaisesRegex(LedgerError, "running claim and matching token required"):
+            self.ledger.checkpoint(item_id, token, {"plan": {"stages": {"A": "stale"}}})
+        self.now += 61
+        with self.assertRaisesRegex(LedgerError, "lease expired"):
+            self.ledger.checkpoint(item_id, fresh, {"plan": {"stages": {"A": "late"}}})
+        self.assertEqual(self.ledger.issue_context(item_id)["plan"], self.PLAN)
 
 
 class NoticeTests(LedgerBase):
@@ -1055,6 +1205,96 @@ class NoticeTests(LedgerBase):
             self.ledger.confirm_notice(item_id, "ui-ready", "r2")
         self.assertEqual([(n["request_id"], n["kind"], n["remote_id"]) for n in self.ledger.issue_context(item_id)["notices"]],
                          [("ui-ready", "waiting", "r1")])
+
+
+class NoticeReconciliationTests(LedgerBase):
+    """post-notice against live comments, and what a successor of cancelled work sees of earlier rounds."""
+
+    class LiveIssue:
+        """A Linear stand-in: fetch_issue returns the issue with every comment created so far."""
+
+        def __init__(self, comments=(), **fields):
+            self.value = issue(comments=list(comments), **fields)
+            self.created = []
+
+        def fetch_issue(self, ref):
+            return json.loads(json.dumps(self.value))
+
+        def create_comment(self, issue_id, body):
+            self.created.append(body)
+            remote_id = f"c-{len(self.created)}"
+            self.value["comments"].append(comment(body, kind="bot", id=remote_id))
+            return remote_id
+
+    def running(self):
+        item = self.new_item()
+        return item["id"], self.ledger.claim(item["id"], worker_id="w")["token"]
+
+    def post(self, live, item_id, request_id, token):
+        from agent.__main__ import owned_notice, post_notice
+        return post_notice(self.ledger, live, owned_notice(self.ledger, item_id, request_id, token))
+
+    def test_post_notice_reconciles_by_marker_even_when_linear_renders_the_body_differently(self):
+        item_id, token = self.running()
+        notice = self.ledger.prepare_notice(item_id, token, "question", "questions-1", "请确认：\n1. 初始值是多少？")
+        live = self.LiveIssue([comment("请确认：\n\n1.  初始值是多少？\n\n" + notice["marker"], kind="bot", id="c-rendered")])
+        posted = self.post(live, item_id, "questions-1", token)
+        self.assertEqual((posted["remote_id"], live.created), ("c-rendered", []))
+
+    def test_a_later_item_on_the_issue_posts_its_own_round_under_a_reused_request_id(self):
+        first, token = self.running()
+        earlier = self.ledger.prepare_notice(first, token, "question", "questions-1", "第一份工作的问题。")
+        live = self.LiveIssue()
+        self.post(live, first, "questions-1", token)
+        blocker = self.ledger.prepare_comment(first, token, "blocker", "暂停。")
+        self.ledger.confirm_comment(blocker["action_id"], "remote-blocker")
+        self.assertEqual(self.ledger.finish(first, token, "blocked",
+                                            {"summary": "x", "comment_action_id": blocker["action_id"]})["state"], "blocked")
+        self.ledger.ensure_session("session-2", ISSUE, delegation=True)
+        second = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-2", skill="fix")["id"]
+        token = self.ledger.claim(second, worker_id="w2")["token"]
+        later = self.ledger.prepare_notice(second, token, "question", "questions-1", "第二份工作的问题。")
+        self.assertNotEqual(later["marker"], earlier["marker"])
+        self.post(live, second, "questions-1", token)
+        self.assertEqual(len(live.created), 2)
+        self.assertEqual([(n["request_id"], n["remote_id"]) for n in self.ledger.issue_context(second)["notices"]],
+                         [("questions-1", "c-2")])
+
+    def test_every_copied_marker_is_stripped_nested_ones_included(self):
+        item_id, token = self.running()
+        copied = [f"[farmbot:{'1' * 64}]", f"[farmbot:{'2' * 64}]"]
+        notice = self.ledger.prepare_notice(item_id, token, "question", "two", f"甲 {copied[0]}\n乙 {copied[1]}")
+        self.assertEqual(MARKER.findall(notice["body"]), [notice["marker"]])
+        nested = self.ledger.prepare_notice(item_id, token, "question", "nested", f"问题 [farmbot:[farmbot:{'1' * 64}]{'2' * 64}]")
+        self.assertEqual(MARKER.findall(nested["body"]), [nested["marker"]])
+        self.assertTrue(nested["body"].startswith("问题\n\n"))
+
+    def test_a_successor_of_cancelled_work_sees_its_predecessors_rounds_not_its_own(self):
+        """A retried cancelled job is a fresh item with no notices; the rounds posted before it come back under
+        recovery, nearest predecessor first, so that none of them is posted again."""
+        item_id, token = self.running()
+        self.ledger.prepare_notice(item_id, token, "question", "questions-1", "第一轮问题。")
+        self.ledger.confirm_notice(item_id, "questions-1", "c-1")
+        self.ledger.cancel(item_id, "stopped by the operator")
+        successor = self.ledger.retry(item_id, "continue")["id"]
+        context = self.ledger.issue_context(successor)
+        self.assertEqual(context["notices"], [])
+        self.assertEqual([(n["item_id"], n["request_id"], n["kind"], n["remote_id"]) for n in context["recovery"]["notices"]],
+                         [(item_id, "questions-1", "question", "c-1")])
+        token = self.ledger.claim(successor, worker_id="w2")["token"]
+        self.ledger.prepare_notice(successor, token, "question", "questions-2", "第二轮问题。")
+        self.ledger.cancel(successor, "stopped again")
+        third = self.ledger.retry(successor, "continue again")["id"]
+        self.assertEqual([(n["item_id"], n["request_id"], n["remote_id"]) for n in self.ledger.issue_context(third)["recovery"]["notices"]],
+                         [(successor, "questions-2", None), (item_id, "questions-1", "c-1")])
+
+    def test_post_notice_creates_nothing_on_an_issue_that_left_scope(self):
+        item_id, token = self.running()
+        self.ledger.prepare_notice(item_id, token, "question", "questions-1", "请确认。")
+        live = self.LiveIssue(status_type="completed")
+        with self.assertRaisesRegex(LedgerError, "left scope"):
+            self.post(live, item_id, "questions-1", token)
+        self.assertEqual(live.created, [])
 
 
 class SecondItemOnOneIssueTests(LedgerBase):

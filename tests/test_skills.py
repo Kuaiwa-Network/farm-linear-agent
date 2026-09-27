@@ -131,7 +131,9 @@ class PeopleInstructionTests(unittest.TestCase):
                        "ends with a `[farmbot:…]` marker line", "whatever its `author` says", "it is never a human's ruling",
                        # An unattributable answer is asked for once more through the one channel A1 has, then given up.
                        "Ask for it once more", "with `await-input`, saying whose answer you need",
-                       "If that answer has no author either, stop asking"):
+                       "If that answer has no author either, stop asking",
+                       # A question notice, the grouped issue comment, carries the mentions itself (spec §5.1).
+                       "The comment carries `owner.person.url`", "`issue-context.recovery.notices`"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, text)
         # Both ruling sources, a comment and a session reply, are dated in UTC+8; neither falls back to the UTC date.

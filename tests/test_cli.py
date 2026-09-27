@@ -89,10 +89,13 @@ class CliTests(unittest.TestCase):
             with self.assertRaisesRegex(LedgerError, 'issue changed; revalidate'):
                 cli(*move)
             fetched = cli('fetch-issue', '--item', args.item)
-            self.assertEqual([c['body'] for c in cli('issue-context', '--item', args.item)['issue']['comments']],
-                             ['初始值为零'])
-            revalidated = cli('revalidate', '--item', args.item, '--token', args.token,
-                              '--fingerprint', fetched['fingerprint'])
+            context = cli('issue-context', '--item', args.item)
+            self.assertEqual([c['body'] for c in context['issue']['comments']], ['初始值为零'])
+            self.assertEqual(context['fingerprint'], fetched['fingerprint'])  # revalidate on exactly what was read
+            token_file = self.root / 'token'
+            token_file.write_text(args.token, encoding='utf-8')
+            revalidated = cli('revalidate', '--item', args.item, '--token-file', str(token_file),
+                              '--fingerprint', context['fingerprint'])
             self.assertEqual(revalidated['claimed_fingerprint'], fetched['fingerprint'])
             ledger.checkpoint(args.item, args.token, {'handoff': handoff})
             self.assertEqual(cli(*move)['next_root_repo'], 'Farm-Contract')
@@ -530,9 +533,14 @@ class CliTests(unittest.TestCase):
         ledger.close()
         token = self.run_cli("claim", "--item", item, "--worker-id", "fresh")["token"]
         before = len(self.calls())
-        refused = self.run_cli("await-input", "--item", item, "--token", token, "--question", "需要哪个环境？",
+        for flags in ([], ["--reason", "waiting"]):
+            with self.subTest(flags=flags):
+                refused = self.run_cli("await-input", "--item", item, "--token", token, *flags, "--question", "需要哪个环境？",
+                                       success=False)
+                self.assertIn("release the resource reservation", refused.stderr)
+        refused = self.run_cli("await-input", "--item", item, "--token", token, "--reason", "later", "--question", "x",
                                success=False)
-        self.assertIn("release the resource reservation", refused.stderr)
+        self.assertIn("invalid choice", refused.stderr)
         self.assertEqual(len(self.calls()), before)  # neither the label nor the elicitation reached Linear
         self.assertEqual(self.run_cli("issue-context", "--item", item)["coordination"]["state"], "running")
 

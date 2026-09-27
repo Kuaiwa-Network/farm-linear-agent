@@ -206,6 +206,16 @@ def _message(row):
             "created_at": datetime.fromtimestamp(row["created_at"], timezone.utc).isoformat(timespec="seconds")}
 
 
+def _without_markers(body):
+    """body with every `[farmbot:…]` marker removed, a copy nested inside another included, and trailing
+    whitespace dropped, so that only the ledger's own marker ends a comment or a notice."""
+    while True:
+        stripped = MARKER.sub("", body)
+        if stripped == body:
+            return body.rstrip()
+        body = stripped
+
+
 def _owner(issue, delegation):
     """spec §4.2, §5.3: the assignee, else the human who last delegated the issue (the creator of its latest
     delegation session in Linear: a re-delegation hands the issue on, even to an item started under an earlier
@@ -1702,7 +1712,21 @@ class Ledger:
         previous = self._row(row["predecessor_id"])
         return {"predecessor_id": previous["id"], "checkpoint": json.loads(previous["checkpoint"]),
                 "evidence": json.loads(previous["evidence"]), "cleanup": self.cleanup_record(previous["id"]),
-                "plan": self._predecessor_plan(previous), "revalidation_required": True}
+                "plan": self._predecessor_plan(previous), "notices": self._predecessor_notices(previous),
+                "revalidation_required": True}
+
+    def _predecessor_notices(self, row):
+        """Every notice up this predecessor chain, the nearest predecessor's first: a successor of cancelled work
+        reads which rounds were posted before it and never posts one of them again."""
+        found, seen = [], set()
+        while row is not None and row["id"] not in seen:
+            seen.add(row["id"])
+            found += [{"item_id": row["id"], **{key: notice[key] for key in
+                                                ("request_id", "kind", "remote_id", "created_at", "confirmed_at")}}
+                      for notice in self.notices(row["id"])]
+            row = (self.connection.execute("SELECT * FROM work_items WHERE id=?", (row["predecessor_id"],)).fetchone()
+                   if row["predecessor_id"] else None)
+        return found
 
     def _predecessor_plan(self, row):
         """The plan of the nearest item up this predecessor chain that saved one. A successor stopped before
@@ -1746,7 +1770,7 @@ class Ledger:
             key = f"{row['issue_id']}:{row['claimed_fingerprint']}:{row['generation']}:{kind}"
             action_id = hashlib.sha256(key.encode("utf-8")).hexdigest()
             marker = f"[farmbot:{action_id}]"
-            clean_body = MARKER.sub("", body).rstrip()
+            clean_body = _without_markers(body)
             _text(clean_body, "comment body")
             existing = self.connection.execute("SELECT * FROM outbox WHERE action_id=?", (action_id,)).fetchone()
             deduplicated = False
@@ -1807,9 +1831,9 @@ class Ledger:
         if kind not in NOTICE_KINDS:
             raise LedgerError(f"notice kind must be one of {', '.join(NOTICE_KINDS)}")
         if not isinstance(request_id, str) or not REQUEST_ID.fullmatch(request_id):
-            raise LedgerError("request id must be 1-64 letters, digits, '.', '_' or '-'")
+            raise LedgerError("request id must be 1-64 ASCII letters, digits, '.', '_' or '-'")
         _text(body, "notice body")
-        clean_body = MARKER.sub("", body).rstrip()
+        clean_body = _without_markers(body)
         _text(clean_body, "notice body")
         with self._transaction():
             row = self._owned(item_id, token)
@@ -1975,8 +1999,8 @@ class Ledger:
                                                   "root_repo", "next_root_repo", "target")}
         authority = self._delegation_session(row["issue_id"], row["session_id"])
         owner = _owner(issue, self._owner_delegation(row["issue_id"]))
-        return {"issue": issue, "coordination": coordination, "handoff": handoff,
-                "conversation_history": self._conversation_history(row["issue_id"]),
+        return {"issue": issue, "fingerprint": issue_row["fingerprint"], "coordination": coordination,
+                "handoff": handoff, "conversation_history": self._conversation_history(row["issue_id"]),
                 "delegation_session": authority["session_id"] if authority else None,
                 "owner": owner, "creator": _issue_creator(issue, owner),
                 "resource_recovery": {"attempts": RecoveryStore(self).job_attempts(item_id),

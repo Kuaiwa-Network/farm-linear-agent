@@ -61,7 +61,10 @@ python3 -m agent --db DATABASE await-input --item ITEM_ID --token-file STATE_DIR
 `await-input` parks the item for a human. `--reason question`, the default, adds `needs-more-info`;
 `--reason waiting`, for a pause on a human step elsewhere such as a merge or a publish, does not.
 Release any Unity reservation first: the command refuses while one is open, before anything reaches
-Linear. The resumed worker finds the pause in `issue-context` as `pending_question` and `pending_reason`.
+Linear. The resumed worker finds the pause in `issue-context` as `pending_question` and `pending_reason`
+(`pending_reason` is null for a pause recorded before this revision); both go at that worker's first
+checkpoint, and when automatic recovery takes the item over. A reply in the session or a mention resumes
+a `waiting` pause exactly as it resumes a question.
 
 Run each mutation separately and inspect its exit status and returned JSON before
 running a dependent command. A nonzero exit means the operation failed. A zero exit
@@ -157,8 +160,10 @@ or ask for host intervention. A fresh worker receives the exact retried commit a
 
 A notice is an issue comment a job may need more than once: `--kind question` for a grouped question
 round, `waiting` for a pause on a human step elsewhere, `foreign_work` for other people's branches or
-PRs on the issue. Name each with `--request-id`: 1–64 letters, digits, `.`, `_` or `-`, unique within
-your item, such as `questions-2`. A new round needs a new id.
+PRs on the issue. Name each with `--request-id`: 1–64 ASCII letters, digits, `.`, `_` or `-`, unique
+within your item, such as `questions-2`. A new round needs a new id. A question notice carries the
+owner's profile URL, and the creator's when it asks 策划 (`skills/fix/SKILL.md`, "Deciders and
+mentions"). `post-notice` creates nothing on an issue that has left scope.
 
 ```bash
 python3 -m agent --db DATABASE prepare-notice --item ITEM_ID --token-file STATE_DIR/token --kind question --request-id questions-1 --body-file STATE_DIR/questions-1.md
@@ -172,11 +177,13 @@ comments before creating one, so rerunning it after an interruption never posts 
 
 ## Issue changes during an attempt
 
-`fetch-issue` prints the stored issue's `fingerprint`. When a human changes the issue while you work (a
-comment, an edited description), `handoff-repository` refuses with `issue changed; revalidate`, a
-checkpoint that registers a PR Linear already attached is refused, and `finish` would requeue the item
-for a fresh worker. To go on in this attempt, read the change in `issue-context`, act on it, then run
-`revalidate` with the fingerprint `fetch-issue` just printed:
+`fetch-issue` prints the stored issue's `fingerprint`, and `issue-context.fingerprint` is the fingerprint
+of the snapshot it shows. When the issue changes while you work (a comment that is neither a bot's nor
+FarmBot's own, an edited title or description, an attachment, whoever made the change),
+`handoff-repository` refuses with `issue changed; revalidate`, a checkpoint that registers a PR Linear
+already attached is refused, and `finish` would requeue the item for a fresh worker. To go on in this
+attempt, read the change in `issue-context`, act on it, then run `revalidate` with that
+`issue-context.fingerprint`, so that you revalidate on exactly what you read:
 
 ```bash
 python3 -m agent --db DATABASE revalidate --item ITEM_ID --token-file STATE_DIR/token --fingerprint FINGERPRINT
@@ -192,7 +199,8 @@ handoff and requeues `finish`, and the fresh worker reads it.
 A checkpoint may carry `plan`, an object for work that spans stages and days. Its keys are a subset of
 `stages`, `pause`, `change`, `ui`, `config`, `prs`, `closing`, `events` and `started`; values are any JSON,
 with strings of at most 2,000 characters, arrays of at most 50 entries and 16,000 serialized characters
-in all. Keep longer notes in files under STATE_DIR. For example:
+in all. Keep longer notes in files under STATE_DIR; a successor of cancelled work has a state
+directory of its own, so such notes stay with the item that wrote them. For example:
 
 ```json
 {
@@ -209,14 +217,19 @@ in all. Keep longer notes in files under STATE_DIR. For example:
     ]
   },
   "plan": {
-    "prs": {"Farm-Contract": [{"branch": "ISSUE_BRANCH", "role": "issue", "head": "FULL_HEAD_SHA", "url": "PR_URL"}]},
+    "prs": {"Farm-Contract": [{"branch": "ISSUE_BRANCH", "role": "issue", "head": "FULL_HEAD_SHA",
+                               "url": "https://github.com/Kuaiwa-Network/Farm-Contract/pull/12"}]},
     "pause": {"kind": "waiting", "request_id": "config-ready"}
   },
-  "published_prs": []
+  "published_prs": ["https://github.com/Kuaiwa-Network/Farm-Contract/pull/12"]
 }
 ```
 
-A checkpoint that omits `plan` keeps the saved one, and one that includes it replaces it whole. A plan is
+A checkpoint that omits `plan` keeps the saved one, and one that includes it replaces it whole; `{}`
+clears it. `null` or a plan outside these bounds refuses the whole checkpoint, its `handoff` and
+`published_prs` included, and records nothing to repair: fix the plan and save again. A plan is
 not a handoff: a plan-only checkpoint neither satisfies `handoff-repository` nor repairs a rejected
 handoff. `issue-context.plan` shows your item's plan. A successor of cancelled work reads the nearest
-predecessor's plan from `issue-context.recovery.plan`; like the rest of `recovery`, verify it first.
+predecessor's plan from `issue-context.recovery.plan`, and every predecessor's notices from
+`recovery.notices` (item id, request id, kind and remote id; one with a remote id was posted); like the
+rest of `recovery`, verify it first.

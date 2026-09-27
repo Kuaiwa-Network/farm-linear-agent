@@ -146,12 +146,16 @@ class ReceiverTests(ReceiverBase):
         self.assertEqual(self.ledger.pop_inbox(item["id"], token), ["先看服务端日志"])
 
     def test_prompt_into_waiting_item_resumes(self):
-        self.receive(); self.receiver.process_one()
-        item = self.ledger.items_for_session("session-1")[0]
-        token = self.ledger.claim(item["id"], worker_id="w")["token"]
-        self.ledger.await_input(item["id"], token, "which server?")
-        self.receive(self.event("prompted", body="公共测试服")); self.receiver.process_one()
-        self.assertEqual(self.ledger.item(item["id"])["state"], "queued")
+        """A pause for a question and a pause on a human step elsewhere (`--reason waiting`) resume the same way."""
+        for reason in ("question", "waiting"):
+            with self.subTest(reason=reason):
+                self.setUp()
+                self.receive(); self.receiver.process_one()
+                item = self.ledger.items_for_session("session-1")[0]
+                token = self.ledger.claim(item["id"], worker_id="w")["token"]
+                self.ledger.await_input(item["id"], token, "which server?", reason=reason)
+                self.receive(self.event("prompted", body="公共测试服")); self.receiver.process_one()
+                self.assertEqual(self.ledger.item(item["id"])["state"], "queued")
 
     def test_stop_cancels_through_the_scheduler_and_replies(self):
         self.receive(); self.receiver.process_one()

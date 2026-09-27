@@ -105,7 +105,8 @@ once, the fingerprint of every tracked issue whose description or comments lost 
 the issue's next full read (a worker's `fetch-issue` or an agent-session event; status checks do
 not count). Every unfinished job on such an issue whose claim is taken before that read then
 requeues at `finish` (its next attempt redoes the work and posts its start comment again), has its
-repository handoff refused and cannot register a PR that Linear attached before its checkpoint.
+repository handoff refused and cannot register a PR that Linear attached before its checkpoint,
+unless its worker re-reads the issue and revalidates.
 That includes a job that is only queued, waiting for a resource or between repository stages at the
 deploy: nothing re-reads the issue before a claim, so its own first `fetch-issue` stores the new
 text. Settle or cancel unfinished jobs on affected issues before deploying, or accept one requeue
@@ -245,7 +246,8 @@ Claude fallback has no equivalent repository write boundary and is refused for t
 A Contract-root worker follows Farm-Contract's OpenSpec instructions and
 its Superpowers restriction. Consumer workers use their own repository rules.
 
-A human change to the issue during an attempt (title, description, attachments or a human comment)
+A change to the issue during an attempt (title, description, attachments, or a comment that is
+neither a bot's nor FarmBot's own, as Triggers says)
 refuses that attempt's repository handoff and the registration of a PR Linear has already attached,
 and makes `finish` requeue the item for a fresh worker. A worker that has read the change can call
 `revalidate` with the fingerprint `fetch-issue` printed: the ledger accepts only the fingerprint it
@@ -258,7 +260,8 @@ since may register it as this job's output, and only if nothing else changed. Th
 A checkpoint may also carry a validated `plan` for work that spans stages and days (keys and bounds in
 `references/worker-cli.md`). The ledger carries it forward when a checkpoint omits it, shows it in
 `issue-context`, and hands the nearest predecessor's plan to a successor as `recovery.plan`. It is recall
-that the worker verifies, never authority, and it is not a handoff.
+that the worker verifies, never authority, and it is not a handoff. Older code keeps a `plan` key only
+until its next checkpoint that omits it, and never validates one.
 
 A fix worker may update Farm-Contract in its Contract-root attempt for a confirmed bug
 requirement, before the affected implementation. Uncertain behaviour or missing
@@ -354,7 +357,8 @@ that Python cleanup executes after SIGKILL. Reservation release still requires a
 
 A failing release or stalled interactive test quarantines its slot and requests controller
 recovery. `awaiting_resource` with stage `waiting_for_recovery` is an infrastructure wait;
-`awaiting_input` remains exclusively a human question. This supersedes the original
+`awaiting_input` remains exclusively a wait on a human: a question or, with `--reason waiting`, a
+human step elsewhere. This supersedes the original
 operator-only slot recovery policy. Workers checkpoint, release `unclean`, and exit immediately.
 The release revokes both their claim and reservation token. Never request a human to operate
 Unity or add `needs-more-info` for this condition.
@@ -600,9 +604,9 @@ the calendar date of its `created_at` in UTC+8, the team's time zone, and linked
 own `url`; only for a comment without one do they build the link from the issue URL and the
 comment id. They attribute no ruling to anyone else or to a comment a FarmBot instance posted,
 record none that nobody gave and write no silent-consent default. A blocker, a delivery's request
-to review and merge, and an `await-input` question mention the owner by profile URL, which Linear
-renders as a mention; without an owner nobody is mentioned in the owner's place. A question for
-策划 also mentions the creator. FarmBot asks the owner to merge, cannot enforce who does, and never
+to review and merge, a question notice and an `await-input` question mention the owner by profile
+URL, which Linear renders as a mention; without an owner nobody is mentioned in the owner's place.
+A question for 策划 also mentions the creator. FarmBot asks the owner to merge, cannot enforce who does, and never
 merges. Whether an agent's mention notifies anyone reliably is still to be checked live (spec
 §14.1).
 
@@ -616,9 +620,10 @@ owner's profile URL from `issue-context` (see People).
 Notices are a second family, for comments a job may repeat: `question` (a grouped question round),
 `waiting` (a pause on a human step elsewhere) and `foreign_work` (other people's branches or PRs).
 The ledger keeps one per work item and worker-chosen request id rather than per claimed input, so a
-retried attempt reuses it and a new round needs a new request id; `post-notice` reconciles the marker
-against live comments before creating one. The bodies of FarmBot's own comments and notices never
-count as issue input. Notices live in the additive `notices` table; a rollback leaves it unused and
+retried attempt of the same item reuses it and a new round needs a new request id; a successor of
+cancelled work starts with none and reads its predecessors' under `recovery.notices`. `post-notice`
+reconciles the marker against live comments before creating one, and creates none on an issue that
+has left scope. The bodies of FarmBot's own comments and notices never count as issue input. Notices live in the additive `notices` table; a rollback leaves it unused and
 any unposted notice unsent.
 
 ## Resource execution limits

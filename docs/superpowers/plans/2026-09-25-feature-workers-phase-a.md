@@ -4887,6 +4887,36 @@ git commit -m "Keep a validated plan in the checkpoint and hand it to successors
 
 ---
 
+#### A3 as implemented (2026-09-27)
+
+PR A3 (Tasks 6–9) replayed the four rehearsal commits with the messages above onto the A2 branch (#55); all four
+applied cleanly. Four per-task reviews found no blocker. A fix commit changes what held up; where it differs from
+the task text, the code and the operating contract in the PR are what shipped.
+
+- Notices (Task 6): a successor of cancelled work finds every predecessor's notices under `recovery.notices`
+  (item id, request id, kind, remote id), so it never posts a round that was already posted; the skill says so,
+  and its notice paragraph carries the owner and creator mentions spec §5.1 puts in that comment. Every copied
+  marker in a comment or notice body is stripped, nested copies included (`_without_markers`), and
+  `post-notice` creates nothing on an issue that has left scope. Tests pin reconciliation by marker, dedup per
+  item and the successor's view.
+- `revalidate` (Task 8): `issue-context` carries the stored fingerprint of the snapshot it shows, and workers
+  revalidate on that value rather than on `fetch-issue`'s output, so a re-read that commits out of order cannot
+  be revalidated on. The contract's change-scope sentence keeps A1's wording (any comment that is neither a
+  bot's nor FarmBot's own, whoever made the change), and the A1 deploy note says a worker that re-reads and
+  revalidates can still register a late PR. Tests pin the late-PR rule's second half, the handoff refusal after
+  a revalidated claim, a retired or expired claim, and the audited late-PR move.
+- The plan (Task 9): no code change. The reference says what `{}`, `null` and an invalid plan do to a
+  checkpoint, that state-directory notes stay with the item that wrote them, and its example's published PR is
+  in `published_prs`; the contract records the rollback behaviour. Tests pin the 16,000-character bound at both
+  edges, the 2,000-character key edge, the recovery plan beside a successor's own, `{}` as the nearest saved
+  plan, and claim fencing of a plan write (an older gap the review surfaced).
+- `await-input --reason` (Task 7): no code change. The contract no longer calls a parked item "exclusively a
+  human question", and the reference says when `pending_reason` is null and when both pause keys go. Tests
+  pin that a `waiting` pause resumes on a reply or a mention like a question, that a reply arriving before
+  either pause is parked requeues the item, that the slot refusal holds for both reasons at the CLI and in
+  the ledger, that only the item's own reservation blocks its pause, and that an unknown `--reason` is
+  refused before anything reaches Linear.
+
 ### Task 10: Manifest-driven stages, with fix unchanged
 
 Repository stages become manifest data (spec §8.1, §9.4 "Initial root in one place", §9.5, §9.6 first

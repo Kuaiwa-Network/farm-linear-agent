@@ -102,9 +102,14 @@ the operator to move the discussion to Codex or create a separate contract task.
 
 When answers must come from several people, first post the questions as one issue comment grouped by
 recipient: `prepare-notice --kind question --request-id questions-N --body-file FILE`, then
-`post-notice --request-id questions-N`, with a new N for each round. Then run `await-input` with a
-one-line question that points to that comment. After an interruption, rerun `post-notice` with the same
-request id instead of preparing a new round; `issue-context.notices` shows which rounds were posted.
+`post-notice --request-id questions-N`, with a new N for each round. The comment carries `owner.person.url`,
+and `creator.url` when it has questions for 策划 (see "Deciders and mentions"). Then run `await-input`
+with a one-line question that points to that comment. After an interruption of this attempt, rerun
+`post-notice` with the same request id instead of preparing a new round: `issue-context.notices` shows
+which rounds this item posted. A successor of cancelled work finds its predecessors' rounds under
+`issue-context.recovery.notices`; a round listed there with a remote id was posted, so ask it again only
+if it is still unanswered, under a new request id. Re-post an unposted round only when no later round
+was posted.
 
 Use `await-input --reason waiting --question TEXT` only when you need no answer but must wait for a
 named human step elsewhere that you cannot perform, such as a merge, a designer or Jenkins publish, or
@@ -246,11 +251,12 @@ human's checkouts. Generated artifacts change only through their documented gene
 launch message's `references`). Before source work and before each PR, run `fetch-issue` again: if the
 issue was archived, closed or re-delegated away, stop publication and finish blocked.
 
-If `handoff-repository` or a checkpoint registering a PR says the issue changed, a human commented on or
-edited the issue during your attempt. Run `fetch-issue`, read the new input in `issue-context` and act on
-it, since it may change the fix. Then run `revalidate --fingerprint FP` with the `fingerprint` that
-`fetch-issue` printed, save a fresh checkpoint and retry. Revalidate before you prepare your final
-blocker or delivery comment, never after posting it.
+If `handoff-repository` or a checkpoint registering a PR says the issue changed, the issue changed
+during your attempt: a comment that is neither a bot's nor FarmBot's own, an edited title or
+description, or an attachment, whoever made it. Run `fetch-issue`, read the new input in `issue-context`
+and act on it, since it may change the fix. Then run `revalidate --fingerprint FP` with
+`issue-context.fingerprint`, the fingerprint of exactly what you read, save a fresh checkpoint and
+retry. Revalidate before you prepare your final blocker or delivery comment, never after posting it.
 
 The launch message's `publication.repositories` records verified private GitHub destinations and the
 exact issue branches covered by the operator's standing draft-PR publishing authorization. `user_requests`

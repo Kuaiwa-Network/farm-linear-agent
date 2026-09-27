@@ -241,13 +241,16 @@ def owned_notice(ledger, item_id, request_id, token):
 
 
 def post_notice(ledger, api, notice):
-    """Reconcile the marker against live comments before ever creating one, exactly as post_comment does."""
+    """Reconcile the marker against live comments before ever creating one, exactly as post_comment does; an
+    issue that has left scope gets no new notice, though one already posted is still recorded."""
     if notice["remote_id"]:
         return notice
     issue = api.fetch_issue(notice["issue_id"])
-    ledger.observe_issue(issue)
+    observed = ledger.observe_issue(issue)
     remote_id = next((c["id"] for c in issue["comments"] if notice["marker"] in c["body"]), None)
     if remote_id is None:
+        if not observed["in_scope"]:
+            raise LedgerError("issue left scope; the notice was not posted")
         remote_id = api.create_comment(notice["issue_id"], notice["body"])
     return ledger.confirm_notice(notice["item_id"], notice["request_id"], remote_id)
 
