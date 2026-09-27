@@ -1112,7 +1112,8 @@ URLs) and replies through `parent`; Linear marks app users with `User.app`, whic
 app's comments are a bot's. Checked the same day after Tasks 5–14 merged: `download-uploads` with the app's token
 returned an issue's screenshot, served directly with no redirect, one observation; an issue an integration
 created has no `creator` at all, only a `botActor`; a test card labelled 功能/Code, delegated to TestBot, which
-runs only chat and fix, opened a read-only conversation whose first activity named that, and no fix started.
+runs only chat and fix, opened a read-only conversation whose first activity named that, and a later
+「修复一下」 in that session was refused as feature work, so no fix started.
 Still open here: the LFS push, lark-cli as the FarmBot app, the Windows PATH tools, the proto export, and
 whether `fileUpload` works with the client-credentials token.
 

@@ -98,8 +98,12 @@ round had to skip. A check that still could not run is recorded as skipped, with
      chat、fix）。先以只读对话查看，不会开始这项工作。」, followed by the target pin. The Claude chat worker (16 turns,
      82 s) claimed, read the issue, ran the read-only `doctor` to confirm the enabled skills, answered in the
      session and finished `delivered`; the session completed. It asked no question, requested no repair and
-     changed nothing on the card, and its teardown record was empty. Not exercised: a repair request on that
-     card, which `request-repair` refuses as feature work.
+     changed nothing on the card, and its teardown record was empty. The operator then replied 「修复一下」 in the
+     session. The receiver accepted the `prompted` event and queued a second `chat` item carrying the message.
+     That worker (19 turns, 151 s) called `request-repair`, which exited 1 with `this issue carries 功能/Code,
+     so it is feature work, not a fix; feature work starts only when an issue labelled 功能/Code is delegated,
+     and this instance does not run feature yet`. The worker relayed that in Chinese, did not retry, and
+     finished `delivered`; no `fix` item exists on the card.
   2. **Authors and the prompting user,** and 3. **Mentions:** recorded in the A1 round.
   4. **One upload download:** the `download-uploads` command's implementation (`agent.__main__.run`) ran
      in-process against a scratch ledger, so TestBot's own ledger gained no item. On FARM-1353, whose description
