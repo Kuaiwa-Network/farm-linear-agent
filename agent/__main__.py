@@ -54,6 +54,7 @@ def parser():
     cmd("issue-context", "--item")
     cmd("pop-inbox", "--item", token=True)
     cmd("verify-publication", "--item", "--repo", token=True)
+    cmd("foreign-work", "--item", token=True)
     uploads = cmd("download-uploads", "--item", "--out", token=True)
     uploads.add_argument("--url", action="append",
                          help="one of the claimed issue's upload URLs, unsigned as fetch-issue shows it; repeatable; "
@@ -446,6 +447,17 @@ def run(args, ledger, api_factory):
                                          renew=lambda: ledger.renew(args.item, token))
         ledger.renew(args.item, token)  # a claim lost during the transfers still fails the command
         return summary
+    if c == "foreign-work":
+        from .foreign_work import foreign_work
+        token = resolve_token(args)
+        ledger.renew(args.item, token)  # read-only, yet only the claimed worker may ask
+        config = load_config(secure_permissions=False)
+        paths = Paths(config)
+        if Path(args.db).resolve() != paths.ledger.resolve():
+            raise LedgerError("foreign-work must use the configured host ledger")
+        report = foreign_work(ledger, args.item, config.repos, paths.repos)
+        ledger.renew(args.item, token)  # a Stop during the network reads ends the claim here
+        return report
     if c == "verify-publication":
         from .config import ROOT
         from .publication import PublicationVerifier
@@ -481,9 +493,19 @@ def run(args, ledger, api_factory):
             ledger.renew(args.item, token)  # fence cancellation while network checks were in progress
             return result
         try:
-            return verify_with_retries(verify_current, lambda: ledger.renew(args.item, token))
+            result = verify_with_retries(verify_current, lambda: ledger.renew(args.item, token))
         except PublicationUnavailable:
             return ledger.defer_publication_retry(args.item, token, args.repo)
+        from .foreign_work import foreign_work
+        # Evidence, not a gate (spec §4.5): refusing on it would need a stored acknowledgement. verify_current has
+        # just observed the issue, so the attachments read here are fresh.
+        try:
+            result["foreign_work"] = foreign_work(ledger, args.item, config.repos, paths.repos,
+                                                  repositories=[args.repo])
+        except (OSError, ValueError, RuntimeError) as exc:
+            result["foreign_work"] = {"status": "unavailable", "error": type(exc).__name__}
+        ledger.renew(args.item, token)  # a Stop during these reads ends the claim here, as after verification
+        return result
     if c == "await-resource":
         token = resolve_token(args)
         if args.commit is not None:

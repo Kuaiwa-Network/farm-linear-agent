@@ -11,7 +11,7 @@ python3 -m agent --db DATABASE checkpoint --help
 | --- | --- |
 | `claim` | `--item ITEM_ID --worker-id WORKER_ID`; returns the claim token |
 | `fetch-issue`, `issue-context` | `--item ITEM_ID` only; no token flags |
-| `renew`, `checkpoint`, `pop-inbox`, `download-uploads`, `verify-publication`, `handoff-repository`, `revalidate`, `prepare-comment`, `post-comment`, `confirm-comment`, `prepare-notice`, `post-notice`, `activity`, `await-input`, `await-resource`, `finish` | `--item ITEM_ID --token-file STATE_DIR/token`, plus command-specific arguments from `--help` |
+| `renew`, `checkpoint`, `pop-inbox`, `download-uploads`, `verify-publication`, `foreign-work`, `handoff-repository`, `revalidate`, `prepare-comment`, `post-comment`, `confirm-comment`, `prepare-notice`, `post-notice`, `activity`, `await-input`, `await-resource`, `finish` | `--item ITEM_ID --token-file STATE_DIR/token`, plus command-specific arguments from `--help` |
 | `request-repair` | Read-only profile only: claim-token arguments, `--message-id LATEST_MESSAGE_ID --summary-file STATE_DIR/repair-summary.md` |
 | `resume-work` | Legacy resume-only command: claim-token arguments and `--message-id LATEST_MESSAGE_ID`; cannot start a first repair |
 | `memory-list`, `memory-read`, `memory-save`, `memory-forget` | Same claim-token arguments; see `references/memory.md` |
@@ -99,6 +99,25 @@ name. A rerun fetches only new uploads, files that no longer match the manifest 
 failed. The claim is renewed before each download and every minute during one; a claim lost on the
 way ends that download and the ones after it, the manifest is still written, and the command
 fails. Run one at a time per directory. Never fetch `uploads.linear.app` another way.
+
+## Foreign work
+
+`foreign-work` lists other people's work on your issue and changes nothing. It reads the saved
+issue, so run `fetch-issue` first:
+
+```bash
+python3 -m agent --db DATABASE foreign-work --item ITEM_ID --token-file STATE_DIR/token
+```
+
+It returns one object: `status` (`found`, `none` or `incomplete`), `foreign.prs` (each with `url`,
+`repository`, `title`, `state`, `draft`, `head`, `author` and `sources`: `linear_attachment`,
+`github_search`), `foreign.branches` (`repository`, `name`, `head` SHA and `farmbot_name`, true
+for a `farmbot/<key>` name), `own` (the PRs and branches it counted as this job's) and `errors`
+(each source it could not read). Own work is the issue's registered PRs, the branches and PRs in
+`plan.prs` of this job and its predecessors, and the head branches of own PRs; anything else is
+foreign, `farmbot/` names included. `incomplete` means a source failed, never that nothing exists.
+`verify-publication` returns the same report for its repository under `foreign_work`; it does not
+refuse publication on it.
 
 ## Checkpoint JSON
 

@@ -461,6 +461,20 @@ remain explicit. This is a preflight and authorization context,
 not an atomic push service or a replacement for runtime approval: remote state can change after the
 check, and a reviewer may still reject an action. A denial must be addressed, never bypassed.
 
+Before its first source change in each stage and before each push or PR, a fix worker checks for
+other people's work with the claim-authenticated read `foreign-work --item JOB_ID`. It lists PR URLs
+among the issue's Linear attachments, from the snapshot `fetch-issue` saved, `gh pr list --search
+<KEY>` results in each configured repository, and remote branches whose name carries the key, read
+with `git ls-remote`. Own work is the issue's registered PRs, the branches and PRs recorded in
+`plan.prs` by the job and its predecessors, and the head branches of own PRs. Every other branch or
+PR is foreign, `farmbot/` ones included, because another instance such as TestBot uses the same
+names. The command writes nothing and calls no Linear API; a source it cannot read is reported and
+makes the result `incomplete`, never empty. When anything is foreign, the worker posts a
+`foreign_work` notice and asks with `await-input`, unless a current session message already
+answered. `verify-publication` adds the same report for its repository as `foreign_work`, as
+evidence only: a hard publication gate would need a stored acknowledgement, so publication is not
+refused on it.
+
 ## Unity verification commits
 
 The issue target remains the immutable baseline for the job. A write worker can request

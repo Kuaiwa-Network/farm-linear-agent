@@ -21,7 +21,11 @@ class CliTests(unittest.TestCase):
         from agent.__main__ import parser
         from agent.ledger import Ledger
         from test_worktrees import git
+        from unittest.mock import patch
         item, token, _, _, path = self.verification_fixture()
+        # verify-publication also lists foreign work (Task 13); these stand-ins keep its tests off GitHub.
+        self.enterContext(patch('agent.foreign_work.search_prs', return_value=[]))
+        self.enterContext(patch('agent.foreign_work.remote_branches', return_value=[]))
         git('branch', '-m', f'farmbot/{issue_prefix.lower()}-1', cwd=path)
         git('remote', 'set-url', 'origin', 'https://github.com/Kuaiwa-Network/Farm-Client.git', cwd=path)
         config = load_config(self.env['FARMBOT_CONFIG'])
