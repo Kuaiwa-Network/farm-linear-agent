@@ -1,8 +1,7 @@
 # The Bot label group (D18)
 
-**Status: accepted, 2026-09-28. Not implemented.** Current behaviour is in
-[`docs/operating-contract.md`](../../operating-contract.md), which changes only when this design
-lands. The design follows the operator's decision D18 of 2026-09-27, which amends D3 of the
+**Status: accepted, 2026-09-28; implemented, not yet deployed.** Current behaviour is in
+[`docs/operating-contract.md`](../../operating-contract.md), which the implementation updated. The design follows the operator's decision D18 of 2026-09-27, which amends D3 of the
 [feature-workers design](2026-09-24-feature-workers-design.md) ("the feature spec" below) and, through
 f (§2), the last clause of its D16; D18 c also ends the Bug-delegation shortcut of two earlier
 designs (§3.1). On 2026-09-28 the operator confirmed f, g and h and settled the questions of §10

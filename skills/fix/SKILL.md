@@ -1,6 +1,6 @@
 ---
 name: fix
-description: Investigate and fix exactly one delegated Farm bug in a fresh worker; open draft PRs; report through FarmBot's ledger CLI. Never select another issue.
+description: Investigate and fix exactly one delegated Farm bug, or make one small requested change to existing code or UI, in a fresh worker; open draft PRs; report through FarmBot's ledger CLI. Never select another issue.
 ---
 
 # FarmBot fix worker
@@ -19,20 +19,31 @@ bounded `prior_context` from the investigator or previous repository stage,
 the FarmBot paths `repo_root`, `contract` and `references`, `bot_name`
 (the Linear app you speak as; write it wherever a template says `<bot_name>`), and
 `state_dir`, the one private directory you may write outside the current stage's writable worktree (STATE_DIR below). Work only on that item. A human delegated the issue to
-`bot_name`; that delegation is your authority to investigate, fix, open draft PRs and comment in concise
-zh-CN. It is not authority to merge, deploy, change issue status or assignee, or touch repositories
+`bot_name`; that delegation is your authority to investigate, fix or make the requested change, open draft
+PRs and comment in concise zh-CN. It is not authority to merge, deploy, change issue status or assignee, or touch repositories
 outside your worktree list.
 
 When `tools.kw_ops.access` is present in your launch message, kw_ops, the GM backend of the test game
 environment, is available as an MCP server on the dispatch AUTHORITY's terms. Use it only for this
-issue's reproduction and verification, and record every state-changing call as a handoff fact and
+issue's reproduction or verification, and record every state-changing call as a handoff fact and
 under State changes in the run report.
+
+## What a fix covers
+
+A card reaches you labelled Bot/修改, or through a conversation's repair request. Either way the job is
+one bug fix or one small change to something that already exists, in code or UI; the issue, the session
+messages and `conversation_history` say which. It never covers a new screen, a new protocol message or a
+new config table: those are Bot/UI or Bot/Code work. When the work turns out to need one, stop before
+that part and finish blocked, naming what you found and the Bot/UI or Bot/Code label the card needs; do
+not build it. A wrong designer value or missing art is designer work: say so, as the repository map
+describes, rather than authoring designer data yourself.
 
 ## Intake
 
 1. Read this file, `contract`, `references/worker-cli.md`, and the instructions of the current
    `stage.root_repository` if one is set. Open other references and repository instructions when
-   investigation needs them. In the neutral stage, inspect all worktrees read-only to locate the bug.
+   investigation needs them. In the neutral stage, inspect all worktrees read-only to locate the bug or
+   the code the change touches.
 2. `python3 -m agent --db DATABASE claim --item ITEM_ID --worker-id WORKER_ID`. Write the returned token
    to `STATE_DIR/token` with mode 0600 and never print it. Follow
    `<repo_root>/references/worker-cli.md` for the command argument table and checkpoint JSON.
@@ -73,7 +84,8 @@ the issue changed since it was written. Recheck repository heads, branches and t
 ## Repository stages and contract consistency
 
 The first fix attempt starts in STATE_DIR with no repository write access. Investigate the relevant
-worktrees and Farm-Contract clauses to locate the bug. Do not assume Farm-Client is the affected
+worktrees and Farm-Contract clauses to locate the bug or the code the change touches. Do not assume
+Farm-Client is the affected
 repository merely because `target` pins its Unity baseline. If a baseline Unity run is needed,
 request it here before switching. Do not edit, commit, generate, or publish repository files yet.
 
@@ -91,7 +103,8 @@ consumer's own instructions and skill rules in its fresh worker. Link the draft 
 dependency order. Never merge or deploy.
 
 If intended behaviour is unclear, the issue lacks necessary detail, or you cannot decide whether the
-contract or implementation is wrong, checkpoint the exact clause, evidence and pending question, then
+contract or implementation is wrong, or where a requested change belongs, checkpoint the exact clause,
+evidence and pending question, then
 confirm the checkpoint succeeded before running `await-input --question TEXT` and exiting.
 This command adds `needs-more-info` and posts the question in the Linear session; write the question
 so that it mentions the people it asks (see "Deciders and mentions"). Do not separately post an
@@ -165,7 +178,7 @@ worktree clean. Read its full HEAD SHA and request the slot with `--commit FIX_S
 `await-resource` (batch or interactive) from the Farm-Client stage. The CLI verifies that SHA is the clean HEAD of your own
 Farm-Client worktree. The controller loads that exact commit, including commits not yet pushed.
 Without `--commit`, the request tests the original `target.commit_sha`: use that for baseline
-reproduction only, never as evidence for your fix. The original target remains the baseline.
+reproduction, or the state before a change, only, never as evidence for your fix. The original target remains the baseline.
 
 After resuming, `resource.commit` is the tested revision; compare it with the intended fix SHA.
 Batch evidence also records `commit_sha` and `reservation_id`, with separate logs/XML per reservation.
@@ -233,7 +246,8 @@ build — slots budget an import-only `Library/` and a player build triples it.
 
 Record any behaviour you could not verify as a verification gap and finish blocked or deliver with the gap
 named. Never describe a source-only check as runtime evidence. Show a testable logic bug failing before the
-fix and passing after under comparable conditions. Missing dependencies, unhydrated LFS pointers,
+fix and passing after, or a test of a requested change's new behaviour failing on the baseline and passing
+on the change, under comparable conditions; a UI change gets a before-and-after check or a named gap. Missing dependencies, unhydrated LFS pointers,
 typecheck setup failures, compilation failures before the intended test, and zero-test runs leave that
 test unverified; they are not the product's red test. Establish prerequisites, then obtain a controlled
 before/after result. Follow `references/evidence-format.md` when classifying results. A draft delivery
@@ -317,7 +331,8 @@ Checkpoint often using the complete JSON in `references/worker-cli.md`, with `st
 `published_prs` immediately after a PR exists. Check every mutation's exit status and returned state.
 A rejected handoff must be repaired and successfully saved before `await-input`, `await-resource` or
 `finish`; a failed checkpoint does not preserve progress. Open PRs as drafts with `gh pr create --draft`, link the
-issue, describe the observed problem, the change, the checks that ran and the ones that did not.
+issue, describe the observed problem or the requested change, the change made, the checks that ran and the
+ones that did not.
 
 ## Outcomes
 
@@ -331,7 +346,8 @@ snapshots or the database, or use operator-only `memory-admin`. Gameplay rules r
 - Delivered: `prepare-comment --kind delivery`, `post-comment`, then `finish --outcome delivered` with
   `{"summary", "comment_action_id", "verification", "prs": [...]}`. Verification names the rungs that ran.
 - Delivered with no code change: when the bug is already fixed on the target branch, is a duplicate of
-  work already merged, or does not reproduce, that conclusion is the deliverable. Write the body from the
+  work already merged, or does not reproduce, or the requested change is already on the target branch,
+  that conclusion is the deliverable. Write the body from the
   `delivery (no change)` template, never the plain `delivery` one, which claims a draft PR was submitted.
   Then `prepare-comment --kind delivery`, `post-comment`, and
   `finish --outcome delivered` with `{"summary", "comment_action_id", "verification", "no_change", "prs": []}`,

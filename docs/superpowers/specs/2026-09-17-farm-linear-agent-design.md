@@ -5,6 +5,14 @@ spec for review before an implementation plan is drafted. Agent name: **@FarmBot
 chosen by the user on 2026-09-17. The existing Linear OAuth application FarmQA is
 renamed to FarmBot; its app user id is unchanged, so existing sessions keep working.
 
+## Approved amendment — 2026-09-27
+
+A child of the Bot label group, not Bug, chooses what a delegation starts: Bot/修改 starts `fix`,
+Bot/UI `fgui` and Bot/Code `feature`. A delegated card labelled Bug with no Bot child opens the
+read-only conversation, because a bug can be designer-only work, and a reply there such as 「修复」
+still starts a fix. This supersedes the Bug routing row below; see the
+[Bot label group design](2026-09-27-bot-label-group-design.md).
+
 ## Approved amendment — 2026-09-22
 
 FarmBot is one conversation with read-only and writable execution profiles. A claim-scoped

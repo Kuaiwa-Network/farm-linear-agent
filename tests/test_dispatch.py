@@ -77,6 +77,15 @@ AUTHORITY_AT_A29D078 = (
     "Use references/worker-cli.md for command arguments and the exact handoff JSON shape."
 )
 AUTHORITY_AT_A29D078_SHA256 = "23d88d27e8d37067c1879514f0a4d578da0c02b04c14832aa29ecfdeff321cde"
+# D18 h, question 5: the one sentence fix's AUTHORITY adds. A change to it is a change to what the approval
+# reviewer lets a fix worker export, so it is pinned here word for word.
+FGUI_EXPORT_AT_D18 = (
+    "The operator's standing authorization of 2026-09-21, widened on 2026-09-28 to every authorized fix job, "
+    "lets you run the FairyGUI CLI batch export for this issue's UI fix or small change to existing UI and "
+    "integrate its validated outputs into this issue's authorized client worktree, without asking for a "
+    "separate export approval or a human GUI publish. Follow the command, staging and validation workflow in "
+    "references/repo-map.md; the export adds no repository, publishing, merge or deployment scope. "
+)
 
 
 def payload_of(message):
@@ -220,10 +229,17 @@ class SkillAuthorityTests(unittest.TestCase):
     def test_the_frozen_copy_is_the_a29d078_text(self):
         self.assertEqual(hashlib.sha256(AUTHORITY_AT_A29D078.encode("utf-8")).hexdigest(), AUTHORITY_AT_A29D078_SHA256)
 
-    def test_fix_and_chat_receive_the_a29d078_authority_byte_for_byte(self):
-        for skill in ("fix", "chat"):
-            with self.subTest(skill=skill):
-                self.assertEqual(self.message({"id": "i", "skill": skill}).split("\n\n", 1)[0], AUTHORITY_AT_A29D078)
+    def test_chat_receives_the_a29d078_authority_byte_for_byte(self):
+        self.assertEqual(self.message({"id": "i", "skill": "chat"}).split("\n\n", 1)[0], AUTHORITY_AT_A29D078)
+
+    def test_fix_receives_the_a29d078_authority_plus_the_fgui_export_grant_before_the_reference(self):
+        """D18 h and question 5: the approval reviewer trusts only this text, so the export grant farmgui's rules
+        record is stated here for fix alone; everything else is the a29d078 text, byte for byte."""
+        reference = dispatch.AUTHORITY_REFERENCE
+        self.assertEqual(self.message({"id": "i", "skill": "fix"}).split("\n\n", 1)[0],
+                         AUTHORITY_AT_A29D078[:-len(reference)] + FGUI_EXPORT_AT_D18 + reference)
+        self.assertEqual(dispatch.FGUI_EXPORT_AUTHORITY, FGUI_EXPORT_AT_D18)
+        self.assertNotIn("FairyGUI", dispatch.COMMON_AUTHORITY + dispatch.SKILL_AUTHORITY["chat"])
 
     def test_the_kw_ops_grant_is_per_skill_and_the_rest_is_common(self):
         self.assertEqual(set(dispatch.SKILL_AUTHORITY), {"fix", "chat"})

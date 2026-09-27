@@ -112,20 +112,28 @@ once in the same way, and back again on a rollback.
 
 | You do | FarmBot does |
 |---|---|
-| Assign (delegate) an issue labelled Bug, and no 功能 label, to @FarmBot | starts a `fix` work item; first activity within 10 s; posts 「👀 <bot_name> 已开始处理」 (「👀 FarmBot 已开始处理」 in production) once the worker claims |
-| Delegate an issue labelled Bug and a 功能 child (any child of the group, such as 功能/UI or 功能/Code) | asks in the session, with no work item and adding `needs-more-info`, that you remove the label that does not apply and reply |
-| Delegate an issue labelled 功能/UI or 功能/Code | starts `fgui` or `feature` when this instance enables it (neither exists yet); otherwise, and for any other 功能 child, the read-only conversation, whose first activity says what this instance runs and which cannot start a fix. A standalone `UI` or `Code` label outside the group routes like any other label |
-| Reply in a delegation session that never had a work item, for example after fixing the labels | while the issue is still delegated to FarmBot, routes again on its current labels with your reply as the delegation's text: a 功能 card starts its worker; Bug alone starts `fix` when the reply is empty, else the read-only conversation first |
-| Delegate an issue without a Bug label | starts read-only conversation; investigates, answers or clarifies intent; a reply requesting repair can enter writable execution, except on a 功能 card, where a first fix is refused as feature work |
-| @FarmBot in a comment or the session | interprets intent in read-only execution; can start or resume repair when this issue has recorded delegation and is still delegated to FarmBot, a first fix on a 功能 card excepted |
+| Assign (delegate) an issue labelled Bot/修改 to @FarmBot | starts a `fix` work item, whatever else the card carries and whatever text comes with it; first activity within 10 s; posts 「👀 <bot_name> 已开始处理」 (「👀 FarmBot 已开始处理」 in production) once the worker claims |
+| Delegate an issue labelled Bot/UI or Bot/Code | starts `fgui` or `feature` when this instance enables it (neither exists yet); otherwise, and for an unknown Bot child or two, the read-only conversation, whose first activity says what this instance runs |
+| Delegate an issue without a Bot label, whatever its Bug, Improvement, Feature or 部门 labels | starts the read-only conversation; its first activity says the card has no Bot label, that a reply such as 「修复」 starts a fix, and that Bot/修改 set before delegating starts one directly. It investigates, answers or clarifies intent. A standalone `修改`, `UI` or `Code` label outside the group routes like any other label |
+| Reply in a delegation session that never had a work item, for example after another session's work declined it | while the issue is still delegated to FarmBot, routes again on its current labels with your reply as the delegation's text: a Bot child starts its worker; without one, the read-only conversation |
+| Ask for a fix or a change in a conversation (a reply, or @FarmBot) | with Bot/修改 or no Bot label, starts or continues `fix` when the issue has recorded delegation and is still delegated to FarmBot; with Bot/UI or Bot/Code, or Bot children that name no workflow, only continues an earlier fix, and otherwise the conversation says why nothing starts |
+| @FarmBot in a comment or the session | interprets intent in read-only execution; a mention never starts write work itself |
 | Reply in a session while a worker runs | the text reaches the worker at its next checkpoint |
 | Reply to a FarmBot question | the parked work item resumes with your answer |
 | Ask naturally to resume finished work, in its session or an @FarmBot mention | chat interprets intent, checks current delegation, and continues the fix with the complete reply (a cancelled fix gets a fresh linked job); no keyword is required. Negations and questions about restarting do not restart work |
 | Close an issue (a status of type `completed`, `canceled` or `duplicate`, such as Done, Canceled or Duplicate) or archive it | cancels unfinished/blocked work after a current status read, stops owned processes, preserves source and safely cleans worktrees; keeps logs |
 | Reopen an issue | starts nothing; request continuation or delegate explicitly |
 | Press Stop | the worker process is killed promptly, without waiting for the scheduler; the item is cancelled; FarmBot confirms in the session |
-| Delegate an issue that already has FarmBot work in another session | declines with a note naming the issue and the running skill; the existing work continues |
+| Delegate an issue that already has FarmBot work in another session | with a Bot child this instance runs, declines with a note naming the issue and the running skill; otherwise the delegation is forwarded to that work like a message, resuming it if it waits for an answer; the existing work continues either way |
 | @FarmBot on an issue that already has FarmBot work in another session | your text is forwarded to the running worker; you get a short notice |
+
+The Bot label group (D18) is team-scoped and single-select, so a card carries at most one child:
+修改, UI or Code. Bug, Improvement, Feature and the 部门 labels are for people and start nothing.
+The group was named 功能 until 2026-09-28. This revision reads it under both names, so it routes
+alike on either side of the rename, and a later revision drops 功能. Revisions before it read only
+a group named 功能, and revisions before label groups read only Bug, so on a host still running one
+a Bot label starts nothing and a delegated Bug card starts `fix`. §7 of
+`docs/superpowers/specs/2026-09-27-bot-label-group-design.md` gives the release order.
 
 ## Authority
 
@@ -151,8 +159,9 @@ so the `--approve-for-me` reviewer, which trusts injected `AGENTS.md` but not to
 that text. Fix workers read the current root's `AGENTS.md`/`CLAUDE.md` and other repository
 instructions when investigation needs them; grants a worker
 needs belong in the dispatch AUTHORITY. That text is a common part plus a per-skill part chosen
-by the item's skill (`agent/dispatch.py`); `fix` and `chat` share one per-skill part, the kw_ops
-terms below. A skill whose manifest grants kw_ops must carry those terms in its per-skill part,
+by the item's skill (`agent/dispatch.py`); `fix` and `chat` share the kw_ops terms below, and
+`fix`'s part adds one sentence stating the FairyGUI export grant (UI source ownership), which
+the reviewer would not otherwise see. A skill whose manifest grants kw_ops must carry those terms in its per-skill part,
 because the grant comes from the manifest and its limits from the AUTHORITY; a test checks every
 loaded skill. Building the launch message refuses a skill with no per-skill entry, so its job
 fails at launch and no worker starts: SKILL.md text cannot stand in for a grant. Repository
@@ -204,7 +213,7 @@ states the access, and the worker reports the missing kw_ops as a verification g
 needs it. Configure kw_ops only when every target it lists is a test server, using a kw_ops
 operator whose permissions cover only test servers; FarmBot does not scope servers. The kw_ops
 terms of the fix and chat AUTHORITY, which tell workers that every listed server is a test server,
-limit full access to the issue's reproduction and verification, and require every state-changing
+limit full access to the issue's reproduction or verification, and require every state-changing
 call to be recorded.
 Read-only access rests on FarmBot's allowlist, not on kw_ops.
 
@@ -221,18 +230,23 @@ configured host, `token_env` and
 controller's.
 
 An active repair can answer questions directly. Free-text intent is interpreted by the
-current worker; QA/retry words do not dispatch work by themselves. Empty Bug delegation
-retains its established repair shortcut; a message accompanying it is interpreted first. A 功能
-label chooses the workflow instead: an enabled worker starts whatever text accompanies the
-delegation, and that text is its first session message.
+current worker; QA/retry words do not dispatch work by themselves. Only a child of the Bot
+label group chooses a workflow: Bot/修改 starts `fix`, Bot/UI `fgui` and Bot/Code `feature`,
+whatever text accompanies the delegation, and that text is its first session message. A
+delegation without a Bot label opens the read-only conversation. Earlier revisions started
+`fix` on a Bug card delegated without text; D18 ended that shortcut, because a bug can be
+designer-only work that needs no code change.
 
 `request-repair` checks a fresh Linear snapshot, a live read-only claim, the latest session
 message and a recorded delegation session on the same issue. It atomically retires that
 claim and queues the prior fix or creates the first fix under the recorded delegation and
-target. A mention alone grants no new authority. On an issue that carries a 功能 child and has no
-`feature` or `fgui` job, it refuses to create a first fix and says that such work starts when the
-labelled issue is delegated, and, when this instance does not run that skill, that it does not yet;
-continuing an earlier fix of the issue is unchanged. `resume-work` remains a resume-only
+target. A mention alone grants no new authority. The card's Bot label decides what a request may
+start (D18 f): with Bot/修改 or no Bot label, `fix`. On a card with Bot/UI or Bot/Code and no
+`feature` or `fgui` job it refuses a first job, saying that such work starts when the labelled issue
+is delegated or, when this instance does not run that skill, that it does not yet; an unknown Bot
+child or two name no workflow and are refused too. Continuing an earlier fix of the issue is
+unchanged, whatever the label now says. FarmBot never sets a Bot label; the one label it writes
+is `needs-more-info`. `resume-work` remains a resume-only
 compatibility command. Cancelled fixes stay cancelled and receive a fresh successor ID;
 other terminal retries retain their ID. A chat-to-fix transition restarts at the neutral
 investigation root. The launch includes one bounded `prior_context` summary from the
@@ -283,8 +297,8 @@ A checkpoint may also carry a validated `plan` for work that spans stages and da
 that the worker verifies, never authority, and it is not a handoff. Older code keeps a `plan` key only
 until its next checkpoint that omits it, and never validates one.
 
-A fix worker may update Farm-Contract in its Contract-root attempt for a confirmed bug
-requirement, before the affected implementation. Uncertain behaviour or missing
+A fix worker may update Farm-Contract in its Contract-root attempt for a confirmed requirement
+of the issue, a defect or a requested change, before the affected implementation. Uncertain behaviour or missing
 information is a question in Linear via `await-input`, which adds `needs-more-info`, emits the
 elicitation and parks the item. A reply resumes it; insufficient answers lead to another question.
 The label is not automatically removed just because a reply arrived. Every question elicitation adds
@@ -533,7 +547,7 @@ trailing dots, streams) have tests that run only on Windows.
 
 ## UI source ownership
 
-For UI fixes, inspect the relevant farmgui source before choosing an implementation. When the
+For UI fixes and changes, inspect the relevant farmgui source before choosing an implementation. When the
 problem is in the authored hierarchy, layout, relations, controllers or reusable components,
 change that FGUI source first, then adapt client bindings and behaviour as needed. Prefer one
 clear source of truth over runtime reparenting, hard-coded offsets, duplicate components or
@@ -541,13 +555,14 @@ per-screen patches that compensate for an incorrect UI definition. Keep changes 
 issue and check other consumers of any shared component you change.
 
 Keep gameplay rules, data binding, event handling and genuinely dynamic UI behaviour in code.
-If the FGUI structure is already correct and the defect is in that logic, fix the code; do not
+If the FGUI structure is already correct and the defect or change is in that logic, change the code; do not
 rewrite FGUI just to satisfy a source-first preference. Record the chosen layer and its reason
 in the checkpoint and PR. Optimise for correctness, explicit ownership and maintainability for
 both humans and AI, rather than whichever tool is easiest for the current worker to use.
 
-The operator's standing instruction of 2026-09-21 authorizes direct FairyGUI CLI export during
-an authorized FGUI bug fix. Resolve the executable and host-specific license observations
+The operator's standing instruction of 2026-09-21, widened on 2026-09-28 (D18 h), authorizes
+direct FairyGUI CLI export during an authorized FarmBot fix job, a UI bug fix or a small change to
+existing UI. `fix`'s part of the dispatch AUTHORITY states it, and farmgui's own rules record it. Resolve the executable and host-specific license observations
 from local configuration or shared memory, and verify current batch-export availability.
 Do not wait for human intervention or ask for a separate export approval. This
 supersedes the earlier unpaid-license GUI handoff and export-approval gate, including historical
@@ -699,7 +714,8 @@ any unposted notice unsent.
   the rule of authority is not what the missing webhook excuses. It also refuses a skill the instance does
   not run (`enabled_skills`). `python3 -m agent.service slots` is the
   operator's view of the pool: slot states, parked commits and the open reservations behind them.
-- A fix that finds nothing to change (already fixed, duplicate, does not reproduce) delivers with an
+- A fix that finds nothing to change (already fixed, duplicate, does not reproduce, or the requested
+  change is already on the target branch) delivers with an
   empty PR list and a `no_change` reason, and FarmBot's session response says 无需改动. Blocked stays
   for work that a human must unblock.
 - Delegation must come from the Linear UI. Setting the delegate through the API creates no agent session,

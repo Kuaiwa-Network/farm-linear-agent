@@ -48,7 +48,8 @@ class Fixture:
             git("add", ".", cwd=origin); git("commit", "-qm", "init", cwd=origin)
             remotes[repo] = str(origin)
         self.stub = root / "stub"; self.stub.mkdir()
-        (self.stub / "issue.json").write_text(json.dumps(issue(labels=["Bug"], delegate_id=APP)), encoding="utf-8")
+        # Bot/修改 makes the delegation below a fix item (D18); Bug alone no longer routes.
+        (self.stub / "issue.json").write_text(json.dumps(issue(labels=["Bug", "修改"], delegate_id=APP, label_groups=[{"group": "Bot", "label": "修改"}])), encoding="utf-8")
         env = {"FARMBOT_LINEAR_STUB_DIR": str(self.stub), "FARMBOT_CONFIG": str(root / "none.json"),
                "FAKE_CLI_REPO": str(ROOT), "FAKE_CLI_MODE": "cli",
                "FAKE_CLI_STEPS": json.dumps([
@@ -127,6 +128,7 @@ class EndToEndTests(unittest.TestCase, Fixture):
         self.assertLess(acked - received, 10)
         self.assertEqual(self.calls()[-1]["content"]["type"], "thought")
         item = self.c.ledger.items_for_session("session-e2e")[0]
+        self.assertEqual(item["skill"], "fix")
         self.c.scheduler.tick()
         self.assertIsNotNone(self.c.ledger.item(item["id"])["worker_pid"])
         self.assertTrue((self.c.paths.worktrees / item["id"] / "Farm-Client").is_dir())

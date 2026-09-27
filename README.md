@@ -1,12 +1,15 @@
 # farm-linear-agent
 
 One Linear agent for the 农场 team. Delegate an issue to it for work, @mention it to
-talk. Capabilities are added as skills on a shared identity, ledger, worker runtime and
-desktop-resource locks: chat, QA, bug fix, FGUI, then whole features.
+talk. The issue's label from the Bot group says what work: Bot/修改 for a bug fix or a
+small change to existing code or UI, Bot/UI and Bot/Code for new UI and new features.
+Without a Bot label a delegation opens a conversation. Capabilities are added as skills on
+a shared identity, ledger, worker runtime and desktop-resource locks: chat, QA, bug fixes
+and small changes, FGUI, then whole features.
 
 FarmBot keeps one conversation across read-only investigation and writable repair execution.
-An authorized “fix it” reply can start the first repair (except on a 功能 card, whose work
-starts by delegation) or resume previous work without re-delegating. The host carries messages and findings across the change of execution profile
+An authorized “fix it” reply can start the first repair on a card labelled Bot/修改 or with no
+Bot label, or resume previous work without re-delegating. The host carries messages and findings across the change of execution profile
 and posts recorded session progress every ten minutes while work is active or queued.
 Fix work starts with read-only investigation, then uses a fresh Codex worker rooted in each
 repository it needs to change. The controller keeps one Linear work item across those switches.

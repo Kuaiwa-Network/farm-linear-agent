@@ -77,7 +77,7 @@ kill server runtimes.
 The fix manifest includes a readable Farm-Contract worktree. Switch with `handoff-repository`
 to start a fresh worker rooted there before editing or invoking its OpenSpec process; cwd matters.
 Contract-root workers must follow Contract's restrictions on Superpowers and consumer code.
-For the delegated bug, resolve
+For the delegated bug or change, resolve
 uncertain behaviour by asking in Linear with `await-input` (which adds `needs-more-info`).
 Once the human decision is clear, update the relevant contract first, then the affected client,
 server and configuration sources. Link draft PRs and record dependencies and the decision's
@@ -97,9 +97,9 @@ this contract. Missing generators remain explicit verification gaps or blockers.
   executable from host configuration or a host-specific shared-memory note,
   then verify that it exists and has an active paid license for batch export.
   Keep installation paths and license observations out of versioned guidance.
-  During an authorized FGUI bug fix, FarmBot may export the
-  affected packages directly without another permission request or human GUI
-  handoff. This applies to both Codex and Claude Code workers and supersedes the
+  During an authorized FarmBot fix job, a UI bug fix or a small change to existing
+  UI (widened on 2026-09-28), FarmBot may export the affected packages directly
+  without another permission request or human GUI handoff. This applies to both Codex and Claude Code workers and supersedes the
   earlier unpaid-license handoff and separate export-approval guidance.
   Run `-batchmode -p <job-worktree/FGUIProject.fairy> -b <comma-separated-packages>
   -o <absolute-job-staging-directory> -logFile <absolute-log-file>` with a timeout

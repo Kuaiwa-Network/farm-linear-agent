@@ -9,6 +9,9 @@ natural-language requests go to the read-only profile, which answers directly, a
 question when genuinely ambiguous, or requests repair execution. Keep the established
 empty Bug-delegation shortcut: that explicit workflow already requests a repair. A
 delegation without Bug now creates a conversation; no keyword selects QA or repair.
+(Amended 2026-09-27: the Bot label group replaced the Bug shortcut, so Bot/修改 requests a
+repair and a Bug card without it gets a conversation; see the
+[Bot label group design](2026-09-27-bot-label-group-design.md).)
 
 `request-repair --message-id ID --summary-file PATH` is a claim-authenticated transition.
 The CLI refreshes Linear first. The ledger requires an open, in-scope issue still

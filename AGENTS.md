@@ -71,6 +71,8 @@ keep runtime authority and behavior changes in those sources and their tests.
   `farmbot/<key>` branches), and remember that test comments, labels, branches and
   draft PRs are real. The real repositories' default branches are unprotected, so
   FarmBot's publication checks are the only guard; test changes to them offline first.
+  Both bots also read the same labels: a label or label-group change in Linear reaches
+  both at their next read of a card, while code reaches each at its own deploy.
 - The config loader records the selected absolute file path. Services propagate it
   to every worker attempt and installed launchd commands, overriding conflicting
   inherited `FARMBOT_CONFIG`. Keep that guarantee when changing configuration handling.

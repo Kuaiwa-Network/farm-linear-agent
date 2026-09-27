@@ -162,7 +162,7 @@ class RepairWorkTests(LedgerBase):
         fix = run(args, self.ledger, lambda: api)
         self.assertEqual((fix["skill"], fix["state"]), ("fix", "queued"))
         self.assertEqual(sent[0][0], SESSION)
-        self.assertEqual(sent[0][1]["type"], "thought")
+        self.assertEqual(sent[0][1], {"type": "thought", "body": "已排队开始或继续修改，会接着你的回复和已有调查结果处理。"})
         self.assertIn("summary", self.ledger.item(chat["id"])["evidence"])
 
     def test_cli_fences_stop_while_refreshing_linear(self):
@@ -197,10 +197,10 @@ class RepairWorkTests(LedgerBase):
             self.assertEqual(run(args, self.ledger, lambda: api)["skill"], "fix")
 
     def feature_card(self):
-        return issue(delegate_id=APP, labels=["Code"], label_groups=[{"group": "功能", "label": "Code"}])
+        return issue(delegate_id=APP, labels=["Code"], label_groups=[{"group": "Bot", "label": "Code"}])
 
-    def test_cli_refuses_a_first_fix_on_a_feature_card_and_says_how_feature_work_starts(self):
-        """spec §9.4, D16: a conversation on a 功能 card never becomes a fix; its work starts from a delegation."""
+    def test_cli_refuses_a_first_fix_on_a_code_card_and_says_why(self):
+        """D18 f: a start request follows the Bot label, and no host runs feature yet, so nothing starts."""
         from unittest.mock import patch
         from agent.config import Config
         chat, token = self.conversation()
@@ -212,10 +212,10 @@ class RepairWorkTests(LedgerBase):
             with self.assertRaises(LedgerError) as refused:
                 run(args, self.ledger, lambda: api)
             self.assertEqual(str(refused.exception),
-                             "this issue carries 功能/Code, so it is feature work, not a fix; feature work starts only "
-                             "when an issue labelled 功能/Code is delegated, and this instance does not run feature yet")
+                             "this issue carries Bot/Code, so it is feature work, not a fix, and this instance does not "
+                             "run feature yet")
             self.assertEqual((self.ledger.item(chat["id"])["state"], self.ledger.queue(), sent), ("running", [], []))
-            # The same conversation on a plain Bug card still gets its fix.
+            # The same conversation on a Bug card without a Bot label gets its fix.
             api.fetch_issue = lambda _: issue(delegate_id=APP)
             self.assertEqual(run(args, self.ledger, lambda: api)["skill"], "fix")
 
@@ -239,8 +239,8 @@ class RepairWorkTests(LedgerBase):
             return current
         return SimpleNamespace(app_user_id=APP, fetch_issue=fetch, create_activity=lambda session, content: None)
 
-    def test_a_ui_label_outside_the_feature_group_does_not_block_a_first_fix(self):
-        """Only the 功能 group's children mean feature work; a bare `UI` label, or one of another group, does not."""
+    def test_a_ui_label_outside_the_bot_group_does_not_block_a_first_fix(self):
+        """Only the Bot group's children name a workflow; a bare `UI` label, or one of another group, does not."""
         for groups in ([], [{"group": "设计", "label": "UI"}]):
             with self.subTest(groups=groups):
                 self.setUp()
@@ -249,13 +249,46 @@ class RepairWorkTests(LedgerBase):
                 with patch("agent.__main__.load_config", return_value=Config("c", "s", "w")):
                     self.assertEqual(run(self.cli_request(chat, token), self.ledger, lambda: api)["skill"], "fix")
 
-    def test_a_bug_card_that_also_carries_a_feature_label_is_refused_a_first_fix(self):
+    def test_a_bug_card_that_also_carries_bot_code_is_refused_a_first_fix(self):
         chat, token = self.conversation()
-        api = self.stub_api(issue(delegate_id=APP, labels=["Bug", "Code"], label_groups=[{"group": "功能", "label": "Code"}]))
+        api = self.stub_api(issue(delegate_id=APP, labels=["Bug", "Code"], label_groups=[{"group": "Bot", "label": "Code"}]))
         with patch("agent.__main__.load_config", return_value=Config("c", "s", "w")):
-            with self.assertRaisesRegex(LedgerError, "功能/Code, so it is feature work, not a fix"):
+            with self.assertRaisesRegex(LedgerError, "Bot/Code, so it is feature work, not a fix"):
                 run(self.cli_request(chat, token), self.ledger, lambda: api)
         self.assertEqual((self.ledger.item(chat["id"])["state"], self.ledger.queue()), ("running", []))
+
+    def test_a_change_card_or_one_without_a_bot_label_gets_its_fix(self):
+        """D18 d and f: 修改, or no Bot label at all, is fix, whatever the labels for people say."""
+        change = [{"group": "Bot", "label": "修改"}]
+        for labels, groups in ((["Bug", "修改"], change), (["Improvement", "修改"], change), (["修改"], change),
+                               (["Bug"], []), (["Improvement"], []), (["程序"], [{"group": "部门", "label": "程序"}]),
+                               (["修改"], [{"group": "功能", "label": "修改"}])):
+            with self.subTest(labels=labels, groups=groups):
+                self.setUp()
+                chat, token = self.conversation()
+                api = self.stub_api(issue(delegate_id=APP, labels=labels, label_groups=groups))
+                with patch("agent.__main__.load_config", return_value=Config("c", "s", "w")):
+                    self.assertEqual(run(self.cli_request(chat, token), self.ledger, lambda: api)["skill"], "fix")
+
+    def test_a_card_whose_bot_children_name_no_workflow_is_refused_a_first_start(self):
+        for groups in ([{"group": "Bot", "label": "Art"}],
+                       [{"group": "Bot", "label": "Code"}, {"group": "Bot", "label": "UI"}],
+                       [{"group": "Bot", "label": "修改"}, {"group": "Bot", "label": "UI"}]):
+            with self.subTest(groups=groups):
+                self.setUp()
+                chat, token = self.conversation()
+                api = self.stub_api(issue(delegate_id=APP, labels=[g["label"] for g in groups], label_groups=groups))
+                with patch("agent.__main__.load_config", return_value=Config("c", "s", "w")):
+                    with self.assertRaisesRegex(LedgerError, "so it names no workflow"):
+                        run(self.cli_request(chat, token), self.ledger, lambda: api)
+                self.assertEqual((self.ledger.item(chat["id"])["state"], self.ledger.queue()), ("running", []))
+
+    def test_the_old_group_name_is_still_refused_as_feature_work(self):
+        chat, token = self.conversation()
+        api = self.stub_api(issue(delegate_id=APP, labels=["Code"], label_groups=[{"group": "功能", "label": "Code"}]))
+        with patch("agent.__main__.load_config", return_value=Config("c", "s", "w")):
+            with self.assertRaisesRegex(LedgerError, "Bot/Code, so it is feature work, not a fix"):
+                run(self.cli_request(chat, token), self.ledger, lambda: api)
 
     def test_a_configured_skill_the_checkout_lacks_stops_the_cli(self):
         chat, token = self.conversation()

@@ -30,6 +30,8 @@ A prerequisite error is not a failing product assertion. After correcting hydrat
 setup, run the intended check before claiming red/green. For a testable logic fix, show
 the relevant assertion failing on the baseline and passing on the fix under comparable
 conditions; a baseline build failure followed by a fix build success alone is insufficient.
+For a requested change, a test of its new behaviour plays that role: it fails on the
+baseline and passes on the change. A UI change gets a before-and-after check or a named gap.
 
 Classify failures as pre-existing only with per-case baseline evidence: record baseline
 and fix SHAs, the same mode, selection and environment, and compare test names and failure

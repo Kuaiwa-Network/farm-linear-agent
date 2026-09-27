@@ -57,6 +57,9 @@ What does not separate them:
 - Both bots use `farmbot/<lowercase-key>` branches in the same repositories.
 - The development bot's comments, agent sessions, `needs-more-info` labels,
   branches and draft PRs are real and visible to the team.
+- Both bots read the same labels. A label or label-group change in Linear, such
+  as the rename of 功能 to Bot, reaches both at their next read of a card, while
+  code reaches each bot at its own deploy.
 - Checked 2026-09-23: none of the five repositories protects its default branch,
   and the Kuaiwa-Network GitHub plan offers neither branch protection nor rulesets
   for private repositories. FarmBot's publication verification (exact destination,
