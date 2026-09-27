@@ -32,7 +32,7 @@ repository stages) is useful on its own, fix workers included, and lands first.
 |---|---|---|
 | D1 | UI and the Farm-Contract change run in parallel; hive waits for OpenSpec and config, not UI; client waits for UI and OpenSpec | §6, §7 |
 | D2 | Two human-created issues (UI, one Code), no Linear link; FarmBot never creates issues; -测试 (QA) cards stay with humans | §4.2 |
-| D3 | Label group 功能 with UI and Code; match the parent group; Bug keeps `fix`; Bug plus 功能 makes FarmBot ask | §4.1, §4.3 |
+| D3 | Label group 功能 with UI and Code; match the parent group; Bug keeps `fix`; Bug plus 功能 makes FarmBot ask; amended by D18 (group renamed Bot, child 修改 added, Bug no longer routes) | §4.1, §4.3 |
 | D4 | Questions as Linear comments, answers as ordinary comments, a human tells FarmBot to read them, answerers recorded by name; no automatic 3-working-day defaults | §5.1 |
 | D5 | The human assignee merges FarmBot's PRs (fallback: the delegator), mentioned by profile URL; FarmBot asks but cannot enforce, never merges | §4.2, §5.3 |
 | D6 | Delegated card belongs to FarmBot; FarmBot checks for others' branches and PRs before starting and before each PR | §4.5 |
@@ -45,8 +45,9 @@ repository stages) is useful on its own, fix workers included, and lands first.
 | D13 | 2026-09-25: FarmBot may add whatever entries the change needs to farm-common's other definition files, and push the `-config` branch | §6.3, §6.4 |
 | D14 | 2026-09-25: the UI worker exports and commits every package it changes; composite previews are enough for visual approval | §7.3, §7.4 |
 | D15 | 2026-09-25: anyone who writes in the session may approve the previews and ask for the export; FarmBot records who and mentions the owner | §7.3 |
-| D16 | 2026-09-25: the remaining proposals are accepted: a reply re-routes after a label fix; waiting pauses skip `needs-more-info`; removing the delegation cancels a queued or parked job; no kw_ops for the new skills; 10- and 6-hour attempts with retry allowances reset per stage and one long attempt at a time; chat does not start feature work | §3, §4.3, §5.2, §5.8, §8.1, §9.8 |
+| D16 | 2026-09-25: the remaining proposals are accepted: a reply re-routes after a label fix; waiting pauses skip `needs-more-info`; removing the delegation cancels a queued or parked job; no kw_ops for the new skills; 10- and 6-hour attempts with retry allowances reset per stage and one long attempt at a time; chat does not start feature work; D18 amends this last clause if its proposal f is confirmed | §3, §4.3, §5.2, §5.8, §8.1, §9.8 |
 | D17 | 2026-09-25: besides the owner, FarmBot mentions the issue's creator, usually the 策划 who wrote the card, on comments that need 策划: questions for the lead designer and the config-needed comment | §5.1, §5.3, §6.3 |
+| D18 | 2026-09-27: the group 功能 is renamed Bot and gains a third child, 修改, which starts `fix` as UI starts `fgui` and Code starts `feature`, one child per card at most, while Bug and the other labels for people no longer route, so a delegated card without a Bot label opens the read-only conversation (see the [Bot label group design](2026-09-27-bot-label-group-design.md)) | §4.1, §4.3 |
 
 ## 2. Background
 
@@ -132,6 +133,9 @@ Non-goals:
 
 ### 4.1 The 功能 label group
 
+D18 amends this section, renaming the group Bot and adding the child 修改; read §4.1 of the
+[Bot label group design](2026-09-27-bot-label-group-design.md).
+
 The operator creates a team-scoped (农场) label group named **功能** with two child labels, **UI** and
 **Code**, left at the default single-select type so one card cannot carry both. Existing labels
 (Bug, Feature, 程序, 策划, 美术) stay untouched and outside the group. Only a group's children can be
@@ -159,6 +163,9 @@ integration moves a card to 待验收, a started status, when a PR merges, so a 
 mid-feature is not finished (§9.8).
 
 ### 4.3 Routing rules
+
+D18 amends this section, so that Bug no longer routes and 修改 starts `fix`; read §4.2 and §4.3 of the
+[Bot label group design](2026-09-27-bot-label-group-design.md).
 
 Routing still happens once, when a delegation session is created (`agent/receiver.py:230`). The
 order for `created` delegation events:
