@@ -101,7 +101,9 @@ def build(config, runtime_override=None):
     recovery = RecoveryController(recovery_ledger, recovery_pool, host=config.host,
                                   evidence_root=paths.config_dir / 'resource-recovery',
                                   fence=scheduler.fence_resource_worker, api=api)
-    return Components(config, paths, api, ledger, skills, worktrees, launcher, scheduler, receiver, server, pool, lifecycle, progress, recovery)
+    # `skills` is the enabled set the ready line reports, not every manifest the checkout loads.
+    return Components(config, paths, api, ledger, set(enabled), worktrees, launcher, scheduler, receiver, server, pool,
+                      lifecycle, progress, recovery)
 
 
 def seed_clones(config, source_root=None):

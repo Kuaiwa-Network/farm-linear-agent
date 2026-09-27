@@ -18,6 +18,7 @@ from .worktrees import GIT_ENV
 
 GH = ("gh",)  # the argv prefix; tests point it at tests/fake_gh.py
 TIMEOUT = 20
+SEARCH_LIMIT = 100  # one more is requested, so a search with more results than this is reported as unread
 PR_FIELDS = "number,url,title,state,isDraft,headRefName,isCrossRepository,author,body"
 PR_URL = re.compile(r"https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/pull/([1-9][0-9]*)/?", re.IGNORECASE)
 
@@ -39,10 +40,11 @@ def key_pattern(identifier):
 
 def search_prs(repository, identifier):
     """`gh pr list --search KEY` in one GitHub repository ("owner/name"), every state. GitHub's search is loose,
-    so the caller keeps only PRs whose title, body or head branch carries the key."""
+    so the caller keeps only PRs whose title, body or head branch carries the key. More than SEARCH_LIMIT results
+    come back as SEARCH_LIMIT + 1 entries, which the caller reports as an unread source."""
     try:
         result = subprocess.run([*GH, "pr", "list", "--repo", repository, "--search", identifier, "--state", "all",
-                                 "--limit", "100", "--json", PR_FIELDS],
+                                 "--limit", str(SEARCH_LIMIT + 1), "--json", PR_FIELDS],
                                 capture_output=True, encoding="utf-8", errors="replace", timeout=TIMEOUT)
     except subprocess.TimeoutExpired as exc:
         raise ForeignWorkError("gh pr list timed out") from exc
@@ -171,6 +173,9 @@ def foreign_work(ledger, item_id, remotes, repos_root, *, repositories=None):
             except ForeignWorkError as exc:
                 errors.append({"repository": repo, "source": "github_search", "error": str(exc)})
                 listed = []
+            if len(listed) > SEARCH_LIMIT:
+                errors.append({"repository": repo, "source": "github_search",
+                               "error": f"gh pr list returned more than {SEARCH_LIMIT} results; some were not read"})
             for pr in listed:
                 key = pr_key(pr.get("url")) if isinstance(pr, dict) else None
                 if key is None or key[:2] != tuple(github.casefold().split("/")):

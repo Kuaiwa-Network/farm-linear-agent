@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import test_cli
@@ -133,11 +134,49 @@ class ForeignWorkTests(unittest.TestCase):
     def test_github_is_searched_with_one_argument_list_and_read_as_utf8(self):
         self.assertEqual(foreign_work.search_prs("example-org/Farm-Client", "FARM-1")[0]["title"], "FARM-1 修复收获翻倍")
         self.assertEqual(self.gh_calls(), [["pr", "list", "--repo", "example-org/Farm-Client", "--search", "FARM-1",
-                                            "--state", "all", "--limit", "100", "--json",
+                                            "--state", "all", "--limit", "101", "--json",
                                             "number,url,title,state,isDraft,headRefName,isCrossRepository,author,body"]])
         with self.assertRaises(foreign_work.ForeignWorkError) as caught:
             foreign_work.search_prs("example-org/farm-hive", "FARM-1")
         self.assertNotIn("dummy-secret-value", str(caught.exception))
+
+    def test_every_way_gh_or_git_can_fail_raises_with_a_fixed_message(self):
+        """A timeout, a missing gh, output that is not JSON or not a list: each is an error, never an empty
+        answer, and none repeats the tool's output."""
+        cases = [(dict(side_effect=subprocess.TimeoutExpired("gh", foreign_work.TIMEOUT)), "gh pr list timed out"),
+                 (dict(side_effect=FileNotFoundError("gh")), "gh is unavailable"),
+                 (dict(return_value=SimpleNamespace(returncode=0, stdout="not json: dummy-secret-value")),
+                  "gh pr list returned no JSON"),
+                 (dict(return_value=SimpleNamespace(returncode=0, stdout="{\"token\": \"dummy-secret-value\"}")),
+                  "gh pr list returned no list")]
+        for run, message in cases:
+            with self.subTest(message=message), patch.object(foreign_work.subprocess, "run", **run):
+                with self.assertRaises(foreign_work.ForeignWorkError) as caught:
+                    foreign_work.search_prs("example-org/Farm-Client", "FARM-1")
+                self.assertEqual(str(caught.exception), message)
+        for run in (dict(side_effect=subprocess.TimeoutExpired("git", foreign_work.TIMEOUT)),
+                    dict(side_effect=OSError("no git"))):
+            with self.subTest(run=run), patch.object(foreign_work.subprocess, "run", **run):
+                with self.assertRaisesRegex(foreign_work.ForeignWorkError, "git ls-remote failed"):
+                    foreign_work.remote_branches(self.remotes["farm-hive"], self.root)
+
+    def test_a_search_with_more_results_than_the_limit_is_an_unread_source(self):
+        """`gh pr list` stops at its limit and says nothing: one more is requested, and a full page is an error."""
+        def unrelated(count):
+            return [{"number": n, "url": ORG + f"Farm-Client/pull/{n}", "title": f"FARM-1{n:03d} another card",
+                     "state": "MERGED", "isDraft": False, "headRefName": f"farmbot/farm-1{n:03d}",
+                     "isCrossRepository": False, "author": {"login": "someone"}, "body": ""}
+                    for n in range(100, 100 + count)]
+        truncated = {"repository": "Farm-Client", "source": "github_search",
+                     "error": "gh pr list returned more than 100 results; some were not read"}
+        self.ledger.observe_issue(issue(attachments=[OWN]))
+        for count, status, errors in ((100, "none", []), (101, "incomplete", [truncated])):
+            with self.subTest(count=count):
+                (self.root / "prs.json").write_text(json.dumps({"example-org/Farm-Client": unrelated(count)}),
+                                                    encoding="utf-8")
+                with patch.object(foreign_work, "remote_branches", return_value=[]):
+                    report = self.report(repositories=["Farm-Client"])
+                self.assertEqual((report["status"], report["errors"]), (status, errors))
 
     def test_remote_branches_are_listed_without_fetching_or_writing(self):
         before = {repo: refs(self.origins / f"{repo}.git") for repo in BRANCHES}
@@ -176,6 +215,44 @@ class ForeignWorkTests(unittest.TestCase):
             report = self.report(repositories=["Farm-Client"])
         self.assertEqual((report["status"], report["errors"]), ("incomplete", [
             {"repository": "Farm-Client", "source": "github_search", "error": "gh pr list failed"}]))
+
+    def test_a_failed_branch_listing_is_an_unread_source(self):
+        self.ledger.observe_issue(issue(attachments=[OWN]))
+        with patch.object(foreign_work, "search_prs", return_value=[]), \
+                patch.object(foreign_work, "remote_branches",
+                             side_effect=foreign_work.ForeignWorkError("git ls-remote failed")):
+            report = self.report(repositories=["Farm-Client"])
+        self.assertEqual((report["status"], report["errors"]), ("incomplete", [
+            {"repository": "Farm-Client", "source": "remote_branches", "error": "git ls-remote failed"}]))
+
+    def test_a_foreign_pr_on_a_farmbot_branch_is_reported_when_its_branch_is_gone(self):
+        """TestBot's merged PR: its farmbot/ head was deleted, so only the search can still show it."""
+        testbot = {"number": 11, "url": ORG + "Farm-Client/pull/11", "title": "FARM-1 TestBot's fix",
+                   "state": "MERGED", "isDraft": False, "headRefName": "farmbot/farm-1-testbot",
+                   "isCrossRepository": False, "author": {"login": "someone"}, "body": ""}
+        self.ledger.observe_issue(issue(attachments=[OWN]))
+        (self.root / "prs.json").write_text(json.dumps({"example-org/Farm-Client": [testbot]}), encoding="utf-8")
+        with patch.object(foreign_work, "remote_branches", return_value=[("main", "a" * 40)]):
+            report = self.report(repositories=["Farm-Client"])
+        self.assertEqual((report["status"], [(pr["url"], pr["head"]) for pr in report["foreign"]["prs"]]),
+                         ("found", [(testbot["url"], "farmbot/farm-1-testbot")]))
+
+    def test_own_work_is_read_from_every_predecessor_in_the_chain(self):
+        """A job stopped twice still owns the branch its first attempt recorded."""
+        self.ledger.cancel(self.item["id"], "Stop again")
+        third = self.ledger.retry(self.item["id"], "continue again")
+        report = foreign_work.foreign_work(self.ledger, third["id"], self.remotes, self.root / "local" / "repos")
+        self.assertIn({"repository": "farm-hive", "name": "farmbot/farm-1-config"}, report["own"]["branches"])
+        self.assertIn({"repository": "Farm-Client", "name": "farmbot/farm-1"}, report["own"]["branches"])
+        self.assertNotIn("farmbot/farm-1-config", [branch["name"] for branch in report["foreign"]["branches"]])
+
+    def test_a_pr_a_predecessor_recorded_in_its_plan_is_own_with_its_head_branch(self):
+        self.plan(self.item["predecessor_id"], {"prs": {"Farm-Client": [
+            {"branch": "designer-one/farm-1-harvest", "role": "issue", "head": "d" * 40, "url": HUMAN}]}})
+        report = self.report(repositories=["Farm-Client"])
+        self.assertNotIn(HUMAN, [pr["url"] for pr in report["foreign"]["prs"]])
+        self.assertIn(HUMAN, report["own"]["prs"])
+        self.assertIn({"repository": "Farm-Client", "name": "designer-one/farm-1-harvest"}, report["own"]["branches"])
 
     def test_a_repository_not_on_github_is_an_error_not_a_silent_skip(self):
         report = foreign_work.foreign_work(self.ledger, self.item["id"],
@@ -227,6 +304,48 @@ class ForeignWorkCliTests(unittest.TestCase):
         self.assertIn("running claim", self.run_cli("foreign-work", "--item", item, "--token", "claim_not-this-one",
                                                     success=False).stderr)
 
+    def test_a_wrong_token_is_refused_before_any_source_is_read(self):
+        from agent.__main__ import parser, run
+        args, ledger, config, api, _ = self.publication_fixture()
+        wrong = parser().parse_args(["--db", str(self.db), "foreign-work", "--item", args.item,
+                                     "--token", "claim_not-this-one"])
+        with patch("agent.__main__.load_config", return_value=config), \
+                patch("agent.foreign_work.search_prs", return_value=[]) as search, \
+                patch("agent.foreign_work.remote_branches", return_value=[]) as branches:
+            with self.assertRaisesRegex(LedgerError, "running claim"):
+                run(wrong, ledger, lambda: api)
+        self.assertEqual((search.call_count, branches.call_count), (0, 0))
+
+    def stopped_meanwhile(self, item):
+        """A foreign_work stand-in: the operator's Stop lands while the sources are being read."""
+        def read(*_, **__):
+            other = Ledger(self.db)
+            try:
+                other.cancel(item, "Stop")
+            finally:
+                other.close()
+            return {"status": "none", "errors": []}
+        return read
+
+    def test_a_stop_during_the_reads_ends_the_command_without_a_report(self):
+        from agent.__main__ import run
+        args, ledger, config, api, _ = self.publication_fixture()
+        with patch("agent.__main__.load_config", return_value=config), \
+                patch("agent.foreign_work.foreign_work", side_effect=self.stopped_meanwhile(args.item)):
+            with self.assertRaises(LedgerError):
+                run(self.foreign_work_args(args), ledger, lambda: api)
+        self.assertEqual(ledger.item(args.item)["state"], "cancelled")
+
+    def test_verify_publication_ends_without_a_result_when_stopped_during_the_foreign_work_read(self):
+        from agent.__main__ import run
+        args, ledger, config, api, github = self.publication_fixture()
+        with patch("agent.__main__.load_config", return_value=config), \
+                patch("agent.publication.github_api", side_effect=github), \
+                patch("agent.foreign_work.foreign_work", side_effect=self.stopped_meanwhile(args.item)):
+            with self.assertRaises(LedgerError):
+                run(args, ledger, lambda: api)
+        self.assertEqual(ledger.item(args.item)["state"], "cancelled")
+
     def test_the_command_prints_the_report_and_touches_neither_linear_nor_the_job(self):
         from agent.__main__ import run
         args, ledger, config, api, _ = self.publication_fixture()
@@ -266,6 +385,19 @@ class ForeignWorkCliTests(unittest.TestCase):
                          ("found", ["Farm-Client"]))
         search.assert_called_once_with(github_repository(config.repos["Farm-Client"]), "FARM-1")
         self.assertEqual(ledger.item(args.item)["state"], "running")
+
+    def test_verify_publication_still_verifies_when_a_source_could_not_be_read(self):
+        """Evidence, not a gate: an unread source is reported beside the verified destination, not refused."""
+        from agent.__main__ import run
+        args, ledger, config, api, github = self.publication_fixture()
+        with patch("agent.__main__.load_config", return_value=config), \
+                patch("agent.publication.github_api", side_effect=github), \
+                patch("agent.foreign_work.search_prs", side_effect=foreign_work.ForeignWorkError("gh pr list failed")), \
+                patch("agent.foreign_work.remote_branches", return_value=[]):
+            result = run(args, ledger, lambda: api)
+        self.assertEqual((result["status"], result["foreign_work"]["status"]), ("verified", "incomplete"))
+        self.assertEqual(result["foreign_work"]["errors"],
+                         [{"repository": "Farm-Client", "source": "github_search", "error": "gh pr list failed"}])
 
     def test_a_failed_check_is_reported_and_never_blocks_verification(self):
         from agent.__main__ import run

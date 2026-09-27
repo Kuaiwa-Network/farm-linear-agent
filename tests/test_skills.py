@@ -243,6 +243,15 @@ class StageManifestTests(unittest.TestCase):
                 with self.assertRaisesRegex(SkillError, key):
                     load_skills(Path(tmp))
 
+    def test_an_unknown_manifest_key_is_refused(self):
+        """A misspelled stage key must not load as the key's default: "stagged": true would run unstaged, with
+        every worktree writable."""
+        for manifest in (dict(writes=["Farm-Contract"], stagged=True), dict(description="a note")):
+            with self.subTest(manifest=manifest), tempfile.TemporaryDirectory() as tmp:
+                write_skill(tmp, "bad", **manifest)
+                with self.assertRaisesRegex(SkillError, "unknown key"):
+                    load_skills(Path(tmp))
+
 
 class EnabledSkillsTests(unittest.TestCase):
     """spec §9.11: the private host config chooses which of the checkout's skills an instance runs."""

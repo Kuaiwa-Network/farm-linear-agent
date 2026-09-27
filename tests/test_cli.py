@@ -117,6 +117,20 @@ class CliTests(unittest.TestCase):
             self.assertEqual((ledger.item(item)["state"], ledger.item(item)["next_root_repo"]), ("running", None))
             self.assertEqual(handoff("farm-hive")["next_root_repo"], "farm-hive")
 
+    def test_a_stage_this_host_has_not_configured_is_refused_before_linear_is_read(self):
+        from unittest.mock import patch
+        from agent.__main__ import parser, run
+        from agent.ledger import LedgerError
+        item, token, ledger, skills, config, api = self.staged_fixture()
+        del config.repos["farm-hive"]  # in the manifest's writes, yet not a repository this host clones
+        args = parser().parse_args(["--db", str(self.db), "handoff-repository", "--item", item,
+                                    "--token", token, "--to", "farm-hive"])
+        with patch("agent.__main__.load_config", return_value=config), \
+                patch("agent.skills.load_skills", return_value=skills):
+            with self.assertRaisesRegex(LedgerError, "not configured for this feature worker"):
+                run(args, ledger, lambda: self.fail("the host check comes before any Linear read"))
+        self.assertEqual((ledger.item(item)["state"], ledger.item(item)["next_root_repo"]), ("running", None))
+
     def test_an_unstaged_skill_cannot_hand_off_and_nothing_reaches_linear(self):
         item = self.seeded_item(skill="chat")
         token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]

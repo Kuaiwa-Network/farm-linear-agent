@@ -7,6 +7,7 @@ from .kw_ops import GRANTS
 
 TRIGGERS = ("delegation", "mention")
 REQUIRED = ("name", "trigger", "intents", "writes", "resources", "gates", "mcp", "budget")
+OPTIONAL = ("initial_root", "staged", "reads")  # the stage keys (spec §9.5)
 BUDGET_KEYS = ("lease_seconds", "max_hours", "renew_minutes")
 
 
@@ -48,6 +49,9 @@ def _load_one(directory):
         raise SkillError(f"{manifest_path}: missing {sorted(missing)}")
     if manifest["name"] != directory.name:
         raise SkillError(f"{manifest_path}: name must equal the directory name")
+    unknown_keys = sorted(set(manifest) - set(REQUIRED) - set(OPTIONAL))
+    if unknown_keys:  # a misspelled stage key must not load as its default: "stagged": true would run unstaged
+        raise SkillError(f"{manifest_path}: unknown key {unknown_keys[0]!r}")
     for key in ("trigger", "intents", "writes", "resources", "gates", "mcp"):
         if not isinstance(manifest[key], list) or not all(isinstance(v, str) and v for v in manifest[key]):
             raise SkillError(f"{manifest_path}: {key} must be a list of strings")

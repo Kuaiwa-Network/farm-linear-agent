@@ -161,7 +161,7 @@ def diagnose(config, *, now=None):
             _finding(report, "enabled_skills_invalid",
                      "serve refuses to start with these skills: enable only skills in this checkout's skills/ that "
                      "the dispatch AUTHORITY covers, and include chat.", unknown=sorted(names - set(loaded)),
-                     unbriefed=sorted((names & set(loaded)) - set(SKILL_AUTHORITY)))
+                     unbriefed=sorted((names & set(loaded)) - set(SKILL_AUTHORITY)), missing_chat="chat" not in names)
     try:
         report.update(_snapshot(paths.ledger))
     except (OSError, sqlite3.Error, ValueError) as exc:

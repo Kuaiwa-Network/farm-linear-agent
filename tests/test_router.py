@@ -124,7 +124,8 @@ class FeatureRoutingTests(unittest.TestCase):
         self.assertEqual(feature_repair_refusal(["UI"], FEATURES),
                          "this issue carries 功能/UI, so it is fgui work, not a fix; fgui work starts only when an "
                          "issue labelled 功能/UI is delegated")
-        self.assertIn("not exactly one 功能/UI or 功能/Code label", feature_repair_refusal(["Art"], FEATURES))
+        for children in (["Art"], ["Code", "UI"]):  # an unknown child, or two: neither reads as the first one
+            self.assertIn("not exactly one 功能/UI or 功能/Code label", feature_repair_refusal(children, FEATURES))
 
     def test_a_reroute_runs_the_table_again_with_the_reply_as_its_text(self):
         reply = dict(action="prompted", is_delegation=True, reroute=True, available_skills=FEATURES)

@@ -430,6 +430,7 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(current["root_repo"], "Farm-Contract")
         payload = json.loads(self.launcher.spawned[-1][1].split("\n\n", 1)[1])
         self.assertEqual(payload["stage"]["write_repositories"], ["Farm-Contract"])
+        self.assertEqual(payload["stage"]["root_repository"], "Farm-Contract")  # what the worker follows
         self.assertEqual(payload["prior_context"]["source"], "previous_worker_checkpoint")
         self.assertEqual(payload["prior_context"]["content"]["next_actions"],
                          ["Inspect Farm-Contract rules in its own worker"])
@@ -512,6 +513,7 @@ class SchedulerTests(unittest.TestCase):
         self.launcher.finished.append(Finished(item["id"], 0, "", True, "stopped", None, 101))
         self.assertEqual(self.scheduler.tick()["launched"], 1)
         self.assertEqual(self.payload()["stage"]["write_repositories"], ["farm-hive"])
+        self.assertEqual(self.payload()["stage"]["root_repository"], "farm-hive")
         self.assertEqual(self.payload()["prior_context"]["content"]["next_actions"], ["Build the server"])
         # A budget kill fails the job; retry restarts it at the initial root, not at farm-hive or neutral.
         self.ledger.claim(item["id"], worker_id="second")
@@ -543,6 +545,32 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(self.scheduler.tick()["launched"], 1)
         self.assertEqual(self.ledger.item(item["id"])["root_repo"], "common")
         self.assertEqual(self.payload()["stage"]["write_repositories"], ["common"])
+
+    def test_reap_completes_the_handoff_itself_under_the_items_own_manifest(self):
+        """The teardown pass completes a handoff on its own, under the item's manifest; the recovery pass is not
+        the only path that does."""
+        staged = self.use_staged_skill()
+        item = self.item(skill=staged.name)
+        self.scheduler.tick()
+        token = self.ledger.claim(item["id"], worker_id="first")["token"]
+        self.ledger.checkpoint(item["id"], token, {"handoff": {
+            "facts": [], "hypotheses": [], "checks": [], "repositories": [], "next_actions": ["Build the server"]}})
+        self.ledger.handoff_repository(item["id"], token, "farm-hive", skill=staged)
+        self.assertEqual(self.scheduler.tick()["launched"], 0)  # the worker is asked to stop
+        self.launcher.finished.append(Finished(item["id"], 0, "", True, "stopped", None, 101))
+        self.scheduler._reap()  # alone: no recovery pass follows it here
+        self.assertEqual(self.ledger.item(item["id"])["root_repo"], "farm-hive")
+
+    def test_a_rooted_first_attempt_takes_no_investigator_summary(self):
+        """A delivered chat's summary is the prior context of a neutral first attempt only (spec §9.6): a skill with
+        an initial root starts on its own handoff, not the investigator's."""
+        staged = self.use_staged_skill()
+        chat = self.item(skill="chat")
+        self.ledger.connection.execute("UPDATE work_items SET state='delivered', evidence=? WHERE id=?",
+                                       (json.dumps({"summary": "Investigated the card."}), chat["id"]))
+        self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill=staged.name, target=PIN)
+        self.assertEqual(self.scheduler.tick()["launched"], 1)
+        self.assertIsNone(self.payload()["prior_context"])
 
     def test_a_staged_skill_refuses_a_runtime_without_the_repository_sandbox(self):
         staged = self.use_staged_skill()
@@ -1337,6 +1365,18 @@ class SchedulerTests(unittest.TestCase):
         self.scheduler.tick()
         self.assertEqual(self.launcher.stopped, [item["id"]])
         self.assertEqual(self.ledger.item(item["id"])["state"], "failed")
+
+    def test_a_disabled_skill_is_refused_without_waiting_for_a_free_worker_slot(self):
+        """The refusal is a state change, not a launch: it must not queue behind the concurrency cap, or the item
+        would hold its issue's one active slot until a worker frees up."""
+        from test_ledger import OTHER
+        self.scheduler.enabled_skills = {"chat"}
+        self.item(issue_id=OTHER, session="s2", identifier="FARM-2", skill="chat")
+        self.scheduler.tick()  # max_concurrent is 1: the chat now holds the only worker slot
+        self.assertEqual(len(self.scheduler.active), 1)
+        refused = self.item()
+        self.scheduler.tick()
+        self.assertEqual(self.ledger.item(refused["id"])["state"], "failed")
 
     def test_worktree_failure_fails_only_that_item_and_the_queue_keeps_moving(self):
         bad = self.item()

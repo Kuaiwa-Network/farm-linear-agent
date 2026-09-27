@@ -415,6 +415,15 @@ class StagedHandoffTests(LedgerBase):
             self.ledger.complete_repository_handoff(item["id"], 4321, skill=narrowed)
         self.assertEqual(self.ledger.item(item["id"])["next_root_repo"], "farm-hive")
 
+    def test_completion_needs_the_items_own_staged_manifest(self):
+        item, token = self.claimed()
+        self.ledger.handoff_repository(item["id"], token, "farm-hive", skill=self.feature)
+        for other in (self.fix, dataclasses.replace(self.feature, staged=False)):  # fix also writes farm-hive
+            with self.subTest(skill=other.name, staged=other.staged):
+                with self.assertRaisesRegex(LedgerError, "no longer matches"):
+                    self.ledger.complete_repository_handoff(item["id"], 4321, skill=other)
+        self.assertEqual(self.ledger.item(item["id"])["next_root_repo"], "farm-hive")
+
     def test_retry_and_a_cancelled_successor_restart_at_the_initial_root(self):
         item, token = self.claimed()
         self.ledger.handoff_repository(item["id"], token, "farm-hive", skill=self.feature)

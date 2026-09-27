@@ -29,7 +29,7 @@ def _named(children):
 def _conflict(children, text):
     body = f"这张卡同时带有 Bug 和 {_named(children)}；请移除不适用的那个标签，然后在这里回复。"
     if (text or "").strip():
-        body += "委派时附带的消息还没有处理，请在回复里再说一次。"
+        body += "这条消息还没有处理，请在回复里再说一次。"
     return body
 
 

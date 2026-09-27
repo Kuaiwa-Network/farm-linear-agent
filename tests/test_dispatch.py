@@ -2,9 +2,11 @@ import hashlib
 import json
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from agent import dispatch
+from agent import dispatch, kw_ops
 from agent.dispatch import dispatch_message
+from agent.skills import load_skills
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -234,6 +236,43 @@ class SkillAuthorityTests(unittest.TestCase):
         for item in ({"id": "i", "skill": "feature"}, {"id": "i"}):
             with self.subTest(item=item), self.assertRaisesRegex(ValueError, "no dispatch AUTHORITY"):
                 self.message(item)
+
+    def test_the_parts_are_the_a29d078_text_split_at_the_kw_ops_paragraph(self):
+        """The split points are fixed: the first skill with its own part gets every common restriction, the
+        checkpoint rule included, and the reference."""
+        reference = "Use references/worker-cli.md for command arguments and the exact handoff JSON shape."
+        common, marker, rest = AUTHORITY_AT_A29D078.partition("When tools.kw_ops.access is present")
+        self.assertEqual(dispatch.COMMON_AUTHORITY, common)
+        self.assertEqual(dispatch.AUTHORITY_REFERENCE, reference)
+        self.assertEqual(dispatch.KW_OPS_AUTHORITY, marker + rest[:-len(reference)])
+
+    def test_any_other_skill_gets_the_common_part_its_own_part_and_the_reference(self):
+        for name in ("feature", "fgui"):
+            with self.subTest(skill=name), patch.dict(dispatch.SKILL_AUTHORITY, {name: "Own grants. "}):
+                text = self.message({"id": "i", "skill": name}).split("\n\n", 1)[0]
+                self.assertEqual(text, dispatch.COMMON_AUTHORITY + "Own grants. " + dispatch.AUTHORITY_REFERENCE)
+                self.assertNotIn("kw_ops", text)
+
+    def test_no_part_carries_a_token_a_url_or_a_host_path(self):
+        """Spec §12: the per-skill AUTHORITY is free of tokens and signed URLs. Every part is text that ends in
+        the space the next part expects."""
+        parts = {"common": dispatch.COMMON_AUTHORITY, **dispatch.SKILL_AUTHORITY}
+        for name, part in {**parts, "reference": dispatch.AUTHORITY_REFERENCE}.items():
+            with self.subTest(part=name):
+                self.assertIsInstance(part, str)
+                self.assertNotRegex(part, r"(?i)https?://|\blin_(api|oauth)_|\bbearer\s+\S|signature=|"
+                                          r"/Users/|/home/|[A-Za-z]:\\")
+        for name, part in parts.items():
+            with self.subTest(part=name):
+                self.assertTrue(part.strip() and part.endswith(" "), part[-20:])
+
+    def test_every_skill_the_manifest_grants_kw_ops_carries_the_kw_ops_terms(self):
+        """The tool grant comes from the manifest and its terms from the per-skill part: a skill with the grant
+        and no terms would use kw_ops without its limits and credential rule."""
+        for skill in load_skills(ROOT / "skills").values():
+            if kw_ops.access(skill.mcp):
+                with self.subTest(skill=skill.name):
+                    self.assertIn(dispatch.KW_OPS_AUTHORITY, dispatch.SKILL_AUTHORITY[skill.name])
 
 
 class BotNameTests(unittest.TestCase):

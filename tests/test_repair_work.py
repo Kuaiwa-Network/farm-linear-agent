@@ -1,14 +1,25 @@
 """Conversation requests change execution mode; the ledger controls authority."""
+import os
 from types import SimpleNamespace
 from pathlib import Path
+from unittest.mock import patch
 
+from agent.config import Config
 from agent.ledger import LedgerError
+from agent.skills import SkillError
 from agent.__main__ import parser, run
 from test_ledger import LedgerBase, ISSUE, OTHER, PIN, SESSION, issue
 from test_receiver import ReceiverBase, APP
 
 
 class RepairWorkTests(LedgerBase):
+    def setUp(self):
+        super().setUp()
+        # The CLI reads the host config for enabled_skills; these tests must never see this checkout's private one.
+        patcher = patch.dict(os.environ, {"FARMBOT_CONFIG": str(Path(self.tmp.name) / "no-config.json")})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def conversation(self, *, delegated=True, session=SESSION):
         self.ledger.observe_issue(issue(delegate_id=APP, labels=[]))
         self.ledger.ensure_session(session, ISSUE, delegated)
@@ -220,6 +231,48 @@ class RepairWorkTests(LedgerBase):
         with patch("agent.__main__.load_config", return_value=Config("c", "s", "w")):
             fix = run(self.cli_request(chat, token), self.ledger, lambda: api)
         self.assertEqual((fix["skill"], fix["predecessor_id"]), ("fix", previous["id"]))
+
+    def stub_api(self, current, calls=None):
+        def fetch(ref):
+            if calls is not None:
+                calls.append(ref)
+            return current
+        return SimpleNamespace(app_user_id=APP, fetch_issue=fetch, create_activity=lambda session, content: None)
+
+    def test_a_ui_label_outside_the_feature_group_does_not_block_a_first_fix(self):
+        """Only the 功能 group's children mean feature work; a bare `UI` label, or one of another group, does not."""
+        for groups in ([], [{"group": "设计", "label": "UI"}]):
+            with self.subTest(groups=groups):
+                self.setUp()
+                chat, token = self.conversation()
+                api = self.stub_api(issue(delegate_id=APP, labels=["UI"], label_groups=groups))
+                with patch("agent.__main__.load_config", return_value=Config("c", "s", "w")):
+                    self.assertEqual(run(self.cli_request(chat, token), self.ledger, lambda: api)["skill"], "fix")
+
+    def test_a_bug_card_that_also_carries_a_feature_label_is_refused_a_first_fix(self):
+        chat, token = self.conversation()
+        api = self.stub_api(issue(delegate_id=APP, labels=["Bug", "Code"], label_groups=[{"group": "功能", "label": "Code"}]))
+        with patch("agent.__main__.load_config", return_value=Config("c", "s", "w")):
+            with self.assertRaisesRegex(LedgerError, "功能/Code, so it is feature work, not a fix"):
+                run(self.cli_request(chat, token), self.ledger, lambda: api)
+        self.assertEqual((self.ledger.item(chat["id"])["state"], self.ledger.queue()), ("running", []))
+
+    def test_a_configured_skill_the_checkout_lacks_stops_the_cli(self):
+        chat, token = self.conversation()
+        api = self.stub_api(issue(delegate_id=APP))
+        with patch("agent.__main__.load_config", return_value=Config("c", "s", "w", enabled_skills=["chat", "fix", "feature"])):
+            with self.assertRaisesRegex(SkillError, "does not have: feature"):
+                run(self.cli_request(chat, token), self.ledger, lambda: api)
+        self.assertEqual((self.ledger.item(chat["id"])["state"], self.ledger.queue()), ("running", []))
+
+    def test_a_disabled_fix_is_refused_before_linear_is_read(self):
+        chat, token = self.conversation()
+        calls = []
+        api = self.stub_api(issue(delegate_id=APP), calls)
+        with patch("agent.__main__.load_config", return_value=Config("c", "s", "w", enabled_skills=["chat"])):
+            with self.assertRaisesRegex(LedgerError, "repair execution is not available on this host"):
+                run(self.cli_request(chat, token), self.ledger, lambda: api)
+        self.assertEqual(calls, [])
 
 
 class RepairReceiverTests(ReceiverBase):

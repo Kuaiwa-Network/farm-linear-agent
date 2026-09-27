@@ -131,9 +131,9 @@ fingerprint once in the same way.
 | Assign (delegate) an issue labelled Bug, and no 功能 label, to @FarmBot | starts a `fix` work item; first activity within 10 s; posts 「👀 <bot_name> 已开始处理」 (「👀 FarmBot 已开始处理」 in production) once the worker claims |
 | Delegate an issue labelled Bug and a 功能 child (功能/UI or 功能/Code) | asks in the session, with no work item and adding `needs-more-info`, that you remove the label that does not apply and reply |
 | Delegate an issue labelled 功能/UI or 功能/Code | starts `fgui` or `feature` when this instance enables it (neither exists yet); otherwise, and for any other 功能 child, the read-only conversation, whose first activity says what this instance runs and which cannot start a fix. A standalone `UI` or `Code` label outside the group routes like any other label |
-| Reply in a delegation session that never had a work item, for example after fixing the labels | while the issue is still delegated to FarmBot, routes again on its current labels with your reply as the delegation's text: a 功能 card starts its worker, and Bug alone goes to the read-only conversation first |
-| Delegate an issue without a Bug label | starts read-only conversation; investigates, answers or clarifies intent; a reply requesting repair can enter writable execution |
-| @FarmBot in a comment or the session | interprets intent in read-only execution; can start or resume repair when this issue has recorded delegation and is still delegated to FarmBot |
+| Reply in a delegation session that never had a work item, for example after fixing the labels | while the issue is still delegated to FarmBot, routes again on its current labels with your reply as the delegation's text: a 功能 card starts its worker; Bug alone starts `fix` when the reply is empty, else the read-only conversation first |
+| Delegate an issue without a Bug label | starts read-only conversation; investigates, answers or clarifies intent; a reply requesting repair can enter writable execution, except on a 功能 card, where a first fix is refused as feature work |
+| @FarmBot in a comment or the session | interprets intent in read-only execution; can start or resume repair when this issue has recorded delegation and is still delegated to FarmBot, a first fix on a 功能 card excepted |
 | Reply in a session while a worker runs | the text reaches the worker at its next checkpoint |
 | Reply to a FarmBot question | the parked work item resumes with your answer |
 | Ask naturally to resume finished work, in its session or an @FarmBot mention | chat interprets intent, checks current delegation, and continues the fix with the complete reply (a cancelled fix gets a fresh linked job); no keyword is required. Negations and questions about restarting do not restart work |
@@ -168,7 +168,9 @@ that text. Fix workers read the current root's `AGENTS.md`/`CLAUDE.md` and other
 instructions when investigation needs them; grants a worker
 needs belong in the dispatch AUTHORITY. That text is a common part plus a per-skill part chosen
 by the item's skill (`agent/dispatch.py`); `fix` and `chat` share one per-skill part, the kw_ops
-terms below. Building the launch message refuses a skill with no per-skill entry, so its job
+terms below. A skill whose manifest grants kw_ops must carry those terms in its per-skill part,
+because the grant comes from the manifest and its limits from the AUTHORITY; a test checks every
+loaded skill. Building the launch message refuses a skill with no per-skill entry, so its job
 fails at launch and no worker starts: SKILL.md text cannot stand in for a grant. Repository
 skills under `.agents/skills` and
 `.codex/skills` still load, and workers inherit the service's `HOME`, so the host user's
@@ -259,10 +261,11 @@ not start work. Historical context is recall, not a current request.
 Repository stages follow the skill manifest. A skill whose `skill.json` sets `"staged": true` writes
 one repository per worker attempt, its current root: the item's `root_repo` or, while that is unset,
 the manifest's `initial_root`. Without an `initial_root`, an attempt with no recorded root is
-neutral: it runs in the private state directory and writes no repository. `fix` is staged with no
-initial root, so a fix begins neutral with read access to all five worktrees. The pinned
-Farm-Client target supplies a Unity baseline, not the investigation root. To edit or use
-repository-specific skills, the worker saves a current checkpoint and calls
+neutral: it runs in the private state directory and writes no repository. The loader refuses a
+manifest key it does not know, so a misspelled stage key cannot load as that key's default. `fix`
+is staged with no initial root, so a fix begins neutral with read access to all five worktrees.
+The pinned Farm-Client target supplies a Unity baseline, not the investigation root. To edit or
+use repository-specific skills, the worker saves a current checkpoint and calls
 `handoff-repository --to REPO`, where REPO is in the manifest's `writes` and is not the current
 root. The CLI verifies the manifest's stage rule, the configured host ledger and repositories, and
 fresh Linear delegation, then revokes the claim. The controller stops the old worker, requires
@@ -468,12 +471,14 @@ among the issue's Linear attachments, from the snapshot `fetch-issue` saved, `gh
 with `git ls-remote`. Own work is the issue's registered PRs, the branches and PRs recorded in
 `plan.prs` by the job and its predecessors, and the head branches of own PRs. Every other branch or
 PR is foreign, `farmbot/` ones included, because another instance such as TestBot uses the same
-names. The command writes nothing and calls no Linear API; a source it cannot read is reported and
-makes the result `incomplete`, never empty. When anything is foreign, the worker posts a
-`foreign_work` notice and asks with `await-input`, unless a current session message already
-answered. `verify-publication` adds the same report for its repository as `foreign_work`, as
-evidence only: a hard publication gate would need a stored acknowledgement, so publication is not
-refused on it.
+names. The command renews the worker's claim, writes nothing else and calls no Linear API. A source
+it cannot read, a GitHub search with more than 100 results included, is listed in `errors`, and the
+worker treats each entry as a gap whatever the status: `found` keeps what the other sources showed,
+and `incomplete` means a source failed and nothing foreign was found, never that nothing exists.
+When anything is foreign, the worker posts a `foreign_work` notice and asks with `await-input`,
+unless a current session message already answered. `verify-publication` adds the same report for
+its repository as `foreign_work`, or `unavailable` when the check itself failed, as evidence only:
+a hard publication gate would need a stored acknowledgement, so publication is not refused on it.
 
 ## Unity verification commits
 

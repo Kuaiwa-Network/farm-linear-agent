@@ -26,6 +26,7 @@ from agent.heartbeat import LOOPS, read
 from agent.launcher import Launcher, _write_worker_file
 from agent.ledger import Ledger, LedgerError
 from agent.service import Components, build, enqueue, main, seed_clones, serve
+from agent.skills import SkillError
 from agent.slots import SlotError
 from test_ledger import ISSUE, LEAD, PIN, issue
 
@@ -162,6 +163,7 @@ class ServeTests(unittest.TestCase):
         self.close_later(service)
         self.assertEqual(service.receiver.skills, {"chat"})
         self.assertEqual(service.scheduler.enabled_skills, {"chat"})
+        self.assertEqual(service.skills, {"chat"})  # what the ready line reports
         # Still loaded, so the scheduler can refuse a queued fix instead of leaving it waiting.
         self.assertEqual(set(service.scheduler.skills), {"chat", "fix"})
         # A config without the key runs every skill in the checkout.
@@ -660,6 +662,13 @@ class EnqueueTests(unittest.TestCase):
                     enqueue(self.config, issue_ref=ISSUE, skill=skill, commit="a" * 40)
         self.assertFalse(Paths(self.config).ledger.exists())
         self.assertFalse((self.stub / "calls.jsonl").exists())  # refused before Linear was asked anything
+
+    def test_enqueue_stops_on_a_configured_skill_the_checkout_lacks(self):
+        """The contract: enqueue stops on a name the checkout lacks, before it creates a ledger."""
+        self.config.enabled_skills = ["chat", "fix", "feature"]
+        with self.assertRaisesRegex(SkillError, "does not have: feature"):
+            enqueue(self.config, issue_ref=ISSUE, skill="fix", commit="a" * 40)
+        self.assertFalse(Paths(self.config).ledger.exists())
 
 
 class LoopGuardTests(unittest.TestCase):
