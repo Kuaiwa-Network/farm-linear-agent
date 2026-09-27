@@ -7974,6 +7974,37 @@ git commit -m "Retire the forward-looking FGUI sentence and sweep Phase A docs
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+#### Task 14 as implemented (2026-09-27)
+
+Task 14 replayed the rehearsal commit with the message above onto main after A4 (#57). Its FGUI hunk applied as
+rehearsed; the two people hunks did not, because A1's fixes had changed both paragraphs, and were placed from the
+Markdown block above. Step 2's search and Step 3's script printed nothing, as in the rehearsal. Two reviews of the
+documents against the code found no blocker, and found what the search could not: statements its patterns never
+named. A fix commit corrects them; where it differs from the text above, the documents in the PR are what shipped.
+
+- The contract: `revalidate` takes `issue-context.fingerprint`, as the skill and the reference already said (A3's
+  note); the change-scope sentence points to People, where Step 2 moved that rule; the rollback sentence that
+  named "the new fields" after their paragraph had moved now sits with them in People, so the People section is
+  no longer the block above byte for byte; an app user is never a person in an issue read, while a webhook names
+  its users without `User.app`; the start comment is posted once per claimed input and generation, not once per
+  item; the mention sentence records the 2026-09-27 observation (spec §14.1) instead of calling the check open;
+  own work is every PR URL and `farmbot/` branch name in `plan.prs`; `enqueue` refuses an issue that is not
+  delegated now; the Bug-plus-功能 row covers any child of the group.
+- The reference and the fix skill state the `plan.prs` shape `foreign-work` reads, a list of entries under each
+  repository's name as the launch message spells it: with any other shape a worker's own pushed branch comes
+  back `found`, and the skill then makes it ask about its own work. `--url` values come from `issue-context`,
+  because `fetch-issue` prints no URLs. The command's help and refusal say so too, and `revalidate`'s refusal
+  names `issue-context.fingerprint`: three message strings, the only code this task touches. The fix skill
+  quotes the two refusals that mean the issue changed.
+- The chat skill says that `request-repair` checks that the instance runs `fix` and refuses a first fix on a
+  功能 card, and what to tell the user then; it no longer tells the worker to pass its token to `fetch-issue` and
+  `issue-context`, which take none. The README says the same about the first repair, names `resume-work` and
+  `enqueue` among what `enabled_skills` affects, and `skills` among doctor's incomplete checks. The development
+  workflow describes doctor's `skills` block, and AGENTS.md's project map lists the modules Phase A added.
+- Not changed: the chat skill still does not mention `download-uploads`, although the contract lets any worker
+  run it. Telling chat workers to download files changes what they do, so it waits for Task 15's live download
+  check and a decision of its own.
+
 ### Task 15: Verification
 
 Offline verification on both platforms first, then live checks on TestBot. Every live check needs the operator's go-ahead and an issue the operator chooses; its comments, labels, sessions and downloads are real (AGENTS.md "Development and production"). Nothing here deploys to production.

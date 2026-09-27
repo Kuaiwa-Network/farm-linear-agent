@@ -57,7 +57,7 @@ def parser():
     cmd("foreign-work", "--item", token=True)
     uploads = cmd("download-uploads", "--item", "--out", token=True)
     uploads.add_argument("--url", action="append",
-                         help="one of the claimed issue's upload URLs, unsigned as fetch-issue shows it; repeatable; "
+                         help="one of the claimed issue's upload URLs, unsigned as issue-context shows it; repeatable; "
                               "default: every upload in its description and human comments")
     prepare = cmd("prepare-comment", "--item", "--body-file", token=True)
     prepare.add_argument("--kind", required=True, choices=["started", "blocker", "delivery"])
@@ -441,7 +441,7 @@ def run(args, ledger, api_factory):
         for number, url in enumerate(args.url or [], 1):
             if url not in available:
                 raise LedgerError(f"--url {number} is not an upload of the claimed issue; pass an unsigned URL "
-                                  "from its description or human comments, as fetch-issue shows it")
+                                  "from its description or human comments, as issue-context shows it")
         out = output_directory(args.out)  # created only once every --url is known to be the issue's
         summary = download_issue_uploads(api, issue, out, urls=args.url,
                                          renew=lambda: ledger.renew(args.item, token))

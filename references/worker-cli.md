@@ -86,7 +86,8 @@ python3 -m agent --db DATABASE download-uploads --item ITEM_ID --token-file STAT
 ```
 
 Without `--url` it takes every `uploads.linear.app` file in the description and human comments;
-`--url URL` (repeatable) takes only those, each exactly as `fetch-issue` shows it. `--out` must be
+`--url URL` (repeatable) takes only those, each exactly as `issue-context` shows it in
+`issue.description` or a human comment's `body` (`fetch-issue` prints no URLs). `--out` must be
 an absolute directory path without `..` that is not a link; it is created if missing, once every
 `--url` is checked. Name a directory of your own under `STATE_DIR`, never `STATE_DIR` itself or a
 worktree: the controller keeps its own files at the state directory's top level. The command prints
@@ -116,7 +117,10 @@ for a `farmbot/<key>` name), `own` (the PRs and branches it counted as this job'
 (each source it could not read; a GitHub search with more than 100 results counts as unread). Own
 work is the issue's registered PRs, every PR URL and `farmbot/` branch name in `plan.prs` of this
 job and its predecessors, and the head branches of own PRs; anything else is foreign, `farmbot/`
-names included. So record only this job's PRs and branches in `plan.prs`. An `errors` entry is a
+names included. `plan.prs` must map each repository's name, as your launch message spells it
+(`Farm-Client`, never `OWNER/Farm-Client`), to a list of entries, as in the checkpoint example
+below: a branch kept as a bare string or a single object is not read and stays foreign. Record
+only this job's PRs and branches there. An `errors` entry is a
 gap whatever the status: `found` still lists what the other sources showed, and `incomplete` means
 a source failed and nothing foreign was found, never that nothing exists. `verify-publication`
 returns the same report for its repository under `foreign_work`, or `{"status": "unavailable",

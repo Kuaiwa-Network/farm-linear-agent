@@ -24,7 +24,8 @@ state-changing tools are not.
    `<repo_root>/references/memory.md` for shared recall and its CLI.
 2. Claim first: `python3 -m agent --db DATABASE claim --item ITEM_ID --worker-id WORKER_ID`. Write the
    token to `STATE_DIR/token` with mode 0600 and pass `--item ITEM_ID --token-file STATE_DIR/token`
-   on every later call: every worker command is scoped to your own item. Never put `--token` on a
+   on every later claim-authenticated call (`fetch-issue` and `issue-context` take only
+   `--item ITEM_ID`): every worker command is scoped to your own item. Never put `--token` on a
    command line. Renew at least every `renew_minutes` minutes from your launch message with
    `python3 -m agent --db DATABASE renew --item ITEM_ID --token-file STATE_DIR/token`; your
    lease is `lease_seconds` long. If the claim fails, stop and exit 2.
@@ -52,15 +53,18 @@ state-changing tools are not.
    uncertainties and the next useful step. Then call:
    `python3 -m agent --db DATABASE request-repair --item ITEM_ID --token-file STATE_DIR/token --message-id MESSAGE_ID --summary-file STATE_DIR/repair-summary.md`.
    Use the latest message ID whose full conversation you have interpreted. The host
-   checks fresh delegation, issue state, claim and recorded delegation provenance. It
-   resumes the prior fix or starts the first fix, preserving messages and your summary.
-   A cancelled fix gets a fresh linked job after safe cleanup; other terminal fixes
-   retain their job ID. No prior repair is required. `delegation_session` in context is
-   recorded provenance, not a substitute for the command's fresh authorization check.
+   checks that this instance runs `fix`, then fresh delegation, issue state, claim and
+   recorded delegation provenance. It resumes the prior fix or starts the first fix,
+   preserving messages and your summary, except on an issue with a 功能 label and no fix
+   to continue: there it refuses, and its message says how that work starts. A cancelled
+   fix gets a fresh linked job after safe cleanup; other terminal fixes retain their job
+   ID. No prior repair is required. `delegation_session` in context is recorded
+   provenance, not a substitute for the command's fresh authorization check.
 
    On success exit immediately: the claim is retired; do not finish or post another
    activity. If a newer message arrived, reread the inbox/context and reconsider intent.
-   For other refusals, explain the concrete reason. Request delegation (to `bot_name`) only if it is
+   For other refusals, explain the concrete reason and do not retry: relay how 功能 work
+   starts, or say that this instance does not run `fix`. Request delegation (to `bot_name`) only if it is
    actually absent; never tell an already delegated user to remove and reassign the
    issue merely because this run started read-only. Never use operator `retry`,
    `enqueue`, direct SQLite writes, or edit source to bypass a refused transition.

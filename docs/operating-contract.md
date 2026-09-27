@@ -96,25 +96,24 @@ issue read removes that query string and any fragment, and leaves the Markdown, 
 entity such as `&quot;` right after the URL included) or sentence around the URL as written.
 Earlier revisions removed everything from the first `?` or `#` after an upload URL up to the next
 whitespace or `)`, such as the rest of a `<linear-image>` block or of a sentence that went on after
-a question mark. Deploying this revision therefore changes,
-once, the fingerprint of every tracked issue whose description or comments lost text that way, at
-the issue's next full read (a worker's `fetch-issue` or an agent-session event; status checks do
-not count). Every unfinished job on such an issue whose claim is taken before that read then
-requeues at `finish` (its next attempt redoes the work and posts its start comment again), has its
-repository handoff refused and cannot register a PR that Linear attached before its checkpoint,
-unless its worker re-reads the issue and revalidates.
-That includes a job that is only queued, waiting for a resource or between repository stages at the
-deploy: nothing re-reads the issue before a claim, so its own first `fetch-issue` stores the new
-text. Settle or cancel unfinished jobs on affected issues before deploying, or accept one requeue
-and a repeated start comment for each. Rolling back changes those fingerprints back once, with the
-same effect; older revisions ignore the new fields. Another app's comments, which earlier revisions
-counted as a person's, are a bot's from this revision, so an issue another app commented on changes
-fingerprint once in the same way.
+a question mark. Deploying this revision therefore changes, once, the fingerprint of every tracked
+issue whose description or comments lost text that way, at the issue's next full read (a worker's
+`fetch-issue` or an agent-session event; status checks do not count). Every unfinished job on such
+an issue whose claim is taken before that read then requeues at `finish` (its next attempt redoes
+the work and posts its start comment again), has its repository handoff refused and cannot
+register a PR that Linear attached before its checkpoint, unless its worker re-reads the issue and
+revalidates. That includes a job that is only queued, waiting for a resource or between repository
+stages at the deploy: nothing re-reads the issue before a claim, so its own first `fetch-issue`
+stores the new text. Settle or cancel unfinished jobs on affected issues before deploying, or
+accept one requeue and a repeated start comment for each. Rolling back changes those fingerprints
+back once, with the same effect. Another app's comments, which earlier revisions counted as a
+person's, are a bot's from this revision, so an issue another app commented on changes fingerprint
+once in the same way, and back again on a rollback.
 
 | You do | FarmBot does |
 |---|---|
 | Assign (delegate) an issue labelled Bug, and no 功能 label, to @FarmBot | starts a `fix` work item; first activity within 10 s; posts 「👀 <bot_name> 已开始处理」 (「👀 FarmBot 已开始处理」 in production) once the worker claims |
-| Delegate an issue labelled Bug and a 功能 child (功能/UI or 功能/Code) | asks in the session, with no work item and adding `needs-more-info`, that you remove the label that does not apply and reply |
+| Delegate an issue labelled Bug and a 功能 child (any child of the group, such as 功能/UI or 功能/Code) | asks in the session, with no work item and adding `needs-more-info`, that you remove the label that does not apply and reply |
 | Delegate an issue labelled 功能/UI or 功能/Code | starts `fgui` or `feature` when this instance enables it (neither exists yet); otherwise, and for any other 功能 child, the read-only conversation, whose first activity says what this instance runs and which cannot start a fix. A standalone `UI` or `Code` label outside the group routes like any other label |
 | Reply in a delegation session that never had a work item, for example after fixing the labels | while the issue is still delegated to FarmBot, routes again on its current labels with your reply as the delegation's text: a 功能 card starts its worker; Bug alone starts `fix` when the reply is empty, else the read-only conversation first |
 | Delegate an issue without a Bug label | starts read-only conversation; investigates, answers or clarifies intent; a reply requesting repair can enter writable execution, except on a 功能 card, where a first fix is refused as feature work |
@@ -267,15 +266,16 @@ A Contract-root worker follows Farm-Contract's OpenSpec instructions and
 its Superpowers restriction. Consumer workers use their own repository rules.
 
 A change to the issue during an attempt (title, description, attachments, or a comment that is
-neither a bot's nor FarmBot's own, as Triggers says)
-refuses that attempt's repository handoff and the registration of a PR Linear has already attached,
-and makes `finish` requeue the item for a fresh worker. A worker that has read the change can call
-`revalidate` with the fingerprint `fetch-issue` printed: the ledger accepts only the fingerprint it
-currently stores, moves the claim onto it and records both fingerprints in `audit`. The handoff saved
-before must be saved again, and a later change still refuses the handoff and requeues `finish`. A PR
-that Linear attached before the claim or its last re-read is issue input: only a claim that revalidated
-since may register it as this job's output, and only if nothing else changed. The additive
-`work_items.revalidated_fingerprint` column records a revalidated claim; older code ignores it.
+neither a bot's nor FarmBot's own, as People says) refuses that attempt's repository handoff and
+the registration of a PR Linear has already attached, and makes `finish` requeue the item for a
+fresh worker. A worker that has read the change in `issue-context` can call `revalidate` with
+`issue-context.fingerprint`, the fingerprint of the snapshot it read: the ledger accepts only the
+fingerprint it currently stores, moves the claim onto it and records both fingerprints in `audit`.
+The handoff saved before must be saved again, and a later change still refuses the handoff and
+requeues `finish`. A PR that Linear attached before the claim or its last re-read is issue input:
+only a claim that revalidated since may register it as this job's output, and only if nothing else
+changed. The additive `work_items.revalidated_fingerprint` column records a revalidated claim;
+older code ignores it.
 
 A checkpoint may also carry a validated `plan` for work that spans stages and days (keys and bounds in
 `references/worker-cli.md`). The ledger carries it forward when a checkpoint omits it, shows it in
@@ -453,17 +453,19 @@ Before its first source change in each stage and before each push or PR, a fix w
 other people's work with the claim-authenticated read `foreign-work --item JOB_ID`. It lists PR URLs
 among the issue's Linear attachments, from the snapshot `fetch-issue` saved, `gh pr list --search
 <KEY>` results in each configured repository, and remote branches whose name carries the key, read
-with `git ls-remote`. Own work is the issue's registered PRs, the branches and PRs recorded in
-`plan.prs` by the job and its predecessors, and the head branches of own PRs. Every other branch or
-PR is foreign, `farmbot/` ones included, because another instance such as TestBot uses the same
-names. The command renews the worker's claim, writes nothing else and calls no Linear API. A source
-it cannot read, a GitHub search with more than 100 results included, is listed in `errors`, and the
-worker treats each entry as a gap whatever the status: `found` keeps what the other sources showed,
-and `incomplete` means a source failed and nothing foreign was found, never that nothing exists.
-When anything is foreign, the worker posts a `foreign_work` notice and asks with `await-input`,
-unless a current session message already answered. `verify-publication` adds the same report for
-its repository as `foreign_work`, or `unavailable` when the check itself failed, as evidence only:
-a hard publication gate would need a stored acknowledgement, so publication is not refused on it.
+with `git ls-remote`. Own work is the issue's registered PRs, every PR URL and `farmbot/` branch
+name recorded in `plan.prs` by the job and its predecessors (a list of entries under each
+repository's name, as in the reference's example), and the head branches of own PRs. Every other
+branch or PR is foreign, `farmbot/` ones included, because another instance such as TestBot uses
+the same names. The command renews the worker's claim, writes nothing else and calls no Linear
+API. A source it cannot read, a GitHub search with more than 100 results included, is listed in
+`errors`, and the worker treats each entry as a gap whatever the status: `found` keeps what the
+other sources showed, and `incomplete` means a source failed and nothing foreign was found, never
+that nothing exists. When anything is foreign, the worker posts a `foreign_work` notice and asks
+with `await-input`, unless a current session message already answered. `verify-publication` adds
+the same report for its repository as `foreign_work`, or `unavailable` when the check itself
+failed, as evidence only: a hard publication gate would need a stored acknowledgement, so
+publication is not refused on it.
 
 ## Unity verification commits
 
@@ -489,7 +491,7 @@ Any worker may download the claimed issue's uploads with the claim-authenticated
 `uploads.linear.app` URLs in the issue's description and human comments, in Markdown, bare or
 `<linear-image>` form; GraphQL `attachments` are linked resources such as PRs, not uploads.
 Without `--url` it takes every upload there, and each `--url` must be one of them, unsigned as
-`fetch-issue` shows it. It refreshes the issue in the ledger as `fetch-issue` does. `DIR` must be
+`issue-context` shows it. It refreshes the issue in the ledger as `fetch-issue` does. `DIR` must be
 an absolute path without `..` that is not a symlink, junction or other reparse point; it is created
 if missing, once every `--url` is checked. The command runs in the worker's own process and
 sandbox. The skill names a directory of the worker's own under its state directory
@@ -623,14 +625,17 @@ profile URL (`{id, name, url}`), never an email. A user without a UUID or an `ht
 profile URL is stored as null, as is one whose name is blank, longer than 256 characters, holds a
 control, format (a bidirectional mark or an invisible character, other than the joiners emoji
 sequences use), private-use or line-separator character, or contains an email address, and so is a
-comment link outside `https://linear.app/`. An app user, which Linear marks with `User.app` (FarmBot
-itself, another FarmBot instance, Codex or Linear's integration user), is never a person: its comments
-are a bot's, with no author, and it is never the assignee or the creator.
-None of this is issue input: a claim covers the title, the description, attachments other than
-the job's own PRs, and the IDs and bodies of the comments that are neither a bot's nor FarmBot's
-own, so reassigning or relabelling an issue neither requeues its work nor refuses a handoff.
+comment link outside `https://linear.app/`. An app user, which Linear marks with `User.app`
+(FarmBot itself, another FarmBot instance, Codex or Linear's integration user), is never a person
+in an issue read: its comments are a bot's, with no author, and it is never the issue's assignee
+or creator. A webhook names its users without `User.app`, so a session creator or message author
+is judged by the other rules only. None of this is issue input: a claim covers the title, the
+description, attachments other than the job's own PRs, and the IDs and bodies of the comments that
+are neither a bot's nor FarmBot's own, so reassigning or relabelling an issue neither requeues its
+work nor refuses a handoff.
 
-Issue snapshots stored before this revision lack these fields, which reads as unknown.
+Issue snapshots stored before this revision lack the issue-read fields above, which reads as
+unknown, and older revisions ignore those fields.
 `issue-context` shows each message's author and the time FarmBot received it (`created_at`, ISO
 8601 UTC; an event processed later, for example after a restart, keeps its arrival time) on
 `session_messages` and on `conversation_history` messages, and a chat's messages keep both when a
@@ -645,22 +650,24 @@ the issue most recently (the creator of its latest delegation session in Linear,
 started under an earlier one; an operator `enqueue` delegates to nobody, so its `local-` session is
 skipped), else nobody (an issue only ever enqueued, or a delegation whose creator is unknown). Its
 `creator` is the issue's creator when that is a person other than the owner. Fix workers record a
-human ruling as `[DECIDED:<Linear user name>@<date>]` under the full
-Linear name (`User.name`) of the author of the comment or session message that gave it, dated by
-the calendar date of its `created_at` in UTC+8, the team's time zone, and linked to the comment's
-own `url`; only for a comment without one do they build the link from the issue URL and the
-comment id. They attribute no ruling to anyone else or to a comment a FarmBot instance posted,
-record none that nobody gave and write no silent-consent default. A blocker, a delivery's request
-to review and merge, a question notice and an `await-input` question mention the owner by profile
-URL, which Linear renders as a mention; without an owner nobody is mentioned in the owner's place.
-A question for 策划 also mentions the creator. FarmBot asks the owner to merge, cannot enforce who does, and never
-merges. Whether an agent's mention notifies anyone reliably is still to be checked live (spec
-§14.1).
+human ruling as `[DECIDED:<Linear user name>@<date>]` under the full Linear name (`User.name`) of
+the author of the comment or session message that gave it, dated by the calendar date of its
+`created_at` in UTC+8, the team's time zone, and linked to the comment's own `url`; only for a
+comment without one do they build the link from the issue URL and the comment id. They attribute
+no ruling to anyone else or to a comment a FarmBot instance posted, record none that nobody gave
+and write no silent-consent default. A blocker, a delivery's request to review and merge, a
+question notice and an `await-input` question mention the owner by profile URL, which Linear
+renders as a mention; without an owner nobody is mentioned in the owner's place. A question for
+策划 also mentions the creator. FarmBot asks the owner to merge, cannot enforce who does, and
+never merges. One live check on 2026-09-27 found that a profile URL in a comment posted with the
+app's token renders as a mention and notifies the person (spec §14.1); reliability beyond that
+one observation is unmeasured.
 
 ## Comments
 
 Chinese, concise, one marker line `[farmbot:<id>]` appended by the ledger. Kinds: started (once
-per item), blocker, delivery. Templates: `references/comment-templates.md`; `<bot_name>` there is the
+per claimed issue input and generation, so a job requeued after the issue changed posts it
+again), blocker, delivery. Templates: `references/comment-templates.md`; `<bot_name>` there is the
 instance's `expected_bot_name`, passed to workers as `bot_name`, and `<owner.person.url>` is the
 owner's profile URL from `issue-context` (see People).
 
@@ -688,7 +695,7 @@ any unposted notice unsent.
   the tunnel restarts and must be re-entered in Linear, and until it is, work is created with
   `python3 -m agent.service enqueue --issue <id> --skill fix`. An enqueued item has a local session that
   Linear does not know about, so it reports through issue comments and posts no session activities;
-  `enqueue` still refuses a write-capable skill on an issue that was never delegated to FarmBot, because
+  `enqueue` still refuses a write-capable skill on an issue that is not delegated to FarmBot now, because
   the rule of authority is not what the missing webhook excuses. It also refuses a skill the instance does
   not run (`enabled_skills`). `python3 -m agent.service slots` is the
   operator's view of the pool: slot states, parked commits and the open reservations behind them.
