@@ -64,6 +64,54 @@ the code and the operating contract are authoritative, and the note after Task 4
   (`AgentSessionEvent` `created` and `prompted`, both `accepted`). The read-only probes were throwaway scripts
   built on `agent.config.linear_api` and `agent.readonly_db`, not part of the repository.
 
+## As executed (2026-09-27, Task 15 after Tasks 5–14)
+
+Tasks 5–14 merged on 2026-09-27 as #55, #56, #57 and #58. Task 15 ran again on `main` at `911159b` for what the A1
+round had to skip. A check that still could not run is recorded as skipped, with its reason.
+
+- **Step 1, macOS offline suite:** `python3 -B -m unittest discover -s tests -v` at `911159b`: 1175 tests OK, 15
+  skipped, all Windows-only (seven Job Object tests, three boot-proof tests, three Windows file-name tests, the
+  junction refusal and the Windows containment's read of a launch record).
+- **Step 2, Windows suite:** not run on the Windows host; no Windows host took part. CI ran the suite at the same
+  commit on GitHub's `windows-latest` runner, which is not that host: 1175 tests, the fifteen Windows-only tests
+  above all ran and passed, 61 POSIX-only tests skipped with their reasons, and one test failed,
+  `test_launcher.LauncherTests.test_owned_pid_requires_the_item_id_on_the_command_line`. That test dates from
+  2026-09-18, and Phase A touches neither it nor the launcher. It failed on three of the day's five pushes to
+  `main` and on none of the pull-request runs of the same trees, so it is intermittent. The test asks
+  `owned_pid` once, right after the spawn, and `owned_pid` answers false whenever PowerShell does not return the
+  process's command line within 10 seconds; a loaded runner would explain it, which is not confirmed. Fixing it
+  is a task of its own.
+- **Step 3, doctor:** read-only with the TestBot profile from a checkout of `911159b`, before and after TestBot
+  moved to that revision: `status: attention` with the one finding the A1 round recorded, `cleanup_pending` on
+  FARM-1300's chat item of 2026-09-23. `skills` lists `chat` and `fix` as loaded and as enabled, with
+  `configured: false` because the profile names no `enabled_skills`. The ledger that A1's revision wrote opens
+  under this one, and no job was active at the move.
+- **Step 4, live checks,** through TestBot's own token, on the issues the operator named for the A1 round:
+  1. **Label groups:** no card carries a child of the 功能 group yet, so routing was not exercised: skipped until
+     the operator labels a card 功能/Code and delegates it to TestBot. `label_groups` reads FARM-1353 as before.
+  2. **Authors and the prompting user,** and 3. **Mentions:** recorded in the A1 round.
+  4. **One upload download:** the `download-uploads` command's implementation (`agent.__main__.run`) ran
+     in-process against a scratch ledger, so TestBot's own ledger gained no item. On FARM-1353, whose description
+     holds one screenshot, it returned `downloaded`: a PNG of 380,824 bytes and 506 by 727 pixels, `image/png`,
+     with its SHA-256 in the manifest. Linear served the file to the app's token directly; the client refuses
+     redirects, and none came. Neither the summary nor the manifest holds the token, a signature or a query
+     string (D10: yes, one observation).
+  5. **Windows worker approval:** skipped, no Windows host took part; it needs the operator's go-ahead for the
+     production host.
+  6. **An app-created issue's creator:** no issue has an app user as its creator. The issues an integration
+     created, ten or more through the GitHub integration, have no `creator` in Linear at all, only a `botActor`,
+     and `fetch_issue` stores `creator: null` for each.
+  7. **Another app's comments:** re-read at this revision, FARM-1313 holds four comments as `bot` with no author,
+     TestBot's among them, and three human comments with their authors; FARM-1127 holds six and three.
+- **Also run, beyond Task 15's list:** one `foreign-work` run as TestBot, in the same in-process way, for
+  FARM-1127 against the five configured repositories. `gh pr list --search` and `git ls-remote` read all five
+  with no error. The report was `found`: one closed draft PR in `common`, on another issue's branch, whose text
+  names FARM-1127, and no branch.
+- **TestBot** now runs `911159b` behind the same quick tunnel. Its `ready` line lists `chat` and `fix`, and
+  `/health` answers locally and through the tunnel.
+- **Evidence:** as in the A1 round, throwaway probes built on `agent.config.linear_api`, `agent.uploads` and
+  `agent.__main__.run`, not part of the repository, and the logs of CI run 36306907725.
+
 ## Global Constraints
 
 - **Keep `fix` and `chat` working as today.** Every existing test must still pass; a task that has to change an existing test's setup (never its assertions) says so, as Task 7 does for three resource-recovery tests, Task 10 for the direct handoff calls (including those Tasks 8 and 9 add) and Task 12 for two scheduler fixtures of Tasks 10 and 11. Each task says exactly which `fix` behaviour it changes. The only intended `fix` changes: the `strip_signed` repair keeps signed upload URLs from swallowing the text after them, which changes stored issue text and, once, fingerprints (Task 2's migration note); fix workers see who wrote each session message and when it arrived, in `issue-context` and the launch message's `user_requests` (Task 3); fix workers read comment authors, the owner and the creator from `issue-context` and name deciders and mention people with them (Task 4); they can download Linear uploads (Task 5); they can post notices, pause with `--reason waiting`, and call `revalidate` (Tasks 6–8); a Bug card that also carries a 功能 label elicits instead of starting `fix`, and a chat on a 功能 card can no longer request a repair (Task 12); and fix workers record each branch in the plan's `prs` before its first push, so `foreign-work` counts it as their own (Task 13).
