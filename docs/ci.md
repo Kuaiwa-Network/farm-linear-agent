@@ -29,11 +29,24 @@ fails; the matrix deliberately has `fail-fast: false`. Do not hide Windows
 failures behind broad skips or treat a headless CI job as desktop Unity acceptance.
 
 Test reports are uploaded for 14 days even when tests fail. They contain only
-offline test output and version/result metadata, not `.local` state or live
-configuration. Investigate failures from the exact candidate revision and record
-platform skips. Require both jobs in branch protection only after the first
-successful Windows and Mac baseline; adding this file does not configure remote
-branch protection or establish that baseline.
+offline test output, version/result metadata and per-test timings, not `.local`
+state or live configuration. Each job uploads `reports/offline/` as the artifact
+`offline-<os>-python-3.13`:
+
+- `unittest.log`: the verbose unittest output, which the job log also prints.
+- `summary.json`: Python, platform, Git and Git LFS versions, the revision, the
+  run's seconds, the test count, failed and errored test ids, skip reasons, the
+  native Windows tests and whether they ran, and `slowest`, the 20 slowest tests.
+- `durations.json`: every executed test id in execution order, with `started`,
+  seconds from the start of the run (discovery included, as for the summary's
+  `seconds`), and `seconds`, its duration including setUp, tearDown and
+  cleanups. Class and module fixtures fall between entries.
+
+After the unittest output the job log lists the 20 slowest tests, so an
+intermittent failure comes with timing evidence. Investigate failures from the
+exact candidate revision and record platform skips. Require both jobs in branch
+protection only after the first successful Windows and Mac baseline; adding this
+file does not configure remote branch protection or establish that baseline.
 
 For changes to native process handling, installation or Unity, the separate
 Windows acceptance scenarios in the
