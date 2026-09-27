@@ -4916,6 +4916,9 @@ the task text, the code and the operating contract in the PR are what shipped.
   either pause is parked requeues the item, that the slot refusal holds for both reasons at the CLI and in
   the ledger, that only the item's own reservation blocks its pause, and that an unknown `--reason` is
   refused before anything reaches Linear.
+- For Task 10: the two revalidate tests this fix adds (`test_a_comment_after_revalidate_refuses_the_handoff`
+  and `test_a_retired_or_expired_claim_cannot_revalidate`) call `handoff_repository` without `skill=`, which
+  Task 10 makes required; add it there, as the rehearsal did for the five calls Tasks 8–9 added.
 
 ### Task 10: Manifest-driven stages, with fix unchanged
 
