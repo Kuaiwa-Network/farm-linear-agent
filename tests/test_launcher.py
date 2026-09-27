@@ -92,6 +92,33 @@ class LauncherTests(unittest.TestCase):
             time.sleep(0.02)
         self.assertTrue(Launcher.exited(handle.process), "worker did not exit")
 
+    def owned_in_time(self, pid, item_id, timeout=45):
+        """Whether owned_pid comes to answer True for a live worker, asked again as a scheduler tick asks again.
+
+        One answer of "not owned" does not show that the command line lacks the item: a question that went
+        unanswered gives the same. On Windows the question starts a PowerShell, which gets 10 s, and this
+        suite's is the first PowerShell of a CI runner. Measured on windows-latest in 44 runs, that took under
+        4 s in 38, 5 s to 9 s in five and the whole 10 s in one, with the processors idle; asked again, under
+        2 s every time. The fake worker sleeps for 60 s, so the wait ends while it is alive.
+        """
+        deadline = time.monotonic() + timeout
+        while not self.launcher.owned_pid(pid, item_id):
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.1)
+        return True
+
+    def stop_workers(self):
+        """Stop and reap what this launcher still runs. As a cleanup it also runs after a failed assertion: a
+        worker left alive keeps its logs open, and Windows then cannot remove the temporary directory, which
+        reports a second error for the one failure."""
+        for item_id in list(self.launcher.running()):
+            self.launcher.stop(item_id, grace=2.0)
+        deadline = time.monotonic() + 10
+        while self.launcher.running() and time.monotonic() < deadline:
+            self.launcher.poll()
+            time.sleep(0.02)
+
     def failing_for(self, method, item_id, exc):
         """Patch one launcher step to raise for a single item and run as usual for every other."""
         real = getattr(self.launcher, method)
@@ -632,11 +659,32 @@ class LauncherTests(unittest.TestCase):
     def test_owned_pid_requires_the_item_id_on_the_command_line(self):
         handle = self.launcher.spawn("item-9", self.message, {}, budget_seconds=60, cwd=self.tmp.name,
                                      extra_env={"FAKE_CLI_MODE": "sleep"})
-        self.assertTrue(self.launcher.owned_pid(handle.pid, "item-9"))
+        self.addCleanup(self.stop_workers)
+        self.assertTrue(self.owned_in_time(handle.pid, "item-9"), "the live worker's command line never named it")
         self.assertFalse(self.launcher.owned_pid(handle.pid, "item-other"))
         self.assertTrue(self.launcher.stop("item-9", grace=2.0))
         self.wait_finished()
         self.assertFalse(self.launcher.owned_pid(handle.pid, "item-9"))
+
+    def test_a_command_line_that_cannot_be_read_is_never_ownership(self):
+        # Fail closed: a pid is signalled only after its command line was read and names the item. The test
+        # above asks until it is answered, so it cannot show what an unanswered question leads to.
+        unread = {"a query that timed out": {"side_effect": subprocess.TimeoutExpired("query", 10)},
+                  "a query that could not start": {"side_effect": OSError("no such program")},
+                  "an answer that cannot be decoded": {
+                      "side_effect": UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")},
+                  "an empty answer": {"return_value": subprocess.CompletedProcess(["query"], 0, "", "")}}
+        for name, run in unread.items():
+            with self.subTest(name), patch("agent.launcher.subprocess.run", **run) as asked:
+                self.assertFalse(self.launcher.owned_pid(os.getpid(), "item-9"))
+                asked.assert_called_once()  # the refusal came from the query, not from the pid
+        line = f"python fake_cli.py {self.runs / 'item-9' / 'attempt' / 'last_message.txt'}\n"
+        with patch("agent.launcher.subprocess.run",
+                   return_value=subprocess.CompletedProcess(["query"], 0, line, "")):
+            self.assertTrue(self.launcher.owned_pid(os.getpid(), "item-9"))
+            self.assertFalse(self.launcher.owned_pid(os.getpid(), "item-other"))
+            with patch.object(Launcher, "alive", return_value=False):
+                self.assertFalse(self.launcher.owned_pid(os.getpid(), "item-9"))
 
     def test_an_unsandboxed_run_is_the_only_way_out_of_the_seatbelt_and_carries_no_sandbox_config(self):
         """Task 0's addendum: `Unity -batchmode -runTests` inside sandbox_workspace_write hangs for ever on a
