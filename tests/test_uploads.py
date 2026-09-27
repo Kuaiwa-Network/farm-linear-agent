@@ -10,6 +10,7 @@ import unittest
 import zipfile
 import zlib
 from pathlib import Path
+from unittest.mock import patch
 
 from agent import uploads
 from agent.ledger import LedgerError
@@ -53,6 +54,23 @@ def archive(members, *, raw_names=None, links=(), extras=None):
     return data
 
 
+def spoof_end_record(data, *, entries=None, central=None):
+    """The zip with its end record's entry count or central-directory size replaced: what an attacker declares."""
+    end = data.rfind(b"PK\x05\x06")
+    if entries is not None:
+        data = data[:end + 8] + struct.pack("<HH", entries, entries) + data[end + 12:]
+    if central is not None:
+        data = data[:end + 12] + struct.pack("<L", central) + data[end + 16:]
+    return data
+
+
+def set_encrypted_flag(data):
+    """A single-member zip with the encryption bit set in both its headers, as an archiver writes it."""
+    local, central = data.find(b"PK\x03\x04"), data.find(b"PK\x01\x02")
+    data = data[:local + 6] + struct.pack("<H", struct.unpack_from("<H", data, local + 6)[0] | 1) + data[local + 8:]
+    return data[:central + 8] + struct.pack("<H", struct.unpack_from("<H", data, central + 8)[0] | 1) + data[central + 10:]
+
+
 def human(comment_id, body, created="2026-09-18T08:00:00Z"):
     return {"id": comment_id, "body": body, "author_kind": "human", "created_at": created, "updated_at": created}
 
@@ -66,11 +84,14 @@ class FakeUploads:
 
     def __init__(self, files, types=None, errors=None):
         self.files, self.types, self.errors, self.calls = dict(files), dict(types or {}), dict(errors or {}), []
+        self.keepalive_calls = 0  # how many renewals a transfer makes, as save_stream does every KEEPALIVE_SECONDS
 
-    def download_upload(self, url, destination, *, max_bytes):
+    def download_upload(self, url, destination, *, max_bytes, keepalive=None):
         self.calls.append(url)
         if url in self.errors:
             raise self.errors[url]
+        for _ in range(self.keepalive_calls):
+            keepalive()
         size, digest = save_stream(io.BytesIO(self.files[url]).read, destination, max_bytes=max_bytes)
         return {"size": size, "sha256": digest, "content_type": self.types.get(url, "application/octet-stream")}
 
@@ -93,7 +114,7 @@ class NameTests(unittest.TestCase):
 
     def test_member_paths_refuse_every_spec_hazard_in_both_separator_styles(self):
         cases = {"/etc/passwd": "absolute", "\\Windows\\win.ini": "absolute", "\\\\server\\share\\x.png": "absolute",
-                 "C:\\x.png": "drive", "c:x.png": "drive", "a/../../b.png": "parent", "a\\..\\b.png": "parent",
+                 "C:\\x.png": "drive path", "c:x.png": "drive path", "a/../../b.png": "parent", "a\\..\\b.png": "parent",
                  "..": "parent", "CON": "device", "nul.txt": "device", "Res/COM1.png": "device",
                  "aux .png": "device", "lpt9": "device", "COM¹": "device", "slice.png.": "trailing",
                  "slice.png ": "trailing", "dir./a.png": "trailing", "a.png:hidden": "stream",
@@ -194,6 +215,17 @@ class DownloadTests(UploadDirectory):
         self.assertEqual([upload["result"] for upload in again["uploads"]], ["unchanged"] * 3)
         self.assertEqual((self.out / uploads.MANIFEST).read_bytes(), first)
 
+    def test_the_read_cap_never_refuses_the_manifest_the_run_itself_wrote(self):
+        """MANIFEST_LIMIT guards reading a foreign file. The run's own manifest, bounded by its limits, is always
+        written and read back next time, however many files and members the limits allow."""
+        with patch.object(uploads, "MANIFEST_LIMIT", 16):
+            self.run_once()
+            self.assertEqual(len(self.manifest()["files"]), 5)
+            again = self.run_once()
+        self.assertEqual([upload["result"] for upload in again["uploads"]], ["unchanged"] * 3)
+        bound = uploads.LIMITS.uploads * (uploads.LIMITS.zip_entries + 1) * uploads.MANIFEST_ENTRY_BYTES
+        self.assertGreaterEqual(uploads.manifest_limit(uploads.LIMITS), max(bound, uploads.MANIFEST_LIMIT))
+
     def test_a_changed_file_or_member_is_fetched_or_extracted_again_under_its_own_name(self):
         self.run_once()
         (self.out / "截图 1.png").write_bytes(b"edited")
@@ -273,6 +305,26 @@ class DownloadTests(UploadDirectory):
         self.assertEqual((self.api.calls, len(renewals)), ([SHOT], 2))
         self.assertEqual(len(self.manifest()["files"]), 3)
 
+    def test_a_long_transfer_renews_the_claim_and_a_claim_lost_during_it_ends_the_run(self):
+        """save_stream calls keepalive every KEEPALIVE_SECONDS of a transfer: one as long as the deadline allows
+        would otherwise outlive a chat worker's lease and get the worker killed."""
+        self.api.keepalive_calls = 2
+        renewals = []
+        summary = self.run_once(renew=lambda: renewals.append(True), urls=[SHOT])
+        self.assertEqual((summary["uploads"][0]["result"], len(renewals)), ("downloaded", 3))
+
+        def renew():
+            renewals.append(True)
+            if len(renewals) == 6:  # the second renewal inside the next run's first download
+                raise LedgerError("running claim and matching token required")
+        (self.out / "截图 1.png").unlink()
+        summary = self.run_once(renew=renew)
+        results = [(upload["result"], upload["error"]) for upload in summary["uploads"]]
+        self.assertEqual(results[0], ("failed", "interrupted: the claim was lost"))
+        self.assertEqual([result for result, _ in results[1:]], ["failed", "failed"])
+        self.assertTrue(all("claim was lost" in error for _, error in results[1:]), results)
+        self.assertEqual(sorted(child.name for child in self.out.iterdir()), [uploads.MANIFEST])
+
     def test_a_manifest_for_another_issue_is_refused_and_worker_files_are_never_overwritten(self):
         (self.out / "截图 1.png").write_bytes(b"the worker's own notes")
         self.run_once(urls=[SHOT])
@@ -290,6 +342,28 @@ class DownloadTests(UploadDirectory):
         self.assertFalse((self.out.parent / "escape.png").exists())
         # The dropped entry no longer vouches for 截图 1.png, so that file is left alone and the upload gets a new name.
         self.assertEqual(self.by_name()["截图 1-2.png"]["status"], "ok")
+
+    def test_an_edited_manifest_cannot_lead_a_write_through_a_link_inside_the_directory(self):
+        """The module writes an upload's name and an archive's directory as one component each. A multi-part one
+        in an edited manifest would make the next write descend a path only whose last step is checked for links."""
+        outside = Path(self.tmp.name) / "outside"
+        outside.mkdir()
+        try:
+            os.symlink(outside, self.out / "sub", target_is_directory=True)
+        except OSError:
+            self.skipTest("creating symlinks needs a privilege on this host")
+        self.run_once()
+        document = self.manifest()
+        for entry in document["files"]:
+            if entry["source_zip"] is None:
+                entry["name"] = "sub/" + entry["name"]
+            if entry["extract_dir"]:
+                entry["extract_dir"] = "sub/" + entry["extract_dir"]
+        (self.out / uploads.MANIFEST).write_text(json.dumps(document), encoding="utf-8")
+        summary = self.run_once()
+        self.assertEqual(list(outside.iterdir()), [])
+        self.assertEqual([upload["result"] for upload in summary["uploads"]], ["downloaded"] * 3)
+        self.assertTrue(all("/" not in entry["name"] for entry in self.manifest()["files"] if entry["source_zip"] is None))
 
 
 class ArchiveTests(UploadDirectory):
@@ -374,6 +448,54 @@ class ArchiveTests(UploadDirectory):
         self.assertEqual([(entry["zip_member"], entry["status"]) for entry in members],
                          [("a.txt", "ok"), ("b.txt", "failed")])
         self.assertIn("extraction limit", members[1]["error"])
+
+    def test_a_spoofed_entry_count_is_caught_once_the_archive_is_open(self):
+        """The end record's count is attacker text; the count zipfile finds is checked against the cap as well."""
+        data = spoof_end_record(archive({f"{number}.txt": b"x" for number in range(5)}), entries=1)
+        spoofed = Path(self.tmp.name) / "spoofed.zip"
+        spoofed.write_bytes(data)
+        self.assertEqual(uploads._declared(spoofed)[0], 1)
+        summary, members = self.extract(data, limits=uploads.LIMITS._replace(zip_entries=3))
+        self.assertEqual(members, [])
+        self.assertIn("more than 3 entries", summary["uploads"][0]["error"])
+        self.assertFalse((self.out / "切图").exists())
+
+    def test_an_oversized_central_directory_is_refused_before_the_archive_is_opened(self):
+        """zipfile builds one object per central directory entry, so the declared size is checked first."""
+        data = spoof_end_record(archive({"a.txt": b"x"}), central=3 * uploads.CENTRAL_BYTES_PER_ENTRY + 1)
+        summary, members = self.extract(data, limits=uploads.LIMITS._replace(zip_entries=3))
+        self.assertEqual(members, [])
+        self.assertIn("central directory is larger", summary["uploads"][0]["error"])
+        self.assertFalse((self.out / "切图").exists())
+
+    def test_an_encrypted_member_is_refused_not_extracted(self):
+        _, members = self.extract(set_encrypted_flag(archive({"a.txt": b"secret"})))
+        self.assertEqual([(entry["zip_member"], entry["status"], entry["error"]) for entry in members],
+                         [("a.txt", "refused", "encrypted")])
+        self.assertFalse((self.out / "切图" / "a.txt").exists())
+
+    def test_a_link_on_the_way_to_a_member_is_never_descended(self):
+        root = Path(self.tmp.name) / "root"
+        (root / "real").mkdir(parents=True)
+        try:
+            os.symlink(root / "real", root / "link", target_is_directory=True)
+        except OSError:
+            self.skipTest("creating symlinks needs a privilege on this host")
+        with self.assertRaisesRegex(OSError, "link"):
+            uploads._directory(root, ["link", "sub"])
+        self.assertFalse((root / "real" / "sub").exists())
+
+    def test_a_claim_lost_before_extraction_leaves_the_archive_unextracted(self):
+        renewals = []
+
+        def renew():
+            renewals.append(True)
+            if len(renewals) == 2:  # the renewal before extraction, after the download's
+                raise LedgerError("running claim and matching token required")
+        summary, members = self.extract(self.art, renew=renew)
+        self.assertEqual(members, [])
+        self.assertEqual((summary["uploads"][0]["result"], summary["uploads"][0]["error"]),
+                         ("downloaded", "not extracted: the claim was lost"))
 
     def test_a_nested_archive_stays_a_file_and_a_broken_one_is_recorded(self):
         _, members = self.extract(archive({"inner.zip": archive({"deep.png": png(1, 1)})}))

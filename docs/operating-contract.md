@@ -433,22 +433,26 @@ Any worker may download the claimed issue's uploads with the claim-authenticated
 Without `--url` it takes every upload there, and each `--url` must be one of them, unsigned as
 `fetch-issue` shows it. It refreshes the issue in the ledger as `fetch-issue` does. `DIR` must be
 an absolute path without `..` that is not a symlink, junction or other reparse point; it is created
-if missing. The command runs in the worker's own process and sandbox, and no controller step reads
-or writes `DIR`.
+if missing, once every `--url` is checked. The command runs in the worker's own process and
+sandbox. The skill names a directory of the worker's own under its state directory
+(`STATE_DIR/inputs/linear`), which no controller step reads or writes; the state directory's own
+top level is the controller's.
 
 Workers may hold the Linear app's secret (feature-workers design, D11): the worker CLI builds its
 Linear client from the host config, as every Linear-facing CLI command already does. Workers use it
 only through FarmBot's CLI commands for the claimed item and never fetch `uploads.linear.app`
 another way. The fix skill and the worker CLI reference state this rule; the dispatch AUTHORITY
 does not mention uploads. A download sends the app's bearer token as an unredirected header, over
-HTTPS to `uploads.linear.app` only, refuses every redirect (urllib's default handler would follow
-it and forward the header), and gives up after 30 seconds without data or 10 minutes for one file.
-No output, manifest, error text or log carries the token or a signed URL.
+HTTPS to `uploads.linear.app` only, refuses every redirect (the file must come from that origin
+itself; the refusal names only the host the redirect pointed at, which is what the operator records
+if Linear redirects to signed storage), and gives up after 30 seconds without data or 10 minutes for
+one file, however slowly it trickles. No output, manifest, error text or log carries the token or a
+signed URL; a failure is named by its kind, and a token-endpoint or local storage failure as such.
 
 Limits apply per run: 100 downloads, 256 MiB for one file and 1 GiB in all; archives of at most
 2,000 entries; 1 GiB extracted in all, each member expanding to at most 100 times its compressed
 size or 1 MiB, whichever is more. A failed download, including a web page returned for a file not
-named `.html`, is recorded in the manifest and the run goes on. Missing art or an unreadable upload
+named `.html` or `.htm`, is recorded in the manifest and the run goes on. Missing art or an unreadable upload
 is a question for the issue, never a guess.
 
 `DIR/manifest.json` lists every file: its sources (`description` or `comment:<id>`), unsigned URL

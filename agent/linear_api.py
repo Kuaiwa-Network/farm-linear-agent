@@ -53,6 +53,7 @@ UPLOADS_ORIGIN = "https://uploads.linear.app"
 _UPLOAD_PATH = re.compile(r"(?:/[A-Za-z0-9._~%-]+)+")
 UPLOAD_TIMEOUT = 30    # seconds to connect, and for each read
 UPLOAD_DEADLINE = 600  # seconds for one whole file
+KEEPALIVE_SECONDS = 60  # how often a transfer calls its keepalive: a claim's lease is never shorter than this by much
 _CHUNK = 1 << 16
 
 
@@ -128,11 +129,17 @@ class TooLarge(UploadError):
 
 
 class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
-    """urllib's default handler follows a redirect and forwards Authorization to wherever it points."""
+    """No redirect is followed: an upload must come from the allowlisted origin itself. The refusal names the
+    host Linear pointed at, never the path or query (the signed part), because if uploads.linear.app redirects
+    to signed storage, that host is what the operator records (plan Task 15)."""
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         fp.close()
-        raise UploadError(f"redirect refused (HTTP {code})")
+        try:
+            host = urllib.parse.urlsplit(newurl).hostname
+        except ValueError:
+            host = None
+        raise UploadError(f"redirect refused (HTTP {code} to {host})" if host else f"redirect refused (HTTP {code})")
 
 
 def upload_opener(*handlers):
@@ -140,20 +147,36 @@ def upload_opener(*handlers):
     return urllib.request.build_opener(_RefuseRedirects, *handlers)
 
 
-def save_stream(read, destination, *, max_bytes, expected_size=None, deadline=None):
+def _store(operation, *args, **kwargs):
+    """A local file operation, whose failure is reported as storage, named by its kind, never as the transfer."""
+    try:
+        return operation(*args, **kwargs)
+    except OSError as exc:
+        raise UploadError(f"could not store the file ({type(exc).__name__})") from None
+
+
+def save_stream(read, destination, *, max_bytes, expected_size=None, deadline=None, keepalive=None):
     """Copy `read(size)` chunks into a new file beside `destination`, then rename it into place.
 
-    More than `max_bytes`, a total other than `expected_size`, or passing `deadline` (a time.monotonic() value)
-    raises UploadError and leaves no file behind. Returns (size, sha256 hex digest).
+    `read` should return after one receive (HTTPResponse.read1), so that `deadline` (a time.monotonic() value)
+    is checked while a slow transfer trickles, and `keepalive()` is called once every KEEPALIVE_SECONDS of a
+    long one: a worker renews its claim there, and whatever it raises ends the copy. More than `max_bytes`, a
+    total other than `expected_size`, passing `deadline` or a storage failure raises UploadError and leaves no
+    file behind. Returns (size, sha256 hex digest).
     """
     destination = Path(destination)
-    fd, temporary = tempfile.mkstemp(prefix=".farmbot-", suffix=".part", dir=destination.parent)
+    fd, temporary = _store(tempfile.mkstemp, prefix=".farmbot-", suffix=".part", dir=destination.parent)
     digest, size = hashlib.sha256(), 0
+    next_keepalive = time.monotonic() + KEEPALIVE_SECONDS
     try:
         with open(fd, "wb") as stream:
             while True:
-                if deadline is not None and time.monotonic() >= deadline:
+                now = time.monotonic()
+                if deadline is not None and now >= deadline:
                     raise UploadError("timed out")
+                if keepalive is not None and now >= next_keepalive:
+                    keepalive()
+                    next_keepalive = now + KEEPALIVE_SECONDS
                 chunk = read(_CHUNK)
                 if not chunk:
                     break
@@ -161,10 +184,11 @@ def save_stream(read, destination, *, max_bytes, expected_size=None, deadline=No
                 if size > max_bytes:
                     raise TooLarge(max_bytes)
                 digest.update(chunk)
-                stream.write(chunk)
+                _store(stream.write, chunk)
+            _store(stream.flush)
         if expected_size is not None and size != expected_size:
             raise UploadError("transfer ended early")
-        os.replace(temporary, destination)
+        _store(os.replace, temporary, destination)
     except BaseException:
         Path(temporary).unlink(missing_ok=True)
         raise
@@ -377,23 +401,35 @@ class LinearAPI:
                 "comments": comments, "detail_complete": True, "comments_complete": True}
 
     def download_upload(self, url, destination, *, max_bytes, opener=None, timeout=UPLOAD_TIMEOUT,
-                        deadline_seconds=UPLOAD_DEADLINE):
+                        deadline_seconds=UPLOAD_DEADLINE, keepalive=None):
         """Fetch one unsigned Linear upload into `destination` with the app's bearer token (spec §5.5).
 
-        Only https://uploads.linear.app with a plain path. The token goes as an unredirected header and every
-        redirect is refused, because urllib's default handler would follow it and forward Authorization. The
-        body is capped at `max_bytes` while it streams and lands in a temporary file beside `destination`, which
-        is then renamed into place. Returns {"size", "sha256", "content_type"}. Every failure is UploadError,
-        whose message names neither the token nor the URL.
+        `keepalive()` is called every KEEPALIVE_SECONDS while the body streams, so that a transfer as long as the
+        deadline allows outlives no claim lease; whatever it raises ends the download.
+
+        Only https://uploads.linear.app with a plain path and no dot segment, percent-encoded or not. The token
+        goes as an unredirected header, and every redirect is refused: the file must come from that origin
+        itself, and the refusal names the redirect's host, never its path or query. The body is read one receive
+        at a time, so the per-file deadline holds against a trickling transfer, is capped at `max_bytes` while
+        it streams, and lands in a temporary file beside `destination`, which is then renamed into place.
+        Returns {"size", "sha256", "content_type"}. Every failure is UploadError, whose message names neither
+        the token nor the URL; a token-endpoint failure and a storage failure are named as such.
         """
         path = url[len(UPLOADS_ORIGIN):] if isinstance(url, str) and url.startswith(UPLOADS_ORIGIN + "/") else ""
-        if not _UPLOAD_PATH.fullmatch(path) or any(part in (".", "..") for part in path.split("/")):
+        segments = urllib.parse.unquote(path).split("/")
+        if not _UPLOAD_PATH.fullmatch(path) or any(segment in (".", "..") for segment in segments):
             raise UploadError("only unsigned https://uploads.linear.app URLs are downloaded")
         opener = opener or upload_opener()
         for attempt in range(2):
-            try:
-                if not self.token or time.time() >= self.expires:
+            if not self.token or time.time() >= self.expires:
+                try:
                     self.authenticate()
+                except urllib.error.HTTPError as exc:
+                    exc.close()
+                    raise UploadError(f"token endpoint refused (HTTP {exc.code})") from None
+                except (OSError, http.client.HTTPException, ValueError, KeyError) as exc:
+                    raise UploadError(f"token endpoint: {_transport_error(exc)}") from None
+            try:
                 request = urllib.request.Request(url, headers={"Accept": "*/*"})
                 request.add_unredirected_header("Authorization", f"Bearer {self.token}")
                 with opener.open(request, timeout=timeout) as response:
@@ -403,9 +439,9 @@ class LinearAPI:
                     expected = int(declared) if declared.isdigit() else None
                     if expected is not None and expected > max_bytes:
                         raise TooLarge(max_bytes)
-                    size, digest = save_stream(response.read, destination, max_bytes=max_bytes,
-                                               expected_size=expected,
-                                               deadline=time.monotonic() + deadline_seconds)
+                    read = getattr(response, "read1", response.read)  # one receive per call; read(n) waits for n bytes
+                    size, digest = save_stream(read, destination, max_bytes=max_bytes, expected_size=expected,
+                                               deadline=time.monotonic() + deadline_seconds, keepalive=keepalive)
                     return {"size": size, "sha256": digest,
                             "content_type": _media_type(response.headers.get("Content-Type"))}
             except UploadError:

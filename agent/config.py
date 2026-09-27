@@ -200,7 +200,7 @@ class StubLinear:
     def needs_more_info(self, issue_id):
         self._record("needs_more_info", issue_id=issue_id)
 
-    def download_upload(self, url, destination, *, max_bytes):
+    def download_upload(self, url, destination, *, max_bytes, keepalive=None):
         """Serves `uploads/<last URL segment>` from the stub directory, stored as LinearAPI.download_upload does."""
         self._record("download_upload", url=url)
         source = self.directory / "uploads" / url.rsplit("/", 1)[-1]

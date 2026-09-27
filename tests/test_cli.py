@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import subprocess
@@ -287,12 +288,13 @@ class CliTests(unittest.TestCase):
         self.env = {**os.environ, "FARMBOT_LINEAR_STUB_DIR": str(self.stub), "FARMBOT_CONFIG": str(self.root / "missing.json")}
         self.env.pop("FARMBOT_TOKEN", None)
 
-    def run_cli(self, *args, success=True):
-        process = subprocess.run([sys.executable, "-m", "agent", "--db", str(self.db), *args], cwd=ROOT, env=self.env,
-                                 text=True, capture_output=True, timeout=30)
+    def run_cli(self, *args, success=True, process=False):
+        completed = subprocess.run([sys.executable, "-m", "agent", "--db", str(self.db), *args], cwd=ROOT, env=self.env,
+                                   text=True, capture_output=True, timeout=30)
         if success:
-            self.assertEqual(0, process.returncode, process.stderr)
-            return json.loads(process.stdout)
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            return completed if process else json.loads(completed.stdout)
+        process = completed
         self.assertNotEqual(0, process.returncode)
         self.assertNotIn("Traceback", process.stderr)
         self.assertTrue(process.stderr.strip())
@@ -656,15 +658,18 @@ class CliTests(unittest.TestCase):
                                "--outcome", "quiescent", success=False)
         self.assertIn("holds no resource", process.stderr)
 
-    SHOT = "https://uploads.linear.app/7b0c6c4e-2f7a-4c55-9d0e-3a1f5e6d7c8b/0f1e2d3c/4b5a6978"
+    ORG = "https://uploads.linear.app/7b0c6c4e-2f7a-4c55-9d0e-3a1f5e6d7c8b"
+    SHOT = f"{ORG}/0f1e2d3c/4b5a6978"
+    LOG = f"{ORG}/0f1e2d3c/5c6b7a89"
 
     def upload_fixture(self):
-        """A claimed item whose issue shows one screenshot, which the stub serves; returns (item, token file)."""
+        """A claimed item whose issue shows a screenshot and a log, which the stub serves; returns (item, token file)."""
         from test_uploads import png
-        described = issue(labels=["Bug"], description=f"![截图 1.png]({self.SHOT})")
+        described = issue(labels=["Bug"], description=f"![截图 1.png]({self.SHOT}) [日志]({self.LOG})")
         (self.stub / "issue.json").write_text(json.dumps(described), encoding="utf-8")
         (self.stub / "uploads").mkdir()
         (self.stub / "uploads" / "4b5a6978").write_bytes(png(2, 3))
+        (self.stub / "uploads" / "5c6b7a89").write_bytes("登录失败".encode("utf-8"))
         item = self.seeded_item()
         token_file = self.root / "token"
         token_file.write_text(self.run_cli("claim", "--item", item, "--worker-id", "w")["token"], encoding="utf-8")
@@ -705,24 +710,70 @@ class CliTests(unittest.TestCase):
                                        "--out", str(self.root / "out"), "--url", url, success=False)
                 self.assertIn("--url 1 is not an upload of the claimed issue", refused.stderr)
                 self.assertNotIn("signature", refused.stderr)
+                self.assertNotIn(token_file.read_text(encoding="utf-8"), refused.stderr)
         self.assertNotIn("download_upload", [call["method"] for call in self.calls()])
+        self.assertFalse((self.root / "out").exists())  # created only once every --url is known to be the issue's
 
     def test_download_uploads_writes_the_manifest_prints_one_summary_and_fetches_once(self):
         item, token_file = self.upload_fixture()
         out = self.root / "状态 目录" / "inputs" / "linear"
-        summary = self.run_cli("download-uploads", "--item", item, "--token-file", str(token_file), "--out", str(out))
+        only = self.run_cli("download-uploads", "--item", item, "--token-file", str(token_file), "--out", str(out),
+                            "--url", self.SHOT, process=True)
+        summary = json.loads(only.stdout)
         self.assertEqual(summary["manifest"], str(out / "manifest.json"))
         self.assertEqual([(upload["name"], upload["result"], upload["pixels"]) for upload in summary["uploads"]],
-                         [("截图 1.png", "downloaded", {"width": 2, "height": 3})])
+                         [("截图 1.png", "downloaded", {"width": 2, "height": 3})])  # --url selects: the log waits
         manifest = (out / "manifest.json").read_text(encoding="utf-8")
         self.assertEqual(json.loads(manifest)["files"][0]["url_path"], self.SHOT[len("https://uploads.linear.app"):])
         claim_token = token_file.read_text(encoding="utf-8")
-        self.assertNotIn(claim_token, json.dumps(summary) + manifest)
-        again = self.run_cli("download-uploads", "--item", item, "--token-file", str(token_file), "--out", str(out),
-                             "--url", self.SHOT)
-        self.assertEqual(again["uploads"][0]["result"], "unchanged")
-        self.assertEqual([call["method"] for call in self.calls()].count("download_upload"), 1)
-        self.assertEqual(self.run_cli("issue-context", "--item", item)["coordination"]["state"], "running")
+        self.assertNotIn(claim_token, json.dumps(summary) + manifest + only.stderr)
+        context = self.run_cli("issue-context", "--item", item)
+        self.assertIn(self.SHOT, context["issue"]["description"])  # the issue was refreshed in the ledger
+        self.assertEqual(context["coordination"]["state"], "running")
+        everything = self.run_cli("download-uploads", "--item", item, "--token-file", str(token_file), "--out", str(out))
+        self.assertEqual([(upload["name"], upload["result"]) for upload in everything["uploads"]],
+                         [("截图 1.png", "unchanged"), ("日志", "downloaded")])
+        self.assertEqual([call["method"] for call in self.calls()].count("download_upload"), 2)
+
+    def test_download_uploads_renews_the_claim_per_download_and_fails_at_its_final_renewal_when_lost(self):
+        """Two 50 s downloads under a 60 s lease succeed only because the claim is renewed before each; an item
+        cancelled during the first download fails the command at its final renewal, after the manifest is written."""
+        from types import SimpleNamespace
+        from agent.__main__ import parser, run
+        from agent.ledger import Ledger, LedgerError
+        from agent.linear_api import save_stream
+        from test_uploads import png
+        one, two = f"{self.ORG}/aaaa1111-0000-4000-8000-000000000001/one", f"{self.ORG}/bbbb2222-0000-4000-8000-000000000002/two"
+        for label, cancel_during_first in (("slow", None), ("cancelled", "issue closed during the download")):
+            with self.subTest(label):
+                now = [1000.0]
+                ledger = Ledger(self.root / f"{label}.sqlite3", clock=lambda: now[0])
+                self.addCleanup(ledger.close)
+                raw = issue(labels=["Bug"], description=f"![一.png]({one}) ![二.png]({two})")
+                ledger.observe_issue(raw)
+                ledger.ensure_session("session-1", raw["id"], delegation=True)
+                item = ledger.create_work_item(issue_id=raw["id"], session_id="session-1", skill="fix")["id"]
+                ledger.set_worker(item, 4242, HOST, 60)
+                token_file = self.root / f"{label}-token"
+                token_file.write_text(ledger.claim(item, worker_id="w")["token"], encoding="utf-8")
+
+                def download_upload(url, destination, *, max_bytes, keepalive=None):
+                    now[0] += 50
+                    if cancel_during_first and url == one:
+                        ledger.cancel(item, cancel_during_first)
+                    size, digest = save_stream(io.BytesIO(png(1, 1)).read, destination, max_bytes=max_bytes)
+                    return {"size": size, "sha256": digest, "content_type": "image/png"}
+                api = SimpleNamespace(app_user_id=None, fetch_issue=lambda _id: raw, download_upload=download_upload)
+                out = self.root / f"{label}-out"
+                args = parser().parse_args(["--db", str(self.root / f"{label}.sqlite3"), "download-uploads", "--item",
+                                            item, "--token-file", str(token_file), "--out", str(out)])
+                if cancel_during_first is None:
+                    summary = run(args, ledger, lambda: api)
+                    self.assertEqual([upload["result"] for upload in summary["uploads"]], ["downloaded", "downloaded"])
+                else:
+                    with self.assertRaisesRegex(LedgerError, "running claim"):
+                        run(args, ledger, lambda: api)
+                    self.assertTrue((out / "manifest.json").exists())
 
     def test_a_no_change_delivery_completes_the_session_as_no_change(self):
         item = self.seeded_item()

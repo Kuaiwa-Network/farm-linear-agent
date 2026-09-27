@@ -26,7 +26,8 @@ from .linear_api import UPLOADS_ORIGIN, TooLarge, UploadError, save_stream, uplo
 
 MANIFEST = "manifest.json"
 MANIFEST_FORMAT = 1
-MANIFEST_LIMIT = 64 << 20
+MANIFEST_LIMIT = 64 << 20        # the least a manifest may grow to before a read refuses it
+MANIFEST_ENTRY_BYTES = 16 << 10  # more than one entry takes with the longest names and a legacy member's raw bytes
 # Per run: `uploads` downloads, `file_bytes` for one upload and `download_bytes` in all; at most `zip_entries`
 # entries in one archive; `extract_bytes` extracted in all, one member expanding to at most
 # max(`bomb_floor`, `bomb_ratio` times its compressed size).
@@ -224,8 +225,9 @@ def _is_link(path):
             or bool(getattr(status, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT))
 
 
-def output_directory(raw):
-    """The directory `--out` names, created if missing: absolute, without `..`, and not a link."""
+def output_directory(raw, *, create=True):
+    """The directory `--out` names, created if missing unless `create` is false: absolute, without `..`, and not a
+    link."""
     path = Path(raw)
     if not path.is_absolute() or ".." in path.parts:
         raise LedgerError("--out must be an absolute path without '..'")
@@ -233,7 +235,8 @@ def output_directory(raw):
         raise LedgerError("--out must not be a symlink, junction or other reparse point")
     if path.exists() and not path.is_dir():
         raise LedgerError("--out must name a directory")
-    path.mkdir(parents=True, exist_ok=True)
+    if create:
+        path.mkdir(parents=True, exist_ok=True)
     return path
 
 
@@ -371,22 +374,32 @@ def _read_regular(path, limit):
 
 
 def _usable(entry):
-    """A previous manifest entry this run may build on: every field present, every name a safe relative path."""
+    """A previous manifest entry this run may build on: every field present, every name a safe relative path, and
+    an upload's own name, its archive's directory and its source archive one component each, the only form this
+    module writes. A multi-part one could lead a later write through a link inside the directory."""
     return (isinstance(entry, dict) and set(FIELDS) <= entry.keys() and isinstance(entry["url_path"], str)
             and entry["status"] in ("ok", "failed", "refused") and isinstance(entry["sources"], list)
             and all(entry[key] is None or (isinstance(entry[key], str) and _safe_relative(entry[key]))
                     for key in ("name", "extract_dir", "source_zip"))
+            and all("/" not in (entry[key] or "") for key in ("extract_dir", "source_zip"))
+            and (entry["source_zip"] is not None or "/" not in (entry["name"] or ""))
             and (entry["status"] != "ok" or (isinstance(entry["sha256"], str) and type(entry["size"]) is int)))
 
 
-def _read_manifest(directory, issue_id):
+def manifest_limit(limits):
+    """The most bytes a manifest can hold within `limits`, so that one this module wrote is always read back: a
+    run records at most `uploads` files and `zip_entries` members each, every entry under MANIFEST_ENTRY_BYTES."""
+    return max(MANIFEST_LIMIT, limits.uploads * (limits.zip_entries + 1) * MANIFEST_ENTRY_BYTES)
+
+
+def _read_manifest(directory, issue_id, limits):
     """The usable entries of the directory's manifest, or [] when there is none it can use.
 
     A directory holding another issue's uploads is refused. Entries naming unsafe paths are dropped, so an edited
     manifest can never steer a later write outside the directory.
     """
     try:
-        data = json.loads(_read_regular(directory / MANIFEST, MANIFEST_LIMIT).decode("utf-8"))
+        data = json.loads(_read_regular(directory / MANIFEST, manifest_limit(limits)).decode("utf-8"))
     except (OSError, ValueError):
         return []
     if not isinstance(data, dict) or data.get("format") != MANIFEST_FORMAT or not isinstance(data.get("files"), list):
@@ -480,16 +493,25 @@ class _Run:
         self.taken = {_key(MANIFEST), *(_key(child.name) for child in directory.iterdir()),
                       *(_key(name) for name in kept_names)}
 
-    def fetch(self, url, title, old):
-        """The top-level entry for one upload, downloaded now; `old` is its previous entry or None."""
-        entry = _entry(url_path=url[len(UPLOADS_ORIGIN):],
-                       extract_dir=old["extract_dir"] if old else None)
+    def keep_claim(self):
+        """Renew the claim, or note that it is lost; every download after a lost claim is skipped."""
         if self.renew is not None and not self.claim_lost:
             try:
                 self.renew()
             except LedgerError:
                 self.claim_lost = True
-        if self.claim_lost:
+        return not self.claim_lost
+
+    def keepalive(self):
+        """The renewal a long transfer makes every KEEPALIVE_SECONDS; a lost claim ends the transfer."""
+        if not self.keep_claim():
+            raise UploadError("interrupted: the claim was lost")
+
+    def fetch(self, url, title, old):
+        """The top-level entry for one upload, downloaded now; `old` is its previous entry or None."""
+        entry = _entry(url_path=url[len(UPLOADS_ORIGIN):],
+                       extract_dir=old["extract_dir"] if old else None)
+        if not self.keep_claim():
             return _failed(entry, "not downloaded: the claim was lost")
         room = min(self.limits.file_bytes, self.limits.download_bytes - self.downloaded)
         if self.downloads >= self.limits.uploads or room <= 0:
@@ -497,7 +519,7 @@ class _Run:
         self.downloads += 1
         staging = self.directory / f".incoming-{uuid4().hex}"
         try:
-            result = self.api.download_upload(url, staging, max_bytes=room)
+            result = self.api.download_upload(url, staging, max_bytes=room, keepalive=self.keepalive)
         except TooLarge:
             return _failed(entry, f"larger than {room} bytes, the most one file may use in this run")
         except UploadError as exc:
@@ -522,6 +544,9 @@ class _Run:
         """Members of the zip `entry` names, extracted under its own directory. A refusal of the whole archive is
         recorded in the entry's error."""
         entry["error"] = None
+        if not self.keep_claim():
+            entry["error"] = "not extracted: the claim was lost"
+            return []
         try:
             entries, central = _declared(self.directory / entry["name"])
             if entries > self.limits.zip_entries:
@@ -586,7 +611,9 @@ class _Run:
         except TooLarge:
             return _failed(record, "not extracted: it expands past the zip-bomb limit" if bomb <= self.extract_room
                            else "not extracted: this run's extraction limit was reached")
-        except (*_ARCHIVE_ERRORS, UploadError) as exc:
+        except UploadError as exc:  # save_stream names a storage failure by its kind, never by a path
+            return _failed(record, f"not extracted: {exc}")
+        except _ARCHIVE_ERRORS as exc:
             return _failed(record, f"not extracted ({type(exc).__name__})")
         self.extract_room -= size
         record.update(status="ok", name="/".join(relative), sha256=digest, size=size,
@@ -607,7 +634,7 @@ def download_issue_uploads(api, issue, directory, *, urls=None, limits=LIMITS, r
     wanted = set(available if urls is None else urls)
     if wanted - available.keys():
         raise LedgerError("only uploads of the claimed issue can be downloaded")
-    previous = _read_manifest(directory, issue["id"])
+    previous = _read_manifest(directory, issue["id"], limits)
     uploads = {entry["url_path"]: entry for entry in previous if entry["source_zip"] is None}
     members = {}
     for entry in previous:
@@ -644,9 +671,9 @@ def download_issue_uploads(api, issue, directory, *, urls=None, limits=LIMITS, r
             member.update(sources=entry["sources"], on_issue=entry["on_issue"])
         files += [entry, *extracted]
     manifest = directory / MANIFEST
-    text = json.dumps({"format": MANIFEST_FORMAT, "issue_id": issue["id"], "identifier": issue["identifier"],
-                       "files": files}, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
-    save_stream(io.BytesIO(text.encode("utf-8")).read, manifest, max_bytes=MANIFEST_LIMIT)
+    payload = (json.dumps({"format": MANIFEST_FORMAT, "issue_id": issue["id"], "identifier": issue["identifier"],
+                           "files": files}, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    save_stream(io.BytesIO(payload).read, manifest, max_bytes=len(payload))  # the module's own output, never refused
     summary = [{"url_path": entry["url_path"], "name": entry["name"], "result": result, "error": entry["error"],
                 "size": entry["size"], "content_type": entry["content_type"], "pixels": entry["pixels"],
                 "members": None if entry["status"] != "ok" or not entry["extract_dir"] else

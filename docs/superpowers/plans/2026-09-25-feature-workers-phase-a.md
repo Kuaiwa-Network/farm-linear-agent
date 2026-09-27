@@ -3295,6 +3295,36 @@ git add agent/__main__.py agent/config.py tests/test_cli.py references/worker-cl
 git commit -m "Add the download-uploads worker command for the claimed issue's uploads" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+#### A2 as implemented (2026-09-27)
+
+PR A2 (Task 5) replayed the three rehearsal commits with the messages above onto `main` after A1 (#52, #53);
+5a merged three-way, cleanly. Three per-task reviews found no blocker. A fix commit changes what held up;
+where it differs from the task text, the code and the operating contract in the PR are what shipped.
+
+- `download_upload` (5a) reads the body through `HTTPResponse.read1`, one receive per call, so the per-file
+  deadline holds against a trickling transfer; `read(n)` waited for n bytes, each resetting the socket
+  timeout. A refused redirect names the host it pointed at, never the path or query, which is what Task 15's
+  check 4 records if Linear redirects to signed storage. A token-endpoint failure and a local storage failure
+  are named as such instead of as the transfer, and a percent-encoded dot segment is refused like a literal
+  one. Tests pin every redirect code, bounded reads, the request timeout, the declared-length check, the
+  transport-error wording, `204` and `206`, the temporary file's place and proactive token renewal.
+- The manifest (5b) is the module's own output and is never refused on write; it is read back under a cap
+  derived from the run's limits (`manifest_limit`: at least `MANIFEST_LIMIT`, else uploads × (members + 1) ×
+  16 KiB), so a large but in-limits run no longer aborts at its final write with every file unrecorded. The
+  entry cap zipfile sees, the pre-parse central-directory guard, the link check on the way to a member and the
+  encrypted-member refusal are pinned by tests. A storage failure while extracting a member is recorded by its
+  kind.
+- `download-uploads` (5c) renews the claim every minute during a transfer (`keepalive`, from `save_stream`
+  through `download_upload`) and before an extraction, so a file that takes the whole deadline no longer
+  outlives a chat worker's 600-second lease and gets the worker killed; a claim lost on the way ends that
+  download and the ones after it, the manifest is still written and the command fails at its final renewal.
+  `--out` is validated before Linear is asked and created only once every `--url` is checked. An edited
+  manifest whose upload name or archive directory has more than one component is unusable, so no later write
+  descends a path whose earlier steps were not checked for links. Tests pin the renewal wiring with a fake
+  clock, `--url` selection, the ledger refresh, the default opener's redirect refusal and the token's absence
+  from stderr. The reference tells workers to name a directory of their own under `STATE_DIR`, since the
+  controller keeps its own files at the state directory's top level.
+
 ### Task 6: Notices
 
 A notice is an issue comment a job may post more than once: a question round, a waiting pause, found

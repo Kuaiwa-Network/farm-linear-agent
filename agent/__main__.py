@@ -355,7 +355,7 @@ def run(args, ledger, api_factory):
         from .uploads import download_issue_uploads, issue_uploads, output_directory
         token = resolve_token(args)
         ledger.renew(args.item, token)  # authenticate before touching the disk or Linear
-        out = output_directory(args.out)
+        output_directory(args.out, create=False)  # a bad --out is refused before Linear is asked
         item = ledger.item(args.item)
         api = api_factory()
         issue = api.fetch_issue(item["issue_id"])
@@ -365,6 +365,7 @@ def run(args, ledger, api_factory):
             if url not in available:
                 raise LedgerError(f"--url {number} is not an upload of the claimed issue; pass an unsigned URL "
                                   "from its description or human comments, as fetch-issue shows it")
+        out = output_directory(args.out)  # created only once every --url is known to be the issue's
         summary = download_issue_uploads(api, issue, out, urls=args.url,
                                          renew=lambda: ledger.renew(args.item, token))
         ledger.renew(args.item, token)  # a claim lost during the transfers still fails the command
