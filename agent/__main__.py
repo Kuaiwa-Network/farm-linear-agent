@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from .config import Paths, linear_api, load_config
-from .ledger import TERMINAL_STATUS_TYPES, Ledger, LedgerError
+from .ledger import AWAIT_REASONS, NOTICE_KINDS, TERMINAL_STATUS_TYPES, Ledger, LedgerError
 from .memory import prune_snapshots
 from .router import WRITE_SKILLS
 from .stages import FIX_REPOSITORIES, write_repositories
@@ -50,6 +50,7 @@ def parser():
     cmd("renew", "--item", token=True)
     cmd("checkpoint", "--item", "--input", token=True)
     cmd("handoff-repository", "--item", "--to", token=True)
+    cmd("revalidate", "--item", "--fingerprint", token=True)
     cmd("issue-context", "--item")
     cmd("pop-inbox", "--item", token=True)
     cmd("verify-publication", "--item", "--repo", token=True)
@@ -61,9 +62,14 @@ def parser():
     prepare.add_argument("--kind", required=True, choices=["started", "blocker", "delivery"])
     cmd("post-comment", "--item", "--action-id", token=True)
     cmd("confirm-comment", "--item", "--action-id", "--remote-id", token=True)
+    notice = cmd("prepare-notice", "--item", "--request-id", "--body-file", token=True)
+    notice.add_argument("--kind", required=True, choices=NOTICE_KINDS)
+    cmd("post-notice", "--item", "--request-id", token=True)
     activity = cmd("activity", "--item", "--body-file", token=True)
     activity.add_argument("--type", required=True, choices=["thought", "action", "response", "error", "elicitation"])
-    cmd("await-input", "--item", "--question", token=True)
+    pause = cmd("await-input", "--item", "--question", token=True)
+    pause.add_argument("--reason", choices=AWAIT_REASONS, default="question",
+                       help="question (default) adds needs-more-info; waiting, for a human step elsewhere, does not")
     resume = cmd("resume-work", "--item", token=True)
     resume.add_argument("--message-id", type=int, required=True)
     repair = cmd("request-repair", "--item", "--summary-file", token=True)
@@ -225,6 +231,30 @@ def post_comment(ledger, api, action):
     return ledger.confirm_comment(action["action_id"], remote_id)
 
 
+def owned_notice(ledger, item_id, request_id, token):
+    """A notice belongs to one work item: only that item's live claim may post it."""
+    ledger.renew(item_id, token)
+    notice = ledger.notice(item_id, request_id)
+    if notice is None:
+        raise LedgerError("unknown notice for this work item; prepare it first")
+    return notice
+
+
+def post_notice(ledger, api, notice):
+    """Reconcile the marker against live comments before ever creating one, exactly as post_comment does; an
+    issue that has left scope gets no new notice, though one already posted is still recorded."""
+    if notice["remote_id"]:
+        return notice
+    issue = api.fetch_issue(notice["issue_id"])
+    observed = ledger.observe_issue(issue)
+    remote_id = next((c["id"] for c in issue["comments"] if notice["marker"] in c["body"]), None)
+    if remote_id is None:
+        if not observed["in_scope"]:
+            raise LedgerError("issue left scope; the notice was not posted")
+        remote_id = api.create_comment(notice["issue_id"], notice["body"])
+    return ledger.confirm_notice(notice["item_id"], notice["request_id"], remote_id)
+
+
 def run(args, ledger, api_factory):
     c = args.command
     if c == "memory-list":
@@ -299,6 +329,8 @@ def run(args, ledger, api_factory):
             raise LedgerError("issue must remain open and delegated to FarmBot")
         ledger.renew(args.item, token)
         return ledger.handoff_repository(args.item, token, args.to)
+    if c == "revalidate":
+        return ledger.revalidate(args.item, resolve_token(args), args.fingerprint)
     if c == "issue-context":
         return ledger.issue_context(args.item)
     if c == "pop-inbox":
@@ -311,6 +343,12 @@ def run(args, ledger, api_factory):
     if c == "confirm-comment":
         action = owned_action(ledger, args.item, args.action_id, resolve_token(args))
         return ledger.confirm_comment(action["action_id"], args.remote_id)
+    if c == "prepare-notice":
+        return ledger.prepare_notice(args.item, resolve_token(args), args.kind, args.request_id,
+                                     read_text(args.body_file))
+    if c == "post-notice":
+        notice = owned_notice(ledger, args.item, args.request_id, resolve_token(args))
+        return post_notice(ledger, api_factory(), notice)
     if c == "activity":
         item = ledger.item(args.item)
         ledger.renew(args.item, resolve_token(args))  # proves ownership before speaking for the item
@@ -323,10 +361,12 @@ def run(args, ledger, api_factory):
         item = ledger.item(args.item)
         ledger.renew(args.item, token)
         ledger.require_valid_checkpoint(args.item, token)
+        ledger.require_no_reservation(args.item)  # refuse before anything reaches Linear
         api = api_factory()
-        api.needs_more_info(item["issue_id"])
+        if args.reason == "question":
+            api.needs_more_info(item["issue_id"])
         api.create_activity(item["session_id"], {"type": "elicitation", "body": args.question})
-        return ledger.await_input(args.item, token, args.question)
+        return ledger.await_input(args.item, token, args.question, reason=args.reason)
     if c in ("resume-work", "request-repair"):
         token = resolve_token(args)
         ledger.renew(args.item, token)

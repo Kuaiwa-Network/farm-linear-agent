@@ -26,6 +26,12 @@ STATES = ("queued", "running", "awaiting_input", "awaiting_resource",
 ACTIVE_STATES = ("queued", "running", "awaiting_input", "awaiting_resource")
 # Linear's closed workflow-state types. Duplicate reports its own type, not "canceled".
 TERMINAL_STATUS_TYPES = ("completed", "canceled", "duplicate")
+# Notice kinds (spec §9.4). Later phases add theirs: `notices.kind` has no CHECK constraint, so a new kind needs no
+# table rebuild, which is what the outbox's CHECK and UNIQUE key would demand.
+NOTICE_KINDS = ("question", "waiting", "foreign_work")
+REQUEST_ID = re.compile(r"[A-Za-z0-9._-]{1,64}")
+# Why a pause waits (spec §5.2): a question needs an answer and adds needs-more-info; waiting is a human step elsewhere.
+AWAIT_REASONS = ("question", "waiting")
 
 
 class LedgerError(ValueError):
@@ -65,6 +71,7 @@ def _timestamp(value, name):
 
 
 COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
+FINGERPRINT = re.compile(r"[0-9a-f]{64}")
 TARGET_KEYS = ("repository", "requested_ref", "commit_sha", "server_environment", "selected_at")
 
 
@@ -199,6 +206,16 @@ def _message(row):
             "created_at": datetime.fromtimestamp(row["created_at"], timezone.utc).isoformat(timespec="seconds")}
 
 
+def _without_markers(body):
+    """body with every `[farmbot:…]` marker removed, a copy nested inside another included, and trailing
+    whitespace dropped, so that only the ledger's own marker ends a comment or a notice."""
+    while True:
+        stripped = MARKER.sub("", body)
+        if stripped == body:
+            return body.rstrip()
+        body = stripped
+
+
 def _owner(issue, delegation):
     """spec §4.2, §5.3: the assignee, else the human who last delegated the issue (the creator of its latest
     delegation session in Linear: a re-delegation hands the issue on, even to an item started under an earlier
@@ -238,6 +255,34 @@ def _fingerprint(issue, own_bodies, own_prs=()):
                             for comment in issue["comments"]
                             if comment["author_kind"] != "bot" and comment["body"] not in own_bodies]
     return hashlib.sha256(_json(material).encode("utf-8")).hexdigest()
+
+
+PLAN_KEYS = ("stages", "pause", "change", "ui", "config", "prs", "closing", "events", "started")
+
+
+def _validate_plan(value):
+    """Bound the cross-stage plan like the handoff (spec §5.7), with room for a job that lasts weeks."""
+    if not isinstance(value, dict):
+        raise LedgerError("plan must be an object")
+    unknown = sorted(str(key) for key in value if key not in PLAN_KEYS)
+    if unknown:
+        raise LedgerError(f"plan accepts only {', '.join(PLAN_KEYS)}; unknown: {', '.join(unknown)}")
+    if len(_json(value)) > 16000:
+        raise LedgerError("plan exceeds 16000 characters; store longer notes in files in the state directory")
+    pending = [("plan", value)]
+    while pending:
+        where, item = pending.pop()
+        if isinstance(item, dict):
+            for key, entry in item.items():
+                if not isinstance(key, str) or len(key) > 2000:
+                    raise LedgerError(f"{where} keys must be strings of at most 2000 characters")
+                pending.append((f"{where}.{key}", entry))
+        elif isinstance(item, list):
+            if len(item) > 50:
+                raise LedgerError(f"{where} must be an array of at most 50 entries")
+            pending.extend((f"{where}[{index}]", entry) for index, entry in enumerate(item))
+        elif isinstance(item, str) and len(item) > 2000:
+            raise LedgerError(f"{where} text exceeds 2000 characters")
 
 
 def _validate_handoff(value):
@@ -349,6 +394,19 @@ class Ledger:
                     confirmed_at REAL,
                     UNIQUE(issue_id, fingerprint, generation, kind)
                 );
+                CREATE TABLE IF NOT EXISTS notices (
+                    item_id TEXT NOT NULL REFERENCES work_items(id),
+                    request_id TEXT NOT NULL,
+                    issue_id TEXT NOT NULL REFERENCES issues(id),
+                    kind TEXT NOT NULL,
+                    marker TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    remote_id TEXT,
+                    created_at REAL NOT NULL,
+                    confirmed_at REAL,
+                    PRIMARY KEY(item_id, request_id)
+                );
+                CREATE INDEX IF NOT EXISTS notices_by_issue ON notices(issue_id);
                 CREATE TABLE IF NOT EXISTS published_prs (
                     issue_id TEXT NOT NULL REFERENCES issues(id),
                     url TEXT NOT NULL,
@@ -453,6 +511,7 @@ class Ledger:
                                                 ("work_items", "retry_not_before", "REAL NOT NULL DEFAULT 0"),
                                                 ("work_items", "root_repo", "TEXT"),
                                                 ("work_items", "next_root_repo", "TEXT"),
+                                                ("work_items", "revalidated_fingerprint", "TEXT"),
                                                 ("job_cleanup", "removing", "INTEGER NOT NULL DEFAULT 0"),
                                                 # People, as the shared person shape in JSON; NULL means unknown.
                                                 ("sessions", "creator_json", "TEXT"),
@@ -523,6 +582,12 @@ class Ledger:
             raise LedgerError("lease expired; the launcher recovers expired work, workers must stop")
         return row
 
+    def _own_bodies(self, issue_id):
+        """Bodies of the comments FarmBot prepared on this issue, outbox rows and notices: never issue input."""
+        return {r["body"] for r in self.connection.execute(
+            "SELECT body FROM outbox WHERE issue_id=? UNION SELECT body FROM notices WHERE issue_id=?",
+            (issue_id, issue_id))}
+
     def observe_issue(self, raw):
         """Store one complete snapshot. Observing a comment is not authority to restart."""
         issue = _normalize(raw)
@@ -534,7 +599,7 @@ class Ledger:
                         self._version(issue["updated_at"]) <= self._version(previous["updated_at"])):
                     for key in ("status", "status_type", "archived", "delegate_id", "updated_at"):
                         issue[key] = previous.get(key)
-            own_bodies = {r["body"] for r in self.connection.execute("SELECT body FROM outbox WHERE issue_id=?", (issue["id"],))}
+            own_bodies = self._own_bodies(issue["id"])
             own_prs = {r["url"] for r in self.connection.execute("SELECT url FROM published_prs WHERE issue_id=?", (issue["id"],))}
             fingerprint = _fingerprint(issue, own_bodies, own_prs)
             self.connection.execute("""INSERT INTO issues(id,metadata,fingerprint,observed_at) VALUES(?,?,?,?)
@@ -776,8 +841,8 @@ class Ledger:
             checkpoint["worker_id"] = worker_id
             self._set_state(item_id, "running", "claim", token=_hash_token(token),
                             lease_expires_at=self.clock() + (row["lease_seconds"] or self.lease_seconds),
-                            claimed_fingerprint=issue_row["fingerprint"], generation=generation, requeue_requested=0,
-                            resume_authorized=0, checkpoint=_json(checkpoint))
+                            claimed_fingerprint=issue_row["fingerprint"], revalidated_fingerprint=None,
+                            generation=generation, requeue_requested=0, resume_authorized=0, checkpoint=_json(checkpoint))
             result = self._view(self._row(item_id))
             result["token"] = token  # the only time the raw token exists outside the worker
             return result
@@ -898,6 +963,8 @@ class Ledger:
                     self._owned(item_id, token)
                     self._audit(item_id, "handoff_rejected", str(exc))
                 raise
+        if "plan" in progress:
+            _validate_plan(progress["plan"])  # refused outright: a plan is not a handoff, so no rejection is kept
         published = progress.get("published_prs", [])
         if not isinstance(published, list):
             raise LedgerError("published_prs must be an array of canonical HTTPS PR URLs")
@@ -916,39 +983,83 @@ class Ledger:
                 if "worker_id" in progress and progress["worker_id"] != previous["worker_id"]:
                     raise LedgerError("checkpoint cannot change the running worker identity")
                 progress["worker_id"] = previous["worker_id"]
+            known = {r["url"] for r in self.connection.execute("SELECT url FROM published_prs WHERE issue_id=?", (row["issue_id"],))}
+            issue = json.loads(self._issue_row(row["issue_id"])["metadata"])
+            existing_input = set(issue["attachments"])
+            new_prs = set(published) - known
+            late_prs = new_prs & existing_input
+            own_bodies = self._own_bodies(row["issue_id"])
+            fingerprint = _fingerprint(issue, own_bodies, known | new_prs)
+            claimed = row["claimed_fingerprint"]
+            # A PR can reach Linear before its checkpoint (including during the next
+            # verify-publication call). Only verified job output which exactly restores
+            # the claimed input can repair that echo. Real human changes still requeue.
+            if late_prs and not late_prs <= set(verified_prs):
+                raise LedgerError("published PR was already issue input; reconcile it instead of registering it as new output")
+            if late_prs and fingerprint != claimed:
+                # A claim this worker revalidated may already count the echo as input: it re-read the issue with the
+                # PR attached. If nothing else changed since, registering the PR moves the claim with the input.
+                if (row["revalidated_fingerprint"] != claimed
+                        or _fingerprint(issue, own_bodies, known | (new_prs - late_prs)) != claimed):
+                    raise LedgerError("published PR was already issue input; read the issue and revalidate before registering it")
+                claimed = fingerprint
             progress.pop("handoff_meta", None)
             if "handoff" in progress:
-                progress["handoff_meta"] = {"fingerprint": row["claimed_fingerprint"],
+                progress["handoff_meta"] = {"fingerprint": claimed,
                                             "generation": row["generation"], "worker_id": progress.get("worker_id"),
                                             "claim_token_hash": row["token"],
                                             "recorded_at": self.clock()}
             elif "handoff" in previous:
                 progress["handoff"] = previous["handoff"]
                 progress["handoff_meta"] = previous.get("handoff_meta")
-            known = {r["url"] for r in self.connection.execute("SELECT url FROM published_prs WHERE issue_id=?", (row["issue_id"],))}
-            issue = json.loads(self._issue_row(row["issue_id"])["metadata"])
-            existing_input = set(issue["attachments"])
-            new_prs = set(published) - known
-            late_prs = new_prs & existing_input
-            own_bodies = {r["body"] for r in self.connection.execute("SELECT body FROM outbox WHERE issue_id=?", (row["issue_id"],))}
-            fingerprint = _fingerprint(issue, own_bodies, known | new_prs)
-            # A PR can reach Linear before its checkpoint (including during the next
-            # verify-publication call). Only verified job output which exactly restores
-            # the claimed input can repair that echo. Real human changes still requeue.
-            if late_prs and (not late_prs <= set(verified_prs) or fingerprint != row["claimed_fingerprint"]):
-                raise LedgerError("published PR was already issue input; reconcile it instead of registering it as new output")
+            if "plan" not in progress and "plan" in previous:
+                progress["plan"] = previous["plan"]
             for url in sorted(set(published) - known):
                 self.connection.execute("INSERT INTO published_prs(issue_id,url,generation,created_at) VALUES(?,?,?,?)",
                                         (row["issue_id"], url, row["generation"], self.clock()))
                 self._audit(row["id"], "published_pr", details={"url": url})
             if late_prs:
                 self.connection.execute("UPDATE issues SET fingerprint=? WHERE id=?", (fingerprint, row["issue_id"]))
+            if claimed != row["claimed_fingerprint"]:
+                self.connection.execute("UPDATE work_items SET claimed_fingerprint=?,revalidated_fingerprint=? WHERE id=?",
+                                        (claimed, claimed, row["id"]))
+                self._audit(row["id"], "revalidate", "registered a pull request Linear had attached",
+                            {"from": row["claimed_fingerprint"], "to": claimed})
             self.connection.execute("UPDATE work_items SET checkpoint=?,stage=COALESCE(?,stage),updated_at=? WHERE id=?",
                                     (_json(progress), stage, self.clock(), row["id"]))
             self._audit(row["id"], "checkpoint", stage or "")
             if handoff_updated:
                 self._audit(row["id"], "handoff_saved")
             return self._view(self._row(row["id"]))
+
+    def revalidate(self, item_id, token, fingerprint):
+        """Move a live claim onto the issue input its worker has just read (spec §9.9, §11).
+
+        `fetch-issue` stores a snapshot and prints its fingerprint; the worker reads that snapshot through
+        `issue-context` and passes the fingerprint back. Only the stored fingerprint is accepted, so an
+        observation in between sends the worker back to read again, and a change after this one still
+        refuses the next handoff and requeues `finish`. A handoff saved before the re-read stays stale.
+
+        `requeue_requested` refuses rather than being cleared. No code path sets it: the input change is
+        carried by the stored fingerprint alone. Its readers (claim, finish, handoff, issue_context) treat
+        it as a restart request of its own, which a re-read must not cancel.
+        """
+        if not isinstance(fingerprint, str) or not FINGERPRINT.fullmatch(fingerprint):
+            raise LedgerError("fingerprint must be the 64-character value fetch-issue printed")
+        with self._transaction():
+            row = self._owned(item_id, token)
+            issue_row = self._issue_row(row["issue_id"])
+            if not _in_scope(json.loads(issue_row["metadata"])):
+                raise LedgerError("issue left scope; cancel instead of revalidating")
+            if row["requeue_requested"]:
+                raise LedgerError("a requeue is already requested for this item; revalidate cannot cancel it")
+            if fingerprint != issue_row["fingerprint"]:
+                raise LedgerError("issue changed since that read; run fetch-issue, read the new input and revalidate again")
+            self.connection.execute("UPDATE work_items SET claimed_fingerprint=?,revalidated_fingerprint=?,updated_at=? "
+                                    "WHERE id=?", (fingerprint, fingerprint, self.clock(), row["id"]))
+            self._audit(row["id"], "revalidate", "", {"from": row["claimed_fingerprint"], "to": fingerprint})
+            return {**self._view(self._row(row["id"])), "claimed_fingerprint": fingerprint,
+                    "previous_fingerprint": row["claimed_fingerprint"]}
 
     def handoff_repository(self, item_id, token, to_repo):
         """Retire a claim while retaining its PID; only the controller may finish the handoff."""
@@ -998,13 +1109,23 @@ class Ledger:
             self._audit(item_id, "repository_handoff_complete", details={"to": target})
             return self._view(self._row(item_id))
 
-    def await_input(self, item_id, token, question):
+    def require_no_reservation(self, item_id):
+        """A pause holds no process and no Unity slot (spec §5.2): release or withdraw the request first."""
+        if self.connection.execute(f"""SELECT 1 FROM reservations WHERE item_id=? AND state IN
+                ({','.join('?' * len(self.RESERVATION_OPEN))}) LIMIT 1""", (item_id, *self.RESERVATION_OPEN)).fetchone():
+            raise LedgerError("release the resource reservation before pausing for input")
+
+    def await_input(self, item_id, token, question, *, reason="question"):
         _text(question, "question")
+        if reason not in AWAIT_REASONS:
+            raise LedgerError("await-input reason must be question or waiting")
         with self._transaction():
             self.require_valid_checkpoint(item_id, token)
             row = self._owned(item_id, token)
+            self.require_no_reservation(row["id"])
             checkpoint = json.loads(row["checkpoint"])
             checkpoint["pending_question"] = question
+            checkpoint["pending_reason"] = reason
             # Linear may deliver the answer between posting the question and this
             # transaction. Do not strand that reply behind an awaiting-input gate.
             pending = self.connection.execute("SELECT 1 FROM inbox WHERE item_id=? AND consumed_at IS NULL",
@@ -1591,7 +1712,34 @@ class Ledger:
         previous = self._row(row["predecessor_id"])
         return {"predecessor_id": previous["id"], "checkpoint": json.loads(previous["checkpoint"]),
                 "evidence": json.loads(previous["evidence"]), "cleanup": self.cleanup_record(previous["id"]),
+                "plan": self._predecessor_plan(previous), "notices": self._predecessor_notices(previous),
                 "revalidation_required": True}
+
+    def _predecessor_notices(self, row):
+        """Every notice up this predecessor chain, the nearest predecessor's first: a successor of cancelled work
+        reads which rounds were posted before it and never posts one of them again."""
+        found, seen = [], set()
+        while row is not None and row["id"] not in seen:
+            seen.add(row["id"])
+            found += [{"item_id": row["id"], **{key: notice[key] for key in
+                                                ("request_id", "kind", "remote_id", "created_at", "confirmed_at")}}
+                      for notice in self.notices(row["id"])]
+            row = (self.connection.execute("SELECT * FROM work_items WHERE id=?", (row["predecessor_id"],)).fetchone()
+                   if row["predecessor_id"] else None)
+        return found
+
+    def _predecessor_plan(self, row):
+        """The plan of the nearest item up this predecessor chain that saved one. A successor stopped before
+        its first checkpoint saved none, and must not hide the plan of the job it continued."""
+        seen = set()
+        while row is not None and row["id"] not in seen:
+            seen.add(row["id"])
+            plan = json.loads(row["checkpoint"]).get("plan")
+            if plan is not None:
+                return plan
+            row = (self.connection.execute("SELECT * FROM work_items WHERE id=?", (row["predecessor_id"],)).fetchone()
+                   if row["predecessor_id"] else None)
+        return None
 
     def prepare_comment(self, item_id, token, kind, body):
         """Claim the one outbox row for this issue, claimed input, generation and kind, and say plainly
@@ -1622,7 +1770,7 @@ class Ledger:
             key = f"{row['issue_id']}:{row['claimed_fingerprint']}:{row['generation']}:{kind}"
             action_id = hashlib.sha256(key.encode("utf-8")).hexdigest()
             marker = f"[farmbot:{action_id}]"
-            clean_body = MARKER.sub("", body).rstrip()
+            clean_body = _without_markers(body)
             _text(clean_body, "comment body")
             existing = self.connection.execute("SELECT * FROM outbox WHERE action_id=?", (action_id,)).fetchone()
             deduplicated = False
@@ -1670,6 +1818,63 @@ class Ledger:
 
     def outbox(self, item_id):
         return [dict(r) for r in self.connection.execute("SELECT * FROM outbox WHERE item_id=? ORDER BY created_at,action_id", (item_id,))]
+
+    def prepare_notice(self, item_id, token, kind, request_id, body):
+        """Record one notice per work item and request id (spec §9.4).
+
+        The outbox key moves with the claimed input and the generation, so a changed issue gets a new
+        started, blocker or delivery comment. A question round or a pause must reach the issue once however
+        often the issue changes, and a later round needs a comment of its own, so the worker names each one.
+        The same id and body return the recorded notice, posted or not, which is how a retried attempt
+        reuses it; the same id with other words is refused rather than silently kept or replaced.
+        """
+        if kind not in NOTICE_KINDS:
+            raise LedgerError(f"notice kind must be one of {', '.join(NOTICE_KINDS)}")
+        if not isinstance(request_id, str) or not REQUEST_ID.fullmatch(request_id):
+            raise LedgerError("request id must be 1-64 ASCII letters, digits, '.', '_' or '-'")
+        _text(body, "notice body")
+        clean_body = _without_markers(body)
+        _text(clean_body, "notice body")
+        with self._transaction():
+            row = self._owned(item_id, token)
+            if not _in_scope(json.loads(self._issue_row(row["issue_id"])["metadata"])):
+                raise LedgerError("issue left scope; do not post a new notice")
+            action_id = hashlib.sha256(f"notice:{row['id']}:{request_id}".encode("utf-8")).hexdigest()
+            marker = f"[farmbot:{action_id}]"
+            full_body = f"{clean_body}\n\n{marker}"
+            existing = self.notice(row["id"], request_id)
+            if existing is None:
+                self.connection.execute("""INSERT INTO notices(item_id,request_id,issue_id,kind,marker,body,created_at)
+                    VALUES(?,?,?,?,?,?,?)""", (row["id"], request_id, row["issue_id"], kind, marker, full_body, self.clock()))
+                self._audit(row["id"], "prepare_notice", kind, {"request_id": request_id})
+            elif existing["kind"] != kind or existing["body"] != full_body:
+                raise LedgerError(f"request id {request_id} already holds a different notice; "
+                                  "post that one or choose a new request id")
+            return self.notice(row["id"], request_id)
+
+    def confirm_notice(self, item_id, request_id, remote_id):
+        """Record the comment a notice became, once: the caller's readback, as for confirm_comment."""
+        _text(remote_id, "remote_id")
+        with self._transaction():
+            notice = self.notice(item_id, request_id)
+            if notice is None:
+                raise LedgerError("unknown notice for this work item")
+            if notice["remote_id"] is not None and notice["remote_id"] != remote_id:
+                raise LedgerError("notice already confirmed with a different remote id")
+            if notice["remote_id"] is None:
+                self.connection.execute("UPDATE notices SET remote_id=?,confirmed_at=? WHERE item_id=? AND request_id=?",
+                                        (remote_id, self.clock(), item_id, request_id))
+                self._audit(item_id, "confirm_notice", notice["kind"], {"request_id": request_id, "remote_id": remote_id})
+            return self.notice(item_id, request_id)
+
+    def notice(self, item_id, request_id):
+        row = self.connection.execute("SELECT * FROM notices WHERE item_id=? AND request_id=?",
+                                      (item_id, request_id)).fetchone()
+        return dict(row) if row else None
+
+    def notices(self, item_id):
+        return [dict(r) for r in self.connection.execute(
+            "SELECT * FROM notices WHERE item_id=? ORDER BY created_at,request_id", (item_id,))]
 
     def finish(self, item_id, token, outcome, evidence):
         if outcome not in ("blocked", "delivered"):
@@ -1794,8 +1999,8 @@ class Ledger:
                                                   "root_repo", "next_root_repo", "target")}
         authority = self._delegation_session(row["issue_id"], row["session_id"])
         owner = _owner(issue, self._owner_delegation(row["issue_id"]))
-        return {"issue": issue, "coordination": coordination, "handoff": handoff,
-                "conversation_history": self._conversation_history(row["issue_id"]),
+        return {"issue": issue, "fingerprint": issue_row["fingerprint"], "coordination": coordination,
+                "handoff": handoff, "conversation_history": self._conversation_history(row["issue_id"]),
                 "delegation_session": authority["session_id"] if authority else None,
                 "owner": owner, "creator": _issue_creator(issue, owner),
                 "resource_recovery": {"attempts": RecoveryStore(self).job_attempts(item_id),
@@ -1810,6 +2015,10 @@ class Ledger:
                 "session_messages": [_message(r) for r in self.connection.execute(
                     "SELECT id,body,author_json,created_at FROM inbox WHERE item_id=? ORDER BY id", (item_id,))],
                 "pending_question": checkpoint.get("pending_question"),
+                "pending_reason": checkpoint.get("pending_reason"),
+                "plan": checkpoint.get("plan"),
+                "notices": [{key: notice[key] for key in ("request_id", "kind", "remote_id", "created_at", "confirmed_at")}
+                            for notice in self.notices(item_id)],
                 "published_prs": [r["url"] for r in self.connection.execute(
                     "SELECT url FROM published_prs WHERE issue_id=? ORDER BY url", (row["issue_id"],))],
                 "inbox_pending": self.connection.execute(

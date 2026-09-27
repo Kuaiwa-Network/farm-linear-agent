@@ -70,6 +70,36 @@ class CliTests(unittest.TestCase):
         with self.assertRaises(Exception):
             ledger.renew(args.item, args.token)
 
+    def test_a_handoff_refused_by_a_human_comment_proceeds_after_revalidate(self):
+        from unittest.mock import patch
+        from agent.__main__ import parser, run
+        from agent.ledger import LedgerError
+        args, ledger, config, api, _ = self.publication_fixture()
+        config.repos['Farm-Contract'] = 'https://github.com/Kuaiwa-Network/Farm-Contract.git'
+        ledger.set_worker(args.item, 12345, 'test')
+        handoff = {'facts': [], 'hypotheses': [], 'checks': [], 'repositories': [], 'next_actions': ['Check contract']}
+        ledger.checkpoint(args.item, args.token, {'handoff': handoff})
+        api.fetch_issue(None)['comments'] = [{'id': 'c-human', 'body': '初始值为零', 'author_kind': 'human',
+                                              'created_at': '2026-09-18T00:00:00Z', 'updated_at': '2026-09-18T00:00:00Z'}]
+
+        def cli(*argv):
+            return run(parser().parse_args(['--db', str(self.db), *argv]), ledger, lambda: api)
+        move = ('handoff-repository', '--item', args.item, '--token', args.token, '--to', 'Farm-Contract')
+        with patch('agent.__main__.load_config', return_value=config):
+            with self.assertRaisesRegex(LedgerError, 'issue changed; revalidate'):
+                cli(*move)
+            fetched = cli('fetch-issue', '--item', args.item)
+            context = cli('issue-context', '--item', args.item)
+            self.assertEqual([c['body'] for c in context['issue']['comments']], ['初始值为零'])
+            self.assertEqual(context['fingerprint'], fetched['fingerprint'])  # revalidate on exactly what was read
+            token_file = self.root / 'token'
+            token_file.write_text(args.token, encoding='utf-8')
+            revalidated = cli('revalidate', '--item', args.item, '--token-file', str(token_file),
+                              '--fingerprint', context['fingerprint'])
+            self.assertEqual(revalidated['claimed_fingerprint'], fetched['fingerprint'])
+            ledger.checkpoint(args.item, args.token, {'handoff': handoff})
+            self.assertEqual(cli(*move)['next_root_repo'], 'Farm-Contract')
+
     def test_neutral_fix_cannot_verify_publication(self):
         from unittest.mock import patch
         from agent.__main__ import run
@@ -440,6 +470,79 @@ class CliTests(unittest.TestCase):
         posted = self.run_cli("post-comment", "--item", item, "--token", token, "--action-id", action["action_id"])
         self.assertEqual(posted["remote_id"], "c-existing")
         self.assertNotIn("create_comment", [c["method"] for c in self.calls()])
+
+    def test_post_notice_posts_once_and_reconciles_an_existing_marker(self):
+        item = self.seeded_item()
+        token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
+        body = self.root / "questions.md"
+        body.write_text("请确认：\n1. 初始值是多少？", encoding="utf-8")
+        notice = self.run_cli("prepare-notice", "--item", item, "--token", token, "--kind", "question",
+                              "--request-id", "questions-1", "--body-file", str(body))
+        posted = self.run_cli("post-notice", "--item", item, "--token", token, "--request-id", "questions-1")
+        self.assertEqual(posted["remote_id"], "stub-comment-1")
+        self.assertIn(notice["marker"], self.calls()[-1]["body"])
+        self.run_cli("post-notice", "--item", item, "--token", token, "--request-id", "questions-1")
+        self.assertEqual([c["method"] for c in self.calls()].count("create_comment"), 1)
+        # A notice whose comment already reached Linear (a lost response) is reconciled, not posted again.
+        waiting = self.run_cli("prepare-notice", "--item", item, "--token", token, "--kind", "waiting",
+                               "--request-id", "config-ready", "--body-file", str(body))
+        existing = issue(labels=["Bug"], comments=[{"id": "c-existing", "body": waiting["body"], "author_kind": "bot",
+                                                   "created_at": "2026-09-18T00:00:00Z", "updated_at": "2026-09-18T00:00:00Z"}])
+        (self.stub / "issue.json").write_text(json.dumps(existing), encoding="utf-8")
+        reconciled = self.run_cli("post-notice", "--item", item, "--token", token, "--request-id", "config-ready")
+        self.assertEqual(reconciled["remote_id"], "c-existing")
+        self.assertEqual([c["method"] for c in self.calls()].count("create_comment"), 1)
+
+    def test_notice_commands_require_the_items_own_claim(self):
+        mine = self.seeded_item()
+        token = self.run_cli("claim", "--item", mine, "--worker-id", "w")["token"]
+        body = self.root / "n.md"
+        body.write_text("x", encoding="utf-8")
+        missing = self.run_cli("prepare-notice", "--item", mine, "--kind", "question", "--request-id", "q-1",
+                               "--body-file", str(body), success=False)
+        self.assertIn("claim token required", missing.stderr)
+        self.run_cli("prepare-notice", "--item", mine, "--token", token, "--kind", "question", "--request-id", "q-1",
+                     "--body-file", str(body))
+        other = self.seeded_item(issue_id=OTHER, session="session-2")
+        other_token = self.run_cli("claim", "--item", other, "--worker-id", "w2")["token"]
+        foreign = self.run_cli("post-notice", "--item", other, "--token", other_token, "--request-id", "q-1",
+                               success=False)
+        self.assertIn("unknown notice", foreign.stderr)
+        wrong = self.run_cli("post-notice", "--item", mine, "--token", other_token, "--request-id", "q-1", success=False)
+        self.assertIn("running claim", wrong.stderr)
+        self.assertNotIn("create_comment", [c["method"] for c in self.calls()])
+
+    def test_only_a_question_pause_adds_needs_more_info(self):
+        question = self.seeded_item()
+        waiting = self.seeded_item(issue_id=OTHER, session="session-2")
+        for item, flags, reason in ((question, [], "question"), (waiting, ["--reason", "waiting"], "waiting")):
+            token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
+            parked = self.run_cli("await-input", "--item", item, "--token", token, *flags,
+                                  "--question", "等待确认。")
+            self.assertEqual((parked["state"], parked["checkpoint"]["pending_reason"]), ("awaiting_input", reason))
+            self.assertEqual(self.run_cli("issue-context", "--item", item)["pending_reason"], reason)
+        self.assertEqual([c["issue_id"] for c in self.calls() if c["method"] == "needs_more_info"], [ISSUE])
+        self.assertEqual([c["content"]["type"] for c in self.calls() if c["method"] == "create_activity"],
+                         ["elicitation", "elicitation"])
+
+    def test_await_input_refuses_before_posting_while_a_reservation_is_open(self):
+        from agent.ledger import Ledger
+        item, _ = self.granted_item(mode="interactive")
+        ledger = Ledger(self.db)
+        ledger.resume(item, "the pool granted the slot")  # SlotPool.hand_over, so a fresh worker may claim
+        ledger.close()
+        token = self.run_cli("claim", "--item", item, "--worker-id", "fresh")["token"]
+        before = len(self.calls())
+        for flags in ([], ["--reason", "waiting"]):
+            with self.subTest(flags=flags):
+                refused = self.run_cli("await-input", "--item", item, "--token", token, *flags, "--question", "需要哪个环境？",
+                                       success=False)
+                self.assertIn("release the resource reservation", refused.stderr)
+        refused = self.run_cli("await-input", "--item", item, "--token", token, "--reason", "later", "--question", "x",
+                               success=False)
+        self.assertIn("invalid choice", refused.stderr)
+        self.assertEqual(len(self.calls()), before)  # neither the label nor the elicitation reached Linear
+        self.assertEqual(self.run_cli("issue-context", "--item", item)["coordination"]["state"], "running")
 
     def test_activity_and_await_input_park_the_item(self):
         item = self.seeded_item()

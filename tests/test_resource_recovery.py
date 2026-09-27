@@ -99,6 +99,14 @@ class RecoveryTests(LedgerBase):
         from agent.resource_recovery import RecoveryStore
         return RecoveryStore(ledger or self.ledger)
 
+    def legacy_pause(self, item, question):
+        """A slot-holding item parked for a human, as ledgers written before await-input refused open
+        reservations may still hold it. await_input now refuses to create this state, so write what it wrote."""
+        checkpoint = {**self.ledger.item(item)['checkpoint'], 'pending_question': question}
+        self.ledger.connection.execute(
+            "UPDATE work_items SET state='awaiting_input',token=NULL,lease_expires_at=NULL,worker_pid=NULL,"
+            "checkpoint=? WHERE id=?", (json.dumps(checkpoint, ensure_ascii=False), item))
+
     def begin(self):
         store = self.store()
         return store.begin(store.pending('test')[0]['id'])
@@ -182,8 +190,8 @@ class RecoveryTests(LedgerBase):
         self.assertEqual(self.ledger.reservations(states=('queued', 'active', 'cancel_requested')), [])
 
     def test_held_slot_does_not_turn_genuine_question_into_automatic_continuation(self):
-        item, token, r = self.running_with_slot()
-        self.ledger.await_input(item, token, 'Which server should we test?')
+        item, _, r = self.running_with_slot()
+        self.legacy_pause(item, 'Which server should we test?')
         self.ledger.hold(r['reservation_id'], 'cannot settle editor')
         recovery = self.begin()
         self.store().detach(recovery['id'], recovery['attempts'])
@@ -192,8 +200,8 @@ class RecoveryTests(LedgerBase):
         self.assertEqual(self.ledger.reservations(states=('queued',)), [])
 
     def test_explicit_legacy_adoption_preserves_checkpoint_and_removes_obsolete_question(self):
-        item, token, r = self.running_with_slot()
-        self.ledger.await_input(item, token, 'Legacy request to operate the Unity host')
+        item, _, r = self.running_with_slot()
+        self.legacy_pause(item, 'Legacy request to operate the Unity host')
         self.ledger.set_slot_state('unity_slot:1', 'held')
         recovery = self.store().adopt('unity_slot:1', 'verified infrastructure-only pause')
         row = self.ledger.item(item)
@@ -202,6 +210,16 @@ class RecoveryTests(LedgerBase):
         self.assertNotIn('pending_question', row['checkpoint'])
         self.assertEqual(recovery['commit_sha'], r['commit_sha'])
         self.assertEqual(recovery['resume_job'], 1)
+
+    def test_automatic_recovery_drops_a_stale_pause_reason_with_its_question(self):
+        item, token, r = self.running_with_slot()
+        self.ledger.checkpoint(item, token, {'saved': 'keep me', 'pending_question': 'Which server?',
+                                             'pending_reason': 'question'})
+        self.ledger.hold(r['reservation_id'], 'stalled')
+        checkpoint = self.ledger.item(item)['checkpoint']
+        self.assertEqual(checkpoint['saved'], 'keep me')
+        self.assertNotIn('pending_question', checkpoint)
+        self.assertNotIn('pending_reason', checkpoint)
 
     def test_repeated_hangs_exhaust_job_budget_without_losing_checkpoint(self):
         item, _, r = self.running_with_slot()
@@ -242,8 +260,8 @@ class RecoveryTests(LedgerBase):
         self.assertEqual(self.ledger.item(item)['checkpoint']['saved'], 'keep me')
 
     def test_legacy_adoption_does_not_consume_worker_recovery_budget(self):
-        item, token, r = self.running_with_slot()
-        self.ledger.await_input(item, token, 'Legacy request to operate the Unity host')
+        item, _, r = self.running_with_slot()
+        self.legacy_pause(item, 'Legacy request to operate the Unity host')
         self.ledger.set_slot_state('unity_slot:1', 'held')
         self.store().adopt('unity_slot:1', 'verified infrastructure-only pause')
         recovery = self.begin()
