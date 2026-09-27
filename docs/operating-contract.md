@@ -232,17 +232,25 @@ Late messages and Stop from a source
 conversation follow its active handoff. Merely observing changed issue text/comments does
 not start work. Historical context is recall, not a current request.
 
-A fix begins in its private state directory with read access to all five worktrees. The pinned
+Repository stages follow the skill manifest. A skill whose `skill.json` sets `"staged": true` writes
+one repository per worker attempt, its current root: the item's `root_repo` or, while that is unset,
+the manifest's `initial_root`. Without an `initial_root`, an attempt with no recorded root is
+neutral: it runs in the private state directory and writes no repository. `fix` is staged with no
+initial root, so a fix begins neutral with read access to all five worktrees. The pinned
 Farm-Client target supplies a Unity baseline, not the investigation root. To edit or use
 repository-specific skills, the worker saves a current checkpoint and calls
-`handoff-repository --to REPO`. The CLI verifies the configured host ledger, fresh Linear
-delegation and stage target, then revokes the claim. The controller stops the old worker and
-requires process-tree teardown evidence before switching `root_repo` and launching a fresh
-Codex worker rooted at REPO. The same item, Linear session, branch, checkpoint and PR history
-continue. The new worker can write and verify publication only for its root repository;
-other worktrees remain read-only. Changing cwd in one worker does not switch instructions or
-write authority. Fix workers require Codex's explicit `workspace-write` sandbox; the
-Claude fallback has no equivalent repository write boundary and is refused for this skill.
+`handoff-repository --to REPO`, where REPO is in the manifest's `writes` and is not the current
+root. The CLI verifies the manifest's stage rule, the configured host ledger and repositories, and
+fresh Linear delegation, then revokes the claim. The controller stops the old worker, requires
+process-tree teardown evidence and rechecks REPO against the manifest before switching `root_repo`
+and launching a fresh Codex worker rooted at REPO; until then the handoff stays pending. The same
+item, Linear session, branch, checkpoint and PR history continue. The new worker can write and
+verify publication only for its root repository; other worktrees remain read-only. Changing cwd in
+one worker does not switch instructions or write authority. `retry` and a chat-requested
+continuation start again with no recorded root, so the next attempt begins at the initial root,
+which for a fix is the neutral investigation. Staged skills require Codex's explicit
+`workspace-write` sandbox; the Claude fallback has no equivalent repository write boundary and is
+refused for them.
 A Contract-root worker follows Farm-Contract's OpenSpec instructions and
 its Superpowers restriction. Consumer workers use their own repository rules.
 
@@ -397,8 +405,8 @@ code cannot enforce separate budgets; do not roll back during pending recovery o
 
 For a delegated write job, the operator authorizes publishing that issue's source changes,
 tests and required generated assets to its feature branches in the host's
-configured private GitHub repositories, and creating/updating draft PRs there. For a fix,
-only the current rooted repository has this scope. A neutral attempt has no publication scope.
+configured private GitHub repositories, and creating/updating draft PRs there. For a staged
+skill such as fix, only the current root has this scope; a neutral attempt has none.
 Run reports stay in the job's private `state_dir` (`runs/<job>/report.md`). Every attempt of a job
 shares that directory, including retries and resumes that keep its ID, so a later attempt leaves
 earlier reports unchanged and adds the first unused of `report-2.md`, `report-3.md` and so on.

@@ -3,6 +3,7 @@
   "trigger": ["delegation"],
   "intents": ["label:Bug"],
   "writes": ["Farm-Client", "farm-hive", "farmgui", "common", "Farm-Contract"],
+  "staged": true,
   "resources": ["unity_slot"],
   "gates": ["pr_review"],
   "mcp": ["kw_ops"],

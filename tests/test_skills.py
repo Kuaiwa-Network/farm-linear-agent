@@ -10,6 +10,25 @@ from agent.skills import SkillError, load_skills
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def write_skill(root, name, **manifest):
+    """One skill directory under root with a valid manifest; `manifest` overrides its keys."""
+    directory = Path(root) / name
+    directory.mkdir(parents=True)
+    (directory / "SKILL.md").write_text(f"# {name}", encoding="utf-8")
+    base = {"name": name, "trigger": ["mention"], "intents": [], "writes": [], "resources": [], "gates": [],
+            "mcp": [], "budget": {"lease_seconds": 1, "max_hours": 1, "renew_minutes": 1}}
+    (directory / "skill.json").write_text(json.dumps({**base, **manifest}), encoding="utf-8")
+    return directory
+
+
+def staged_skill(root, name="feature"):
+    """A fixture staged skill with an initial root, shaped like the proposed feature manifest (spec §9.5)."""
+    write_skill(root, name, trigger=["delegation"], writes=["Farm-Contract", "common", "farm-hive", "Farm-Client"],
+                resources=["unity_slot"], staged=True, initial_root="Farm-Contract", reads=["farmgui"],
+                budget={"lease_seconds": 2700, "max_hours": 10, "renew_minutes": 10})
+    return load_skills(root)[name]
+
+
 class WorkerCliReferenceTests(unittest.TestCase):
     def reference(self):
         path = ROOT / "references" / "worker-cli.md"
@@ -191,3 +210,35 @@ class SkillRegistryTests(unittest.TestCase):
                                                       "budget": {"lease_seconds": 1, "max_hours": 1, "renew_minutes": 1}}), encoding="utf-8")
             with self.assertRaises(SkillError):
                 load_skills(Path(tmp))
+
+
+class StageManifestTests(unittest.TestCase):
+    """Optional stage keys (spec §9.5): initial_root, staged and reads."""
+
+    def test_fix_is_staged_from_a_neutral_start_and_chat_is_not_staged(self):
+        skills = load_skills(ROOT / "skills")
+        self.assertEqual((skills["fix"].staged, skills["fix"].initial_root, skills["fix"].reads), (True, None, ()))
+        self.assertEqual((skills["chat"].staged, skills["chat"].initial_root, skills["chat"].reads), (False, None, ()))
+
+    def test_the_stage_keys_are_optional_and_exposed_on_the_skill(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write_skill(tmp, "plain")
+            plain = load_skills(Path(tmp))["plain"]
+            self.assertEqual((plain.staged, plain.initial_root, plain.reads), (False, None, ()))
+            staged = staged_skill(tmp)
+            self.assertEqual((staged.staged, staged.initial_root, staged.reads), (True, "Farm-Contract", ("farmgui",)))
+
+    def test_invalid_stage_keys_are_rejected(self):
+        writes = ["Farm-Contract", "farm-hive"]
+        cases = [("initial_root", dict(writes=writes, staged=True, initial_root="farmgui")),
+                 ("initial_root", dict(writes=writes, initial_root="Farm-Contract")),
+                 ("staged", dict(staged=True)),
+                 ("staged", dict(writes=writes, staged="yes")),
+                 ("staged", dict(writes=writes, staged=1)),
+                 ("reads", dict(reads="farmgui")),
+                 ("reads", dict(reads=[""]))]
+        for key, manifest in cases:
+            with self.subTest(manifest=manifest), tempfile.TemporaryDirectory() as tmp:
+                write_skill(tmp, "bad", **manifest)
+                with self.assertRaisesRegex(SkillError, key):
+                    load_skills(Path(tmp))

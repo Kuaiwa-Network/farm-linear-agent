@@ -137,14 +137,15 @@ the claim. The CLI blocks those transitions after a rejected handoff until a val
 handoff is saved; do not remove `handoff` to bypass the repair. If saving cannot
 succeed, retain the local JSON, report the exact error, and do not claim it was saved.
 
-For a fix repository switch, save a fresh `handoff` with facts, checks, repository heads,
-published PRs and next actions, then run:
+A staged skill (today `fix`) switches repositories between attempts. Save a fresh `handoff`
+with facts, checks, repository heads, published PRs and next actions, then run:
 
 ```bash
 python3 -m agent --db DATABASE handoff-repository --item ITEM_ID --token-file STATE_DIR/token --to Farm-Contract
 ```
 
-Use the actual target repository name. The command refreshes the issue and delegation, revokes
+Use the actual target repository name: one that your skill's `skill.json` lists in `writes`,
+other than `stage.root_repository`. The command refreshes the issue and delegation, revokes
 this claim, and queues a fresh worker in the same item. Check its returned `next_root_repo`,
 then exit immediately. A new worker starts only after the controller certifies this attempt's
 teardown. A failed command leaves the current claim in place; inspect the error and repair it.

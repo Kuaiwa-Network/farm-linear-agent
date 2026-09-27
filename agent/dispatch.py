@@ -68,7 +68,8 @@ AUTHORITY = (
 
 def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, guidance, budget, repo_root=None,
                      state_dir=None, resource=None, memory=None, publication=None, user_requests=None,
-                     bot_name="FarmBot", write_repositories=(), prior_context=None, tools=None):
+                     bot_name="FarmBot", write_repositories=(), root_repository=None, prior_context=None,
+                     tools=None):
     root = Path(repo_root) if repo_root is not None else Path(skill_path).parent.parent.parent
     payload = {
         "item_id": item["id"],
@@ -83,7 +84,9 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
         "database": str(db_path),
         "state_dir": str(state_dir) if state_dir is not None else None,
         "worktrees": {name: str(path) for name, path in worktrees.items()},
-        "stage": {"root_repository": item.get("root_repo"),
+        # The attempt's current root, as stages.current_root resolves it: a staged skill's initial root
+        # while root_repo is NULL, or None for a neutral attempt.
+        "stage": {"root_repository": root_repository,
                   "write_repositories": list(write_repositories),
                   "read_only_worktrees": [name for name in worktrees if name not in write_repositories]},
         "target": item.get("target"),

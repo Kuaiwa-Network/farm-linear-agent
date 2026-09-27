@@ -11,7 +11,7 @@ from .config import Paths, linear_api, load_config
 from .ledger import AWAIT_REASONS, NOTICE_KINDS, TERMINAL_STATUS_TYPES, Ledger, LedgerError
 from .memory import prune_snapshots
 from .router import WRITE_SKILLS
-from .stages import FIX_REPOSITORIES, write_repositories
+from .stages import write_repositories
 
 
 def parser():
@@ -313,14 +313,17 @@ def run(args, ledger, api_factory):
         token = resolve_token(args)
         ledger.renew(args.item, token)
         item = ledger.item(args.item)
-        if item["skill"] != "fix" or args.to not in FIX_REPOSITORIES:
-            raise LedgerError("repository handoff requires a configured fix repository")
+        # The item's own manifest decides its stages: any staged skill, to a repository in its writes.
+        skill = load_skills(ROOT / "skills").get(item["skill"])
+        if skill is None or not skill.staged:
+            raise LedgerError(f"repository handoff requires a staged skill; {item['skill']} is not staged on this host")
+        if args.to not in skill.writes:
+            raise LedgerError(f"repository handoff requires a configured {skill.name} repository")
         config = load_config(secure_permissions=False)
         if Path(args.db).resolve() != Paths(config).ledger.resolve():
             raise LedgerError("repository handoff must use the configured host ledger")
-        skill = load_skills(ROOT / "skills").get("fix")
-        if skill is None or args.to not in skill.writes or args.to not in config.repos:
-            raise LedgerError("target repository is not configured for this fix worker")
+        if args.to not in config.repos:
+            raise LedgerError(f"target repository is not configured for this {skill.name} worker")
         api = api_factory()
         issue = api.fetch_issue(item["issue_id"])
         ledger.observe_issue(issue)
@@ -328,7 +331,7 @@ def run(args, ledger, api_factory):
                 or issue.get("status_type") in TERMINAL_STATUS_TYPES):
             raise LedgerError("issue must remain open and delegated to FarmBot")
         ledger.renew(args.item, token)
-        return ledger.handoff_repository(args.item, token, args.to)
+        return ledger.handoff_repository(args.item, token, args.to, skill=skill)
     if c == "revalidate":
         return ledger.revalidate(args.item, resolve_token(args), args.fingerprint)
     if c == "issue-context":

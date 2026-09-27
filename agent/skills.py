@@ -25,6 +25,12 @@ class Skill:
     mcp: tuple
     budget: dict
     path: Path
+    # Optional stage keys (spec §9.5). A staged skill writes one repository per attempt: its recorded root,
+    # else its initial_root, else nothing (a neutral start, as fix). reads names repositories to check out
+    # read-only; nothing uses it yet (spec §9.6).
+    initial_root: str | None = None
+    staged: bool = False
+    reads: tuple = ()
 
     @property
     def skill_md(self):
@@ -48,6 +54,17 @@ def _load_one(directory):
     unknown = [grant for grant in manifest["mcp"] if grant not in GRANTS]
     if unknown:
         raise SkillError(f"{manifest_path}: unknown mcp grant {unknown[0]!r}")
+    staged = manifest.get("staged", False)
+    reads = manifest.get("reads", [])
+    initial_root = manifest.get("initial_root")
+    if type(staged) is not bool:
+        raise SkillError(f"{manifest_path}: staged must be true or false")
+    if staged and not manifest["writes"]:
+        raise SkillError(f"{manifest_path}: a staged skill needs writes")
+    if not isinstance(reads, list) or not all(isinstance(v, str) and v for v in reads):
+        raise SkillError(f"{manifest_path}: reads must be a list of strings")
+    if initial_root is not None and (not staged or initial_root not in manifest["writes"]):
+        raise SkillError(f"{manifest_path}: initial_root must name one of a staged skill's writes")
     if not manifest["trigger"] or not set(manifest["trigger"]) <= set(TRIGGERS):
         raise SkillError(f"{manifest_path}: trigger must be a nonempty subset of {TRIGGERS}")
     budget = manifest["budget"]
@@ -59,7 +76,8 @@ def _load_one(directory):
         raise SkillError(f"{directory}: SKILL.md missing")
     return Skill(name=manifest["name"], trigger=tuple(manifest["trigger"]), intents=tuple(manifest["intents"]),
                  writes=tuple(manifest["writes"]), resources=tuple(manifest["resources"]), gates=tuple(manifest["gates"]),
-                 mcp=tuple(manifest["mcp"]), budget=dict(budget), path=directory)
+                 mcp=tuple(manifest["mcp"]), budget=dict(budget), path=directory,
+                 initial_root=initial_root, staged=staged, reads=tuple(reads))
 
 
 def load_skills(root):

@@ -12,7 +12,7 @@ from .ledger import LedgerError
 from .kw_ops import SERVER as KW_OPS_SERVER, resolve as resolve_kw_ops
 from .memory import publish_snapshot
 from .publication import issue_branch
-from .stages import write_repositories
+from .stages import current_root, write_repositories
 
 TERMINAL = ("delivered", "blocked", "cancelled", "failed")
 WAITING = ("awaiting_input", "awaiting_resource")
@@ -84,8 +84,10 @@ class Scheduler:
         if current["state"] != "queued" or current["retry_not_before"] > self.ledger.clock():
             return None
         skill = self.skills[item["skill"]]
-        if item["skill"] == "fix" and self.runtime_name not in ("codex", "fake"):
-            raise RuntimeError("repository-staged fix requires the Codex workspace-write sandbox")
+        # Only Codex's workspace-write sandbox holds a staged attempt to its one writable root.
+        if skill.staged and self.runtime_name not in ("codex", "fake"):
+            raise RuntimeError(f"repository-staged {skill.name} requires the Codex workspace-write sandbox")
+        root = current_root(item.get("root_repo"), skill)
         write_repos = write_repositories(item, skill)
         issue = self.ledger.issue(item["issue_id"])
         paths = self._worktrees_for(skill, item, issue)
@@ -145,15 +147,15 @@ class Scheduler:
                                              delegated=bool(session.get('delegation')))
                        if self.publication is not None else {'repositories': {}})
         # Carry one bounded, structured predecessor summary into the fresh prompt. The full
-        # history stays in issue-context; a chat-to-fix restart uses the latest investigator
-        # summary, while a repository switch uses this item's validated checkpoint handoff.
+        # history stays in issue-context; a neutral staged attempt (a chat-to-fix restart) uses the
+        # latest investigator summary, while a rooted one uses this item's validated checkpoint handoff.
         context = self.ledger.issue_context(item['id'])
         requests = context['session_messages']
         prior_context = None
-        if item['skill'] == 'fix':
+        if skill.staged:
             chat_summaries = [entry['summary'] for entry in context['conversation_history']
                               if entry['skill'] == 'chat' and entry['summary']]
-            if item.get('root_repo') is None and chat_summaries:
+            if root is None and chat_summaries:
                 prior_context = {'source': 'investigator_summary', 'summary': chat_summaries[-1],
                                  'revalidation_required': True}
             else:
@@ -163,7 +165,7 @@ class Scheduler:
                                    guidance=self.guidance_for(item), budget=skill.budget,
                                    repo_root=repo_root, state_dir=self.launcher.state_dir(item["id"]),
                                    resource=resource, memory=memory, publication=publication, user_requests=requests,
-                                   bot_name=self.bot_name, write_repositories=write_repos,
+                                   bot_name=self.bot_name, write_repositories=write_repos, root_repository=root,
                                    prior_context=prior_context, tools=tools)
         # The runtime's cwd is writable too. A read-only conversation must run
         # from its private state directory, not from the detached source checkout.
@@ -268,7 +270,9 @@ class Scheduler:
                     and item["worker_pid"] == finished.worker_pid):
                 try:
                     self.launcher.assert_quiescent(finished.item_id, finished.worker_pid)
-                    self.ledger.complete_repository_handoff(finished.item_id, finished.worker_pid)
+                    # The manifest re-checks the target; a skill this host does not load stays pending.
+                    self.ledger.complete_repository_handoff(finished.item_id, finished.worker_pid,
+                                                            skill=self.skills[item["skill"]])
                 except Exception:
                     # Preserve the old PID and pending target for recovery; never launch over
                     # descendants whose teardown is unproven.
@@ -352,7 +356,7 @@ class Scheduler:
                         continue
                     recorded = self.launcher.kill_owned_attempt(item_id, pid)
                 self.launcher.assert_quiescent(item_id, pid, recorded)
-                self.ledger.complete_repository_handoff(item_id, pid)
+                self.ledger.complete_repository_handoff(item_id, pid, skill=self.skills[row["skill"]])
                 recovered += 1
             except Exception:
                 continue
