@@ -81,10 +81,18 @@ jobs:
               def __init__(self, *args, **kwargs):
                   super().__init__(*args, **kwargs)
                   self.executed = []
+                  self.began = []
+                  self.ended = []
 
               def startTest(self, test):
                   self.executed.append(test.id())
                   super().startTest(test)
+                  self.began.append(time.monotonic())
+
+              # Cleanups run before stopTest, so a test's seconds include them.
+              def stopTest(self, test):
+                  self.ended.append(time.monotonic())
+                  super().stopTest(test)
 
           reports = pathlib.Path("reports/offline")
           reports.mkdir(parents=True, exist_ok=True)
@@ -114,8 +122,21 @@ jobs:
               "native_windows_tests": native,
               "native_windows_required_checks_ran": native_ok,
           }
+          # Offsets count from the same start as the summary's seconds.
+          durations = {
+              name: {"started": round(began - started, 6), "seconds": round(ended - began, 6)}
+              for name, began, ended in zip(result.executed, result.began, result.ended)
+          }
+          slowest = sorted(durations, key=lambda name: durations[name]["seconds"], reverse=True)[:20]
+          summary["slowest"] = [
+              {"test": name, "seconds": durations[name]["seconds"]} for name in slowest]
           (reports / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+          (reports / "durations.json").write_text(json.dumps(durations, indent=2) + "\n", encoding="utf-8")
           print((reports / "unittest.log").read_text(encoding="utf-8"))
+          print(f"Slowest {len(slowest)} of {len(durations)} tests (seconds, started at, test):")
+          for name in slowest:
+              entry = durations[name]
+              print(f"{entry['seconds']:10.3f} {entry['started']:10.3f}  {name}")
           if not native_ok:
               print("Windows Job Object tests were missing or skipped", file=sys.stderr)
           sys.exit(0 if result.wasSuccessful() and result.testsRun and native_ok else 1)
