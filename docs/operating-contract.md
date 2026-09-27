@@ -152,7 +152,11 @@ project hooks and exec policies load too. With it, Codex no longer injects the c
 so the `--approve-for-me` reviewer, which trusts injected `AGENTS.md` but not tool output, loses
 that text. Fix workers read the current root's `AGENTS.md`/`CLAUDE.md` and other repository
 instructions when investigation needs them; grants a worker
-needs belong in the dispatch AUTHORITY. Repository skills under `.agents/skills` and
+needs belong in the dispatch AUTHORITY. That text is a common part plus a per-skill part chosen
+by the item's skill (`agent/dispatch.py`); `fix` and `chat` share one per-skill part, the kw_ops
+terms below. Building the launch message refuses a skill with no per-skill entry, so its job
+fails at launch and no worker starts: SKILL.md text cannot stand in for a grant. Repository
+skills under `.agents/skills` and
 `.codex/skills` still load, and workers inherit the service's `HOME`, so the host user's
 `~/.agents/skills` are visible too. Measured with codex-cli 0.155.1 on macOS; the trust fix was
 re-checked on 0.156.1; Windows is unverified.
@@ -198,9 +202,10 @@ connection logs an error in the worker's stderr, and a slow or silent kw_ops log
 (measured with codex-cli 0.156.1 on macOS; Windows is unverified). In both cases the payload still
 states the access, and the worker reports the missing kw_ops as a verification gap when the issue
 needs it. Configure kw_ops only when every target it lists is a test server, using a kw_ops
-operator whose permissions cover only test servers; FarmBot does not scope servers. The dispatch
-AUTHORITY, which tells workers that every listed server is a test server, limits full access to
-the issue's reproduction and verification, and requires every state-changing call to be recorded.
+operator whose permissions cover only test servers; FarmBot does not scope servers. The kw_ops
+terms of the fix and chat AUTHORITY, which tell workers that every listed server is a test server,
+limit full access to the issue's reproduction and verification, and require every state-changing
+call to be recorded.
 Read-only access rests on FarmBot's allowlist, not on kw_ops.
 
 The token variable must be set only in the controller's environment, in the wrapper that starts

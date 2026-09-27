@@ -17,7 +17,7 @@ from agent.ledger import Ledger
 from agent.scheduler import Scheduler
 from agent.skills import load_skills
 from agent.slots import SlotPool, slot_entry
-from agent import kw_ops
+from agent import dispatch, kw_ops
 from test_ledger import DESIGNER, ISSUE, OTHER, PIN, SESSION, comment, issue
 from test_skills import staged_skill
 
@@ -468,10 +468,25 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(self.trees.added, [])
 
     def use_staged_skill(self):
-        """Serve the fixture staged skill (initial root Farm-Contract) beside the repository's own skills."""
+        """Serve the fixture staged skill (initial root Farm-Contract) beside the repository's own skills, with
+        the dispatch AUTHORITY entry every dispatched skill needs."""
         staged = staged_skill(Path(self.tmp.name) / "fixture-skills")
         self.scheduler.skills = {**SKILLS, staged.name: staged}
+        authority = patch.dict(dispatch.SKILL_AUTHORITY, {staged.name: "Fixture staged-skill grants. "})
+        authority.start()
+        self.addCleanup(authority.stop)
         return staged
+
+    def test_a_skill_without_dispatch_authority_fails_at_launch_and_spawns_nothing(self):
+        staged = staged_skill(Path(self.tmp.name) / "fixture-skills")
+        self.scheduler.skills = {**SKILLS, staged.name: staged}
+        item = self.item(skill=staged.name)
+        self.assertEqual(self.scheduler.tick()["launched"], 0)
+        self.assertEqual(self.launcher.spawned, [])
+        self.assertEqual(self.ledger.item(item["id"])["state"], "failed")
+        reason = self.ledger.connection.execute("SELECT reason FROM audit WHERE item_id=? AND kind='failed'",
+                                                (item["id"],)).fetchone()["reason"]
+        self.assertIn("no dispatch AUTHORITY", reason)
 
     def payload(self, launch=-1):
         return json.loads(self.launcher.spawned[launch][1].split("\n\n", 1)[1])
