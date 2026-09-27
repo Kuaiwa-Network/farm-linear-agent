@@ -248,6 +248,29 @@ class DoctorTests(unittest.TestCase):
     def test_an_unconfigured_kw_ops_is_reported_as_such(self):
         self.assertEqual(self.report()["tools"], {"kw_ops": {"configured": False}})
 
+    def test_the_enabled_skills_are_reported(self):
+        self.assertEqual(self.report()["skills"], {"loaded": ["chat", "fix"], "enabled": ["chat", "fix"],
+                                                   "configured": False})
+        self.config.enabled_skills = ["chat"]
+        report = self.report()
+        self.assertEqual(report["skills"], {"loaded": ["chat", "fix"], "enabled": ["chat"], "configured": True})
+        self.assertEqual(report["status"], "ok")
+
+    def test_an_enabled_skill_the_checkout_lacks_is_the_finding_serve_would_refuse(self):
+        self.config.enabled_skills = ["chat", "feature"]
+        report = self.report()
+        self.assertIsNone(report["skills"]["enabled"])
+        finding = next(f for f in report["findings"] if f["code"] == "enabled_skills_invalid")
+        self.assertEqual((finding["unknown"], finding["unbriefed"]), (["feature"], []))
+        self.assertEqual(report["status"], "attention")
+
+    def test_an_enabled_skill_the_dispatch_cannot_brief_is_the_finding_serve_would_refuse(self):
+        with patch("agent.doctor.SKILL_AUTHORITY", {"chat": "the chat part"}):
+            report = self.report()
+        finding = next(f for f in report["findings"] if f["code"] == "enabled_skills_invalid")
+        self.assertEqual((finding["unknown"], finding["unbriefed"]), ([], ["fix"]))
+        self.assertIsNone(report["skills"]["enabled"])
+
 
 @unittest.skipIf(os.name == "nt", "POSIX process inspection")
 class ProcessProbeTests(unittest.TestCase):

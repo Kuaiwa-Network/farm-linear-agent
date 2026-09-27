@@ -1,4 +1,5 @@
 """Behavioural tests on real SQLite files, in the style of the BugAgent prototype."""
+import dataclasses
 import json
 import sqlite3
 import tempfile
@@ -7,6 +8,12 @@ import unittest
 from pathlib import Path
 
 from agent.ledger import MARKER, Ledger, LedgerError
+from agent.skills import load_skills
+from agent.stages import write_repositories
+from test_skills import staged_skill, write_skill
+
+ROOT = Path(__file__).resolve().parents[1]
+SKILLS = load_skills(ROOT / "skills")
 
 TEAM = "9676b5f9-eff3-485b-80ed-900ed137e21a"
 ISSUE = "10000000-0000-4000-8000-000000000001"
@@ -282,17 +289,17 @@ class RepositoryStageTests(LedgerBase):
         self.ledger.set_worker(item["id"], 4321, "test")
         token = self.ledger.claim(item["id"], worker_id="worker-one")["token"]
         with self.assertRaises(LedgerError):
-            self.ledger.handoff_repository(item["id"], token, "Farm-Contract")
+            self.ledger.handoff_repository(item["id"], token, "Farm-Contract", skill=SKILLS["fix"])
         self.ledger.checkpoint(item["id"], token, {"handoff": {
             "facts": [], "hypotheses": [], "checks": [], "repositories": [], "next_actions": ["Check contract"]}})
-        pending = self.ledger.handoff_repository(item["id"], token, "Farm-Contract")
+        pending = self.ledger.handoff_repository(item["id"], token, "Farm-Contract", skill=SKILLS["fix"])
         self.assertEqual(pending["worker_pid"], 4321)
         self.assertEqual(self.ledger.queue(), [])
         with self.assertRaises(LedgerError):
             self.ledger.claim(item["id"], worker_id="worker-two")
         with self.assertRaises(LedgerError):
-            self.ledger.complete_repository_handoff(item["id"], 9999)
-        ready = self.ledger.complete_repository_handoff(item["id"], 4321)
+            self.ledger.complete_repository_handoff(item["id"], 9999, skill=SKILLS["fix"])
+        ready = self.ledger.complete_repository_handoff(item["id"], 4321, skill=SKILLS["fix"])
         self.assertEqual((ready["root_repo"], ready["worker_pid"]), ("Farm-Contract", None))
         self.assertEqual(self.ledger.claim(item["id"], worker_id="worker-two")["state"], "running")
 
@@ -337,6 +344,99 @@ class RepositoryStageTests(LedgerBase):
         self.assertIn("请重新调查并修复", [m["body"] for m in context["session_messages"]])
         self.assertIn("Confirmed symptom; source repository still unknown.",
                       [entry["summary"] for entry in context["conversation_history"]])
+
+
+class StagedHandoffTests(LedgerBase):
+    """Stages come from the item's skill manifest, which the caller hands the ledger (spec §9.4, §9.5)."""
+
+    def setUp(self):
+        super().setUp()
+        self.skills = Path(self.tmp.name) / "skills"
+        self.feature = staged_skill(self.skills)
+        self.fix = SKILLS["fix"]
+
+    def claimed(self, skill="feature"):
+        item = self.new_item(skill=skill)
+        self.ledger.set_worker(item["id"], 4321, "test")
+        token = self.ledger.claim(item["id"], worker_id="worker-one")["token"]
+        self.ledger.checkpoint(item["id"], token, {"handoff": {
+            "facts": [], "hypotheses": [], "checks": [], "repositories": [], "next_actions": ["Build the server"]}})
+        return item, token
+
+    def requested(self, item_id):
+        row = self.ledger.connection.execute("SELECT details FROM audit WHERE item_id=? "
+                                             "AND kind='repository_handoff_requested'", (item_id,)).fetchone()
+        return json.loads(row["details"])
+
+    def test_fix_hands_off_under_its_own_manifest_as_before(self):
+        item, token = self.claimed(skill="fix")
+        with self.assertRaisesRegex(LedgerError, "repository is not a fix target"):
+            self.ledger.handoff_repository(item["id"], token, "farm-server", skill=self.fix)
+        self.ledger.handoff_repository(item["id"], token, "Farm-Contract", skill=self.fix)
+        self.assertEqual((self.requested(item["id"])["from"], self.requested(item["id"])["to"]), (None, "Farm-Contract"))
+        ready = self.ledger.complete_repository_handoff(item["id"], 4321, skill=self.fix)
+        self.assertEqual((ready["root_repo"], ready["next_root_repo"], ready["worker_pid"]), ("Farm-Contract", None, None))
+
+    def test_a_staged_skill_starts_at_its_initial_root_and_moves_only_within_its_writes(self):
+        item, token = self.claimed()
+        with self.assertRaisesRegex(LedgerError, "already rooted"):
+            self.ledger.handoff_repository(item["id"], token, "Farm-Contract", skill=self.feature)
+        with self.assertRaisesRegex(LedgerError, "repository is not a feature target"):
+            self.ledger.handoff_repository(item["id"], token, "farmgui", skill=self.feature)
+        self.assertEqual(self.ledger.item(item["id"])["state"], "running")
+        pending = self.ledger.handoff_repository(item["id"], token, "farm-hive", skill=self.feature)
+        self.assertEqual((pending["root_repo"], pending["next_root_repo"]), (None, "farm-hive"))
+        self.assertEqual((self.requested(item["id"])["from"], self.requested(item["id"])["to"]),
+                         ("Farm-Contract", "farm-hive"))
+        ready = self.ledger.complete_repository_handoff(item["id"], 4321, skill=self.feature)
+        self.assertEqual(ready["root_repo"], "farm-hive")
+        token = self.ledger.claim(item["id"], worker_id="worker-two")["token"]
+        with self.assertRaisesRegex(LedgerError, "already rooted"):
+            self.ledger.handoff_repository(item["id"], token, "farm-hive", skill=self.feature)
+
+    def test_only_the_items_own_manifest_can_move_it(self):
+        item, token = self.claimed()
+        with self.assertRaisesRegex(LedgerError, "own skill manifest"):
+            self.ledger.handoff_repository(item["id"], token, "farm-hive", skill=self.fix)
+        self.assertEqual((self.ledger.item(item["id"])["state"], self.ledger.item(item["id"])["next_root_repo"]),
+                         ("running", None))
+
+    def test_an_unstaged_skill_cannot_hand_off(self):
+        write_skill(self.skills, "wide", writes=["farm-hive", "Farm-Client"])
+        item, token = self.claimed(skill="wide")
+        with self.assertRaisesRegex(LedgerError, "wide is not staged"):
+            self.ledger.handoff_repository(item["id"], token, "farm-hive", skill=load_skills(self.skills)["wide"])
+
+    def test_a_target_the_manifest_no_longer_allows_stays_pending(self):
+        item, token = self.claimed()
+        self.ledger.handoff_repository(item["id"], token, "farm-hive", skill=self.feature)
+        narrowed = dataclasses.replace(self.feature, writes=("Farm-Contract", "Farm-Client"))
+        with self.assertRaisesRegex(LedgerError, "no longer matches"):
+            self.ledger.complete_repository_handoff(item["id"], 4321, skill=narrowed)
+        self.assertEqual(self.ledger.item(item["id"])["next_root_repo"], "farm-hive")
+
+    def test_completion_needs_the_items_own_staged_manifest(self):
+        item, token = self.claimed()
+        self.ledger.handoff_repository(item["id"], token, "farm-hive", skill=self.feature)
+        for other in (self.fix, dataclasses.replace(self.feature, staged=False)):  # fix also writes farm-hive
+            with self.subTest(skill=other.name, staged=other.staged):
+                with self.assertRaisesRegex(LedgerError, "no longer matches"):
+                    self.ledger.complete_repository_handoff(item["id"], 4321, skill=other)
+        self.assertEqual(self.ledger.item(item["id"])["next_root_repo"], "farm-hive")
+
+    def test_retry_and_a_cancelled_successor_restart_at_the_initial_root(self):
+        item, token = self.claimed()
+        self.ledger.handoff_repository(item["id"], token, "farm-hive", skill=self.feature)
+        self.ledger.complete_repository_handoff(item["id"], 4321, skill=self.feature)
+        self.ledger.fail_queued(item["id"], "budget exhausted")
+        retried = self.ledger.retry(item["id"], "try again")
+        self.assertIsNone(retried["root_repo"])
+        self.assertEqual(write_repositories(retried, self.feature), ("Farm-Contract",))
+        self.ledger.connection.execute("UPDATE work_items SET root_repo='Farm-Client' WHERE id=?", (item["id"],))
+        self.ledger.cancel(item["id"], "stopped")
+        successor = self.ledger.retry(item["id"], "continue")
+        self.assertEqual(successor["predecessor_id"], item["id"])
+        self.assertEqual(write_repositories(successor, self.feature), ("Farm-Contract",))
 
 
 class LeaseTests(LedgerBase):
@@ -850,15 +950,15 @@ class RevalidateTests(LedgerBase):
         self.ledger.checkpoint(item_id, token, {"handoff": self.HANDOFF})
         current = self.ledger.observe_issue(issue(comments=[comment("初始值为零")]))["fingerprint"]
         with self.assertRaisesRegex(LedgerError, "issue changed; revalidate"):
-            self.ledger.handoff_repository(item_id, token, "Farm-Contract")
+            self.ledger.handoff_repository(item_id, token, "Farm-Contract", skill=SKILLS["fix"])
         self.ledger.revalidate(item_id, token, current)
         # The saved handoff predates the re-read, so it stays stale until it is saved again.
         self.assertTrue(self.ledger.issue_context(item_id)["handoff"]["stale"])
         with self.assertRaisesRegex(LedgerError, "save a current worker checkpoint"):
-            self.ledger.handoff_repository(item_id, token, "Farm-Contract")
+            self.ledger.handoff_repository(item_id, token, "Farm-Contract", skill=SKILLS["fix"])
         self.ledger.checkpoint(item_id, token, {"handoff": self.HANDOFF})
-        self.assertEqual(self.ledger.handoff_repository(item_id, token, "Farm-Contract")["next_root_repo"],
-                         "Farm-Contract")
+        self.assertEqual(self.ledger.handoff_repository(item_id, token, "Farm-Contract",
+                                                        skill=SKILLS["fix"])["next_root_repo"], "Farm-Contract")
 
     def test_a_late_pr_registration_after_a_human_comment_proceeds_after_revalidate(self):
         item_id, token = self.running()
@@ -873,8 +973,8 @@ class RevalidateTests(LedgerBase):
                                verified_prs=[self.URL])
         self.assertEqual(self.ledger.issue_context(item_id)["published_prs"], [self.URL])
         # Registering the echo moved the claim with the stored input, so the handoff saved with it is current.
-        self.assertEqual(self.ledger.handoff_repository(item_id, token, "Farm-Contract")["next_root_repo"],
-                         "Farm-Contract")
+        self.assertEqual(self.ledger.handoff_repository(item_id, token, "Farm-Contract",
+                                                        skill=SKILLS["fix"])["next_root_repo"], "Farm-Contract")
 
     def test_a_pr_attached_before_the_claim_is_registered_only_after_this_claim_revalidates(self):
         item_id, token = self.running(attachments=[self.URL])
@@ -952,7 +1052,7 @@ class RevalidateTests(LedgerBase):
         self.ledger.checkpoint(item_id, token, {"handoff": self.HANDOFF})
         self.ledger.observe_issue(issue(comments=[comment("初始值为零"), comment("改成一", id="comment-2")]))
         with self.assertRaisesRegex(LedgerError, "issue changed; revalidate"):
-            self.ledger.handoff_repository(item_id, token, "Farm-Contract")
+            self.ledger.handoff_repository(item_id, token, "Farm-Contract", skill=SKILLS["fix"])
 
     def test_a_retired_or_expired_claim_cannot_revalidate(self):
         for retire in ("cancel", "handoff", "expire"):
@@ -966,7 +1066,7 @@ class RevalidateTests(LedgerBase):
                     self.ledger.checkpoint(item_id, token, {"handoff": self.HANDOFF})
                     self.ledger.revalidate(item_id, token, current)
                     self.ledger.checkpoint(item_id, token, {"handoff": self.HANDOFF})
-                    self.ledger.handoff_repository(item_id, token, "Farm-Contract")
+                    self.ledger.handoff_repository(item_id, token, "Farm-Contract", skill=SKILLS["fix"])
                     current = self.ledger.observe_issue(issue(comments=[comment("x", id="c-3")]))["fingerprint"]
                 else:
                     self.now += 61
@@ -1036,7 +1136,7 @@ class PlanTests(LedgerBase):
         context = self.ledger.issue_context(item_id)
         self.assertEqual((context["plan"], context["handoff"]), (self.PLAN, None))
         with self.assertRaisesRegex(LedgerError, "save a current worker checkpoint"):
-            self.ledger.handoff_repository(item_id, token, "Farm-Contract")
+            self.ledger.handoff_repository(item_id, token, "Farm-Contract", skill=SKILLS["fix"])
         with self.assertRaises(LedgerError):
             self.ledger.checkpoint(item_id, token, {"handoff": {"facts": []}})
         self.ledger.checkpoint(item_id, token, {"plan": self.PLAN})

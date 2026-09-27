@@ -114,6 +114,17 @@ variable's name only from the block, so add the block and the export together, a
 together: an export without the block reaches every worker. `doctor` shows whether kw_ops is
 configured and whether the variable is set in doctor's own environment.
 
+To run only some of the checkout's skills on a host, list them in the private config and restart
+the drained receiver; without the key every skill runs:
+
+```json
+"enabled_skills": ["chat", "fix"]
+```
+
+The list must include `chat`, and a name the checkout lacks stops `serve` at startup. The receiver
+routes only to enabled skills, `enqueue` and `request-repair` refuse the others, and a queued job of
+a disabled skill fails with an error in its session. `doctor` reports the loaded and enabled skills.
+
 ## AI/operator diagnostics
 
 Run `python3 -m agent.service doctor --config /absolute/path/to/config.json` on the

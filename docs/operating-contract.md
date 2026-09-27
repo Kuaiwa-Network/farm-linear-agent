@@ -28,6 +28,17 @@ Codex workers default to `gpt-6-sol` at `xhigh` reasoning. Private
 retain the FarmBot default. The selected settings are written into each new or
 resumed worker's isolated Codex home. Claude workers do not use these settings.
 
+Private `enabled_skills` lists the skills an instance runs, from those in its checkout's `skills/`;
+without the key every one runs. The list must include `chat`, the conversation every other route
+falls back to. A name the checkout lacks, or an enabled skill the dispatch AUTHORITY does not cover,
+is a configuration error: `serve` and `enqueue` stop, and `doctor` reports `enabled_skills_invalid`.
+The receiver routes only to enabled skills, and `enqueue`, `request-repair` and `resume-work` refuse
+the others. A queued item whose skill is loaded but not enabled fails before launch with an error
+activity naming 重试; `retry` or a requested continuation brings it back once the skill is enabled.
+An item whose skill the checkout lacks, which only a rollback leaves, stays queued as before.
+`doctor` reports `skills` with the loaded and enabled names. Restart a settled service after
+changing the list; an older revision ignores the key and runs every skill.
+
 Explicit profiles select `environment` (`development`, `production`, or `offline`)
 and a lowercase `instance_id`. Existing configs default to `legacy` for compatibility.
 Live profiles require `expected_bot_name`, pinned `expected_app_user_id` and
@@ -117,9 +128,12 @@ fingerprint once in the same way.
 
 | You do | FarmBot does |
 |---|---|
-| Assign (delegate) an issue labelled Bug to @FarmBot | starts a `fix` work item; first activity within 10 s; posts 「👀 <bot_name> 已开始处理」 (「👀 FarmBot 已开始处理」 in production) once the worker claims |
-| Delegate an issue without a Bug label | starts read-only conversation; investigates, answers or clarifies intent; a reply requesting repair can enter writable execution |
-| @FarmBot in a comment or the session | interprets intent in read-only execution; can start or resume repair when this issue has recorded delegation and is still delegated to FarmBot |
+| Assign (delegate) an issue labelled Bug, and no 功能 label, to @FarmBot | starts a `fix` work item; first activity within 10 s; posts 「👀 <bot_name> 已开始处理」 (「👀 FarmBot 已开始处理」 in production) once the worker claims |
+| Delegate an issue labelled Bug and a 功能 child (功能/UI or 功能/Code) | asks in the session, with no work item and adding `needs-more-info`, that you remove the label that does not apply and reply |
+| Delegate an issue labelled 功能/UI or 功能/Code | starts `fgui` or `feature` when this instance enables it (neither exists yet); otherwise, and for any other 功能 child, the read-only conversation, whose first activity says what this instance runs and which cannot start a fix. A standalone `UI` or `Code` label outside the group routes like any other label |
+| Reply in a delegation session that never had a work item, for example after fixing the labels | while the issue is still delegated to FarmBot, routes again on its current labels with your reply as the delegation's text: a 功能 card starts its worker; Bug alone starts `fix` when the reply is empty, else the read-only conversation first |
+| Delegate an issue without a Bug label | starts read-only conversation; investigates, answers or clarifies intent; a reply requesting repair can enter writable execution, except on a 功能 card, where a first fix is refused as feature work |
+| @FarmBot in a comment or the session | interprets intent in read-only execution; can start or resume repair when this issue has recorded delegation and is still delegated to FarmBot, a first fix on a 功能 card excepted |
 | Reply in a session while a worker runs | the text reaches the worker at its next checkpoint |
 | Reply to a FarmBot question | the parked work item resumes with your answer |
 | Ask naturally to resume finished work, in its session or an @FarmBot mention | chat interprets intent, checks current delegation, and continues the fix with the complete reply (a cancelled fix gets a fresh linked job); no keyword is required. Negations and questions about restarting do not restart work |
@@ -152,7 +166,13 @@ project hooks and exec policies load too. With it, Codex no longer injects the c
 so the `--approve-for-me` reviewer, which trusts injected `AGENTS.md` but not tool output, loses
 that text. Fix workers read the current root's `AGENTS.md`/`CLAUDE.md` and other repository
 instructions when investigation needs them; grants a worker
-needs belong in the dispatch AUTHORITY. Repository skills under `.agents/skills` and
+needs belong in the dispatch AUTHORITY. That text is a common part plus a per-skill part chosen
+by the item's skill (`agent/dispatch.py`); `fix` and `chat` share one per-skill part, the kw_ops
+terms below. A skill whose manifest grants kw_ops must carry those terms in its per-skill part,
+because the grant comes from the manifest and its limits from the AUTHORITY; a test checks every
+loaded skill. Building the launch message refuses a skill with no per-skill entry, so its job
+fails at launch and no worker starts: SKILL.md text cannot stand in for a grant. Repository
+skills under `.agents/skills` and
 `.codex/skills` still load, and workers inherit the service's `HOME`, so the host user's
 `~/.agents/skills` are visible too. Measured with codex-cli 0.155.1 on macOS; the trust fix was
 re-checked on 0.156.1; Windows is unverified.
@@ -198,9 +218,10 @@ connection logs an error in the worker's stderr, and a slow or silent kw_ops log
 (measured with codex-cli 0.156.1 on macOS; Windows is unverified). In both cases the payload still
 states the access, and the worker reports the missing kw_ops as a verification gap when the issue
 needs it. Configure kw_ops only when every target it lists is a test server, using a kw_ops
-operator whose permissions cover only test servers; FarmBot does not scope servers. The dispatch
-AUTHORITY, which tells workers that every listed server is a test server, limits full access to
-the issue's reproduction and verification, and requires every state-changing call to be recorded.
+operator whose permissions cover only test servers; FarmBot does not scope servers. The kw_ops
+terms of the fix and chat AUTHORITY, which tell workers that every listed server is a test server,
+limit full access to the issue's reproduction and verification, and require every state-changing
+call to be recorded.
 Read-only access rests on FarmBot's allowlist, not on kw_ops.
 
 The token variable must be set only in the controller's environment, in the wrapper that starts
@@ -217,12 +238,17 @@ controller's.
 
 An active repair can answer questions directly. Free-text intent is interpreted by the
 current worker; QA/retry words do not dispatch work by themselves. Empty Bug delegation
-retains its established repair shortcut; a message accompanying it is interpreted first.
+retains its established repair shortcut; a message accompanying it is interpreted first. A 功能
+label chooses the workflow instead: an enabled worker starts whatever text accompanies the
+delegation, and that text is its first session message.
 
 `request-repair` checks a fresh Linear snapshot, a live read-only claim, the latest session
 message and a recorded delegation session on the same issue. It atomically retires that
 claim and queues the prior fix or creates the first fix under the recorded delegation and
-target. A mention alone grants no new authority. `resume-work` remains a resume-only
+target. A mention alone grants no new authority. On an issue that carries a 功能 child and has no
+`feature` or `fgui` job, it refuses to create a first fix and says that such work starts when the
+labelled issue is delegated, and, when this instance does not run that skill, that it does not yet;
+continuing an earlier fix of the issue is unchanged. `resume-work` remains a resume-only
 compatibility command. Cancelled fixes stay cancelled and receive a fresh successor ID;
 other terminal retries retain their ID. A chat-to-fix transition restarts at the neutral
 investigation root. The launch includes one bounded `prior_context` summary from the
@@ -232,17 +258,26 @@ Late messages and Stop from a source
 conversation follow its active handoff. Merely observing changed issue text/comments does
 not start work. Historical context is recall, not a current request.
 
-A fix begins in its private state directory with read access to all five worktrees. The pinned
-Farm-Client target supplies a Unity baseline, not the investigation root. To edit or use
-repository-specific skills, the worker saves a current checkpoint and calls
-`handoff-repository --to REPO`. The CLI verifies the configured host ledger, fresh Linear
-delegation and stage target, then revokes the claim. The controller stops the old worker and
-requires process-tree teardown evidence before switching `root_repo` and launching a fresh
-Codex worker rooted at REPO. The same item, Linear session, branch, checkpoint and PR history
-continue. The new worker can write and verify publication only for its root repository;
-other worktrees remain read-only. Changing cwd in one worker does not switch instructions or
-write authority. Fix workers require Codex's explicit `workspace-write` sandbox; the
-Claude fallback has no equivalent repository write boundary and is refused for this skill.
+Repository stages follow the skill manifest. A skill whose `skill.json` sets `"staged": true` writes
+one repository per worker attempt, its current root: the item's `root_repo` or, while that is unset,
+the manifest's `initial_root`. Without an `initial_root`, an attempt with no recorded root is
+neutral: it runs in the private state directory and writes no repository. The loader refuses a
+manifest key it does not know, so a misspelled stage key cannot load as that key's default. `fix`
+is staged with no initial root, so a fix begins neutral with read access to all five worktrees.
+The pinned Farm-Client target supplies a Unity baseline, not the investigation root. To edit or
+use repository-specific skills, the worker saves a current checkpoint and calls
+`handoff-repository --to REPO`, where REPO is in the manifest's `writes` and is not the current
+root. The CLI verifies the manifest's stage rule, the configured host ledger and repositories, and
+fresh Linear delegation, then revokes the claim. The controller stops the old worker, requires
+process-tree teardown evidence and rechecks REPO against the manifest before switching `root_repo`
+and launching a fresh Codex worker rooted at REPO; until then the handoff stays pending. The same
+item, Linear session, branch, checkpoint and PR history continue. The new worker can write and
+verify publication only for its root repository; other worktrees remain read-only. Changing cwd in
+one worker does not switch instructions or write authority. `retry` and a chat-requested
+continuation start again with no recorded root, so the next attempt begins at the initial root,
+which for a fix is the neutral investigation. Staged skills require Codex's explicit
+`workspace-write` sandbox; the Claude fallback has no equivalent repository write boundary and is
+refused for them.
 A Contract-root worker follows Farm-Contract's OpenSpec instructions and
 its Superpowers restriction. Consumer workers use their own repository rules.
 
@@ -397,8 +432,8 @@ code cannot enforce separate budgets; do not roll back during pending recovery o
 
 For a delegated write job, the operator authorizes publishing that issue's source changes,
 tests and required generated assets to its feature branches in the host's
-configured private GitHub repositories, and creating/updating draft PRs there. For a fix,
-only the current rooted repository has this scope. A neutral attempt has no publication scope.
+configured private GitHub repositories, and creating/updating draft PRs there. For a staged
+skill such as fix, only the current root has this scope; a neutral attempt has none.
 Run reports stay in the job's private `state_dir` (`runs/<job>/report.md`). Every attempt of a job
 shares that directory, including retries and resumes that keep its ID, so a later attempt leaves
 earlier reports unchanged and adds the first unused of `report-2.md`, `report-3.md` and so on.
@@ -428,6 +463,22 @@ argument: reusing it as an argument could apply Git URL rewrites twice. PR repo/
 remain explicit. This is a preflight and authorization context,
 not an atomic push service or a replacement for runtime approval: remote state can change after the
 check, and a reviewer may still reject an action. A denial must be addressed, never bypassed.
+
+Before its first source change in each stage and before each push or PR, a fix worker checks for
+other people's work with the claim-authenticated read `foreign-work --item JOB_ID`. It lists PR URLs
+among the issue's Linear attachments, from the snapshot `fetch-issue` saved, `gh pr list --search
+<KEY>` results in each configured repository, and remote branches whose name carries the key, read
+with `git ls-remote`. Own work is the issue's registered PRs, the branches and PRs recorded in
+`plan.prs` by the job and its predecessors, and the head branches of own PRs. Every other branch or
+PR is foreign, `farmbot/` ones included, because another instance such as TestBot uses the same
+names. The command renews the worker's claim, writes nothing else and calls no Linear API. A source
+it cannot read, a GitHub search with more than 100 results included, is listed in `errors`, and the
+worker treats each entry as a gap whatever the status: `found` keeps what the other sources showed,
+and `incomplete` means a source failed and nothing foreign was found, never that nothing exists.
+When anything is foreign, the worker posts a `foreign_work` notice and asks with `await-input`,
+unless a current session message already answered. `verify-publication` adds the same report for
+its repository as `foreign_work`, or `unavailable` when the check itself failed, as evidence only:
+a hard publication gate would need a stored acknowledgement, so publication is not refused on it.
 
 ## Unity verification commits
 
@@ -559,7 +610,7 @@ running → awaiting_resource (Unity slot); any active state or blocked → canc
 A waiting item has no process. A repository handoff is queued with its retired worker PID retained;
 it cannot be claimed or launched until the controller certifies teardown and clears that PID.
 An item in awaiting_resource holds a queued reservation; only the pool's grant turns
-it back into queued work. A launched worker must claim its item within 10 minutes or it is stopped and the item fails. A confirmed terminal Codex model-capacity error returns the same queued or running item to the queue after 60, 180, then 600 seconds, with at most three automatic retries. The old claim is revoked; worktrees, checkpoints, model settings and reservations are retained. Retry timing is durable and all normal concurrency/delegation checks still apply. Cancelled, completed, waiting and deliberately stopped work is not automatically retried. Other pre-claim exits fail the item; a worker that dies with an expired lease requeues the item once for a fresh worker.
+it back into queued work. A launched worker must claim its item within 10 minutes or it is stopped and the item fails. A confirmed terminal Codex model-capacity error returns the same queued or running item to the queue after 60, 180, then 600 seconds, with at most three automatic retries. The old claim is revoked; worktrees, checkpoints, model settings and reservations are retained. Retry timing is durable and all normal concurrency/delegation checks still apply. Cancelled, completed, waiting and deliberately stopped work is not automatically retried. Other pre-claim exits fail the item; a worker that dies with an expired lease requeues the item once for a fresh worker. A queued item whose skill is loaded but not in `enabled_skills` fails before launch.
 The Linear session follows the item: `finish` posts the final response that completes the session (a chat
 answer is its own response); a worker that dies or never starts leaves an error activity naming 重试 as the
 way back, and a requeue leaves a thought.
@@ -642,7 +693,8 @@ any unposted notice unsent.
   `python3 -m agent.service enqueue --issue <id> --skill fix`. An enqueued item has a local session that
   Linear does not know about, so it reports through issue comments and posts no session activities;
   `enqueue` still refuses a write-capable skill on an issue that was never delegated to FarmBot, because
-  the rule of authority is not what the missing webhook excuses. `python3 -m agent.service slots` is the
+  the rule of authority is not what the missing webhook excuses. It also refuses a skill the instance does
+  not run (`enabled_skills`). `python3 -m agent.service slots` is the
   operator's view of the pool: slot states, parked commits and the open reservations behind them.
 - A fix that finds nothing to change (already fixed, duplicate, does not reproduce) delivers with an
   empty PR list and a `no_change` reason, and FarmBot's session response says 无需改动. Blocked stays

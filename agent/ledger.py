@@ -18,7 +18,7 @@ from uuid import UUID, uuid4
 
 from . import memory
 from .resource_recovery import RecoveryStore, SCHEMA as RECOVERY_SCHEMA
-from .stages import FIX_REPOSITORIES
+from .stages import current_root
 
 MARKER = re.compile(r"\[farmbot:[0-9a-f]{64}\]")
 STATES = ("queued", "running", "awaiting_input", "awaiting_resource",
@@ -1061,15 +1061,22 @@ class Ledger:
             return {**self._view(self._row(row["id"])), "claimed_fingerprint": fingerprint,
                     "previous_fingerprint": row["claimed_fingerprint"]}
 
-    def handoff_repository(self, item_id, token, to_repo):
-        """Retire a claim while retaining its PID; only the controller may finish the handoff."""
-        if to_repo not in FIX_REPOSITORIES:
-            raise LedgerError("repository is not a fix target")
+    def handoff_repository(self, item_id, token, to_repo, *, skill):
+        """Retire a claim while retaining its PID; only the controller may finish the handoff.
+
+        The ledger reads no manifests: `skill` is the item's loaded skill, which the worker CLI passes. A staged
+        skill may move to any repository in its writes other than its current root.
+        """
+        if to_repo not in skill.writes:
+            raise LedgerError(f"repository is not a {skill.name} target")
         with self._transaction():
             row = self._owned(item_id, token)
-            if row["skill"] != "fix":
-                raise LedgerError("repository handoff requires a fix work item")
-            if row["root_repo"] == to_repo:
+            if skill.name != row["skill"]:
+                raise LedgerError("repository handoff requires the work item's own skill manifest")
+            if not skill.staged:
+                raise LedgerError(f"repository handoff requires a staged skill; {skill.name} is not staged")
+            root = current_root(row["root_repo"], skill)
+            if root == to_repo:
                 raise LedgerError("worker is already rooted in that repository")
             if row["next_root_repo"] is not None:
                 raise LedgerError("repository handoff is already pending")
@@ -1093,17 +1100,22 @@ class Ledger:
             self._set_state(item_id, "queued", "repository handoff requested", token=None,
                             lease_expires_at=None, next_root_repo=to_repo)
             self._audit(item_id, "repository_handoff_requested", details={
-                "from": row["root_repo"], "to": to_repo, "worker_pid": row["worker_pid"]})
+                "from": root, "to": to_repo, "worker_pid": row["worker_pid"]})
             return self._view(self._row(item_id))
 
-    def complete_repository_handoff(self, item_id, expected_pid):
-        """Controller-only transition after the old worker and descendants are certified gone."""
+    def complete_repository_handoff(self, item_id, expected_pid, *, skill):
+        """Controller-only transition after the old worker and descendants are certified gone.
+
+        `skill` is the item's loaded skill, which the scheduler passes: a target its manifest no longer allows
+        stays pending.
+        """
         with self._transaction():
             row = self._row(item_id)
-            if (row["state"] != "queued" or row["next_root_repo"] not in FIX_REPOSITORIES
+            target = row["next_root_repo"]
+            if (row["state"] != "queued" or skill.name != row["skill"] or not skill.staged
+                    or target not in skill.writes
                     or row["worker_pid"] != expected_pid or row["token"] is not None):
                 raise LedgerError("repository handoff no longer matches the retired worker")
-            target = row["next_root_repo"]
             self._set_state(item_id, "queued", "repository handoff complete", root_repo=target,
                             next_root_repo=None, worker_pid=None)
             self._audit(item_id, "repository_handoff_complete", details={"to": target})

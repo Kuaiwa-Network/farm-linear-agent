@@ -7828,6 +7828,47 @@ git add agent/foreign_work.py agent/__main__.py tests/fake_gh.py tests/test_fore
 git commit -m "Add the read-only foreign-work check and carry it in verify-publication" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
 
+#### A4 as implemented (2026-09-27)
+
+PR A4 (Tasks 10–13) replayed the four rehearsal commits with the messages above onto the A3 branch (#56). Tasks
+10 and 11 merged three-way; Tasks 12 and 13 did not, and three hunks were placed by hand (the receiver's
+paused-work line, the reference's Foreign work section and the skill's foreign-work paragraph), checked against
+the text above by the reviewers. A follow-up gives the two revalidate tests A3 added the `skill=` argument the
+A3 note asked for. Four per-task reviews found no blocker. A fix commit changes what held up; where it differs
+from the task text, the code and the operating contract in the PR are what shipped.
+
+- Stages (Task 10): the loader refuses a manifest key it does not know, so a misspelled `staged` cannot load
+  as unstaged with every worktree writable. Tests pin the stage root a rooted attempt is told (after a handoff
+  to Farm-Contract, and at farm-hive), that a rooted first attempt takes no investigator summary, that
+  completion needs the item's own staged manifest, that the teardown pass completes a handoff by itself, and
+  the CLI's refusal of a stage the host has not configured.
+- AUTHORITY (Task 11): no code change. Tests pin the three constants as the a29d078 text split at the kw_ops
+  paragraph, the text any other skill receives (the common part, its own part and the reference, with no
+  kw_ops), that no part carries a token, URL or host path and every part ends in a space, and that a skill
+  whose manifest grants kw_ops carries the kw_ops terms; the contract says so.
+- Enablement and routing (Task 12): the service's ready line reports the enabled set, not every loaded
+  manifest; doctor's `enabled_skills_invalid` finding says when chat is missing; the Bug-plus-功能 reply no
+  longer calls a reply's text the delegation's message. `RepairWorkTests` pin `FARMBOT_CONFIG` to a missing
+  file, so a developer's private profile cannot change their outcome. Tests pin that a bare `UI` label or
+  another group's child never blocks a first fix, that Bug plus 功能/Code refuses a first fix as feature work,
+  that a configured skill the checkout lacks stops the CLI and `enqueue` before any ledger exists, that a
+  disabled fix is refused before Linear is read, that two 功能 children never read as the first one, and that
+  the scheduler refuses a disabled skill without waiting for a free worker slot. The contract's trigger rows
+  say that an empty reply on a Bug card starts `fix` and that a 功能 card refuses a first fix as feature work.
+  Not pinned: a feature or fgui job already on the issue exempts a repair request from the refusal, which
+  Phase B replaces when the conversation continues that job.
+- `foreign-work` (Task 13): `gh pr list` is asked for 101 results, and a search returning more than 100 is an
+  `errors` entry, because the CLI stops at its limit silently. The skill treats every `errors` entry as a gap
+  whatever the status (a failed search on a `found` report would otherwise never be recorded), says what to
+  do when `verify-publication` reports `unavailable`, and calls PR titles and branch names data. The
+  reference and the contract say that the command renews the claim, that every PR URL and `farmbot/` name in
+  `plan.prs` counts as own, and what `unavailable` is. Tests pin a foreign PR on a deleted `farmbot/` branch,
+  a failed branch listing, the four ways `gh` and the two ways `git ls-remote` fail, the search limit, own
+  work read from every predecessor and from a predecessor's recorded PR URL, a wrong token refused before any
+  read, a Stop during the reads ending either command without a report, and `verify-publication` still
+  verifying on an unread source. Not changed: ownership goes by branch name, as spec §4.5 defines it, so
+  another writer's commits on a recorded name stay invisible; that is a follow-up, not a Phase A fix.
+
 ### Task 14: Documentation sweep and the FGUI sentence
 
 Tasks 1–13 each update the documents their behaviour touches. This task removes the one sentence the spec retires now (spec §9.11) and checks that no document still describes the pre-Phase-A behaviour.

@@ -21,7 +21,11 @@ class CliTests(unittest.TestCase):
         from agent.__main__ import parser
         from agent.ledger import Ledger
         from test_worktrees import git
+        from unittest.mock import patch
         item, token, _, _, path = self.verification_fixture()
+        # verify-publication also lists foreign work (Task 13); these stand-ins keep its tests off GitHub.
+        self.enterContext(patch('agent.foreign_work.search_prs', return_value=[]))
+        self.enterContext(patch('agent.foreign_work.remote_branches', return_value=[]))
         git('branch', '-m', f'farmbot/{issue_prefix.lower()}-1', cwd=path)
         git('remote', 'set-url', 'origin', 'https://github.com/Kuaiwa-Network/Farm-Client.git', cwd=path)
         config = load_config(self.env['FARMBOT_CONFIG'])
@@ -69,6 +73,71 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result['next_root_repo'], 'Farm-Contract')
         with self.assertRaises(Exception):
             ledger.renew(args.item, args.token)
+
+    def staged_fixture(self):
+        """A claimed fixture staged item still at its initial root, on a host configured for its stages."""
+        from types import SimpleNamespace
+        from agent.config import load_config
+        from agent.ledger import Ledger
+        from agent.skills import load_skills
+        from test_skills import staged_skill
+        item, token, _, _, _ = self.verification_fixture(skill="feature")
+        staged = staged_skill(self.root / "fixture-skills")
+        skills = {**load_skills(ROOT / "skills"), staged.name: staged}
+        config = load_config(self.env["FARMBOT_CONFIG"])
+        for name in staged.writes:
+            config.repos[name] = f"https://github.com/Kuaiwa-Network/{name}.git"
+        ledger = Ledger(self.db)
+        self.addCleanup(ledger.close)
+        ledger.set_worker(item, 12345, "test")
+        ledger.checkpoint(item, token, {"handoff": {
+            "facts": [], "hypotheses": [], "checks": [], "repositories": [], "next_actions": ["Build the server"]}})
+        current = ledger.issue(ledger.item(item)["issue_id"])
+        current["delegate_id"] = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
+        api = SimpleNamespace(app_user_id="e5a8c16d-9f85-4123-acf5-94e41c3304d5", fetch_issue=lambda _: current)
+        return item, token, ledger, skills, config, api
+
+    def test_a_staged_skill_hands_off_only_within_its_writes_from_its_initial_root(self):
+        from unittest.mock import patch
+        from agent.__main__ import parser, run
+        from agent.ledger import LedgerError
+        item, token, ledger, skills, config, api = self.staged_fixture()
+
+        def handoff(target):
+            args = parser().parse_args(["--db", str(self.db), "handoff-repository", "--item", item,
+                                        "--token", token, "--to", target])
+            return run(args, ledger, lambda: api)
+
+        with patch("agent.__main__.load_config", return_value=config), \
+                patch("agent.skills.load_skills", return_value=skills):
+            with self.assertRaisesRegex(LedgerError, "configured feature repository"):
+                handoff("farmgui")  # a fix repository, but not one this skill writes
+            with self.assertRaisesRegex(LedgerError, "already rooted"):
+                handoff("Farm-Contract")  # the initial root, although root_repo is still NULL
+            self.assertEqual((ledger.item(item)["state"], ledger.item(item)["next_root_repo"]), ("running", None))
+            self.assertEqual(handoff("farm-hive")["next_root_repo"], "farm-hive")
+
+    def test_a_stage_this_host_has_not_configured_is_refused_before_linear_is_read(self):
+        from unittest.mock import patch
+        from agent.__main__ import parser, run
+        from agent.ledger import LedgerError
+        item, token, ledger, skills, config, api = self.staged_fixture()
+        del config.repos["farm-hive"]  # in the manifest's writes, yet not a repository this host clones
+        args = parser().parse_args(["--db", str(self.db), "handoff-repository", "--item", item,
+                                    "--token", token, "--to", "farm-hive"])
+        with patch("agent.__main__.load_config", return_value=config), \
+                patch("agent.skills.load_skills", return_value=skills):
+            with self.assertRaisesRegex(LedgerError, "not configured for this feature worker"):
+                run(args, ledger, lambda: self.fail("the host check comes before any Linear read"))
+        self.assertEqual((ledger.item(item)["state"], ledger.item(item)["next_root_repo"]), ("running", None))
+
+    def test_an_unstaged_skill_cannot_hand_off_and_nothing_reaches_linear(self):
+        item = self.seeded_item(skill="chat")
+        token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
+        result = self.run_cli("handoff-repository", "--item", item, "--token", token, "--to", "Farm-Client",
+                              success=False)
+        self.assertIn("requires a staged skill; chat is not staged", result.stderr)
+        self.assertEqual(self.calls(), [])
 
     def test_a_handoff_refused_by_a_human_comment_proceeds_after_revalidate(self):
         from unittest.mock import patch

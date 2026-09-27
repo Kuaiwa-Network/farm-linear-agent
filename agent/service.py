@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .config import Paths, configure, linear_api, load_config, ROOT
 from .deploy import install, missing_tools
+from .dispatch import SKILL_AUTHORITY
 from .environment import ControllerGuard, check_ownership, validate_runtime
 from .heartbeat import Heartbeat, INTERVAL as HEARTBEAT_INTERVAL, RETRY_AFTER as HEARTBEAT_RETRY, source_revision
 from .launcher import RUNTIMES, Launcher
@@ -22,7 +23,7 @@ from .receiver import Receiver, make_server
 from .router import WRITE_SKILLS
 from .scheduler import Scheduler
 from .session_progress import SessionProgress
-from .skills import load_skills
+from .skills import enabled_skills, load_skills
 from .slots import SlotError, SlotPool, UnityIdentity, slot_entry
 from .worktrees import Worktrees
 from .unity import editor_holds_project
@@ -35,11 +36,14 @@ Components = namedtuple("Components",
 def build(config, runtime_override=None):
     validate_runtime(config, runtime_override)
     check_ownership(config, require_initialized=True)
+    skills = load_skills(ROOT / "skills")
+    # spec §9.11, before any client or state exists: a name the checkout lacks, or a skill the dispatch cannot
+    # brief, stops startup.
+    enabled = enabled_skills(skills, config.enabled_skills, authority=SKILL_AUTHORITY)
     paths = Paths(config)
     api = linear_api(config)
     identity = api.identity()
     paths.config_dir.mkdir(parents=True, exist_ok=True)
-    skills = load_skills(ROOT / "skills")
     worktrees = Worktrees(paths.repos, paths.worktrees, config.repos)
     runtime = RUNTIMES[runtime_override or config.runtime]
     token_env = config.kw_ops.get("token_env")
@@ -55,6 +59,7 @@ def build(config, runtime_override=None):
                           issue_prefix=config.issue_prefix,
                           bot_name=config.expected_bot_name,
                           kw_ops=config.kw_ops,
+                          enabled_skills=set(enabled),
                           slot_entries={entry["id"]: entry for entry in entries},
                           guidance_for=lambda item: (ledger.session(item["session_id"]) or {}).get("guidance") or "",
                           api=api, control_ledger_factory=lambda: Ledger(paths.ledger),
@@ -72,7 +77,7 @@ def build(config, runtime_override=None):
     receiver = Receiver(paths.ledger, config.webhook_secret,
                         {"oauthClientId": config.client_id, "appUserId": identity["viewer"]["id"],
                          "organizationId": identity["organization"]["id"]},
-                        api, lambda: Ledger(paths.ledger, check_same_thread=False), set(skills), scheduler,
+                        api, lambda: Ledger(paths.ledger, check_same_thread=False), set(enabled), scheduler,
                         worktrees=worktrees, default_server_environment=config.default_server_environment,
                         bot_name=config.expected_bot_name)
     server = make_server(receiver, config.port)
@@ -96,7 +101,9 @@ def build(config, runtime_override=None):
     recovery = RecoveryController(recovery_ledger, recovery_pool, host=config.host,
                                   evidence_root=paths.config_dir / 'resource-recovery',
                                   fence=scheduler.fence_resource_worker, api=api)
-    return Components(config, paths, api, ledger, skills, worktrees, launcher, scheduler, receiver, server, pool, lifecycle, progress, recovery)
+    # `skills` is the enabled set the ready line reports, not every manifest the checkout loads.
+    return Components(config, paths, api, ledger, set(enabled), worktrees, launcher, scheduler, receiver, server, pool,
+                      lifecycle, progress, recovery)
 
 
 def seed_clones(config, source_root=None):
@@ -136,6 +143,10 @@ def enqueue(config, *, issue_ref, skill, commit=None, session=None):
     scheduler and the worker both read that prefix and report through an issue comment instead.
     """
     check_ownership(config, require_initialized=True)
+    enabled = enabled_skills(load_skills(ROOT / "skills"), config.enabled_skills, authority=SKILL_AUTHORITY)
+    if skill not in enabled:
+        raise RuntimeError(f"{skill} is not a skill this instance runs ({', '.join(sorted(enabled))}); "
+                           "enabled_skills in the private config chooses them (spec §9.11)")
     api = linear_api(config)
     paths = Paths(config)
     paths.config_dir.mkdir(parents=True, exist_ok=True)

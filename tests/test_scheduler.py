@@ -1,4 +1,5 @@
 import contextlib
+import dataclasses
 import io
 import json
 import os
@@ -16,8 +17,9 @@ from agent.ledger import Ledger
 from agent.scheduler import Scheduler
 from agent.skills import load_skills
 from agent.slots import SlotPool, slot_entry
-from agent import kw_ops
+from agent import dispatch, kw_ops
 from test_ledger import DESIGNER, ISSUE, OTHER, PIN, SESSION, comment, issue
+from test_skills import staged_skill
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = load_skills(ROOT / "skills")
@@ -417,7 +419,7 @@ class SchedulerTests(unittest.TestCase):
         self.ledger.checkpoint(item["id"], token, {"handoff": {
             "facts": [], "hypotheses": [], "checks": [], "repositories": [],
             "next_actions": ["Inspect Farm-Contract rules in its own worker"]}})
-        pending = self.ledger.handoff_repository(item["id"], token, "Farm-Contract")
+        pending = self.ledger.handoff_repository(item["id"], token, "Farm-Contract", skill=SKILLS["fix"])
         self.assertEqual(pending["next_root_repo"], "Farm-Contract")
         self.assertEqual(self.ledger.queue(), [])
         self.assertEqual(self.scheduler.tick()["launched"], 0)
@@ -428,6 +430,7 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(current["root_repo"], "Farm-Contract")
         payload = json.loads(self.launcher.spawned[-1][1].split("\n\n", 1)[1])
         self.assertEqual(payload["stage"]["write_repositories"], ["Farm-Contract"])
+        self.assertEqual(payload["stage"]["root_repository"], "Farm-Contract")  # what the worker follows
         self.assertEqual(payload["prior_context"]["source"], "previous_worker_checkpoint")
         self.assertEqual(payload["prior_context"]["content"]["next_actions"],
                          ["Inspect Farm-Contract rules in its own worker"])
@@ -442,7 +445,7 @@ class SchedulerTests(unittest.TestCase):
         token = self.ledger.claim(item["id"], worker_id="first")["token"]
         self.ledger.checkpoint(item["id"], token, {"handoff": {
             "facts": [], "hypotheses": [], "checks": [], "repositories": [], "next_actions": ["Check server"]}})
-        self.ledger.handoff_repository(item["id"], token, "farm-hive")
+        self.ledger.handoff_repository(item["id"], token, "farm-hive", skill=SKILLS["fix"])
         self.launcher.finished.append(Finished(item["id"], 0, "", True, "stopped", None, 101))
         self.launcher.assert_quiescent = lambda *args: (_ for _ in ()).throw(RuntimeError("descendant alive"))
         self.assertEqual(self.scheduler.tick()["launched"], 0)
@@ -462,6 +465,118 @@ class SchedulerTests(unittest.TestCase):
         item = self.item()
         self.scheduler.runtime_name = "claude"
         with self.assertRaisesRegex(RuntimeError, "Codex workspace-write"):
+            self.scheduler.launch(item)
+        self.assertEqual(self.trees.added, [])
+
+    def use_staged_skill(self):
+        """Serve and enable the fixture staged skill (initial root Farm-Contract) beside the repository's own
+        skills, with the dispatch AUTHORITY entry every dispatched skill needs."""
+        staged = staged_skill(Path(self.tmp.name) / "fixture-skills")
+        self.scheduler.skills = {**SKILLS, staged.name: staged}
+        self.scheduler.enabled_skills.add(staged.name)
+        authority = patch.dict(dispatch.SKILL_AUTHORITY, {staged.name: "Fixture staged-skill grants. "})
+        authority.start()
+        self.addCleanup(authority.stop)
+        return staged
+
+    def test_a_skill_without_dispatch_authority_fails_at_launch_and_spawns_nothing(self):
+        staged = staged_skill(Path(self.tmp.name) / "fixture-skills")
+        self.scheduler.skills = {**SKILLS, staged.name: staged}
+        self.scheduler.enabled_skills.add(staged.name)  # enabled, but with no AUTHORITY entry
+        item = self.item(skill=staged.name)
+        self.assertEqual(self.scheduler.tick()["launched"], 0)
+        self.assertEqual(self.launcher.spawned, [])
+        self.assertEqual(self.ledger.item(item["id"])["state"], "failed")
+        reason = self.ledger.connection.execute("SELECT reason FROM audit WHERE item_id=? AND kind='failed'",
+                                                (item["id"],)).fetchone()["reason"]
+        self.assertIn("no dispatch AUTHORITY", reason)
+
+    def payload(self, launch=-1):
+        return json.loads(self.launcher.spawned[launch][1].split("\n\n", 1)[1])
+
+    def test_a_staged_skill_starts_at_its_initial_root_and_restarts_there_after_retry(self):
+        staged = self.use_staged_skill()
+        item = self.item(skill=staged.name)
+        self.scheduler.tick()
+        contract = self.trees.root / item["id"] / "Farm-Contract"
+        self.assertEqual(self.payload()["stage"], {"root_repository": "Farm-Contract",
+                                                   "write_repositories": ["Farm-Contract"],
+                                                   "read_only_worktrees": ["common", "farm-hive", "Farm-Client"]})
+        self.assertEqual(self.launcher.spawned[-1][4], str(contract))
+        self.assertEqual(self.launcher.spawn_writable[1:], [str(contract), str(self.trees.clone_path("Farm-Contract"))])
+        self.assertIsNone(self.ledger.item(item["id"])["root_repo"])  # NULL is stored; the manifest names the root
+        token = self.ledger.claim(item["id"], worker_id="first")["token"]
+        self.ledger.checkpoint(item["id"], token, {"handoff": {
+            "facts": [], "hypotheses": [], "checks": [], "repositories": [], "next_actions": ["Build the server"]}})
+        self.ledger.handoff_repository(item["id"], token, "farm-hive", skill=staged)
+        self.assertEqual(self.scheduler.tick()["launched"], 0)
+        self.launcher.finished.append(Finished(item["id"], 0, "", True, "stopped", None, 101))
+        self.assertEqual(self.scheduler.tick()["launched"], 1)
+        self.assertEqual(self.payload()["stage"]["write_repositories"], ["farm-hive"])
+        self.assertEqual(self.payload()["stage"]["root_repository"], "farm-hive")
+        self.assertEqual(self.payload()["prior_context"]["content"]["next_actions"], ["Build the server"])
+        # A budget kill fails the job; retry restarts it at the initial root, not at farm-hive or neutral.
+        self.ledger.claim(item["id"], worker_id="second")
+        self.launcher.finished.append(Finished(item["id"], -9, "", True, "budget", None, 102))
+        self.scheduler.tick()
+        self.assertEqual(self.ledger.item(item["id"])["state"], "failed")
+        self.ledger.retry(item["id"], "operator retry")
+        self.assertEqual(self.scheduler.tick()["launched"], 1)
+        self.assertEqual(self.payload()["stage"]["root_repository"], "Farm-Contract")
+        self.assertEqual(self.launcher.spawned[-1][4], str(contract))
+
+    def test_the_controller_completes_a_handoff_only_as_the_manifest_allows(self):
+        staged = self.use_staged_skill()
+        item = self.item(skill=staged.name)
+        self.scheduler.tick()
+        token = self.ledger.claim(item["id"], worker_id="first")["token"]
+        self.ledger.checkpoint(item["id"], token, {"handoff": {
+            "facts": [], "hypotheses": [], "checks": [], "repositories": [], "next_actions": ["Declare the config"]}})
+        self.ledger.handoff_repository(item["id"], token, "common", skill=staged)
+        # A manifest that no longer writes the target, as after a deploy mid-handoff, leaves it pending at
+        # teardown and on the recovery pass; so does a host that no longer loads the skill.
+        self.scheduler.skills = {**SKILLS, staged.name: dataclasses.replace(staged, writes=("Farm-Contract",))}
+        self.launcher.finished.append(Finished(item["id"], 0, "", True, "stopped", None, 101))
+        self.assertEqual(self.scheduler.tick()["launched"], 0)
+        self.scheduler.skills = SKILLS
+        self.assertEqual(self.scheduler.tick()["launched"], 0)
+        self.assertEqual(self.ledger.item(item["id"])["next_root_repo"], "common")
+        self.scheduler.skills = {**SKILLS, staged.name: staged}
+        self.assertEqual(self.scheduler.tick()["launched"], 1)
+        self.assertEqual(self.ledger.item(item["id"])["root_repo"], "common")
+        self.assertEqual(self.payload()["stage"]["write_repositories"], ["common"])
+
+    def test_reap_completes_the_handoff_itself_under_the_items_own_manifest(self):
+        """The teardown pass completes a handoff on its own, under the item's manifest; the recovery pass is not
+        the only path that does."""
+        staged = self.use_staged_skill()
+        item = self.item(skill=staged.name)
+        self.scheduler.tick()
+        token = self.ledger.claim(item["id"], worker_id="first")["token"]
+        self.ledger.checkpoint(item["id"], token, {"handoff": {
+            "facts": [], "hypotheses": [], "checks": [], "repositories": [], "next_actions": ["Build the server"]}})
+        self.ledger.handoff_repository(item["id"], token, "farm-hive", skill=staged)
+        self.assertEqual(self.scheduler.tick()["launched"], 0)  # the worker is asked to stop
+        self.launcher.finished.append(Finished(item["id"], 0, "", True, "stopped", None, 101))
+        self.scheduler._reap()  # alone: no recovery pass follows it here
+        self.assertEqual(self.ledger.item(item["id"])["root_repo"], "farm-hive")
+
+    def test_a_rooted_first_attempt_takes_no_investigator_summary(self):
+        """A delivered chat's summary is the prior context of a neutral first attempt only (spec §9.6): a skill with
+        an initial root starts on its own handoff, not the investigator's."""
+        staged = self.use_staged_skill()
+        chat = self.item(skill="chat")
+        self.ledger.connection.execute("UPDATE work_items SET state='delivered', evidence=? WHERE id=?",
+                                       (json.dumps({"summary": "Investigated the card."}), chat["id"]))
+        self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill=staged.name, target=PIN)
+        self.assertEqual(self.scheduler.tick()["launched"], 1)
+        self.assertIsNone(self.payload()["prior_context"])
+
+    def test_a_staged_skill_refuses_a_runtime_without_the_repository_sandbox(self):
+        staged = self.use_staged_skill()
+        item = self.item(skill=staged.name)
+        self.scheduler.runtime_name = "claude"
+        with self.assertRaisesRegex(RuntimeError, "repository-staged feature requires the Codex workspace-write"):
             self.scheduler.launch(item)
         self.assertEqual(self.trees.added, [])
 
@@ -515,6 +630,43 @@ class SchedulerTests(unittest.TestCase):
         self.scheduler.tick()
         self.assertEqual(len(self.launcher.spawned), 1)
         self.assertEqual([row["issue_id"] for row in self.ledger.queue()], [OTHER])
+
+    def test_a_loaded_skill_this_host_does_not_enable_fails_with_a_session_error(self):
+        self.scheduler.enabled_skills = {"chat"}
+        item = self.item()
+        self.assertEqual(self.scheduler.tick()["launched"], 0)
+        self.assertEqual(self.launcher.spawned, [])
+        self.assertEqual(self.ledger.item(item["id"])["state"], "failed")
+        session, kind, body = self.api.activities[-1]
+        self.assertEqual((session, kind), (SESSION, "error"))
+        for words in ("本实例没有启用 fix", "本实例运行：chat", "「重试」"):
+            self.assertIn(words, body)
+        self.assertIsNone(self.ledger.active_item_for_issue(ISSUE))  # the issue is free for other work
+        self.assertIn(("removed", item["id"], None), self.trees.added)  # retired like any other failure
+
+    def test_a_refused_item_takes_no_worker_slot_and_blocks_no_other_work(self):
+        self.scheduler.enabled_skills = {"chat"}
+        refused = self.item(priority=1)
+        chat = self.item(issue_id=OTHER, session="s2", identifier="FARM-2", skill="chat", priority=4)
+        self.scheduler.tick()
+        self.assertEqual(self.ledger.item(refused["id"])["state"], "failed")
+        self.assertEqual([spawned[0] for spawned in self.launcher.spawned], [chat["id"]])
+
+    def test_retry_after_the_skill_is_enabled_launches_the_refused_item(self):
+        self.scheduler.enabled_skills = {"chat"}
+        item = self.item()
+        self.scheduler.tick()
+        self.scheduler.enabled_skills = {"chat", "fix"}
+        self.ledger.retry(item["id"], "operator enabled fix")
+        self.scheduler.tick()
+        self.assertEqual(self.launcher.spawned[-1][0], item["id"])
+
+    def test_an_item_whose_skill_the_checkout_lacks_still_waits(self):
+        """Only a rollback leaves one behind; the operating contract says to settle those items first."""
+        item = self.item(skill="qa")
+        self.scheduler.tick()
+        self.assertEqual(self.ledger.item(item["id"])["state"], "queued")
+        self.assertEqual((self.launcher.spawned, self.api.activities), ([], []))
 
     def test_reaped_worker_that_never_finished_is_failed_and_worktrees_removed(self):
         item = self.item()
@@ -1213,6 +1365,18 @@ class SchedulerTests(unittest.TestCase):
         self.scheduler.tick()
         self.assertEqual(self.launcher.stopped, [item["id"]])
         self.assertEqual(self.ledger.item(item["id"])["state"], "failed")
+
+    def test_a_disabled_skill_is_refused_without_waiting_for_a_free_worker_slot(self):
+        """The refusal is a state change, not a launch: it must not queue behind the concurrency cap, or the item
+        would hold its issue's one active slot until a worker frees up."""
+        from test_ledger import OTHER
+        self.scheduler.enabled_skills = {"chat"}
+        self.item(issue_id=OTHER, session="s2", identifier="FARM-2", skill="chat")
+        self.scheduler.tick()  # max_concurrent is 1: the chat now holds the only worker slot
+        self.assertEqual(len(self.scheduler.active), 1)
+        refused = self.item()
+        self.scheduler.tick()
+        self.assertEqual(self.ledger.item(refused["id"])["state"], "failed")
 
     def test_worktree_failure_fails_only_that_item_and_the_queue_keeps_moving(self):
         bad = self.item()

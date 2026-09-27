@@ -11,7 +11,7 @@ from .config import Paths, linear_api, load_config
 from .ledger import AWAIT_REASONS, NOTICE_KINDS, TERMINAL_STATUS_TYPES, Ledger, LedgerError
 from .memory import prune_snapshots
 from .router import WRITE_SKILLS
-from .stages import FIX_REPOSITORIES, write_repositories
+from .stages import write_repositories
 
 
 def parser():
@@ -54,6 +54,7 @@ def parser():
     cmd("issue-context", "--item")
     cmd("pop-inbox", "--item", token=True)
     cmd("verify-publication", "--item", "--repo", token=True)
+    cmd("foreign-work", "--item", token=True)
     uploads = cmd("download-uploads", "--item", "--out", token=True)
     uploads.add_argument("--url", action="append",
                          help="one of the claimed issue's upload URLs, unsigned as fetch-issue shows it; repeatable; "
@@ -135,6 +136,35 @@ def resolve_token(args):
         if value:
             return value
     raise LedgerError("claim token required: pass --token-file PATH, set FARMBOT_TOKEN, or pass --token")
+
+
+def enabled_skill_names():
+    """The skills this host runs (spec §9.11). With no readable private config, as in test fixtures, every loaded
+    skill: the scheduler still refuses to launch one the controller's config leaves out."""
+    from .config import ROOT
+    from .dispatch import SKILL_AUTHORITY
+    from .skills import enabled_skills, load_skills
+    try:
+        names = load_config(secure_permissions=False).enabled_skills
+    except (OSError, ValueError):
+        names = None
+    return set(enabled_skills(load_skills(ROOT / "skills"), names, authority=SKILL_AUTHORITY))
+
+
+def feature_card_refusal(ledger, item_id, issue, running):
+    """spec §9.4, D16: a conversation on a 功能 card does not start a first fix. The refusal says how that work
+    starts. None when nothing changes: no 功能 child, a fix to continue, or a feature or fgui job on the issue
+    already (a later phase continues that job). While the chat item is active no other item can appear on the
+    issue, so this cannot change before the ledger's transaction."""
+    from .router import FEATURE_SKILLS, feature_children, feature_repair_refusal
+    children = feature_children(issue.get("label_groups"))
+    if not children:
+        return None
+    context = ledger.issue_context(item_id)
+    if (context["coordination"]["skill"] != "chat" or context["resumable_work"] is not None
+            or any(entry["skill"] in FEATURE_SKILLS.values() for entry in context["conversation_history"])):
+        return None
+    return feature_repair_refusal(children, running)
 
 
 def verify_late_prs(ledger, args, token, progress):
@@ -313,14 +343,17 @@ def run(args, ledger, api_factory):
         token = resolve_token(args)
         ledger.renew(args.item, token)
         item = ledger.item(args.item)
-        if item["skill"] != "fix" or args.to not in FIX_REPOSITORIES:
-            raise LedgerError("repository handoff requires a configured fix repository")
+        # The item's own manifest decides its stages: any staged skill, to a repository in its writes.
+        skill = load_skills(ROOT / "skills").get(item["skill"])
+        if skill is None or not skill.staged:
+            raise LedgerError(f"repository handoff requires a staged skill; {item['skill']} is not staged on this host")
+        if args.to not in skill.writes:
+            raise LedgerError(f"repository handoff requires a configured {skill.name} repository")
         config = load_config(secure_permissions=False)
         if Path(args.db).resolve() != Paths(config).ledger.resolve():
             raise LedgerError("repository handoff must use the configured host ledger")
-        skill = load_skills(ROOT / "skills").get("fix")
-        if skill is None or args.to not in skill.writes or args.to not in config.repos:
-            raise LedgerError("target repository is not configured for this fix worker")
+        if args.to not in config.repos:
+            raise LedgerError(f"target repository is not configured for this {skill.name} worker")
         api = api_factory()
         issue = api.fetch_issue(item["issue_id"])
         ledger.observe_issue(issue)
@@ -328,7 +361,7 @@ def run(args, ledger, api_factory):
                 or issue.get("status_type") in TERMINAL_STATUS_TYPES):
             raise LedgerError("issue must remain open and delegated to FarmBot")
         ledger.renew(args.item, token)
-        return ledger.handoff_repository(args.item, token, args.to)
+        return ledger.handoff_repository(args.item, token, args.to, skill=skill)
     if c == "revalidate":
         return ledger.revalidate(args.item, resolve_token(args), args.fingerprint)
     if c == "issue-context":
@@ -371,13 +404,17 @@ def run(args, ledger, api_factory):
         token = resolve_token(args)
         ledger.renew(args.item, token)
         item = ledger.item(args.item)
+        # Both queue fix work, which this host may not run (spec §9.11): refuse before asking Linear anything.
+        running = enabled_skill_names()
+        if "fix" not in running:
+            raise LedgerError("repair execution is not available on this host")
         api = api_factory()
-        ledger.observe_issue(api.fetch_issue(item["issue_id"]))
+        current = api.fetch_issue(item["issue_id"])
+        ledger.observe_issue(current)
         if c == "request-repair":
-            from .config import ROOT
-            from .skills import load_skills
-            if "fix" not in load_skills(ROOT / "skills"):
-                raise LedgerError("repair execution is not available on this host")
+            refusal = feature_card_refusal(ledger, args.item, current, running)
+            if refusal is not None:
+                raise LedgerError(refusal)
             resumed = ledger.request_repair(args.item, token, args.message_id, api.app_user_id,
                                              read_text(args.summary_file))
         else:
@@ -410,6 +447,17 @@ def run(args, ledger, api_factory):
                                          renew=lambda: ledger.renew(args.item, token))
         ledger.renew(args.item, token)  # a claim lost during the transfers still fails the command
         return summary
+    if c == "foreign-work":
+        from .foreign_work import foreign_work
+        token = resolve_token(args)
+        ledger.renew(args.item, token)  # read-only, yet only the claimed worker may ask
+        config = load_config(secure_permissions=False)
+        paths = Paths(config)
+        if Path(args.db).resolve() != paths.ledger.resolve():
+            raise LedgerError("foreign-work must use the configured host ledger")
+        report = foreign_work(ledger, args.item, config.repos, paths.repos)
+        ledger.renew(args.item, token)  # a Stop during the network reads ends the claim here
+        return report
     if c == "verify-publication":
         from .config import ROOT
         from .publication import PublicationVerifier
@@ -445,9 +493,19 @@ def run(args, ledger, api_factory):
             ledger.renew(args.item, token)  # fence cancellation while network checks were in progress
             return result
         try:
-            return verify_with_retries(verify_current, lambda: ledger.renew(args.item, token))
+            result = verify_with_retries(verify_current, lambda: ledger.renew(args.item, token))
         except PublicationUnavailable:
             return ledger.defer_publication_retry(args.item, token, args.repo)
+        from .foreign_work import foreign_work
+        # Evidence, not a gate (spec §4.5): refusing on it would need a stored acknowledgement. verify_current has
+        # just observed the issue, so the attachments read here are fresh.
+        try:
+            result["foreign_work"] = foreign_work(ledger, args.item, config.repos, paths.repos,
+                                                  repositories=[args.repo])
+        except (OSError, ValueError, RuntimeError) as exc:
+            result["foreign_work"] = {"status": "unavailable", "error": type(exc).__name__}
+        ledger.renew(args.item, token)  # a Stop during these reads ends the claim here, as after verification
+        return result
     if c == "await-resource":
         token = resolve_token(args)
         if args.commit is not None:

@@ -1,14 +1,25 @@
 """Conversation requests change execution mode; the ledger controls authority."""
+import os
 from types import SimpleNamespace
 from pathlib import Path
+from unittest.mock import patch
 
+from agent.config import Config
 from agent.ledger import LedgerError
+from agent.skills import SkillError
 from agent.__main__ import parser, run
 from test_ledger import LedgerBase, ISSUE, OTHER, PIN, SESSION, issue
 from test_receiver import ReceiverBase, APP
 
 
 class RepairWorkTests(LedgerBase):
+    def setUp(self):
+        super().setUp()
+        # The CLI reads the host config for enabled_skills; these tests must never see this checkout's private one.
+        patcher = patch.dict(os.environ, {"FARMBOT_CONFIG": str(Path(self.tmp.name) / "no-config.json")})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def conversation(self, *, delegated=True, session=SESSION):
         self.ledger.observe_issue(issue(delegate_id=APP, labels=[]))
         self.ledger.ensure_session(session, ISSUE, delegated)
@@ -165,6 +176,103 @@ class RepairWorkTests(LedgerBase):
         with self.assertRaisesRegex(LedgerError, "claim"):
             run(args, self.ledger, lambda: api)
         self.assertEqual(self.ledger.queue(), [])
+
+    def test_cli_refuses_repair_on_a_host_that_does_not_run_fix(self):
+        from unittest.mock import patch
+        from agent.config import Config
+        chat, token = self.conversation()
+        args = self.cli_request(chat, token)
+        sent = []
+        api = SimpleNamespace(app_user_id=APP, fetch_issue=lambda _: issue(delegate_id=APP),
+                              create_activity=lambda session, content: sent.append(content))
+        resume = parser().parse_args(["--db", str(self.path), "resume-work", "--item", chat["id"], "--token", token,
+                                      "--message-id", str(args.message_id)])
+        with patch("agent.__main__.load_config", return_value=Config("c", "s", "w", enabled_skills=["chat"])):
+            for command in (args, resume):
+                with self.subTest(command=command.command), \
+                        self.assertRaisesRegex(LedgerError, "repair execution is not available on this host"):
+                    run(command, self.ledger, lambda: api)
+        self.assertEqual((self.ledger.item(chat["id"])["state"], self.ledger.queue(), sent), ("running", [], []))
+        with patch("agent.__main__.load_config", return_value=Config("c", "s", "w", enabled_skills=["chat", "fix"])):
+            self.assertEqual(run(args, self.ledger, lambda: api)["skill"], "fix")
+
+    def feature_card(self):
+        return issue(delegate_id=APP, labels=["Code"], label_groups=[{"group": "功能", "label": "Code"}])
+
+    def test_cli_refuses_a_first_fix_on_a_feature_card_and_says_how_feature_work_starts(self):
+        """spec §9.4, D16: a conversation on a 功能 card never becomes a fix; its work starts from a delegation."""
+        from unittest.mock import patch
+        from agent.config import Config
+        chat, token = self.conversation()
+        args = self.cli_request(chat, token)
+        sent = []
+        api = SimpleNamespace(app_user_id=APP, fetch_issue=lambda _: self.feature_card(),
+                              create_activity=lambda session, content: sent.append(content))
+        with patch("agent.__main__.load_config", return_value=Config("c", "s", "w")):
+            with self.assertRaises(LedgerError) as refused:
+                run(args, self.ledger, lambda: api)
+            self.assertEqual(str(refused.exception),
+                             "this issue carries 功能/Code, so it is feature work, not a fix; feature work starts only "
+                             "when an issue labelled 功能/Code is delegated, and this instance does not run feature yet")
+            self.assertEqual((self.ledger.item(chat["id"])["state"], self.ledger.queue(), sent), ("running", [], []))
+            # The same conversation on a plain Bug card still gets its fix.
+            api.fetch_issue = lambda _: issue(delegate_id=APP)
+            self.assertEqual(run(args, self.ledger, lambda: api)["skill"], "fix")
+
+    def test_cli_still_continues_an_earlier_fix_on_a_card_now_labelled_for_feature_work(self):
+        """Only a first fix is refused: continuing the delegation's own fix job is unchanged."""
+        from unittest.mock import patch
+        from agent.config import Config
+        previous = self.new_item(delegate_id=APP)
+        self.ledger.cancel(previous["id"], "Stop")
+        chat, token = self.conversation()
+        api = SimpleNamespace(app_user_id=APP, fetch_issue=lambda _: self.feature_card(),
+                              create_activity=lambda session, content: None)
+        with patch("agent.__main__.load_config", return_value=Config("c", "s", "w")):
+            fix = run(self.cli_request(chat, token), self.ledger, lambda: api)
+        self.assertEqual((fix["skill"], fix["predecessor_id"]), ("fix", previous["id"]))
+
+    def stub_api(self, current, calls=None):
+        def fetch(ref):
+            if calls is not None:
+                calls.append(ref)
+            return current
+        return SimpleNamespace(app_user_id=APP, fetch_issue=fetch, create_activity=lambda session, content: None)
+
+    def test_a_ui_label_outside_the_feature_group_does_not_block_a_first_fix(self):
+        """Only the 功能 group's children mean feature work; a bare `UI` label, or one of another group, does not."""
+        for groups in ([], [{"group": "设计", "label": "UI"}]):
+            with self.subTest(groups=groups):
+                self.setUp()
+                chat, token = self.conversation()
+                api = self.stub_api(issue(delegate_id=APP, labels=["UI"], label_groups=groups))
+                with patch("agent.__main__.load_config", return_value=Config("c", "s", "w")):
+                    self.assertEqual(run(self.cli_request(chat, token), self.ledger, lambda: api)["skill"], "fix")
+
+    def test_a_bug_card_that_also_carries_a_feature_label_is_refused_a_first_fix(self):
+        chat, token = self.conversation()
+        api = self.stub_api(issue(delegate_id=APP, labels=["Bug", "Code"], label_groups=[{"group": "功能", "label": "Code"}]))
+        with patch("agent.__main__.load_config", return_value=Config("c", "s", "w")):
+            with self.assertRaisesRegex(LedgerError, "功能/Code, so it is feature work, not a fix"):
+                run(self.cli_request(chat, token), self.ledger, lambda: api)
+        self.assertEqual((self.ledger.item(chat["id"])["state"], self.ledger.queue()), ("running", []))
+
+    def test_a_configured_skill_the_checkout_lacks_stops_the_cli(self):
+        chat, token = self.conversation()
+        api = self.stub_api(issue(delegate_id=APP))
+        with patch("agent.__main__.load_config", return_value=Config("c", "s", "w", enabled_skills=["chat", "fix", "feature"])):
+            with self.assertRaisesRegex(SkillError, "does not have: feature"):
+                run(self.cli_request(chat, token), self.ledger, lambda: api)
+        self.assertEqual((self.ledger.item(chat["id"])["state"], self.ledger.queue()), ("running", []))
+
+    def test_a_disabled_fix_is_refused_before_linear_is_read(self):
+        chat, token = self.conversation()
+        calls = []
+        api = self.stub_api(issue(delegate_id=APP), calls)
+        with patch("agent.__main__.load_config", return_value=Config("c", "s", "w", enabled_skills=["chat"])):
+            with self.assertRaisesRegex(LedgerError, "repair execution is not available on this host"):
+                run(self.cli_request(chat, token), self.ledger, lambda: api)
+        self.assertEqual(calls, [])
 
 
 class RepairReceiverTests(ReceiverBase):

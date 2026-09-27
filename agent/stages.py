@@ -1,15 +1,24 @@
-"""Repository scope for a worker attempt, independent of checkpoint prose."""
+"""Repository scope for a worker attempt, from the skill manifest and independent of checkpoint prose."""
 
-FIX_REPOSITORIES = ("Farm-Client", "farm-hive", "farmgui", "common", "Farm-Contract")
+
+def current_root(root_repo, skill):
+    """The repository an attempt is rooted in: its recorded root_repo, else the manifest's initial_root.
+
+    None means no root: a neutral attempt of a staged skill without an initial_root (fix before its first
+    handoff), or any unstaged skill, which is never rooted. Stages, the dispatch stage block and the ledger's
+    handoff checks all resolve the root here (spec §9.4).
+    """
+    return skill.initial_root if root_repo is None else root_repo
 
 
 def write_repositories(item, skill):
-    """An unrooted fix investigates; a rooted fix writes only its own repository."""
-    if item["skill"] != "fix":
+    """A staged skill writes only its current root, and nothing while neutral; an unstaged skill writes its
+    whole manifest scope."""
+    if not skill.staged:
         return tuple(skill.writes)
-    root = item.get("root_repo")
+    root = current_root(item.get("root_repo"), skill)
     if root is None:
         return ()
-    if root not in FIX_REPOSITORIES or root not in skill.writes:
-        raise ValueError(f"invalid fix repository root: {root}")
+    if root not in skill.writes:
+        raise ValueError(f"invalid {skill.name} repository root: {root}")
     return (root,)

@@ -6,8 +6,10 @@ import subprocess
 import time
 from uuid import UUID
 
-from .config import Paths, load_config
+from .config import Paths, ROOT, load_config
+from .dispatch import SKILL_AUTHORITY
 from .readonly_db import snapshot_connection
+from .skills import SkillError, enabled_skills, load_skills
 
 
 class _SchemaMismatch(ValueError):
@@ -141,6 +143,25 @@ def diagnose(config, *, now=None):
     report["tools"] = {"kw_ops": ({"configured": True, "token_env": kw_ops["token_env"],
                                    "token_set_in_doctor_environment": bool(os.environ.get(kw_ops["token_env"], "").strip())}
                                   if kw_ops else {"configured": False})}
+    # spec §9.11: which of this checkout's skills the config runs; serve refuses a list it cannot honour.
+    configured = config.enabled_skills is not None
+    try:
+        loaded = load_skills(ROOT / "skills")
+    except (SkillError, OSError) as exc:
+        report["skills"] = {"loaded": None, "enabled": None, "configured": configured}
+        _finding(report, "skills_unreadable", "Check the manifests under this checkout's skills/; serve cannot start.",
+                 incomplete=True, error_type=type(exc).__name__)
+    else:
+        report["skills"] = {"loaded": sorted(loaded), "enabled": None, "configured": configured}
+        names = set(loaded) if config.enabled_skills is None else set(config.enabled_skills)
+        try:
+            report["skills"]["enabled"] = sorted(enabled_skills(loaded, config.enabled_skills,
+                                                                authority=SKILL_AUTHORITY))
+        except SkillError:
+            _finding(report, "enabled_skills_invalid",
+                     "serve refuses to start with these skills: enable only skills in this checkout's skills/ that "
+                     "the dispatch AUTHORITY covers, and include chat.", unknown=sorted(names - set(loaded)),
+                     unbriefed=sorted((names & set(loaded)) - set(SKILL_AUTHORITY)), missing_chat="chat" not in names)
     try:
         report.update(_snapshot(paths.ledger))
     except (OSError, sqlite3.Error, ValueError) as exc:
