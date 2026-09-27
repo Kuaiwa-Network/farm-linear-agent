@@ -1043,7 +1043,7 @@ class RevalidateTests(LedgerBase):
         self.ledger.checkpoint(item_id, token, {"handoff": self.HANDOFF})
         self.ledger.observe_issue(issue(comments=[comment("初始值为零"), comment("改成一", id="comment-2")]))
         with self.assertRaisesRegex(LedgerError, "issue changed; revalidate"):
-            self.ledger.handoff_repository(item_id, token, "Farm-Contract")
+            self.ledger.handoff_repository(item_id, token, "Farm-Contract", skill=SKILLS["fix"])
 
     def test_a_retired_or_expired_claim_cannot_revalidate(self):
         for retire in ("cancel", "handoff", "expire"):
@@ -1057,7 +1057,7 @@ class RevalidateTests(LedgerBase):
                     self.ledger.checkpoint(item_id, token, {"handoff": self.HANDOFF})
                     self.ledger.revalidate(item_id, token, current)
                     self.ledger.checkpoint(item_id, token, {"handoff": self.HANDOFF})
-                    self.ledger.handoff_repository(item_id, token, "Farm-Contract")
+                    self.ledger.handoff_repository(item_id, token, "Farm-Contract", skill=SKILLS["fix"])
                     current = self.ledger.observe_issue(issue(comments=[comment("x", id="c-3")]))["fingerprint"]
                 else:
                     self.now += 61
