@@ -79,16 +79,31 @@ round had to skip. A check that still could not run is recorded as skipped, with
   2026-09-18, and Phase A touches neither it nor the launcher. It failed on three of the day's five pushes to
   `main` and on none of the pull-request runs of the same trees, so it is intermittent. The test asks
   `owned_pid` once, right after the spawn, and `owned_pid` answers false whenever PowerShell does not return the
-  process's command line within 10 seconds; a loaded runner would explain it, which is not confirmed. Fixing it
-  is a task of its own.
+  process's command line within 10 seconds. Measured afterwards (#60): this test starts the runner's first
+  PowerShell, which on a slow runner can take longer than that. #60 makes the test ask again and changes no
+  production code.
 - **Step 3, doctor:** read-only with the TestBot profile from a checkout of `911159b`, before and after TestBot
   moved to that revision: `status: attention` with the one finding the A1 round recorded, `cleanup_pending` on
   FARM-1300's chat item of 2026-09-23. `skills` lists `chat` and `fix` as loaded and as enabled, with
   `configured: false` because the profile names no `enabled_skills`. The ledger that A1's revision wrote opens
   under this one, and no job was active at the move.
 - **Step 4, live checks,** through TestBot's own token, on the issues the operator named for the A1 round:
-  1. **Label groups:** no card carries a child of the 功能 group yet, so routing was not exercised: skipped until
-     the operator labels a card 功能/Code and delegates it to TestBot. `label_groups` reads FARM-1353 as before.
+  1. **Label groups and routing:** `label_groups` reads FARM-1353 as before. No real card carried a child of the
+     功能 group, so the operator approved a test card, FARM-1390, created with the label Code of the 功能 group
+     and a description saying it is a routing test. TestBot read it as `label_groups` `[{"group": "功能",
+     "label": "Code"}]`. The operator delegated it to TestBot in Linear. The controller accepted one
+     `AgentSessionEvent` `created`, and the ledger recorded a delegation session and one work item with skill
+     `chat`, never `fix`. The session's first activity, a thought one second later, was the routing text for a
+     skill this instance does not run: 「这张卡带有 功能/Code，由 feature 处理，但本实例没有启用 feature（本实例运行：
+     chat、fix）。先以只读对话查看，不会开始这项工作。」, followed by the target pin. The Claude chat worker (16 turns,
+     82 s) claimed, read the issue, ran the read-only `doctor` to confirm the enabled skills, answered in the
+     session and finished `delivered`; the session completed. It asked no question, requested no repair and
+     changed nothing on the card, and its teardown record was empty. The operator then replied 「修复一下」 in the
+     session. The receiver accepted the `prompted` event and queued a second `chat` item carrying the message.
+     That worker (19 turns, 151 s) called `request-repair`, which exited 1 with `this issue carries 功能/Code,
+     so it is feature work, not a fix; feature work starts only when an issue labelled 功能/Code is delegated,
+     and this instance does not run feature yet`. The worker relayed that in Chinese, did not retry, and
+     finished `delivered`; no `fix` item exists on the card.
   2. **Authors and the prompting user,** and 3. **Mentions:** recorded in the A1 round.
   4. **One upload download:** the `download-uploads` command's implementation (`agent.__main__.run`) ran
      in-process against a scratch ledger, so TestBot's own ledger gained no item. On FARM-1353, whose description

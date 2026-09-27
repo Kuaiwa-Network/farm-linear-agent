@@ -1111,9 +1111,11 @@ returned uploads as Markdown images with no signature (the Linear MCP shows `<li
 URLs) and replies through `parent`; Linear marks app users with `User.app`, which #53 uses so that another
 app's comments are a bot's. Checked the same day after Tasks 5–14 merged: `download-uploads` with the app's token
 returned an issue's screenshot, served directly with no redirect, one observation; an issue an integration
-created has no `creator` at all, only a `botActor`. Still open here: the LFS push, lark-cli as the FarmBot app,
-the Windows PATH tools, the proto export, whether `fileUpload` works with the client-credentials token, and
-routing a 功能-labelled card, which no card carries yet.
+created has no `creator` at all, only a `botActor`; a test card labelled 功能/Code, delegated to TestBot, which
+runs only chat and fix, opened a read-only conversation whose first activity named that, and a later
+「修复一下」 in that session was refused as feature work, so no fix started.
+Still open here: the LFS push, lark-cli as the FarmBot app, the Windows PATH tools, the proto export, and
+whether `fileUpload` works with the client-credentials token.
 
 Found while writing this design:
 
