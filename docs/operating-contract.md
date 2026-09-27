@@ -595,6 +595,14 @@ per item), blocker, delivery. Templates: `references/comment-templates.md`; `<bo
 instance's `expected_bot_name`, passed to workers as `bot_name`, and `<owner.person.url>` is the
 owner's profile URL from `issue-context` (see People).
 
+Notices are a second family, for comments a job may repeat: `question` (a grouped question round),
+`waiting` (a pause on a human step elsewhere) and `foreign_work` (other people's branches or PRs).
+The ledger keeps one per work item and worker-chosen request id rather than per claimed input, so a
+retried attempt reuses it and a new round needs a new request id; `post-notice` reconciles the marker
+against live comments before creating one. The bodies of FarmBot's own comments and notices never
+count as issue input. Notices live in the additive `notices` table; a rollback leaves it unused and
+any unposted notice unsent.
+
 ## Resource execution limits
 
 - Each configured host owns its Unity slots. Items that need Unity queue for a free slot;

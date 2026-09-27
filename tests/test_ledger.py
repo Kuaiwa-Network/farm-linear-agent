@@ -6,7 +6,7 @@ import threading
 import unittest
 from pathlib import Path
 
-from agent.ledger import Ledger, LedgerError
+from agent.ledger import MARKER, Ledger, LedgerError
 
 TEAM = "9676b5f9-eff3-485b-80ed-900ed137e21a"
 ISSUE = "10000000-0000-4000-8000-000000000001"
@@ -96,6 +96,13 @@ class SchemaTests(LedgerBase):
                          [{"id": 1, "body": "先看服务端日志", "author": None, "created_at": "1970-01-01T00:16:40+00:00"}])
         reopened.ensure_session(SESSION, ISSUE, delegation=True, creator=OWNER)
         self.assertEqual(reopened.session(SESSION)["creator"], OWNER)
+
+    def test_opening_an_older_ledger_adds_the_notices_table(self):
+        self.ledger.connection.execute("DROP TABLE notices")
+        self.ledger.close()
+        reopened = self.open_ledger()
+        tables = {row["name"] for row in reopened.connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        self.assertIn("notices", tables)
 
 
 class SnapshotTests(LedgerBase):
@@ -736,6 +743,98 @@ class OutboxTests(LedgerBase):
             self.ledger.finish(item["id"], token, "delivered",
                                {"summary": "空交付", "comment_action_id": action["action_id"],
                                 "verification": "dotnet test", "prs": []})
+
+
+class NoticeTests(LedgerBase):
+    def running(self):
+        item = self.new_item()
+        return item["id"], self.ledger.claim(item["id"], worker_id="w")["token"]
+
+    def test_a_notice_is_recorded_once_per_request_id(self):
+        item_id, token = self.running()
+        body = f"请确认：\n1. 初始值是多少？ [farmbot:{'0' * 64}]"
+        first = self.ledger.prepare_notice(item_id, token, "question", "questions-1", body)
+        self.assertRegex(first["marker"], r"^\[farmbot:[0-9a-f]{64}\]$")
+        self.assertEqual(MARKER.findall(first["body"]), [first["marker"]])  # a copied marker is stripped
+        self.assertTrue(first["body"].endswith("\n\n" + first["marker"]))
+        self.assertEqual((first["item_id"], first["issue_id"], first["kind"], first["remote_id"]),
+                         (item_id, ISSUE, "question", None))
+        self.now += 5
+        self.assertEqual(self.ledger.prepare_notice(item_id, token, "question", "questions-1", body), first)
+        for kind, other in (("question", "换了措辞。"), ("waiting", body)):
+            with self.subTest(kind=kind), self.assertRaisesRegex(LedgerError, "different notice"):
+                self.ledger.prepare_notice(item_id, token, kind, "questions-1", other)
+        second = self.ledger.prepare_notice(item_id, token, "question", "questions-2", "还有一个问题。")
+        self.assertNotEqual(second["marker"], first["marker"])
+        self.assertEqual([n["request_id"] for n in self.ledger.notices(item_id)], ["questions-1", "questions-2"])
+
+    def test_kinds_request_ids_and_bodies_are_validated(self):
+        item_id, token = self.running()
+        for kind, request_id, body in (("greeting", "r1", "x"), ("question", "", "x"), ("question", "a" * 65, "x"),
+                                       ("question", "has space", "x"), ("question", "问题-1", "x"),
+                                       ("question", "r1", "   "), ("question", "r1", f"[farmbot:{'0' * 64}]")):
+            with self.subTest(kind=kind, request_id=request_id, body=body), self.assertRaises(LedgerError):
+                self.ledger.prepare_notice(item_id, token, kind, request_id, body)
+        self.assertEqual(self.ledger.notices(item_id), [])
+        longest = "A-z.0_9-" + "x" * 56
+        self.assertEqual(self.ledger.prepare_notice(item_id, token, "foreign_work", longest, "发现他人分支。")["request_id"],
+                         longest)
+
+    def test_a_retried_attempt_gets_the_same_notice_back(self):
+        """The outbox key moves with the claimed input and generation; a notice's does not."""
+        item_id, token = self.running()
+        first = self.ledger.prepare_notice(item_id, token, "waiting", "config-ready", "等待策划确认配置。")
+        self.ledger.confirm_notice(item_id, "config-ready", "remote-notice-1")
+        blocker = self.ledger.prepare_comment(item_id, token, "blocker", "暂停。")
+        self.ledger.confirm_comment(blocker["action_id"], "remote-blocker-1")
+        self.ledger.observe_issue(issue(comments=[comment("配置好了")]))
+        requeued = self.ledger.finish(item_id, token, "blocked", {"summary": "x", "comment_action_id": blocker["action_id"]})
+        self.assertEqual(requeued["state"], "queued")
+        token = self.ledger.claim(item_id, worker_id="w2")["token"]
+        again = self.ledger.prepare_notice(item_id, token, "waiting", "config-ready", "等待策划确认配置。")
+        self.assertEqual((again["marker"], again["remote_id"]), (first["marker"], "remote-notice-1"))
+
+    def test_notice_bodies_never_change_the_issue_fingerprint(self):
+        item_id, token = self.running()
+        claimed = self.ledger.observe_issue(issue())["fingerprint"]
+        notice = self.ledger.prepare_notice(item_id, token, "question", "questions-1", "请确认初始值。")
+        # Linear reports FarmBot's own comments as bot comments; the body match is the second guard, as for the outbox.
+        echoed = issue(comments=[comment(notice["body"], kind="human", id="notice-comment")])
+        self.assertEqual(self.ledger.observe_issue(echoed)["fingerprint"], claimed)
+        self.assertNotEqual(self.ledger.observe_issue(issue(comments=[comment("人工回复")]))["fingerprint"], claimed)
+
+    def test_a_notice_echo_does_not_refuse_a_late_pr_registration(self):
+        item_id, token = self.running()
+        notice = self.ledger.prepare_notice(item_id, token, "question", "questions-1", "请确认初始值。")
+        url = "https://github.com/Kuaiwa-Network/Farm-Client/pull/7"
+        self.ledger.observe_issue(issue(attachments=[url], comments=[comment(notice["body"], kind="human")]))
+        view = self.ledger.checkpoint(item_id, token, {"published_prs": [url]}, verified_prs=[url])
+        self.assertEqual(self.ledger.issue_context(view["id"])["published_prs"], [url])
+
+    def test_notices_require_the_live_claim_and_an_open_issue(self):
+        item_id, token = self.running()
+        with self.assertRaisesRegex(LedgerError, "running claim"):
+            self.ledger.prepare_notice(item_id, "claim_wrong", "question", "q-1", "x")
+        self.ledger.observe_issue(issue(status_type="completed"))
+        with self.assertRaisesRegex(LedgerError, "left scope"):
+            self.ledger.prepare_notice(item_id, token, "question", "q-1", "x")
+        self.ledger.observe_issue(issue())
+        self.now += 61
+        with self.assertRaisesRegex(LedgerError, "lease expired"):
+            self.ledger.prepare_notice(item_id, token, "question", "q-1", "x")
+        self.assertEqual(self.ledger.notices(item_id), [])
+
+    def test_confirm_notice_is_idempotent_and_refuses_another_remote_id(self):
+        item_id, token = self.running()
+        self.ledger.prepare_notice(item_id, token, "waiting", "ui-ready", "等待 UI。")
+        with self.assertRaisesRegex(LedgerError, "unknown notice"):
+            self.ledger.confirm_notice(item_id, "no-such-request", "r1")
+        self.assertEqual(self.ledger.confirm_notice(item_id, "ui-ready", "r1")["remote_id"], "r1")
+        self.assertEqual(self.ledger.confirm_notice(item_id, "ui-ready", "r1")["remote_id"], "r1")
+        with self.assertRaisesRegex(LedgerError, "different remote id"):
+            self.ledger.confirm_notice(item_id, "ui-ready", "r2")
+        self.assertEqual([(n["request_id"], n["kind"], n["remote_id"]) for n in self.ledger.issue_context(item_id)["notices"]],
+                         [("ui-ready", "waiting", "r1")])
 
 
 class SecondItemOnOneIssueTests(LedgerBase):

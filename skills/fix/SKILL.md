@@ -100,6 +100,12 @@ because a human answer is needed. A reply in the session or a mention of `bot_na
 read the answer from your inbox before proceeding. If it is still insufficient, ask again. Never ask
 the operator to move the discussion to Codex or create a separate contract task.
 
+When answers must come from several people, first post the questions as one issue comment grouped by
+recipient: `prepare-notice --kind question --request-id questions-N --body-file FILE`, then
+`post-notice --request-id questions-N`, with a new N for each round. Then run `await-input` with a
+one-line question that points to that comment. After an interruption, rerun `post-notice` with the same
+request id instead of preparing a new round; `issue-context.notices` shows which rounds were posted.
+
 An explicit human decision can resolve a contract conflict: record it in the checkpoint and the
 contract change as "Deciders and mentions" says, then implement it. Do not invent decisions or
 attribution. A missing generator/tool or external dependency is still a real blocker; name it

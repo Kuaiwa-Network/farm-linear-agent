@@ -26,6 +26,10 @@ STATES = ("queued", "running", "awaiting_input", "awaiting_resource",
 ACTIVE_STATES = ("queued", "running", "awaiting_input", "awaiting_resource")
 # Linear's closed workflow-state types. Duplicate reports its own type, not "canceled".
 TERMINAL_STATUS_TYPES = ("completed", "canceled", "duplicate")
+# Notice kinds (spec §9.4). Later phases add theirs: `notices.kind` has no CHECK constraint, so a new kind needs no
+# table rebuild, which is what the outbox's CHECK and UNIQUE key would demand.
+NOTICE_KINDS = ("question", "waiting", "foreign_work")
+REQUEST_ID = re.compile(r"[A-Za-z0-9._-]{1,64}")
 
 
 class LedgerError(ValueError):
@@ -349,6 +353,19 @@ class Ledger:
                     confirmed_at REAL,
                     UNIQUE(issue_id, fingerprint, generation, kind)
                 );
+                CREATE TABLE IF NOT EXISTS notices (
+                    item_id TEXT NOT NULL REFERENCES work_items(id),
+                    request_id TEXT NOT NULL,
+                    issue_id TEXT NOT NULL REFERENCES issues(id),
+                    kind TEXT NOT NULL,
+                    marker TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    remote_id TEXT,
+                    created_at REAL NOT NULL,
+                    confirmed_at REAL,
+                    PRIMARY KEY(item_id, request_id)
+                );
+                CREATE INDEX IF NOT EXISTS notices_by_issue ON notices(issue_id);
                 CREATE TABLE IF NOT EXISTS published_prs (
                     issue_id TEXT NOT NULL REFERENCES issues(id),
                     url TEXT NOT NULL,
@@ -523,6 +540,12 @@ class Ledger:
             raise LedgerError("lease expired; the launcher recovers expired work, workers must stop")
         return row
 
+    def _own_bodies(self, issue_id):
+        """Bodies of the comments FarmBot prepared on this issue, outbox rows and notices: never issue input."""
+        return {r["body"] for r in self.connection.execute(
+            "SELECT body FROM outbox WHERE issue_id=? UNION SELECT body FROM notices WHERE issue_id=?",
+            (issue_id, issue_id))}
+
     def observe_issue(self, raw):
         """Store one complete snapshot. Observing a comment is not authority to restart."""
         issue = _normalize(raw)
@@ -534,7 +557,7 @@ class Ledger:
                         self._version(issue["updated_at"]) <= self._version(previous["updated_at"])):
                     for key in ("status", "status_type", "archived", "delegate_id", "updated_at"):
                         issue[key] = previous.get(key)
-            own_bodies = {r["body"] for r in self.connection.execute("SELECT body FROM outbox WHERE issue_id=?", (issue["id"],))}
+            own_bodies = self._own_bodies(issue["id"])
             own_prs = {r["url"] for r in self.connection.execute("SELECT url FROM published_prs WHERE issue_id=?", (issue["id"],))}
             fingerprint = _fingerprint(issue, own_bodies, own_prs)
             self.connection.execute("""INSERT INTO issues(id,metadata,fingerprint,observed_at) VALUES(?,?,?,?)
@@ -930,7 +953,7 @@ class Ledger:
             existing_input = set(issue["attachments"])
             new_prs = set(published) - known
             late_prs = new_prs & existing_input
-            own_bodies = {r["body"] for r in self.connection.execute("SELECT body FROM outbox WHERE issue_id=?", (row["issue_id"],))}
+            own_bodies = self._own_bodies(row["issue_id"])
             fingerprint = _fingerprint(issue, own_bodies, known | new_prs)
             # A PR can reach Linear before its checkpoint (including during the next
             # verify-publication call). Only verified job output which exactly restores
@@ -1671,6 +1694,63 @@ class Ledger:
     def outbox(self, item_id):
         return [dict(r) for r in self.connection.execute("SELECT * FROM outbox WHERE item_id=? ORDER BY created_at,action_id", (item_id,))]
 
+    def prepare_notice(self, item_id, token, kind, request_id, body):
+        """Record one notice per work item and request id (spec §9.4).
+
+        The outbox key moves with the claimed input and the generation, so a changed issue gets a new
+        started, blocker or delivery comment. A question round or a pause must reach the issue once however
+        often the issue changes, and a later round needs a comment of its own, so the worker names each one.
+        The same id and body return the recorded notice, posted or not, which is how a retried attempt
+        reuses it; the same id with other words is refused rather than silently kept or replaced.
+        """
+        if kind not in NOTICE_KINDS:
+            raise LedgerError(f"notice kind must be one of {', '.join(NOTICE_KINDS)}")
+        if not isinstance(request_id, str) or not REQUEST_ID.fullmatch(request_id):
+            raise LedgerError("request id must be 1-64 letters, digits, '.', '_' or '-'")
+        _text(body, "notice body")
+        clean_body = MARKER.sub("", body).rstrip()
+        _text(clean_body, "notice body")
+        with self._transaction():
+            row = self._owned(item_id, token)
+            if not _in_scope(json.loads(self._issue_row(row["issue_id"])["metadata"])):
+                raise LedgerError("issue left scope; do not post a new notice")
+            action_id = hashlib.sha256(f"notice:{row['id']}:{request_id}".encode("utf-8")).hexdigest()
+            marker = f"[farmbot:{action_id}]"
+            full_body = f"{clean_body}\n\n{marker}"
+            existing = self.notice(row["id"], request_id)
+            if existing is None:
+                self.connection.execute("""INSERT INTO notices(item_id,request_id,issue_id,kind,marker,body,created_at)
+                    VALUES(?,?,?,?,?,?,?)""", (row["id"], request_id, row["issue_id"], kind, marker, full_body, self.clock()))
+                self._audit(row["id"], "prepare_notice", kind, {"request_id": request_id})
+            elif existing["kind"] != kind or existing["body"] != full_body:
+                raise LedgerError(f"request id {request_id} already holds a different notice; "
+                                  "post that one or choose a new request id")
+            return self.notice(row["id"], request_id)
+
+    def confirm_notice(self, item_id, request_id, remote_id):
+        """Record the comment a notice became, once: the caller's readback, as for confirm_comment."""
+        _text(remote_id, "remote_id")
+        with self._transaction():
+            notice = self.notice(item_id, request_id)
+            if notice is None:
+                raise LedgerError("unknown notice for this work item")
+            if notice["remote_id"] is not None and notice["remote_id"] != remote_id:
+                raise LedgerError("notice already confirmed with a different remote id")
+            if notice["remote_id"] is None:
+                self.connection.execute("UPDATE notices SET remote_id=?,confirmed_at=? WHERE item_id=? AND request_id=?",
+                                        (remote_id, self.clock(), item_id, request_id))
+                self._audit(item_id, "confirm_notice", notice["kind"], {"request_id": request_id, "remote_id": remote_id})
+            return self.notice(item_id, request_id)
+
+    def notice(self, item_id, request_id):
+        row = self.connection.execute("SELECT * FROM notices WHERE item_id=? AND request_id=?",
+                                      (item_id, request_id)).fetchone()
+        return dict(row) if row else None
+
+    def notices(self, item_id):
+        return [dict(r) for r in self.connection.execute(
+            "SELECT * FROM notices WHERE item_id=? ORDER BY created_at,request_id", (item_id,))]
+
     def finish(self, item_id, token, outcome, evidence):
         if outcome not in ("blocked", "delivered"):
             raise LedgerError("outcome must be blocked or delivered")
@@ -1810,6 +1890,8 @@ class Ledger:
                 "session_messages": [_message(r) for r in self.connection.execute(
                     "SELECT id,body,author_json,created_at FROM inbox WHERE item_id=? ORDER BY id", (item_id,))],
                 "pending_question": checkpoint.get("pending_question"),
+                "notices": [{key: notice[key] for key in ("request_id", "kind", "remote_id", "created_at", "confirmed_at")}
+                            for notice in self.notices(item_id)],
                 "published_prs": [r["url"] for r in self.connection.execute(
                     "SELECT url FROM published_prs WHERE issue_id=? ORDER BY url", (row["issue_id"],))],
                 "inbox_pending": self.connection.execute(

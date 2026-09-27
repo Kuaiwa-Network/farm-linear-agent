@@ -441,6 +441,47 @@ class CliTests(unittest.TestCase):
         self.assertEqual(posted["remote_id"], "c-existing")
         self.assertNotIn("create_comment", [c["method"] for c in self.calls()])
 
+    def test_post_notice_posts_once_and_reconciles_an_existing_marker(self):
+        item = self.seeded_item()
+        token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
+        body = self.root / "questions.md"
+        body.write_text("请确认：\n1. 初始值是多少？", encoding="utf-8")
+        notice = self.run_cli("prepare-notice", "--item", item, "--token", token, "--kind", "question",
+                              "--request-id", "questions-1", "--body-file", str(body))
+        posted = self.run_cli("post-notice", "--item", item, "--token", token, "--request-id", "questions-1")
+        self.assertEqual(posted["remote_id"], "stub-comment-1")
+        self.assertIn(notice["marker"], self.calls()[-1]["body"])
+        self.run_cli("post-notice", "--item", item, "--token", token, "--request-id", "questions-1")
+        self.assertEqual([c["method"] for c in self.calls()].count("create_comment"), 1)
+        # A notice whose comment already reached Linear (a lost response) is reconciled, not posted again.
+        waiting = self.run_cli("prepare-notice", "--item", item, "--token", token, "--kind", "waiting",
+                               "--request-id", "config-ready", "--body-file", str(body))
+        existing = issue(labels=["Bug"], comments=[{"id": "c-existing", "body": waiting["body"], "author_kind": "bot",
+                                                   "created_at": "2026-09-18T00:00:00Z", "updated_at": "2026-09-18T00:00:00Z"}])
+        (self.stub / "issue.json").write_text(json.dumps(existing), encoding="utf-8")
+        reconciled = self.run_cli("post-notice", "--item", item, "--token", token, "--request-id", "config-ready")
+        self.assertEqual(reconciled["remote_id"], "c-existing")
+        self.assertEqual([c["method"] for c in self.calls()].count("create_comment"), 1)
+
+    def test_notice_commands_require_the_items_own_claim(self):
+        mine = self.seeded_item()
+        token = self.run_cli("claim", "--item", mine, "--worker-id", "w")["token"]
+        body = self.root / "n.md"
+        body.write_text("x", encoding="utf-8")
+        missing = self.run_cli("prepare-notice", "--item", mine, "--kind", "question", "--request-id", "q-1",
+                               "--body-file", str(body), success=False)
+        self.assertIn("claim token required", missing.stderr)
+        self.run_cli("prepare-notice", "--item", mine, "--token", token, "--kind", "question", "--request-id", "q-1",
+                     "--body-file", str(body))
+        other = self.seeded_item(issue_id=OTHER, session="session-2")
+        other_token = self.run_cli("claim", "--item", other, "--worker-id", "w2")["token"]
+        foreign = self.run_cli("post-notice", "--item", other, "--token", other_token, "--request-id", "q-1",
+                               success=False)
+        self.assertIn("unknown notice", foreign.stderr)
+        wrong = self.run_cli("post-notice", "--item", mine, "--token", other_token, "--request-id", "q-1", success=False)
+        self.assertIn("running claim", wrong.stderr)
+        self.assertNotIn("create_comment", [c["method"] for c in self.calls()])
+
     def test_activity_and_await_input_park_the_item(self):
         item = self.seeded_item()
         token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]

@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from .config import Paths, linear_api, load_config
-from .ledger import TERMINAL_STATUS_TYPES, Ledger, LedgerError
+from .ledger import NOTICE_KINDS, TERMINAL_STATUS_TYPES, Ledger, LedgerError
 from .memory import prune_snapshots
 from .router import WRITE_SKILLS
 from .stages import FIX_REPOSITORIES, write_repositories
@@ -61,6 +61,9 @@ def parser():
     prepare.add_argument("--kind", required=True, choices=["started", "blocker", "delivery"])
     cmd("post-comment", "--item", "--action-id", token=True)
     cmd("confirm-comment", "--item", "--action-id", "--remote-id", token=True)
+    notice = cmd("prepare-notice", "--item", "--request-id", "--body-file", token=True)
+    notice.add_argument("--kind", required=True, choices=NOTICE_KINDS)
+    cmd("post-notice", "--item", "--request-id", token=True)
     activity = cmd("activity", "--item", "--body-file", token=True)
     activity.add_argument("--type", required=True, choices=["thought", "action", "response", "error", "elicitation"])
     cmd("await-input", "--item", "--question", token=True)
@@ -225,6 +228,27 @@ def post_comment(ledger, api, action):
     return ledger.confirm_comment(action["action_id"], remote_id)
 
 
+def owned_notice(ledger, item_id, request_id, token):
+    """A notice belongs to one work item: only that item's live claim may post it."""
+    ledger.renew(item_id, token)
+    notice = ledger.notice(item_id, request_id)
+    if notice is None:
+        raise LedgerError("unknown notice for this work item; prepare it first")
+    return notice
+
+
+def post_notice(ledger, api, notice):
+    """Reconcile the marker against live comments before ever creating one, exactly as post_comment does."""
+    if notice["remote_id"]:
+        return notice
+    issue = api.fetch_issue(notice["issue_id"])
+    ledger.observe_issue(issue)
+    remote_id = next((c["id"] for c in issue["comments"] if notice["marker"] in c["body"]), None)
+    if remote_id is None:
+        remote_id = api.create_comment(notice["issue_id"], notice["body"])
+    return ledger.confirm_notice(notice["item_id"], notice["request_id"], remote_id)
+
+
 def run(args, ledger, api_factory):
     c = args.command
     if c == "memory-list":
@@ -311,6 +335,12 @@ def run(args, ledger, api_factory):
     if c == "confirm-comment":
         action = owned_action(ledger, args.item, args.action_id, resolve_token(args))
         return ledger.confirm_comment(action["action_id"], args.remote_id)
+    if c == "prepare-notice":
+        return ledger.prepare_notice(args.item, resolve_token(args), args.kind, args.request_id,
+                                     read_text(args.body_file))
+    if c == "post-notice":
+        notice = owned_notice(ledger, args.item, args.request_id, resolve_token(args))
+        return post_notice(ledger, api_factory(), notice)
     if c == "activity":
         item = ledger.item(args.item)
         ledger.renew(args.item, resolve_token(args))  # proves ownership before speaking for the item

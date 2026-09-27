@@ -11,7 +11,7 @@ python3 -m agent --db DATABASE checkpoint --help
 | --- | --- |
 | `claim` | `--item ITEM_ID --worker-id WORKER_ID`; returns the claim token |
 | `fetch-issue`, `issue-context` | `--item ITEM_ID` only; no token flags |
-| `renew`, `checkpoint`, `pop-inbox`, `download-uploads`, `verify-publication`, `handoff-repository`, `prepare-comment`, `post-comment`, `confirm-comment`, `activity`, `await-input`, `await-resource`, `finish` | `--item ITEM_ID --token-file STATE_DIR/token`, plus command-specific arguments from `--help` |
+| `renew`, `checkpoint`, `pop-inbox`, `download-uploads`, `verify-publication`, `handoff-repository`, `prepare-comment`, `post-comment`, `confirm-comment`, `prepare-notice`, `post-notice`, `activity`, `await-input`, `await-resource`, `finish` | `--item ITEM_ID --token-file STATE_DIR/token`, plus command-specific arguments from `--help` |
 | `request-repair` | Read-only profile only: claim-token arguments, `--message-id LATEST_MESSAGE_ID --summary-file STATE_DIR/repair-summary.md` |
 | `resume-work` | Legacy resume-only command: claim-token arguments and `--message-id LATEST_MESSAGE_ID`; cannot start a first repair |
 | `memory-list`, `memory-read`, `memory-save`, `memory-forget` | Same claim-token arguments; see `references/memory.md` |
@@ -147,3 +147,20 @@ Its `recovery_queued` response revokes the worker claim and reservation token: e
 The controller handles editor recovery and job continuation. Do not follow it with `await-input`
 or ask for host intervention. A fresh worker receives the exact retried commit and can read
 `issue-context.resource_recovery` for prior attempts and retained diagnostics.
+
+## Notices
+
+A notice is an issue comment a job may need more than once: `--kind question` for a grouped question
+round, `waiting` for a pause on a human step elsewhere, `foreign_work` for other people's branches or
+PRs on the issue. Name each with `--request-id`: 1–64 letters, digits, `.`, `_` or `-`, unique within
+your item, such as `questions-2`. A new round needs a new id.
+
+```bash
+python3 -m agent --db DATABASE prepare-notice --item ITEM_ID --token-file STATE_DIR/token --kind question --request-id questions-1 --body-file STATE_DIR/questions-1.md
+python3 -m agent --db DATABASE post-notice --item ITEM_ID --token-file STATE_DIR/token --request-id questions-1
+```
+
+`prepare-notice` records the body once and appends the marker: the same id and body return the same
+notice, and a different body under that id is refused. `post-notice` reconciles the marker against live
+comments before creating one, so rerunning it after an interruption never posts twice.
+`issue-context.notices` lists your item's notices; `remote_id` is set once a notice is on the issue.
