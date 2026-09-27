@@ -1,12 +1,13 @@
 # The Bot label group (D18)
 
-**Status: proposed, 2026-09-27. Not implemented.** Current behaviour is in
+**Status: accepted, 2026-09-28. Not implemented.** Current behaviour is in
 [`docs/operating-contract.md`](../../operating-contract.md), which changes only when this design
 lands. The design follows the operator's decision D18 of 2026-09-27, which amends D3 of the
-[feature-workers design](2026-09-24-feature-workers-design.md) ("the feature spec" below) and, if f
-(§2) is confirmed, the last clause of its D16; D18 c also ends the Bug-delegation shortcut of two
-earlier designs (§3.1). Approving it authorizes neither the Linear change nor any deployment; §7
-gives their order. §2 lists three points still to confirm and §10 the open questions. "The plan" is
+[feature-workers design](2026-09-24-feature-workers-design.md) ("the feature spec" below) and, through
+f (§2), the last clause of its D16; D18 c also ends the Bug-delegation shortcut of two earlier
+designs (§3.1). On 2026-09-28 the operator confirmed f, g and h and settled the questions of §10
+as recommended. Approving the design authorizes neither the Linear change nor any deployment; §7
+gives their order. "The plan" is
 [`docs/superpowers/plans/2026-09-25-feature-workers-phase-a.md`](../plans/2026-09-25-feature-workers-phase-a.md),
 whose "As executed" sections record the live checks cited here.
 
@@ -35,18 +36,21 @@ longer asks which label to remove. FarmBot never sets a Bot label itself.
 
 In the feature spec, D18 replaces D3's group name, adds 修改 to its children UI and Code, and replaces
 its clauses "Bug keeps `fix`; Bug plus 功能 makes FarmBot ask" (line 35); D3's matching of the parent
-group stays. D16 (line 48) stands, except its "chat does not start feature work" if f is confirmed.
+group stays. D16 (line 48) stands, except its "chat does not start feature work", which f replaces.
 
-### To confirm
+### Confirmed on 2026-09-28
 
-**f. Start requests follow the Bot label.** Proposed: a start request in a conversation starts the
-workflow the card's Bot label names (修改 or no label: `fix`; UI: `fgui`; Code: `feature`), each only
-where the instance enables that skill. FarmBot never adds a label itself. This would replace D16's
-"chat does not start feature work", the feature spec's non-goal "Starting feature work from a mention
-or from chat (D16)" (§3 there, line 130), and today's refusal of a first fix on a 功能 card. Mentions
-still never start write work.
+The assistant proposed f, g and h on 2026-09-27; the operator confirmed each as recommended on
+2026-09-28. They are part of D18.
 
-*Recommendation: confirm, worded as §4.4 and §4.7 give it:* a request continues earlier write work
+**f. Start requests follow the Bot label.** A start request in a conversation starts the workflow
+the card's Bot label names (修改 or no label: `fix`; UI: `fgui`; Code: `feature`), each only where
+the instance enables that skill. FarmBot never adds a label itself. This replaces D16's "chat does
+not start feature work", the feature spec's non-goal "Starting feature work from a mention or from
+chat (D16)" (§3 there, line 130), and today's refusal of a first fix on a 功能 card. Mentions still
+never start write work.
+
+*Confirmed as worded in §4.4 and §4.7:* a request continues earlier write work
 whatever the label now says, and "mentions never start write work" holds for routing, while a
 conversation a mention opened can request a start through the card's delegation while the card is
 delegated, as it can request a fix today. Reason: a start request, like a delegation, needs the card
@@ -55,7 +59,7 @@ delegated card; D18 d already lets a conversation start `fix`; and a card labell
 conversation then needs no second delegation. Until a host runs `fgui` or `feature`, f changes only
 the wording of one refusal (§4.4).
 
-**g. Should Bug alone keep starting `fix` for a transition period?** *Recommendation: no.* A
+**g. No transition switch: Bug alone stops starting `fix` once production runs D18.** A
 transition happens anyway: until production runs D18 code, a Bug card delegated to it starts `fix`
 (§7). A switch would keep sending designer-only bugs to `fix`, which D18 c exists to stop. It would
 need a config key (fragile for the reason §4.1 gives), tests for both settings and a release to
@@ -67,10 +71,10 @@ remove it, and it would have to read "Bug and no Bot child", or the Bug-plus-gro
 operator's standing authorization of 2026-09-21, recorded in farmgui's `AGENTS.md:38-43` ("when
 FarmBot is carrying out an authorized FGUI bug fix") and in this repository
 (`references/repo-map.md:96-103`; `docs/operating-contract.md:549-550`). D18 b and e send UI tweaks
-that are not bugs to `fix`. *Recommendation: confirm. The operator widens the authorization to an
-authorized FarmBot `fix` job, a bug fix or a small change to existing UI, leaving its validation and
-scope sentences unchanged; farmgui's owners record the new wording (§7, step 3), and this
-repository's two records follow it, never wider.* Reason: without it a 修改 UI change that needs
+that are not bugs to `fix`. *Confirmed: the operator widens the authorization to an authorized
+FarmBot `fix` job, a bug fix or a small change to existing UI, leaving its validation and scope
+sentences unchanged; farmgui's owners record the new wording (§7, step 3), and this repository's two
+records follow it, never wider.* Reason: without it a 修改 UI change that needs
 freshly exported assets has no standing grant; and the feature spec already plans to reword the same
 lines for `fgui` (line 1038), so one edit can carry both.
 
@@ -174,7 +178,7 @@ included: a Bot child starts its worker whatever the text says, and someone who 
 about a labelled card mentions FarmBot. The `fix` worker reads that message before investigating and
 may answer it without changing code (`skills/fix/SKILL.md:9-12`, `:45-48`). Bug's rule that text goes
 to a conversation first (`agent/router.py:78-80`) served a label that did not say what the person
-wanted; a Bot child does. Open question 1 asks the operator to confirm this.
+wanted; a Bot child does. The operator confirmed this rule (§10, question 1).
 
 A `created` delegation never reaches the router with text: a session carrying a comment is a mention
 (`agent/receiver.py:158`, `:167-168`), and a verified artificial root is stripped of its text
@@ -198,7 +202,7 @@ a question, a new delegation is declined or forwarded (`agent/receiver.py:263-27
 delegation does not end that item (`agent/lifecycle.py:19-21` stops work only on a closed or archived
 card).
 
-### 4.4 Start requests in a conversation (to confirm, f)
+### 4.4 Start requests in a conversation (f)
 
 Under f, `request-repair` keeps its name, its fresh read of the card (`agent/__main__.py:411-413`) and
 its fences: the conversation's claim, a real and latest message, the card open and delegated now, and
@@ -226,10 +230,7 @@ root, can do without the conversation's summary as `prior_context`, which today 
 that starts without one (`agent/scheduler.py:157-164`); the summary stays in `issue-context` either
 way (`agent/ledger.py:2039-2051`).
 
-If f is rejected, the D18 release differs only in the refusal on UI and Code cards, which keeps
-today's meaning under the Bot name ("… work starts only when an issue labelled Bot/Code is
-delegated"), and in the documents. Either way FarmBot never adds, removes or changes a Bot label
-(feature spec §3, lines 122-123).
+FarmBot never adds, removes or changes a Bot label (feature spec §3, lines 122-123).
 
 ### 4.5 What 修改 covers
 
@@ -239,7 +240,7 @@ config tables, which are UI or Code work (D18 e), nor designer-only work such as
 art, which takes no Bot label (D18 c). Nothing in the code keeps a larger change out of `fix`; the
 person choosing the label does. The `fix` skill therefore gains one instruction: before making a new
 screen, protocol message or config table, the worker stops and finishes blocked, naming what it found
-and the Bot/UI or Bot/Code label the card needs (D18 e; open question 2).
+and the Bot/UI or Bot/Code label the card needs (D18 e; §10, question 2).
 
 The `fix` skill is written for defects. Each step keeps its purpose and gains wording for a change:
 
@@ -263,9 +264,11 @@ human delegated or mentioned the issue; that is your only authority.", `agent/di
 stage's repositories (`:11-12`), publishing "this issue's relevant source changes, tests and required
 generated assets" (`:22-24`), and kw_ops "when this issue's reproduction or verification needs it"
 (`:64-65`), which a change meets through verification. "fix SHAs" (`:55`) names the commit under
-test. Unless open question 5 is confirmed, the text and its frozen hash stay
-(`tests/test_dispatch.py:220-247`). The one indirect limit is "A consumer-root worker follows that
-repository's own rules." (`agent/dispatch.py:16`), which brings in farmgui's export grant (h).
+test. The one indirect limit is "A consumer-root worker follows that repository's own rules."
+(`agent/dispatch.py:16`), which brings in farmgui's export grant (h). The approval reviewer never
+reads farmgui's rules (§10, question 5), so, as the operator settled there, `fix`'s part of the
+AUTHORITY gains one sentence stating the export grant h settles, and its frozen hash test
+(`tests/test_dispatch.py:220-247`) changes deliberately in the same pull request.
 
 ### 4.6 Why one group removes the Bug-plus-功能 question
 
@@ -298,19 +301,19 @@ in the same pull request as the code.
 |---|---|---|
 | `agent/router.py` | The group constant names Bot and, for one release, 功能 (§4.1); the child map is 修改 `fix`, UI `fgui`, Code `feature`; `feature_children` is renamed for Bot. The Bug rules (`:71-72`, `:78-81`) go with `_conflict` (`:29-33`). A `created` delegation with no Bot child returns the §4.2 message when `fix` is enabled; a re-route keeps its reply as the text, as today. `_not_run` (`:36-43`) names Bot and lists 修改, and since 修改 is not feature work its unknown-child text says 「一项工作」 and 「不会开始这项工作」 for 「一项功能工作」 and 「不会开始功能工作」. `feature_repair_refusal` (`:46-55`) becomes the refusal of §4.4 and leaves 修改 alone: with 修改 only added to today's map, `request-repair` would refuse a first fix on a 修改 card as "fix work, not a fix", and `agent/__main__.py:165` would count any earlier fix as a feature job. | `tests/test_router.py`: assertions change at `:19-20` (Bug alone opens a conversation; 修改 takes its place), `:31-32` and `:101-102` (a delegation with no Bot child carries the §4.2 message, not its own text), `:81-96`, `:103-104`, `:106-110`, `:119-128` and `:133`; `:60-72` go; new cases in §9 |
 | `agent/receiver.py` | `ACK["fix"]` (`:30`) says 「正在排队处理这张修改卡」 instead of 「这个缺陷」; `PAUSED_WORK` (`:35`) drops `fix`, so a reply after undelegation reads 「暂不继续这项工作」 (`:302-304`). The §4.2 message names the instance and is posted only when this session gets the conversation, not put before the notice that forwards a message to another session's work (`:276-277`). The re-route comment (`:245-247`) loses its label example. | `tests/test_receiver.py:789-816` and `tests/test_service.py:132-144` pin the texts byte for byte; `tests/test_receiver.py:834-842`, `:860-874`, `:876-887`, `:897-930` (§9) |
-| `agent/__main__.py` | `feature_card_refusal` (`:154-167`) applies §4.4: it refuses a first start on a card whose Bot children are one UI or Code child, with the text f's decision chooses, or one unknown child or two children, with today's "not exactly one" refusal under the Bot name (`agent/router.py:50-52`); it never refuses a card whose only Bot child is 修改 or a card without a Bot child. The acknowledgement (`:425`) reads 「已排队开始或继续修改」 instead of 「…修复」. The `fix` gate (`:407-410`) stays. | `tests/test_repair_work.py:202-220` and `:252-258` (new texts; Bug with Bot/修改 gets a fix); `:222-233` and `:268-275` unchanged |
-| `agent/dispatch.py` | The code comment at `:61` says "the issue's" for "a bug's". Only if open question 5 is confirmed: `fix`'s part of the AUTHORITY gains the export sentence h settles. | none; with open question 5, `tests/test_dispatch.py:223-247` changes deliberately |
+| `agent/__main__.py` | `feature_card_refusal` (`:154-167`) applies §4.4: it refuses a first start on a card whose Bot children are one UI or Code child, with f's text ("… this instance does not run `feature` yet" until one does), or one unknown child or two children, with today's "not exactly one" refusal under the Bot name (`agent/router.py:50-52`); it never refuses a card whose only Bot child is 修改 or a card without a Bot child. The acknowledgement (`:425`) reads 「已排队开始或继续修改」 instead of 「…修复」. The `fix` gate (`:407-410`) stays. | `tests/test_repair_work.py:202-220` and `:252-258` (new texts; Bug with Bot/修改 gets a fix); `:222-233` and `:268-275` unchanged |
+| `agent/dispatch.py` | The code comment at `:61` says "the issue's" for "a bug's". `fix`'s part of the AUTHORITY gains the export sentence h settles (§10, question 5); `chat`'s part stays as it is. | `tests/test_dispatch.py:223-247` changes deliberately: the frozen copy and its hash for `fix`, while `chat` keeps today's bytes |
 | `skills/fix/SKILL.md` | The steps of §4.5 and the size instruction. | `tests/test_skills.py:143-160` pins other phrases, which stay |
 | `references/comment-templates.md` | The started, delivery and no-change texts of §4.5. | `tests/test_skills.py:88-99` pins the started and delivery lines |
 | `references/evidence-format.md` | The red-test rule of §4.5 (`:30-32`). | none |
 | `skills/fix/skill.json` | `intents` (`:4`) becomes `["label:Bot/修改"]`; nothing reads it (`agent/skills.py:55-57`, `:81` validate and store it). | none |
-| `skills/chat/SKILL.md` | "A missing Bot label alone does not require clarification or re-delegation" (`:48`); a change request such as 「改一下」 beside 「修复」 (`:41-43`); the checks and refusals of §4.4 (`:55-62`, `:66-67`), and UI and Code start requests if f is confirmed; on a UI or Code card whose context shows `resumable_work`, `request-repair` only when the person asks to continue that fix, while a request for UI or Code work gets the answer §4.4's refusal gives. | none |
+| `skills/chat/SKILL.md` | "A missing Bot label alone does not require clarification or re-delegation" (`:48`); a change request such as 「改一下」 beside 「修复」 (`:41-43`); the checks and refusals of §4.4 (`:55-62`, `:66-67`), and UI and Code start requests (f); on a UI or Code card whose context shows `resumable_work`, `request-repair` only when the person asks to continue that fix, while a request for UI or Code work gets the answer §4.4's refusal gives. | none |
 | `references/worker-cli.md` | "no prior fix or Bot label" (`:34`); the refusal of §4.4 (`:39-41`). | none |
 | `references/repo-map.md` | "For the delegated bug or change" (`:80`); the export sentence (`:100-103`) as h settles. | none |
 | `agent/monitor_static/monitor.js` | `SKILL.fix` (`:18`) reads 修改, the label people use. | `tests/test_monitor.py:138-139` checks only that every skill has a label |
 | `docs/operating-contract.md` | Trigger rows `:115-120` follow §4.2 to §4.4 and §4.7, and the "declines" of `:127` then holds only for a delegation with a Bot child this instance runs (§8); the delegation paragraphs `:223-236`; "reproduction or verification" (`:206-208`); Contract edits (`:286-287`); UI fixes and changes (`:536`, `:544`); the export sentence (`:549-550`) as h settles; the no-change reasons (`:702-704`); a note in Triggers on the rename and deploy order of §7. | none |
 | `README.md` | Delegate a card with a Bot label for work (`:3`); "bug fixes and small changes" (`:5`); §4.4 instead of the 功能 exception (`:8-9`). | none |
-| `docs/superpowers/specs/2026-09-24-feature-workers-design.md` | This design adds the D18 row (line 50), notes on D3 and D16 (lines 35, 48) and pointers at the top of §4.1 and §4.3. When D18 lands, remove the Bug rules D18 c ends: §4.3's rows "Bug and any 功能 child" and "Bug, empty text" (lines 175, 179) and its label-fix clause (184-185), "implement the Bug-plus-功能 elicitation" in §9.2 (873), "and Bug plus 功能" in §9.11 (1012-1013) and §12's "Bug alone is unchanged; Bug plus 功能 elicits, and a re-route after the label fix starts the right skill" (1072). Add 修改 in §4.1 and §4.3, extend "D1–D17" (7), and rename 功能 to Bot in §1 (17), §4.1-§4.4 (134-193), §6.2 (411), §7.2 (683), §9.4 (905), the manifests (932), §9.11 (1012), §10 (1036) and §12 (1078). If f is confirmed, also change §3's last non-goal (130), §9.4 (904-906) and §9.9 (993-994); if h is confirmed, §9.11's "an authorized FGUI bug fix" (1015) and §10's farmgui row (1038). The dated records in §2.2 (line 93) and §14.1 (lines 1119-1123) stay. | none |
+| `docs/superpowers/specs/2026-09-24-feature-workers-design.md` | This design adds the D18 row (line 50), notes on D3 and D16 (lines 35, 48) and pointers at the top of §4.1 and §4.3. When D18 lands, remove the Bug rules D18 c ends: §4.3's rows "Bug and any 功能 child" and "Bug, empty text" (lines 175, 179) and its label-fix clause (184-185), "implement the Bug-plus-功能 elicitation" in §9.2 (873), "and Bug plus 功能" in §9.11 (1012-1013) and §12's "Bug alone is unchanged; Bug plus 功能 elicits, and a re-route after the label fix starts the right skill" (1072). Add 修改 in §4.1 and §4.3, extend "D1–D17" (7), and rename 功能 to Bot in §1 (17), §4.1-§4.4 (134-193), §6.2 (411), §7.2 (683), §9.4 (905), the manifests (932), §9.11 (1012), §10 (1036) and §12 (1078). For f, also change §3's last non-goal (130), §9.4 (904-906) and §9.9 (993-994); for h, §9.11's "an authorized FGUI bug fix" (1015) and §10's farmgui row (1038). The dated records in §2.2 (line 93) and §14.1 (lines 1119-1123) stay. | none |
 | `docs/superpowers/specs/2026-09-17-farm-linear-agent-design.md`, `docs/superpowers/specs/2026-09-22-conversation-repair-design.md` | That D18 c ends the Bug-delegation shortcut (§3.1): an "Approved amendment — 2026-09-27" section at the top of the first, like its lines 8-29, and one sentence after line 11 of the second. | none |
 | `AGENTS.md` (recommended) | Beside the shared-workspace rules (`:69-73`): both bots read the same labels, so a label change reaches both at their next read of a card, while code reaches them at different times. | none |
 | `docs/development-workflow.md` (recommended) | The same note under "What does not separate them" (`:51-65`). | none |
@@ -346,13 +349,13 @@ On the day production runs D18, not before (§7):
    stays on the card: while the card is delegated, a later request for a fix continues it.
 7. Work already under way continues unchanged.
 8. Delegate to FarmBot. TestBot takes only cards chosen for tests, and no card goes to both.
-9. (If open question 4 is confirmed.) Do not move a card with a Bot label to Done or Canceled before
-   FarmBot's delivery comment: either status cancels unfinished work.
+9. Do not move a card with a Bot label to Done or Canceled before FarmBot's delivery comment: either
+   status cancels unfinished work (§10, question 4).
 
 ### 6.3 farmgui (owners)
 
-If h is confirmed, farmgui's owners record the operator's widened authorization in `AGENTS.md:38-43`
-as h describes (§7, step 3).
+farmgui's owners record the operator's widened authorization in `AGENTS.md:38-43` as h describes
+(§7, step 3).
 
 ## 7. Deployment order, migration and rollback
 
@@ -380,7 +383,7 @@ heartbeat's revision while workers' commands, `request-repair` among them, run t
 1. With the operator's go-ahead, read production's heartbeat revision and run `doctor` read-only from
    its installation checkout; report both.
 2. Settle TestBot and move it to D18.
-3. If h is confirmed, land farmgui's grant change. It covers every fix the running code can already
+3. Land farmgui's grant change (h). It covers every fix the running code can already
    start, including a small UI change asked for in a conversation (`docs/operating-contract.md:119`),
    so it needs no D18 code.
 4. In Linear, rename 功能 to Bot, then add 修改.
@@ -435,8 +438,8 @@ card and from the group first.
 |---|---|
 | Bug-only card delegated | A conversation with the §4.2 message. The chat worker investigates or asks (`skills/chat/SKILL.md:46-48`); 「修复」 then starts `fix`, which receives the conversation's messages (`agent/ledger.py:1661-1662`) and its summary, stored on the conversation's item (`:1657-1659`) and handed over as `prior_context` (`agent/scheduler.py:157-162`). A re-routing reply that asks for a fix is the conversation's first message, and the conversation requests the fix at once (§4.4). |
 | 修改 on designer-only work | `fix` starts; a wrong table value goes back to the designer (`references/repo-map.md:57-61`), art FarmBot cannot make is a question, and the delivery may be "no change". |
-| 修改 work that needs a new screen, message or table | The worker stops before that part and finishes blocked, naming the Bot/UI or Bot/Code label the card needs (§4.5; open question 2). |
-| A question as the reply that re-routes a 修改 card's delegation | `fix` starts, posts its start comment and answers first (§4.2, §4.5; open question 1). |
+| 修改 work that needs a new screen, message or table | The worker stops before that part and finishes blocked, naming the Bot/UI or Bot/Code label the card needs (§4.5; §10, question 2). |
+| A question as the reply that re-routes a 修改 card's delegation | `fix` starts, posts its start comment and answers first (§4.2, §4.5; §10, question 1). |
 | Label changed after a job exists | The job keeps its skill (§3.2). `fix` checks no label, so a fix whose card is relabelled UI or Code continues until someone presses Stop, and a later request continues it again (§4.4). |
 | Two Bot children, or an unknown one | Explaining conversation (§4.2, §4.6); a first start there is refused (§4.4). |
 | Group renamed again or misspelled, such as `bot` or a trailing space | Names match exactly (`agent/router.py:21`; `agent/linear_api.py:115-117` keeps the name Linear returns): on both bots every card reads as unlabelled, every delegation opens a conversation with the §4.2 message, and a start request there starts `fix` on UI and Code cards too (§4.4). After any change to the group, repeat live check 1 of §9 before telling the team. |
@@ -453,11 +456,11 @@ Offline, with the existing unittest patterns (temporary state, stub Linear, fake
 
 | Area | Cases |
 |---|---|
-| Router | 修改 starts `fix` whatever the text (open question 1); UI and Code start an enabled `fgui` or `feature`; each child with Bug, Improvement or a 部门 label routes on the child; Bug alone, Improvement alone and no label open a conversation with the §4.2 message, and with the generic one when `fix` is not enabled; a child the instance does not run, an unknown child and two children explain; a standalone 修改, UI or Code label, or one in another group, is not a Bot label; a group still named 功能 routes like Bot; a re-route uses the same table and, with no Bot child, keeps its reply as the text; a mention never routes to write work and keeps the generic first message. |
+| Router | 修改 starts `fix` whatever the text (§10, question 1); UI and Code start an enabled `fgui` or `feature`; each child with Bug, Improvement or a 部门 label routes on the child; Bug alone, Improvement alone and no label open a conversation with the §4.2 message, and with the generic one when `fix` is not enabled; a child the instance does not run, an unknown child and two children explain; a standalone 修改, UI or Code label, or one in another group, is not a Bot label; a group still named 功能 routes like Bot; a re-route uses the same table and, with no Bot child, keeps its reply as the text; a mention never routes to write work and keeps the generic first message. |
 | Receiver | `ReceiverBase`'s default card (`tests/test_receiver.py:44`) gains Bot/修改, since its Bug label is what makes every bare delegation in that file a `fix` item; the re-route tests (`:897-930`) are rebuilt on a delegation declined because of another session's work; a Bug-only delegation while another session's item waits for input; the §4.2 message is not put before a forwarding notice, and a named instance's names it; the acknowledgements. |
 | CLI | `request-repair` starts `fix` on a 修改 card and on a card without a Bot label, with or without Bug; refuses a first start on a UI or Code card with the §4.4 text, and on an unknown Bot child or two children; continues an earlier fix whatever the label; still refuses before reading Linear when `fix` is not enabled. |
 | Fixtures that would pass for the wrong reason | `tests/test_service.py:55`, `tests/test_end_to_end.py:51` and tests built on `ReceiverBase`, such as `tests/test_resume_work.py:103-125` and `tests/test_receiver.py:384-400`, get their `fix` item from a Bug card and do not all assert the skill (`tests/test_end_to_end.py:122-143` does not). Without the Bug rule they pass on a conversation item; they get a Bot/修改 card and assert the skill. |
-| Texts | `tests/test_skills.py:88-99` for the templates; `tests/test_dispatch.py` passes unchanged unless open question 5 is confirmed. |
+| Texts | `tests/test_skills.py:88-99` for the templates; `tests/test_dispatch.py` pins `fix`'s new AUTHORITY with its export sentence and `chat`'s unchanged bytes. |
 
 Run the full macOS suite and the Windows CI run of the same commit. D18 changes no process,
 installation or Unity code, so the Windows-host checks `AGENTS.md:99-100` asks for do not apply; CI
@@ -478,29 +481,31 @@ has no earlier fix, which a request would continue (§4.4).
 After step 6, production's heartbeat revision and a read-only `doctor`; nothing else runs live there
 without the operator.
 
-## 10. Open questions
+## 10. Questions settled on 2026-09-28
+
+The operator settled questions 1 to 5 as recommended and allowed the read of question 6.
 
 1. **Reply text on a 修改 re-route.** Delegation text exists only as a reply that re-routes (§4.2),
    usually in a session declined because another session's work was active. §4.2 applies the label
    rule to that reply, so a question or 「不用了」 there starts the fix once that work has ended, and
    the fix worker answers first. The alternative keeps Bug's old rule for 修改 alone and sends such a
-   reply to a conversation first. *Recommendation: the label rule.* The person chose the workflow by
+   reply to a conversation first. *Settled: the label rule.* The person chose the workflow by
    labelling, and one rule for three children is easier to teach; the cost is a start comment on a
    card whose delegator only replied with a question.
 2. **修改 work that turns out to be UI or Code work.** When a 修改 job finds it needs a new screen,
    protocol message or config table, the worker could stop there or ask the card's owner (its
-   assignee, else the person who delegated it) whether to go on. *Recommendation: it stops before that
+   assignee, else the person who delegated it) whether to go on. *Settled: it stops before that
    part and finishes blocked, naming what it found and the Bot/UI or Bot/Code label the card needs
    (§4.5).* No UI or Code worker runs yet, so that part stays with people; going on with the owner's
    agreement would have `fix` do work that D18 e classes as UI or Code, which would need the operator
    to amend D18 e.
 3. **Designer data in a 修改 fix.** `fix` may change designer tables through `designer/configgen`
    (`references/repo-map.md:6-9`, `:34`), while D18 c keeps designer-only bugs away from `fix`.
-   *Recommendation: leave `fix`'s write scope as it is.* D18 changes which cards reach `fix`, and a
+   *Settled: leave `fix`'s write scope as it is.* D18 changes which cards reach `fix`, and a
    wrong table value already goes back to the designer (`:57-61`).
 4. **The closing rule for every Bot card.** The feature spec's team rule, not to move a 功能 card to
    Done or Canceled before FarmBot's delivery comment (§4.2 there, lines 158-163), was written for UI
-   and Code. *Recommendation: announce it for every Bot card* (§6.2, item 9), since a closing status
+   and Code. *Settled: announce it for every Bot card* (§6.2, item 9), since a closing status
    cancels unfinished work on any card (`docs/operating-contract.md:124`), 修改 fixes included. Its
    other team rule, that a delegated card belongs to FarmBot until someone removes the delegation
    (D6), waits for the UI and Code workers, because the cancellation it relies on covers only their
@@ -509,7 +514,8 @@ without the operator.
    AUTHORITY (`agent/dispatch.py:5-7`), which has no export sentence and defers to "that repository's
    own rules" (`:16`), yet the reviewer does not get the worker's repository `AGENTS.md`
    (`docs/operating-contract.md:144-151`). This predates D18, which gives it more cases.
-   *Recommendation: state the export grant in `fix`'s part of the AUTHORITY in the same change as h*,
-   updating its hash test deliberately.
+   *Settled: state the export grant in `fix`'s part of the AUTHORITY in the same change as h*,
+   updating its hash test deliberately (§4.5, §5).
 6. **Production's revision** (§7, step 1): it decides whether production is exposed while the group is
-   renamed and production is not yet on D18.
+   renamed and production is not yet on D18. *The operator allowed the read-only check on 2026-09-28;*
+   its result belongs to the release that implements this design.
