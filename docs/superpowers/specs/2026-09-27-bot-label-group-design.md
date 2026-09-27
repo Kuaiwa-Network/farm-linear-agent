@@ -155,9 +155,9 @@ the group's name for one release, so it routes the same before and after the ren
 drops 功能. Two alternatives were considered. Pinning the group's label ID, which Linear already
 returns, would survive any rename, but it needs a config key on both hosts that the loader ignores
 silently when misspelled (`agent/config.py:139-140`), the ledger stores label-group entries with
-exactly two keys (`agent/ledger.py:114-115`), and whether Linear keeps a label's ID through a rename
-has not been checked. A configurable name needs the same edit, plus a restart of each settled service
-at the moment of the rename (`AGENTS.md:77-78`).
+exactly two keys (`agent/ledger.py:114-115`). Linear does keep label IDs through a rename: UI and
+Code kept theirs through the operator's rename (checked 2026-09-28). A configurable name needs the
+same edit, plus a restart of each settled service at the moment of the rename (`AGENTS.md:77-78`).
 
 ### 4.2 Routing a delegation
 
@@ -399,6 +399,14 @@ reads only Bug, and code from #57 finds no 功能 group and falls through to the
 production runs #57 or later, it also has the second row's exposure below during the window; the
 alternative, deploying production before the Linear change, would put D18 on production before
 TestBot could check 修改 live (third row below).
+
+**State on 2026-09-28.** The operator made step 4's Linear change first: the group is named exactly
+Bot, still single-select, with the children 修改, UI and Code. Steps 1 to 3 and 5 to 7 remain, and
+the window above is open until production runs D18. Until then neither bot knows the group: 修改
+starts nothing by itself, a Bug card with any Bot child starts `fix` when delegated without text, and
+a 「修复」 in a Bot/UI or Bot/Code conversation starts a first fix, since no running code refuses it
+there (second row below). No open card carried a Bot child that day. Until production runs D18, tell
+the team nothing (§6.2) and put no Bot label on a card.
 
 **Other orders and windows.**
 
