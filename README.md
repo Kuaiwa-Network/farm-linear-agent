@@ -5,8 +5,8 @@ talk. Capabilities are added as skills on a shared identity, ledger, worker runt
 desktop-resource locks: chat, QA, bug fix, FGUI, then whole features.
 
 FarmBot keeps one conversation across read-only investigation and writable repair execution.
-An authorized “fix it” reply can start the first repair or resume previous work without
-re-delegating. The host carries messages and findings across the change of execution profile
+An authorized “fix it” reply can start the first repair (except on a 功能 card, whose work
+starts by delegation) or resume previous work without re-delegating. The host carries messages and findings across the change of execution profile
 and posts recorded session progress every ten minutes while work is active or queued.
 Fix work starts with read-only investigation, then uses a fresh Codex worker rooted in each
 repository it needs to change. The controller keeps one Linear work item across those switches.
@@ -121,9 +121,11 @@ the drained receiver; without the key every skill runs:
 "enabled_skills": ["chat", "fix"]
 ```
 
-The list must include `chat`, and a name the checkout lacks stops `serve` at startup. The receiver
-routes only to enabled skills, `enqueue` and `request-repair` refuse the others, and a queued job of
-a disabled skill fails with an error in its session. `doctor` reports the loaded and enabled skills.
+The list must include `chat`. A name the checkout lacks, or a skill the dispatch AUTHORITY does not
+cover, stops `serve` and `enqueue`, and `doctor` reports `enabled_skills_invalid`. The receiver
+routes only to enabled skills, `enqueue`, `request-repair` and `resume-work` refuse the others, and
+a queued job of a disabled skill fails with an error in its session. `doctor` reports the loaded
+and enabled skills.
 
 ## AI/operator diagnostics
 
@@ -138,7 +140,7 @@ the relevant logs without scanning the entire ledger.
 points elsewhere; set an absolute `local_root` when inspecting from another checkout.
 
 Exit codes are **0** (`ok`: no problems detected by these checks), **1** (`attention`:
-findings need inspection), and **2** (`incomplete`: a config, ledger, log or process
+findings need inspection), and **2** (`incomplete`: a config, skills, ledger, log or process
 check could not be completed). Incomplete takes precedence, retaining other findings.
 Jobs waiting for answers are normal. Cleanup and reservation cancellation may still
 be in progress; a finding is a reason to inspect, not an instruction to kill or retry.

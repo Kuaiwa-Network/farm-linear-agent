@@ -33,6 +33,9 @@ keep runtime authority and behavior changes in those sources and their tests.
   resource ownership, Editor discovery, MCP and verification evidence.
 - `agent/__main__.py`, `agent/dispatch.py`, `skills/`, `references/`: worker-facing
   CLI, launch context and instructions.
+- `agent/skills.py`, `agent/stages.py`, `agent/uploads.py`, `agent/foreign_work.py`: skill
+  manifests and per-host enablement, repository stages, Linear upload downloads and
+  the foreign-work report.
 - `agent/deploy.py`, `agent/doctor.py`: installation and diagnostics.
 - `agent/monitor.py`, `agent/monitor_view.py`, `agent/monitor_static/`,
   `agent/heartbeat.py`, `agent/readonly_db.py`: read-only office status monitor,

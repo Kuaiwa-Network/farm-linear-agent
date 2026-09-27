@@ -1045,7 +1045,7 @@ class Ledger:
         it as a restart request of its own, which a re-read must not cancel.
         """
         if not isinstance(fingerprint, str) or not FINGERPRINT.fullmatch(fingerprint):
-            raise LedgerError("fingerprint must be the 64-character value fetch-issue printed")
+            raise LedgerError("fingerprint must be the 64-character value of issue-context.fingerprint")
         with self._transaction():
             row = self._owned(item_id, token)
             issue_row = self._issue_row(row["issue_id"])
