@@ -155,7 +155,10 @@ check could not be completed). Incomplete takes precedence, retaining other find
 Jobs waiting for answers are normal. Cleanup and reservation cancellation may still
 be in progress; a finding is a reason to inspect, not an instruction to kill or retry.
 Counts include all historical jobs; job detail includes active jobs, failed/blocked
-jobs without successors, and jobs with pending cleanup. Retained run files are listed
+jobs without successors, and jobs with pending cleanup. An unfinished job of a skill with
+an initial root also shows `plan`: its current root, the stage states and PR links its plan
+records, and the kind, reason and age of the pause it waits in, and nothing else from the
+plan. Retained run files are listed
 without reading their contents; credentials, claim tokens, issue prose, raw stored
 errors and process command lines are omitted. Detailed stored errors remain in
 `issue_checks.error` and `job_cleanup.error` in the ledger.

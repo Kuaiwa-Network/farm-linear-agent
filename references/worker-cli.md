@@ -17,7 +17,9 @@ python3 -m agent --db DATABASE checkpoint --help
 | `memory-list`, `memory-read`, `memory-save`, `memory-forget` | Same claim-token arguments; see `references/memory.md` |
 | `release-resource` | `--item ITEM_ID --token-file RESOURCE_TOKEN_FILE`, using `resource.token_file`, plus `--outcome quiescent` or `--outcome unclean` |
 
-`fetch-issue` refreshes the ledger from Linear; `issue-context` reads the saved context.
+`fetch-issue` refreshes the ledger from Linear and prints `delegated`: `true` while the issue is
+delegated to this FarmBot app, `false` once someone removed the delegation or gave it to another
+app. `issue-context` reads the saved context.
 Neither accepts `--token-file`. Tokens never belong in argv as `--token` values.
 The argument table does not grant additional authority; use only your delegated item.
 

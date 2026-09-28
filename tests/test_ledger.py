@@ -741,6 +741,18 @@ class LeaseTests(LedgerBase):
         self.assertIsNone(self.ledger.cancel(item["id"], "stop")["worker_pid"])
         self.assertIsNone(self.ledger.retry(item["id"], "human asked 重试")["worker_pid"])
 
+    def test_a_cancel_limited_to_waiting_states_never_takes_a_claimed_item(self):
+        """Delegation removal (spec §9.8) cancels only work no worker holds, decided in the cancel's own transaction."""
+        waiting = ("queued", "awaiting_input", "awaiting_resource")
+        item = self.new_item()
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        self.assertIsNone(self.ledger.cancel(item["id"], "delegation removed", states=waiting))
+        self.ledger.renew(item["id"], token)  # the claim is untouched
+        self.ledger.await_input(item["id"], token, "Which server?")
+        self.assertEqual(self.ledger.cancel(item["id"], "delegation removed", states=waiting)["state"], "cancelled")
+        self.assertIsNone(self.ledger.cancel(item["id"], "delegation removed", states=waiting))  # nothing left to do
+        self.assertEqual(self.ledger.cancel(item["id"], "stop")["state"], "cancelled")  # without states, as before
+
     def test_retry_cancelled_item_creates_fresh_generation_on_successor(self):
         item = self.new_item()
         self.ledger.cancel(item["id"], "stop")

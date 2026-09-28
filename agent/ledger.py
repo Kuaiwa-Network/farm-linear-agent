@@ -1517,7 +1517,10 @@ class Ledger:
             self._set_state(row["id"], "queued", reason, needs_resource=None)
             return self._view(self._row(row["id"]))
 
-    def cancel(self, item_id, reason):
+    def cancel(self, item_id, reason, *, states=None):
+        """`states` cancels only an item in one of those states, in this same transaction, and returns None for any
+        other: delegation removal (spec §9.8) cancels queued and waiting work, never an attempt a worker has claimed
+        since the caller looked."""
         _text(reason, "reason")
         with self._transaction():
             row = self._row(item_id)
@@ -1529,6 +1532,8 @@ class Ledger:
                     target = self._row(destination)
                     if target["issue_id"] == row["issue_id"]:
                         row = target
+            if states is not None and row["state"] not in states:
+                return None
             if row["state"] == "cancelled":
                 return self._view(row)
             if row["state"] not in (*ACTIVE_STATES, "blocked"):

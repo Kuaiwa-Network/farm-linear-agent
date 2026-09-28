@@ -129,6 +129,7 @@ once in the same way, and back again on a rollback.
 | Reply to a FarmBot question | the parked work item resumes with your answer |
 | Ask naturally to resume finished work, in its session or an @FarmBot mention | chat interprets intent, checks current delegation, and continues the delegation's earlier job, a fix or, on an instance that runs `feature`, a feature job, with the complete reply (a cancelled job gets a fresh linked job); no keyword is required. Negations and questions about restarting do not restart work |
 | Close an issue (a status of type `completed`, `canceled` or `duplicate`, such as Done, Canceled or Duplicate) or archive it | cancels unfinished/blocked work after a current status read, stops owned processes, preserves source and safely cleans worktrees; keeps logs |
+| Remove FarmBot's delegation from an issue, or delegate it to another app | at the next status read, cancels the issue's job of a skill with an initial root (none in this revision) while that job is queued or waits for input or a resource, and posts one response in the job's session: its branches and draft PRs stay for whoever takes the card over, and delegating the card to FarmBot again continues from them. A job a worker has claimed is not stopped; the worker sees the change itself (`fetch-issue` prints `delegated: false`, and `verify-publication` and `handoff-repository` refuse). Other work is not cancelled: no write worker launches while the issue is not delegated to FarmBot, and a parked fix stays parked |
 | Reopen an issue | starts nothing; request continuation or delegate explicitly |
 | Press Stop | the worker process is killed promptly, without waiting for the scheduler; the item is cancelled; FarmBot confirms in the session |
 | Delegate an issue that already has FarmBot work in another session | with a Bot child this instance runs, declines with a note naming the issue and the running skill; otherwise the delegation is forwarded to that work like a message, resuming it if it waits for an answer; the existing work continues either way |
@@ -391,7 +392,9 @@ archived or its workflow-state type is `completed`, `canceled` or `duplicate`; L
 a type of its own rather than `canceled`. Other types, including `started` review and acceptance
 statuses, leave work running. Before every launch, a fresh status/delegation check must succeed and
 find the issue open. Errors defer launch with bounded retry delay; losing delegation
-prevents new write workers from launching. Polling makes no Linear writes.
+prevents new write workers from launching, and cancels a job of a skill with an initial root that
+no worker holds (Triggers). Polling makes no other Linear write than that job's one session
+response, or, for an operator-enqueued job, one issue comment.
 
 Cleanup records the old PID and preserves dirty tracked/non-ignored untracked source as local WIP
 commits. Every repository HEAD, including clean unpublished commits, gets a durable
@@ -442,6 +445,13 @@ ledger CLI's `status`. `issue-context --item JOB_ID` exposes that job's `cleanup
 `recovery` evidence. Inspect saved source with `git --git-dir .local/repos/REPO.git show
 refs/farmbot/recovery/JOB_ID`; apply selected commits only after reviewing current requirements and
 repository history. Cleanup does not push, merge, close PRs, or undo already-issued external requests.
+
+`doctor` adds a `plan` block to each unfinished job of a skill with an initial root: `root`, its current
+root; `stages`, each stage letter its plan records as `pending`, `done` or `skipped`; `pause`, while the
+job waits for a person, the `kind` its plan records (`answers`, `config_ready`, `closing`, `foreign_work`
+or `stage_limit`), the `reason` (`question` or `waiting`) and `age_seconds` since it parked; and `prs`,
+the PR links its plan records. Nothing else leaves the plan: not the question, notes, branch names or a
+skip's reason.
 
 SIGTERM to the service runs batch-process cleanup during startup or normal serving. On this Mac,
 the earlier live `launchctl kickstart -k` rehearsal also removed the batch Editor; this is not a promise
@@ -680,7 +690,9 @@ a claim ends; memory operations do not renew the lease.
 ## Work item states
 
 queued → running → delivered | blocked | failed; running ↔ awaiting_input (human gate);
-running → awaiting_resource (Unity slot); any active state or blocked → cancelled (Stop or issue closure).
+running → awaiting_resource (Unity slot); any active state or blocked → cancelled (Stop or issue closure);
+queued, awaiting_input or awaiting_resource → cancelled for a skill with an initial root when its issue
+is no longer delegated to FarmBot.
 A waiting item has no process. A repository handoff is queued with its retired worker PID retained;
 it cannot be claimed or launched until the controller certifies teardown and clears that PID.
 An item in awaiting_resource holds a queued reservation; only the pool's grant turns
@@ -799,7 +811,10 @@ any unposted notice unsent.
   Linear does not know about, so it reports through issue comments and posts no session activities;
   `enqueue` still refuses a write-capable skill on an issue that is not delegated to FarmBot now, because
   the rule of authority is not what the missing webhook excuses. It also refuses a skill the instance does
-  not run (`enabled_skills`). `python3 -m agent.service slots` is the
+  not run (`enabled_skills`), and `fgui` or `feature` unless the card's one Bot child is Bot/UI or
+  Bot/Code respectively, as a delegation requires; it reads no label for `fix`. An enqueued `feature` job,
+  like a delegated one, has no Farm-Client target, and `--commit` is refused with it.
+  `python3 -m agent.service slots` is the
   operator's view of the pool: slot states, parked commits and the open reservations behind them.
 - A fix that finds nothing to change (already fixed, duplicate, does not reproduce, or the requested
   change is already on the target branch) delivers with an empty PR list and a `no_change` reason,

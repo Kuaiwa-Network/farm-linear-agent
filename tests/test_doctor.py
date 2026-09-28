@@ -16,10 +16,11 @@ from agent.doctor import diagnose, probe_process
 from agent.ledger import Ledger
 from agent.service import main
 from agent.skills import load_skills
-from test_ledger import ISSUE, SESSION, PIN, issue
+from test_ledger import ISSUE, OTHER, SESSION, PIN, issue
 from test_skills import opt_in_skill, staged_skill
 
 ROOT = Path(__file__).resolve().parents[1]
+THIRD = "10000000-0000-4000-8000-000000000003"
 
 
 class DoctorTests(unittest.TestCase):
@@ -333,6 +334,65 @@ class DoctorTests(unittest.TestCase):
                                                 "configured": True})
             finding = next(f for f in report["findings"] if f["code"] == "skill_runtime_unsupported")
             self.assertEqual(finding["skills"], ["feature"])
+
+    def test_an_unfinished_job_with_an_initial_root_shows_its_root_stages_pause_and_prs(self):
+        """spec §9.11: where a long job stands, with nothing out of its plan but known words and PR links."""
+        feature = opt_in_skill(Path(self.tmp.name) / "fixture-skills")
+        skills = {**load_skills(ROOT / "skills"), feature.name: feature}
+
+        def job(issue_id, identifier, session):
+            self.ledger.observe_issue(issue(id=issue_id, identifier=identifier, description="private issue prose"))
+            self.ledger.ensure_session(session, issue_id, delegation=True)
+            return self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill=feature.name)
+
+        parked, queued = job(OTHER, "FARM-2", "session-2"), job(THIRD, "FARM-3", "session-3")
+        token = self.ledger.claim(parked["id"], worker_id="w")["token"]
+        self.ledger.checkpoint(parked["id"], token, {"plan": {
+            "stages": {"A": "done", "B": "skipped: no config in this feature", "C": "pending", "Z": "done",
+                       "D": ["done"]},
+            "pause": {"kind": "config_ready", "reason": "waiting", "notice": "config-needed",
+                      "since": "2026-09-28T00:00:00Z"},
+            "prs": {"Farm-Contract": [{"branch": "farmbot/farm-2", "role": "issue", "head": "b" * 40,
+                                       "pr": {"url": "https://github.com/Kuaiwa-Network/Farm-Contract/pull/12",
+                                              "state": "draft", "merge": None}}],
+                    "common": [{"branch": "farmbot/farm-2", "role": "issue", "head": "c" * 40, "pr": None}]}}})
+        self.ledger.connection.execute("UPDATE work_items SET root_repo='common' WHERE id=?", (parked["id"],))
+        self.ledger.await_input(parked["id"], token, "private question text", reason="waiting")  # at 1000
+        with patch("agent.doctor.load_skills", return_value=skills):
+            report = diagnose(self.config, now=1090)
+        entries = {entry["item_id"]: entry for entry in report["jobs"]}
+        self.assertEqual(entries[parked["id"]]["plan"], {
+            "root": "common", "stages": {"A": "done", "B": "skipped", "C": "pending"},
+            "pause": {"kind": "config_ready", "reason": "waiting", "age_seconds": 90},
+            "prs": ["https://github.com/Kuaiwa-Network/Farm-Contract/pull/12"]})
+        self.assertEqual(entries[queued["id"]]["plan"], {"root": "Farm-Contract", "stages": {}, "pause": None,
+                                                         "prs": []})
+        self.assertNotIn("plan", entries[self.item["id"]])  # fix has no initial root: its entry is unchanged
+        for entry in entries.values():
+            self.assertFalse({"_root_repo", "_checkpoint"} & set(entry))
+        encoded = json.dumps(report, ensure_ascii=False)
+        for private in ("private question text", "farmbot/farm-2", "no config in this feature", "config-needed",
+                        "private issue prose"):
+            self.assertNotIn(private, encoded)
+        self.assertEqual(report["status"], "ok")
+
+    def test_a_job_stopped_at_a_stage_limit_shows_that_pause(self):
+        """Plan P14: a job a person stopped after a stage waits like any other pause, and doctor names it."""
+        feature = opt_in_skill(Path(self.tmp.name) / "fixture-skills")
+        skills = {**load_skills(ROOT / "skills"), feature.name: feature}
+        self.ledger.observe_issue(issue(id=OTHER, identifier="FARM-2"))
+        self.ledger.ensure_session("session-2", OTHER, delegation=True)
+        item = self.ledger.create_work_item(issue_id=OTHER, session_id="session-2", skill=feature.name)
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        self.ledger.checkpoint(item["id"], token, {"plan": {
+            "stages": {"A": "done", "B": "pending"},
+            "pause": {"kind": "stage_limit", "reason": "waiting", "notice": "merge-contract",
+                      "since": "2026-09-28T00:00:00Z"}}})
+        self.ledger.await_input(item["id"], token, "stopped after stage A as asked", reason="waiting")
+        with patch("agent.doctor.load_skills", return_value=skills):
+            report = diagnose(self.config, now=1090)
+        entry = next(entry for entry in report["jobs"] if entry["item_id"] == item["id"])
+        self.assertEqual(entry["plan"]["pause"], {"kind": "stage_limit", "reason": "waiting", "age_seconds": 90})
 
     def test_the_runtime_finding_needs_no_ledger_and_changes_none(self):
         """The finding comes from the config and the manifests alone, so a host's doctor shows it before any job

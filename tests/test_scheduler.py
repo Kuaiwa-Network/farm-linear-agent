@@ -1181,6 +1181,13 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(self.launcher.stopped, [item["id"]])
         self.assertEqual(self.ledger.item(item["id"])["state"], "cancelled")
 
+    def test_a_stop_notice_needs_states(self):
+        """Only a stop limited to states knows it was this call that cancelled the item (spec §9.8)."""
+        item = self.item()
+        with self.assertRaisesRegex(ValueError, "needs states"):
+            self.scheduler.stop(item["id"], "Linear stop", notice="已取消。")
+        self.assertEqual((self.ledger.item(item["id"])["state"], self.launcher.stopped), ("queued", []))
+
     def cancel_with_cli(self, item_id):
         result = subprocess.run(
             [sys.executable, "-B", "-W", "error", "-m", "agent", "--db", str(self.scheduler.db_path),

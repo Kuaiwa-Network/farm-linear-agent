@@ -28,7 +28,7 @@ from agent.ledger import Ledger, LedgerError
 from agent.service import Components, build, enqueue, main, seed_clones, serve
 from agent.skills import SkillError, load_skills
 from agent.slots import SlotError
-from test_ledger import ISSUE, LEAD, PIN, issue
+from test_ledger import ISSUE, LEAD, OTHER, PIN, issue
 from test_skills import opt_in_skill
 
 APP = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
@@ -708,6 +708,40 @@ class EnqueueTests(unittest.TestCase):
         with self.assertRaisesRegex(SkillError, "does not have: feature"):
             enqueue(self.config, issue_ref=ISSUE, skill="fix", commit="a" * 40)
         self.assertFalse(Paths(self.config).ledger.exists())
+
+    def test_enqueue_starts_feature_only_on_a_card_labelled_bot_code_and_fix_on_any(self):
+        """spec §9.11, D18: an operator's enqueue follows the Bot label a delegation follows, except for fix, which
+        reads no label there (Bot label group design §8). A feature job gets no Farm-Client target (P6)."""
+        feature = opt_in_skill(Path(self.tmp.name) / "fixture-skills")
+        skills = {**load_skills(service_module.ROOT / "skills"), feature.name: feature}
+        self.config.enabled_skills = ["chat", "fix", "feature"]  # named, as an opt-in skill must be
+
+        def card(issue_id, labels, groups):
+            (self.stub / "issue.json").write_text(json.dumps(issue(id=issue_id, labels=labels, delegate_id=APP,
+                                                                   label_groups=groups)), encoding="utf-8")
+
+        with patch("agent.service.load_skills", return_value=skills), \
+                patch.dict(service_module.SKILL_AUTHORITY, {feature.name: "Fixture feature grants. "}):
+            for labels, groups, carries in ((["Bug"], [], "no Bot label"), (["Code"], [], "no Bot label"),
+                                            (["修改"], [{"group": "Bot", "label": "修改"}], "Bot/修改"),
+                                            (["UI"], [{"group": "Bot", "label": "UI"}], "Bot/UI")):
+                with self.subTest(labels=labels, groups=groups):
+                    card(ISSUE, labels, groups)
+                    with self.assertRaisesRegex(RuntimeError, f"labelled Bot/Code.*carries {carries}"):
+                        enqueue(self.config, issue_ref=ISSUE, skill="feature")
+            ledger = Ledger(Paths(self.config).ledger)
+            self.addCleanup(ledger.close)
+            self.assertIsNone(ledger.session(f"local-{ISSUE}"))  # refused before any session or item exists
+            self.assertIsNone(ledger.active_item_for_issue(ISSUE))
+            fix = enqueue(self.config, issue_ref=ISSUE, skill="fix", commit="a" * 40)  # the card is still Bot/UI
+            self.assertEqual((fix["skill"], fix["target"]["commit_sha"]), ("fix", "a" * 40))  # fix reads no label
+            card(OTHER, ["Code"], [{"group": "Bot", "label": "Code"}])
+            with self.assertRaisesRegex(RuntimeError, "--commit pins a fix's Farm-Client target"):
+                enqueue(self.config, issue_ref=OTHER, skill="feature", commit="a" * 40)
+            # No commit, and this fixture configures no repository: resolving a client head here would fail.
+            item = enqueue(self.config, issue_ref=OTHER, skill="feature")
+            self.assertEqual((item["state"], item["skill"], item["target"]), ("queued", "feature", None))
+            self.assertIsNone(ledger.session(f"local-{OTHER}")["target"])
 
 
 class LoopGuardTests(unittest.TestCase):

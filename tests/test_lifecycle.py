@@ -1,14 +1,16 @@
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import uuid4
 
-from agent.lifecycle import Lifecycle
+from agent.lifecycle import UNDELEGATED, UNDELEGATED_STATES, Lifecycle
 from agent.config import Config
 from agent.ledger import LedgerError
 import test_scheduler
 from test_ledger import ISSUE, OTHER, SESSION, issue
 from test_receiver import APP
+from test_skills import opt_in_skill
 
 
 def status(issue_id=ISSUE, **changes):
@@ -90,6 +92,80 @@ class LifecycleTests(unittest.TestCase):
         lifecycle = self.lifecycle({**status(), 'delegate_id': None})
         self.assertFalse(lifecycle.preflight(job))
         self.assertEqual(self.ledger.item(job['id'])['state'], 'queued')
+
+    # Spec §9.8, D16: removing the delegation ends a job of a skill with an initial root that no worker holds.
+    def serve_feature(self):
+        """Serve Task 1's opt_in_skill, the plan's feature manifest with initial root Farm-Contract, beside fix and chat."""
+        feature = opt_in_skill(Path(self.tmp.name) / 'fixture-skills')
+        self.scheduler.skills = {**test_scheduler.SKILLS, feature.name: feature}
+        return feature
+
+    def parked(self, skill, state, issue_id=ISSUE, session=SESSION):
+        job = self.item(issue_id=issue_id, session=session, skill=skill)
+        if state == 'awaiting_input':
+            token = self.ledger.claim(job['id'], worker_id='test')['token']
+            self.ledger.await_input(job['id'], token, '配置好了请回复。', reason='waiting')
+        elif state == 'awaiting_resource':
+            # Parked for a slot directly: no Phase B feature job asks for one (P6, P11), but fgui will.
+            self.ledger.connection.execute("UPDATE work_items SET state='awaiting_resource',needs_resource=? WHERE id=?",
+                                           ('unity_slot:batch', job['id']))
+        return job
+
+    def test_removing_the_delegation_cancels_a_waiting_job_with_an_initial_root_and_says_so_once(self):
+        feature = self.serve_feature()
+        for state in UNDELEGATED_STATES:
+            for delegate in (None, str(uuid4())):  # removed, or handed to another app
+                with self.subTest(state=state, delegate=delegate):
+                    iid, session = str(uuid4()), str(uuid4())
+                    job = self.parked(feature.name, state, iid, session)
+                    lifecycle = self.lifecycle({**status(iid), 'delegate_id': delegate})
+                    self.assertIsNotNone(lifecycle.refresh(iid))
+                    self.assertEqual(self.ledger.item(job['id'])['state'], 'cancelled')
+                    lifecycle.refresh(iid)  # a later status read finds nothing left to cancel or say
+                    self.assertEqual([(kind, body) for sid, kind, body in self.api.activities if sid == session],
+                                     [('response', UNDELEGATED.format(bot='FarmBot'))])
+                    self.assertIn(job['id'], self.launcher.stopped)
+                    self.scheduler.tick()  # cleanup preserves its source before the worktrees go
+                    self.assertIn(('removed', job['id'], None), self.trees.added)
+        for words in ('不再委派给 FarmBot', '分支和草稿 PR 都保留', '重新委派给 FarmBot'):
+            self.assertIn(words, UNDELEGATED.format(bot='FarmBot'))
+
+    def test_a_claimed_worker_a_fix_and_a_conversation_keep_going_when_the_delegation_goes(self):
+        feature = self.serve_feature()
+        running = self.item(skill=feature.name)
+        self.ledger.claim(running['id'], worker_id='test')
+        fix = self.parked('fix', 'awaiting_input', OTHER, 'fix-session')
+        chat_issue = str(uuid4())
+        chat = self.parked('chat', 'queued', chat_issue, 'chat-session')
+        for issue_id in (ISSUE, OTHER, chat_issue):
+            self.lifecycle({**status(issue_id), 'delegate_id': None}).refresh(issue_id)
+        self.assertEqual([self.ledger.item(job['id'])['state'] for job in (running, fix, chat)],
+                         ['running', 'awaiting_input', 'queued'])
+        self.assertEqual((self.api.activities, self.launcher.stopped), ([], []))
+
+    def test_a_claim_between_the_status_read_and_the_cancel_keeps_its_worker(self):
+        feature = self.serve_feature()
+        job = self.item(skill=feature.name)
+        listed = self.ledger.item(job['id'])  # queued when the lifecycle listed it
+        self.ledger.claim(job['id'], worker_id='test')
+        with patch.object(self.ledger, 'unfinished_for_issue', return_value=[listed]):
+            self.lifecycle({**status(), 'delegate_id': None}).refresh(ISSUE)
+        self.assertEqual(self.ledger.item(job['id'])['state'], 'running')
+        self.assertEqual((self.api.activities, self.launcher.stopped), ([], []))
+
+    def test_an_unknown_app_identity_cancels_nothing(self):
+        feature = self.serve_feature()
+        job = self.item(skill=feature.name)
+        api = SimpleNamespace(app_user_id=None, issue_status=lambda _: {**status(), 'delegate_id': None})
+        Lifecycle(self.ledger, api, self.scheduler, clock=lambda: self.now).refresh(ISSUE)
+        self.assertEqual(self.ledger.item(job['id'])['state'], 'queued')
+
+    def test_an_enqueued_job_is_told_by_issue_comment(self):
+        feature = self.serve_feature()
+        job = self.item(session=f'local-{ISSUE}', skill=feature.name)
+        self.lifecycle({**status(), 'delegate_id': None}).refresh(ISSUE)
+        self.assertEqual(self.ledger.item(job['id'])['state'], 'cancelled')
+        self.assertEqual((self.api.comments, self.api.activities), ([(ISSUE, UNDELEGATED.format(bot='FarmBot'))], []))
 
     def test_poll_is_fair_when_first_issue_fails(self):
         self.item()

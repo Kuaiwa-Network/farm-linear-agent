@@ -335,7 +335,11 @@ def run(args, ledger, api_factory):
     if c == "queue":
         return ledger.queue()
     if c == "fetch-issue":
-        return ledger.observe_issue(api_factory().fetch_issue(ledger.item(args.item)["issue_id"]))
+        api = api_factory()
+        issue = api.fetch_issue(ledger.item(args.item)["issue_id"])
+        # Spec §9.8: a claimed worker learns here that the delegation was removed or moved, and finishes blocked.
+        # LinearAPI.fetch_issue establishes this app's identity before it reads the issue.
+        return {**ledger.observe_issue(issue), "delegated": issue.get("delegate_id") == api.app_user_id}
     if c == "claim":
         return ledger.claim(args.item, worker_id=args.worker_id)
     if c == "renew":

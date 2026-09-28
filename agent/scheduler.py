@@ -226,17 +226,20 @@ class Scheduler:
         self.active[item["id"]] = handle
         return handle
 
-    def _notify(self, item_id, kind, body):
+    def _notify(self, item_id, kind, body, *, item=None):
         """Best-effort session activity for outcomes the worker cannot report itself: it is dead or never ran.
 
         A `local-` session id was minted by `agent.service enqueue`, not by Linear, and names no agent
         session: create_activity against the real API would fail on every one of these notices and leave the
         operator with nothing. The issue comment is the only reporting surface such an item has.
+
+        `item`, a view of the item the caller already holds, spares a read on the scheduler's own connection, which
+        a caller on another thread (the lifecycle loop through `stop`) must not use.
         """
         if self.api is None:
             return
         try:
-            item = self.ledger.item(item_id)
+            item = item or self.ledger.item(item_id)
             if str(item["session_id"]).startswith("local-"):
                 self.api.create_comment(item["issue_id"], body)
             else:
@@ -268,18 +271,32 @@ class Scheduler:
         self._notify(item_id, "error", f"{self.bot_name} 本实例没有启用 {skill}（本实例运行：{runs}），这项工作没有启动，"
                                        "工作项已标记失败；启用后可回复「重试」。")
 
-    def stop(self, item_id, reason):
+    def stop(self, item_id, reason, *, states=None, notice=None):
+        """Cancel the item, then stop its processes.
+
+        `states` (delegation removal, spec §9.8) cancels only an item still in one of those states, atomically; one
+        a worker has claimed since keeps running and nothing is signalled. `notice` is then posted as the session's
+        response, through `_notify` as a launch failure is, only when this call cancelled the item; it needs
+        `states`, without which a repeated stop could not tell. Returns the cancelled item, or None.
+        """
+        if notice is not None and states is None:
+            raise ValueError("a stop notice needs states: only then is it known that this stop cancelled the item")
         # Revoke the claim durably before signalling; a late worker may no longer write the ledger.
         control = self.control_ledger_factory() if self.control_ledger_factory else self.ledger
         destination = item_id
+        cancelled = None
         try:
             try:
-                destination = control.cancel(item_id, reason)["id"]
+                cancelled = control.cancel(item_id, reason, states=states)
+                if cancelled is not None:
+                    destination = cancelled["id"]
             except LedgerError:
                 pass
         finally:
             if control is not self.ledger:
                 control.close()
+        if states is not None and cancelled is None:
+            return None  # not ours to stop: a claimed worker sees the change at its next fetch-issue
         # The batch Editor is not a worker and never went through `spawn`, so `launcher.stop` below cannot
         # see it: its handle lookup and its `descendants` walk both start from a worker pid, and by now that
         # worker has already exited — it asked for the reservation and quit. Killing the group here is what
@@ -296,6 +313,9 @@ class Scheduler:
             self.launcher.stop_unsandboxed(stopped_id)
             # Signal both ends if read-only execution handed off during Stop.
             self.launcher.stop(stopped_id)
+        if notice is not None and cancelled is not None:
+            self._notify(destination, "response", notice, item=cancelled)
+        return cancelled
 
     def _reap(self):
         reaped = 0
