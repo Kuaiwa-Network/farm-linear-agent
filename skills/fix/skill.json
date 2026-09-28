@@ -1,7 +1,7 @@
 {
   "name": "fix",
   "trigger": ["delegation"],
-  "intents": ["label:Bug"],
+  "intents": ["label:Bot/修改"],
   "writes": ["Farm-Client", "farm-hive", "farmgui", "common", "Farm-Contract"],
   "staged": true,
   "resources": ["unity_slot"],

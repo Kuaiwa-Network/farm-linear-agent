@@ -52,7 +52,8 @@ class ServeTests(unittest.TestCase):
             git("add", ".", cwd=origin); git("commit", "-qm", "init", cwd=origin)
             remotes[repo] = str(origin)
         self.stub = root / "stub"; self.stub.mkdir()
-        (self.stub / "issue.json").write_text(json.dumps(issue(labels=["Bug"], delegate_id=APP)), encoding="utf-8")
+        # Bot/修改 makes the bare delegation below a fix item (D18); Bug alone no longer routes.
+        (self.stub / "issue.json").write_text(json.dumps(issue(labels=["Bug", "修改"], delegate_id=APP, label_groups=[{"group": "Bot", "label": "修改"}])), encoding="utf-8")
         self.env_patch = patch.dict(os.environ, {"FARMBOT_LINEAR_STUB_DIR": str(self.stub),
                                                  "FARMBOT_CONFIG": str(root / "none.json"),
                                                  "FAKE_CLI_MODE": "exit-immediately"})
@@ -132,7 +133,7 @@ class ServeTests(unittest.TestCase):
     def test_build_speaks_as_the_configured_bot_and_production_keeps_farmbot(self):
         """TestBot shares the workspace with production: Linear text follows expected_bot_name, never a literal."""
         self.assertEqual(self.acknowledgement(self.c).split("\n")[0],
-                         "FarmBot 已收到委派，正在排队处理这个缺陷。进展和草稿 PR 会更新在这里。")
+                         "FarmBot 已收到委派，正在排队处理这张修改卡。进展和草稿 PR 会更新在这里。")
         self.assertEqual(self.c.scheduler.bot_name, "FarmBot")
         config = Config(client_id="client", client_secret="s", webhook_secret="signing-secret", host="test",
                         runtime="fake", repos=self.c.config.repos, port=0,
@@ -140,7 +141,7 @@ class ServeTests(unittest.TestCase):
         testbot = build(config)
         self.close_later(testbot)
         self.assertEqual(self.acknowledgement(testbot).split("\n")[0],
-                         "TestBot 已收到委派，正在排队处理这个缺陷。进展和草稿 PR 会更新在这里。")
+                         "TestBot 已收到委派，正在排队处理这张修改卡。进展和草稿 PR 会更新在这里。")
         self.assertEqual(testbot.scheduler.bot_name, "TestBot")
 
     def test_build_hands_the_scheduler_the_kw_ops_block(self):

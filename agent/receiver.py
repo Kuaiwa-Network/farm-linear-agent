@@ -27,12 +27,13 @@ TARGET_REPO = "Farm-Client"
 PIN_TIMEOUT = 8
 # {bot} is the instance's configured Linear app name: a development instance shares the workspace with
 # production, and an acknowledgement in the wrong name gets the wrong bot stopped.
-ACK = {"fix": "{bot} 已收到委派，正在排队处理这个缺陷。进展和草稿 PR 会更新在这里。",
+ACK = {"fix": "{bot} 已收到委派，正在排队处理这张修改卡。进展和草稿 PR 会更新在这里。",
        "fgui": "{bot} 已收到委派，正在排队处理这张 UI 卡。进展、预览和草稿 PR 会更新在这里。",
        "feature": "{bot} 已收到委派，正在排队处理这张功能卡。进展、问题和草稿 PR 会更新在这里。",
        "chat": "{bot} 已收到，正在查看。", "qa": "{bot} 已收到测试请求，正在排队。"}
-# The work a reply saved after undelegation says is not continuing; fix keeps the words it always had.
-PAUSED_WORK = {"fix": "修复"}
+# D18: the first message of a delegation whose card has no Bot label, where a Bug card used to start a fix.
+NO_BOT_LABEL = ("{bot} 已收到。这张卡没有 Bot 标签，先以只读对话查看。需要修复或修改，请在这里回复（例如「修复」）；"
+                "以后委派前先加上 Bot/修改 标签，就会直接开始处理。")
 
 
 class Receiver:
@@ -242,9 +243,9 @@ class Receiver:
                 pin = "\n暂时无法锁定客户端提交，本次将不做 Unity 验证。"
         active = self.ledger.active_item_for_session(prepared["session_id"])
         history = self.ledger.items_for_session(prepared["session_id"])
-        # D16: a reply in a delegation session that never had a work item (it asked about conflicting labels, or
-        # another session's work declined it) routes again on the labels fetched above. Only while the issue is
-        # still delegated to this app: routing is what grants write work.
+        # D16: a reply in a delegation session that never had a work item (another session's work declined or
+        # took its delegation) routes again on the labels fetched above. Only while the issue is still delegated
+        # to this app: routing is what grants write work.
         reroute = (prepared["action"] == "prompted" and is_delegation and active is None and not history
                    and issue.get("delegate_id") == self.identity["appUserId"])
         decision = route(action=prepared["action"], is_delegation=is_delegation, text=prepared["text"], labels=issue["labels"],
@@ -289,8 +290,11 @@ class Receiver:
             item = self.ledger.create_work_item(issue_id=issue["id"], session_id=session_id, skill="chat")
             if prepared["text"]:
                 self.ledger.push_inbox(item["id"], prepared["text"], author=author, received_at=received_at)
-            body = (decision.text if decision.text and decision.text != prepared["text"]
-                    else ACK["chat"].format(bot=self.bot_name))
+            if decision.unlabelled:
+                body = NO_BOT_LABEL.format(bot=self.bot_name)
+            else:
+                body = (decision.text if decision.text and decision.text != prepared["text"]
+                        else ACK["chat"].format(bot=self.bot_name))
             acknowledge("thought", body)
         elif decision.kind == "steer":
             self.ledger.push_inbox(active["id"], decision.text, author=author, received_at=received_at)
@@ -300,8 +304,7 @@ class Receiver:
             self.ledger.push_inbox(active["id"], decision.text, resume_waiting=can_resume, author=author,
                                    received_at=received_at)
             acknowledge("thought", "收到回复，继续处理。" if can_resume
-                        else f"已保存回复；issue 已不再委派给 {self.bot_name}，"
-                             f"暂不继续{PAUSED_WORK.get(active['skill'], '这项工作')}。")
+                        else f"已保存回复；issue 已不再委派给 {self.bot_name}，暂不继续这项工作。")
         elif decision.kind == "elicit":
             acknowledge("elicitation", decision.text)
 

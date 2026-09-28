@@ -107,6 +107,7 @@ class ConversationReceiverTests(ReceiverBase):
     def test_mention_on_delegated_issue_is_interpreted_before_restarting(self):
         self.receive(); self.receiver.process_one()
         fix = self.ledger.items_for_session("session-1")[0]
+        self.assertEqual(fix["skill"], "fix")
         self.ledger.cancel(fix["id"], "stop")
         self.receive(self.mention("@FarmBot don't restart yet, what did you find?"))
         self.receiver.process_one()
@@ -116,6 +117,7 @@ class ConversationReceiverTests(ReceiverBase):
     def test_mention_answer_resumes_waiting_worker_and_keeps_answer(self):
         self.receive(); self.receiver.process_one()
         fix = self.ledger.items_for_session("session-1")[0]
+        self.assertEqual(fix["skill"], "fix")
         token = self.ledger.claim(fix["id"], worker_id="w")["token"]
         self.ledger.await_input(fix["id"], token, "Zero or one?")
         self.receive(self.mention("@FarmBot 从零开始，只统计主动解锁，继续吧"))

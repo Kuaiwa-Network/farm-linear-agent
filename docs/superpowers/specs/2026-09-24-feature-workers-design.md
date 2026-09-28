@@ -4,7 +4,7 @@
 behaviour; that lives in [`docs/operating-contract.md`](../../operating-contract.md) and changes
 only when a phase of this design lands. Approving the design does not authorize running its phases
 (§13), each of which is authorized separately. It follows the operator decisions of 2026-09-24 and
-2026-09-25 (D1–D17, below) and supersedes the Phase 4 and 5 plans of the
+2026-09-25 (D1–D18, below) and supersedes the Phase 4 and 5 plans of the
 [2026-09-17 design](2026-09-17-farm-linear-agent-design.md) (§1 ladder rungs 3–4, §6 stage rows, §17):
 one continuous Code job across repository stages replaces parallel client and hive work items, and a
 human visual-approval gate replaces the old FGUI publish-approval step. §14 lists what is still to
@@ -14,7 +14,8 @@ verify or decide.
 
 FarmBot gains two delegated write workers that follow how the Farm team already builds features. A
 human creates two Linear issues per feature, a UI issue and one Code issue, labels them from the
-single-select team label group 功能 ("feature"; children UI and Code) and delegates each to FarmBot.
+single-select team label group Bot (named 功能 until D18; children UI and Code, beside 修改 for fixes) and
+delegates each to FarmBot.
 The UI worker (skill `fgui`) turns the 策划案 (the designers' feature document in Feishu) and the art
 uploaded to the UI issue into a farmgui package, posts preview renders, waits for a human's visual
 approval and, when asked, exports the package into a Farm-Client PR. The Code worker (skill
@@ -127,25 +128,26 @@ Non-goals:
 - Watching GitHub or polling repositories for merges or exports; GitHub review comments reach FarmBot
   only when a human relays them in Linear.
 - QA (`-测试`) cards, Feishu messages, SVN art batches and shared-icon imports.
-- Starting feature work from a mention or from chat (D16).
+- Starting feature work from a mention (D16). A start request in the conversation of a delegated card
+  follows its Bot label (D18 f), so chat starts feature work only there.
 
 ## 4. Linear setup and routing
 
-### 4.1 The 功能 label group
+### 4.1 The Bot label group
 
-D18 amends this section, renaming the group Bot and adding the child 修改; read §4.1 of the
-[Bot label group design](2026-09-27-bot-label-group-design.md).
-
-The operator creates a team-scoped (农场) label group named **功能** with two child labels, **UI** and
-**Code**, left at the default single-select type so one card cannot carry both. Existing labels
-(Bug, Feature, 程序, 策划, 美术) stay untouched and outside the group. Only a group's children can be
-applied to an issue, and the API returns a child under its own short name, so FarmBot reads each
-label's parent to tell a grouped `UI` from a standalone `UI` label: it matches the parent group name
-功能 plus the child name. Pinned label IDs in private host config are optional hardening.
+The team-scoped (农场) label group **Bot** has three child labels, **修改**, **UI** and **Code**, at the
+default single-select type so one card carries at most one. The group was created as **功能** with UI
+and Code; D18 renamed it and added 修改, which starts `fix`
+(the [Bot label group design](2026-09-27-bot-label-group-design.md)). Existing labels (Bug, Improvement,
+Feature, 程序, 策划, 美术) stay untouched and outside the group, and none of them routes. Only a group's children can be
+applied to an issue, and the API returns a child under its own short name, so FarmBot reads each label's
+parent to tell a grouped `UI` from a standalone `UI` label: it matches the parent group name plus the
+child name, and for one release accepts 功能 beside Bot. Pinned label IDs in private host config are
+optional hardening.
 
 ### 4.2 Two issues, ownership and merging
 
-A feature is two human-created issues, a UI issue (功能/UI) and one Code issue (功能/Code), replacing
+A feature is two human-created issues, a UI issue (Bot/UI) and one Code issue (Bot/Code), replacing
 today's separate `-服务端` and `-客户端` cards. No Linear link joins them; each worker learns of the
 other only from repositories and what humans say. FarmBot never creates issues; `-测试` cards stay
 with humans.
@@ -157,38 +159,35 @@ under a human GitHub identity, so `merged_by` is evidence only, never an identit
 
 Two team rules, announced with the label group: a card delegated to FarmBot belongs to FarmBot, and
 whoever takes it over removes the delegation, which stops FarmBot at its next check (D6, §9.8); and a
-功能 card is not moved to Done or Canceled before FarmBot's delivery comment, because either status
-stops the job (§9.8). Merges need no rule and no Linear setting change: on the 农场 team the GitHub
-integration moves a card to 待验收, a started status, when a PR merges, so a 功能 card in 待验收
-mid-feature is not finished (§9.8).
+Bot card, 修改 included since D18, is not moved to Done or Canceled before FarmBot's delivery comment,
+because either status stops the job (§9.8). Merges need no rule and no Linear setting change: on the
+农场 team the GitHub integration moves a card to 待验收, a started status, when a PR merges, so a Bot
+card in 待验收 mid-feature is not finished (§9.8).
 
 ### 4.3 Routing rules
 
-D18 amends this section, so that Bug no longer routes and 修改 starts `fix`; read §4.2 and §4.3 of the
-[Bot label group design](2026-09-27-bot-label-group-design.md).
+D18 amended this section: Bug no longer routes and 修改 starts `fix` (§4.2 and §4.3 of the
+[Bot label group design](2026-09-27-bot-label-group-design.md)).
 
 Routing still happens once, when a delegation session is created (`agent/receiver.py:230`). The
 order for `created` delegation events:
 
 | Labels on the issue | Result |
 |---|---|
-| Bug and any 功能 child | elicitation, no work item: "this card carries both Bug and 功能/<child>; remove the one that does not apply and reply here" |
-| 功能/UI (`fgui` enabled) | work item, skill `fgui`; any delegation text goes to its inbox (§4.4) |
-| 功能/Code (`feature` enabled) | work item, skill `feature`; any delegation text goes to its inbox |
-| 功能 child not enabled on this instance (`enabled_skills`, §9.11), or an unknown 功能 child | chat item that explains what is enabled |
-| Bug, empty text | work item, skill `fix` (unchanged) |
-| anything else | chat (unchanged) |
+| Bot/修改 (`fix` enabled) | work item, skill `fix`; any delegation text goes to its inbox (§4.4) |
+| Bot/UI (`fgui` enabled) | work item, skill `fgui`; any delegation text goes to its inbox |
+| Bot/Code (`feature` enabled) | work item, skill `feature`; any delegation text goes to its inbox |
+| Bot child not enabled on this instance (`enabled_skills`, §9.11), an unknown Bot child, or two | chat item that explains what is enabled |
+| no Bot child, whatever the labels for people | chat item whose first message says how to get a fix |
 
-Mentions never start write work (`agent/receiver.py:260-261`), and the receiver already supports an
-elicit decision (`:282-283`). A reply in a delegation session that never had a work item re-runs
-this table on fresh labels (D16), so the human fixes the labels and replies in the same session
-(re-delegating also works). Label changes after a job exists do not re-route (§11).
+Mentions never start write work (`agent/receiver.py:260-261`). A reply in a delegation session that
+never had a work item, such as one another session's work declined, re-runs this table on fresh
+labels (D16). Label changes after a job exists do not re-route (§11).
 
 ### 4.4 Delegation text
 
-Today a Bug delegation that carries text goes to chat first, because the text may only be a question
-(`agent/router.py:21-25`). D3 makes the 功能 label itself the workflow choice, so a labelled
-delegation starts its worker whatever text it carries; the text becomes the first session message
+A Bot child is itself the workflow choice (D3, D18), so a labelled delegation starts its worker
+whatever text it carries; the text becomes the first session message
 (`user_requests`), which the worker reads first and may answer, narrow scope or pause on. Someone who
 only wants to talk about a labelled card mentions FarmBot.
 
@@ -408,7 +407,7 @@ then hands off to Farm-Client: the hive-rooted one, or an earlier root's when st
 
 ### 6.2 Stage A: the Farm-Contract change
 
-1. Intake: claim, `fetch-issue`, duplicate guard, confirm 功能/Code, and the started comment on the
+1. Intake: claim, `fetch-issue`, duplicate guard, confirm Bot/Code, and the started comment on the
    job's first attempt only (the plan records it; the outbox key changes with every answered
    question, `agent/ledger.py:1517`). If `openspec/changes/` or an open PR already holds someone
    else's change for the issue, ask whether to build on it (§4.5).
@@ -680,7 +679,7 @@ are bound. The UI worker does not read the Code issue.
 
 ### 7.2 farmgui stage (initial root)
 
-1. Intake as in §6.2 (started comment on the first attempt only), confirming 功能/UI.
+1. Intake as in §6.2 (started comment on the first attempt only), confirming Bot/UI.
 2. Compare the art manifest with what the 策划案 and mockups need; ask about missing or ambiguous art
    and states (§5.1). Missing art is never invented; if the answer is to proceed with a placeholder,
    the gap is recorded in the UI document.
@@ -856,7 +855,7 @@ macOS-only) need Windows tests; Mac results do not establish Windows behaviour (
 
 - `ISSUE_QUERY` (`:11-20`): labels with `id name parent { id name }`; `assignee { id name url }`;
   `creator { id name url }`; comments with `user { id name url }` and `parent { id }`.
-- `fetch_issue` (`:167-206`): keep `labels` as bare names (Bug routing and stored rows unchanged);
+- `fetch_issue` (`:167-206`): keep `labels` as bare names (stored rows unchanged);
   add `label_groups`, `assignee` (or null), `creator` (or null) and a comment `author` for human
   comments. Fingerprints hash comment ids and bodies only (`agent/ledger.py:146-152`), so they are
   unaffected.
@@ -870,7 +869,7 @@ macOS-only) need Windows tests; Mac results do not establish Windows behaviour (
   activity's `user` (id, name, URL; never the email). `ensure_session` stores the creator, and each
   inbox entry stores the user who wrote it (the activity's user, or a mention session's creator), so
   approvals, export requests and readiness reports are recorded by name (§5.2, §7.3).
-- Pass label groups to the router; implement the Bug-plus-功能 elicitation and the re-route rule of
+- Pass label groups to the router; route on the Bot group and implement the re-route rule of
   §4.3; add ACK texts (`:29-30`) for `fgui` and `feature`; generalize the fix-worded refusal (`:281`).
 
 ### 9.3 Router (`agent/router.py`)
@@ -902,8 +901,9 @@ The table of §4.3, given label groups and the enabled skills (§9.11); mention 
   and the registration of a PR Linear already attached (`:832-842`). Retry counters (`:1290-1328`)
   reset as §5.8 says, in `complete_repository_handoff` (`:891-902`) and on resumes from a gate.
 - `_resumable_work` and `_repair_work` (`:1349-1421`): a continuation resumes the delegation's own
-  write skill; on a 功能-labelled issue without a `feature` or `fgui` job, `request-repair` refuses and
-  says how to start one instead of creating a `fix` (`:1401-1408`).
+  write skill; a first start follows the Bot label (D18 f): 修改 or no Bot label creates a `fix`, and on
+  a Bot/UI or Bot/Code issue without a `feature` or `fgui` job the phase that enables those skills passes
+  the label's skill to the ledger, which today always inserts `fix` (`:1401-1408`).
 
 **Migration and recovery.** All changes are additive; older issue rows read as having no author or
 assignee. The `strip_signed` fix changes, once, the fingerprint of every tracked issue with a signed
@@ -929,7 +929,7 @@ Manifests (proposed):
 
 | Key | `feature` | `fgui` |
 |---|---|---|
-| trigger / intents | delegation / `label:功能/Code` | delegation / `label:功能/UI` |
+| trigger / intents | delegation / `label:Bot/Code` | delegation / `label:Bot/UI` |
 | writes | Farm-Contract, common, farm-hive, Farm-Client | farmgui, Farm-Client |
 | initial_root | Farm-Contract | farmgui |
 | reads | farmgui, Farm-Contract (main) | none |
@@ -990,9 +990,9 @@ closed since #48 (`TERMINAL_STATUS_TYPES`, `agent/ledger.py:28`).
   `verify-publication` (`:350-387`) includes its result.
 - `revalidate --item ITEM_ID --fingerprint FP`, claim-authenticated: after `fetch-issue` and reading
   the new comments, the worker re-baselines its claim on that fingerprint (refused if it is stale).
-- `request-repair` (`:326-349`) follows the delegation's write skill (§9.4), its acknowledgement no
-  longer promising a fix (`:344`); `await-resource --commit` (`:388-396`) gets the Farm-Client-root
-  rule.
+- `request-repair` (`:326-349`) follows the delegation's write skill, and for a first start the card's
+  Bot label (§9.4, D18 f), its acknowledgement no longer promising a fix (`:344`);
+  `await-resource --commit` (`:388-396`) gets the Farm-Client-root rule.
 
 ### 9.10 Dispatch, skills and references
 
@@ -1009,13 +1009,13 @@ closed since #48 (`TERMINAL_STATUS_TYPES`, `agent/ledger.py:28`).
 
 ### 9.11 Operating contract, doctor and service
 
-- `docs/operating-contract.md`, updated as each phase lands: trigger rows for 功能/UI, 功能/Code and
-  Bug plus 功能; authority rows; `await-input` reasons; comment kinds; the upload commands and
-  workers' use of the Linear credentials; delegation removal. The FGUI paragraph (`:407-420`) is
-  reworded: CLI export needs no separate approval in an authorized FGUI bug fix, and in an `fgui` job
-  follows the human's explicit export request after visual approval. Its claim that the rule "also
-  applies to future `fgui` and `feature` workers" describes workers that do not exist and can go now,
-  as a documentation fix.
+- `docs/operating-contract.md`, updated as each phase lands: trigger rows for Bot/修改, Bot/UI and
+  Bot/Code; authority rows; `await-input` reasons; comment kinds; the upload commands and workers' use
+  of the Linear credentials; delegation removal. The FGUI paragraph (`:407-420`) is reworded: CLI export
+  needs no separate approval in an authorized FarmBot fix job (D18 h), and in an `fgui` job follows the
+  human's explicit export request after visual approval. Its claim that the rule "also applies to future
+  `fgui` and `feature` workers" describes workers that do not exist and can go now, as a documentation
+  fix.
 - `agent/doctor.py`: report tool readiness for the new skills (Go toolchain, protoc version, dotnet
   and the 8.0.423 SDK, git-lfs, buf, Node with openspec, `python3` or the configured Python with Pillow
   and a CJK font for previews, bash and coreutils on Windows, lark-cli presence and its FarmBot app
@@ -1033,9 +1033,9 @@ Owned by those repositories' owners or the operator; FarmBot's work does not inc
 
 | Owner | Required | Recommended |
 |---|---|---|
-| Linear (operator) | create the 功能 group with UI and Code; announce the two team rules of §4.2; no Git automation change (§9.8) | |
+| Linear (operator) | the Bot group with 修改, UI and Code (created as 功能, renamed by D18); announce the two team rules of §4.2; no Git automation change (§9.8) | |
 | Feishu (admin) | before Phase B, create the FarmBot app with only the read-documents, read-wiki and download-drive-files permissions, and add it as a reader of the space or folder holding the 策划案 (§5.4) | |
-| farmgui (owners) | before Phase D, allow hand-registered `package.xml` entries under rules 12b and 12c (rule 12 in `docs/fgui-authoring-rules.md:138`, `AGENTS.md:113-114`); before Phase E, reword `AGENTS.md:38-43`, which limits the CLI export grant to "an authorized FGUI bug fix", to also cover an `fgui` feature job after a human's explicit export request following visual approval, committing only that job's packages | reconcile the two pixel-matching skill copies, both of which still say the license has no CLI publish; host the preview renderer if preferred (§7.3) |
+| farmgui (owners) | before Phase D, allow hand-registered `package.xml` entries under rules 12b and 12c (rule 12 in `docs/fgui-authoring-rules.md:138`, `AGENTS.md:113-114`); before any instance runs D18, reword `AGENTS.md:38-43`, which limits the CLI export grant to "an authorized FGUI bug fix", to cover every authorized FarmBot fix job (D18 h); before Phase E, to also cover an `fgui` feature job after a human's explicit export request following visual approval, committing only that job's packages | reconcile the two pixel-matching skill copies, both of which still say the license has no CLI publish; host the preview renderer if preferred (§7.3) |
 | Farm-Client (owners) | none: D7(f) overrides the Unity-menu rule for FarmBot (§6.7) | reword `CLAUDE.md:16` and `Assets/Scripts/HotUpdate/CLAUDE.md:10-16`, which allow regeneration only through the Unity Tools/Proto menus, to also accept `gen-config.sh` output installed with the menu's semantics and verified under dotnet, and a headless network-proto export if D10 confirms one; supported headless entry points that call the existing exporter workflows with no-op editor services; an export provenance line in commits; a dotnet test that compiles readers and registry |
 | farm-common (owners) | none | `designer/tools/check-client-export.sh` looks for the inventory under `designer/` instead of `designer/china/` |
 | Farm-Contract | none: FarmBot does not use its silent-consent defaults (§5.1) | |
@@ -1069,13 +1069,13 @@ on operator-chosen issues only, whose comments, labels, branches and draft PRs a
 
 | Area | Cases |
 |---|---|
-| Router and receiver | a standalone `UI` label does not route, 功能/UI and 功能/Code do, Bug alone is unchanged; Bug plus 功能 elicits, and a re-route after the label fix starts the right skill; labelled delegation text lands in the inbox; mentions never create `feature` or `fgui`; `enabled_skills` gates routing; the session creator and prompting user are stored without email |
+| Router and receiver | a standalone `UI` label does not route, Bot/修改, Bot/UI and Bot/Code do, and Bug alone opens the conversation; a re-route starts the right skill; labelled delegation text lands in the inbox; mentions never create `feature` or `fgui`; `enabled_skills` gates routing; the session creator and prompting user are stored without email |
 | Linear client and uploads | query shapes with a fake transport (authors, replies, assignee and creator null and present); `strip_signed` on both upload forms; `download-uploads` refuses redirects, other hosts and URLs not in the claimed issue, enforces caps and never prints or logs the token; every name hazard of §5.5, zip bombs, paths with spaces and Unicode, image sizes and manifest stability; `upload-image` refuses non-images; the upload flow against a stub |
 | Ledger | migration of old files; optional fields tolerated and absent from fingerprints; notice deduplication; `retry` and a cancelled successor of a `feature` item start at its initial root; a checkpoint without `plan` keeps the plan; `await-input` refused with an open reservation; `revalidate` lets a handoff and a late PR registration proceed after a human comment; continuation resumes the delegation's skill; `await-resource` rules per root |
 | Stages, CLI and scheduler | staged handoff only within `writes`, `fix` unchanged; `verify-publication` only for the current root; `--reason waiting` skips `needs-more-info`; `foreign-work` against local remotes, predecessors' branches counted as own; read-only checkouts outside the item directory, refreshed each launch and cleaned up with the branch worktrees; successor worktrees on recorded branches; per-skill AUTHORITY free of tokens and signed URLs; skill and template texts |
 | Journey | one Code job through A, B, pause, C, D, pause, E, F, closing and G, asserting `root_repo`, write repositories, branch names, plan and notices at each step, with variants: skipped stages, a restart while parked, Stop then continuation, a budget kill then retry, a human comment mid-attempt, and merge-commit versus squash merges |
 | Windows | the offline suite and the input and path tests on the Windows host; no Mac result is reported as Windows verification |
-| Live, in order | read the 功能 group with parents; comment author names and the prompting user of a session reply; assignee and creator mention notification; one `download-uploads` run with the app token (operator approval, D10); a worker's lark-cli fetch, as the FarmBot app, of a linked 策划案 docx page and an attachment; then one Code issue through stage A only, before any later stage is tried live |
+| Live, in order | read the Bot group with parents; comment author names and the prompting user of a session reply; assignee and creator mention notification; one `download-uploads` run with the app token (operator approval, D10); a worker's lark-cli fetch, as the FarmBot app, of a linked 策划案 docx page and an attachment; then one Code issue through stage A only, before any later stage is tried live |
 
 ## 13. Phasing
 

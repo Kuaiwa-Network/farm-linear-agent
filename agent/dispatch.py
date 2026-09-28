@@ -58,7 +58,7 @@ COMMON_AUTHORITY = (
     "rejected checkpoint handoff and save it successfully before await-input, await-resource or finish. "
 )
 
-# kw_ops use, bounded to a bug's reproduction and verification; the manifest's `mcp` grants the tools.
+# kw_ops use, bounded to the issue's reproduction and verification; the manifest's `mcp` grants the tools.
 KW_OPS_AUTHORITY = (
     "When tools.kw_ops.access is present, the kw_ops MCP server is the GM backend of the test game "
     "environment, and every server gm_list_targets returns is a test server. With access \"full\" you may use "
@@ -71,11 +71,21 @@ KW_OPS_AUTHORITY = (
     "verification gap; do not work around it. "
 )
 
+# The FairyGUI export grant, which farmgui's own rules record and the approval reviewer never reads (D18 h and
+# the Bot label group design, question 5). A fix covers a bug or a small change to existing UI (D18 b, e).
+FGUI_EXPORT_AUTHORITY = (
+    "The operator's standing authorization of 2026-09-21, widened on 2026-09-28 to every authorized fix job, "
+    "lets you run the FairyGUI CLI batch export for this issue's UI bug fix or small change to existing UI and "
+    "integrate its validated outputs into this issue's authorized client worktree, without asking for a "
+    "separate export approval or a human GUI publish. Follow the command, staging and validation workflow in "
+    "references/repo-map.md; the export adds no repository, publishing, merge or deployment scope. "
+)
+
 AUTHORITY_REFERENCE = "Use references/worker-cli.md for command arguments and the exact handoff JSON shape."
 
 # Per-skill grants, chosen by the item's skill. A skill without an entry is refused when its launch message
 # is built: state its grants here, never only in its SKILL.md.
-SKILL_AUTHORITY = {"fix": KW_OPS_AUTHORITY, "chat": KW_OPS_AUTHORITY}
+SKILL_AUTHORITY = {"fix": KW_OPS_AUTHORITY + FGUI_EXPORT_AUTHORITY, "chat": KW_OPS_AUTHORITY}
 
 
 def authority(skill):

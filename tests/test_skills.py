@@ -87,16 +87,16 @@ class CommentTemplateTests(unittest.TestCase):
 
     def test_farmbot_rendering_matches_the_production_comments(self):
         text = self.rendered("FarmBot")
-        for kind, line in (("started", "👀 FarmBot 已开始处理：正在复现与定位问题，验证结果和草稿 PR 会补充在本 issue。"),
+        for kind, line in (("started", "👀 FarmBot 已开始处理：正在定位问题或要改动的位置，验证结果和草稿 PR 会补充在本 issue。"),
                            ("blocker", "FarmBot 暂停处理。"),
-                           ("delivery", "FarmBot 已提交修复（草稿 PR，待 review）：")):
+                           ("delivery", "FarmBot 已提交修复或改动（草稿 PR，待 review）：")):
             with self.subTest(kind=kind):
                 self.assertIn(f"\n## {kind}\n{line}\n", text)
         self.assertIn("\nFarmBot 已确认无需改动：\n", text)
 
     def test_a_named_instance_starts_as_itself(self):
         text = self.rendered("TestBot")
-        self.assertIn("\n## started\n👀 TestBot 已开始处理：正在复现与定位问题，验证结果和草稿 PR 会补充在本 issue。\n", text)
+        self.assertIn("\n## started\n👀 TestBot 已开始处理：正在定位问题或要改动的位置，验证结果和草稿 PR 会补充在本 issue。\n", text)
         self.assertNotIn("FarmBot", text)
 
 
@@ -214,6 +214,9 @@ class SkillRegistryTests(unittest.TestCase):
 
 class StageManifestTests(unittest.TestCase):
     """Optional stage keys (spec §9.5): initial_root, staged and reads."""
+
+    def test_the_fix_manifest_names_the_bot_label_it_answers(self):
+        self.assertEqual(load_skills(ROOT / "skills")["fix"].intents, ("label:Bot/修改",))
 
     def test_fix_is_staged_from_a_neutral_start_and_chat_is_not_staged(self):
         skills = load_skills(ROOT / "skills")

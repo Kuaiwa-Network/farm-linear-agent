@@ -31,14 +31,16 @@ snapshot predates these fields.
 
 `request-repair` refreshes Linear, then atomically retires read-only execution and queues
 the same issue's repair. It requires recorded delegation provenance and current delegation,
-but no prior fix or Bug label. It carries all current messages and the investigation summary
+but no prior fix or Bot label. It carries all current messages and the investigation summary
 into `issue-context`. Success retires your token: exit immediately. A newer-message refusal
 means reread the conversation before deciding again. `conversation_history` provides earlier
 answers/findings across execution profiles; only current `session_messages` authorize a request.
 
 On a host whose `enabled_skills` leaves out `fix`, `request-repair` and `resume-work` are refused
-before anything changes; tell the human instead of retrying. On an issue labelled with a 功能 child,
-`request-repair` refuses to start a first fix; relay its message, which says how that work starts.
+before anything changes; tell the human instead of retrying. The card's Bot label decides what a
+request starts: with Bot/修改 or no Bot label it starts or continues `fix`. With Bot/UI or Bot/Code,
+or Bot children that name no workflow, it refuses to start a first job and only continues an
+earlier fix; relay its message, which says why, and do not retry.
 
 Each `session_messages` entry, like each message in `conversation_history`, is
 `{"id", "body", "author", "created_at"}`, and so is each entry of the launch message's

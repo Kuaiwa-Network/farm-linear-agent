@@ -151,20 +151,22 @@ def enabled_skill_names():
     return set(enabled_skills(load_skills(ROOT / "skills"), names, authority=SKILL_AUTHORITY))
 
 
-def feature_card_refusal(ledger, item_id, issue, running):
-    """spec §9.4, D16: a conversation on a 功能 card does not start a first fix. The refusal says how that work
-    starts. None when nothing changes: no 功能 child, a fix to continue, or a feature or fgui job on the issue
-    already (a later phase continues that job). While the chat item is active no other item can appear on the
-    issue, so this cannot change before the ledger's transaction."""
-    from .router import FEATURE_SKILLS, feature_children, feature_repair_refusal
-    children = feature_children(issue.get("label_groups"))
-    if not children:
+def start_request_refusal(ledger, item_id, issue, running):
+    """D18 f (Bot label group design §4.4): a start request in a conversation follows the card's Bot label. It
+    starts `fix` on a card whose only Bot child is 修改 or that has none; on a UI or Code card, or one whose Bot
+    children name no workflow, a first start is refused, and the refusal says why. None when the
+    request goes on: also when it continues an earlier fix, whatever the label now says, and when the item is not
+    a conversation, which the ledger refuses itself. The ledger continues only fix jobs, so an fgui or feature job
+    on the issue lifts nothing until the phase that continues those jobs. While the chat item is active no other
+    item can appear on the issue, so this cannot change before the ledger's transaction."""
+    from .router import bot_children, start_refusal
+    refusal = start_refusal(bot_children(issue.get("label_groups")), running)
+    if refusal is None:
         return None
     context = ledger.issue_context(item_id)
-    if (context["coordination"]["skill"] != "chat" or context["resumable_work"] is not None
-            or any(entry["skill"] in FEATURE_SKILLS.values() for entry in context["conversation_history"])):
+    if context["coordination"]["skill"] != "chat" or context["resumable_work"] is not None:
         return None
-    return feature_repair_refusal(children, running)
+    return refusal
 
 
 def verify_late_prs(ledger, args, token, progress):
@@ -412,7 +414,7 @@ def run(args, ledger, api_factory):
         current = api.fetch_issue(item["issue_id"])
         ledger.observe_issue(current)
         if c == "request-repair":
-            refusal = feature_card_refusal(ledger, args.item, current, running)
+            refusal = start_request_refusal(ledger, args.item, current, running)
             if refusal is not None:
                 raise LedgerError(refusal)
             resumed = ledger.request_repair(args.item, token, args.message_id, api.app_user_id,
@@ -422,7 +424,7 @@ def run(args, ledger, api_factory):
         try:
             api.create_activity(item["session_id"], {
                 "type": "thought" if item["session_id"] == resumed["session_id"] else "response",
-                "body": ("已排队开始或继续修复，会接着你的回复和已有调查结果处理。"
+                "body": ("已排队开始或继续修改，会接着你的回复和已有调查结果处理。"
                          + ("后续进展记录在原委派会话和 issue 下。"
                             if item["session_id"] != resumed["session_id"] else ""))})
         except Exception as exc:
