@@ -1,6 +1,7 @@
 # The Bot label group (D18)
 
-**Status: accepted, 2026-09-28; implemented, not yet deployed.** Current behaviour is in
+**Status: accepted, 2026-09-28; implemented in #64; on TestBot since 2026-09-28, not yet on
+production.** Current behaviour is in
 [`docs/operating-contract.md`](../../operating-contract.md), which the implementation updated. The
 design follows the operator's decision D18 of 2026-09-27, which amends D3 of the
 [feature-workers design](2026-09-24-feature-workers-design.md) ("the feature spec" below) and,
@@ -415,6 +416,14 @@ there (second row below). No open card carried a Bot child that day. Until produ
 the team nothing (§6.2), and put a Bot label only on the cards the operator names for §9's live
 checks, delegated to TestBot alone.
 
+**Later on 2026-09-28.** Step 2: farmgui's `AGENTS.md` records the widened grant
+(Kuaiwa-Network/farmgui#135, merged). Step 3: TestBot, with no job active, moved from `911159b` to
+`7802227`, the merge of #64; its heartbeat reports that revision, and a read-only `doctor` lists
+`chat` and `fix` as loaded and enabled. Step 5: the live checks passed, as §9 records. Their test
+cards were canceled afterwards, so again no open card carries a Bot child. Steps 1, 6 and 7 remain;
+step 1 waits until the operator can reach the Windows host, and the window above stays open until
+production runs D18.
+
 **Other orders and windows.**
 
 | Order or window | What it does |
@@ -492,6 +501,36 @@ has no earlier fix, which a request would continue (§4.4).
    item in the delegation session. Stop.
 4. Delegate a Bot/Code card: the explaining conversation. Reply 「修复一下」: refused with the §4.4
    text, and no `fix` item.
+
+**Run on 2026-09-28** on TestBot at `7802227`, on three test cards the operator approved, each
+described in one sentence as a test card for this check: FARM-1391 (Bug and Bot/修改), FARM-1392
+(Bug only) and FARM-1393 (Bot/Code). The operator delegated each to TestBot in Linear, and the
+controller accepted three `AgentSessionEvent` `created` events.
+
+1. TestBot's own client read FARM-1391's `label_groups` as `[{"group": "Bot", "label": "修改"}]`,
+   FARM-1392's as `[]` and FARM-1393's as `[{"group": "Bot", "label": "Code"}]`.
+2. FARM-1391: one `fix` item in the delegation session, whose first activity, in the same second,
+   was the new acknowledgement 「TestBot 已收到委派，正在排队处理这张修改卡。进展和草稿 PR 会更新在这里。」
+   with the target pin; no question about labels. The worker never started. The scheduler refuses
+   a repository-staged skill under any runtime but Codex (`agent/scheduler.py:89-91`, since #39;
+   `docs/operating-contract.md:275-277`), and TestBot runs the Claude runtime, so the item failed at
+   launch a second later and the session shows the launch error. There was nothing to Stop.
+3. FARM-1392: a `chat` item whose first activity was the §4.2 message; the Claude chat worker
+   answered read-only. The operator's 「修复」 queued a second `chat` item, whose worker called
+   `request-repair`: it queued a `fix` item in the delegation session and posted
+   「已排队开始或继续修改，会接着你的回复和已有调查结果处理。」 there. That item failed at
+   launch for the same reason.
+4. FARM-1393: a `chat` item whose first activity was 「这张卡带有 Bot/Code，由 feature
+   处理，但本实例没有启用 feature（本实例运行：chat、fix）。先以只读对话查看，不会开始这项工作。」.
+   After the operator's 「修复一下」, the second worker's `request-repair` exited 1 with `this issue
+   carries Bot/Code, so it is feature work, not a fix, and this instance does not run feature yet`;
+   the worker relayed it, and no `fix` item exists on the card.
+
+Checks 2 and 3 therefore show the routing and the queued item, not a running fix, which needs an
+instance on the Codex runtime. A read-only `doctor` afterwards found no active job, `job_failed` on
+FARM-1391 and FARM-1392 from the two launch refusals, and the `cleanup_pending` finding on
+FARM-1300's chat item of 2026-09-23 that the plan records. The three cards were canceled after the
+checks.
 
 After step 6, production's heartbeat revision and a read-only `doctor`; nothing else runs live there
 without the operator.
