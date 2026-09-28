@@ -402,9 +402,16 @@ Unity or add `needs-more-info` for this condition.
 After certifying the worker's process tree has stopped, the controller detaches the old
 reservation and queues its exact commit and mode. A healthy second slot may resume that job
 while an independent service loop repairs the first. Only configured local slot editors may
-be stopped; uncertain process inspection, dirty tracked source, surviving processes and
-identity mismatches keep the slot quarantined. A shared MCP broker is never terminated by
-this recovery path. Captured diagnostics remain under `.local/agent/resource-recovery/`.
+be stopped; uncertain process inspection, surviving processes and identity mismatches keep
+the slot quarantined. After proving the Editor has exited, recovery may archive changes confined
+to `Assets/*.meta`: tracked changes under a dedicated Git recovery ref, newly created metadata
+under private recovery evidence. It checks the source snapshot again before restoring those
+files from the held commit, then returns the clean slot closed. A failed archive or any other
+dirty source keeps the slot quarantined. The failed verification is still a gap; an exact-commit
+retry consumes the existing preparation or execution budget, so a commit that repeatedly makes
+Unity rewrite metadata ends in an explicit job failure without holding slots indefinitely. A
+shared MCP broker is never terminated by this recovery path. Captured diagnostics remain under
+`.local/agent/resource-recovery/`.
 
 The controller observes test progress, not merely the active flag: 180 seconds without progress
 or continuously unavailable inspection triggers recovery. Repair requests a cooperative Play Mode

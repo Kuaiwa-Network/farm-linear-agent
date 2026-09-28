@@ -180,6 +180,35 @@ class RecoveryTests(LedgerBase):
         self.assertEqual(len(self.ledger.reservations(states=('queued',))), 1)
         self.assertEqual(self.store().job_attempts(r['item_id']), 1)
 
+    def test_archived_metadata_returns_closed_slot_and_preserves_exact_commit_retry(self):
+        from agent.resource_recovery import RecoveryController
+        from agent.unity_recovery import SourceMetaReconciled
+        item, _, reservation = self.running_with_slot()
+        self.ledger.hold(reservation['reservation_id'], 'source_clean mismatch', recovery_kind='setup')
+        archive = {'head': 'b' * 40, 'tracked_ref': 'refs/farmbot/slot-recovery/test',
+                   'paths': ['Assets/atlas.png.meta']}
+        def repair(record):
+            self.assertEqual(record['commit_sha'], 'b' * 40)
+            self.assertEqual(record['evidence_dir'], str(self.path.parent / 'recovery' / record['id']))
+            raise SourceMetaReconciled(archive)
+        controller = RecoveryController(self.ledger, None, host='test', inspect=lambda slot: {},
+                                        fence=lambda record: None, repair=repair,
+                                        evidence_root=self.path.parent / 'recovery')
+        self.assertEqual(controller.tick()['repaired'], 1)
+        recovery = self.store().get(self.ledger.connection.execute(
+            'SELECT id FROM resource_recoveries').fetchone()['id'])
+        self.assertEqual(recovery['state'], 'recovered')
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'idle_closed')
+        self.assertEqual(self.ledger.slot('unity_slot:1')['parked_commit'], 'b' * 40)
+        self.assertIsNone(self.ledger.slot('unity_slot:1')['instance'])
+        self.assertEqual(self.ledger.item(item)['state'], 'awaiting_resource')
+        queued = self.ledger.reservations(states=('queued',))
+        self.assertEqual([(row['commit_sha'], row['mode']) for row in queued],
+                         [('b' * 40, 'interactive')])
+        self.assertEqual(self.store().job_attempts(item, recovery_kind='setup'), 1)
+        self.assertEqual(json.loads((Path(recovery['evidence']) / 'source-meta-reconciled.json')
+                                    .read_text(encoding='utf-8')), archive)
+
     def test_stop_during_recovery_does_not_resurrect_job(self):
         item, _, r = self.running_with_slot()
         self.ledger.hold_owned(r['reservation_id'], r['token'], 'stalled')
