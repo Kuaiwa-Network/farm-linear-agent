@@ -476,6 +476,15 @@ class Scheduler:
             if self.ledger.item(item_id)["state"] in TERMINAL:
                 self.ledger.record_cleanup(item_id, result, error=str(exc)[:500])
 
+    def _exclusive_running(self):
+        """Whether an attempt of an exclusive skill holds one of this controller's worker slots: one it launched and
+        has not reaped, a retiring handoff attempt included, counted as max_concurrent counts them."""
+        for item_id in self.active:
+            skill = self.skills.get(self.ledger.item(item_id)["skill"])
+            if skill is not None and skill.exclusive:
+                return True
+        return False
+
     def _sweep_worktrees(self):
         for row in self.ledger.status()["items"]:
             if row["state"] in TERMINAL and row["id"] not in self.active:
@@ -515,6 +524,10 @@ class Scheduler:
                 if len(self.active) >= self.max_concurrent:
                     break
                 if item["skill"] not in self.skills or item["id"] in self.active:
+                    continue
+                # At most one attempt of any exclusive skill at a time (spec §5.8, D16; P8). A waiting one is only
+                # passed over, so it keeps its place in the queue, and fix and chat go on up to max_concurrent.
+                if self.skills[item["skill"]].exclusive and self._exclusive_running():
                     continue
                 if item.get("predecessor_id"):
                     cleanup = self.ledger.cleanup_record(item["predecessor_id"])

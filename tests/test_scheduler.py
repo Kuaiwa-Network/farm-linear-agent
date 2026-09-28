@@ -711,6 +711,52 @@ class SchedulerTests(unittest.TestCase):
         self.assertNotIn("reads", self.payload())
         self.assertEqual(self.trees.reads, [])
 
+    def test_one_exclusive_attempt_runs_at_a_time_and_fix_launches_beside_it(self):
+        exclusive = self.use_feature_skill()  # exclusive, as P8 makes feature
+        self.assertTrue(exclusive.exclusive)
+        self.scheduler.max_concurrent = 2
+        first = self.item(skill=exclusive.name)
+        self.now += 1  # distinct created_at: queue() order is otherwise a coin flip on the item's random id
+        second = self.item(issue_id=OTHER, session="s2", identifier="FARM-2", skill=exclusive.name)
+        self.now += 1
+        fix = self.item(issue_id=str(uuid4()), session="s3", identifier="FARM-3")
+        self.assertEqual(self.scheduler.tick()["launched"], 2)
+        self.assertEqual([spawned[0] for spawned in self.launcher.spawned], [first["id"], fix["id"]])
+        self.assertEqual([row["id"] for row in self.ledger.queue()], [second["id"]])
+        self.assertEqual(self.scheduler.tick()["launched"], 0)  # still waiting while the first attempt runs
+        self.now += 1
+        newer = self.item(issue_id=str(uuid4()), session="s4", identifier="FARM-4")
+        self.scheduler.stop(first["id"], "Linear stop")
+        self.assertEqual(self.scheduler.tick()["launched"], 1)
+        self.assertEqual(self.launcher.spawned[-1][0], second["id"])  # its turn came before newer work
+        self.assertEqual([row["id"] for row in self.ledger.queue()], [newer["id"]])  # which the cap now holds
+
+    def test_an_exclusive_job_between_two_stages_keeps_its_turn(self):
+        exclusive = self.use_feature_skill()
+        self.scheduler.max_concurrent = 2
+        first = self.item(skill=exclusive.name)
+        self.now += 1
+        second = self.item(issue_id=OTHER, session="s2", identifier="FARM-2", skill=exclusive.name)
+        self.assertEqual(self.scheduler.tick()["launched"], 1)
+        token = self.ledger.claim(first["id"], worker_id="contract")["token"]
+        self.ledger.checkpoint(first["id"], token, {"handoff": {
+            "facts": [], "hypotheses": [], "checks": [], "repositories": [], "next_actions": ["Declare the config"]}})
+        self.ledger.handoff_repository(first["id"], token, "common", skill=exclusive)
+        self.assertEqual(self.scheduler.tick()["launched"], 0)  # the retiring attempt still holds the turn
+        self.launcher.finished.append(Finished(first["id"], 0, "", True, "stopped", None, 101))
+        self.assertEqual(self.scheduler.tick()["launched"], 1)
+        self.assertEqual(self.launcher.spawned[-1][0], first["id"])
+        self.assertEqual(self.payload()["stage"]["root_repository"], "common")
+        self.assertEqual([row["id"] for row in self.ledger.queue()], [second["id"]])
+
+    def test_attempts_of_a_skill_that_is_not_exclusive_run_side_by_side(self):
+        feature = self.use_feature_skill(exclusive=False)
+        self.scheduler.max_concurrent = 2
+        self.item(skill=feature.name)
+        self.now += 1
+        self.item(issue_id=OTHER, session="s2", identifier="FARM-2", skill=feature.name)
+        self.assertEqual(self.scheduler.tick()["launched"], 2)
+
     def test_dispatch_and_lease_follow_the_skill_budget(self):
         item = self.item()
         self.scheduler.tick()

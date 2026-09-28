@@ -806,7 +806,11 @@ any unposted notice unsent.
   and FarmBot's session response says 无需改动. Blocked stays for work that a human must unblock.
 - Delegation must come from the Linear UI. Setting the delegate through the API creates no agent session,
   so FarmBot never hears about it.
-- Two concurrent workers. Run-time budget, lease and renewal cadence are per skill, from its `skill.json`
+- Two concurrent workers (`max_concurrent`). At most one of them runs an attempt of an exclusive skill,
+  one whose `skill.json` sets `"exclusive": true` (spec §5.8, D16; no skill in this revision sets it):
+  while one runs, including an attempt that is being retired for a repository handoff, a queued item of
+  any exclusive skill waits in its place in the queue, and `fix` and chat items still launch up to
+  `max_concurrent`. Run-time budget, lease and renewal cadence are per skill, from its `skill.json`
   (`max_hours`, `lease_seconds`, `renew_minutes`); the launcher records the lease on the work item and the
   launch message tells the worker its own numbers.
 - Worker runtime: Codex CLI (`codex exec --approve-for-me`, with `sandbox_mode = "workspace-write"` in its isolated home and automatic approval review), one isolated `CODEX_HOME` per work item seeded with `auth.json`; Claude Code remains a chat fallback pending an equivalent fix sandbox and isolated-auth recipe. Details: `docs/superpowers/spikes/2026-09-18-runtime-spike.md`.
