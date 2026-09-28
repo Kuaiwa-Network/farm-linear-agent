@@ -10,6 +10,7 @@ from .config import Paths, ROOT, load_config
 from .dispatch import SKILL_AUTHORITY
 from .readonly_db import snapshot_connection
 from .skills import SkillError, enabled_skills, load_skills
+from .stages import runtime_can_launch
 
 
 class _SchemaMismatch(ValueError):
@@ -155,13 +156,22 @@ def diagnose(config, *, now=None):
         report["skills"] = {"loaded": sorted(loaded), "enabled": None, "configured": configured}
         names = set(loaded) if config.enabled_skills is None else set(config.enabled_skills)
         try:
-            report["skills"]["enabled"] = sorted(enabled_skills(loaded, config.enabled_skills,
-                                                                authority=SKILL_AUTHORITY))
+            enabled = enabled_skills(loaded, config.enabled_skills, authority=SKILL_AUTHORITY)
         except SkillError:
             _finding(report, "enabled_skills_invalid",
                      "serve refuses to start with these skills: enable only skills in this checkout's skills/ that "
                      "the dispatch AUTHORITY covers, and include chat.", unknown=sorted(names - set(loaded)),
                      unbriefed=sorted((names & set(loaded)) - set(SKILL_AUTHORITY)), missing_chat="chat" not in names)
+        else:
+            report["skills"]["enabled"] = sorted(enabled)
+            # The scheduler's own launch rule. serve still starts and queues these skills' jobs, and each then fails.
+            unsupported = sorted(name for name, skill in enabled.items()
+                                 if not runtime_can_launch(skill, config.runtime))
+            if unsupported:
+                _finding(report, "skill_runtime_unsupported",
+                         "serve accepts delegations to these skills, but each job fails at launch: a repository-staged "
+                         "skill needs Codex's workspace-write sandbox. Set runtime to codex, or leave them out of "
+                         "enabled_skills, then restart the settled service.", runtime=config.runtime, skills=unsupported)
     try:
         report.update(_snapshot(paths.ledger))
     except (OSError, sqlite3.Error, ValueError) as exc:

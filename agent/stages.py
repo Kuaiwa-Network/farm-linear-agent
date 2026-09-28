@@ -11,6 +11,14 @@ def current_root(root_repo, skill):
     return skill.initial_root if root_repo is None else root_repo
 
 
+def runtime_can_launch(skill, runtime):
+    """Whether a worker runtime can launch `skill`. Only Codex's workspace-write sandbox holds a staged attempt
+    to its one writable root, and the fake runtime stands in for Codex offline; Claude has no equivalent
+    repository write boundary. The scheduler refuses such a launch, and doctor names each enabled skill whose
+    launches the configured runtime would have refused, both by this rule."""
+    return not skill.staged or runtime in ("codex", "fake")
+
+
 def write_repositories(item, skill):
     """A staged skill writes only its current root, and nothing while neutral; an unstaged skill writes its
     whole manifest scope."""

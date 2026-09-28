@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from agent.skills import load_skills
-from agent.stages import current_root, write_repositories
+from agent.stages import current_root, runtime_can_launch, write_repositories
 from test_skills import staged_skill, write_skill
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -41,3 +41,14 @@ class StageTests(unittest.TestCase):
         self.assertEqual(write_repositories({"skill": "feature", "root_repo": "farm-hive"}, self.feature), ("farm-hive",))
         with self.assertRaisesRegex(ValueError, "invalid feature repository root: farmgui"):
             write_repositories({"skill": "feature", "root_repo": "farmgui"}, self.feature)
+
+    def test_only_codex_and_its_offline_stand_in_launch_a_staged_skill(self):
+        """The one rule the scheduler refuses a launch by and doctor warns by. A runtime it does not name has no
+        known repository write boundary, so it is refused too."""
+        for skill in (SKILLS["fix"], self.feature):
+            for runtime, launches in (("codex", True), ("fake", True), ("claude", False), ("another", False)):
+                with self.subTest(skill=skill.name, runtime=runtime):
+                    self.assertIs(runtime_can_launch(skill, runtime), launches)
+        for runtime in ("codex", "fake", "claude", "another"):
+            with self.subTest(skill="chat", runtime=runtime):
+                self.assertTrue(runtime_can_launch(SKILLS["chat"], runtime))

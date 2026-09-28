@@ -12,7 +12,7 @@ from .ledger import LedgerError
 from .kw_ops import SERVER as KW_OPS_SERVER, resolve as resolve_kw_ops
 from .memory import publish_snapshot
 from .publication import issue_branch
-from .stages import current_root, write_repositories
+from .stages import current_root, runtime_can_launch, write_repositories
 
 TERMINAL = ("delivered", "blocked", "cancelled", "failed")
 WAITING = ("awaiting_input", "awaiting_resource")
@@ -87,7 +87,7 @@ class Scheduler:
             return None
         skill = self.skills[item["skill"]]
         # Only Codex's workspace-write sandbox holds a staged attempt to its one writable root.
-        if skill.staged and self.runtime_name not in ("codex", "fake"):
+        if not runtime_can_launch(skill, self.runtime_name):
             raise RuntimeError(f"repository-staged {skill.name} requires the Codex workspace-write sandbox")
         root = current_root(item.get("root_repo"), skill)
         write_repos = write_repositories(item, skill)
