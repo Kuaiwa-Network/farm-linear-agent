@@ -11,9 +11,10 @@ import time
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
+from uuid import uuid4
 
 from agent.launcher import Finished, Handle, Launcher, RUNTIMES
-from agent.ledger import Ledger
+from agent.ledger import Ledger, LedgerError
 from agent.scheduler import Scheduler
 from agent.skills import load_skills
 from agent.slots import SlotPool, slot_entry
@@ -144,18 +145,21 @@ class FakeWorktrees:
     def __init__(self, root):
         self.root = Path(root)
         self.added = []
+        self.attached = []  # the add calls that re-attach to a plan's issue branch (spec §5.7)
         self.fail_on = None
         self.commit_fails = False
 
     def clone_path(self, repo):
         return self.root / "repos" / f"{repo}.git"
 
-    def add(self, repo, item_id, branch):
+    def add(self, repo, item_id, branch, attach=False):
         if self.fail_on == (repo, item_id):
             raise RuntimeError("boom")
         path = self.root / item_id / repo
         path.mkdir(parents=True, exist_ok=True)
         self.added.append((repo, item_id, branch))
+        if attach:
+            self.attached.append((repo, item_id, branch))
         return path
 
     def add_detached(self, repo, item_id):
@@ -579,6 +583,87 @@ class SchedulerTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "repository-staged feature requires the Codex workspace-write"):
             self.scheduler.launch(item)
         self.assertEqual(self.trees.added, [])
+
+    # Spec §5.7 "Re-attachment" (P4): a job with an initial root goes back to the issue branches its plan records.
+    def use_feature_skill(self, **manifest):
+        """Serve and enable Task 1's `opt_in_skill`, the plan's `feature` manifest (initial root Farm-Contract; writes
+        Farm-Contract, common and farm-hive; opt-in and exclusive), beside the repository's own skills, with the
+        dispatch AUTHORITY entry every dispatched skill needs. `manifest` overrides its keys."""
+        feature = opt_in_skill(Path(self.tmp.name) / "fixture-skills", **manifest)
+        self.scheduler.skills = {**SKILLS, feature.name: feature}
+        self.scheduler.enabled_skills.add(feature.name)
+        authority = patch.dict(dispatch.SKILL_AUTHORITY, {feature.name: "Fixture feature grants. "})
+        authority.start()
+        self.addCleanup(authority.stop)
+        return feature
+
+    PLAN = {"prs": {"Farm-Contract": [{"branch": "farmbot/farm-1", "role": "issue", "head": "b" * 40, "pr": None}],
+                    "farm-hive": [{"branch": "farmbot/farm-1-followup", "role": "followup", "head": "c" * 40,
+                                   "pr": None}]}}
+
+    def planned_and_stopped(self, skill, plan):
+        """An item of `skill` whose worker saved `plan` and was then stopped, as Linear's Stop does."""
+        item = self.item(skill=skill)
+        self.scheduler.tick()
+        token = self.ledger.claim(item["id"], worker_id="first")["token"]
+        self.ledger.checkpoint(item["id"], token, {"plan": plan})
+        self.scheduler.stop(item["id"], "Linear stop")
+        return item
+
+    def test_a_successor_goes_back_to_the_issue_branches_its_predecessors_plan_records(self):
+        feature = self.use_feature_skill()
+        first = self.planned_and_stopped(feature.name, self.PLAN)
+        self.assertEqual(self.trees.attached, [])  # nothing was recorded at the first launch
+        successor = self.ledger.retry(first["id"], "continue the job")
+        self.assertEqual(self.scheduler.tick()["launched"], 1)  # after the predecessor's cleanup
+        self.assertEqual(self.launcher.spawned[-1][0], successor["id"])
+        self.assertEqual(self.trees.attached, [("Farm-Contract", successor["id"], "farmbot/farm-1")])
+        # A repository whose plan entry is no issue branch, and one with none, keep today's call and branch.
+        self.assertEqual(sorted((repo, branch) for repo, item_id, branch in self.trees.added if item_id == successor["id"]),
+                         [("Farm-Contract", "farmbot/farm-1"), ("common", "farmbot/farm-1"),
+                          ("farm-hive", "farmbot/farm-1")])
+
+    def test_a_cleaned_up_continuation_goes_back_to_the_issue_branches_of_its_own_plan(self):
+        feature = self.use_feature_skill()
+        item = self.item(skill=feature.name)
+        self.scheduler.tick()
+        token = self.ledger.claim(item["id"], worker_id="first")["token"]
+        self.ledger.checkpoint(item["id"], token, {"plan": self.PLAN})
+        self.launcher.finished.append(Finished(item["id"], 1, "", False, "exited"))
+        self.scheduler.tick()
+        self.assertEqual(self.ledger.item(item["id"])["state"], "failed")
+        self.assertIn(("removed", item["id"], None), self.trees.added)  # its worktrees are gone
+        self.ledger.retry(item["id"], "operator retry")
+        self.assertEqual(self.scheduler.tick()["launched"], 1)
+        self.assertEqual(self.trees.attached, [("Farm-Contract", item["id"], "farmbot/farm-1")])
+
+    def test_a_plan_written_around_the_checkpoint_fails_the_launch_before_any_worktree(self):
+        """P9's rules hold at launch too, because the ledger file is in a directory every worker can write. The
+        failure is any launch failure: the job fails and its session says so."""
+        feature = self.use_feature_skill()
+        items = []
+        for plan, error in (({"prs": {"common": [{"branch": "main", "role": "issue"}]}}, "farmbot/farm-1 or"),
+                            ({"prs": {"common": [{"branch": "farmbot/farm-1", "role": "issue"},
+                                                 {"branch": "farmbot/farm-1-2", "role": "issue"}]}},
+                             "more than one issue entry")):
+            item = self.item(issue_id=str(uuid4()), session=str(uuid4()), skill=feature.name)
+            self.ledger.connection.execute("UPDATE work_items SET checkpoint=? WHERE id=?",
+                                           (json.dumps({"plan": plan}), item["id"]))
+            with self.subTest(error=error), self.assertRaisesRegex(LedgerError, error):
+                self.scheduler.launch(self.ledger.item(item["id"]))
+            items.append(item["id"])
+        self.assertEqual([entry for entry in self.trees.added if entry[1] in items], [])
+        self.assertEqual(self.scheduler.tick()["launched"], 0)
+        self.assertEqual([self.ledger.item(item_id)["state"] for item_id in items], ["failed", "failed"])
+        self.assertEqual({kind for _, kind, _ in self.api.activities}, {"error"})
+
+    def test_a_fix_successor_keeps_todays_branches_whatever_its_plan_records(self):
+        first = self.planned_and_stopped("fix", self.PLAN)
+        successor = self.ledger.retry(first["id"], "continue the fix")
+        self.assertEqual(self.scheduler.tick()["launched"], 1)
+        self.assertEqual(self.launcher.spawned[-1][0], successor["id"])
+        self.assertEqual(self.trees.attached, [])
+        self.assertIn(("Farm-Contract", successor["id"], "farmbot/farm-1"), self.trees.added)
 
     def test_dispatch_and_lease_follow_the_skill_budget(self):
         item = self.item()

@@ -84,7 +84,8 @@ class WorkerCliReferenceTests(unittest.TestCase):
                 claimed = ledger.claim(item["id"], worker_id="reference-test")
                 for example in examples:
                     with self.subTest(example=example):
-                        checkpoint = json.loads(example)
+                        # A worker fills ISSUE_BRANCH with its own branch; the fixture issue is FARM-1 (plan P9).
+                        checkpoint = json.loads(example.replace("ISSUE_BRANCH", "farmbot/farm-1"))
                         ledger.checkpoint(item["id"], claimed["token"], checkpoint)
                         saved = ledger.issue_context(item["id"])["handoff"]["content"]
                         self.assertEqual(saved, checkpoint["handoff"])

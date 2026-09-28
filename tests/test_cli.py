@@ -755,6 +755,30 @@ class CliTests(unittest.TestCase):
                                 self.json_file("ok.json", {"published_prs": ["https://github.com/Kuaiwa-Network/Farm-Client/pull/1"]}))
         self.assertEqual(accepted["state"], "running")
 
+    def test_checkpoint_checks_a_plans_issue_branches_in_the_hosts_issue_namespace(self):
+        """Plan P9 in the worker CLI: the private config's issue_prefix names the branches, as for the scheduler and
+        the publication verifier."""
+        from agent.ledger import Ledger
+        config = self.root / "config.json"
+        config.write_text(json.dumps({"client_id": "c", "client_secret": "s", "webhook_secret": "w", "repos": {},
+                                      "local_root": str(self.root / "local"), "issue_prefix": "FBTEST"}),
+                          encoding="utf-8")
+        self.env["FARMBOT_CONFIG"] = str(config)
+        ledger = Ledger(self.db)
+        ledger.observe_issue(issue(identifier="FBTEST-7", branch_name="farmbot/fbtest-7", labels=["Bug"]))
+        ledger.ensure_session("session-1", ISSUE, delegation=True)
+        item = ledger.create_work_item(issue_id=ISSUE, session_id="session-1", skill="fix")["id"]
+        ledger.close()
+        token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
+
+        def plan(branch):
+            return self.json_file("plan.json", {"plan": {"prs": {"Farm-Client": [{"branch": branch, "role": "issue"}]}}})
+        refused = self.run_cli("checkpoint", "--item", item, "--token", token, "--input", plan("farmbot/farm-7"),
+                               success=False)
+        self.assertIn("farmbot/fbtest-7 or farmbot/fbtest-7-<suffix>", refused.stderr)
+        saved = self.run_cli("checkpoint", "--item", item, "--token", token, "--input", plan("farmbot/fbtest-7"))
+        self.assertEqual(saved["checkpoint"]["plan"]["prs"]["Farm-Client"][0]["branch"], "farmbot/fbtest-7")
+
     def test_a_worker_requests_a_slot_and_the_request_is_queued(self):
         item = self.seeded_item(target=PIN)
         token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]

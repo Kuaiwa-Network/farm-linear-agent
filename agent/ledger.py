@@ -17,9 +17,11 @@ import time
 from uuid import UUID, uuid4
 
 from . import memory
+from .publication import PublicationError, is_issue_branch, issue_branch
 from .resource_recovery import RecoveryStore, SCHEMA as RECOVERY_SCHEMA
 from .router import CONVERSATION_SKILLS, WRITE_SKILLS
 from .stages import current_root
+from .worktrees import SAFE_BRANCH
 
 MARKER = re.compile(r"\[farmbot:[0-9a-f]{64}\]")
 STATES = ("queued", "running", "awaiting_input", "awaiting_resource",
@@ -288,6 +290,41 @@ def _validate_plan(value):
             pending.extend((f"{where}[{index}]", entry) for index, entry in enumerate(item))
         elif isinstance(item, str) and len(item) > 2000:
             raise LedgerError(f"{where} text exceeds 2000 characters")
+
+
+def _git_accepts(branch):
+    """git check-ref-format's rules for a branch name that SAFE_BRANCH's characters leave open: no `..`, no empty
+    component, none that starts with `.` or ends with `.lock`, and no `.` at the end."""
+    return ".." not in branch and not branch.endswith(".") and all(
+        part and not part.startswith(".") and not part.endswith(".lock") for part in branch.split("/"))
+
+
+def plan_issue_branches(plan, identifier, issue_prefix):
+    """{repository: branch}: the issue branches a plan records, one entry of `plan.prs` with "role": "issue" per
+    repository (spec §5.7 "Re-attachment"; plan P9). Each names this issue's FarmBot branch under the issue-branch
+    policy publication enforces (`publication.is_issue_branch`), spelt as FarmBot's worktrees and git accept it, or
+    no later launch could check it out. Entries of other roles, and values of other shapes, are the worker's own
+    record and decide nothing. LedgerError names the first entry that breaks a rule."""
+    recorded = plan.get("prs") if isinstance(plan, dict) else None
+    found = {}
+    for repo, entries in (recorded.items() if isinstance(recorded, dict) else ()):
+        for entry in (entries if isinstance(entries, list) else ()):
+            if not (isinstance(entry, dict) and entry.get("role") == "issue"):
+                continue
+            if repo in found:
+                raise LedgerError(f"plan.prs.{repo} has more than one issue entry: record one issue branch per "
+                                  "repository, and any other branch under another role")
+            try:
+                canonical = issue_branch(identifier, issue_prefix)
+            except PublicationError as exc:
+                raise LedgerError(f"plan.prs.{repo}: {exc}") from None
+            branch = entry.get("branch")
+            if not (is_issue_branch(branch, identifier, issue_prefix) and SAFE_BRANCH.fullmatch(branch)
+                    and _git_accepts(branch)):
+                raise LedgerError(f"plan.prs.{repo}: an issue entry names this issue's own branch, {canonical} or "
+                                  f"{canonical}-<suffix>, as git spells it; {branch!r} is not one")
+            found[repo] = branch
+    return found
 
 
 def _validate_handoff(value):
@@ -956,7 +993,9 @@ class Ledger:
         if error := self.checkpoint_error(item_id):
             raise LedgerError(f"repair the rejected checkpoint handoff before pausing or finishing: {error}")
 
-    def checkpoint(self, item_id, token, progress, *, verified_prs=()):
+    def checkpoint(self, item_id, token, progress, *, verified_prs=(), issue_prefix="FARM"):
+        """`issue_prefix` is the host's issue namespace (Config.issue_prefix), which the worker CLI passes: a plan's
+        issue branches are checked against it (plan P9)."""
         if not isinstance(progress, dict):
             raise LedgerError("checkpoint input must be an object")
         handoff_updated = "handoff" in progress
@@ -992,6 +1031,10 @@ class Ledger:
                 progress["worker_id"] = previous["worker_id"]
             known = {r["url"] for r in self.connection.execute("SELECT url FROM published_prs WHERE issue_id=?", (row["issue_id"],))}
             issue = json.loads(self._issue_row(row["issue_id"])["metadata"])
+            if "plan" in progress:
+                # P9: a recorded issue branch decides where later attempts' worktrees start (spec §5.7). Refused
+                # outright, like any invalid plan, before anything of this checkpoint is written.
+                plan_issue_branches(progress["plan"], issue["identifier"], issue_prefix)
             existing_input = set(issue["attachments"])
             new_prs = set(published) - known
             late_prs = new_prs & existing_input
@@ -1785,6 +1828,15 @@ class Ledger:
             row = (self.connection.execute("SELECT * FROM work_items WHERE id=?", (row["predecessor_id"],)).fetchone()
                    if row["predecessor_id"] else None)
         return None
+
+    def recorded_branches(self, item_id, *, issue_prefix="FARM"):
+        """{repository: branch}: the issue branches the job's plan records (spec §5.7 "Re-attachment"), from the
+        item's own plan, else the plan of the nearest predecessor that saved one, as recovery.plan is found. The
+        checkpoint refused a plan that breaks plan_issue_branches' rules (P9); they are applied again here, because
+        the scheduler checks out what this returns and the ledger file is in a directory every worker can write."""
+        row = self._row(item_id)
+        identifier = json.loads(self._issue_row(row["issue_id"])["metadata"])["identifier"]
+        return plan_issue_branches(self._predecessor_plan(row), identifier, issue_prefix)
 
     def prepare_comment(self, item_id, token, kind, body):
         """Claim the one outbox row for this issue, claimed input, generation and kind, and say plainly

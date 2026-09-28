@@ -65,12 +65,24 @@ class Scheduler:
         paths = {}
         if skill.writes:
             branch = self._branch(issue)
+            # P4: a job with an initial root goes back to the issue branch its plan, or its nearest predecessor's,
+            # records for a repository (spec §5.7). fix has no initial root and keeps today's branches.
+            recorded = self._recorded_branches(item) if skill.initial_root else {}
             for repo in skill.writes:
                 options = {"refresh": False} if item["publication_retries"] else {}
-                paths[repo] = self.worktrees.add(repo, item["id"], branch, **options)
+                if repo in recorded:
+                    paths[repo] = self.worktrees.add(repo, item["id"], recorded[repo], attach=True, **options)
+                else:
+                    paths[repo] = self.worktrees.add(repo, item["id"], branch, **options)
         else:
             paths[READ_REPO] = self.worktrees.add_detached(READ_REPO, item["id"])
         return paths
+
+    def _recorded_branches(self, item):
+        """The issue branches the job's plan records (Ledger.recorded_branches), checked in this host's issue
+        namespace as the checkpoint that saved them was (P9): a name a worker wrote chooses a checkout only when it
+        is this issue's own FarmBot branch."""
+        return self.ledger.recorded_branches(item["id"], issue_prefix=self.issue_prefix)
 
     @staticmethod
     def _batch_result(state_dir):

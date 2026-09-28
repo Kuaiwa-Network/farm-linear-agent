@@ -271,3 +271,14 @@ handoff. `issue-context.plan` shows your item's plan. A successor of cancelled w
 predecessor's plan from `issue-context.recovery.plan`, and every predecessor's notices from
 `recovery.notices` (item id, request id, kind and remote id; one with a remote id was posted); like the
 rest of `recovery`, verify it first.
+
+An entry of `plan.prs` with `"role": "issue"` names your own branch in that repository, the name
+`git branch --show-current` prints in its worktree, which is always this issue's `farmbot/<key>` or
+`farmbot/<key>-…`; record one per repository. Record any other branch, such as a person's you were
+told to build on, under another role or none. `checkpoint` refuses a plan that breaks this and names
+the entry: correct it and save again. For a skill with an initial root (`fix` has none), these
+entries also decide where a later attempt's worktrees start, so record every write repository's
+issue branch early. A successor of cancelled work, and a later attempt of your item after cleanup
+removed its worktrees, then gets that branch itself, fetched and tracking `origin/<branch>`:
+commits others pushed are on it, and commits of its own that were never pushed stay ahead of the
+remote. Integrate the remote before you push, never force-push.

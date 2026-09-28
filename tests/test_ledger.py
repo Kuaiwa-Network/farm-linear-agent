@@ -1410,6 +1410,104 @@ class PlanTests(LedgerBase):
             self.ledger.checkpoint(item_id, fresh, {"plan": {"stages": {"A": "late"}}})
         self.assertEqual(self.ledger.issue_context(item_id)["plan"], self.PLAN)
 
+    # Plan P9: an issue entry of plan.prs decides where later attempts' worktrees start (spec §5.7), so the
+    # checkpoint refuses one no launch could check out, while the worker can still correct it.
+    def test_an_issue_entry_names_this_issues_own_farmbot_branch(self):
+        item_id, token = self.running()
+        self.ledger.checkpoint(item_id, token, {"plan": self.PLAN})
+        stage = self.ledger.item(item_id)["stage"]
+        for branch in ("main", "farmbot/farm-2", "farmbot/farm-10", "designer-one/farm-1-harvest", "farmbot/farm-1 x",
+                       "farmbot/farm-1-a:b", "farmbot/farm-1-x\n", "farmbot/farm-1-a..b", "farmbot/farm-1-x.lock",
+                       "farmbot/farm-1-x/", ["farmbot/farm-1"], None):
+            with self.subTest(branch=branch):
+                plan = {"prs": {"common": [{"branch": branch, "role": "issue", "head": "b" * 40}]}}
+                with self.assertRaisesRegex(LedgerError, r"plan\.prs\.common: an issue entry names this issue's own "
+                                                         r"branch, farmbot/farm-1 or farmbot/farm-1-<suffix>"):
+                    self.ledger.checkpoint(item_id, token, {"stage": "declarations", "plan": plan})
+        self.assertEqual((self.ledger.issue_context(item_id)["plan"], self.ledger.item(item_id)["stage"]),
+                         (self.PLAN, stage))  # nothing of a refused checkpoint is saved
+        # Any other branch may be recorded, a person's included, under another role or none.
+        other = {"prs": {"common": [{"branch": "farmbot/farm-1", "role": "issue", "head": "b" * 40},
+                                    {"branch": "designer-one/farm-1-harvest", "head": "c" * 40}]}}
+        self.assertEqual(self.ledger.checkpoint(item_id, token, {"plan": other})["checkpoint"]["plan"], other)
+
+    def test_a_repository_has_one_issue_entry(self):
+        item_id, token = self.running()
+        for second in ("farmbot/farm-1-2", "farmbot/farm-1"):
+            with self.subTest(second=second), self.assertRaisesRegex(
+                    LedgerError, r"plan\.prs\.common has more than one issue entry"):
+                self.ledger.checkpoint(item_id, token, {"plan": {"prs": {"common": [
+                    {"branch": "farmbot/farm-1", "role": "issue"}, {"branch": second, "role": "issue"}]}}})
+        self.assertIsNone(self.ledger.issue_context(item_id)["plan"])
+
+    def test_an_issue_entry_follows_the_hosts_issue_namespace(self):
+        """The worker CLI passes the host's issue_prefix; FARM-1 is outside an FBTEST host's namespace."""
+        item_id, token = self.running()
+        with self.assertRaisesRegex(LedgerError, r"plan\.prs\.Farm-Contract: .*configured issue namespace"):
+            self.ledger.checkpoint(item_id, token, {"plan": self.PLAN}, issue_prefix="FBTEST")
+        self.ledger.checkpoint(item_id, token, {"plan": {"stages": {"A": "done"}}}, issue_prefix="FBTEST")
+
+    def test_a_fix_plan_that_records_its_own_branches_is_accepted_as_before(self):
+        """A fix records the branch its worktree is on: Linear's suggestion, or the -<job> copy of a successor."""
+        item_id, token = self.running()
+        plan = {"prs": {"Farm-Client": [{"branch": "farmbot/farm-1-harvest-duplicates-rewards", "role": "issue",
+                                         "head": "a" * 40,
+                                         "url": "https://github.com/Kuaiwa-Network/Farm-Client/pull/7"}],
+                        "farm-hive": [{"branch": f"farmbot/farm-1-{item_id}", "role": "issue", "head": "b" * 40}]}}
+        self.assertEqual(self.ledger.checkpoint(item_id, token, {"plan": plan})["checkpoint"]["plan"], plan)
+        self.assertEqual(self.ledger.recorded_branches(item_id),
+                         {"Farm-Client": "farmbot/farm-1-harvest-duplicates-rewards",
+                          "farm-hive": f"farmbot/farm-1-{item_id}"})
+
+    def test_a_feature_plan_records_one_issue_branch_per_repository_beside_its_suffix_branches(self):
+        item = self.new_item(skill="feature", target=None)
+        self.ledger.set_worker(item["id"], 4321, "test")
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+
+        def entry(branch, role, head):
+            return {"branch": branch, "role": role, "head": head * 40, "pr": None}
+        plan = {"stages": {"A": "done", "B": "done", "C": "done", "D": "done", "G": "pending"},
+                "prs": {"Farm-Contract": [entry("farmbot/farm-1", "issue", "a"),
+                                          entry("farmbot/farm-1-waivers", "waivers", "b")],
+                        "common": [entry("farmbot/farm-1", "issue", "c"), entry("farmbot/farm-1-config", "config", "d")],
+                        "farm-hive": [entry("farmbot/farm-1", "issue", "e"),
+                                      entry("farmbot/farm-1-followup", "followup", "f")]}}
+        self.assertEqual(self.ledger.checkpoint(item["id"], token, {"plan": plan})["checkpoint"]["plan"], plan)
+        self.assertEqual(self.ledger.recorded_branches(item["id"]),
+                         dict.fromkeys(("Farm-Contract", "common", "farm-hive"), "farmbot/farm-1"))
+
+    def test_recorded_branches_are_the_issue_entries_of_the_nearest_plan(self):
+        """Spec §5.7 "Re-attachment": the scheduler reads only these; any other plan content is the worker's own."""
+        item_id, token = self.running()
+        self.assertEqual(self.ledger.recorded_branches(item_id), {})
+        plan = {"prs": {"Farm-Contract": [{"branch": "farmbot/farm-1-waivers", "role": "waivers"},
+                                          {"branch": "farmbot/farm-1", "role": "issue", "head": "a" * 40, "pr": None}],
+                        "common": ["farmbot/farm-1", {"branch": "farmbot/farm-1", "role": "config"}],
+                        "farm-hive": {"branch": "farmbot/farm-1", "role": "issue"}}}
+        self.ledger.checkpoint(item_id, token, {"plan": plan})
+        self.assertEqual(self.ledger.recorded_branches(item_id), {"Farm-Contract": "farmbot/farm-1"})
+        self.ledger.cancel(item_id, "Stop")
+        successor = self.ledger.retry(item_id, "continue")["id"]
+        self.assertEqual(self.ledger.recorded_branches(successor), {"Farm-Contract": "farmbot/farm-1"})
+        self.ledger.set_worker(successor, 4322, "test")
+        token = self.ledger.claim(successor, worker_id="w2")["token"]
+        self.ledger.checkpoint(successor, token, {"plan": {"stages": {"A": "done"}}})
+        self.assertEqual(self.ledger.recorded_branches(successor), {})  # its own plan, once it saved one
+
+    def test_a_plan_written_around_the_checkpoint_is_checked_again_when_read(self):
+        """The ledger file sits in a directory every worker can write, so the scheduler's read applies P9's rules
+        again."""
+        item_id, _ = self.running()
+        for plan, error in (({"prs": {"common": [{"branch": "main", "role": "issue"}]}}, "farmbot/farm-1 or"),
+                            ({"prs": {"common": [{"branch": "farmbot/farm-1", "role": "issue"},
+                                                 {"branch": "farmbot/farm-1-2", "role": "issue"}]}},
+                             "more than one issue entry")):
+            with self.subTest(error=error):
+                self.ledger.connection.execute("UPDATE work_items SET checkpoint=? WHERE id=?",
+                                               (json.dumps({"plan": plan}), item_id))
+                with self.assertRaisesRegex(LedgerError, error):
+                    self.ledger.recorded_branches(item_id)
+
 
 class NoticeTests(LedgerBase):
     def running(self):

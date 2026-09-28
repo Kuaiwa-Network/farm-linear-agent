@@ -12,6 +12,10 @@ SAFE_BRANCH = re.compile(r"^[A-Za-z0-9._/一-鿿-]+$")
 # Task worktrees are for code: LFS pointers stay pointers (Farm-Client carries gigabytes of binaries), and a
 # missing credential fails at once instead of waiting on a prompt no one will answer.
 GIT_ENV = {"GIT_LFS_SKIP_SMUDGE": "1", "GIT_TERMINAL_PROMPT": "0"}
+# Controller git in a clone a worker can write: a worker rooted in a repository has FarmBot's clone of it among its
+# writable roots, hooks directory and config included. Each call added since the Phase B plan runs with hooks and
+# fsmonitor off (P10); the clone's other settings still apply, as to the calls made before (its Known Risks).
+HOOKS_OFF = ("-c", f"core.hooksPath={os.devnull}", "-c", "core.fsmonitor=false")
 # A slot is what Unity opens, so its binaries must be real files. Smudge stays on for every slot call (spec §7).
 # The "0" is explicit and not an omission: _git merges os.environ, so merely leaving the key out lets an
 # operator shell that exported GIT_LFS_SKIP_SMUDGE=1 — the shell that built this host's first slot did — win
@@ -40,8 +44,9 @@ class WorktreeError(RuntimeError):
     pass
 
 
-def _git(*args, cwd, env=GIT_ENV, timeout=600):
-    result = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True, timeout=timeout,
+def _git(*args, cwd, env=GIT_ENV, timeout=600, config=()):
+    """`config` is `-c` settings placed before the subcommand, such as HOOKS_OFF."""
+    result = subprocess.run(["git", *config, *args], cwd=str(cwd), capture_output=True, text=True, timeout=timeout,
                             env={**os.environ, **env})
     if result.returncode:
         raise WorktreeError(f"git {args[0]} failed: {result.stderr.strip()[:500]}")
@@ -90,12 +95,12 @@ class Worktrees:
             staging.rename(path)
         return path
 
-    def fetch(self, repo):
-        _git("fetch", "--quiet", "--prune", "origin", cwd=self.ensure_clone(repo))
+    def fetch(self, repo, *, config=()):
+        _git("fetch", "--quiet", "--prune", "origin", cwd=self.ensure_clone(repo), config=config)
 
-    def default_branch(self, repo):
+    def default_branch(self, repo, *, config=()):
         clone = self.ensure_clone(repo)
-        out = _git("ls-remote", "--symref", "origin", "HEAD", cwd=clone)
+        out = _git("ls-remote", "--symref", "origin", "HEAD", cwd=clone, config=config)
         for line in out.splitlines():
             if line.startswith("ref:"):
                 return line.split()[1].removeprefix("refs/heads/")
@@ -142,7 +147,16 @@ class Worktrees:
         self._head_cache[repo] = (time.monotonic(), commit, None)
         return commit
 
-    def add(self, repo, item_id, branch, *, refresh=True):
+    def add(self, repo, item_id, branch, *, refresh=True, attach=False):
+        """The item's write worktree of `repo` on `branch`; an existing one is returned as it is.
+
+        By default a new worktree restarts at the item's recovery commit when cleanup preserved one, else tracks
+        origin/<branch> when only the remote has that branch, else starts from the default branch; its branch is
+        `branch`, or `<branch>-<item_id>` when the clone already has `branch`.
+
+        `attach` is for the issue branch a job's plan records (spec §5.7 "Re-attachment"): the worktree checks out
+        that branch itself, never a copy under another name, after a fetch. See `_attach`.
+        """
         if not branch or not SAFE_BRANCH.match(branch) or branch.startswith("-"):
             raise WorktreeError("unsafe branch name")
         path = self.worktrees_root / item_id / repo
@@ -151,6 +165,8 @@ class Worktrees:
         if not refresh and path.exists():
             return path
         clone = self.ensure_clone(repo)
+        if attach:
+            return self._attach(repo, clone, path, branch)
         recovery = self._recovery_commit(clone, self._recovery_ref(item_id)) if not path.exists() else None
         if recovery:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -170,6 +186,55 @@ class Worktrees:
             name = branch if branch not in local_branches else f"{branch}-{item_id}"
             _git("worktree", "add", "--quiet", "-b", name, str(path), f"origin/{self.default_branch(repo)}", cwd=clone)
         return path
+
+    def _attach(self, repo, clone, path, branch):
+        """Check out `branch` itself after a fetch (spec §5.7): the clone's own branch, moved forward to
+        origin/<branch> when the remote is ahead of it and kept as it is when it has commits of its own, which the
+        worker integrates without force-pushing; else a new branch tracking origin/<branch>; else, with neither (a
+        clone made again since), a new branch of that name from the default branch. It tracks origin/<branch>
+        whenever the remote has that branch. The item's recovery ref is not consulted: it stays where cleanup left
+        it, and a successor or a cleaned-up continuation goes on from the branch the plan names. Every git call
+        runs with HOOKS_OFF (P10)."""
+        self.fetch(repo, config=HOOKS_OFF)
+        if path.exists():
+            return path
+        local, remote = f"refs/heads/{branch}", f"refs/remotes/origin/{branch}"
+        local_commit, remote_commit = self._ref_commit(clone, local), self._ref_commit(clone, remote)
+        if local_commit and self._checked_out(clone, local):
+            raise WorktreeError(f"{branch} is checked out in another worktree of the {repo} clone")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if (local_commit and remote_commit and local_commit != remote_commit
+                and _git("rev-list", "--count", f"{remote_commit}..{local_commit}", cwd=clone, config=HOOKS_OFF) == "0"):
+            # Others pushed on top of it: a fast-forward, which update-ref makes only from the commit just read.
+            _git("update-ref", local, remote_commit, local_commit, cwd=clone, config=HOOKS_OFF)
+        if local_commit:
+            _git("worktree", "add", "--quiet", str(path), branch, cwd=clone, config=HOOKS_OFF)
+            if remote_commit:
+                _git("branch", "--quiet", f"--set-upstream-to=origin/{branch}", branch, cwd=clone, config=HOOKS_OFF)
+        elif remote_commit:
+            _git("worktree", "add", "--quiet", "--track", "-b", branch, str(path), f"origin/{branch}", cwd=clone,
+                 config=HOOKS_OFF)
+        else:
+            default = self.default_branch(repo, config=HOOKS_OFF)
+            _git("worktree", "add", "--quiet", "-b", branch, str(path), f"origin/{default}", cwd=clone,
+                 config=HOOKS_OFF)
+        return path
+
+    @staticmethod
+    def _ref_commit(clone, ref):
+        """The commit a full ref name points at, or None. for-each-ref also lists refs below a pattern, hence the
+        exact comparison."""
+        for line in _git("for-each-ref", "--format=%(objectname) %(refname)", ref, cwd=clone,
+                         config=HOOKS_OFF).splitlines():
+            commit, _, name = line.partition(" ")
+            if name == ref:
+                return commit
+        return None
+
+    @staticmethod
+    def _checked_out(clone, ref):
+        """Whether a worktree of the clone has `ref` checked out."""
+        return f"branch {ref}" in _git("worktree", "list", "--porcelain", cwd=clone, config=HOOKS_OFF).splitlines()
 
     @staticmethod
     def _unused_branch(name, cwd):

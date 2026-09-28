@@ -7,7 +7,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from .config import Paths, linear_api, load_config
+from .config import Config, Paths, linear_api, load_config
 from .ledger import AWAIT_REASONS, NOTICE_KINDS, TERMINAL_STATUS_TYPES, Ledger, LedgerError
 from .memory import prune_snapshots
 from .router import CONVERSATION_SKILLS, WRITE_SKILLS, continuation_refusal
@@ -176,6 +176,16 @@ def conversation_request(ledger, item_id, issue, running, *, start):
     if refusal is not None:
         return None, refusal
     return (start_skill(children) if start else None), None
+
+
+def configured_issue_prefix():
+    """The host's issue namespace (Config.issue_prefix), in which a plan's issue branches are checked (plan P9);
+    Config's default where no private config is readable, as in test fixtures, which the scheduler and the
+    publication verifier default to as well."""
+    try:
+        return load_config(secure_permissions=False).issue_prefix
+    except (OSError, ValueError):
+        return Config.issue_prefix
 
 
 def verify_late_prs(ledger, args, token, progress):
@@ -347,7 +357,8 @@ def run(args, ledger, api_factory):
                 check_pr_targets(published)
         token = resolve_token(args)
         return ledger.checkpoint(args.item, token, progress,
-                                 verified_prs=verify_late_prs(ledger, args, token, progress))
+                                 verified_prs=verify_late_prs(ledger, args, token, progress),
+                                 issue_prefix=configured_issue_prefix())
     if c == "handoff-repository":
         from .config import ROOT
         from .skills import load_skills

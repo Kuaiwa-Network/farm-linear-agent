@@ -315,6 +315,29 @@ A checkpoint may also carry a validated `plan` for work that spans stages and da
 that the worker verifies, never authority, and it is not a handoff. Older code keeps a `plan` key only
 until its next checkpoint that omits it, and never validates one.
 
+An entry of `plan.prs` with `"role": "issue"` records a repository's issue branch, and must name
+this issue's `farmbot/<key>` or `farmbot/<key>-…` (in the host's `issue_prefix`), spelt as git
+accepts it; a repository has at most one. A checkpoint whose plan breaks either rule is refused
+whole, for every skill, with a message naming the entry. Any other branch, a person's included,
+may be recorded under another role or none. For a skill with an initial root, the plan also decides
+where a later attempt's worktrees start (spec §5.7). At each launch the controller reads the issue
+branch the job's plan records for each repository it writes, from the item's own plan or else the
+nearest predecessor's, as `recovery.plan` is found, and applies the same rules again. For such a
+repository it fetches and checks out that branch itself, never a new `farmbot/<key>-<job>` copy:
+the clone's local branch, moved forward to `origin/<branch>` when the remote is ahead of it and
+left as it is when it has commits of its own, for the worker to integrate without force-pushing;
+else a new branch tracking `origin/<branch>`; else, when neither exists, a new branch of that name
+from the default branch. The worktree tracks `origin/<branch>` whenever the remote has it, and
+every git call this makes in FarmBot's clone runs with hooks and fsmonitor off. A successor of
+cancelled work and a continuation whose worktrees cleanup removed thus go on from the job's own
+branches, and the recovery refs of earlier attempts stay where cleanup left them. A plan that breaks
+the rules, or a recorded branch another worktree has checked out, fails the launch with an error
+naming it. A repository without a recorded issue branch, and every `fix` job, keep the earlier
+rule: `farmbot/<key>` tracking the remote branch when only the remote has it, else a new branch
+from the default branch, named `farmbot/<key>-<job>` when FarmBot's clone already has
+`farmbot/<key>`; a cleaned-up continuation starts such a branch at its recovery commit instead. No
+skill in this revision has an initial root.
+
 A fix worker may update Farm-Contract in its Contract-root attempt for a confirmed requirement of
 the issue, a defect or a requested change, before the affected implementation. Uncertain behaviour
 or missing information is a question in Linear via `await-input`, which adds `needs-more-info`,
