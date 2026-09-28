@@ -130,7 +130,9 @@ The list must include `chat`. A name the checkout lacks, or a skill the dispatch
 cover, stops `serve` and `enqueue`, and `doctor` reports `enabled_skills_invalid`. The receiver
 routes only to enabled skills, `enqueue`, `request-repair` and `resume-work` refuse the others, and
 a queued job of a disabled skill fails with an error in its session. `doctor` reports the loaded
-and enabled skills.
+and enabled skills. A repository-staged skill such as `fix` runs only on the `codex` runtime: with
+`claude`, `serve` still starts with it enabled and queues its jobs, each job fails at launch, and
+`doctor` reports `skill_runtime_unsupported`.
 
 ## AI/operator diagnostics
 

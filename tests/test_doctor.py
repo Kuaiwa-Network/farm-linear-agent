@@ -11,10 +11,15 @@ import unittest
 from unittest.mock import patch
 
 from agent.config import Config, Paths
+from agent.dispatch import SKILL_AUTHORITY
 from agent.doctor import diagnose, probe_process
 from agent.ledger import Ledger
 from agent.service import main
+from agent.skills import load_skills
 from test_ledger import ISSUE, SESSION, PIN, issue
+from test_skills import staged_skill
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class DoctorTests(unittest.TestCase):
@@ -270,6 +275,59 @@ class DoctorTests(unittest.TestCase):
         finding = next(f for f in report["findings"] if f["code"] == "enabled_skills_invalid")
         self.assertEqual((finding["unknown"], finding["unbriefed"]), ([], ["fix"]))
         self.assertIsNone(report["skills"]["enabled"])
+
+    def test_an_enabled_skill_the_runtime_cannot_launch_is_a_warning(self):
+        """serve starts on a claude host with fix enabled and accepts fix delegations; the scheduler then refuses
+        every launch. Doctor names fix by the same rule, whether enabled_skills lists it or is absent."""
+        self.config.runtime = "claude"
+        for enabled in (None, ["chat", "fix"]):
+            with self.subTest(enabled_skills=enabled):
+                self.config.enabled_skills = enabled
+                report = self.report()
+                finding = next(f for f in report["findings"] if f["code"] == "skill_runtime_unsupported")
+                self.assertEqual((finding["severity"], finding["runtime"], finding["skills"]),
+                                 ("warning", "claude", ["fix"]))
+                self.assertEqual(report["skills"]["enabled"], ["chat", "fix"])
+                self.assertEqual(report["status"], "attention")
+
+    def test_a_runtime_that_can_launch_every_enabled_skill_is_not_a_finding(self):
+        for runtime, enabled in (("codex", None), ("fake", None), ("claude", ["chat"])):
+            with self.subTest(runtime=runtime, enabled_skills=enabled):
+                self.config.runtime, self.config.enabled_skills = runtime, enabled
+                report = self.report()
+                self.assertEqual(report["findings"], [])
+                self.assertEqual(report["status"], "ok")
+
+    def test_each_enabled_staged_skill_is_named_and_only_those(self):
+        staged = staged_skill(Path(self.tmp.name) / "fixture-skills")
+        skills = {**load_skills(ROOT / "skills"), staged.name: staged}
+        self.config.runtime = "claude"
+        with patch("agent.doctor.load_skills", return_value=skills), \
+                patch.dict(SKILL_AUTHORITY, {staged.name: "Fixture staged-skill grants. "}):
+            for enabled, named in ((None, ["feature", "fix"]), (["chat", "feature"], ["feature"])):
+                with self.subTest(enabled_skills=enabled):
+                    self.config.enabled_skills = enabled
+                    finding = next(f for f in self.report()["findings"] if f["code"] == "skill_runtime_unsupported")
+                    self.assertEqual(finding["skills"], named)
+
+    def test_the_runtime_finding_needs_no_ledger_and_changes_none(self):
+        """The finding comes from the config and the manifests alone, so a host's doctor shows it before any job
+        has run, and before the host's first initialization too."""
+        data = json.loads(self.config_path.read_text(encoding="utf-8"))
+        self.config_path.write_text(json.dumps({**data, "runtime": "claude"}), encoding="utf-8")
+        before = list(self.ledger.connection.iterdump())
+
+        def doctor():
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                result = main(["doctor", "--config", str(self.config_path)])
+            return result, self.codes(json.loads(output.getvalue()))
+        self.assertEqual(doctor(), (1, {"skill_runtime_unsupported"}))
+        self.assertEqual(list(self.ledger.connection.iterdump()), before)
+        self.ledger.close()
+        self.paths.ledger.unlink()
+        self.assertEqual(doctor(), (2, {"ledger_unreadable", "skill_runtime_unsupported"}))
+        self.assertFalse(self.paths.ledger.exists())
 
 
 @unittest.skipIf(os.name == "nt", "POSIX process inspection")

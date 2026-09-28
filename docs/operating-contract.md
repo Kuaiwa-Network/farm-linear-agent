@@ -36,8 +36,9 @@ The receiver routes only to enabled skills, and `enqueue`, `request-repair` and 
 the others. A queued item whose skill is loaded but not enabled fails before launch with an error
 activity naming 重试; `retry` or a requested continuation brings it back once the skill is enabled.
 An item whose skill the checkout lacks, which only a rollback leaves, stays queued as before.
-`doctor` reports `skills` with the loaded and enabled names. Restart a settled service after
-changing the list; an older revision ignores the key and runs every skill.
+`doctor` reports `skills` with the loaded and enabled names, and `skill_runtime_unsupported` for
+enabled skills the configured `runtime` cannot launch (see Authority). Restart a settled service
+after changing the list; an older revision ignores the key and runs every skill.
 
 Explicit profiles select `environment` (`development`, `production`, or `offline`)
 and a lowercase `instance_id`. Existing configs default to `legacy` for compatibility.
@@ -274,7 +275,9 @@ one worker does not switch instructions or write authority. `retry` and a chat-r
 continuation start again with no recorded root, so the next attempt begins at the initial root,
 which for a fix is the neutral investigation. Staged skills require Codex's explicit
 `workspace-write` sandbox; the Claude fallback has no equivalent repository write boundary and is
-refused for them.
+refused for them. A `claude` host still starts with a staged skill enabled and queues its jobs; each
+fails at launch with an error activity, and `doctor` reports `skill_runtime_unsupported` naming the
+runtime and those skills.
 A Contract-root worker follows Farm-Contract's OpenSpec instructions and
 its Superpowers restriction. Consumer workers use their own repository rules.
 
