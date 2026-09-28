@@ -163,6 +163,10 @@ existing production data or copy its marker.
      can wrap across terminal lines, and a one-line paste saves only part of it;
      test it with an empty `CLAUDE_CONFIG_DIR` before use. Copying Keychain
      credentials or `~/.claude.json` does not work.
+   - `claude` cannot run `fix`: the scheduler refuses repository-staged skills under
+     it (the operating contract's Authority section). A `claude` instance still
+     accepts and acknowledges a `fix` delegation, and the item then fails at launch;
+     a live `fix` run needs `codex`.
    - kw_ops reaches Codex workers only. Export the profile's `token_env` variable in the wrapper
      that starts `serve`, never in the profile itself.
 5. **Endpoint.** Run
