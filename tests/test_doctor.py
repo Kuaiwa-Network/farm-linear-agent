@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -393,6 +394,24 @@ class DoctorTests(unittest.TestCase):
             report = diagnose(self.config, now=1090)
         entry = next(entry for entry in report["jobs"] if entry["item_id"] == item["id"])
         self.assertEqual(entry["plan"]["pause"], {"kind": "stage_limit", "reason": "waiting", "age_seconds": 90})
+
+    def test_a_plan_nested_past_the_recursion_limit_leaves_the_report_whole(self):
+        """checkpoint bounds a plan's size and its lists' lengths, not its depth, and doctor reads what workers
+        wrote: a plan nested deeper than Python recurses shows no PR links instead of failing the whole report."""
+        feature = opt_in_skill(Path(self.tmp.name) / "fixture-skills")
+        skills = {**load_skills(ROOT / "skills"), feature.name: feature}
+        self.ledger.observe_issue(issue(id=OTHER, identifier="FARM-2"))
+        self.ledger.ensure_session("session-2", OTHER, delegation=True)
+        item = self.ledger.create_work_item(issue_id=OTHER, session_id="session-2", skill=feature.name)
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        nested = "x"
+        for _ in range(sys.getrecursionlimit() + 10):
+            nested = [nested]
+        self.ledger.checkpoint(item["id"], token, {"plan": {"stages": {"A": "done"}, "prs": {"common": nested}}})
+        with patch("agent.doctor.load_skills", return_value=skills):
+            report = diagnose(self.config, now=1090)
+        entry = next(entry for entry in report["jobs"] if entry["item_id"] == item["id"])
+        self.assertEqual((entry["plan"]["stages"], entry["plan"]["prs"]), ({"A": "done"}, []))
 
     def test_the_runtime_finding_needs_no_ledger_and_changes_none(self):
         """The finding comes from the config and the manifests alone, so a host's doctor shows it before any job

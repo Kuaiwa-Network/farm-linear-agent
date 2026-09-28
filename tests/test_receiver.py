@@ -277,6 +277,28 @@ class ReceiverTests(ReceiverBase):
         self.assertTrue(self.receiver.process_one())
         self.assertEqual(self.ledger.session("session-1")["target"]["commit_sha"], "c" * 40)
 
+    def test_the_decision_follows_what_changed_while_the_pin_was_resolved(self):
+        """Plan P6 routes before the pin, and the pin's ls-remote can take seconds. Work that ends meanwhile in another
+        session must not be steered: the event is routed again once the pin returns, on what is true then."""
+        self.receive()
+        self.receiver.process_one()  # a delegated fix in session-1; this receiver has no worktrees, so no pin
+        [fix] = self.ledger.items_for_session("session-1")
+        self.ledger.claim(fix["id"], worker_id="w")
+
+        def remote_head(repo, timeout=8):
+            self.ledger.fail(fix["id"], "worker exited")  # the fix ends while ls-remote runs
+            return "c" * 40
+
+        self.receiver.worktrees = SimpleNamespace(remote_head=remote_head)
+        self.receive(self.event(agentSession={"id": "session-2", "issue": {"id": ISSUE, "identifier": "FARM-1",
+                                                                             "url": "u"},
+                                              "comment": {"body": "@FarmBot 这个问题现在怎样了？"}}))
+        self.assertTrue(self.receiver.process_one())
+        self.assertEqual(self.receiver.results()[-1]["status"], "done")
+        self.assertEqual([(item["skill"], item["state"]) for item in self.ledger.items_for_session("session-2")],
+                         [("chat", "queued")])
+        self.assertNotEqual(self.activities()[-1]["type"], "error")
+
 
 class SessionPeopleTests(ReceiverBase):
     """Who opened each session and who wrote each message (spec §5.3, §9.2). Linear's webhook users also carry an

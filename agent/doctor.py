@@ -122,7 +122,7 @@ def _plan_summary(skill, root_repo, checkpoint_json, job, now):
     and age (from the ledger: a parked item's updated_at is when it parked)."""
     try:
         checkpoint = json.loads(checkpoint_json)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, RecursionError):
         checkpoint = {}
     checkpoint = checkpoint if isinstance(checkpoint, dict) else {}
     plan = checkpoint.get("plan") if isinstance(checkpoint.get("plan"), dict) else {}
@@ -133,13 +133,17 @@ def _plan_summary(skill, root_repo, checkpoint_json, job, now):
         pause = {"kind": recorded.get("kind") if recorded.get("kind") in PAUSE_KINDS else None,
                  "reason": checkpoint.get("pending_reason") if checkpoint.get("pending_reason") in AWAIT_REASONS else None,
                  "age_seconds": max(0, int(now - job["updated_at"]))}
+    try:
+        prs = sorted(plan_work(plan)[1].values())
+    except RecursionError:  # checkpoint bounds a plan's size, not its depth
+        prs = []
     return {"root": current_root(root_repo, skill),
             "stages": {letter: "skipped" if state.startswith("skipped") else state
                        for letter, state in sorted(stages.items())
                        if letter in STAGE_LETTERS and isinstance(state, str)
                        and (state in ("pending", "done") or state.startswith("skipped"))},
             "pause": pause,
-            "prs": sorted(plan_work(plan)[1].values())}
+            "prs": prs}
 
 
 def _logs(paths, item_id):

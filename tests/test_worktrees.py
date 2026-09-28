@@ -1,5 +1,6 @@
 import contextlib
 import os
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -782,3 +783,67 @@ class ReadCheckoutTests(unittest.TestCase):
         with self.assertRaisesRegex(WorktreeError, "symlinked"):
             self.trees.remove_reads("item-2")
         self.assertTrue((self.origin / "README.md").exists())
+
+    def test_the_alternates_file_ends_in_a_bare_newline_wherever_text_mode_translates(self):
+        """git keeps a carriage return in an alternates entry and then ignores the store it names, so the checkout
+        would fetch the whole history again and every git command in it would print an error. Text mode writes CRLF
+        on Windows: the file is written with a bare newline everywhere, and a CRLF one found later is rebuilt."""
+        real = Path.write_text
+
+        def translating(path, data, encoding=None, errors=None, newline=None):  # text mode, as on Windows
+            return real(path, data, encoding=encoding, errors=errors, newline="\r\n" if newline is None else newline)
+
+        with patch.object(Path, "write_text", translating):
+            path = self.trees.read_checkout("Farm-Contract", "item-1")
+        alternates = path / ".git" / "objects" / "info" / "alternates"
+        expected = f"{self.trees.clone_path('Farm-Contract') / 'objects'}\n".encode("utf-8")
+        self.assertEqual(alternates.read_bytes(), expected)
+        alternates.write_bytes(expected.replace(b"\n", b"\r\n"))  # as a checkout made on Windows before this fix
+        self.trees.read_checkout("Farm-Contract", "item-1")
+        self.assertEqual(alternates.read_bytes(), expected)
+        self.assertLessEqual({"count: 0", "in-pack: 0"}, set(git("count-objects", "-v", cwd=path).splitlines()))
+
+    @unittest.skipIf(os.name == "nt", "POSIX permissions; Windows has the junction test")
+    def test_removal_never_acts_through_a_link(self):
+        """rmtree never follows a link inside the tree, and its retry after a failure must not either: clearing
+        read-only through a link would change whatever the link names, outside the tree. A link in place of the tree
+        is refused by the helper itself, not only by its callers."""
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            self.skipTest("root ignores directory permissions")
+        outside = Path(self.tmp.name) / "outside"
+        outside.mkdir()
+        victim = outside / "not FarmBot's.txt"
+        victim.write_text("kept\n", encoding="utf-8")
+        victim.chmod(0o644)
+        locked = self.trees.worktrees_root / "item-3.reads" / "Farm-Client@main" / "locked"
+        locked.mkdir(parents=True)
+        (locked / "link").symlink_to(victim)
+        locked.chmod(0o555)  # its entries cannot be unlinked
+        self.addCleanup(locked.chmod, 0o755)
+        with self.assertRaises(OSError):
+            self.trees.remove_reads("item-3")
+        self.assertEqual(stat.S_IMODE(victim.stat().st_mode), 0o644)
+        link = self.trees.worktrees_root / "a link"
+        link.symlink_to(outside, target_is_directory=True)
+        mode = stat.S_IMODE(outside.stat().st_mode)
+        with self.assertRaisesRegex(WorktreeError, "link"):
+            agent.worktrees._remove_tree(link)
+        self.assertEqual((stat.S_IMODE(outside.stat().st_mode), victim.is_file()), (mode, True))
+
+    @unittest.skipUnless(os.name == "nt", "junctions are Windows'")
+    def test_a_junction_is_refused_as_a_symlink_is(self):
+        """Path.is_symlink is false for a junction, so the link checks look at reparse points too."""
+        outside = Path(self.tmp.name) / "outside"
+        (outside / "Farm-Client@main").mkdir(parents=True)
+        kept = outside / "Farm-Client@main" / "kept.txt"
+        kept.write_text("not FarmBot's\n", encoding="utf-8")
+        junction = self.trees.worktrees_root / "item-2.reads"
+        junction.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["cmd", "/c", "mklink", "/J", str(junction), str(outside)], check=True, capture_output=True)
+        with self.assertRaisesRegex(WorktreeError, "symlinked"):
+            self.trees.read_checkout("Farm-Client", "item-2")
+        with self.assertRaisesRegex(WorktreeError, "symlinked"):
+            self.trees.remove_reads("item-2")
+        with self.assertRaisesRegex(WorktreeError, "link"):
+            agent.worktrees._remove_tree(junction)
+        self.assertEqual(kept.read_text(encoding="utf-8"), "not FarmBot's\n")

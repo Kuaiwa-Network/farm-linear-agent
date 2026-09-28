@@ -59,12 +59,28 @@ def _git(*args, cwd, env=GIT_ENV, timeout=600, config=()):
     return result.stdout.strip()
 
 
+def _is_link(path):
+    """A symlink, or on Windows a junction or another reparse point: an entry that redirects a path. Path.is_symlink
+    is false for a junction (agent.uploads checks links the same way)."""
+    try:
+        status = os.lstat(path)
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    return (stat.S_ISLNK(status.st_mode)
+            or bool(getattr(status, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT))
+
+
 def _remove_tree(path):
-    """Remove a directory FarmBot made, the read-only files git leaves on Windows included. rmtree never follows a
-    link inside the tree; a link in place of the tree itself is refused by the callers."""
-    def writable(function, name, _exc):
+    """Remove a directory FarmBot made, the read-only files git leaves on Windows included. A link in place of the
+    tree is refused, here and by the callers; rmtree never follows one inside it, and the retry after a failure
+    clears read-only only on an entry that is not a link, so nothing outside the tree changes."""
+    def writable(function, name, exc):
+        if function is os.path.islink or _is_link(name):
+            raise exc
         os.chmod(name, stat.S_IWRITE)
         function(name)
+    if _is_link(path):
+        raise WorktreeError("refusing to remove a link in place of a directory")
     if path.exists():
         shutil.rmtree(path, onexc=writable)
 
@@ -476,7 +492,7 @@ class Worktrees:
             raise WorktreeError(f"unknown repository: {repo}")
         root = self.reads_root(item_id)
         path = root / f"{repo}@main"
-        if self.worktrees_root.is_symlink() or root.is_symlink() or path.is_symlink():
+        if _is_link(self.worktrees_root) or _is_link(root) or _is_link(path):
             raise WorktreeError("symlinked read-only checkout")
         objects = (self.ensure_clone(repo) / "objects").absolute()  # alternates read a relative path elsewhere
         own = self._own_read_checkout(path, self.remotes[repo], objects)
@@ -489,7 +505,8 @@ class Worktrees:
             _git("config", "remote.origin.url", self.remotes[repo], cwd=path, config=READ_ONLY_GIT)
             info = path / ".git" / "objects" / "info"
             info.mkdir(parents=True, exist_ok=True)
-            (info / "alternates").write_text(f"{objects}\n", encoding="utf-8")
+            # A bare newline on every platform: git keeps a carriage return in the path and ignores the store.
+            (info / "alternates").write_text(f"{objects}\n", encoding="utf-8", newline="\n")
         default = None
         for line in _git("ls-remote", "--symref", "origin", "HEAD", cwd=path, config=READ_ONLY_GIT).splitlines():
             if line.startswith("ref:"):
@@ -510,13 +527,13 @@ class Worktrees:
         directory, whose origin is that remote and whose only borrowed store is that clone's. Resolved paths are
         compared because git may otherwise find a repository above it."""
         dot_git = path / ".git"
-        if dot_git.is_symlink() or not dot_git.is_dir():
+        if _is_link(dot_git) or not dot_git.is_dir():
             return False
         try:
             found = Path(_git("rev-parse", "--absolute-git-dir", cwd=path, config=READ_ONLY_GIT))
             return (found.resolve() == dot_git.resolve()
                     and _git("config", "--local", "--get", "remote.origin.url", cwd=path, config=READ_ONLY_GIT) == url
-                    and (dot_git / "objects" / "info" / "alternates").read_text(encoding="utf-8") == f"{objects}\n")
+                    and (dot_git / "objects" / "info" / "alternates").read_bytes() == f"{objects}\n".encode("utf-8"))
         except (WorktreeError, OSError, UnicodeDecodeError):
             return False
 
@@ -524,7 +541,7 @@ class Worktrees:
         """Remove the item's read-only checkouts, as its worktrees are removed (spec §9.6); nothing in them is
         preserved, and the objects they borrowed stay in FarmBot's clones."""
         root = self.reads_root(item_id)
-        if self.worktrees_root.is_symlink() or root.is_symlink():
+        if _is_link(self.worktrees_root) or _is_link(root):
             raise WorktreeError("symlinked read-only checkout root")
         _remove_tree(root)
 
