@@ -29,6 +29,26 @@ def staged_skill(root, name="feature"):
     return load_skills(root)[name]
 
 
+# The Phase B `feature` manifest (plan, Shared Interfaces) without its name, which Phase B's opt-in fixture reproduces.
+FEATURE_SHAPE = dict(trigger=["delegation"], intents=["label:Bot/Code"], writes=["Farm-Contract", "common", "farm-hive"],
+                     initial_root="Farm-Contract", staged=True, reads=["Farm-Contract", "Farm-Client", "farmgui"],
+                     resources=[], gates=["answers", "config_ready", "closing", "pr_review"], mcp=[],
+                     budget={"lease_seconds": 2700, "max_hours": 10, "renew_minutes": 10}, opt_in=True, exclusive=True)
+
+
+def opt_in_skill(root, name="feature", **overrides):
+    """Phase B's fixture skill: the `feature` manifest of the Phase B plan's Shared Interfaces, staged from its
+    initial root Farm-Contract, writing Farm-Contract, common and farm-hive, reading Farm-Contract, Farm-Client and
+    farmgui, opt-in and exclusive. `overrides` replaces any of its keys, such as `exclusive=False`; each name is
+    written once per root.
+
+    Loaded beside this checkout's skills it is not enabled. A test that runs it names it in `enabled_skills`, or adds
+    it to `Scheduler.enabled_skills`, and gives the dispatch an AUTHORITY part for it, as `use_staged_skill` in
+    tests/test_scheduler.py does for `staged_skill`."""
+    write_skill(root, name, **{**FEATURE_SHAPE, **overrides})
+    return load_skills(root)[name]
+
+
 class WorkerCliReferenceTests(unittest.TestCase):
     def reference(self):
         path = ROOT / "references" / "worker-cli.md"
@@ -256,6 +276,41 @@ class StageManifestTests(unittest.TestCase):
                     load_skills(Path(tmp))
 
 
+class OptInManifestTests(unittest.TestCase):
+    """Phase B plan P1 and P8: optional `opt_in` and `exclusive` manifest keys."""
+
+    def test_both_keys_default_to_false_and_this_checkouts_skills_set_neither(self):
+        skills = load_skills(ROOT / "skills")
+        for name in ("chat", "fix"):
+            with self.subTest(skill=name):
+                self.assertEqual((skills[name].opt_in, skills[name].exclusive), (False, False))
+        with tempfile.TemporaryDirectory() as tmp:
+            write_skill(tmp, "plain")
+            plain = load_skills(Path(tmp))["plain"]
+            self.assertEqual((plain.opt_in, plain.exclusive), (False, False))
+
+    def test_the_fixture_has_the_shape_of_the_phase_b_feature_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            feature = opt_in_skill(tmp)
+            self.assertEqual((feature.name, feature.trigger, feature.intents, feature.writes, feature.initial_root,
+                              feature.staged, feature.reads, feature.resources, feature.gates, feature.mcp,
+                              feature.budget, feature.opt_in, feature.exclusive),
+                             ("feature", ("delegation",), ("label:Bot/Code",), ("Farm-Contract", "common", "farm-hive"),
+                              "Farm-Contract", True, ("Farm-Contract", "Farm-Client", "farmgui"), (),
+                              ("answers", "config_ready", "closing", "pr_review"), (),
+                              {"lease_seconds": 2700, "max_hours": 10, "renew_minutes": 10}, True, True))
+            other = opt_in_skill(tmp, "other", exclusive=False, reads=["Farm-Contract"])
+            self.assertEqual((other.exclusive, other.reads, other.opt_in), (False, ("Farm-Contract",), True))
+
+    def test_both_keys_must_be_booleans(self):
+        for key in ("opt_in", "exclusive"):
+            for value in ("yes", "true", 1, 0, None, []):
+                with self.subTest(key=key, value=value), tempfile.TemporaryDirectory() as tmp:
+                    write_skill(tmp, "bad", **{key: value})
+                    with self.assertRaisesRegex(SkillError, f"{key} must be true or false"):
+                        load_skills(Path(tmp))
+
+
 class EnabledSkillsTests(unittest.TestCase):
     """spec §9.11: the private host config chooses which of the checkout's skills an instance runs."""
 
@@ -265,9 +320,12 @@ class EnabledSkillsTests(unittest.TestCase):
         self.authority = SKILL_AUTHORITY
 
     def test_without_the_key_every_loaded_skill_runs(self):
+        """Every loaded skill but the opt-in ones (Phase B plan, P1), which chat and fix are not."""
         from agent.config import Config
         self.assertIsNone(Config("c", "s", "w").enabled_skills)
-        self.assertEqual(enabled_skills(self.skills, None, authority=self.authority), self.skills)
+        enabled = enabled_skills(self.skills, None, authority=self.authority)
+        self.assertEqual(enabled, {name: skill for name, skill in self.skills.items() if not skill.opt_in})
+        self.assertLessEqual({"chat", "fix"}, set(enabled))
 
     def test_a_list_selects_skills_and_loads_from_the_private_profile(self):
         from agent.config import load_config
@@ -305,3 +363,34 @@ class EnabledSkillsTests(unittest.TestCase):
         for value in ("chat", ["chat", "chat"], ["chat", ""], ["chat", 3], {"chat": True}):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 Config("c", "s", "w", enabled_skills=value)
+
+    def with_fixture(self, tmp, **overrides):
+        """This checkout's skills and the opt-in fixture, as a checkout that ships one would load them."""
+        fixture = opt_in_skill(tmp, **overrides)
+        return {**self.skills, fixture.name: fixture}
+
+    def test_without_the_key_an_opt_in_skill_is_loaded_but_not_enabled(self):
+        """P1: deploying an opt-in skill starts nothing new; it needs no AUTHORITY part until a host names it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(set(enabled_skills(self.with_fixture(tmp), None, authority=self.authority)),
+                             {"chat", "fix"})
+
+    def test_a_list_may_name_an_opt_in_skill_which_then_needs_its_authority_part(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            skills = self.with_fixture(tmp)
+            briefed = {**self.authority, "feature": "the fixture part"}
+            unbriefed = {name: part for name, part in self.authority.items() if name != "feature"}
+            self.assertEqual(set(enabled_skills(skills, ["chat", "fix", "feature"], authority=briefed)),
+                             {"chat", "fix", "feature"})
+            self.assertEqual(set(enabled_skills(skills, ["chat", "feature"], authority=briefed)), {"chat", "feature"})
+            with self.assertRaisesRegex(SkillError, "AUTHORITY part for enabled skills: feature"):
+                enabled_skills(skills, ["chat", "feature"], authority=unbriefed)
+
+    def test_chat_cannot_be_opt_in(self):
+        """Every route that is not write work falls back to chat, so no host may lose it by leaving out a list."""
+        with tempfile.TemporaryDirectory() as tmp:
+            write_skill(tmp, "chat", opt_in=True)
+            skills = load_skills(Path(tmp))
+            with self.assertRaisesRegex(SkillError, "chat cannot be opt-in"):
+                enabled_skills(skills, None, authority={"chat": "the chat part"})
+            self.assertEqual(set(enabled_skills(skills, ["chat"], authority={"chat": "the chat part"})), {"chat"})

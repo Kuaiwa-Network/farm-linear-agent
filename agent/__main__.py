@@ -140,7 +140,7 @@ def resolve_token(args):
 
 def enabled_skill_names():
     """The skills this host runs (spec §9.11). With no readable private config, as in test fixtures, every loaded
-    skill: the scheduler still refuses to launch one the controller's config leaves out."""
+    skill but the opt-in ones (P1): the scheduler still refuses to launch one the controller's config leaves out."""
     from .config import ROOT
     from .dispatch import SKILL_AUTHORITY
     from .skills import enabled_skills, load_skills

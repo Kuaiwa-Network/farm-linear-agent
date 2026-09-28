@@ -19,7 +19,7 @@ from agent.skills import load_skills
 from agent.slots import SlotPool, slot_entry
 from agent import dispatch, kw_ops
 from test_ledger import DESIGNER, ISSUE, OTHER, PIN, SESSION, comment, issue
-from test_skills import staged_skill
+from test_skills import opt_in_skill, staged_skill
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = load_skills(ROOT / "skills")
@@ -660,6 +660,18 @@ class SchedulerTests(unittest.TestCase):
         self.ledger.retry(item["id"], "operator enabled fix")
         self.scheduler.tick()
         self.assertEqual(self.launcher.spawned[-1][0], item["id"])
+
+    def test_without_an_enabled_set_the_scheduler_leaves_out_opt_in_skills(self):
+        """P1 in the scheduler's own default, which service.build overrides with the host's list: an opt-in skill
+        is loaded, so its queued items fail with the session error above, but never launched by omission."""
+        fixture = opt_in_skill(Path(self.tmp.name) / "fixture-skills")
+        scheduler = Scheduler(self.ledger, self.launcher, {**SKILLS, fixture.name: fixture}, self.trees,
+                              skill_root=ROOT / "skills", db_path=Path(self.tmp.name) / "ledger.sqlite3",
+                              runtime_name="fake", host="h", api=self.api)
+        self.assertEqual(scheduler.enabled_skills, {"chat", "fix"})
+        item = self.item(skill=fixture.name)
+        scheduler.tick()
+        self.assertEqual((self.launcher.spawned, self.ledger.item(item["id"])["state"]), ([], "failed"))
 
     def test_an_item_whose_skill_the_checkout_lacks_still_waits(self):
         """Only a rollback leaves one behind; the operating contract says to settle those items first."""

@@ -143,10 +143,14 @@ def enqueue(config, *, issue_ref, skill, commit=None, session=None):
     scheduler and the worker both read that prefix and report through an issue comment instead.
     """
     check_ownership(config, require_initialized=True)
-    enabled = enabled_skills(load_skills(ROOT / "skills"), config.enabled_skills, authority=SKILL_AUTHORITY)
+    loaded = load_skills(ROOT / "skills")
+    enabled = enabled_skills(loaded, config.enabled_skills, authority=SKILL_AUTHORITY)
     if skill not in enabled:
-        raise RuntimeError(f"{skill} is not a skill this instance runs ({', '.join(sorted(enabled))}); "
-                           "enabled_skills in the private config chooses them (spec §9.11)")
+        # An opt-in skill is loaded but runs only where the list names it (P1); say so, as the list alone does not.
+        rule = (f"{skill} is opt-in, so enabled_skills in the private config must name it"
+                if skill in loaded and loaded[skill].opt_in else "enabled_skills in the private config chooses them")
+        raise RuntimeError(f"{skill} is not a skill this instance runs ({', '.join(sorted(enabled))}); {rule} "
+                           "(spec §9.11)")
     api = linear_api(config)
     paths = Paths(config)
     paths.config_dir.mkdir(parents=True, exist_ok=True)

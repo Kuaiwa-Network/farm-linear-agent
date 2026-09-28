@@ -120,19 +120,22 @@ together: an export without the block reaches every worker. `doctor` shows wheth
 configured and whether the variable is set in doctor's own environment.
 
 To run only some of the checkout's skills on a host, list them in the private config and restart
-the drained receiver; without the key every skill runs:
+the drained receiver; without the key every skill runs except the opt-in ones:
 
 ```json
 "enabled_skills": ["chat", "fix"]
 ```
 
-The list must include `chat`. A name the checkout lacks, or a skill the dispatch AUTHORITY does not
-cover, stops `serve` and `enqueue`, and `doctor` reports `enabled_skills_invalid`. The receiver
+A skill whose `skill.json` sets `"opt_in": true` runs only on a host whose list names it, so a
+checkout that adds one starts nothing new until an operator names it there. The list must include
+`chat`, which cannot be opt-in. A name the checkout lacks, or a skill the dispatch AUTHORITY does
+not cover, stops `serve` and `enqueue`, and `doctor` reports `enabled_skills_invalid`. The receiver
 routes only to enabled skills, `enqueue`, `request-repair` and `resume-work` refuse the others, and
 a queued job of a disabled skill fails with an error in its session. `doctor` reports the loaded
-and enabled skills. A repository-staged skill such as `fix` runs only on the `codex` runtime: with
-`claude`, `serve` still starts with it enabled and queues its jobs, each job fails at launch, and
-`doctor` reports `skill_runtime_unsupported`.
+and enabled skills, so an opt-in skill no list names is loaded and not enabled. A
+repository-staged skill such as `fix` runs only on the `codex` runtime: with `claude`, `serve`
+still starts with it enabled and queues its jobs, each job fails at launch, and `doctor` reports
+`skill_runtime_unsupported`.
 
 ## AI/operator diagnostics
 

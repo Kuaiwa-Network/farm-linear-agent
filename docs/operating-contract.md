@@ -29,16 +29,22 @@ retain the FarmBot default. The selected settings are written into each new or
 resumed worker's isolated Codex home. Claude workers do not use these settings.
 
 Private `enabled_skills` lists the skills an instance runs, from those in its checkout's `skills/`;
-without the key every one runs. The list must include `chat`, the conversation every other route
-falls back to. A name the checkout lacks, or an enabled skill the dispatch AUTHORITY does not cover,
-is a configuration error: `serve` and `enqueue` stop, and `doctor` reports `enabled_skills_invalid`.
-The receiver routes only to enabled skills, and `enqueue`, `request-repair` and `resume-work` refuse
-the others. A queued item whose skill is loaded but not enabled fails before launch with an error
-activity naming 重试; `retry` or a requested continuation brings it back once the skill is enabled.
-An item whose skill the checkout lacks, which only a rollback leaves, stays queued as before.
-`doctor` reports `skills` with the loaded and enabled names, and `skill_runtime_unsupported` for
-enabled skills the configured `runtime` cannot launch (see Authority). Restart a settled service
-after changing the list; an older revision ignores the key and runs every skill.
+without the key every one runs except an opt-in skill, one whose `skill.json` sets
+`"opt_in": true`, which runs only where the list names it. A checkout that ships an opt-in skill
+therefore starts nothing new until an operator names it. The list must include `chat`, the
+conversation every other route falls back to, and `chat` cannot be opt-in. A name the checkout
+lacks, or an enabled skill the dispatch AUTHORITY does not cover, is a configuration error: `serve`
+and `enqueue` stop, and `doctor` reports `enabled_skills_invalid`. The receiver routes only to
+enabled skills, and `enqueue`, `request-repair` and `resume-work` refuse the others; `enqueue` says
+when the refused skill is opt-in. A queued item whose skill is loaded but not enabled fails before
+launch with an error activity naming 重试; `retry` or a requested continuation brings it back once
+the skill is enabled. An item whose skill the checkout lacks, which only a rollback leaves, stays
+queued as before. `doctor` reports `skills` with the loaded and enabled names, so an opt-in skill no
+list names shows as loaded and not enabled, and `skill_runtime_unsupported` for enabled skills the
+configured `runtime` cannot launch (see Authority). Restart a settled service after changing the
+list; an older revision ignores the key and runs every skill. An older revision also refuses a
+manifest with `opt_in` or `exclusive`, keys it does not know, so a rollback deploys the older code
+and skill files together, as always.
 
 Explicit profiles select `environment` (`development`, `production`, or `offline`)
 and a lowercase `instance_id`. Existing configs default to `legacy` for compatibility.

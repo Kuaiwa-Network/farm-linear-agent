@@ -154,7 +154,9 @@ def diagnose(config, *, now=None):
                  incomplete=True, error_type=type(exc).__name__)
     else:
         report["skills"] = {"loaded": sorted(loaded), "enabled": None, "configured": configured}
-        names = set(loaded) if config.enabled_skills is None else set(config.enabled_skills)
+        # What serve would try to run: without the key, every loaded skill but the opt-in ones (P1).
+        names = ({name for name, skill in loaded.items() if not skill.opt_in} if config.enabled_skills is None
+                 else set(config.enabled_skills))
         try:
             enabled = enabled_skills(loaded, config.enabled_skills, authority=SKILL_AUTHORITY)
         except SkillError:

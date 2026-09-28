@@ -17,7 +17,7 @@ from agent.ledger import Ledger
 from agent.service import main
 from agent.skills import load_skills
 from test_ledger import ISSUE, SESSION, PIN, issue
-from test_skills import staged_skill
+from test_skills import opt_in_skill, staged_skill
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -309,6 +309,30 @@ class DoctorTests(unittest.TestCase):
                     self.config.enabled_skills = enabled
                     finding = next(f for f in self.report()["findings"] if f["code"] == "skill_runtime_unsupported")
                     self.assertEqual(finding["skills"], named)
+
+    def test_an_opt_in_skill_is_loaded_but_not_enabled_until_the_config_names_it(self):
+        """P1: an opt-in skill no list names is loaded, not enabled; doctor names it in no finding, as serve runs
+        none of its jobs. The fixture is staged, so on a claude host doctor would name it if it ran."""
+        fixture = opt_in_skill(Path(self.tmp.name) / "fixture-skills")
+        skills = {**load_skills(ROOT / "skills"), fixture.name: fixture}
+        self.config.runtime = "claude"
+        with patch("agent.doctor.load_skills", return_value=skills):
+            report = self.report()
+            self.assertEqual(report["skills"], {"loaded": ["chat", "feature", "fix"], "enabled": ["chat", "fix"],
+                                                "configured": False})
+            finding = next(f for f in report["findings"] if f["code"] == "skill_runtime_unsupported")
+            self.assertEqual(finding["skills"], ["fix"])
+            # The evidence of a refused list names only what serve would run: never the unnamed opt-in skill.
+            with patch("agent.doctor.SKILL_AUTHORITY", {"chat": "the chat part"}):
+                finding = next(f for f in self.report()["findings"] if f["code"] == "enabled_skills_invalid")
+            self.assertEqual((finding["unknown"], finding["unbriefed"], finding["missing_chat"]), ([], ["fix"], False))
+            self.config.enabled_skills = ["chat", "feature"]
+            with patch.dict(SKILL_AUTHORITY, {fixture.name: "Fixture feature grants. "}):
+                report = self.report()
+            self.assertEqual(report["skills"], {"loaded": ["chat", "feature", "fix"], "enabled": ["chat", "feature"],
+                                                "configured": True})
+            finding = next(f for f in report["findings"] if f["code"] == "skill_runtime_unsupported")
+            self.assertEqual(finding["skills"], ["feature"])
 
     def test_the_runtime_finding_needs_no_ledger_and_changes_none(self):
         """The finding comes from the config and the manifests alone, so a host's doctor shows it before any job

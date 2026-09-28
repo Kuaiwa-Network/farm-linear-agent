@@ -40,7 +40,8 @@ class Config:
     codex_workers: dict = field(default_factory=dict)
     # {"url": ..., "token_env": NAME}; the token itself lives in the controller's environment, never here.
     kw_ops: dict = field(default_factory=dict)
-    # Names of the skills this instance runs (spec §9.11); None runs every skill in the checkout's skills/.
+    # Names of the skills this instance runs (spec §9.11); None runs every skill in the checkout's skills/ but the
+    # opt-in ones (Phase B plan, P1).
     enabled_skills: list | None = None
     monitor: dict = field(default_factory=dict)
     environment: str = "legacy"

@@ -44,7 +44,9 @@ class Scheduler:
         self.bot_name = bot_name
         self.kw_ops_config = dict(kw_ops or {})
         # The loaded skills this host runs (spec §9.11); tick() refuses a queued item of any other loaded skill.
-        self.enabled_skills = set(skills or ()) if enabled_skills is None else set(enabled_skills)
+        # Without a set, every loaded skill but the opt-in ones, as skills.enabled_skills decides (P1).
+        self.enabled_skills = ({name for name, skill in (skills or {}).items() if not skill.opt_in}
+                               if enabled_skills is None else set(enabled_skills))
         self.guidance_for = guidance_for
         self.claim_timeout = claim_timeout
         # {slot_id: entry}, the same entries service.build hands the pool. The only thing read out of them
