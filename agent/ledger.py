@@ -33,6 +33,10 @@ NOTICE_KINDS = ("question", "waiting", "foreign_work")
 REQUEST_ID = re.compile(r"[A-Za-z0-9._-]{1,64}")
 # Why a pause waits (spec §5.2): a question needs an answer and adds needs-more-info; waiting is a human step elsewhere.
 AWAIT_REASONS = ("question", "waiting")
+# The skills that start at an initial root, whose jobs last days across stages and human gates: their
+# automatic-retry allowances bound one stage, not the job (spec §5.8, D16). The ledger reads no manifests, so it
+# knows them by name, as it knows fix, whose allowances last the job.
+STAGE_ALLOWANCE_SKILLS = ("feature", "fgui")
 
 
 class LedgerError(ValueError):
@@ -1120,9 +1124,21 @@ class Ledger:
                     or row["worker_pid"] != expected_pid or row["token"] is not None):
                 raise LedgerError("repository handoff no longer matches the retired worker")
             self._set_state(item_id, "queued", "repository handoff complete", root_repo=target,
-                            next_root_repo=None, worker_pid=None)
+                            next_root_repo=None, worker_pid=None, **self._new_stage_allowances(row))
             self._audit(item_id, "repository_handoff_complete", details={"to": target})
             return self._view(self._row(item_id))
+
+    def _new_stage_allowances(self, row):
+        """Caller owns the transaction. A new stage of a job whose skill starts at an initial root (a completed
+        repository handoff, or a resume from a human gate) gets the automatic-retry allowances a job starts with
+        (spec §5.8, D16): this clears the item's Unity execution and setup budgets and returns the capacity and
+        publication counters to reset beside its next state. For every other skill it changes nothing and returns
+        {}: a fix's allowances last its job, reset only by `retry` and a requested continuation."""
+        if row["skill"] not in STAGE_ALLOWANCE_SKILLS:
+            return {}
+        self.connection.execute("DELETE FROM resource_job_retries WHERE item_id=?", (row["id"],))
+        self._audit(row["id"], "stage_allowances", "automatic-retry allowances reset for a new stage")
+        return {"capacity_retries": 0, "publication_retries": 0}
 
     def require_no_reservation(self, item_id):
         """A pause holds no process and no Unity slot (spec §5.2): release or withdraw the request first."""
@@ -1145,9 +1161,11 @@ class Ledger:
             # transaction. Do not strand that reply behind an awaiting-input gate.
             pending = self.connection.execute("SELECT 1 FROM inbox WHERE item_id=? AND consumed_at IS NULL",
                                               (item_id,)).fetchone() is not None
+            # An answer that is already here resumes the gate at once, and so starts a new stage (spec §5.8).
             self._set_state(row["id"], "queued" if pending else "awaiting_input", "human gate",
                             token=None, lease_expires_at=None, worker_pid=None,
-                            resume_authorized=int(pending), checkpoint=_json(checkpoint))
+                            resume_authorized=int(pending), checkpoint=_json(checkpoint),
+                            **(self._new_stage_allowances(row) if pending else {}))
             return self._view(self._row(row["id"]))
 
     RESERVATION_OPEN = ("queued", "active", "cancel_requested")
@@ -1996,8 +2014,10 @@ class Ledger:
                                     (row["id"], body, author_json, self.clock() if received_at is None else received_at))
             self._audit(row["id"], "inbox", "steering message")
             if resume_waiting and row["state"] == "awaiting_input":
+                # A resume from a human gate, by a reply or a forwarded mention: a new stage (spec §5.8).
                 self._set_state(row["id"], "queued", "human answered in Linear", token=None,
-                                lease_expires_at=None, worker_pid=None, resume_authorized=1)
+                                lease_expires_at=None, worker_pid=None, resume_authorized=1,
+                                **self._new_stage_allowances(row))
             return {"item_id": row["id"], "state": self._row(row["id"])["state"], "pending": self.connection.execute(
                 "SELECT count(*) FROM inbox WHERE item_id=? AND consumed_at IS NULL", (row["id"],)).fetchone()[0]}
 

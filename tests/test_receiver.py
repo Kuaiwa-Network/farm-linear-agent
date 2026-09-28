@@ -1096,3 +1096,39 @@ class BotRoutingReceiverTests(ReceiverBase):
         self.assertEqual(self.activities()[-1]["body"], "收到回复，原工作项已恢复，worker 会先读取你的回答。"
                                                         "\n目标已锁定：Farm-Client@ccccccc（公共测试服）。")
         self.assertEqual(heads, ["Farm-Client", "Farm-Client"])
+
+    def spend(self, item):
+        """Use part of every automatic-retry allowance of `item`, as delayed retries and Unity recoveries do."""
+        self.ledger.connection.execute("UPDATE work_items SET capacity_retries=2,publication_retries=3 WHERE id=?",
+                                       (item["id"],))
+        self.ledger.connection.execute("INSERT OR REPLACE INTO resource_job_retries(item_id,attempts,setup_attempts) "
+                                       "VALUES(?,1,2)", (item["id"],))
+
+    def allowances(self, item_id):
+        item, recovery = self.ledger.item(item_id), self.ledger.issue_context(item_id)["resource_recovery"]
+        return item["state"], (item["capacity_retries"], item["publication_retries"], recovery["attempts"],
+                               recovery["setup_attempts"])
+
+    def test_a_reply_or_a_mention_that_resumes_a_paused_feature_job_gives_it_fresh_allowances(self):
+        """Spec §5.8: both receiver paths that resume a human gate, a reply in the session and a mention in another
+        session forwarded to the paused job, start a new stage of a job that begins at an initial root."""
+        self.running("feature")
+        self.labelled(["Code"], CODE)
+        [item] = self.delegate()
+        self.spend(item)
+        self.paused(item, "配置发布了吗？", reason="waiting")
+        self.receive(self.event("prompted", body="配置已经发布")); self.receiver.process_one()
+        self.assertEqual(self.activities()[-1]["body"], "收到回复，继续处理。")
+        self.assertEqual(self.allowances(item["id"]), ("queued", (0, 0, 0, 0)))
+        self.spend(item)
+        self.paused(item, "配置发布了吗？", reason="waiting")
+        self.mention_in("session-9", "@FarmBot 配置已经发布")
+        self.assertEqual(self.activities()[-1]["body"], "收到回复，原工作项已恢复，worker 会先读取你的回答。")
+        self.assertEqual(self.allowances(item["id"]), ("queued", (0, 0, 0, 0)))
+
+    def test_a_reply_that_resumes_a_paused_fix_keeps_its_allowances(self):
+        [item] = self.delegate()  # the base card, Bot/修改: a fix
+        self.spend(item)
+        self.paused(item, "哪个服？")
+        self.receive(self.event("prompted", body="公共测试服")); self.receiver.process_one()
+        self.assertEqual(self.allowances(item["id"]), ("queued", (2, 3, 1, 2)))

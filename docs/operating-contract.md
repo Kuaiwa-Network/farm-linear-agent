@@ -444,16 +444,17 @@ Process ownership, project locks and the full grant identity probe still apply. 
 pool editor does not reap its broker while an unrelated editor is present.
 
 There are two automatic execution retries per job, three separate preparation retries, and three
-attempts per slot recovery, with 60/180-second
-repair backoff persisted across restarts. Repair leases expire after 15 minutes if a controller
-dies. Exhaustion produces an explicit failure, preserves work, and reports through Linear;
-it never masquerades as a question. Existing human questions are not automatically resumed.
-Grant-probe failures before execution and explicit legacy adoption use the preparation budget;
-worker unclean releases, watchdog stalls and already-started batch runs use execution. Terminal
-messages name the exhausted phase and latest recorded cause. Explicit retry resets both budgets.
-The additive migration preserves existing counts and defaults historical records to execution;
-it does not infer old failure categories or automatically restart previously failed jobs. Older
-code cannot enforce separate budgets; do not roll back during pending recovery or rewind live data.
+attempts per slot recovery, with 60/180-second repair backoff persisted across restarts. Repair
+leases expire after 15 minutes if a controller dies. Exhaustion produces an explicit failure,
+preserves work, and reports through Linear; it never masquerades as a question. Existing human
+questions are not automatically resumed. Grant-probe failures before execution and explicit legacy
+adoption use the preparation budget; worker unclean releases, watchdog stalls and already-started
+batch runs use execution. Terminal messages name the exhausted phase and latest recorded cause.
+Explicit retry resets both budgets, and so does each new stage of a job whose skill starts at an
+initial root (see Work item states). The additive migration preserves existing counts and defaults
+historical records to execution; it does not infer old failure categories or automatically restart
+previously failed jobs. Older code cannot enforce separate budgets; do not roll back during pending
+recovery or rewind live data.
 
 ## Draft PR publishing authority
 
@@ -645,6 +646,18 @@ A waiting item has no process. A repository handoff is queued with its retired w
 it cannot be claimed or launched until the controller certifies teardown and clears that PID.
 An item in awaiting_resource holds a queued reservation; only the pool's grant turns
 it back into queued work. A launched worker must claim its item within 10 minutes or it is stopped and the item fails. A confirmed terminal Codex model-capacity error returns the same queued or running item to the queue after 60, 180, then 600 seconds, with at most three automatic retries. The old claim is revoked; worktrees, checkpoints, model settings and reservations are retained. Retry timing is durable and all normal concurrency/delegation checks still apply. Cancelled, completed, waiting and deliberately stopped work is not automatically retried. Other pre-claim exits fail the item; a worker that dies with an expired lease requeues the item once for a fresh worker. A queued item whose skill is loaded but not in `enabled_skills` fails before launch.
+
+The automatic-retry allowances (three capacity retries, three publication retries, and the
+Unity execution and preparation budgets of Automatic Unity resource recovery) last a fix's
+whole job; `retry` and a requested continuation reset them for any skill. For a skill that
+starts at an initial root (`feature`, and `fgui` when it exists) they bound one stage instead
+(feature-workers design §5.8): a completed repository handoff and a resume from a human gate
+(a reply or a forwarded mention that resumes a paused job, or an answer already waiting when
+the pause is recorded) reset them, with an `audit` row `stage_allowances`, and the stage's
+first launch then fetches its repositories as a job's first launch does. A message to a
+running attempt, a recovered lease and a slot the pool grants continue the same stage. Older
+code never resets them this way and keeps the counts it finds.
+
 The Linear session follows the item: `finish` posts the final response that completes the session (a chat
 answer is its own response); a worker that dies or never starts leaves an error activity naming 重试 as the
 way back, and a requeue leaves a thought.

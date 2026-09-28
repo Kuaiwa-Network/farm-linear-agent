@@ -547,6 +547,94 @@ class SuccessorTests(LedgerBase):
         self.assertIsNone(self.ledger.issue_context(chat["id"])["resumable_work"])
 
 
+class StageAllowanceTests(LedgerBase):
+    """Automatic-retry allowances bound one stage of a job that starts at an initial root, and the whole job of a
+    fix (spec §5.8, D16): capacity and publication retries and the Unity execution and setup budgets."""
+    SPENT = (2, 3, 1, 2)
+
+    def setUp(self):
+        super().setUp()
+        self.feature = opt_in_skill(Path(self.tmp.name) / "skills")
+
+    def running(self, skill="feature"):
+        """A claimed job of `skill`; a feature job has no target, as the receiver and a conversation make it (P6)."""
+        item = self.new_item(skill=skill, target=None if skill == "feature" else PIN)
+        self.ledger.set_worker(item["id"], 4321, "test")
+        return item["id"], self.ledger.claim(item["id"], worker_id="w")["token"]
+
+    def spend(self, item_id):
+        """Use part of every allowance, as delayed capacity and publication retries and Unity recoveries do."""
+        self.ledger.connection.execute("UPDATE work_items SET capacity_retries=2,publication_retries=3 WHERE id=?",
+                                       (item_id,))
+        self.ledger.connection.execute("INSERT OR REPLACE INTO resource_job_retries(item_id,attempts,setup_attempts) "
+                                       "VALUES(?,1,2)", (item_id,))
+
+    def allowances(self, item_id):
+        item, recovery = self.ledger.item(item_id), self.ledger.issue_context(item_id)["resource_recovery"]
+        return item["capacity_retries"], item["publication_retries"], recovery["attempts"], recovery["setup_attempts"]
+
+    def hand_off(self, item_id, token, to_repo, skill):
+        self.ledger.checkpoint(item_id, token, {"handoff": {
+            "facts": [], "hypotheses": [], "checks": [], "repositories": [], "next_actions": ["Start the next stage"]}})
+        self.spend(item_id)
+        self.ledger.handoff_repository(item_id, token, to_repo, skill=skill)
+        return self.ledger.complete_repository_handoff(item_id, 4321, skill=skill)
+
+    def test_a_completed_handoff_starts_the_next_stage_with_fresh_allowances(self):
+        item_id, token = self.running()
+        self.assertEqual(self.hand_off(item_id, token, "common", self.feature)["root_repo"], "common")
+        self.assertEqual(self.allowances(item_id), (0, 0, 0, 0))
+
+    def test_an_answer_to_a_pause_resumes_the_job_with_fresh_allowances(self):
+        """Both reasons resume a new stage, such as the gap-list questions and the config-ready pause after the
+        `config-needed` notice (P15), and so does an answer that arrived before the pause was parked, which requeues
+        the item at once (spec §5.2)."""
+        for reason, early in (("question", False), ("waiting", False), ("waiting", True)):
+            with self.subTest(reason=reason, early=early):
+                self.setUp()
+                item_id, token = self.running()
+                self.spend(item_id)
+                if early:
+                    self.ledger.push_inbox(item_id, "配置已经发布")
+                self.ledger.await_input(item_id, token, "配置发布了吗？", reason=reason)
+                if not early:
+                    self.assertEqual(self.allowances(item_id), self.SPENT)  # parked: nothing has resumed yet
+                    self.ledger.push_inbox(item_id, "配置已经发布", resume_waiting=True)
+                self.assertEqual((self.ledger.item(item_id)["state"], self.allowances(item_id)), ("queued", (0, 0, 0, 0)))
+
+    def test_the_same_stage_keeps_its_allowances(self):
+        """A message to a running attempt, a recovered lease and a slot the pool grants continue one stage. No Phase B
+        feature job waits for a slot (it has no target and its manifest lists no resource: P6, P11), but fgui will;
+        the pool's grant is `Ledger.resume` of an item parked for its slot (`SlotPool.grant`), parked here directly."""
+        item_id, _ = self.running()
+        self.spend(item_id)
+        self.ledger.push_inbox(item_id, "顺便看一下日志", resume_waiting=True)  # steering a running attempt
+        self.now += 61
+        self.ledger.recover(item_id, "worker exited with an expired lease")
+        self.ledger.connection.execute("UPDATE work_items SET state='awaiting_resource',needs_resource=? WHERE id=?",
+                                       ("unity_slot:batch", item_id))
+        self.ledger.resume(item_id, "the pool granted the slot")
+        self.assertEqual((self.ledger.item(item_id)["state"], self.allowances(item_id)), ("queued", self.SPENT))
+
+    def test_fix_keeps_job_lifetime_allowances(self):
+        item_id, token = self.running(skill="fix")
+        self.hand_off(item_id, token, "Farm-Contract", SKILLS["fix"])
+        self.assertEqual(self.allowances(item_id), self.SPENT)
+        token = self.ledger.claim(item_id, worker_id="w2")["token"]
+        self.ledger.await_input(item_id, token, "哪个服？")
+        self.ledger.push_inbox(item_id, "公共测试服", resume_waiting=True)
+        self.assertEqual((self.ledger.item(item_id)["state"], self.allowances(item_id)), ("queued", self.SPENT))
+
+    def test_the_rule_names_every_repository_skill_with_an_initial_root_and_not_fix(self):
+        """The ledger reads no manifests, so it knows these skills by name; this keeps the names and the manifests
+        together when a skill with an initial root ships."""
+        from agent.ledger import STAGE_ALLOWANCE_SKILLS
+        self.assertLessEqual({name for name, skill in SKILLS.items() if skill.initial_root is not None},
+                             set(STAGE_ALLOWANCE_SKILLS))
+        self.assertIn(self.feature.name, STAGE_ALLOWANCE_SKILLS)
+        self.assertNotIn("fix", STAGE_ALLOWANCE_SKILLS)
+
+
 class LeaseTests(LedgerBase):
     def test_claim_requires_queued_and_issues_cli_safe_token(self):
         item = self.new_item()
