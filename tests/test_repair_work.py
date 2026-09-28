@@ -283,6 +283,48 @@ class RepairWorkTests(LedgerBase):
                         run(self.cli_request(chat, token), self.ledger, lambda: api)
                 self.assertEqual((self.ledger.item(chat["id"])["state"], self.ledger.queue()), ("running", []))
 
+    def test_an_earlier_feature_or_fgui_job_does_not_open_a_first_fix(self):
+        """The ledger continues only fix jobs, so an fgui or feature job on the issue must not lift the refusal:
+        the request would otherwise start a first fix on a UI or Code card."""
+        for skill, label in (("feature", "Code"), ("fgui", "UI")):
+            with self.subTest(skill=skill):
+                self.setUp()
+                self.ledger.observe_issue(issue(delegate_id=APP))
+                self.ledger.ensure_session(SESSION, ISSUE, True)
+                earlier = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill=skill, target=PIN)
+                self.ledger.cancel(earlier["id"], "Stop")
+                chat, token = self.conversation()
+                api = self.stub_api(issue(delegate_id=APP, labels=[label],
+                                          label_groups=[{"group": "Bot", "label": label}]))
+                with patch("agent.__main__.load_config", return_value=Config("c", "s", "w")):
+                    with self.assertRaisesRegex(LedgerError, f"Bot/{label}, so it is {skill} work, not a fix"):
+                        run(self.cli_request(chat, token), self.ledger, lambda: api)
+                self.assertEqual(self.ledger.queue(), [])
+
+    def test_only_a_delegation_sessions_fix_lifts_the_refusal(self):
+        """A fix recorded in a mention session, as an operator's enqueue can leave one, is not resumable
+        work, so it does not open a first start on a Code card."""
+        self.ledger.observe_issue(issue(delegate_id=APP))
+        self.ledger.ensure_session("mention", ISSUE, False)
+        stray = self.ledger.create_work_item(issue_id=ISSUE, session_id="mention", skill="fix", target=PIN)
+        self.ledger.cancel(stray["id"], "Stop")
+        chat, token = self.conversation()
+        api = self.stub_api(self.feature_card())
+        with patch("agent.__main__.load_config", return_value=Config("c", "s", "w")):
+            with self.assertRaisesRegex(LedgerError, "Bot/Code, so it is feature work, not a fix"):
+                run(self.cli_request(chat, token), self.ledger, lambda: api)
+
+    def test_a_request_from_a_work_item_gets_the_ledgers_refusal_not_the_labels(self):
+        self.ledger.observe_issue(issue(delegate_id=APP))
+        self.ledger.ensure_session(SESSION, ISSUE, True)
+        fix = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix", target=PIN)
+        self.ledger.push_inbox(fix["id"], "继续")
+        token = self.ledger.claim(fix["id"], worker_id="w")["token"]
+        api = self.stub_api(self.feature_card())
+        with patch("agent.__main__.load_config", return_value=Config("c", "s", "w")):
+            with self.assertRaisesRegex(LedgerError, "requires an owned read-only chat item"):
+                run(self.cli_request(fix, token), self.ledger, lambda: api)
+
     def test_the_old_group_name_is_still_refused_as_feature_work(self):
         chat, token = self.conversation()
         api = self.stub_api(issue(delegate_id=APP, labels=["Code"], label_groups=[{"group": "功能", "label": "Code"}]))

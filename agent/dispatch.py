@@ -75,7 +75,7 @@ KW_OPS_AUTHORITY = (
 # the Bot label group design, question 5). A fix covers a bug or a small change to existing UI (D18 b, e).
 FGUI_EXPORT_AUTHORITY = (
     "The operator's standing authorization of 2026-09-21, widened on 2026-09-28 to every authorized fix job, "
-    "lets you run the FairyGUI CLI batch export for this issue's UI fix or small change to existing UI and "
+    "lets you run the FairyGUI CLI batch export for this issue's UI bug fix or small change to existing UI and "
     "integrate its validated outputs into this issue's authorized client worktree, without asking for a "
     "separate export approval or a human GUI publish. Follow the command, staging and validation workflow in "
     "references/repo-map.md; the export adds no repository, publishing, merge or deployment scope. "

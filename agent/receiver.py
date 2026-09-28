@@ -32,8 +32,8 @@ ACK = {"fix": "{bot} 已收到委派，正在排队处理这张修改卡。进�
        "feature": "{bot} 已收到委派，正在排队处理这张功能卡。进展、问题和草稿 PR 会更新在这里。",
        "chat": "{bot} 已收到，正在查看。", "qa": "{bot} 已收到测试请求，正在排队。"}
 # D18: the first message of a delegation whose card has no Bot label, where a Bug card used to start a fix.
-NO_BOT_LABEL = ("{bot} 已收到。这张卡没有 Bot 标签，先以只读对话查看。需要修复或修改，请在这里回复（例如『修复』）；"
-                "以后委派前加上 Bot/修改 会直接开始。")
+NO_BOT_LABEL = ("{bot} 已收到。这张卡没有 Bot 标签，先以只读对话查看。需要修复或修改，请在这里回复（例如「修复」）；"
+                "以后委派前先加上 Bot/修改 标签，就会直接开始处理。")
 
 
 class Receiver:

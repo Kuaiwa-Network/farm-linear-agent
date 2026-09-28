@@ -77,11 +77,11 @@ AUTHORITY_AT_A29D078 = (
     "Use references/worker-cli.md for command arguments and the exact handoff JSON shape."
 )
 AUTHORITY_AT_A29D078_SHA256 = "23d88d27e8d37067c1879514f0a4d578da0c02b04c14832aa29ecfdeff321cde"
-# D18 h, question 5: the one sentence fix's AUTHORITY adds. A change to it is a change to what the approval
+# D18 h, question 5: the export grant fix's AUTHORITY adds. A change to it is a change to what the approval
 # reviewer lets a fix worker export, so it is pinned here word for word.
 FGUI_EXPORT_AT_D18 = (
     "The operator's standing authorization of 2026-09-21, widened on 2026-09-28 to every authorized fix job, "
-    "lets you run the FairyGUI CLI batch export for this issue's UI fix or small change to existing UI and "
+    "lets you run the FairyGUI CLI batch export for this issue's UI bug fix or small change to existing UI and "
     "integrate its validated outputs into this issue's authorized client worktree, without asking for a "
     "separate export approval or a human GUI publish. Follow the command, staging and validation workflow in "
     "references/repo-map.md; the export adds no repository, publishing, merge or deployment scope. "

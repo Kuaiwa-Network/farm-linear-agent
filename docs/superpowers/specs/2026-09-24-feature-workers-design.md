@@ -137,12 +137,13 @@ Non-goals:
 
 The team-scoped (农场) label group **Bot** has three child labels, **修改**, **UI** and **Code**, at the
 default single-select type so one card carries at most one. The group was created as **功能** with UI
-and Code; D18 renamed it and added 修改, which starts `fix` (the [Bot label group design](2026-09-27-bot-label-group-design.md)). Existing labels
-(Bug, Improvement, Feature, 程序, 策划, 美术) stay untouched and outside the group, and none of them
-routes. Only a group's children can be applied to an issue, and the API returns a child under its own
-short name, so FarmBot reads each label's parent to tell a grouped `UI` from a standalone `UI` label: it
-matches the parent group name plus the child name, and for one release accepts 功能 beside Bot. Pinned
-label IDs in private host config are optional hardening.
+and Code; D18 renamed it and added 修改, which starts `fix`
+(the [Bot label group design](2026-09-27-bot-label-group-design.md)). Existing labels (Bug, Improvement,
+Feature, 程序, 策划, 美术) stay untouched and outside the group, and none of them routes. Only a group's children can be
+applied to an issue, and the API returns a child under its own short name, so FarmBot reads each label's
+parent to tell a grouped `UI` from a standalone `UI` label: it matches the parent group name plus the
+child name, and for one release accepts 功能 beside Bot. Pinned label IDs in private host config are
+optional hardening.
 
 ### 4.2 Two issues, ownership and merging
 
@@ -990,8 +991,8 @@ closed since #48 (`TERMINAL_STATUS_TYPES`, `agent/ledger.py:28`).
 - `revalidate --item ITEM_ID --fingerprint FP`, claim-authenticated: after `fetch-issue` and reading
   the new comments, the worker re-baselines its claim on that fingerprint (refused if it is stale).
 - `request-repair` (`:326-349`) follows the delegation's write skill, and for a first start the card's
-  Bot label (§9.4, D18 f), its acknowledgement no longer promising a fix (`:344`); `await-resource --commit` (`:388-396`) gets the Farm-Client-root
-  rule.
+  Bot label (§9.4, D18 f), its acknowledgement no longer promising a fix (`:344`);
+  `await-resource --commit` (`:388-396`) gets the Farm-Client-root rule.
 
 ### 9.10 Dispatch, skills and references
 
@@ -1009,12 +1010,12 @@ closed since #48 (`TERMINAL_STATUS_TYPES`, `agent/ledger.py:28`).
 ### 9.11 Operating contract, doctor and service
 
 - `docs/operating-contract.md`, updated as each phase lands: trigger rows for Bot/修改, Bot/UI and
-  Bot/Code; authority rows; `await-input` reasons; comment kinds; the upload commands and
-  workers' use of the Linear credentials; delegation removal. The FGUI paragraph (`:407-420`) is
-  reworded: CLI export needs no separate approval in an authorized FarmBot fix job (D18 h), and in an `fgui` job
-  follows the human's explicit export request after visual approval. Its claim that the rule "also
-  applies to future `fgui` and `feature` workers" describes workers that do not exist and can go now,
-  as a documentation fix.
+  Bot/Code; authority rows; `await-input` reasons; comment kinds; the upload commands and workers' use
+  of the Linear credentials; delegation removal. The FGUI paragraph (`:407-420`) is reworded: CLI export
+  needs no separate approval in an authorized FarmBot fix job (D18 h), and in an `fgui` job follows the
+  human's explicit export request after visual approval. Its claim that the rule "also applies to future
+  `fgui` and `feature` workers" describes workers that do not exist and can go now, as a documentation
+  fix.
 - `agent/doctor.py`: report tool readiness for the new skills (Go toolchain, protoc version, dotnet
   and the 8.0.423 SDK, git-lfs, buf, Node with openspec, `python3` or the configured Python with Pillow
   and a CJK font for previews, bash and coreutils on Windows, lark-cli presence and its FarmBot app
@@ -1034,7 +1035,7 @@ Owned by those repositories' owners or the operator; FarmBot's work does not inc
 |---|---|---|
 | Linear (operator) | the Bot group with 修改, UI and Code (created as 功能, renamed by D18); announce the two team rules of §4.2; no Git automation change (§9.8) | |
 | Feishu (admin) | before Phase B, create the FarmBot app with only the read-documents, read-wiki and download-drive-files permissions, and add it as a reader of the space or folder holding the 策划案 (§5.4) | |
-| farmgui (owners) | before Phase D, allow hand-registered `package.xml` entries under rules 12b and 12c (rule 12 in `docs/fgui-authoring-rules.md:138`, `AGENTS.md:113-114`); before D18 reaches production, reword `AGENTS.md:38-43`, which limits the CLI export grant to "an authorized FGUI bug fix", to cover every authorized FarmBot fix job (D18 h); before Phase E, to also cover an `fgui` feature job after a human's explicit export request following visual approval, committing only that job's packages | reconcile the two pixel-matching skill copies, both of which still say the license has no CLI publish; host the preview renderer if preferred (§7.3) |
+| farmgui (owners) | before Phase D, allow hand-registered `package.xml` entries under rules 12b and 12c (rule 12 in `docs/fgui-authoring-rules.md:138`, `AGENTS.md:113-114`); before any instance runs D18, reword `AGENTS.md:38-43`, which limits the CLI export grant to "an authorized FGUI bug fix", to cover every authorized FarmBot fix job (D18 h); before Phase E, to also cover an `fgui` feature job after a human's explicit export request following visual approval, committing only that job's packages | reconcile the two pixel-matching skill copies, both of which still say the license has no CLI publish; host the preview renderer if preferred (§7.3) |
 | Farm-Client (owners) | none: D7(f) overrides the Unity-menu rule for FarmBot (§6.7) | reword `CLAUDE.md:16` and `Assets/Scripts/HotUpdate/CLAUDE.md:10-16`, which allow regeneration only through the Unity Tools/Proto menus, to also accept `gen-config.sh` output installed with the menu's semantics and verified under dotnet, and a headless network-proto export if D10 confirms one; supported headless entry points that call the existing exporter workflows with no-op editor services; an export provenance line in commits; a dotnet test that compiles readers and registry |
 | farm-common (owners) | none | `designer/tools/check-client-export.sh` looks for the inventory under `designer/` instead of `designer/china/` |
 | Farm-Contract | none: FarmBot does not use its silent-consent defaults (§5.1) | |

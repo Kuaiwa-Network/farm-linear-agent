@@ -21,6 +21,7 @@ from agent.heartbeat import OUTCOMES, Heartbeat
 from agent.ledger import Ledger
 from agent.monitor import probe_health
 from agent.receiver import MAX_BODY, Receiver, make_server
+from agent.router import Decision
 from agent.worktrees import WorktreeError
 from test_ledger import DESIGNER, ISSUE, OTHER, OWNER, issue
 
@@ -822,8 +823,8 @@ CHANGE = [{"group": "Bot", "label": "修改"}]
 UI = [{"group": "Bot", "label": "UI"}]
 CODE = [{"group": "Bot", "label": "Code"}]
 FIX_ACK = "FarmBot 已收到委派，正在排队处理这张修改卡。进展和草稿 PR 会更新在这里。"
-NO_BOT_LABEL = ("FarmBot 已收到。这张卡没有 Bot 标签，先以只读对话查看。需要修复或修改，请在这里回复（例如『修复』）；"
-                "以后委派前加上 Bot/修改 会直接开始。")
+NO_BOT_LABEL = ("FarmBot 已收到。这张卡没有 Bot 标签，先以只读对话查看。需要修复或修改，请在这里回复（例如「修复」）；"
+                "以后委派前先加上 Bot/修改 标签，就会直接开始处理。")
 
 
 class BotRoutingReceiverTests(ReceiverBase):
@@ -924,6 +925,19 @@ class BotRoutingReceiverTests(ReceiverBase):
                 self.assertEqual(item["skill"], "chat")
                 self.assertEqual(self.activities()[-1]["body"], "FarmBot 已收到，正在查看。")
                 self.ledger.cancel(item["id"], "next case")
+
+    def test_the_receiver_refuses_write_work_the_router_gives_a_mention(self):
+        """The receiver's own guard, independent of the router: a mention on a Bot/修改 card that the router
+        wrongly sent to fix creates no work, and the event is recorded as uncertain."""
+        self.labelled(["修改"], CHANGE)
+        with patch("agent.receiver.route", return_value=Decision("work", "fix")):
+            self.receive(self.event(agentSession={"id": "session-2", "issue": {"id": ISSUE, "identifier": "FARM-1",
+                                                                                "url": "u"},
+                                                  "comment": {"body": "@FarmBot 修一下"}}))
+            self.receiver.process_one()
+        self.assertEqual(self.ledger.items_for_session("session-2"), [])
+        result = self.receiver.results()[-1]
+        self.assertEqual((result["status"], result["error"]), ("uncertain", "RuntimeError"))
 
     def test_the_first_message_is_never_put_before_a_forwarding_notice(self):
         """An unlabelled delegation while another session's conversation waits for an answer is forwarded to it

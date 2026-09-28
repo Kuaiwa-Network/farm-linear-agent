@@ -97,10 +97,12 @@ this contract. Missing generators remain explicit verification gaps or blockers.
   executable from host configuration or a host-specific shared-memory note,
   then verify that it exists and has an active paid license for batch export.
   Keep installation paths and license observations out of versioned guidance.
-  During an authorized FarmBot fix job, a UI bug fix or a small change to existing
-  UI (widened on 2026-09-28), FarmBot may export the affected packages directly
-  without another permission request or human GUI handoff. This applies to both Codex and Claude Code workers and supersedes the
-  earlier unpaid-license handoff and separate export-approval guidance.
+  During an authorized FarmBot fix job, a UI bug fix or a small change to
+  existing UI (widened on 2026-09-28; farmgui's `AGENTS.md` records it before
+  any instance runs that revision), FarmBot may export the affected packages
+  directly without another permission request or human GUI handoff. This
+  applies to both Codex and Claude Code workers and supersedes the earlier
+  unpaid-license handoff and separate export-approval guidance.
   Run `-batchmode -p <job-worktree/FGUIProject.fairy> -b <comma-separated-packages>
   -o <absolute-job-staging-directory> -logFile <absolute-log-file>` with a timeout
   and only one publisher per project/output directory. `-o` is literal and does

@@ -138,6 +138,9 @@ class PageTests(unittest.TestCase):
     def test_every_skill_has_a_label(self):
         self.assert_labelled("SKILL", load_skills(Path(__file__).resolve().parents[1] / "skills"))
 
+    def test_fix_reads_as_the_bot_label_people_use(self):
+        self.assertIn('fix: "修改"', self.block("const SKILL = {"))
+
     def test_every_outcome_has_a_label(self):
         self.assert_labelled("OUTCOME", OUTCOMES)
 

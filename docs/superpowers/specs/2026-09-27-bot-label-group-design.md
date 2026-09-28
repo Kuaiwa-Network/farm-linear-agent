@@ -1,12 +1,14 @@
 # The Bot label group (D18)
 
 **Status: accepted, 2026-09-28; implemented, not yet deployed.** Current behaviour is in
-[`docs/operating-contract.md`](../../operating-contract.md), which the implementation updated. The design follows the operator's decision D18 of 2026-09-27, which amends D3 of the
-[feature-workers design](2026-09-24-feature-workers-design.md) ("the feature spec" below) and, through
-f (§2), the last clause of its D16; D18 c also ends the Bug-delegation shortcut of two earlier
-designs (§3.1). On 2026-09-28 the operator confirmed f, g and h and settled the questions of §10
-as recommended. Approving the design authorizes neither the Linear change nor any deployment; §7
-gives their order. "The plan" is
+[`docs/operating-contract.md`](../../operating-contract.md), which the implementation updated. The
+design follows the operator's decision D18 of 2026-09-27, which amends D3 of the
+[feature-workers design](2026-09-24-feature-workers-design.md) ("the feature spec" below) and,
+through f (§2), the last clause of its D16; D18 c also ends the Bug-delegation shortcut of two
+earlier designs (§3.1).
+On 2026-09-28 the operator confirmed f, g and h and settled the questions of §10 as recommended.
+Approving the design authorizes neither the Linear change nor any deployment; §7 gives their order.
+"The plan" is
 [`docs/superpowers/plans/2026-09-25-feature-workers-phase-a.md`](../plans/2026-09-25-feature-workers-phase-a.md),
 whose "As executed" sections record the live checks cited here.
 
@@ -168,9 +170,13 @@ same edit, plus a restart of each settled service at the moment of the rename (`
 
 The last row's first message replaces the generic 「{bot} 已收到，正在查看。」
 (`agent/receiver.py:33`, `:292-293`); a mention keeps the generic one, and so does a re-route
-(below). It is what the team sees where a Bug card used to start a fix. Suggested text,
-naming the instance as every acknowledgement does (`agent/receiver.py:28-29`):
-「{bot} 已收到。这张卡没有 Bot 标签，先以只读对话查看。需要修复或修改，请在这里回复（例如『修复』）；以后委派前加上 Bot/修改 会直接开始。」
+(below). It is what the team sees where a Bug card used to start a fix. The text names the
+instance as every acknowledgement does (`agent/receiver.py:28-29`); `NO_BOT_LABEL` in
+`agent/receiver.py` has it:
+
+```text
+{bot} 已收到。这张卡没有 Bot 标签，先以只读对话查看。需要修复或修改，请在这里回复（例如「修复」）；以后委派前先加上 Bot/修改 标签，就会直接开始处理。
+```
 
 Delegation text follows the label rule the feature spec set for UI and Code (§4.4 there), 修改
 included: a Bot child starts its worker whatever the text says, and someone who only wants to talk
@@ -266,7 +272,7 @@ generated assets" (`:22-24`), and kw_ops "when this issue's reproduction or veri
 test. The one indirect limit is "A consumer-root worker follows that repository's own rules."
 (`agent/dispatch.py:16`), which brings in farmgui's export grant (h). The approval reviewer never
 reads farmgui's rules (§10, question 5), so, as the operator settled there, `fix`'s part of the
-AUTHORITY gains one sentence stating the export grant h settles, and its frozen hash test
+AUTHORITY gains a statement of the export grant h settles, and its frozen hash test
 (`tests/test_dispatch.py:220-247`) changes deliberately in the same pull request.
 
 ### 4.6 Why one group removes the Bug-plus-功能 question
@@ -381,10 +387,11 @@ heartbeat's revision while workers' commands, `request-repair` among them, run t
 
 1. With the operator's go-ahead, read production's heartbeat revision and run `doctor` read-only from
    its installation checkout; report both.
-2. Settle TestBot and move it to D18.
-3. Land farmgui's grant change (h). It covers every fix the running code can already
+2. Land farmgui's grant change (h), before any instance runs D18: D18 code states the widened grant
+   in `fix`'s AUTHORITY from its first launch. It covers every fix the running code can already
    start, including a small UI change asked for in a conversation (`docs/operating-contract.md:119`),
    so it needs no D18 code.
+3. Settle TestBot and move it to D18.
 4. In Linear, rename 功能 to Bot, then add 修改.
 5. Run the live checks of §9 on TestBot.
 6. In a separately authorized release, settle production and deploy D18. The redeploy script refuses
@@ -405,7 +412,8 @@ the window above is open until production runs D18. Until then neither bot knows
 starts nothing by itself, a Bug card with any Bot child starts `fix` when delegated without text, and
 a 「修复」 in a Bot/UI or Bot/Code conversation starts a first fix, since no running code refuses it
 there (second row below). No open card carried a Bot child that day. Until production runs D18, tell
-the team nothing (§6.2) and put no Bot label on a card.
+the team nothing (§6.2), and put a Bot label only on the cards the operator names for §9's live
+checks, delegated to TestBot alone.
 
 **Other orders and windows.**
 
@@ -454,7 +462,7 @@ card and from the group first.
 | Delegation while another session's work is active | With one Bot child whose skill this instance runs: declined with a note (`agent/receiver.py:265-268`), as a Bug card is today. Otherwise, Bug-only cards included: the empty delegation is forwarded to that work as 「（无正文）」 and resumes it if it waits for input, as for a card without Bug today; the delegator reads the forwarding notice, or 「收到回复，原工作项已恢复，worker 会先读取你的回答。」 on a resume, never the §4.2 message (`:269-278`). A reply in the delegation session routes by §4.2 (§4.3). |
 | Mention on a 修改 card never delegated | Conversation; a request needs a recorded delegation (`agent/ledger.py:1632-1634`). |
 | Operator `enqueue --skill fix` on a UI or Code card | Runs `fix`: `enqueue` reads no label (`agent/service.py:145-160`). |
-| 修改 UI change needing an FGUI export before farmgui's grant covers it | No standing grant (h); step 3 of §7 lands the grant before the Linear change. |
+| 修改 UI change needing an FGUI export before farmgui's grant covers it | No standing grant (h); §7 lands the grant before any instance runs D18. |
 | Closed card | No work item is created (`agent/ledger.py:709-710`). |
 
 ## 9. Testing

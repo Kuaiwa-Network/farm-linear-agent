@@ -166,6 +166,11 @@ class StartRequestTests(unittest.TestCase):
                          "this issue carries Bot/UI, so it is fgui work, not a fix; fgui work starts only when an "
                          "issue labelled Bot/UI is delegated")
 
+    def test_the_no_workflow_refusal_says_what_to_do(self):
+        self.assertEqual(start_refusal(["Art"], SKILLS),
+                         "this issue carries Bot/Art, not exactly one of Bot/修改, Bot/UI or Bot/Code, so it names "
+                         "no workflow; correct the label, then ask again")
+
     def test_an_unknown_child_or_two_children_name_no_workflow(self):
         for children in (["Art"], ["Code", "UI"], ["UI", "修改"]):
             with self.subTest(children=children):

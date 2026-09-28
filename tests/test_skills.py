@@ -215,6 +215,9 @@ class SkillRegistryTests(unittest.TestCase):
 class StageManifestTests(unittest.TestCase):
     """Optional stage keys (spec §9.5): initial_root, staged and reads."""
 
+    def test_the_fix_manifest_names_the_bot_label_it_answers(self):
+        self.assertEqual(load_skills(ROOT / "skills")["fix"].intents, ("label:Bot/修改",))
+
     def test_fix_is_staged_from_a_neutral_start_and_chat_is_not_staged(self):
         skills = load_skills(ROOT / "skills")
         self.assertEqual((skills["fix"].staged, skills["fix"].initial_root, skills["fix"].reads), (True, None, ()))

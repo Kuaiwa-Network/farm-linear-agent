@@ -10,8 +10,6 @@ WRITE_SKILLS = ("fix", "fgui", "feature")
 BOT_GROUP = "Bot"
 BOT_GROUPS = (BOT_GROUP, "功能")
 BOT_SKILLS = {"修改": "fix", "UI": "fgui", "Code": "feature"}
-# The skills a Bot child starts that are not fix; a conversation cannot start their first job in this release.
-FEATURE_WORK = ("fgui", "feature")
 
 
 @dataclass(frozen=True)
