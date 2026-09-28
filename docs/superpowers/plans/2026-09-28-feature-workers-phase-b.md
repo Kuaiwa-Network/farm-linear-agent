@@ -23,6 +23,7 @@ The tasks below were drafted, reviewed and rehearsed before any implementation, 
 - **Mutation checks.** 86 deliberate breakages of the new code and pinned texts (25 in PR B1, 35 in B2, 24 in B3, 2 in the documents) were each caught by a test; two survived their first pass, and the tests that now catch them are part of the tasks.
 - **Final additions.** Three small changes closed gaps the rehearsal found between tasks: `doctor` names the stage-limit pause (Task 8), a `feature` plan never records a suffix branch as its issue branch (Task 9), and lark-cli credential variables never reach the controller's own Unity runs (Task 10). Each new test was seen to fail without its change and pass with it on the rehearsal tree, where the full suite then ran 1374 tests, all passing, 16 skipped.
 - **With #68.** #68 merged while the rehearsal ran. Its diff applied to the rehearsed tree with no fuzz, as the plan's combined edits to `agent/worktrees.py` and `docs/operating-contract.md` apply to #68's versions of those files, and the full suite with both ran 1379 tests, all passing, 16 skipped.
+- **P16 settled.** After this plan merged, P16 was settled on farm-hive's designer-source pin, and Tasks 14, 16 and 17 no longer carry it as a question. On the rehearsal tree with #68, Task 14's changed test failed against the skill as rehearsed and with the new sentence removed, and passed as edited; the full suite then ran 1379 tests, all passing, 16 skipped.
 - **Not verified.** Nothing ran on Windows. No live check ran (Task 17). The Farm-Contract, farm-common and farm-hive rules that Tasks 13–14 cite were spot-checked in the review round, not in the full rehearsal. Task 10's lark-cli spike needs the operator and the FarmBot Feishu app.
 
 ## Scope
@@ -65,7 +66,7 @@ Settled while reviewing the drafts (2026-09-28):
 - **P13. lark-cli credential variables are withheld** (`LARKSUITE_CLI_APP_ID`, `LARKSUITE_CLI_APP_SECRET`, `LARKSUITE_CLI_PROXY_KEY` and any `LARKSUITE_CLI_*ACCESS_TOKEN`) from every worker's environment and from the controller's own runs outside a sandbox (Unity batch runs, Editor launches), because exported credentials override `--profile` (Task 10).
 - **P14. A stage limit in the delegation text is honoured.** If the delegation text or a session message asks to stop after a stage, the worker finishes that stage and pauses (`waiting`, `pause.kind` `stage_limit`) instead of handing off, and `doctor` shows that pause by name. The first live Code run (Task 17) uses this to stop after stage A.
 - **P15. Stage notices.** A `stage` notice is posted only for a skipped stage and for stage C's pass; stage A ends with the `merge_request` for the contract PR. Request ids: `questions-<n>`, `foreign-work-<n>` (from 1), `stage-<letter>`, `merge-contract`, `merge-waivers`, `config-needed` then `config-needed-<n>` (from 2), `closing` then `closing-<n>` (from 2).
-- **P16. Designer-source mechanism.** Stage D and the closing steps follow farm-hive main as it is on 2026-09-28: `config/pb/toolchain.env` pins the three `DESIGNER_SOURCE_*` values from `designer-source.pipeline`. farm-common's pipeline header already says farm-hive will consume `config-artifact.pipeline`'s archive instead; the skill tells the worker to follow farm-hive's own instructions if they have changed, and the PR asks farm-hive's owner which mechanism to target.
+- **P16. Designer-source mechanism.** Stage D and the closing steps target farm-hive's designer-source pin: the three `DESIGNER_SOURCE_*` values in `config/pb/toolchain.env`, which `designer-source.pipeline` publishes. farm-hive kept that pin when it moved configgen to a Go tool dependency (farm-hive #76, 2026-08-27), and its main bumped it three times on 2026-09-28. `config-artifact.pipeline`'s archive is not a target: nothing on farm-hive main refers to it, and the header of farm-common's `designer-source.pipeline`, which says farm-hive consumes only that archive, does not describe farm-hive as it is. The skill still tells the worker to follow farm-hive's own instructions if they change, and to say in the hive PR which mechanism it used.
 
 ## Known Risks
 
@@ -75,7 +76,6 @@ Settled while reviewing the drafts (2026-09-28):
 
 ## Open Questions
 
-- **Designer-source mechanism (P16), for farm-hive's owner:** keep `designer-source.pipeline` and the `DESIGNER_SOURCE_*` pin, or switch stage D to `config-artifact.pipeline`'s archive?
 - **lark-cli on the Windows host:** lark-cli keeps secrets per Windows user (DPAPI), so a separate `HOME` isolates nothing there. Before `feature` is enabled in production, choose between a host account whose lark-cli store holds only the FarmBot profile and environment credentials in the `feature` worker's shell (Task 17).
 - **Agent activity after undelegation:** whether Linear accepts the response activity Task 8 posts to a session whose issue is no longer delegated; Task 17 checks it live.
 
@@ -9515,8 +9515,8 @@ on 2026-09-28: farm-hive `c6cfda4` in TestBot's clone (`CLAUDE.md`, `README.md` 
 `ci/check_contract_sync.sh`, `.github/workflows/ci.yaml`), farm-hive main `141fc3e` on GitHub (its
 `config/pb/toolchain.env` still pins the three `DESIGNER_SOURCE_*` values), and common `daf1170`
 (`designer-source.pipeline`: it publishes the tip of the branch chosen in its `BRANCH_NAME` parameter, and its header
-says farm-hive will consume `config-artifact.pipeline`'s archive instead; `designer/tools/pack-designer-source.sh`:
-the version is `%cd` in `%Y-%m-%d` plus `git rev-parse --short`).
+says farm-hive consumes only `config-artifact.pipeline`'s archive, which farm-hive main does not use (P16);
+`designer/tools/pack-designer-source.sh`: the version is `%cd` in `%Y-%m-%d` plus `git rev-parse --short`).
 
 Facts the text relies on, each read in those files: `gen-msg-protos.sh` defaults `FARM_CONTRACT` to
 `../Farm-Contract` (`:137`), marks a contract commit that is not on the followed branch `-unreachable`
@@ -9535,10 +9535,11 @@ What this task adds beyond the stage texts, from the decisions of 2026-09-28:
   pushed as `farmbot/<key>-config`, the worker pushes `farmbot/<key>-config-<n>`, n the lowest free number from 2,
   and never force-pushes; Task 9's rule, that such a branch verifies only at a commit already on another origin
   branch, covers these names too.
-- **The designer-data mechanism is farm-hive's to name (P16).** The steps follow farm-hive main as it is on
-  2026-09-28, the three `DESIGNER_SOURCE_*` values from `designer-source.pipeline`; the worker reads farm-hive's own
-  instructions at its fresh base, follows them if they have changed, and the hive PR says which mechanism it used
-  and asks farm-hive's owner to confirm it (the plan's first Open Question).
+- **The designer-data mechanism is farm-hive's to name (P16).** The steps target the three `DESIGNER_SOURCE_*`
+  values from `designer-source.pipeline`, which farm-hive main uses; the worker reads farm-hive's own instructions at
+  its fresh base, follows them if they have changed, and the hive PR says which mechanism it used. The header of
+  common's `designer-source.pipeline`, which names `config-artifact.pipeline`'s archive as farm-hive's input, does
+  not decide it.
 - **The re-sync never uses a stale Farm-Contract main.** The controller refreshes the read-only checkouts at every
   launch except a publication retry (Task 6). Before the re-sync the worker checks that the contract PR's merge
   commit is in `reads["Farm-Contract"]`; when it is not, it saves its checkpoint, parks on the next `closing-N`
@@ -9647,7 +9648,7 @@ class FeatureClosingInstructionTests(unittest.TestCase):
     def test_the_designer_data_mechanism_is_farm_hives_to_name(self):
         self.assert_phrases((
             "follow them instead of those steps", "says which mechanism it used",
-            "asks farm-hive's owner to confirm that it is the one to target"))
+            "farm-hive's own files decide, not that header"))
 
     def test_the_re_sync_never_uses_a_checkout_that_lacks_the_merge(self):
         self.assert_phrases((
@@ -9865,16 +9866,15 @@ section. A contract change enters farm-hive at its plan: its behaviour is settle
 
 ### The designer-data mechanism
 
-On 2026-09-28 farm-hive main pins designer data with three `DESIGNER_SOURCE_*` values in `config/pb/toolchain.env`,
-which common's `designer-source.pipeline` publishes, and steps 4 and 5, "The Jenkins branch", the closing comment
-and "The published pin" follow that. common's `designer-source.pipeline` says at its head that farm-hive will
-consume `config-artifact.pipeline`'s archive instead. Before step 4, read farm-hive's own instructions at your fresh
-base (`CLAUDE.md`, `README.md` 生成链, the header of `config/pb/gen.sh` and `config/pb/toolchain.env`). When they now
-name another mechanism, follow them instead of those steps, keeping this skill's rules: a value you compute
-locally for the config SHA, a placeholder for any value only a publish produces, a Jenkins branch at the config
-SHA that adds no commits, and published values only as a human posts them; name each step you could not match as
-a gap. Either way the hive PR body says which mechanism it used, and asks farm-hive's owner to confirm that it is
-the one to target.
+farm-hive pins designer data with three `DESIGNER_SOURCE_*` values in `config/pb/toolchain.env`, which common's
+`designer-source.pipeline` publishes, and steps 4 and 5, "The Jenkins branch", the closing comment and "The
+published pin" follow that. The header of common's `designer-source.pipeline` says farm-hive consumes only
+`config-artifact.pipeline`'s archive; farm-hive's own files decide, not that header. Before step 4, read farm-hive's
+own instructions at your fresh base (`CLAUDE.md`, `README.md` 生成链, the header of `config/pb/gen.sh` and
+`config/pb/toolchain.env`). When they now name another mechanism, follow them instead of those steps, keeping this
+skill's rules: a value you compute locally for the config SHA, a placeholder for any value only a publish produces,
+a Jenkins branch at the config SHA that adds no commits, and published values only as a human posts them; name each
+step you could not match as a gap. Either way the hive PR body says which mechanism it used.
 
 ## Closing
 
@@ -10072,9 +10072,8 @@ three provenance marks and why both protocol gates refuse them), `gen-registry.s
   `config/pb/lib-designer-source.sh`, over a directory whose `source/` holds `designer/china/source`).
   `bash config/pb/gen.sh --common CHECKOUT --cache DIR` materializes the pinned commit from a local farm-common
   checkout and checks the digest without the archive checksum or the file server. Copy the published values from the
-  pipeline's output, never from a guess. common's `designer-source.pipeline` says farm-hive will consume
-  `config-artifact.pipeline`'s archive instead; which one Phase B targets is an open question for farm-hive's
-  owner.
+  pipeline's output, never from a guess. The header of common's `designer-source.pipeline` says farm-hive consumes
+  only `config-artifact.pipeline`'s archive; farm-hive main does not use that archive, and its own files decide.
 - Generation deletes its outputs first. After a failure restore only the generated files, `git checkout --
   'config/pb/*.proto' 'config/pb/*.pb' 'config/pb/*.pb.txt' 'config/pb/*.pb.go' config/pb/artifacts.sha256`,
   never the whole directory, which also reverts `toolchain.env` and the scripts. A new table also needs its `TABLES`
@@ -10160,8 +10159,7 @@ git commit -m "Take the feature worker through config, the server and the closin
 
 **Notes for Tasks 15 to 17.** The closing steps' checks run only in a worker; Task 15's journey asserts the plan,
 notices and branches they leave, not farm-hive's generators, which the offline suite does not have. Live, stage C
-onward waits until after the stage-A-only check of Task 17 (spec §12, "Live, in order"), and before any live stage D
-the operator records farm-hive's owner's answer to the designer-data question (P16).
+onward waits until after the stage-A-only check of Task 17 (spec §12, "Live, in order").
 
 ### Task 15: A Code job's journey, offline
 
@@ -11786,7 +11784,7 @@ every other pattern had been rewritten by its task. After Steps 1 and 5 it print
 | Suffix branches `-config` (and `-config-<n>` for a re-pin, P12), `-waivers` and `-followup` and their publication | contract Draft PR publishing authority | worker-cli "Suffix branches", feature skill "The Jenkins branch" |
 | Removing the delegation, and `fetch-issue`'s `delegated` | contract Triggers row and status-polling paragraph | Code-worker section, worker-cli (`fetch-issue`), development workflow |
 | P14: a stage limit in the delegation text | contract Code-worker section | development workflow "Scoping a live test", feature skill |
-| P16: the designer-source mechanism stage D follows | contract Code-worker section | spec §14.2 (the open question), repo map's farm-hive section |
+| P16: the designer-source mechanism stage D follows | contract Code-worker section | spec §13 progress note, repo map's farm-hive section |
 | The lark-cli profile: host key, operator setup, what the setup exposes | README (operators) and development workflow (TestBot), as Task 10's spike settled | contract Host configuration names the key |
 | P13: lark-cli credential variables withheld from every worker | contract Host configuration (the `lark_cli` paragraph) | README lark-cli setup |
 | Known Risk: lark-cli secrets on a shared Mac | development workflow's lark-cli section | README lark-cli setup |
@@ -11854,14 +11852,11 @@ cancels any work; a merge moves a 农场 card only to 待验收, which stops not
 
 In this revision a Code job ends after the server. The client stage (the UI-ready pause and Farm-Client, with the
 client's protocol and config exports), the client's closing steps and the write-back and archive of the contract
-change come with the next phase. The hive PR also asks farm-hive's owner to confirm the designer-data mechanism it
-used, because farm-common's pipeline header already names `config-artifact.pipeline`'s archive as farm-hive's future
-input in place of the `DESIGNER_SOURCE_*` pin of 2026-09-28. A step the worker cannot run in its sandbox is named in
-the PR as not run, with its error; Go module downloads outside the writable roots, GNU `sha256sum`, protoc 35.1,
-`git status` in a read-only sibling worktree and every bash generator on Windows have not been verified in a worker
-sandbox. On a host that enables `feature`, `doctor` reports whether it has the toolchain its workers need; on any
-host it shows each unfinished Code job's root, stage states, pending pause and PR links (README, "AI/operator
-diagnostics").
+change come with the next phase. A step the worker cannot run in its sandbox is named in the PR as not run, with its
+error; Go module downloads outside the writable roots, GNU `sha256sum`, protoc 35.1, `git status` in a read-only
+sibling worktree and every bash generator on Windows have not been verified in a worker sandbox. On a host that
+enables `feature`, `doctor` reports whether it has the toolchain its workers need; on any host it shows each
+unfinished Code job's root, stage states, pending pause and PR links (README, "AI/operator diagnostics").
 
 Rolling back: before moving a host to a revision without `skills/feature`, cancel its unfinished `feature` items
 (Stop in Linear, or the operator's `cancel`), queued, running, parked or between stages alike; let their cleanup
@@ -11996,7 +11991,7 @@ in lark-cli, which workers run with the host's profile as the FarmBot app (P5), 
 credential variables are withheld from every worker (P13). A `feature` session has no pinned target
 (P6). `stage` and `merge_request` are the two new notice kinds (P7), posted as P15 says. A re-pin
 gets a new `-config-<n>` branch (P12). A stage limit in the delegation text is honoured (P14). Stage
-D follows farm-hive's designer-source pin as it stood on 2026-09-28 (P16). Controller git in
+D follows farm-hive's designer-source pin (P16). Controller git in
 worker-writable clones turns hooks and fsmonitor off only in the calls Phase B added (P10). The
 operating contract's "The Code worker (`feature`)" section describes the result and its rollback.
 ```
@@ -12008,9 +12003,6 @@ the card (§9.8).` (`:1147-1148`) with the following, leaving out any bullet Tas
 Answered on 2026-09-25 and folded in above: D11 to D17, and how merges move the card (§9.8). Raised
 by Phase B (its plan's Open Questions) and still open when it landed:
 
-- For farm-hive's owner: keep `designer-source.pipeline` and the `DESIGNER_SOURCE_*` pin, or move
-  stage D and the closing steps (§6.4, §6.5, §6.8) to `config-artifact.pipeline`'s archive? Phase B
-  follows farm-hive's main as it stood on 2026-09-28, and its hive PRs ask.
 - For the operator, before `feature` runs on the Windows host: lark-cli keeps secrets per Windows
   user (DPAPI), so a separate lark-cli home isolates nothing there. Either a host account whose
   lark-cli store holds only the FarmBot profile, or environment credentials in the `feature`
@@ -12511,5 +12503,4 @@ host's `tools.feature` gaps (Step 3) and lark-cli as the FarmBot app on that hos
 settled, with a settled service restarted after the config edit (AGENTS.md). Before rolling a host back, follow the
 operating contract's "The Code worker (`feature`)" rollback paragraph: cancel unfinished `feature` items, let their
 cleanup finish, and take `feature` out of `enabled_skills`. Live stages after A are not part of this task: trying
-stage C or later on TestBot needs its own go-ahead after the stage-A-only check (spec §12, "Live, in order"), and
-before any live stage D the operator records farm-hive's owner's answer to the designer-data question (P16; Task 14).
+stage C or later on TestBot needs its own go-ahead after the stage-A-only check (spec §12, "Live, in order").
