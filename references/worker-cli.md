@@ -282,3 +282,14 @@ issue branch early. A successor of cancelled work, and a later attempt of your i
 removed its worktrees, then gets that branch itself, fetched and tracking `origin/<branch>`:
 commits others pushed are on it, and commits of its own that were never pushed stay ahead of the
 remote. Integrate the remote before you push, never force-push.
+
+## Read-only checkouts
+
+When your skill's `skill.json` lists `reads`, the launch message carries `reads`: for each named
+repository, the absolute path of a checkout of its default branch, detached at the commit origin had
+when this attempt launched, with that branch as `origin/<default>`. It is not one of your `worktrees`,
+not a write root and never a publishing source: read it, run read-only git commands in it, and point
+tools that only read a repository at it (for example `FARM_CONTRACT=` a Farm-Contract checkout). LFS
+files in it are pointers, never their content. Each later attempt refreshes it, except a publication
+retry, which keeps it as it was, so record the commit you used (`git rev-parse HEAD` in it) where it
+matters. FarmBot removes it with your job's worktrees.

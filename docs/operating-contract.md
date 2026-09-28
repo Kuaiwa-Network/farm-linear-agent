@@ -297,6 +297,22 @@ reports `skill_runtime_unsupported` naming the runtime and those skills. A Contr
 follows Farm-Contract's OpenSpec instructions and its Superpowers restriction. Consumer workers use
 their own repository rules.
 
+A skill whose `skill.json` lists `reads` also gets, at each launch, a read-only checkout of each named
+repository's default branch at `<local_root>/worktrees/<job>.reads/<repo>@main`, passed in the launch
+payload's `reads` (no skill in this revision lists any). Each is a small repository of the controller's
+own, fetched from the configured remote and checked out detached at origin's default branch, which it
+also keeps as `origin/<default>`; it is never a worktree of FarmBot's bare clone, whose config, hooks and
+attributes a worker rooted in that repository can write. It borrows that clone's objects through git's
+alternates, so a large history is not fetched again, and nothing else of it; git lists the clone's ref
+tips there to tell the remote what the checkout has. Every git call in the checkout runs with hooks and
+fsmonitor off and the LFS filter emptied, so LFS files stay pointers and no filter program runs, and its
+config holds only git's defaults and its origin, so no repository credential, URL-rewrite or LFS setting
+reaches it; the fetch authenticates through the host's global git configuration, as every FarmBot fetch
+does. It is not a writable root and keeps no recovery ref. A publication retry reuses it without a
+fetch, as it reuses worktrees. It lives beside the job's worktree directory, not in it, and is removed
+when those worktrees are. Rolling back to an earlier revision leaves such directories behind; delete
+them once their jobs have ended.
+
 A change to the issue during an attempt (title, description, attachments, or a comment that is
 neither a bot's nor FarmBot's own, as People says) refuses that attempt's repository handoff and
 the registration of a PR Linear has already attached, and makes `finish` requeue the item for a

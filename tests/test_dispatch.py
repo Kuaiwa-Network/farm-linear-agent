@@ -217,6 +217,25 @@ class DispatchTests(unittest.TestCase):
     def test_a_launch_without_tool_grants_carries_an_empty_tools_map(self):
         self.assertEqual(payload_of(self.dispatched())['tools'], {})
 
+    def test_read_only_checkouts_reach_the_payload_apart_from_the_worktrees_and_change_no_authority(self):
+        """Spec §9.6: a manifest's `reads` are checkouts of the default branch, never worktrees or write roots."""
+        kwargs = dict(item={"id": "item-1", "skill": "fix"}, issue={"identifier": "FARM-1", "url": "u"},
+                      skill_path=ROOT / "skills" / "fix" / "SKILL.md",
+                      worktrees={"Farm-Contract": "/w/item-1/Farm-Contract"}, db_path="/db", runtime="codex",
+                      guidance="", budget={"lease_seconds": 1, "renew_minutes": 1},
+                      write_repositories=("Farm-Contract",), root_repository="Farm-Contract")
+        reads = {repo: Path(f"/w/item-1.reads/{repo}@main") for repo in ("Farm-Contract", "Farm-Client", "farmgui")}
+        message = dispatch_message(**kwargs, reads=reads)
+        payload = payload_of(message)
+        self.assertEqual(payload["reads"], {repo: str(path) for repo, path in reads.items()})
+        self.assertEqual(payload["worktrees"], {"Farm-Contract": "/w/item-1/Farm-Contract"})
+        self.assertEqual(payload["stage"]["read_only_worktrees"], [])
+        self.assertEqual(message.split("\n\n", 1)[0], dispatch.authority("fix"))
+        for absent in (None, {}):
+            with self.subTest(reads=absent):
+                self.assertNotIn("reads", payload_of(dispatch_message(**kwargs, reads=absent)))
+        self.assertNotIn("reads", payload_of(dispatch_message(**kwargs)))
+
 
 class SkillAuthorityTests(unittest.TestCase):
     """The AUTHORITY is the only launch text the Codex approval reviewer trusts, so it is chosen per skill."""

@@ -146,6 +146,8 @@ class FakeWorktrees:
         self.root = Path(root)
         self.added = []
         self.attached = []  # the add calls that re-attach to a plan's issue branch (spec §5.7)
+        self.reads = []  # (repo, item_id, refresh) for each read-only checkout made or refreshed (spec §9.6)
+        self.reads_removed = []
         self.fail_on = None
         self.commit_fails = False
 
@@ -164,6 +166,13 @@ class FakeWorktrees:
 
     def add_detached(self, repo, item_id):
         return self.add(repo, item_id, "detached")
+
+    def read_checkout(self, repo, item_id, *, refresh=True):
+        self.reads.append((repo, item_id, refresh))
+        return self.root / f"{item_id}.reads" / f"{repo}@main"
+
+    def remove_reads(self, item_id):
+        self.reads_removed.append(item_id)
 
     def commit_wip(self, item_id, message):
         if self.commit_fails:
@@ -664,6 +673,43 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(self.launcher.spawned[-1][0], successor["id"])
         self.assertEqual(self.trees.attached, [])
         self.assertIn(("Farm-Contract", successor["id"], "farmbot/farm-1"), self.trees.added)
+
+    READS = ["Farm-Contract", "Farm-Client", "farmgui"]  # the plan's feature manifest (P2)
+
+    def test_a_skill_with_reads_gets_its_read_only_checkouts_at_every_launch_and_they_go_with_its_worktrees(self):
+        feature = self.use_feature_skill(reads=self.READS)  # Farm-Contract is also written
+        item = self.item(skill=feature.name)
+        self.scheduler.tick()
+        checkouts = {repo: str(self.trees.root / f"{item['id']}.reads" / f"{repo}@main") for repo in self.READS}
+        self.assertEqual(self.payload()["reads"], checkouts)
+        self.assertEqual(self.trees.reads, [(repo, item["id"], True) for repo in self.READS])
+        # Kept apart from the item's own Farm-Contract worktree, and never a writable root.
+        self.assertEqual(self.payload()["worktrees"]["Farm-Contract"], str(self.trees.root / item["id"] / "Farm-Contract"))
+        self.assertEqual(self.payload()["stage"]["read_only_worktrees"], ["common", "farm-hive"])
+        self.assertFalse(set(checkouts.values()) & set(self.launcher.spawn_writable))
+        token = self.ledger.claim(item["id"], worker_id="first")["token"]
+        self.ledger.await_input(item["id"], token, "配置好了请回复。", reason="waiting")
+        self.launcher.finished.append(Finished(item["id"], 0, "", False, "exited"))
+        self.scheduler.tick()
+        self.ledger.resume(item["id"], "human replied")
+        self.assertEqual(self.scheduler.tick()["launched"], 1)
+        # Refreshed for the new attempt.
+        self.assertEqual(self.trees.reads, [(repo, item["id"], True) for repo in self.READS] * 2)
+        self.scheduler.stop(item["id"], "Linear stop")
+        self.scheduler.tick()
+        self.assertEqual(self.trees.reads_removed, [item["id"]])
+
+    def test_a_publication_retry_reuses_the_read_only_checkouts_without_a_fetch(self):
+        feature = self.use_feature_skill(reads=self.READS)
+        self.assertEqual(self.scheduler._reads_for(feature, {"id": "item-9", "publication_retries": 1}),
+                         {repo: self.trees.root / "item-9.reads" / f"{repo}@main" for repo in self.READS})
+        self.assertEqual(self.trees.reads, [(repo, "item-9", False) for repo in self.READS])
+
+    def test_a_skill_without_reads_gets_no_reads_key_and_no_checkout(self):
+        self.item()
+        self.scheduler.tick()
+        self.assertNotIn("reads", self.payload())
+        self.assertEqual(self.trees.reads, [])
 
     def test_dispatch_and_lease_follow_the_skill_budget(self):
         item = self.item()

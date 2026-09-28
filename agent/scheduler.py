@@ -84,6 +84,12 @@ class Scheduler:
         is this issue's own FarmBot branch."""
         return self.ledger.recorded_branches(item["id"], issue_prefix=self.issue_prefix)
 
+    def _reads_for(self, skill, item):
+        """{repo: path} of the read-only default-branch checkouts the manifest's `reads` names (spec §9.6), made or
+        refreshed for this launch. A publication retry reuses those it has without a fetch, as it reuses worktrees."""
+        return {repo: self.worktrees.read_checkout(repo, item["id"], refresh=not item["publication_retries"])
+                for repo in skill.reads}
+
     @staticmethod
     def _batch_result(state_dir):
         """What the pool's own run left behind. Missing is itself a verification gap the worker must report,
@@ -107,6 +113,7 @@ class Scheduler:
         write_repos = write_repositories(item, skill)
         issue = self.ledger.issue(item["issue_id"])
         paths = self._worktrees_for(skill, item, issue)
+        reads = self._reads_for(skill, item)
         repo_root = Path(self.skill_root).parent
         # Enforcement is tool injection (spec §7): what a worker can reach is decided here, never from a
         # repository-local .codex/config.toml. A reservation-bound server such as the Unity MCP is decided
@@ -182,7 +189,7 @@ class Scheduler:
                                    repo_root=repo_root, state_dir=self.launcher.state_dir(item["id"]),
                                    resource=resource, memory=memory, publication=publication, user_requests=requests,
                                    bot_name=self.bot_name, write_repositories=write_repos, root_repository=root,
-                                   prior_context=prior_context, tools=tools)
+                                   prior_context=prior_context, tools=tools, reads=reads)
         # The runtime's cwd is writable too. A read-only conversation must run
         # from its private state directory, not from the detached source checkout.
         primary = (paths[write_repos[0]] if write_repos else self.launcher.state_dir(item["id"]))
@@ -462,6 +469,7 @@ class Scheduler:
             self.ledger.record_cleanup(item_id, result)
             self.ledger.begin_cleanup_removal(item_id)
             self.worktrees.remove_preserved(item_id, result)
+            self.worktrees.remove_reads(item_id)  # the read-only checkouts go with the worktrees (spec §9.6)
             self.ledger.record_cleanup(item_id, result, done=True)
         except Exception as exc:
             # A concurrent same-ID retry retires cleanup authority. It must not delete active files.

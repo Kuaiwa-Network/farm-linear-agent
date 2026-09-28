@@ -587,3 +587,198 @@ class ReattachTests(unittest.TestCase):
         path = self.trees.add("Farm-Client", "item-2", "farmbot/farm-1", attach=True)
         self.assertFalse(marker.exists())
         self.assertEqual(git("branch", "--show-current", cwd=path), "farmbot/farm-1")
+
+
+class ReadCheckoutTests(unittest.TestCase):
+    """Read-only default-branch checkouts for a manifest's `reads` (spec §8.3, §9.6), here of two repositories."""
+    POINTER = "version https://git-lfs.github.com/spec/v1\noid sha256:" + "4" * 64 + "\nsize 12\n"
+    # Commits made here keep a pointer a pointer, whatever LFS filter the machine running the tests has.
+    NO_LFS = ("-c", "filter.lfs.process=", "-c", "filter.lfs.clean=", "-c", "filter.lfs.required=false")
+
+    def setUp(self):
+        WorktreeTests.setUp(self)
+        root = Path(self.tmp.name)
+        # Farm-Client tracks binaries through LFS: one file, committed as its pointer.
+        (self.origin / ".gitattributes").write_text("*.bytes filter=lfs diff=lfs merge=lfs -text\n", encoding="utf-8")
+        (self.origin / "config.bytes").write_text(self.POINTER, encoding="utf-8")
+        git(*self.NO_LFS, "add", ".", cwd=self.origin)
+        git("commit", "-qm", "track config data through LFS", cwd=self.origin)
+        self.contract = root / "contract origin"
+        self.contract.mkdir()
+        git("init", "-q", "-b", "main", ".", cwd=self.contract)
+        (self.contract / "farm.proto").write_text('syntax = "proto3";\n', encoding="utf-8")
+        git("add", ".", cwd=self.contract)
+        git("commit", "-qm", "init", cwd=self.contract)
+        self.trees = Worktrees(root / "repos", root / "worktrees",
+                               {"Farm-Client": str(self.origin), "Farm-Contract": str(self.contract)})
+
+    def main(self, origin):
+        return git("rev-parse", "main", cwd=origin)
+
+    def contract_moves_on(self):
+        (self.contract / "farm.proto").unlink()
+        (self.contract / "later.proto").write_text('syntax = "proto3";\n', encoding="utf-8")
+        git("add", "-A", cwd=self.contract)
+        git("commit", "-qm", "main moves on", cwd=self.contract)
+        return self.main(self.contract)
+
+    def alternates(self, path):
+        return (path / ".git" / "objects" / "info" / "alternates").read_text(encoding="utf-8")
+
+    def test_made_beside_the_item_directory_refreshed_at_each_call_and_removed_on_request(self):
+        work = self.trees.add("Farm-Client", "item-1", "farmbot/farm-1")
+        root = self.trees.worktrees_root / "item-1.reads"
+        paths = {repo: self.trees.read_checkout(repo, "item-1") for repo in ("Farm-Contract", "Farm-Client")}
+        self.assertEqual(paths, {"Farm-Contract": root / "Farm-Contract@main", "Farm-Client": root / "Farm-Client@main"})
+        self.assertFalse(root.is_relative_to(work.parent))
+        for repo, origin in (("Farm-Contract", self.contract), ("Farm-Client", self.origin)):
+            with self.subTest(repo=repo):
+                path = paths[repo]
+                self.assertEqual(self.trees.head(path), self.main(origin))
+                self.assertEqual(git("symbolic-ref", "-q", "HEAD", cwd=path, allow_failure=True), "")  # detached
+                # What farm-hive's proto sync asks of a contract checkout: origin/main, and HEAD on it.
+                self.assertEqual(git("rev-parse", "origin/main", cwd=path), self.main(origin))
+                self.assertEqual(Path(git("rev-parse", "--absolute-git-dir", cwd=path)).resolve(),
+                                 (path / ".git").resolve())
+        self.assertEqual((paths["Farm-Client"] / "config.bytes").read_text(encoding="utf-8"), self.POINTER)
+        later = self.contract_moves_on()
+        self.assertEqual(self.trees.read_checkout("Farm-Contract", "item-1"), paths["Farm-Contract"])
+        self.assertEqual(self.trees.head(paths["Farm-Contract"]), later)
+        self.assertEqual(sorted(p.name for p in paths["Farm-Contract"].iterdir()), [".git", "later.proto"])
+        # The item's own cleanup neither sees them nor refuses them: every entry under item-1/ is a clone's worktree.
+        saved = self.trees.preserve("item-1")
+        self.assertEqual((saved["errors"], list(saved["refs"])), ({}, ["Farm-Client"]))
+        self.trees.remove_preserved("item-1", saved)
+        self.assertEqual(git("for-each-ref", "refs/farmbot", cwd=paths["Farm-Client"]), "")  # no recovery ref
+        self.trees.remove_reads("item-1")
+        self.assertFalse(root.exists())
+        self.trees.remove_reads("item-1")  # nothing left: nothing to do
+
+    def test_each_checkout_borrows_its_clones_objects_and_fetches_what_the_clone_lacks(self):
+        for repo in ("Farm-Contract", "Farm-Client"):
+            with self.subTest(repo=repo):
+                path = self.trees.read_checkout(repo, "item-1")
+                self.assertEqual(self.alternates(path), f"{self.trees.clone_path(repo) / 'objects'}\n")
+                counts = git("count-objects", "-v", cwd=path).splitlines()
+                self.assertLessEqual({"count: 0", "in-pack: 0"}, set(counts))  # nothing copied from the remote
+                self.assertEqual(git("config", "--local", "--get", "remote.origin.url", cwd=path),
+                                 self.trees.remotes[repo])
+        later = self.contract_moves_on()
+        path = self.trees.read_checkout("Farm-Contract", "item-1")
+        self.assertEqual(self.trees.head(path), later)
+        clone = self.trees.clone_path("Farm-Contract")
+        self.assertNotEqual(git("rev-parse", "refs/remotes/origin/main", cwd=clone), later)  # the clone never fetched
+
+    def test_every_git_call_runs_with_hooks_fsmonitor_and_the_lfs_filter_off(self):
+        """The check that runs on every platform: each call carries READ_ONLY_GIT."""
+        for repo in ("Farm-Contract", "Farm-Client"):
+            self.trees.ensure_clone(repo)  # a missing clone is made as a first worktree makes it
+        calls = []
+        real = agent.worktrees._git
+
+        def recording(*args, cwd, **kwargs):
+            calls.append((args[0], kwargs.get("config", ())))
+            return real(*args, cwd=cwd, **kwargs)
+
+        with patch("agent.worktrees._git", recording):
+            for repo in ("Farm-Contract", "Farm-Client"):
+                self.trees.read_checkout(repo, "item-1")
+                self.trees.read_checkout(repo, "item-1")
+        self.assertEqual({config for _, config in calls}, {agent.worktrees.READ_ONLY_GIT})
+        names = [name for name, _ in calls]
+        self.assertEqual((names.count("init"), names.count("fetch")), (2, 4))  # made once each, fetched each call
+
+    @unittest.skipIf(os.name == "nt", "the hooks, fsmonitor and filters here are shell scripts")
+    def test_no_hook_fsmonitor_filter_or_setting_of_the_host_or_the_clone_runs(self):
+        root = Path(self.tmp.name)
+        marker = root / "ran.txt"
+
+        def script(name, body=""):
+            path = root / "scripts" / name
+            path.parent.mkdir(exist_ok=True)
+            path.write_text(f"#!/bin/sh\necho {name} >> '{marker}'\n{body}", encoding="utf-8")
+            path.chmod(0o755)
+            return path
+
+        hooks = root / "hooks"
+        hooks.mkdir()
+        for name in ("post-checkout", "reference-transaction"):
+            script(name).rename(hooks / name)
+        host = root / "host.gitconfig"
+        host.write_text(f"[core]\n\thooksPath = {hooks}\n\tfsmonitor = {script('fsmonitor', 'exit 1')}\n"
+                        f"[filter \"lfs\"]\n\tsmudge = {script('smudge', 'cat >/dev/null; echo SMUDGED')} %f\n"
+                        f"\tclean = {script('clean', 'cat')} %f\n\trequired = true\n", encoding="utf-8")
+        clone = self.trees.ensure_clone("Farm-Client")
+        # What a worker rooted in this repository can write into FarmBot's clone of it.
+        git("config", f"url.{root / 'elsewhere'}.insteadOf", str(self.origin), cwd=clone)
+        git("config", "core.hooksPath", str(hooks), cwd=clone)
+        git("config", "core.fsmonitor", str(script("clone-fsmonitor", "exit 1")), cwd=clone)
+        git("config", "filter.lfs.smudge", f"{script('clone-smudge', 'cat')} %f", cwd=clone)
+        (clone / "info").mkdir(exist_ok=True)
+        (clone / "info" / "attributes").write_text("* filter=lfs\n", encoding="utf-8")
+        with patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": str(host)}):
+            git("clone", "-q", str(self.origin), str(root / "control"), cwd=root)
+            ran = set(marker.read_text(encoding="utf-8").split())
+            self.assertLessEqual({"post-checkout", "smudge"}, ran)  # the host's hook and filter do run elsewhere
+            marker.unlink()
+            path = self.trees.read_checkout("Farm-Client", "item-1")
+            self.trees.read_checkout("Farm-Client", "item-1")
+        self.assertFalse(marker.exists())
+        self.assertEqual(self.trees.head(path), self.main(self.origin))  # from the real origin, not "elsewhere"
+        self.assertEqual((path / "config.bytes").read_text(encoding="utf-8"), self.POINTER)
+        keys = set(git("config", "--local", "--name-only", "--list", cwd=path).splitlines())
+        self.assertEqual({key for key in keys if not key.startswith("core.")}, {"remote.origin.url"})
+        self.assertFalse(keys & {"core.hookspath", "core.fsmonitor"})
+
+    def test_a_publication_retry_reuses_the_checkout_without_a_fetch(self):
+        path = self.trees.read_checkout("Farm-Contract", "item-1")
+        calls = []
+        real = agent.worktrees._git
+
+        def recording(*args, cwd, **kwargs):
+            calls.append(args[0])
+            return real(*args, cwd=cwd, **kwargs)
+
+        with patch("agent.worktrees._git", recording):
+            self.assertEqual(self.trees.read_checkout("Farm-Contract", "item-1", refresh=False), path)
+        self.assertFalse({"ls-remote", "fetch", "checkout"} & set(calls))
+
+    def test_paths_with_spaces_and_chinese_characters(self):
+        root = Path(self.tmp.name)
+        trees = Worktrees(root / "克隆 repos", root / "工作 worktrees",
+                          {"Farm-Contract": str(self.contract), "Farm-Client": str(self.origin)})
+        for repo, name in (("Farm-Contract", "farm.proto"), ("Farm-Client", "README.md")):
+            with self.subTest(repo=repo):
+                path = trees.read_checkout(repo, "item-1")
+                self.assertEqual(path, root / "工作 worktrees" / "item-1.reads" / f"{repo}@main")
+                self.assertTrue((path / name).is_file())
+                self.assertEqual(self.alternates(path), f"{root / '克隆 repos' / f'{repo}.git' / 'objects'}\n")
+        trees.remove_reads("item-1")
+        self.assertFalse((root / "工作 worktrees" / "item-1.reads").exists())
+
+    def test_anything_else_at_the_path_is_replaced_and_unsafe_requests_are_refused(self):
+        path = self.trees.worktrees_root / "item-1.reads" / "Farm-Client@main"
+        path.mkdir(parents=True)
+        (path / "leftover.txt").write_text("half-made\n", encoding="utf-8")
+        self.assertEqual(self.trees.read_checkout("Farm-Client", "item-1"), path)
+        self.assertFalse((path / "leftover.txt").exists())
+        git("config", "remote.origin.url", str(Path(self.tmp.name) / "another"), cwd=path)
+        self.trees.read_checkout("Farm-Client", "item-1")
+        self.assertEqual(git("config", "remote.origin.url", cwd=path), str(self.origin))  # rebuilt for its remote
+        (path / ".git" / "objects" / "info" / "alternates").write_text(f"{self.tmp.name}/objects\n", encoding="utf-8")
+        self.trees.read_checkout("Farm-Client", "item-1")
+        self.assertEqual(self.alternates(path), f"{self.trees.clone_path('Farm-Client') / 'objects'}\n")
+        with self.assertRaisesRegex(WorktreeError, "unknown repository"):
+            self.trees.read_checkout("farmgui", "item-1")
+        for item in ("", ".", "..", "a/b"):
+            with self.subTest(item=item), self.assertRaisesRegex(WorktreeError, "unsafe item path"):
+                self.trees.read_checkout("Farm-Client", item)
+        try:
+            (self.trees.worktrees_root / "item-2.reads").symlink_to(self.origin, target_is_directory=True)
+        except OSError as exc:
+            self.skipTest(f"symlinks unavailable: {exc}")
+        with self.assertRaisesRegex(WorktreeError, "symlinked"):
+            self.trees.read_checkout("Farm-Client", "item-2")
+        with self.assertRaisesRegex(WorktreeError, "symlinked"):
+            self.trees.remove_reads("item-2")
+        self.assertTrue((self.origin / "README.md").exists())
