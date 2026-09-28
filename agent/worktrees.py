@@ -1,5 +1,7 @@
 """FarmBot-owned bare clones and per-item worktrees (spec §8). Never touches human checkouts."""
 from pathlib import Path
+import hashlib
+import json
 import os
 import re
 import shutil
@@ -455,6 +457,88 @@ class Worktrees:
     def slot_clean(self, path):
         """Tracked files only: Library/, Temp/ and Logs/ are Unity's and are never part of the check (spec §7)."""
         return _git("status", "--porcelain=v1", "--untracked-files=no", cwd=path, env=SLOT_ENV) == ""
+
+    def reconcile_slot_meta(self, repo, path, recovery_id, evidence_dir):
+        """Archive importer-dirty Assets metadata before returning a closed slot to the pool.
+
+        A dedicated slot starts clean at switch time. If Unity later changes only existing or
+        newly generated .meta files, the requested commit cannot pass source identity. Keep
+        the exact tracked tree under an immutable recovery ref and copy untracked metadata
+        before restoring it. Any other change remains quarantined for human review.
+        """
+        from .identity import source_snapshot
+
+        path, evidence_dir = Path(path).resolve(strict=True), Path(evidence_dir).resolve()
+        common = Path(_git("rev-parse", "--path-format=absolute", "--git-common-dir",
+                           cwd=path, env=SLOT_ENV)).resolve()
+        if common != self.clone_path(repo).resolve():
+            raise WorktreeError("slot does not belong to the configured clone")
+        before = source_snapshot(path)
+        changed = before["dirty"]
+        if not changed:
+            return None
+        if len(changed) > 1024 or any(
+                not row["path"].startswith("Assets/")
+                or not row["path"].casefold().endswith(".meta")
+                or row["status"] not in (" M", "M ", "MM", "??")
+                or row["sha256"] is None for row in changed):
+            return None
+
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+        tracked, untracked = [], []
+        for row in changed:
+            relative = row["path"]
+            source = path / relative
+            if not source.resolve().is_relative_to(path) or source.is_symlink():
+                raise WorktreeError("slot metadata path escapes the configured folder")
+            if row["status"] == "??":
+                contents = source.read_bytes()
+                if hashlib.sha256(contents).hexdigest() != row["sha256"]:
+                    raise WorktreeError("slot metadata changed while preserving it")
+                backup = evidence_dir / "untracked-meta" / relative
+                backup.parent.mkdir(parents=True, exist_ok=True)
+                if not backup.resolve().is_relative_to(evidence_dir):
+                    raise WorktreeError("metadata backup path escapes recovery evidence")
+                backup.write_bytes(contents)
+                untracked.append(relative)
+            else:
+                tracked.append(relative)
+
+        recovery_ref = f"refs/farmbot/slot-recovery/{_branch_safe(recovery_id)}"
+        existing_ref = _git("for-each-ref", "--format=%(objectname)", recovery_ref,
+                            cwd=common, env=SLOT_ENV)
+        ref = recovery_ref if existing_ref else None
+        if tracked:
+            saved = _git(*self.WIP_IDENTITY, "stash", "create", f"slot metadata {recovery_id}",
+                         cwd=path, env=SLOT_ENV)
+            if not self.COMMIT.fullmatch(saved):
+                raise WorktreeError("git did not preserve tracked slot metadata")
+            if existing_ref:
+                if (_git("rev-parse", f"{existing_ref}^{{tree}}", cwd=common, env=SLOT_ENV)
+                        != _git("rev-parse", f"{saved}^{{tree}}", cwd=common, env=SLOT_ENV)):
+                    raise WorktreeError("saved slot metadata differs from existing recovery evidence")
+            else:
+                _git("update-ref", recovery_ref, saved, "0" * 40, cwd=common, env=SLOT_ENV)
+            ref = recovery_ref
+            if _git("rev-parse", ref, cwd=common, env=SLOT_ENV) != (existing_ref or saved):
+                raise WorktreeError("saved slot metadata ref could not be verified")
+
+        manifest = evidence_dir / "source-meta.json"
+        manifest.write_text(json.dumps({"slot": str(path), "head": before["commit_sha"],
+                                        "tracked_ref": ref, "changes": changed,
+                                        "untracked_backup": untracked}, ensure_ascii=False, indent=2),
+                            encoding="utf-8")
+        if source_snapshot(path) != before:
+            raise WorktreeError("slot source changed while preserving metadata")
+        if tracked:
+            _git("restore", "--source=HEAD", "--staged", "--worktree", "--", *tracked,
+                 cwd=path, env=SLOT_ENV)
+        for relative in untracked:
+            (path / relative).unlink()
+        if source_snapshot(path)["dirty"]:
+            raise WorktreeError("slot metadata remained dirty after restoration")
+        return {"manifest": str(manifest), "tracked_ref": ref, "head": before["commit_sha"],
+                "paths": [row["path"] for row in changed]}
 
     def pointers_remain(self, path):
         """One sample of the tracked LFS files proves whether smudge really ran before Unity opens the folder."""

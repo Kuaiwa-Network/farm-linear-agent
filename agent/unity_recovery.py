@@ -1,7 +1,16 @@
 """Host-only editor repair. Workers never get process-control authority."""
 from pathlib import Path
 
+from .identity import source_snapshot
 from .slots import SlotError
+
+
+class SourceMetaReconciled(SlotError):
+    """Importer metadata was preserved and the slot is safe to reuse while closed."""
+
+    def __init__(self, evidence):
+        super().__init__('imported .meta changes archived; slot returned closed for an exact-commit retry', stage='git')
+        self.evidence = evidence
 
 
 class UnityRecovery:
@@ -50,6 +59,21 @@ class UnityRecovery:
             pool.clear_stale_lock(folder, lambda: pool.editor_is_open(slot))
         # Shared broker stays running; replacing one editor must not interrupt
         # another slot's MCP session. The restarted editor reconnects to it.
+        if source_snapshot(folder)['dirty']:
+            if pool.worktrees.head(folder) != commit:
+                raise SlotError('dirty slot HEAD differs from the held commit', stage='git')
+            if pool.editor_is_open(slot):
+                pool.mcp.terminate(slot, entry['close_timeout'])
+                if pool.editor_is_open(slot):
+                    raise SlotError('old editor survived metadata recovery; its lock is retained', stage='editor')
+                pool.clear_stale_lock(folder, lambda: pool.editor_is_open(slot))
+            evidence_dir = recovery.get('evidence_dir')
+            if evidence_dir:
+                evidence = pool.worktrees.reconcile_slot_meta(entry['repo'], folder,
+                                                               recovery['id'], evidence_dir)
+                if evidence is not None:
+                    raise SourceMetaReconciled(evidence)
+            raise SlotError('dirty slot source retained; automatic recovery requires metadata-only changes', stage='git')
         if not pool.worktrees.slot_clean(folder):
             raise SlotError('tracked slot changes retained; automatic recovery cannot discard them', stage='git')
         if pool.worktrees.head(folder) != commit:

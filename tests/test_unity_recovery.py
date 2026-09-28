@@ -1,9 +1,11 @@
 import subprocess
+import json
 import unittest
 from pathlib import Path
 
+from agent.identity import source_snapshot
 from agent.unity import UnityError, editor_holds_project, other_editor_project
-from test_slots import FakeMcp, SlotFixture
+from test_slots import FakeMcp, SlotFixture, git
 
 
 class RecoveryMcp(FakeMcp):
@@ -18,8 +20,19 @@ class RecoveryMcp(FakeMcp):
 
 
 class EditorRecoveryTests(SlotFixture):
+    def add_meta(self):
+        meta = self.origin / 'Assets' / '图集.png.meta'
+        meta.parent.mkdir(parents=True)
+        meta.write_text('enableMipMap: 1\n', encoding='utf-8')
+        git('add', '.', cwd=self.origin)
+        git('commit', '-qm', 'add metadata', cwd=self.origin)
+        return meta.relative_to(self.origin)
+
     def setup_repair(self, mcp=None):
         from agent.unity_recovery import UnityRecovery
+        (self.origin / '.gitignore').write_text('Temp/\nLibrary/\nLogs/\n', encoding='utf-8')
+        git('add', '.gitignore', cwd=self.origin)
+        git('commit', '-qm', 'ignore Unity state', cwd=self.origin)
         mcp = mcp or RecoveryMcp()
         pool = self.pool(mcp=mcp)
         slot = pool.ensure()[0]
@@ -44,9 +57,14 @@ class EditorRecoveryTests(SlotFixture):
             def terminate(self, slot, timeout):
                 pass
         adapter, pool, mcp, r = self.setup_repair(Survivor())
+        relative = Path('Assets') / 'pending.png.meta'
+        (pool.folder(self.entry) / relative).parent.mkdir(parents=True)
+        (pool.folder(self.entry) / relative).write_text('enableMipMap: 0\n', encoding='utf-8')
         with self.assertRaises(Exception):
-            adapter.repair(r)
+            adapter.repair(dict(r, id='survivor', evidence_dir=str(self.root / 'recovery')))
         self.assertTrue((pool.folder(self.entry) / 'Temp/UnityLockfile').exists())
+        self.assertTrue((pool.folder(self.entry) / relative).exists())
+        self.assertFalse((self.root / 'recovery' / 'source-meta.json').exists())
         self.assertEqual(sum(name == 'start' for name, _ in mcp.calls), 1)
 
     def test_wrong_identity_keeps_slot_quarantined(self):
@@ -78,6 +96,66 @@ class EditorRecoveryTests(SlotFixture):
         with self.assertRaisesRegex(Exception, 'configured'):
             adapter.repair(r)
         self.assertNotIn(('terminate', r['slot_id']), mcp.calls)
+
+    def test_tracked_importer_metadata_is_archived_and_slot_stays_closed(self):
+        from agent.unity_recovery import SourceMetaReconciled
+        relative = self.add_meta()
+        adapter, pool, mcp, record = self.setup_repair()
+        slot_path = pool.folder(self.entry)
+        (slot_path / relative).write_text('enableMipMap: 0\n', encoding='utf-8')
+        evidence = self.root / 'resource recovery' / 'tracked'
+        with self.assertRaises(SourceMetaReconciled) as caught:
+            adapter.repair(dict(record, id='tracked', evidence_dir=str(evidence)))
+        self.assertEqual((slot_path / relative).read_text(encoding='utf-8'), 'enableMipMap: 1\n')
+        self.assertEqual(source_snapshot(slot_path)['dirty'], [])
+        self.assertFalse(mcp.open_folders)
+        self.assertEqual(sum(name == 'start' for name, _ in mcp.calls), 1)
+        self.assertEqual(self.ledger.slot(record['slot_id'])['state'], 'held')
+        saved = subprocess.run(['git', 'show', f'refs/farmbot/slot-recovery/tracked:{relative.as_posix()}'],
+                               cwd=slot_path, capture_output=True, text=True, check=True).stdout
+        self.assertEqual(saved, 'enableMipMap: 0\n')
+        manifest = json.loads((evidence / 'source-meta.json').read_text(encoding='utf-8'))
+        self.assertEqual(manifest['tracked_ref'], caught.exception.evidence['tracked_ref'])
+
+    def test_new_importer_metadata_is_backed_up_before_removal(self):
+        from agent.unity_recovery import SourceMetaReconciled
+        adapter, pool, _, record = self.setup_repair()
+        slot_path = pool.folder(self.entry)
+        relative = Path('Assets') / 'new.png.meta'
+        (slot_path / relative).parent.mkdir(parents=True)
+        (slot_path / relative).write_bytes(b'enableMipMap: 0\n')
+        evidence = self.root / 'resource recovery' / 'untracked'
+        with self.assertRaises(SourceMetaReconciled):
+            adapter.repair(dict(record, id='untracked', evidence_dir=str(evidence)))
+        self.assertFalse((slot_path / relative).exists())
+        self.assertEqual((evidence / 'untracked-meta' / relative).read_bytes(), b'enableMipMap: 0\n')
+        self.assertEqual(source_snapshot(slot_path)['dirty'], [])
+
+    def test_recovery_uses_identical_ref_left_by_interrupted_attempt(self):
+        from agent.unity_recovery import SourceMetaReconciled
+        relative = self.add_meta()
+        adapter, pool, _, record = self.setup_repair()
+        slot_path = pool.folder(self.entry)
+        (slot_path / relative).write_text('enableMipMap: 0\n', encoding='utf-8')
+        saved = subprocess.run(['git', '-c', 'user.name=FarmBot', '-c', 'user.email=farmbot@localhost',
+                                'stash', 'create'], cwd=slot_path, capture_output=True, text=True,
+                               check=True).stdout.strip()
+        git('update-ref', 'refs/farmbot/slot-recovery/interrupted', saved, cwd=slot_path)
+        with self.assertRaises(SourceMetaReconciled):
+            adapter.repair(dict(record, id='interrupted',
+                                evidence_dir=str(self.root / 'recovery' / 'interrupted')))
+        self.assertEqual(source_snapshot(slot_path)['dirty'], [])
+
+    def test_non_metadata_change_remains_quarantined(self):
+        adapter, pool, _, record = self.setup_repair()
+        slot_path = pool.folder(self.entry)
+        (slot_path / 'README.md').write_text('unexpected edit', encoding='utf-8')
+        evidence = self.root / 'resource recovery' / 'other'
+        with self.assertRaisesRegex(Exception, 'metadata-only'):
+            adapter.repair(dict(record, id='other', evidence_dir=str(evidence)))
+        self.assertEqual((slot_path / 'README.md').read_text(encoding='utf-8'), 'unexpected edit')
+        self.assertFalse((evidence / 'source-meta.json').exists())
+        self.assertEqual(self.ledger.slot(record['slot_id'])['state'], 'held')
 
 
 class StrictEditorInspectionTests(unittest.TestCase):

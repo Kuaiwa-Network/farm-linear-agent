@@ -234,6 +234,21 @@ class RecoveryStore:
                             (self.ledger.clock(), recovery_id))
             self.ledger._audit(r['slot_id'], 'resource_recovery', 'healthy', {'recovery_id': recovery_id, 'commit_sha': commit})
 
+    def complete_closed(self, recovery_id, attempt, commit, evidence):
+        """Publish a clean, closed slot after preserving importer metadata."""
+        with self.ledger._transaction():
+            r = self._attempt(recovery_id, attempt)
+            if self.ledger.active_reservation_on(r['slot_id']) is not None or not r['detached']:
+                raise ValueError('cannot publish a recovered slot before worker and reservation detachment')
+            updated = self.db.execute("UPDATE slots SET state='idle_closed',parked_commit=?,instance=NULL,updated_at=? WHERE slot_id=? AND state='held'",
+                                      (commit, self.ledger.clock(), r['slot_id']))
+            if not updated.rowcount:
+                raise ValueError('recovery slot is no longer isolated')
+            self.db.execute("UPDATE resource_recoveries SET state='recovered',lease_until=0,error=NULL,updated_at=? WHERE id=?",
+                            (self.ledger.clock(), recovery_id))
+            self.ledger._audit(r['slot_id'], 'resource_recovery', 'source metadata archived',
+                               {'recovery_id': recovery_id, 'commit_sha': commit, 'evidence': evidence})
+
     def _exhaust(self, r, error):
         self.db.execute("UPDATE resource_recoveries SET state='exhausted',lease_until=0,error=?,updated_at=? WHERE id=?",
                         (error[:1000], self.ledger.clock(), r['id']))
@@ -386,6 +401,8 @@ class RecoveryController:
         return {'repaired': repaired}
 
     def _repair(self, recovery_id):
+        from .unity_recovery import SourceMetaReconciled
+
         recovery = self.store.begin(recovery_id)
         if recovery is None:
             return 0
@@ -402,9 +419,17 @@ class RecoveryController:
             except Exception as exc:
                 snapshot = {'inspection_error': f'{type(exc).__name__}: {exc}'[:1000]}
             self._save(recovery, f'attempt-{attempt}.json', snapshot)
-            commit, instance = self.repair(recovery)
+            commit, instance = self.repair(dict(recovery, evidence_dir=str(self.evidence_root / recovery_id)))
             self.store.complete(recovery_id, attempt, commit, instance)
             return 1
+        except SourceMetaReconciled as exc:
+            try:
+                self._save(recovery, 'source-meta-reconciled.json', exc.evidence)
+                self.store.complete_closed(recovery_id, attempt, exc.evidence['head'], exc.evidence)
+                return 1
+            except Exception as failure:
+                self.store.failed(recovery_id, attempt, f'{type(failure).__name__}: {failure}')
+                return 0
         except Exception as exc:
             self.store.failed(recovery_id, attempt, f'{type(exc).__name__}: {exc}')
             return 0
