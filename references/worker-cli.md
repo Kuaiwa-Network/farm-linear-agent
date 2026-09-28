@@ -38,11 +38,12 @@ exit immediately. A newer-message refusal means reread the conversation before d
 `conversation_history` provides earlier answers/findings across execution profiles; only current
 `session_messages` authorize a request.
 
-On a host whose `enabled_skills` leaves out `fix`, `request-repair` and `resume-work` are refused
-before anything changes; tell the human instead of retrying. The card's Bot label decides what a
-first request starts: with Bot/修改 or no Bot label, `fix`. With Bot/UI or Bot/Code, or Bot children
-that name no workflow, it refuses to start a first job. Either command continues `resumable_work`
-only on a host that runs its skill; elsewhere it refuses, and starts nothing else. Relay a refusal's
+On a host whose `enabled_skills` names neither `fix` nor `feature`, `request-repair` and
+`resume-work` are refused before anything changes; tell the human instead of retrying. The card's
+Bot label decides what a first request starts, on a host that runs it: with Bot/修改 or no Bot label,
+`fix`; with Bot/Code, `feature`. With Bot/UI, Bot children that name no workflow, or a workflow the
+host does not run, it refuses to start a first job. Either command continues `resumable_work` only
+on a host that runs its skill; elsewhere it refuses, and starts nothing else. Relay a refusal's
 message, which says why, and do not retry.
 
 Each `session_messages` entry, like each message in `conversation_history`, is

@@ -412,6 +412,76 @@ class RepairWorkTests(LedgerBase):
                                      "feature, and this one does not")
         self.assertEqual((self.ledger.item(chat["id"])["state"], self.ledger.queue()), ("running", []))
 
+    def recording_api(self, current):
+        sent = []
+        return sent, SimpleNamespace(app_user_id=APP, fetch_issue=lambda _: current,
+                                     create_activity=lambda session, content: sent.append((session, content)))
+
+    def test_a_request_on_a_code_card_starts_feature_where_it_runs(self):
+        """D18 f: the Bot label chooses a first start. The job takes the delegation session and no client target
+        (plan P6), and the acknowledgement promises no fix."""
+        chat, token = self.conversation()
+        self.feature_host()
+        sent, api = self.recording_api(self.feature_card())
+        feature = run(self.cli_request(chat, token), self.ledger, lambda: api)
+        self.assertEqual((feature["skill"], feature["state"], feature["session_id"], feature["target"],
+                          feature["predecessor_id"]), ("feature", "queued", SESSION, None, None))
+        self.assertEqual([m["body"] for m in self.ledger.issue_context(feature["id"])["session_messages"]],
+                         ["修复，保留现有排序规则"])
+        self.assertEqual(sent, [(SESSION, {"type": "thought",
+                                           "body": "已排队开始或继续这项工作，会接着你的回复和已有调查结果处理。"})])
+
+    def test_a_conversation_a_mention_opened_starts_feature_only_through_a_recorded_delegation(self):
+        """Bot label group design §4.7: the mention starts nothing itself; its conversation asks through the
+        card's recorded delegation session, which the acknowledgement points to."""
+        chat, token = self.conversation(delegated=False, session="mention")
+        self.feature_host()
+        sent, api = self.recording_api(self.feature_card())
+        with self.assertRaisesRegex(LedgerError, "a recorded delegation session on this issue is required"):
+            run(self.cli_request(chat, token), self.ledger, lambda: api)
+        self.ledger.ensure_session("delegated", ISSUE, True)
+        feature = run(self.cli_request(chat, token), self.ledger, lambda: api)
+        self.assertEqual((feature["skill"], feature["session_id"]), ("feature", "delegated"))
+        self.assertEqual(sent, [("mention", {"type": "response", "body": "已排队开始或继续这项工作，会接着你的回复和已有调查"
+                                                                          "结果处理。后续进展记录在原委派会话和 issue 下。"})])
+
+    def test_where_feature_runs_a_ui_card_still_starts_nothing_and_a_change_card_still_starts_fix(self):
+        chat, token = self.conversation()
+        self.feature_host()
+        ui_card = issue(delegate_id=APP, labels=["UI"], label_groups=[{"group": "Bot", "label": "UI"}])
+        with self.assertRaises(LedgerError) as refused:
+            run(self.cli_request(chat, token), self.ledger, lambda: self.stub_api(ui_card))
+        self.assertEqual(str(refused.exception), "this issue carries Bot/UI, so it is fgui work, not a fix, and this "
+                                                 "instance does not run fgui yet")
+        sent, api = self.recording_api(self.change_card())
+        fix = run(self.cli_request(chat, token), self.ledger, lambda: api)
+        self.assertEqual((fix["skill"], fix["target"]), ("fix", PIN))  # a fix keeps the delegation's target
+        self.assertEqual(sent[0][1]["body"], "已排队开始或继续修改，会接着你的回复和已有调查结果处理。")
+
+    def test_a_host_that_runs_feature_but_not_fix_reads_linear_then_refuses_a_first_fix(self):
+        chat, token = self.conversation()
+        self.feature_host(enabled=("chat", "feature"))
+        calls = []
+        with self.assertRaisesRegex(LedgerError, "repair execution is not available on this host"):
+            run(self.cli_request(chat, token), self.ledger, lambda: self.stub_api(self.change_card(), calls))
+        self.assertEqual((len(calls), self.ledger.item(chat["id"])["state"]), (1, "running"))
+        feature = run(self.cli_request(chat, token), self.ledger, lambda: self.stub_api(self.feature_card()))
+        self.assertEqual(feature["skill"], "feature")
+
+    def test_the_ledger_starts_only_what_a_conversation_may_start_and_continues_whatever_it_finds(self):
+        chat, token = self.conversation()
+        message = self.ledger.issue_context(chat["id"])["session_messages"][-1]["id"]
+        with self.assertRaisesRegex(LedgerError, "a conversation starts only fix or feature work"):
+            self.ledger.request_repair(chat["id"], token, message, APP, "Make the panel.", start_skill="fgui")
+        self.assertEqual(self.ledger.item(chat["id"])["state"], "running")
+        self.ledger.cancel(chat["id"], "next case")
+        previous = self.new_item(delegate_id=APP)
+        self.ledger.cancel(previous["id"], "Stop")
+        chat, token = self.conversation()
+        message = self.ledger.issue_context(chat["id"])["session_messages"][-1]["id"]
+        successor = self.ledger.request_repair(chat["id"], token, message, APP, "Continue.", start_skill="feature")
+        self.assertEqual((successor["skill"], successor["predecessor_id"]), ("fix", previous["id"]))
+
 
 class RepairReceiverTests(ReceiverBase):
     def test_farm_1261_delegation_question_reply_can_start_first_repair(self):

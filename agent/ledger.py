@@ -1595,12 +1595,15 @@ class Ledger:
         return self._repair_work(item_id, token, message_id, app_user_id, allow_start=False,
                                  summary="Continued previously delegated work")
 
-    def request_repair(self, item_id, token, message_id, app_user_id, summary):
-        """Request writable execution after interpreting the current conversation."""
+    def request_repair(self, item_id, token, message_id, app_user_id, summary, *, start_skill="fix"):
+        """Request writable execution after interpreting the current conversation. `start_skill` is the job a first
+        start creates, the one the card's Bot label names (D18 f), which the CLI passes; a request continues the
+        delegation's earlier job, whatever it names."""
         _text(summary, "repair summary")
         if len(summary) > 8000:
             raise LedgerError("repair summary must be at most 8000 characters")
-        return self._repair_work(item_id, token, message_id, app_user_id, allow_start=True, summary=summary)
+        return self._repair_work(item_id, token, message_id, app_user_id, allow_start=True, summary=summary,
+                                 start_skill=start_skill)
 
     def _delegation_session(self, issue_id, preferred):
         return self.connection.execute("""SELECT * FROM sessions WHERE issue_id=? AND delegation=1
@@ -1613,12 +1616,14 @@ class Ledger:
         return self.connection.execute("""SELECT * FROM sessions WHERE issue_id=? AND delegation=1
             AND session_id NOT LIKE 'local-%' ORDER BY created_at DESC,rowid DESC LIMIT 1""", (issue_id,)).fetchone()
 
-    def _repair_work(self, item_id, token, message_id, app_user_id, *, allow_start, summary):
+    def _repair_work(self, item_id, token, message_id, app_user_id, *, allow_start, summary, start_skill="fix"):
         """Atomically retire read-only execution and queue its authorized repair.
 
         Intent belongs to the worker; the CLI checks fresh Linear state. The
         transaction fences claim ownership, newer input, provenance and concurrency.
         """
+        if start_skill not in CONVERSATION_SKILLS:
+            raise LedgerError(f"a conversation starts only {' or '.join(CONVERSATION_SKILLS)} work")
         with self._transaction():
             chat = self._owned(item_id, token)
             if chat["skill"] != "chat":
@@ -1644,12 +1649,15 @@ class Ledger:
                             token=None, lease_expires_at=None, worker_pid=None)
             if work is None:
                 destination, now = str(uuid4()), self.clock()
+                # Plan P6: the session's Farm-Client target is a fix's reproduction baseline; a feature job takes none.
+                target = authority["target_json"] if start_skill == "fix" else None
                 self.connection.execute("""INSERT INTO work_items
                     (id,issue_id,session_id,skill,state,priority,target_json,created_at,updated_at)
-                    VALUES(?,?,?,'fix','queued',?,?,?,?)""",
-                    (destination, chat["issue_id"], authority["session_id"], issue["priority"] or 5,
-                     authority["target_json"], now, now))
-                self._audit(destination, "create", "conversation requested first repair")
+                    VALUES(?,?,?,?,'queued',?,?,?,?)""",
+                    (destination, chat["issue_id"], authority["session_id"], start_skill, issue["priority"] or 5,
+                     target, now, now))
+                self._audit(destination, "create", "conversation requested first repair" if start_skill == "fix"
+                            else f"conversation requested a first {start_skill} job")
             elif work["state"] == "cancelled":
                 destination = self._cancelled_successor(work, "human requested continuation via chat")
             else:

@@ -120,10 +120,10 @@ once in the same way, and back again on a rollback.
 | You do | FarmBot does |
 |---|---|
 | Assign (delegate) an issue labelled Bot/修改 to @FarmBot | starts a `fix` work item when this instance runs `fix`, whatever else the card carries and whatever text comes with it (otherwise the read-only conversation that says so); first activity within 10 s; posts 「👀 <bot_name> 已开始处理」 (「👀 FarmBot 已开始处理」 in production) once the worker claims |
-| Delegate an issue labelled Bot/UI or Bot/Code | starts `fgui` or `feature` when this instance enables it (neither exists yet); otherwise, and for an unknown Bot child or two, the read-only conversation, whose first activity says what this instance runs |
+| Delegate an issue labelled Bot/UI or Bot/Code | starts `fgui` or `feature` when this instance enables it (neither exists yet); a `feature` session gets no Farm-Client target, and no activity in it, nor the reply to a mention forwarded to its job, carries a target line; otherwise, and for an unknown Bot child or two, the read-only conversation, whose first activity says what this instance runs |
 | Delegate an issue without a Bot label, whatever its Bug, Improvement, Feature or 部门 labels | starts the read-only conversation; on an instance that runs `fix`, its first activity says the card has no Bot label, that a reply such as 「修复」 starts a fix, and that Bot/修改 set before delegating starts one directly. It investigates, answers or clarifies intent. A standalone `修改`, `UI` or `Code` label outside the group routes like any other label |
 | Reply in a delegation session that never had a work item, for example after another session's work declined it | while the issue is still delegated to FarmBot, routes again on its current labels with your reply as the delegation's text: a Bot child whose skill this instance runs starts its worker; otherwise, the read-only conversation |
-| Ask for a fix or a change in a conversation (a reply, or @FarmBot) | when the issue has recorded delegation and is still delegated to FarmBot, continues the delegation's earlier `fix` or `feature` job whatever the label now says, on an instance that runs its skill; with no earlier job, starts `fix` with Bot/修改 or no Bot label; with Bot/UI or Bot/Code, or Bot children that name no workflow, the conversation says why nothing starts |
+| Ask for a fix, a change or the card's feature in a conversation (a reply, or @FarmBot) | when the issue has recorded delegation and is still delegated to FarmBot, continues the delegation's earlier `fix` or `feature` job whatever the label now says, on an instance that runs its skill; with no earlier job, starts the workflow the Bot label names on an instance that runs it, `fix` with Bot/修改 or no Bot label and `feature` with Bot/Code; with Bot/UI, Bot children that name no workflow, or a workflow this instance does not run, the conversation says why nothing starts |
 | @FarmBot in a comment or the session | interprets intent in read-only execution; a mention never starts write work itself |
 | Reply in a session while a worker runs | the text reaches the worker at its next checkpoint |
 | Reply to a FarmBot question | the parked work item resumes with your answer |
@@ -246,24 +246,31 @@ designer-only work that needs no code change.
 
 `request-repair` checks a fresh Linear snapshot, a live read-only claim, the latest session message
 and a recorded delegation session on the same issue. It atomically retires that claim and either
-continues the delegation's earlier job or creates the first fix under the recorded delegation and
-target. The earlier job is the latest `fix` or `feature` job of a delegation session on the issue,
-this conversation's session first (`resumable_work` in `issue-context`); an `fgui` job is not
-continued from a conversation. A request continues that job whatever the card's label now says, and
-only on an instance that runs its skill: elsewhere `request-repair` and `resume-work` refuse, and no
-other skill's job starts in its place. A mention alone grants no new authority. The card's Bot label
-decides what a request may start when there is no earlier job (D18 f): with Bot/修改 or no Bot label,
-`fix`. On a card with Bot/UI or Bot/Code it refuses a first job, saying that such work starts when
-the labelled issue is delegated or, when this instance does not run that skill, that it does not
-yet; an unknown Bot child or two name no workflow and are refused too. FarmBot never sets a Bot
-label; the one label it writes is `needs-more-info`. `resume-work` remains a resume-only
+continues the delegation's earlier job or creates the first job the card's Bot label names under the
+recorded delegation: a first fix takes that session's target, and a first `feature` job none. The
+earlier job is the latest `fix` or `feature` job of a delegation session on the issue, this
+conversation's session first (`resumable_work` in `issue-context`); an `fgui` job is not continued
+from a conversation. A request continues that job whatever the card's label now says, and only on an
+instance that runs its skill: elsewhere `request-repair` and `resume-work` refuse, and no other
+skill's job starts in its place. A mention alone grants no new authority. The card's Bot label
+decides what a request may start when there is no earlier job (D18 f), on an instance that runs it:
+with Bot/修改 or no Bot label, `fix`; with Bot/Code, `feature`. On a card with Bot/UI it refuses a
+first job, saying that `fgui` work starts when the labelled issue is delegated or, when this
+instance does not run `fgui`, that it does not yet; on a Bot/Code card where this instance does not
+run `feature` it says that; an unknown Bot child or two name no workflow and are refused too. Both
+commands are refused before Linear is read on an instance that runs neither `fix` nor `feature`; one
+that runs `feature` but not `fix` reads the card, then refuses a first fix. The acknowledgement in
+the session reads 「已排队开始或继续修改…」 for a fix and 「已排队开始或继续这项工作…」 for other work. FarmBot never sets a
+Bot label; the one label it writes is `needs-more-info`. `resume-work` remains a resume-only
 compatibility command. Cancelled jobs stay cancelled and receive a fresh successor ID; other
 terminal jobs keep their ID. A job a conversation starts or continues begins at its initial root,
 which for a fix is the neutral investigation. The launch includes one bounded `prior_context`
 summary from the investigator or the current fix checkpoint; replies, questions and the full prior
-findings remain available in `issue-context`. Both are recall that the new worker must verify. Late
-messages and Stop from a source conversation follow its active handoff. Merely observing changed
-issue text/comments does not start work. Historical context is recall, not a current request.
+findings remain available in `issue-context`. Both are recall that the new worker must verify. A
+`feature` job starts rooted in Farm-Contract, so its launch carries its own checkpoint handoff, not
+the conversation's summary, which it reads in `issue-context.conversation_history`. Late messages
+and Stop from a source conversation follow its active handoff. Merely observing changed issue
+text/comments does not start work. Historical context is recall, not a current request.
 
 Repository stages follow the skill manifest. A skill whose `skill.json` sets `"staged": true` writes
 one repository per worker attempt, its current root: the item's `root_repo` or, while that is unset,
@@ -504,14 +511,19 @@ publication is not refused on it.
 
 ## Unity verification commits
 
-The issue target remains the immutable baseline for the job. A write worker can request
-`await-resource --resource unity_slot --mode batch --commit FULL_SHA` (or `--mode interactive`)
-to verify the current clean HEAD of its own Farm-Client worktree. The CLI authenticates the claim,
-checks the configured host/checkout and commit, then the ledger rechecks ownership before queuing.
-For a fix, this selection requires a Farm-Client-rooted worker. A neutral fix worker may request
-the original baseline without `--commit`; other rooted fix workers cannot request Unity.
-Omitting `--commit` retains baseline behaviour. Dirty files, abbreviated SHAs, refs, another
-checkout's commit and read-only chat requests cannot select a fix revision.
+The issue target remains the immutable baseline for the job. A `feature` job has none (Phase B plan,
+P6): the receiver pins no Farm-Client commit in a session whose delegation starts it, nor on any
+later event in that session or for a mention in another session that it forwards to the job, and no
+acknowledgement of those events has a target line; a first `feature` job a conversation starts takes
+none either. `feature` has no client stage yet, so nothing in it uses a target; Phase C decides what
+its client stage pins. A write worker can request `await-resource --resource unity_slot --mode batch
+--commit FULL_SHA` (or `--mode interactive`) to verify the current clean HEAD of its own Farm-Client
+worktree. The CLI authenticates the claim, checks the configured host/checkout and commit, then the
+ledger rechecks ownership before queuing. For a fix, this selection requires a Farm-Client-rooted
+worker. A neutral fix worker may request the original baseline without `--commit`; other rooted fix
+workers cannot request Unity. Omitting `--commit` retains baseline behaviour. Dirty files,
+abbreviated SHAs, refs, another checkout's commit and read-only chat requests cannot select a fix
+revision.
 
 Each reservation records its exact commit independently of the baseline. The slot loads that
 commit and the resumed worker sees it as `resource.commit`. Batch summaries additionally carry
