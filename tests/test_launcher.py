@@ -99,7 +99,11 @@ class LauncherTests(unittest.TestCase):
         unanswered gives the same. On Windows the question starts a PowerShell, which gets 10 s, and this
         suite's is the first PowerShell of a CI runner. Measured on windows-latest in 44 runs, that took under
         4 s in 38, 5 s to 9 s in five and the whole 10 s in one, with the processors idle; asked again, under
-        2 s every time. The fake worker sleeps for 60 s, so the wait ends while it is alive.
+        2 s every time. On macOS, python.org's python3.13 (CI's too) is a launcher that replaces itself with
+        Python.app under the same pid a few milliseconds after spawn returns. Measured on macos-latest, reading
+        the arguments then failed for a median 0.24 ms in 480 of 500 spawns, and ps asked in that moment prints
+        only "(python3.13)": a first question failed so in 1 of 30 FIFO kill tests run in module order. The fake
+        worker sleeps for 60 s, so the wait ends while it is alive.
         """
         deadline = time.monotonic() + timeout
         while not self.launcher.owned_pid(pid, item_id):
@@ -552,6 +556,7 @@ class LauncherTests(unittest.TestCase):
         handle = self.launcher.spawn("item-1", self.message, {}, budget_seconds=60, cwd=self.tmp.name,
                                      extra_env={"FAKE_CLI_MODE": "sleep"})
         self.addCleanup(self.launcher.stop, "item-1", grace=1.0)
+        self.assertTrue(self.owned_in_time(handle.pid, "item-1"), "the live worker's command line never named it")
         fifo = handle.run_dir / "killed.json"
         os.mkfifo(fifo)
         self.addCleanup(fifo.unlink, missing_ok=True)  # before the Stop above, which would read it
@@ -616,6 +621,8 @@ class LauncherTests(unittest.TestCase):
     def test_a_kill_after_a_restart_persists_its_targets_past_a_fifo_left_for_their_temporary_file(self):
         handle = self.launcher.spawn("item-1", self.message, {}, budget_seconds=60, cwd=self.tmp.name,
                                      extra_env={"FAKE_CLI_MODE": "sleep"})
+        self.addCleanup(self.stop_workers)
+        self.assertTrue(self.owned_in_time(handle.pid, "item-1"), "the live worker's command line never named it")
         fifo = handle.run_dir / "killed.tmp"
         os.mkfifo(fifo)
         fsync, synced = os.fsync, []
