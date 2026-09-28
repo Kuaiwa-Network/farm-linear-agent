@@ -5,11 +5,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 from agent.config import Config
+from agent.dispatch import SKILL_AUTHORITY
 from agent.ledger import LedgerError
 from agent.skills import SkillError
 from agent.__main__ import parser, run
-from test_ledger import LedgerBase, ISSUE, OTHER, PIN, SESSION, issue
+from test_ledger import LedgerBase, ISSUE, OTHER, PIN, SESSION, SKILLS, issue
 from test_receiver import ReceiverBase, APP
+from test_skills import opt_in_skill
 
 
 class RepairWorkTests(LedgerBase):
@@ -284,8 +286,9 @@ class RepairWorkTests(LedgerBase):
                 self.assertEqual((self.ledger.item(chat["id"])["state"], self.ledger.queue()), ("running", []))
 
     def test_an_earlier_feature_or_fgui_job_does_not_open_a_first_fix(self):
-        """The ledger continues only fix jobs, so an fgui or feature job on the issue must not lift the refusal:
-        the request would otherwise start a first fix on a UI or Code card."""
+        """A conversation never continues an fgui job, and continues a feature job only where this instance runs
+        feature, so neither lifts the refusal here: the request would otherwise start a first fix on a UI or Code
+        card."""
         for skill, label in (("feature", "Code"), ("fgui", "UI")):
             with self.subTest(skill=skill):
                 self.setUp()
@@ -348,6 +351,66 @@ class RepairWorkTests(LedgerBase):
             with self.assertRaisesRegex(LedgerError, "repair execution is not available on this host"):
                 run(self.cli_request(chat, token), self.ledger, lambda: api)
         self.assertEqual(calls, [])
+
+    def feature_host(self, enabled=("chat", "fix", "feature")):
+        """This checkout's skills plus Task 1's opt-in fixture `feature`, its AUTHORITY part, and a config whose
+        enabled_skills is `enabled`: the worker CLI of a host that runs feature."""
+        fixture = opt_in_skill(Path(self.tmp.name) / "fixture-skills")
+        for patcher in (patch("agent.skills.load_skills", return_value={**SKILLS, fixture.name: fixture}),
+                        patch.dict(SKILL_AUTHORITY, {fixture.name: "Fixture feature grants. "}),
+                        patch("agent.__main__.load_config",
+                              return_value=Config("c", "s", "w", enabled_skills=list(enabled)))):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def earlier_feature_job(self):
+        """The delegation's own job on the card, a feature job that was stopped."""
+        self.ledger.observe_issue(issue(delegate_id=APP))
+        self.ledger.ensure_session(SESSION, ISSUE, True)
+        earlier = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="feature")
+        self.ledger.cancel(earlier["id"], "Stop")
+        return earlier
+
+    def change_card(self):
+        return issue(delegate_id=APP, labels=["修改"], label_groups=[{"group": "Bot", "label": "修改"}])
+
+    def resume_request(self, chat, token):
+        message = self.ledger.issue_context(chat["id"])["session_messages"][-1]["id"]
+        return parser().parse_args(["--db", str(self.path), "resume-work", "--item", chat["id"], "--token", token,
+                                    "--message-id", str(message)])
+
+    def test_a_request_continues_the_delegations_feature_job_where_feature_runs(self):
+        """spec §9.4: the delegation's own job continues, whatever the label now says; this card was relabelled
+        修改 after its feature job stopped, and gets no first fix."""
+        earlier = self.earlier_feature_job()
+        chat, token = self.conversation()
+        self.feature_host()
+        successor = run(self.cli_request(chat, token), self.ledger, lambda: self.stub_api(self.change_card()))
+        self.assertEqual((successor["skill"], successor["predecessor_id"], successor["session_id"]),
+                         ("feature", earlier["id"], SESSION))
+
+    def test_resume_work_continues_a_feature_job_where_feature_runs(self):
+        earlier = self.earlier_feature_job()
+        chat, token = self.conversation(delegated=False, session="mention")
+        self.feature_host()
+        successor = run(self.resume_request(chat, token), self.ledger, lambda: self.stub_api(self.feature_card()))
+        self.assertEqual((successor["skill"], successor["predecessor_id"]), ("feature", earlier["id"]))
+
+    def test_a_job_whose_skill_this_host_does_not_run_is_not_continued_and_nothing_starts_instead(self):
+        """Never a different skill (spec §9.4): where feature does not run, the delegation's feature job blocks a
+        first fix on a 修改 card too, and both commands say why, before the ledger changes anything."""
+        self.earlier_feature_job()
+        chat, token = self.conversation()
+        api = self.stub_api(self.change_card())
+        with patch("agent.__main__.load_config", return_value=Config("c", "s", "w")):
+            for command in (self.cli_request(chat, token), self.resume_request(chat, token)):
+                with self.subTest(command=command.command):
+                    with self.assertRaises(LedgerError) as refused:
+                        run(command, self.ledger, lambda: api)
+                    self.assertEqual(str(refused.exception),
+                                     "this issue's earlier feature job continues only on an instance that runs "
+                                     "feature, and this one does not")
+        self.assertEqual((self.ledger.item(chat["id"])["state"], self.ledger.queue()), ("running", []))
 
 
 class RepairReceiverTests(ReceiverBase):

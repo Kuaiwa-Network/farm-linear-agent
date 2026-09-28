@@ -29,18 +29,21 @@ Codex's, or an unknown one). A person is
 `{"id", "name", "url"}`, never an email. `null` means none or unknown; a missing key means the
 snapshot predates these fields.
 
-`request-repair` refreshes Linear, then atomically retires read-only execution and queues
-the same issue's repair. It requires recorded delegation provenance and current delegation,
-but no prior fix or Bot label. It carries all current messages and the investigation summary
-into `issue-context`. Success retires your token: exit immediately. A newer-message refusal
-means reread the conversation before deciding again. `conversation_history` provides earlier
-answers/findings across execution profiles; only current `session_messages` authorize a request.
+`request-repair` refreshes Linear, then atomically retires read-only execution and queues the same
+issue's work: it continues the delegation's earlier job, `resumable_work` in `issue-context` (a fix,
+or a `feature` job), whatever the card's label now says, or else starts a first job. It requires
+recorded delegation provenance and current delegation, but no prior fix or Bot label. It carries all
+current messages and the investigation summary into `issue-context`. Success retires your token:
+exit immediately. A newer-message refusal means reread the conversation before deciding again.
+`conversation_history` provides earlier answers/findings across execution profiles; only current
+`session_messages` authorize a request.
 
 On a host whose `enabled_skills` leaves out `fix`, `request-repair` and `resume-work` are refused
 before anything changes; tell the human instead of retrying. The card's Bot label decides what a
-request starts: with Bot/修改 or no Bot label it starts or continues `fix`. With Bot/UI or Bot/Code,
-or Bot children that name no workflow, it refuses to start a first job and only continues an
-earlier fix; relay its message, which says why, and do not retry.
+first request starts: with Bot/修改 or no Bot label, `fix`. With Bot/UI or Bot/Code, or Bot children
+that name no workflow, it refuses to start a first job. Either command continues `resumable_work`
+only on a host that runs its skill; elsewhere it refuses, and starts nothing else. Relay a refusal's
+message, which says why, and do not retry.
 
 Each `session_messages` entry, like each message in `conversation_history`, is
 `{"id", "body", "author", "created_at"}`, and so is each entry of the launch message's

@@ -10,6 +10,9 @@ WRITE_SKILLS = ("fix", "fgui", "feature")
 BOT_GROUP = "Bot"
 BOT_GROUPS = (BOT_GROUP, "功能")
 BOT_SKILLS = {"修改": "fix", "UI": "fgui", "Code": "feature"}
+# The write skills whose delegated jobs a request in a conversation continues, whatever the card's label now says
+# (spec §9.4). fgui joins when its phase lands.
+CONVERSATION_SKILLS = ("fix", "feature")
 
 
 @dataclass(frozen=True)
@@ -60,6 +63,12 @@ def start_refusal(children, available_skills):
                 f"{skill} yet")
     return (f"this issue carries {labels}, so it is {skill} work, not a fix; {skill} work starts only when an "
             f"issue labelled {labels} is delegated")
+
+
+def continuation_refusal(skill):
+    """Why a request in a conversation continues nothing here: the delegation's own earlier job is `skill` work,
+    which this instance does not run, and a request never starts another skill's job in its place (spec §9.4)."""
+    return f"this issue's earlier {skill} job continues only on an instance that runs {skill}, and this one does not"
 
 
 def route(*, action, is_delegation, text, labels, active_state, terminal_exists, available_skills,

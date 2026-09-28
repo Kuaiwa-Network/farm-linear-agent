@@ -10,7 +10,7 @@ from pathlib import Path
 from agent.ledger import MARKER, Ledger, LedgerError
 from agent.skills import load_skills
 from agent.stages import write_repositories
-from test_skills import staged_skill, write_skill
+from test_skills import opt_in_skill, staged_skill, write_skill
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = load_skills(ROOT / "skills")
@@ -437,6 +437,114 @@ class StagedHandoffTests(LedgerBase):
         successor = self.ledger.retry(item["id"], "continue")
         self.assertEqual(successor["predecessor_id"], item["id"])
         self.assertEqual(write_repositories(successor, self.feature), ("Farm-Contract",))
+
+
+class SuccessorTests(LedgerBase):
+    """A job that starts at an initial root continues across Stop, re-delegation and conversations: its successor
+    links the cancelled job, restarts at the initial root and reads its plan (spec §5.7, §9.4; plan P4)."""
+    APP = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
+    # The plan after stage A, in the Phase B plan's Shared Interfaces shape.
+    PLAN = {"stages": {"A": "done", "B": "pending", "C": "pending", "D": "pending", "G": "pending"},
+            "prs": {"Farm-Contract": [{"branch": "farmbot/farm-1", "role": "issue", "head": "a" * 40,
+                                       "pr": {"url": "https://github.com/Kuaiwa-Network/Farm-Contract/pull/12",
+                                              "state": "draft", "merge": None}}]},
+            "started": True}
+
+    def setUp(self):
+        super().setUp()
+        self.feature = opt_in_skill(Path(self.tmp.name) / "skills")
+
+    def job(self, skill="feature", session=SESSION):
+        """A job of `skill` in delegation session `session` on the issue, which stays delegated to the app. No
+        target: neither the receiver nor a conversation gives a feature job one (plan P6)."""
+        self.ledger.observe_issue(issue(delegate_id=self.APP))
+        self.ledger.ensure_session(session, ISSUE, delegation=True)
+        return self.ledger.create_work_item(issue_id=ISSUE, session_id=session, skill=skill)
+
+    def at_second_stage(self, item):
+        """Run `item` through stage A, with its first question round (`questions-1`, plan P15) and a plan, into its
+        common-rooted stage, where a Stop would find it."""
+        self.ledger.set_worker(item["id"], 4321, "test")
+        token = self.ledger.claim(item["id"], worker_id="stage-a")["token"]
+        self.ledger.prepare_notice(item["id"], token, "question", "questions-1", "契约提案有两个问题需要确认。")
+        self.ledger.confirm_notice(item["id"], "questions-1", "comment-questions-1")
+        self.ledger.checkpoint(item["id"], token, {"plan": self.PLAN, "handoff": {
+            "facts": [], "hypotheses": [], "checks": [], "repositories": [], "next_actions": ["Declare the config"]}})
+        self.ledger.handoff_repository(item["id"], token, "common", skill=self.feature)
+        self.ledger.complete_repository_handoff(item["id"], 4321, skill=self.feature)
+        self.assertEqual(self.ledger.item(item["id"])["root_repo"], "common")
+        return item
+
+    def conversation(self, session="mention"):
+        """A claimed conversation on the issue with one message; `mention` is not a delegation session."""
+        self.ledger.ensure_session(session, ISSUE, delegation=session != "mention")
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id=session, skill="chat")
+        self.ledger.push_inbox(chat["id"], "继续做")
+        return chat, self.ledger.claim(chat["id"], worker_id="conversation")["token"]
+
+    def request(self, chat, token):
+        message = self.ledger.issue_context(chat["id"])["session_messages"][-1]["id"]
+        return self.ledger.request_repair(chat["id"], token, message, self.APP, "Continue the feature.")
+
+    def test_a_redelegation_links_the_cancelled_job_of_its_skill_and_restarts_it_at_its_initial_root(self):
+        """The successor reads the plan and the posted notices, so its next question round is `questions-2` (P15)."""
+        first = self.at_second_stage(self.job())
+        self.ledger.cancel(first["id"], "Stop")
+        second = self.job(session="session-2")
+        self.assertEqual(second["predecessor_id"], first["id"])
+        self.assertIsNone(second["root_repo"])
+        self.assertEqual(write_repositories(second, self.feature), ("Farm-Contract",))
+        recovery = self.ledger.issue_context(second["id"])["recovery"]
+        self.assertEqual((recovery["predecessor_id"], recovery["plan"]), (first["id"], self.PLAN))
+        self.assertEqual([(n["item_id"], n["request_id"], n["kind"], n["remote_id"]) for n in recovery["notices"]],
+                         [(first["id"], "questions-1", "question", "comment-questions-1")])
+
+    def test_only_a_cancelled_job_of_the_same_write_skill_is_linked(self):
+        fix = self.job(skill="fix")
+        self.ledger.cancel(fix["id"], "Stop")
+        feature = self.job()
+        self.assertIsNone(feature["predecessor_id"])  # another skill's job is not this job's past
+        self.ledger.fail_queued(feature["id"], "budget exhausted")
+        again = self.job(session="session-2")
+        self.assertIsNone(again["predecessor_id"])  # a failed job is retried, not succeeded
+        self.ledger.cancel(again["id"], "Stop")
+        self.assertIsNone(self.job(skill="chat", session="session-3")["predecessor_id"])  # chat continues nothing
+
+    def test_a_conversation_continues_the_delegations_latest_write_job_whatever_its_skill(self):
+        fix = self.job(skill="fix")
+        self.ledger.cancel(fix["id"], "Stop")
+        self.now += 1
+        feature = self.at_second_stage(self.job(session="session-2"))
+        self.ledger.cancel(feature["id"], "Stop")
+        chat, token = self.conversation()
+        self.assertEqual(self.ledger.issue_context(chat["id"])["resumable_work"]["id"], feature["id"])
+        successor = self.request(chat, token)
+        self.assertEqual((successor["skill"], successor["predecessor_id"], successor["session_id"]),
+                         ("feature", feature["id"], "session-2"))
+        self.assertEqual(write_repositories(successor, self.feature), ("Farm-Contract",))
+        self.assertEqual(self.ledger.issue_context(successor["id"])["recovery"]["plan"], self.PLAN)
+
+    def test_a_conversation_in_a_delegation_session_continues_that_sessions_job(self):
+        fix = self.job(skill="fix")
+        self.ledger.cancel(fix["id"], "Stop")
+        self.now += 1
+        self.ledger.cancel(self.job(session="session-2")["id"], "Stop")
+        chat, _ = self.conversation(session=SESSION)
+        self.assertEqual(self.ledger.issue_context(chat["id"])["resumable_work"]["id"], fix["id"])
+
+    def test_a_continued_job_restarts_at_its_initial_root_and_keeps_its_plan(self):
+        feature = self.at_second_stage(self.job())
+        self.ledger.fail_queued(feature["id"], "budget exhausted")
+        chat, token = self.conversation()
+        resumed = self.request(chat, token)
+        self.assertEqual((resumed["id"], resumed["state"], resumed["root_repo"]), (feature["id"], "queued", None))
+        self.assertEqual(write_repositories(resumed, self.feature), ("Farm-Contract",))
+        self.assertEqual(self.ledger.issue_context(feature["id"])["plan"], self.PLAN)
+
+    def test_an_fgui_job_is_not_continued_from_a_conversation(self):
+        self.ledger.cancel(self.job(skill="fgui")["id"], "Stop")
+        chat, _ = self.conversation()
+        self.assertIsNone(self.ledger.issue_context(chat["id"])["resumable_work"])
 
 
 class LeaseTests(LedgerBase):

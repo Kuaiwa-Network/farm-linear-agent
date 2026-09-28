@@ -18,6 +18,7 @@ from uuid import UUID, uuid4
 
 from . import memory
 from .resource_recovery import RecoveryStore, SCHEMA as RECOVERY_SCHEMA
+from .router import CONVERSATION_SKILLS, WRITE_SKILLS
 from .stages import current_root
 
 MARKER = re.compile(r"\[farmbot:[0-9a-f]{64}\]")
@@ -711,9 +712,11 @@ class Ledger:
             if self.connection.execute("SELECT 1 FROM work_items WHERE issue_id=? AND state IN ('queued','running','awaiting_input','awaiting_resource')",
                                        (issue["id"],)).fetchone():
                 raise LedgerError("an active work item already exists for this issue")
+            # A re-delegation continues its skill's cancelled job, for every write skill (spec §9.4): the successor
+            # reads that job's plan and notices in `recovery` and launches after its cleanup. Chat continues nothing.
             prior = self.connection.execute(
                 "SELECT id,state FROM work_items WHERE issue_id=? AND skill=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
-                (issue["id"], skill)).fetchone() if skill == "fix" else None
+                (issue["id"], skill)).fetchone() if skill in WRITE_SKILLS else None
             predecessor = prior["id"] if prior and prior["state"] == "cancelled" else None
             item_id = str(uuid4())
             now = self.clock()
@@ -1577,11 +1580,15 @@ class Ledger:
             return self._view(self._row(row["id"]))
 
     def _resumable_work(self, issue_id, session_id):
-        return self.connection.execute("""SELECT w.* FROM work_items w JOIN sessions s
-            ON s.session_id=w.session_id WHERE w.issue_id=? AND w.skill='fix' AND s.delegation=1
+        """The delegation's own earlier write job, which a request in a conversation continues whatever the card's
+        label now says: the latest fix or feature job of a delegation session on the issue, this conversation's
+        session first (spec §9.4). The CLI continues it only where the host runs its skill."""
+        skills = ",".join("?" * len(CONVERSATION_SKILLS))
+        return self.connection.execute(f"""SELECT w.* FROM work_items w JOIN sessions s
+            ON s.session_id=w.session_id WHERE w.issue_id=? AND w.skill IN ({skills}) AND s.delegation=1
             AND w.state IN ('blocked','delivered','cancelled','failed')
             ORDER BY (w.session_id=?) DESC,w.created_at DESC,w.rowid DESC LIMIT 1""",
-            (issue_id, session_id)).fetchone()
+            (issue_id, *CONVERSATION_SKILLS, session_id)).fetchone()
 
     def resume_work(self, item_id, token, message_id, app_user_id):
         """Compatibility command: only resume previously delegated repair work."""

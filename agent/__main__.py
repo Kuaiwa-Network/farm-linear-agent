@@ -10,7 +10,7 @@ from pathlib import Path
 from .config import Paths, linear_api, load_config
 from .ledger import AWAIT_REASONS, NOTICE_KINDS, TERMINAL_STATUS_TYPES, Ledger, LedgerError
 from .memory import prune_snapshots
-from .router import WRITE_SKILLS
+from .router import WRITE_SKILLS, continuation_refusal
 from .stages import write_repositories
 
 
@@ -154,18 +154,22 @@ def enabled_skill_names():
 def start_request_refusal(ledger, item_id, issue, running):
     """D18 f (Bot label group design §4.4): a start request in a conversation follows the card's Bot label. It
     starts `fix` on a card whose only Bot child is 修改 or that has none; on a UI or Code card, or one whose Bot
-    children name no workflow, a first start is refused, and the refusal says why. None when the
-    request goes on: also when it continues an earlier fix, whatever the label now says, and when the item is not
-    a conversation, which the ledger refuses itself. The ledger continues only fix jobs, so an fgui or feature job
-    on the issue lifts nothing until the phase that continues those jobs. While the chat item is active no other
-    item can appear on the issue, so this cannot change before the ledger's transaction."""
+    children name no workflow, a first start is refused, and the refusal says why. A request continues the
+    delegation's own earlier job instead (`resumable_work`: a fix, or a feature job; spec §9.4), whatever the label
+    now says, where this host runs that job's skill; where it does not, the request is refused and no other skill's
+    job starts in its place. None when the request goes on, and when the item is not a conversation, which the
+    ledger refuses itself. While the chat item is active no other item can appear on the issue, so this cannot
+    change before the ledger's transaction."""
     from .router import bot_children, start_refusal
-    refusal = start_refusal(bot_children(issue.get("label_groups")), running)
-    if refusal is None:
-        return None
     context = ledger.issue_context(item_id)
-    if context["coordination"]["skill"] != "chat" or context["resumable_work"] is not None:
+    if context["coordination"]["skill"] != "chat":
         return None
+    work = context["resumable_work"]
+    if work is not None and work["skill"] in running:
+        return None
+    refusal = start_refusal(bot_children(issue.get("label_groups")), running)
+    if refusal is None and work is not None:
+        refusal = continuation_refusal(work["skill"])
     return refusal
 
 
@@ -420,6 +424,10 @@ def run(args, ledger, api_factory):
             resumed = ledger.request_repair(args.item, token, args.message_id, api.app_user_id,
                                              read_text(args.summary_file))
         else:
+            # resume-work only continues, and only a job whose skill this host runs (spec §9.4).
+            work = ledger.issue_context(args.item)["resumable_work"]
+            if work is not None and work["skill"] not in running:
+                raise LedgerError(continuation_refusal(work["skill"]))
             resumed = ledger.resume_work(args.item, token, args.message_id, api.app_user_id)
         try:
             api.create_activity(item["session_id"], {
