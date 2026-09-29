@@ -7,11 +7,10 @@ from datetime import datetime, timezone
 import json
 import re
 import subprocess
-from pathlib import Path
 from urllib.parse import quote
 
 from .router import WRITE_SKILLS
-from .worktrees import WorktreeError, _git
+from .worktrees import GITHUB_REMOTE, WorktreeError
 
 
 class PublicationError(RuntimeError):
@@ -38,8 +37,7 @@ def is_issue_branch(branch, identifier, issue_prefix='FARM'):
 
 
 def github_repository(url):
-    match = re.fullmatch(r'(?:https://github\.com/|ssh://git@github\.com/|git@github\.com:)'
-                         r'([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?', str(url), re.IGNORECASE)
+    match = GITHUB_REMOTE.fullmatch(str(url))
     if not match or any(part in ('.', '..') for part in match.groups()):
         raise PublicationError('publishing requires a credential-free github.com repository URL')
     return '/'.join(match.groups())
@@ -114,16 +112,22 @@ class PublicationVerifier:
         expected = github_repository(configured)
         root = self.worktrees.worktrees_root.resolve()
         path = root / item_id / repo
-        if (not path.is_dir() or path.resolve() != path or not path.is_relative_to(root)
-                or Path(_git('rev-parse', '--show-toplevel', cwd=path)).resolve() != path
-                or Path(_git('rev-parse', '--path-format=absolute', '--git-common-dir', cwd=path)).resolve()
-                   != self.worktrees.clone_path(repo).resolve()):
+        if not path.is_dir() or path.resolve() != path or not path.is_relative_to(root):
             raise PublicationError("publication requires this job's own configured worktree")
-        actual_branch = _git('branch', '--show-current', cwd=path)
+        try:
+            self.worktrees.worktree_entry(repo, path)
+        except WorktreeError as exc:
+            raise PublicationError("publication requires this job's own configured worktree") from exc
+
+        def git(*args):
+            # The repository named explicitly (plan P10): the controller runs this check at every launch.
+            return self.worktrees.git_in(path, *args)
+
+        actual_branch = git('branch', '--show-current')
         branch = actual_branch if branch is None else branch
         if not is_issue_branch(branch, identifier, self.issue_prefix) or actual_branch != branch:
             raise PublicationError("publication requires this issue's FarmBot feature branch")
-        push_urls = _git('remote', 'get-url', '--push', '--all', 'origin', cwd=path).splitlines()
+        push_urls = git('remote', 'get-url', '--push', '--all', 'origin').splitlines()
         if len(push_urls) != 1 or github_repository(push_urls[0]).casefold() != expected.casefold():
             raise PublicationError('effective origin push destination differs from the configured repository')
         metadata = self.api('repos/' + expected)
@@ -146,8 +150,8 @@ class PublicationVerifier:
         # an earlier commit already tracks. Check the outgoing branch, not the file
         # system, so a pre-existing report on the base branch is not a false alarm.
         base_ref = f"refs/remotes/origin/{metadata['default_branch']}"
-        if (_git('diff', '--name-only', f'{base_ref}...HEAD', '--', 'reports', cwd=path)
-                or _git('diff', '--cached', '--name-only', '--', 'reports', cwd=path)):
+        if (git('diff', '--name-only', f'{base_ref}...HEAD', '--', 'reports')
+                or git('diff', '--cached', '--name-only', '--', 'reports')):
             raise PublicationError('run report changes must stay in private state, not the published branch')
         remote_branch = self.api('repos/' + expected + '/branches/' + quote(branch, safe=''), missing_ok=True)
         if remote_branch is not None and (not isinstance(remote_branch, dict)

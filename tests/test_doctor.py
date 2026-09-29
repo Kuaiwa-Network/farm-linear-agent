@@ -1,5 +1,6 @@
 """Doctor exercises real ledgers and the public CLI without repairing either."""
 import contextlib
+from dataclasses import replace
 import io
 import json
 import os
@@ -412,6 +413,22 @@ class DoctorTests(unittest.TestCase):
             report = diagnose(self.config, now=1090)
         entry = next(entry for entry in report["jobs"] if entry["item_id"] == item["id"])
         self.assertEqual((entry["plan"]["stages"], entry["plan"]["prs"]), ({"A": "done"}, []))
+
+    def test_a_clone_holding_what_farmbot_did_not_write_is_reported_by_name(self):
+        """Plan P10: FarmBot's git refuses such a clone; doctor says which clone and what it holds, never a value."""
+        remote = "https://github.com/Kuaiwa-Network/Farm-Client.git"
+        config = replace(self.config, repos={"Farm-Client": remote})
+        clone = self.paths.repos / "Farm-Client.git"
+        clone.parent.mkdir(parents=True, exist_ok=True)
+        for args in (["init", "-q", "--bare", str(clone)], ["--git-dir", str(clone), "remote", "add", "origin", remote],
+                     ["--git-dir", str(clone), "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"]):
+            subprocess.run(["git", *args], check=True, capture_output=True)
+        self.assertNotIn("clone_unexpected", self.codes(diagnose(config, now=1001)))
+        subprocess.run(["git", "--git-dir", str(clone), "config", "core.sshCommand", "secret-command-value"], check=True)
+        report = diagnose(config, now=1001)
+        finding = next(f for f in report["findings"] if f["code"] == "clone_unexpected")
+        self.assertEqual(finding["clones"], {"Farm-Client": ["config key core.sshcommand"]})
+        self.assertNotIn("secret-command-value", json.dumps(report, ensure_ascii=False))
 
     def test_the_runtime_finding_needs_no_ledger_and_changes_none(self):
         """The finding comes from the config and the manifests alone, so a host's doctor shows it before any job

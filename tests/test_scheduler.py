@@ -154,6 +154,10 @@ class FakeWorktrees:
     def clone_path(self, repo):
         return self.root / "repos" / f"{repo}.git"
 
+    def writable_parts(self, repo, path):
+        clone = self.clone_path(repo)
+        return [clone / "objects", clone / "refs", clone / "logs", clone / "lfs", clone / "worktrees" / Path(path).name]
+
     def add(self, repo, item_id, branch, attach=False):
         if self.fail_on == (repo, item_id):
             raise RuntimeError("boom")
@@ -448,9 +452,9 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(payload["prior_context"]["content"]["next_actions"],
                          ["Inspect Farm-Contract rules in its own worker"])
         self.assertEqual(self.launcher.spawned[-1][4], str(self.trees.root / item["id"] / "Farm-Contract"))
+        worktree = self.trees.root / item["id"] / "Farm-Contract"
         self.assertEqual(self.launcher.spawn_writable[1:], [
-            str(self.trees.root / item["id"] / "Farm-Contract"),
-            str(self.trees.clone_path("Farm-Contract"))])
+            str(worktree), *(str(part) for part in self.trees.writable_parts("Farm-Contract", worktree))])
 
     def test_handoff_stays_pending_when_teardown_evidence_is_missing(self):
         item = self.item()
@@ -516,7 +520,8 @@ class SchedulerTests(unittest.TestCase):
                                                    "write_repositories": ["Farm-Contract"],
                                                    "read_only_worktrees": ["common", "farm-hive", "Farm-Client"]})
         self.assertEqual(self.launcher.spawned[-1][4], str(contract))
-        self.assertEqual(self.launcher.spawn_writable[1:], [str(contract), str(self.trees.clone_path("Farm-Contract"))])
+        self.assertEqual(self.launcher.spawn_writable[1:],
+                         [str(contract), *(str(part) for part in self.trees.writable_parts("Farm-Contract", contract))])
         self.assertIsNone(self.ledger.item(item["id"])["root_repo"])  # NULL is stored; the manifest names the root
         token = self.ledger.claim(item["id"], worker_id="first")["token"]
         self.ledger.checkpoint(item["id"], token, {"handoff": {

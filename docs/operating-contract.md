@@ -157,6 +157,22 @@ Worker commands in the ledger CLI are item-scoped and token-authenticated; `canc
 FarmBot is one conversational identity. `chat` and `fix` remain internal execution-profile
 identifiers, with different tools, budgets and writable roots. Read-only execution starts
 in its private state directory and does not receive repository or clone write roots.
+A write worker's roots are its worktree and, of FarmBot's bare clone of that repository, only what
+its own git writes: the objects, refs, reflogs and LFS store, and its worktree's entry under
+`worktrees/`. The clone's config, hooks, `info/` and other worktrees' entries are not writable,
+because FarmBot's own git reads them outside every sandbox: fetches, new worktrees, the publication
+check at launch, cleanup's work-in-progress commits and the Unity slots' checkouts. Workers push by
+refspec and never change the clone's config, so `git push -u`, deleting a branch and a full
+`git gc` fail inside a worker, and git may print a harmless `packed-refs.lock` error after a
+commit or fetch that succeeded (the `fix` skill says so). Every git call FarmBot itself makes runs with hooks and fsmonitor off. In a job's worktree
+it names the clone and the worktree's entry itself, after checking that the worktree's `.git` file
+and the entry's `gitdir` and `commondir` still name each other and the clone: a pointer a worker
+rewrote is refused, never followed. FarmBot refuses a clone whose config holds keys it does not
+write (anything beyond core settings, the configured remote as `remote.origin.url` or `pushurl`,
+FarmBot's fetch refspec, branch tracking, git-lfs's format and access keys and a commit identity),
+whose `info/` holds anything but `exclude` and `refs`, or that defines remotes under `remotes/` or
+`branches/`. Jobs on that repository then fail at launch, and `doctor` reports `clone_unexpected`,
+naming keys and files, never values; remove what it names once you know who wrote it.
 A Codex worker's tools and runtime settings come from its launch, not from the repository it
 works in. Its isolated home records the cwd with `trust_level = "untrusted"`, under the path
 passed to `--cd` (the spelling `codex exec` was measured to honour) and its resolved form. Without
@@ -302,8 +318,8 @@ A skill whose `skill.json` lists `reads` also gets, at each launch, a read-only 
 repository's default branch at `<local_root>/worktrees/<job>.reads/<repo>@main`, passed in the launch
 payload's `reads` (no skill in this revision lists any). Each is a small repository of the controller's
 own, fetched from the configured remote and checked out detached at origin's default branch, which it
-also keeps as `origin/<default>`; it is never a worktree of FarmBot's bare clone, whose config, hooks and
-attributes a worker rooted in that repository can write. It borrows that clone's objects through git's
+also keeps as `origin/<default>`; it is never a worktree of FarmBot's bare clone, whose objects, refs and
+worktree entries a worker rooted in that repository can write. It borrows that clone's objects through git's
 alternates, so a large history is not fetched again, and nothing else of it; git lists the clone's ref
 tips there to tell the remote what the checkout has. Every git call in the checkout runs with hooks and
 fsmonitor off and the LFS filter emptied, so LFS files stay pointers and no filter program runs, and its

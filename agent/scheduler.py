@@ -195,9 +195,10 @@ class Scheduler:
         primary = (paths[write_repos[0]] if write_repos else self.launcher.state_dir(item["id"]))
         # `python3 -m agent` must resolve from any worktree, so FarmBot's root leads the worker's PYTHONPATH.
         pythonpath = os.pathsep.join(p for p in (str(repo_root), os.environ.get("PYTHONPATH", "")) if p)
-        # A worktree's commits land in FarmBot's bare clone, so the clone must be writable too.
+        # A worktree's commits land in FarmBot's bare clone: the parts of it git writes for them are writable too,
+        # never its config, hooks or info, which FarmBot's own git reads outside the sandbox (plan P10).
         source_roots = [*(paths[repo] for repo in write_repos),
-                        *(self.worktrees.clone_path(repo) for repo in write_repos)]
+                        *(part for repo in write_repos for part in self.worktrees.writable_parts(repo, paths[repo]))]
         # No slot folder or Unity host path is added to a worker's writable roots,
         # in either mode. The worker reads results XML in its own state directory, which
         # Launcher.spawn already makes writable, and writes nothing in the slot.

@@ -14,6 +14,7 @@ from .ledger import ACTIVE_STATES, AWAIT_REASONS
 from .readonly_db import snapshot_connection
 from .skills import SkillError, enabled_skills, load_skills
 from .stages import current_root, runtime_can_launch
+from .worktrees import Worktrees
 
 # The words a job's plan may use for its stages and pauses (the Phase B plan's shared interfaces). Doctor copies
 # only these out of a worker-written plan, never its prose, question text or branch names.
@@ -217,6 +218,22 @@ def diagnose(config, *, now=None):
                          "serve accepts delegations to these skills, but each job fails at launch: a repository-staged "
                          "skill needs Codex's workspace-write sandbox. Set runtime to codex, or leave them out of "
                          "enabled_skills, then restart the settled service.", runtime=config.runtime, skills=unsupported)
+    # Plan P10: FarmBot's git refuses a clone that holds what FarmBot does not write there. Names, never values.
+    trees = Worktrees(paths.repos, paths.worktrees, config.repos)
+    unexpected = {}
+    for repo in sorted(config.repos):
+        if trees.clone_path(repo).exists():
+            try:
+                problems = trees.clone_problems(repo)
+            except (OSError, subprocess.SubprocessError) as exc:
+                problems = [f"unreadable ({type(exc).__name__})"]
+            if problems:
+                unexpected[repo] = problems
+    if unexpected:
+        _finding(report, "clone_unexpected",
+                 "FarmBot refuses to use these clones: each holds config keys, info/ files or remote definitions "
+                 "that FarmBot does not write, which could make its git run a program outside the sandbox. Find "
+                 "out who wrote them, remove them, and the next job uses the clone again.", clones=unexpected)
     try:
         report.update(_snapshot(paths.ledger))
     except (OSError, sqlite3.Error, ValueError) as exc:

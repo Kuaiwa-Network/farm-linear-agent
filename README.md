@@ -145,7 +145,10 @@ host you want to inspect. Omit `--config` to use `FARMBOT_CONFIG` or the checkou
 with job/issue IDs, state and stage, leases, worker process checks, Unity slots,
 open reservations, pending cleanup, stored Linear status failures, and log paths.
 `findings` have stable codes, evidence and inspection hints so an AI can locate
-the relevant logs without scanning the entire ledger.
+the relevant logs without scanning the entire ledger. `clone_unexpected` names a bare
+clone FarmBot refuses to use because its config, `info/` or remote definitions hold
+what FarmBot does not write there, by key and file name, never value (operating
+contract, Authority).
 `local_root` defaults to the checkout running the command, even when `--config`
 points elsewhere; set an absolute `local_root` when inspecting from another checkout.
 
