@@ -1,7 +1,10 @@
 """Host progress reflects durable state, independently of worker lease renewal."""
+from pathlib import Path
 from types import SimpleNamespace
 
 from test_ledger import LedgerBase, SESSION
+from test_scheduler import FakeLauncher, FakeWorktrees, ROOT, SKILLS
+from agent.scheduler import Scheduler
 from agent.session_progress import SessionProgress
 
 
@@ -180,3 +183,24 @@ class SessionProgressTests(LedgerBase):
         self.progress.tick()
         self.assertEqual(self.sent[-1][1]["type"], "thought")
         self.assertIn("排队", self.sent[-1][1]["body"])
+
+    def test_cancel_with_notice_leaves_no_second_response(self):
+        """Withdrawn-work design X3, P7: a heartbeat send that failed stays pending, and a cancellation would turn it
+        into a "stopped" correction. A stop that posts its own notice drops it, so the notice is the last word."""
+        item = self.new_item()
+
+        def unavailable(*args, **kwargs):
+            raise OSError("temporary outage")
+        self.api.create_activity = unavailable
+        self.now += 600
+        self.assertTrue(self.progress.tick())  # the heartbeat is pending, due again in a minute
+        self.api.create_activity = self.send
+        scheduler = Scheduler(self.ledger, FakeLauncher(Path(self.tmp.name) / "runs"), SKILLS,
+                              FakeWorktrees(Path(self.tmp.name) / "wt"), skill_root=ROOT / "skills",
+                              db_path=self.path, runtime_name="fake", host="h", api=self.api)
+        scheduler.stop(item["id"], "Linear delegation removed", states=("queued",), notice="这项工作已取消。")
+        self.assertEqual([content for _, content, _ in self.sent], [{"type": "response", "body": "这项工作已取消。"}])
+        for _ in range(3):
+            self.now += 600
+            self.assertFalse(self.progress.tick())
+        self.assertEqual(len(self.sent), 1)

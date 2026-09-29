@@ -1193,6 +1193,30 @@ class SchedulerTests(unittest.TestCase):
             self.scheduler.stop(item["id"], "Linear stop", notice="已取消。")
         self.assertEqual((self.ledger.item(item["id"])["state"], self.launcher.stopped), ("queued", []))
 
+    def test_a_withdrawn_worker_is_stopped_when_its_grace_ends(self):
+        """Withdrawn-work design P2: the controller cancels and kills a flagged worker that has not run `withdraw` by
+        its deadline, with the one response its reason has; an issue out of reach gets none. A claim a worker
+        withdrew itself, or that ended meanwhile, is left alone."""
+        for reason, said in (("superseded", [("response", "这张卡有了新的委派会话，这里的工作已转到那里继续。")]),
+                             ("unreachable", [])):
+            with self.subTest(reason=reason):
+                session = str(uuid4())
+                item = self.item(issue_id=str(uuid4()), session=session)
+                token = self.ledger.claim(item["id"], worker_id="w")["token"]
+                self.ledger.flag_withdrawal(item["id"], reason, self.now + 30)
+                self.scheduler.tick()
+                self.assertEqual(self.ledger.item(item["id"])["state"], "running")
+                self.now += 30
+                self.scheduler.tick()
+                self.assertEqual(self.ledger.item(item["id"])["state"], "cancelled")
+                with self.assertRaises(LedgerError):
+                    self.ledger.renew(item["id"], token)
+                self.assertIn(item["id"], self.launcher.stopped)
+                self.assertEqual([(kind, body) for sid, kind, body in self.api.activities if sid == session], said)
+                audited = self.ledger.connection.execute("SELECT reason FROM audit WHERE item_id=? AND kind='cancelled'",
+                                                         (item["id"],)).fetchone()
+                self.assertEqual(audited["reason"], f"withdrawal grace expired ({reason})")
+
     def cancel_with_cli(self, item_id):
         result = subprocess.run(
             [sys.executable, "-B", "-W", "error", "-m", "agent", "--db", str(self.scheduler.db_path),

@@ -118,6 +118,19 @@ def _label_groups(nodes):
     return [{"group": group, "label": label} for group, label in sorted(pairs)]
 
 
+class LinearError(RuntimeError):
+    """Linear refused a request, and `kind` says how (withdrawn-work design §5.1, R8): the issue was not found, the
+    app may not read it (`forbidden`), is rate limited or unauthenticated, or anything else (`rejected`). Only a
+    repeated `not_found` ever counts toward an issue being out of reach; every other kind is transient."""
+    KINDS = ("not_found", "forbidden", "ratelimited", "auth", "rejected")
+
+    def __init__(self, kind, message="Linear GraphQL rejected the request"):
+        if kind not in self.KINDS:
+            raise ValueError(f"unknown Linear error kind: {kind!r}")
+        super().__init__(message)
+        self.kind = kind
+
+
 class UploadError(RuntimeError):
     """An upload could not be fetched or stored. The message names the cause, never the token or a URL."""
 

@@ -13,6 +13,7 @@ from .kw_ops import SERVER as KW_OPS_SERVER, resolve as resolve_kw_ops
 from .memory import publish_snapshot
 from .publication import issue_branch
 from .stages import current_root, runtime_can_launch, write_repositories
+from .withdrawal import NOTICE_REASONS, notice as withdrawal_notice
 
 TERMINAL = ("delivered", "blocked", "cancelled", "failed")
 WAITING = ("awaiting_input", "awaiting_resource")
@@ -278,7 +279,9 @@ class Scheduler:
         `states` (delegation removal, spec §9.8) cancels only an item still in one of those states, atomically; one
         a worker has claimed since keeps running and nothing is signalled. `notice` is then posted as the session's
         response, through `_notify` as a launch failure is, only when this call cancelled the item; it needs
-        `states`, without which a repeated stop could not tell. Returns the cancelled item, or None.
+        `states`, without which a repeated stop could not tell. The item's pending heartbeat goes with a notice, in
+        the cancelling transaction, so the notice is its session's last word (withdrawn-work design P7). Returns
+        the cancelled item, or None.
         """
         if notice is not None and states is None:
             raise ValueError("a stop notice needs states: only then is it known that this stop cancelled the item")
@@ -288,7 +291,7 @@ class Scheduler:
         cancelled = None
         try:
             try:
-                cancelled = control.cancel(item_id, reason, states=states)
+                cancelled = control.cancel(item_id, reason, states=states, drop_progress=notice is not None)
                 if cancelled is not None:
                     destination = cancelled["id"]
             except LedgerError:
@@ -528,8 +531,24 @@ class Scheduler:
                 if not handoff_worker:
                     self.active.pop(row["id"], None)
 
+    def _expire_withdrawals(self):
+        """A withdrawn worker that has not run `withdraw` by the end of its grace is stopped as Stop stops one
+        (withdrawn-work design P2): its claim ends cancelled here, with the one response its session gets, and
+        _stop_cancelled then kills it. An issue out of reach gets no response."""
+        for item in self.ledger.expired_withdrawals():
+            reason = item["withdraw_reason"]
+            try:
+                cancelled = self.ledger.cancel(item["id"], f"withdrawal grace expired ({reason})", states=("running",),
+                                               drop_progress=True)
+            except LedgerError:
+                continue
+            if cancelled is not None and reason in NOTICE_REASONS:
+                self._notify(item["id"], "response", withdrawal_notice(item["skill"], reason, self.bot_name),
+                             item=cancelled)
+
     def tick(self):
         with self.lock:
+            self._expire_withdrawals()
             self._stop_cancelled()
             reaped = self._reap()
             recovered = self._recover()

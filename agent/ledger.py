@@ -924,6 +924,13 @@ class Ledger:
                                        "ORDER BY priority, created_at, id", (self.clock(),))
         return [self._view(row) for row in rows]
 
+    def expired_withdrawals(self):
+        """Running items whose withdrawal grace has ended: their workers did not run `withdraw` in time, and the
+        controller stops them (design P2)."""
+        rows = self.connection.execute("SELECT * FROM work_items WHERE state='running' AND withdraw_deadline<=? "
+                                       "ORDER BY withdraw_deadline, id", (self.clock(),))
+        return [self._view(row) for row in rows]
+
     def launched(self):
         """Queued items whose worker was spawned but has not claimed yet."""
         rows = self.connection.execute("SELECT * FROM work_items WHERE state='queued' AND worker_pid IS NOT NULL "
