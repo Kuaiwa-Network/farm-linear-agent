@@ -162,8 +162,9 @@ its own git writes: the objects, refs, reflogs and LFS store, and its worktree's
 `worktrees/`. The clone's config, hooks, `info/` and other worktrees' entries are not writable,
 because FarmBot's own git reads them outside every sandbox: fetches, new worktrees, the publication
 check at launch, cleanup's work-in-progress commits and the Unity slots' checkouts. Workers push by
-refspec and never change the clone's config, so `git push -u` and deleting a branch fail inside a
-worker. Every git call FarmBot itself makes runs with hooks and fsmonitor off. In a job's worktree
+refspec and never change the clone's config, so `git push -u`, deleting a branch and a full
+`git gc` fail inside a worker, and git may print a harmless `packed-refs.lock` error after a
+commit or fetch that succeeded (the `fix` skill says so). Every git call FarmBot itself makes runs with hooks and fsmonitor off. In a job's worktree
 it names the clone and the worktree's entry itself, after checking that the worktree's `.git` file
 and the entry's `gitdir` and `commondir` still name each other and the clone: a pointer a worker
 rewrote is refused, never followed. FarmBot refuses a clone whose config holds keys it does not

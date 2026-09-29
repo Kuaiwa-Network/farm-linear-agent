@@ -309,6 +309,10 @@ and the issue branch. Push with `git push --no-follow-tags origin HEAD:refs/head
 the returned `push_remote` (`origin`) and exact `branch`. The expanded `push_url` is evidence only;
 passing it back as a URL can apply Git URL rewrites a second time. Use the explicit refspec,
 and its full `url` with `gh pr create --repo REPO_URL --head BRANCH --base BASE --draft`.
+FarmBot's clone behind your worktree is partly read-only to you: its config and `packed-refs`
+cannot be written, so `git push -u`, `git config`, deleting a branch and a full `git gc` fail. Git
+may also print `Unable to create '…/packed-refs.lock'` after a commit, fetch or rebase that
+succeeded; that line is harmless, so check the exit status and the result instead.
 Update only a draft PR whose repository and head match this job. Include the verification evidence
 when an approval reviewer needs the destination and payload context. Review the outgoing changes for
 unrelated files or secrets. The scope covers this fix's source, tests and required generated assets;
