@@ -2,6 +2,9 @@
 
 Connectors stay outside this module. confirm_comment records a caller's
 remote-readback attestation; it cannot verify Linear itself.
+
+"design" followed by an ID such as P3 or F14 cites the withdrawn-work design,
+docs/superpowers/specs/2026-09-29-withdrawn-work-design.md.
 """
 
 from contextlib import contextmanager

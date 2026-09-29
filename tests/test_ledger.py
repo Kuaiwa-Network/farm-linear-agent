@@ -1940,6 +1940,9 @@ class SecondItemOnOneIssueTests(LedgerBase):
                                 "verification": "dotnet test", "no_change": "无需改动", "prs": []})
 
 
+# "design" in the tests below, with an ID such as P2, cites the withdrawn-work design,
+# docs/superpowers/specs/2026-09-29-withdrawn-work-design.md.
+
 # The states in which no worker holds an item: the ones a supersede or a confirmed withdrawal cancels at once.
 UNCLAIMED = ("queued", "awaiting_input", "awaiting_resource")
 HANDOFF = {"facts": [], "hypotheses": [], "checks": [], "repositories": [], "next_actions": ["Retest the reward"]}

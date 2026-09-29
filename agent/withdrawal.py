@@ -1,4 +1,5 @@
-"""The texts of withdrawn work and the grace a claimed worker has to stop (withdrawn-work design §7.1, P2).
+"""The texts of withdrawn work and the grace a claimed worker has to stop (withdrawn-work design §7.1, P2:
+docs/superpowers/specs/2026-09-29-withdrawn-work-design.md).
 
 Work is withdrawn when the delegation that authorised it is gone, when a newer delegation session takes the card
 over, or when the issue is out of reach. `{bot}` is the instance's configured Linear app name. A conversation's
