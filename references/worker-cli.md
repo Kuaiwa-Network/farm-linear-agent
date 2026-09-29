@@ -16,10 +16,27 @@ python3 -m agent --db DATABASE checkpoint --help
 | `resume-work` | Legacy resume-only command: claim-token arguments and `--message-id LATEST_MESSAGE_ID`; cannot start a first repair |
 | `memory-list`, `memory-read`, `memory-save`, `memory-forget` | Same claim-token arguments; see `references/memory.md` |
 | `release-resource` | `--item ITEM_ID --token-file RESOURCE_TOKEN_FILE`, using `resource.token_file`, plus `--outcome quiescent` or `--outcome unclean` |
+| `withdraw` | `--item ITEM_ID --token-file STATE_DIR/token`; ends your claim as cancelled after the delegation was removed or superseded; save a checkpoint first; exit after it succeeds |
 
 `fetch-issue` refreshes the ledger from Linear and prints `delegated`: `true` while the issue is
 delegated to this FarmBot app, `false` once someone removed the delegation or gave it to another
-app. `issue-context` reads the saved context.
+app. It also prints `withdrawn`: `true` once FarmBot has withdrawn your work, because the delegation
+went or a newer delegation session took the card over, and you are to stop. `issue-context` reads
+the saved context; its `coordination.authority` says what authorised your work: `delegation`, a
+`mention`, or the `operator`.
+
+`withdraw` reads the card afresh and ends your claim as cancelled when your work is withdrawn, the
+card is closed, or, for work the delegation authorised, the card is no longer delegated to this app.
+It posts the one notice that says so, and a later delegation continues the job from your
+checkpoint's plan. It refuses while nothing withdrew the work, and when the card is delegated to
+this app again; then continue. `verify-publication`, `handoff-repository`, `await-input` and
+`await-resource` refuse withdrawn work with `delegation withdrawn`, and `await-input` refuses work
+the delegation authorised on a card no longer delegated here or closed, before anything reaches
+Linear.
+
+```bash
+python3 -m agent --db DATABASE withdraw --item ITEM_ID --token-file STATE_DIR/token
+```
 Neither accepts `--token-file`. Tokens never belong in argv as `--token` values.
 The argument table does not grant additional authority; use only your delegated item.
 

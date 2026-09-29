@@ -1,7 +1,8 @@
 # Withdrawn work: design for FarmBot's undelegation fix
 
-**Status: accepted, 2026-09-29; being implemented, not yet merged or deployed.** Current behaviour is in
-[`docs/operating-contract.md`](../../operating-contract.md), which the implementation updates. On
+**Status: accepted, 2026-09-29; implemented on its branch (all six commits of §5.1), not yet merged or
+deployed; the live checks of §8 have not run.** Current behaviour is in
+[`docs/operating-contract.md`](../../operating-contract.md), whose "Withdrawn work" section states it. On
 2026-09-29 the operator settled the five questions of §9 as recommended. Code comments cite this
 document as the "withdrawn-work design", with the IDs it defines. Appendix C records where the
 implementation departs from the text below.
@@ -1011,3 +1012,7 @@ Where the code departs from the text above, and why. The operating contract stat
 | §5.1 commit 5, heartbeats | "这张卡已不再委派" is shown only for delegation-authority work; a mention's or the operator's queued conversation keeps the ordinary text. `session_progress.failures` counts failed sends since the item's last successful one, across a state change. | Withdrawal never touches such a conversation (P2), so telling its session it will stop would be false. Resetting on each change would let a flapping item retry every minute. |
 | §5.1 commit 5, `graphql` | An HTTP error other than a 400 that holds `RATELIMITED` propagates as the `HTTPError` it was, not as a `rejected` LinearError. | It already counted as a transient failure everywhere; only a `not_found` LinearError counts toward R8. |
 | §5.3, rollback | Under older code, a worker flagged `undelegated` is refused at `verify-publication` while the card stays undelegated. A worker flagged `superseded` may publish, because the card is still delegated. | Older `verify-publication` reads the delegate, not the flag. |
+| §7.3, dispatch | The sentence names write jobs: "In a write job, if fetch-issue reports delegated false or withdrawn true, or a ledger command refuses with 'delegation withdrawn', publish nothing and ask nothing: save a checkpoint, run the ledger CLI's withdraw command and exit." | The common AUTHORITY reaches conversations too. Unscoped, it would tell a mention's conversation on an undelegated card not to ask (J1 lets it), and a delegation's conversation to withdraw where §7.2 has it answer once and finish delivered (A9). |
+| §7.2, fix SKILL | The withdrawal rule also applies when the issue is archived or closed. | The sentence it replaces covered closure, and `withdraw` accepts a closed card. |
+| §5.1 commit 6, `stored_undelegated` | It lists the delegation's work, and conversations that a delegation session opened before authorities were recorded, which K2 reads as a mention's; it does not list a mention's conversation. The delegate ids are compared without case. | §5.3 and the answer to §9's fifth question: stranded conversations are kept and listed. A mention's conversation on an undelegated card is normal and would be listed on every run. |
+| §7.4, contract | The Triggers row for a reply in a delegation session with no work item no longer gives "another session's work declined it" as its example, and the contract also states C7's successor session and J4's fresh delegate. | No delegation is declined any more (P4), and commit 2's behaviour had no contract text. |

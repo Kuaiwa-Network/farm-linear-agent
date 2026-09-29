@@ -330,6 +330,13 @@ canceled, duplicate and archived issues cancel FarmBot's unfinished/blocked jobs
 poll catches missed notifications; `reconcile_seconds` in private config defaults to 60. Failed status
 reads defer new launches. No Linear status or assignment is changed by reconciliation.
 
+Removing FarmBot's delegation withdraws the work it authorised once a second status read, an interval
+later, confirms it; a new delegation session takes over work waiting in another session; a running
+worker saves its progress and runs `withdraw`, or is stopped after twice its renew interval.
+Conversations started by an @mention or by the operator stay. Each job cancelled while active gets
+one response in its session. `doctor` lists work withdrawal should have ended; see "Withdrawn work"
+in the [operating contract](docs/operating-contract.md).
+
 Owned processes stop before cleanup. Unfinished source and clean unpublished commits survive in local
 `refs/farmbot/recovery/<job-id>` refs. Unverified processes, unsettled slots and preservation failures
 hold cleanup; `python3 -m agent.service status` shows `cleanup_pending` and `issue_status_errors`.

@@ -265,8 +265,12 @@ activities to appear.
 
 Each repository you change already has a worktree on the Linear branch. Commit there; never touch the
 human's checkouts. Generated artifacts change only through their documented generators (see the repository map among your
-launch message's `references`). Before source work and before each PR, run `fetch-issue` again: if the
-issue was archived, closed or re-delegated away, stop publication and finish blocked.
+launch message's `references`). Before source work and before each PR, run `fetch-issue` again.
+If `fetch-issue` prints `delegated: false` or `withdrawn: true`, the issue is archived or closed, or any
+command refuses with `delegation withdrawn`, publish nothing and ask nothing. Save a checkpoint whose
+`plan.prs` records every branch and PR you pushed, then run `withdraw` and exit. `withdraw` ends the job as
+cancelled, so a later delegation continues from your plan. If `withdraw` refuses because the card is
+delegated again, continue.
 
 Other people may already be working on the issue: humans, or another FarmBot instance, since
 production and TestBot both name branches `farmbot/<key>`. Before your first source change in each
@@ -323,10 +327,11 @@ retried inside the command with fresh delegation/destination checks. `status: re
 means the host has preserved and delayed the job and retired this claim: stop and exit immediately;
 do not publish, call `await-input`, or keep using the old token. `status: retry_exhausted` likewise
 requires exit; the host records an infrastructure failure after three delayed job retries.
-For non-transient verification failures (such as revoked delegation, wrong destination or denied
-access), preserve local work and explain the specific gap through `await-input` (which adds
-`needs-more-info`). If automatic approval rejects the action, keep the rejection in the report;
-gather the missing evidence or request concrete approval. Never switch execution paths to bypass it.
+For non-transient verification failures (such as a wrong destination or denied access), preserve local
+work and explain the specific gap through `await-input` (which adds `needs-more-info`);
+revoked delegation is never a question; follow the withdrawal rule above. If automatic approval
+rejects the action, keep the rejection in the report; gather the missing evidence or request concrete
+approval. Never switch execution paths to bypass it.
 
 A fix keeps a `plan` in its checkpoint (`references/worker-cli.md`). Its `prs` maps each repository's
 name, as your launch message spells it (`Farm-Client`, never `OWNER/Farm-Client`), to a list of entries

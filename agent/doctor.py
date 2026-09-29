@@ -1,6 +1,7 @@
 """Read-only host diagnostics. Never open Ledger: its constructor migrates the DB."""
 import json
 import os
+import re
 import sqlite3
 import stat
 import subprocess
@@ -12,6 +13,7 @@ from .dispatch import SKILL_AUTHORITY
 from .foreign_work import plan_work
 from .ledger import ACTIVE_STATES, AWAIT_REASONS
 from .readonly_db import snapshot_connection
+from .router import WRITE_SKILLS
 from .skills import SkillError, enabled_skills, load_skills
 from .stages import current_root, runtime_can_launch
 from .worktrees import Worktrees
@@ -20,6 +22,14 @@ from .worktrees import Worktrees
 # only these out of a worker-written plan, never its prose, question text or branch names.
 STAGE_LETTERS = ("A", "B", "C", "D", "E", "F", "G")
 PAUSE_KINDS = ("answers", "config_ready", "closing", "foreign_work", "stage_limit")
+# When withdrawn work is late (withdrawn-work design §5.1 commit 6): the delegation's work outlives three status
+# intervals after a read found its card undelegated (two reads an interval apart withdraw it), a flagged worker
+# outlives its deadline by 5 minutes, a delegation waits 45 minutes for another session's worker, or a job waits
+# 7 days for an answer.
+UNDELEGATED_INTERVALS = 3
+WITHDRAWAL_OVERDUE_SECONDS = 300
+DEFERRED_SECONDS = 45 * 60
+LONG_PARKED_SECONDS = 7 * 86400
 
 
 class _SchemaMismatch(ValueError):
@@ -91,7 +101,29 @@ def _snapshot(path):
         # Read for the plan summary of a job with an initial root and dropped from every job entry (diagnose); a
         # ledger older than root_repo reads as having none.
         root_repo = "w.root_repo" if "root_repo" in columns else "NULL"
+        # Withdrawn work (design §5.1 commit 6): each column is read only where the ledger has it, and a ledger
+        # older than it reports none of the findings that need it.
+        checks = {row["name"] for row in db.execute("PRAGMA table_info(issue_checks)")}
+        present = {name: f"w.{name}" if name in columns else "NULL"
+                   for name in ("authority", "withdraw_deadline", "withdraw_reason")}
+        undelegated_since = "c.undelegated_since" if "undelegated_since" in checks else "NULL"
+        withdrawal = {
+            "active": rows(f"""SELECT w.id AS item_id,w.issue_id,json_extract(i.metadata,'$.identifier') AS identifier,
+                w.skill,w.state,w.updated_at,{present['authority']} AS authority,
+                {present['withdraw_deadline']} AS withdraw_deadline,{present['withdraw_reason']} AS withdraw_reason,
+                json_extract(i.metadata,'$.delegate_id') AS stored_delegate_id,s.delegation AS session_delegation,
+                {undelegated_since} AS undelegated_since
+                FROM work_items w JOIN issues i ON i.id=w.issue_id
+                LEFT JOIN sessions s ON s.session_id=w.session_id LEFT JOIN issue_checks c ON c.issue_id=w.issue_id
+                WHERE w.state IN ('queued','running','awaiting_input','awaiting_resource')
+                ORDER BY w.created_at,w.id"""),
+            # The item a deferred delegation waits for is kept in its `error` column (Receiver.process_one).
+            "deferred": rows("""SELECT session_id,received_at,error AS waits_for FROM webhook_events
+                WHERE status='deferred' ORDER BY received_at""") if "webhook_events" in tables else [],
+            "columns": {name for name in present if name in columns} | ({"undelegated_since"} & checks),
+        }
         return {
+            "_withdrawal": withdrawal,
             "counts": {row["state"]: row["count"] for row in rows(
                 "SELECT state,COUNT(*) AS count FROM work_items GROUP BY state")},
             "jobs": rows(f"""SELECT w.id AS item_id,w.issue_id,json_extract(i.metadata,'$.identifier') AS identifier,
@@ -235,12 +267,14 @@ def diagnose(config, *, now=None):
                  "that FarmBot does not write, which could make its git run a program outside the sandbox. Find "
                  "out who wrote them, remove them, and the next job uses the clone again.", clones=unexpected)
     try:
-        report.update(_snapshot(paths.ledger))
+        snapshot = _snapshot(paths.ledger)
     except (OSError, sqlite3.Error, ValueError) as exc:
         _finding(report, "ledger_unreadable", "Check the ledger path, permissions and schema with this service version; no migration was attempted.",
                  incomplete=True, error_type=type(exc).__name__,
                  **({"missing_schema": exc.missing} if isinstance(exc, _SchemaMismatch) else {}))
         return report
+    withdrawal = snapshot.pop("_withdrawal")
+    report.update(snapshot)
     report["counts"]["total"] = sum(report["counts"].values())
     rooted = {name: skill for name, skill in loaded.items() if skill.initial_root}
     for job in report["jobs"]:
@@ -298,7 +332,61 @@ def diagnose(config, *, now=None):
             _finding(report, "reservation_cancel_pending", "Inspect the resource owner and service logs; cancellation has not settled yet.", **reservation)
         if reservation["state"] in ("active", "cancel_requested") and reservation["resource"] not in slots:
             _finding(report, "reservation_slot_missing", "Inspect reservation history; its assigned slot is absent from this ledger.", **reservation)
+    _withdrawal_findings(report, config, withdrawal)
     return report
+
+
+def _stored_authority(row):
+    """What authorised the job, as the ledger reads it (design K2): a row written before authorities were recorded
+    reads as its skill's default, a write job's the delegation's and a conversation's a mention's."""
+    return row["authority"] or ("delegation" if row["skill"] in WRITE_SKILLS else "mention")
+
+
+def _withdrawal_findings(report, config, withdrawal):
+    """Work that withdrawal should have ended, or that nothing would end (withdrawn-work design §5.1 commit 6, §5.3,
+    B1, E4, H4). Evidence names jobs and times, never a question, a payload or issue prose."""
+    now, columns = report["checked_at"], withdrawal["columns"]
+    in_prefix = re.compile(rf"{re.escape(config.issue_prefix)}-[0-9]+")
+    app = (config.expected_app_user_id or "").lower()
+    for row in withdrawal["active"]:
+        evidence = {key: row[key] for key in ("item_id", "issue_id", "identifier", "skill", "state")}
+        authority = _stored_authority(row)
+        if ("undelegated_since" in columns and authority == "delegation" and row["undelegated_since"] is not None
+                and now - row["undelegated_since"] > UNDELEGATED_INTERVALS * config.reconcile_seconds):
+            _finding(report, "undelegated_work",
+                     "A status read found the card not delegated to this app, and a second read an interval later "
+                     "should have withdrawn this job. Check issue_status_error findings, the lifecycle loop and the "
+                     "service logs; a read that finds the delegation back clears the mark.",
+                     undelegated_since=row["undelegated_since"], **evidence)
+        if ("withdraw_deadline" in columns and row["state"] == "running" and row["withdraw_deadline"] is not None
+                and now - row["withdraw_deadline"] > WITHDRAWAL_OVERDUE_SECONDS):
+            _finding(report, "withdrawal_overdue",
+                     "The controller stops a withdrawn worker at its deadline, and this one still runs. Check the "
+                     "scheduler loop, the worker's process and its run logs.",
+                     withdraw_deadline=row["withdraw_deadline"], withdraw_reason=row["withdraw_reason"], **evidence)
+        if row["state"] == "awaiting_input" and now - row["updated_at"] > LONG_PARKED_SECONDS:
+            _finding(report, "long_parked",
+                     "This job has waited more than 7 days for an answer. Check its session in Linear: a lost reply, or "
+                     "a session archived while the card stayed delegated, never resumes it. Ask the person, or cancel it.",
+                     parked_seconds=int(now - row["updated_at"]), **evidence)
+        if not (isinstance(row["identifier"], str) and in_prefix.fullmatch(row["identifier"])):
+            _finding(report, "outside_prefix",
+                     "The job's issue is outside this host's issue_prefix, perhaps moved to another team, which FarmBot "
+                     "does not detect. Decide whether to cancel it.", issue_prefix=config.issue_prefix, **evidence)
+        if (app and (row["stored_delegate_id"] or "").lower() != app
+                and (authority == "delegation" or (row["authority"] is None and row["session_delegation"]))):
+            _finding(report, "stored_undelegated",
+                     "The stored card is not delegated to the pinned app. Once this revision runs, a status read "
+                     "confirming that withdraws the delegation's work; a conversation stored without an authority is "
+                     "kept. Decide on each before deploying (withdrawn-work design §5.3).",
+                     authority=authority, authority_recorded=row["authority"] is not None, **evidence)
+    for event in withdrawal["deferred"]:
+        if now - event["received_at"] > DEFERRED_SECONDS:
+            _finding(report, "deferred_delegation",
+                     "A delegation has waited more than 45 minutes for another session's worker to stop. Check that "
+                     "job (withdrawal_overdue) and the receiver loop; a reply in the session routes it again.",
+                     session_id=event["session_id"], waits_for=event["waits_for"],
+                     deferred_seconds=int(now - event["received_at"]))
 
 
 def run(config_path=None):
