@@ -1461,6 +1461,41 @@ class WithdrawnWorkReceiverTests(ReceiverBase):
         self.api.create_comment.assert_called_once_with(ISSUE, SUPERSEDED)
         self.assertEqual([session for session, _ in self.sent()], ["session-1"])
 
+    def operators_conversation_taken_over(self, claimed):
+        """Design K6: a conversation the operator enqueued (a `local-` session, operator authority), queued or
+        `claimed` by its worker, with one message, and then a Bot/修改 delegation in session-1. Returns the
+        conversation and the fix the delegation started."""
+        self.ledger.observe_issue(issue(labels=["Bug", "修改"], delegate_id=APP, label_groups=CHANGE))
+        self.ledger.ensure_session(f"local-{ISSUE}", ISSUE, True)
+        local = self.ledger.create_work_item(issue_id=ISSUE, session_id=f"local-{ISSUE}", skill="chat",
+                                             authority="operator")
+        self.ledger.push_inbox(local["id"], "维护者：请看一下这张卡")
+        token = self.ledger.claim(local["id"], worker_id="w")["token"] if claimed else None
+        [fix] = self.delegate("session-1")
+        if token is not None:
+            with self.assertRaises(LedgerError):
+                self.ledger.renew(local["id"], token)
+        return self.ledger.item(local["id"]), fix
+
+    def assert_taken_over_with_one_card_note(self, local, fix):
+        """The conversation ended, the fix carries its message and the delegation's authority, and the card, which is
+        where a `local-` job reports, got the one note; the new session was acknowledged as a takeover."""
+        self.assertEqual(local["state"], "cancelled")
+        self.assertEqual((fix["skill"], fix["state"], fix["authority"], fix["predecessor_id"]),
+                         ("fix", "queued", "delegation", None))
+        self.assertEqual(self.messages(fix), ["维护者：请看一下这张卡"])
+        self.api.create_comment.assert_called_once_with(ISSUE, SUPERSEDED)
+        self.assertEqual(self.sent(), [("session-1", {"type": "thought", "body": FIX_ACK + "\n" + SUPERSEDE_SUFFIX})])
+        self.assertEqual(self.receiver.results()[-1]["status"], "done")
+
+    def test_k6_delegation_takes_a_queued_operator_conversation_over(self):
+        self.assert_taken_over_with_one_card_note(*self.operators_conversation_taken_over(claimed=False))
+
+    def test_k6_delegation_takes_a_running_operator_conversation_over(self):
+        """A claimed conversation is superseded at once too (C2); the scheduler's next tick kills its worker."""
+        self.assert_taken_over_with_one_card_note(*self.operators_conversation_taken_over(claimed=True))
+        self.scheduler.stop.assert_not_called()
+
     def test_c5_mention_supersedes_a_waiting_chat_into_its_own_session(self):
         chat = self.waiting_chat("session-1")
         self.mention_in("session-9", "@FarmBot 公共测试服")
