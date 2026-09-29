@@ -12,6 +12,8 @@ from test_ledger import ISSUE, OTHER, PIN, issue
 ROOT = Path(__file__).resolve().parents[1]
 SLOT = "unity_slot:1"
 HOST = "test-host"
+# The app user StubLinear speaks as (agent.config.StubLinear).
+STUB_APP = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
 
 
 class CliTests(unittest.TestCase):
@@ -408,19 +410,26 @@ class CliTests(unittest.TestCase):
         text = (self.stub / "calls.jsonl").read_text(encoding="utf-8") if (self.stub / "calls.jsonl").exists() else ""
         return [json.loads(line) for line in text.splitlines()]
 
-    def seeded_item(self, issue_id=ISSUE, session="session-1", skill="fix", target=None, delegation=True):
+    def stub_card(self, **changes):
+        """Make the stub's card, which every issue id reads, `issue(labels=["Bug"], **changes)`."""
+        (self.stub / "issue.json").write_text(json.dumps(issue(labels=["Bug"], **changes)), encoding="utf-8")
+
+    def seeded_item(self, issue_id=ISSUE, session="session-1", skill="fix", target=None, delegation=True,
+                    authority=None):
         """Create a work item the way the receiver would, then return its id.
 
         `target` is the pin the receiver snapshots onto the item. It defaults to None because most tests
         here never ask for a resource, and `await_resource` is the one command that refuses an item without
         one: a slot cannot be switched to a commit that does not exist. `delegation` is false for a session an
-        @mention opened.
+        @mention opened. `authority` is what authorised the item; None records its skill's default, the
+        delegation's for a write item and a mention's for a chat.
         """
         from agent.ledger import Ledger
         ledger = Ledger(self.db)
         ledger.observe_issue(issue(id=issue_id, labels=["Bug"]))
         ledger.ensure_session(session, issue_id, delegation=delegation)
-        item = ledger.create_work_item(issue_id=issue_id, session_id=session, skill=skill, target=target)
+        item = ledger.create_work_item(issue_id=issue_id, session_id=session, skill=skill, target=target,
+                                       authority=authority)
         ledger.close()
         return item["id"]
 
@@ -583,6 +592,7 @@ class CliTests(unittest.TestCase):
         self.assertNotIn("create_comment", [c["method"] for c in self.calls()])
 
     def test_only_a_question_pause_adds_needs_more_info(self):
+        self.stub_card(delegate_id=STUB_APP)  # a fix pauses only on a card still delegated here (design J1)
         question = self.seeded_item()
         waiting = self.seeded_item(issue_id=OTHER, session="session-2")
         for item, flags, reason in ((question, [], "question"), (waiting, ["--reason", "waiting"], "waiting")):
@@ -615,6 +625,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(self.run_cli("issue-context", "--item", item)["coordination"]["state"], "running")
 
     def test_activity_and_await_input_park_the_item(self):
+        self.stub_card(delegate_id=STUB_APP)  # a fix pauses only on a card still delegated here (design J1)
         item = self.seeded_item()
         token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
         body = self.root / "q.md"
@@ -793,10 +804,188 @@ class CliTests(unittest.TestCase):
         args = parser().parse_args(["--db", str(self.db), "fetch-issue", "--item", item])
         for delegate, delegated in ((app, True), (None, False), ("10000000-0000-4000-8000-000000000009", False)):
             with self.subTest(delegate=delegate):
+                ledger.finish_status_check(ISSUE, 60)  # the issue's next status read is a minute away
                 current = issue(labels=["Bug"], delegate_id=delegate)
                 fetched = run(args, ledger, lambda: SimpleNamespace(app_user_id=app, fetch_issue=lambda _: current))
-                self.assertEqual((fetched["identifier"], fetched["delegated"]), ("FARM-1", delegated))
+                self.assertEqual((fetched["identifier"], fetched["delegated"], fetched["withdrawn"]),
+                                 ("FARM-1", delegated, False))
+                # A worker that finds the delegation gone asks the lifecycle for a status read now; it cancels nothing
+                # itself (withdrawn-work design §3, critique 2.10).
+                self.assertEqual(bool(ledger.status_check(ISSUE)["requested"]), not delegated)
+        self.assertEqual(ledger.item(item)["state"], "queued")
+        ledger.claim(item, worker_id="w")
+        ledger.flag_withdrawal(item, "superseded", 9e9)
+        current = issue(labels=["Bug"], delegate_id=app)
+        fetched = run(args, ledger, lambda: SimpleNamespace(app_user_id=app, fetch_issue=lambda _: current))
+        self.assertEqual((fetched["delegated"], fetched["withdrawn"]), (True, True))
         self.assertIs(self.run_cli("fetch-issue", "--item", item)["delegated"], False)  # the stub's card: undelegated
+
+    def test_j1_await_input_refuses_on_an_undelegated_card_for_delegation_authority(self):
+        """Withdrawn-work design J1: a delegation's conversation cannot park on a card that is no longer delegated here,
+        or is closed, and the refusal comes before anything reaches Linear. A mention's conversation needs no
+        delegation and parks."""
+        delegation = self.seeded_item(skill="chat", authority="delegation")
+        token = self.run_cli("claim", "--item", delegation, "--worker-id", "w")["token"]
+        for card in ({}, {"delegate_id": STUB_APP, "status_type": "canceled"}, {"delegate_id": STUB_APP,
+                                                                                 "archived": True}):
+            with self.subTest(card=card):
+                self.stub_card(**card)
+                refused = self.run_cli("await-input", "--item", delegation, "--token", token,
+                                       "--question", "需要哪个环境？", success=False)
+                self.assertIn("run withdraw and exit", refused.stderr)
+        self.assertEqual([c["method"] for c in self.calls()], ["fetch_issue"] * 3)  # status reads, and nothing else
+        self.assertEqual(self.run_cli("issue-context", "--item", delegation)["coordination"]["state"], "running")
+        self.stub_card()
+        mention = self.seeded_item(issue_id=OTHER, session="mention", skill="chat", delegation=False)
+        mention_token = self.run_cli("claim", "--item", mention, "--worker-id", "w2")["token"]
+        parked = self.run_cli("await-input", "--item", mention, "--token", mention_token, "--question", "哪个服？")
+        self.assertEqual((parked["state"], parked["authority"]), ("awaiting_input", "mention"))
+        self.assertEqual([c["issue_id"] for c in self.calls() if c["method"] == "needs_more_info"], [OTHER])
+
+    def withdrawal_fixture(self):
+        """A claimed fix whose worker saved a checkpoint, and the path of its token file."""
+        item = self.seeded_item()
+        token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
+        self.run_cli("checkpoint", "--item", item, "--token", token, "--input",
+                     self.json_file("cp.json", {"stage": "publishing", "published_prs": []}))
+        path = self.root / f"token-{item}"
+        path.write_text(token, encoding="utf-8")
+        path.chmod(0o600)
+        return item, token, path
+
+    def flag(self, item, reason):
+        from agent.ledger import Ledger
+        ledger = Ledger(self.db)
+        try:
+            self.assertTrue(ledger.flag_withdrawal(item, reason, 9e9))
+        finally:
+            ledger.close()
+
+    def test_a10_flagged_fix_refuses_publication_pause_resource_and_handoff(self):
+        """Withdrawn-work design A10: a worker told its work is withdrawn cannot publish, park, wait for a slot or
+        hand off; each command says so before anything reaches Linear or GitHub."""
+        from unittest.mock import patch
+        from agent.__main__ import parser, run
+        from agent.ledger import LedgerError
+        args, ledger, config, _, github = self.publication_fixture()
+        config.repos['Farm-Contract'] = 'https://github.com/Kuaiwa-Network/Farm-Contract.git'
+        ledger.set_worker(args.item, 12345, 'test')
+        ledger.checkpoint(args.item, args.token, {'handoff': {
+            'facts': [], 'hypotheses': [], 'checks': [], 'repositories': [], 'next_actions': ['Check contract']}})
+        self.assertTrue(ledger.flag_withdrawal(args.item, 'undelegated', 9e9))
+        common = ['--db', str(self.db)]
+        commands = {
+            'verify-publication': args,
+            'handoff-repository': parser().parse_args(common + ['handoff-repository', '--item', args.item,
+                                                                '--token', args.token, '--to', 'Farm-Contract']),
+            'await-input': parser().parse_args(common + ['await-input', '--item', args.item, '--token', args.token,
+                                                         '--question', '需要哪个环境？']),
+            'await-resource': parser().parse_args(common + ['await-resource', '--item', args.item, '--token',
+                                                            args.token, '--resource', 'unity_slot', '--mode', 'batch']),
+        }
+        with patch('agent.__main__.load_config', return_value=config), \
+                patch('agent.publication.github_api', side_effect=AssertionError('GitHub was read')):
+            for name, command in commands.items():
+                with self.subTest(command=name), self.assertRaisesRegex(LedgerError, 'delegation withdrawn'):
+                    run(command, ledger, lambda: self.fail('a withdrawn worker reached Linear'))
+        current = ledger.item(args.item)
+        self.assertEqual((current['state'], current['next_root_repo'], ledger.reservations()), ('running', None, []))
+
+    def test_a10_withdraw_cancels_the_claim_and_posts_once(self):
+        """Withdrawn-work design A10, P6, P7: `withdraw` ends the flagged claim as cancelled, so a later delegation
+        continues from the checkpoint, and posts the one notice in the job's session. An operator's `local-` job,
+        which has no Linear session, is told on the card."""
+        from agent.withdrawal import UNDELEGATED
+        item, token, path = self.withdrawal_fixture()
+        self.flag(item, "undelegated")
+        withdrawn = self.run_cli("withdraw", "--item", item, "--token-file", str(path))
+        self.assertEqual((withdrawn["id"], withdrawn["state"], withdrawn["reason"]), (item, "cancelled", "undelegated"))
+        self.assertEqual(withdrawn["checkpoint"]["stage"], "publishing")
+        self.assertIn("running claim", self.run_cli("renew", "--item", item, "--token-file", str(path),
+                                                    success=False).stderr)
+        self.run_cli("withdraw", "--item", item, "--token-file", str(path), success=False)
+        posts = [c for c in self.calls() if c["method"] in ("create_activity", "create_comment")]
+        self.assertEqual(posts, [{"method": "create_activity", "session_id": "session-1", "activity_id": None,
+                                  "content": {"type": "response", "body": UNDELEGATED.format(bot="FarmBot")}}])
+        # Unflagged, a card not delegated here withdraws the delegation's work too; the note goes on the card.
+        local = self.seeded_item(issue_id=OTHER, session="local-enqueue")
+        local_token = self.run_cli("claim", "--item", local, "--worker-id", "w2")["token"]
+        self.assertEqual(self.run_cli("withdraw", "--item", local, "--token", local_token)["state"], "cancelled")
+        comments = [c for c in self.calls() if c["method"] == "create_comment"]
+        self.assertEqual([(c["issue_id"], c["body"]) for c in comments], [(OTHER, UNDELEGATED.format(bot="FarmBot"))])
+        self.assertEqual(len([c for c in self.calls() if c["method"] == "create_activity"]), 1)
+
+    def test_a10_withdraw_refuses_while_still_delegated_and_unflagged(self):
+        """Design A10, P8: nothing withdraws work the card still authorises; the worker continues."""
+        self.stub_card(delegate_id=STUB_APP)
+        item, token, path = self.withdrawal_fixture()
+        refused = self.run_cli("withdraw", "--item", item, "--token-file", str(path), success=False)
+        self.assertIn("still delegated to this app", refused.stderr)
+        self.assertEqual(self.run_cli("renew", "--item", item, "--token-file", str(path))["state"], "running")
+        self.assertFalse([c for c in self.calls() if c["method"] in ("create_activity", "create_comment")])
+
+    def test_a_flagged_worker_withdraws_on_its_flag_when_the_card_cannot_be_read(self):
+        """A read that fails is no reason to withdraw (design P8), but a flag two confirming reads set is: the worker
+        ends on it rather than waiting for the controller to stop it. Unflagged, the failure is the command's."""
+        from agent.withdrawal import SUPERSEDED
+        item, token, path = self.withdrawal_fixture()
+        (self.stub / "issue.json").unlink()  # every status read of the stub now fails
+        self.run_cli("withdraw", "--item", item, "--token-file", str(path), success=False)
+        self.assertEqual(self.run_cli("renew", "--item", item, "--token-file", str(path))["state"], "running")
+        self.flag(item, "superseded")
+        withdrawn = self.run_cli("withdraw", "--item", item, "--token-file", str(path))
+        self.assertEqual((withdrawn["state"], withdrawn["reason"]), ("cancelled", "superseded"))
+        self.assertEqual([c["content"]["body"] for c in self.calls() if c["method"] == "create_activity"], [SUPERSEDED])
+
+    def test_i2_operator_cancel_posts_one_note_and_drops_pending_progress(self):
+        """Withdrawn-work design I2, P7: an operator's cancel posts one note, in the job's session or, for a `local-`
+        job, on the card, and drops the job's pending heartbeat so no "stopped" correction follows it. A job that
+        had already ended gets nothing."""
+        from agent.ledger import Ledger
+        from agent.session_progress import SessionProgress
+        from agent.withdrawal import OPERATOR, OPERATOR_CHAT
+        fix = self.seeded_item()
+        ledger = Ledger(self.db)
+        try:
+            progress = SessionProgress(ledger, None)
+            progress.queue_current(fix)  # a heartbeat send is pending for the job
+            self.assertEqual(ledger.connection.execute("SELECT count(*) FROM session_progress WHERE item_id=? "
+                                                       "AND content IS NOT NULL", (fix,)).fetchone()[0], 1)
+        finally:
+            ledger.close()
+        self.assertEqual(self.run_cli("cancel", "--item", fix, "--reason", "operator stop")["state"], "cancelled")
+        self.run_cli("cancel", "--item", fix, "--reason", "operator stop again")
+        chat = self.seeded_item(issue_id=OTHER, session="local-enqueue", skill="chat", authority="operator")
+        self.run_cli("cancel", "--item", chat, "--reason", "operator stop")
+        posts = [(c["method"], c.get("session_id") or c.get("issue_id"), c.get("content") or c.get("body"))
+                 for c in self.calls() if c["method"] in ("create_activity", "create_comment")]
+        self.assertEqual(posts, [("create_activity", "session-1", {"type": "response", "body": OPERATOR}),
+                                 ("create_comment", OTHER, OPERATOR_CHAT)])
+        ledger = Ledger(self.db)
+        try:
+            self.assertIsNone(ledger.connection.execute("SELECT 1 FROM session_progress WHERE item_id=?",
+                                                        (fix,)).fetchone())
+        finally:
+            ledger.close()
+
+    def test_f11_handoff_refuses_on_undelegated_card(self):
+        """Withdrawn-work design F11 (regression): a handoff reads the card afresh and refuses once it is no longer
+        delegated here; the worker keeps its claim, and the SKILL tells it to withdraw."""
+        from unittest.mock import patch
+        from agent.__main__ import parser, run
+        from agent.ledger import LedgerError
+        args, ledger, config, api, _ = self.publication_fixture()
+        config.repos['Farm-Contract'] = 'https://github.com/Kuaiwa-Network/Farm-Contract.git'
+        ledger.set_worker(args.item, 12345, 'test')
+        ledger.checkpoint(args.item, args.token, {'handoff': {
+            'facts': [], 'hypotheses': [], 'checks': [], 'repositories': [], 'next_actions': ['Check contract']}})
+        handoff = parser().parse_args(['--db', str(self.db), 'handoff-repository', '--item', args.item,
+                                       '--token', args.token, '--to', 'Farm-Contract'])
+        api.fetch_issue(None)['delegate_id'] = None
+        with patch('agent.__main__.load_config', return_value=config), \
+                self.assertRaisesRegex(LedgerError, 'remain open and delegated'):
+            run(handoff, ledger, lambda: api)
+        self.assertEqual((ledger.item(args.item)['state'], ledger.item(args.item)['next_root_repo']), ('running', None))
 
     def test_a_worker_requests_a_slot_and_the_request_is_queued(self):
         item = self.seeded_item(target=PIN)

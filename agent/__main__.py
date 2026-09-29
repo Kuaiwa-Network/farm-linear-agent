@@ -8,10 +8,11 @@ import sys
 from pathlib import Path
 
 from .config import Config, Paths, linear_api, load_config
-from .ledger import AWAIT_REASONS, NOTICE_KINDS, TERMINAL_STATUS_TYPES, Ledger, LedgerError
+from .ledger import ACTIVE_STATES, AWAIT_REASONS, NOTICE_KINDS, TERMINAL_STATUS_TYPES, Ledger, LedgerError
 from .memory import prune_snapshots
 from .router import CONVERSATION_SKILLS, WRITE_SKILLS, continuation_refusal
 from .stages import write_repositories
+from .withdrawal import NOTICE_REASONS, notice as withdrawal_notice
 
 
 def parser():
@@ -80,6 +81,7 @@ def parser():
     resource.add_argument("--commit", help="full SHA of the clean Farm-Client worktree HEAD to verify; default: baseline")
     release = cmd("release-resource", "--item", token=True)
     release.add_argument("--outcome", required=True, choices=["quiescent", "unclean"])
+    cmd("withdraw", "--item", token=True)
     cmd("reservations"); cmd("slots")  # operator readers: no item, no token, nothing to authorise
     cmd("recover-slot", "--slot", "--reason")
     finish = cmd("finish", "--item", "--input", token=True)
@@ -186,6 +188,42 @@ def configured_issue_prefix():
         return load_config(secure_permissions=False).issue_prefix
     except (OSError, ValueError):
         return Config.issue_prefix
+
+
+def configured_bot_name():
+    """The Linear app this host speaks as (Config.expected_bot_name), as the notices name it; Config's default where
+    no private config is readable, as in test fixtures."""
+    try:
+        return load_config(secure_permissions=False).expected_bot_name
+    except (OSError, ValueError):
+        return Config.expected_bot_name
+
+
+def refuse_withdrawn(item):
+    """A worker told its work is withdrawn publishes, pauses and hands off nothing (withdrawn-work design P2, A10):
+    refused before anything reaches Linear or GitHub."""
+    if item["withdraw_deadline"] is not None:
+        raise LedgerError(Ledger.WITHDRAWN)
+
+
+def post_closing_notice(api_factory, item, reason):
+    """Best effort, once the ledger is final: the one notice a job cancelled for `reason` gets (design P7), as its
+    session's response, or as an issue comment for an operator's `local-` job, which has no Linear session. A job
+    whose issue is out of reach gets none. Never retried: True when Linear took it."""
+    if reason not in NOTICE_REASONS:
+        return False
+    try:
+        body = withdrawal_notice(item["skill"], reason, configured_bot_name())
+        api = api_factory()
+        if str(item["session_id"]).startswith("local-"):
+            api.create_comment(item["issue_id"], body)
+        else:
+            api.create_activity(item["session_id"], {"type": "response", "body": body})
+        return True
+    except Exception as exc:
+        print(json.dumps({"warning": "closing notice not posted", "error": type(exc).__name__}), file=sys.stderr,
+              flush=True)
+        return False
 
 
 def verify_late_prs(ledger, args, token, progress):
@@ -336,10 +374,18 @@ def run(args, ledger, api_factory):
         return ledger.queue()
     if c == "fetch-issue":
         api = api_factory()
-        issue = api.fetch_issue(ledger.item(args.item)["issue_id"])
-        # Spec §9.8: a claimed worker learns here that the delegation was removed or moved, and finishes blocked.
-        # LinearAPI.fetch_issue establishes this app's identity before it reads the issue.
-        return {**ledger.observe_issue(issue), "delegated": issue.get("delegate_id") == api.app_user_id}
+        issue_id = ledger.item(args.item)["issue_id"]
+        issue = api.fetch_issue(issue_id)
+        # A claimed worker learns here that the delegation was removed or moved, or that its work was withdrawn, and
+        # then withdraws itself (withdrawn-work design P2). LinearAPI.fetch_issue establishes this app's identity
+        # before it reads the issue.
+        observed = ledger.observe_issue(issue)
+        delegated = issue.get("delegate_id") == api.app_user_id
+        if not delegated:
+            # The lifecycle's next status read confirms or clears this; the worker cancels nothing itself (§3).
+            ledger.request_status_check(issue_id)
+        return {**observed, "delegated": delegated,
+                "withdrawn": ledger.item(args.item)["withdraw_deadline"] is not None}
     if c == "claim":
         return ledger.claim(args.item, worker_id=args.worker_id)
     if c == "renew":
@@ -369,6 +415,7 @@ def run(args, ledger, api_factory):
         token = resolve_token(args)
         ledger.renew(args.item, token)
         item = ledger.item(args.item)
+        refuse_withdrawn(item)
         # The item's own manifest decides its stages: any staged skill, to a repository in its writes.
         skill = load_skills(ROOT / "skills").get(item["skill"])
         if skill is None or not skill.staged:
@@ -417,11 +464,20 @@ def run(args, ledger, api_factory):
         return api.create_activity(item["session_id"], {"type": args.type, "body": read_text(args.body_file)})
     if c == "await-input":
         token = resolve_token(args)
-        item = ledger.item(args.item)
         ledger.renew(args.item, token)
+        item = ledger.item(args.item)
+        refuse_withdrawn(item)
         ledger.require_valid_checkpoint(args.item, token)
         ledger.require_no_reservation(args.item)  # refuse before anything reaches Linear
         api = api_factory()
+        if item["authority"] == "delegation":
+            # Work the delegation authorised never parks on a card that no longer has it: nothing would answer it
+            # there (withdrawn-work design J1). A fresh read decides, before anything is written to Linear.
+            status = api.issue_status(item["issue_id"])
+            if status["archived"] or status["status_type"] in TERMINAL_STATUS_TYPES:
+                raise LedgerError("issue closed or archived: save a checkpoint, then run withdraw and exit")
+            if not api.app_user_id or status.get("delegate_id") != api.app_user_id:
+                raise LedgerError(Ledger.WITHDRAWN)
         if args.reason == "question":
             api.needs_more_info(item["issue_id"])
         api.create_activity(item["session_id"], {"type": "elicitation", "body": args.question})
@@ -441,12 +497,16 @@ def run(args, ledger, api_factory):
         skill, refusal = conversation_request(ledger, args.item, current, running, start=c == "request-repair")
         if refusal is not None:
             raise LedgerError(refusal)
+        # The read's own delegate decides: the stored snapshot keeps an older one when this read's updatedAt did not
+        # move (withdrawn-work design J4, U4).
         if c == "request-repair":
             # A request from a work item names no skill here; the ledger refuses it itself.
             resumed = ledger.request_repair(args.item, token, args.message_id, api.app_user_id,
-                                             read_text(args.summary_file), start_skill=skill or "fix")
+                                             read_text(args.summary_file), start_skill=skill or "fix",
+                                             delegate_id=current.get("delegate_id"))
         else:
-            resumed = ledger.resume_work(args.item, token, args.message_id, api.app_user_id)
+            resumed = ledger.resume_work(args.item, token, args.message_id, api.app_user_id,
+                                         delegate_id=current.get("delegate_id"))
         try:
             # D18: 修改 names the fix workflow; other work is named generically, never promised as a fix.
             named = "修改" if resumed["skill"] == "fix" else "这项工作"
@@ -496,6 +556,7 @@ def run(args, ledger, api_factory):
         token = resolve_token(args)
         ledger.renew(args.item, token)
         item = ledger.item(args.item)
+        refuse_withdrawn(item)
         config = load_config(secure_permissions=False)
         paths = Paths(config)
         if Path(args.db).resolve() != paths.ledger.resolve():
@@ -521,6 +582,7 @@ def run(args, ledger, api_factory):
             result = PublicationVerifier(trees, issue_prefix=config.issue_prefix).verify(
                 args.repo, args.item, issue['identifier'], branch)
             ledger.renew(args.item, token)  # fence cancellation while network checks were in progress
+            refuse_withdrawn(ledger.item(args.item))  # and a withdrawal flagged meanwhile
             return result
         try:
             result = verify_with_retries(verify_current, lambda: ledger.renew(args.item, token))
@@ -535,6 +597,7 @@ def run(args, ledger, api_factory):
         except (OSError, ValueError, RuntimeError) as exc:
             result["foreign_work"] = {"status": "unavailable", "error": type(exc).__name__}
         ledger.renew(args.item, token)  # a Stop during these reads ends the claim here, as after verification
+        refuse_withdrawn(ledger.item(args.item))
         return result
     if c == "await-resource":
         token = resolve_token(args)
@@ -569,6 +632,29 @@ def run(args, ledger, api_factory):
                     "next_action": "exit; the controller will recover Unity and resume the saved job"}
         ledger.release(reservation["reservation_id"], token, "worker reported quiescent")
         return ledger.reservation(reservation["reservation_id"])
+    if c == "withdraw":
+        # A worker ends its own withdrawn work (withdrawn-work design P2, A10): its checkpoint is saved, and the job
+        # ends cancelled, so a later delegation continues it from the plan. It needs a flag, or a fresh read that
+        # finds the card closed or, for the delegation's work, no longer delegated here; the ledger decides.
+        token = resolve_token(args)
+        ledger.renew(args.item, token)
+        item = ledger.item(args.item)
+        api = api_factory()
+        try:
+            status = api.issue_status(item["issue_id"])
+        except Exception:
+            if item["withdraw_deadline"] is None:
+                raise  # an unread card withdraws nothing (design P8)
+            status = None  # the flag, which two confirming reads or a new delegation set, decides alone
+        if status is None:
+            delegated = closed = False
+        else:
+            delegated = bool(api.app_user_id) and status.get("delegate_id") == api.app_user_id
+            closed = status["archived"] or status["status_type"] in TERMINAL_STATUS_TYPES
+        view, reason = ledger.withdraw(args.item, token, delegated=delegated, closed=closed)
+        posted = post_closing_notice(lambda: api, view, reason)
+        return {**view, "reason": reason, "notice_posted": posted,
+                "next_action": "exit; a later delegation continues this job from its checkpoint"}
     if c == "reservations":
         return ledger.reservations()
     if c == "slots":
@@ -584,7 +670,14 @@ def run(args, ledger, api_factory):
         complete_session(api_factory, item, args.outcome, evidence)
         return view
     if c == "cancel":
-        return ledger.cancel(args.item, args.reason)
+        # An active job the operator stops gets one note, and its pending heartbeat goes in the same transaction, so
+        # no "stopped" correction follows the note (withdrawn-work design I2, P7). A blocked job has reported
+        # already and ends silently, as on closure; one that had already ended gets nothing.
+        cancelled = ledger.cancel(args.item, args.reason, states=ACTIVE_STATES, drop_progress=True)
+        if cancelled is None:
+            return ledger.cancel(args.item, args.reason)
+        post_closing_notice(api_factory, cancelled, "operator")
+        return cancelled
     if c == "recover":
         return ledger.recover(args.item, args.reason)
     if c == "retry":

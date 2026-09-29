@@ -1240,9 +1240,14 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(self.api.activities, [])
 
     def cancel_with_cli(self, item_id):
+        # `cancel` posts the operator's note (withdrawn-work design I2): to a stub, never to the Linear app whatever
+        # private config this checkout holds.
+        stub = Path(self.tmp.name) / "stub"
+        stub.mkdir(exist_ok=True)
         result = subprocess.run(
             [sys.executable, "-B", "-W", "error", "-m", "agent", "--db", str(self.scheduler.db_path),
              "cancel", "--item", item_id, "--reason", "operator cancellation"],
+            env={**os.environ, "FARMBOT_LINEAR_STUB_DIR": str(stub)},
             cwd=ROOT, capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["state"], "cancelled")
