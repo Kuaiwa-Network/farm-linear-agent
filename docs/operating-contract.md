@@ -412,6 +412,15 @@ prevents new write workers from launching, and cancels a job of a skill with an 
 no worker holds (Triggers). Polling makes no other Linear write than that job's one session
 response, or, for an operator-enqueued job, one issue comment.
 
+Withdrawing work whose delegation is gone uses additive columns, added when a ledger opens:
+`work_items.authority`, `withdraw_deadline` and `withdraw_reason`, `issue_checks.undelegated_since`
+and `unreachable_since`, and `sessions.forwarded_item`. `authority` records, when a job is created,
+what authorised it: the card's delegation for every write job, the operator for a conversation
+`agent.service enqueue` starts, and otherwise a mention. Existing rows are not rewritten: a write job
+stored before this revision reads as authorised by the delegation, a conversation as by a mention.
+Older code ignores the columns, so rolling back keeps working, and checking out older code does not
+remove them.
+
 Cleanup records the old PID and preserves dirty tracked/non-ignored untracked source as local WIP
 commits. Every repository HEAD, including clean unpublished commits, gets a durable
 `refs/farmbot/recovery/<job-id>` ref in its bare clone. Ref/HEAD/path checks must pass before removing

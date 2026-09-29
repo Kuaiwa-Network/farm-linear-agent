@@ -3,13 +3,12 @@ import time
 
 from .ledger import TERMINAL_STATUS_TYPES
 from .router import WRITE_SKILLS
+# The one session response such a job gets; {bot} is the instance's configured Linear app name.
+from .withdrawal import UNDELEGATED
 
 # Delegation removal (spec §9.8, D16) cancels a job of a skill with an initial root only while no worker holds it:
 # waiting for a launch, for a person or for a resource. A worker that has claimed it sees the change itself.
 UNDELEGATED_STATES = ('queued', 'awaiting_input', 'awaiting_resource')
-# The one session response such a job gets; {bot} is the instance's configured Linear app name.
-UNDELEGATED = ('这张卡已不再委派给 {bot}，这项工作已取消。已推送的分支和草稿 PR 都保留，接手的人可以在上面继续；'
-               '重新委派给 {bot} 时会从已有进度接着做。')
 
 
 class Lifecycle:

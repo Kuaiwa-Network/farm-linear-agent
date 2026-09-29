@@ -679,6 +679,17 @@ class EnqueueTests(unittest.TestCase):
         item = enqueue(self.config, issue_ref=ISSUE, skill="chat", commit="a" * 40)
         self.assertEqual((item["state"], item["skill"]), ("queued", "chat"))
 
+    def test_enqueue_records_the_delegation_for_a_write_job_and_the_operator_for_a_conversation(self):
+        """A write job needs the card's delegation, so losing it withdraws the job; a conversation the operator
+        started needs none and stays (withdrawn-work design P1)."""
+        fix = enqueue(self.config, issue_ref=ISSUE, skill="fix", commit="a" * 40)
+        self.assertEqual(fix["authority"], "delegation")
+        ledger = Ledger(Paths(self.config).ledger)
+        self.addCleanup(ledger.close)
+        ledger.cancel(fix["id"], "operator test")
+        chat = enqueue(self.config, issue_ref=ISSUE, skill="chat", commit="a" * 40)
+        self.assertEqual((chat["authority"], ledger.item(chat["id"])["authority"]), ("operator", "operator"))
+
     def test_enqueue_refuses_a_skill_this_instance_does_not_run(self):
         """spec §9.11: enqueue is a way past the webhook, not past the host's choice of skills."""
         for enabled, skill in ((["chat"], "fix"), (None, "qa")):

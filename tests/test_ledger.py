@@ -104,6 +104,27 @@ class SchemaTests(LedgerBase):
         reopened.ensure_session(SESSION, ISSUE, delegation=True, creator=OWNER)
         self.assertEqual(reopened.session(SESSION)["creator"], OWNER)
 
+    def test_k2_migration_reads_null_authority_by_skill(self):
+        """Rows written before items recorded their authority read by skill: a write item as the delegation's, a
+        chat as a mention's, which no withdrawal touches (withdrawn-work design K2)."""
+        fix = self.new_item()
+        self.ledger.cancel(fix["id"], "Stop")
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="chat")
+        for table, column in (("work_items", "authority"), ("work_items", "withdraw_deadline"),
+                              ("work_items", "withdraw_reason"), ("issue_checks", "undelegated_since"),
+                              ("issue_checks", "unreachable_since"), ("sessions", "forwarded_item")):
+            self.ledger.connection.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
+        self.ledger.close()
+        reopened = self.open_ledger()
+        for table, column in (("work_items", "authority"), ("work_items", "withdraw_deadline"),
+                              ("work_items", "withdraw_reason"), ("issue_checks", "undelegated_since"),
+                              ("issue_checks", "unreachable_since"), ("sessions", "forwarded_item")):
+            self.assertIn(column, {row["name"] for row in reopened.connection.execute(f"PRAGMA table_info({table})")})
+        self.assertEqual([(view["authority"], view["withdraw_deadline"], view["withdraw_reason"])
+                          for view in (reopened.item(fix["id"]), reopened.item(chat["id"]))],
+                         [("delegation", None, None), ("mention", None, None)])
+        self.assertIsNone(reopened.status_check(ISSUE)["undelegated_since"])
+
     def test_opening_an_older_ledger_adds_the_notices_table(self):
         self.ledger.connection.execute("DROP TABLE notices")
         self.ledger.close()
@@ -281,6 +302,32 @@ class WorkItemTests(LedgerBase):
         for bad in (1.0, "2026-09-19T00:00:00", ""):
             with self.assertRaises(LedgerError):
                 self.ledger.set_session_target(SESSION, {**good, "selected_at": bad})
+
+
+class AuthorityTests(LedgerBase):
+    """Each item records, once, what authorised it: the card's delegation, a person's mention or the operator
+    (withdrawn-work design P1). Only delegation-authority work is withdrawn when the delegation goes."""
+
+    def test_a_new_item_records_its_authority_and_a_write_item_only_the_delegations(self):
+        fix = self.new_item()
+        self.assertEqual((fix["authority"], fix["withdraw_deadline"], fix["withdraw_reason"]), ("delegation", None, None))
+        self.ledger.cancel(fix["id"], "Stop")
+        for authority, expected in ((None, "mention"), ("delegation", "delegation"), ("operator", "operator")):
+            with self.subTest(authority=authority):
+                chat = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="chat",
+                                                    authority=authority)
+                self.assertEqual((chat["authority"], self.ledger.item(chat["id"])["authority"]), (expected, expected))
+                self.ledger.cancel(chat["id"], "Stop")
+        for skill, authority in (("chat", "person"), ("chat", ""), ("fix", "mention"), ("fix", "operator")):
+            with self.subTest(skill=skill, authority=authority):
+                with self.assertRaisesRegex(LedgerError, "authority"):
+                    self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill=skill, authority=authority)
+        self.assertIsNone(self.ledger.active_item_for_issue(ISSUE))
+
+    def test_issue_context_tells_the_worker_its_authority_and_whether_it_is_withdrawn(self):
+        chat = self.new_item(skill="chat", target=None)
+        coordination = self.ledger.issue_context(chat["id"])["coordination"]
+        self.assertEqual((coordination["authority"], coordination["withdrawn"]), ("mention", False))
 
 
 class RepositoryStageTests(LedgerBase):

@@ -39,10 +39,37 @@ AWAIT_REASONS = ("question", "waiting")
 # automatic-retry allowances bound one stage, not the job (spec §5.8, D16). The ledger reads no manifests, so it
 # knows them by name, as it knows fix, whose allowances last the job.
 STAGE_ALLOWANCE_SKILLS = ("feature", "fgui")
+# What authorised an item, recorded once when it is created (withdrawn-work design P1): the card's delegation to this
+# app (every write item, and a chat a delegation opened), a person's @mention or message on a card not delegated
+# here, or the operator's `agent.service enqueue` of a chat. Only delegation-authority work is withdrawn when the
+# delegation goes.
+AUTHORITIES = ("delegation", "mention", "operator")
 
 
 class LedgerError(ValueError):
     """Invalid input or a conflicting state transition; safe to show on stderr."""
+
+
+def _default_authority(skill):
+    return "delegation" if skill in WRITE_SKILLS else "mention"
+
+
+def _checked_authority(skill, authority):
+    """The authority a new item of `skill` records: the given one, or the skill's default. A write item exists only
+    under a delegation (spec §4), so it takes no other."""
+    if authority is None:
+        return _default_authority(skill)
+    if authority not in AUTHORITIES:
+        raise LedgerError(f"authority must be one of {', '.join(AUTHORITIES)}")
+    if skill in WRITE_SKILLS and authority != "delegation":
+        raise LedgerError(f"a {skill} item has delegation authority only")
+    return authority
+
+
+def _authority(row):
+    """The item's recorded authority. A row written before authorities were recorded has none, and reads as its
+    skill's default: a write item the delegation's, a chat a mention's, which no withdrawal touches (design K2)."""
+    return row["authority"] or _default_authority(row["skill"])
 
 
 def _text(value, name, *, empty=False):
@@ -557,7 +584,15 @@ class Ledger:
                                                 ("job_cleanup", "removing", "INTEGER NOT NULL DEFAULT 0"),
                                                 # People, as the shared person shape in JSON; NULL means unknown.
                                                 ("sessions", "creator_json", "TEXT"),
-                                                ("inbox", "author_json", "TEXT")):
+                                                ("inbox", "author_json", "TEXT"),
+                                                # Withdrawn work (design P1-P5). NULL authority reads by skill
+                                                # (_authority); a NULL deadline means the item is not withdrawn.
+                                                ("work_items", "authority", "TEXT"),
+                                                ("work_items", "withdraw_deadline", "REAL"),
+                                                ("work_items", "withdraw_reason", "TEXT"),
+                                                ("issue_checks", "undelegated_since", "REAL"),
+                                                ("issue_checks", "unreachable_since", "REAL"),
+                                                ("sessions", "forwarded_item", "TEXT")):
                 present = {row["name"] for row in self.connection.execute(f"PRAGMA table_info({table})")}
                 if column not in present:
                     self.connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
@@ -599,8 +634,10 @@ class Ledger:
                                             "priority", "host", "generation", "lease_expires_at",
                                             "worker_pid", "needs_resource", "root_repo", "next_root_repo",
                                             "created_at", "predecessor_id",
-                                            "capacity_retries", "publication_retries", "retry_not_before"]}
+                                            "capacity_retries", "publication_retries", "retry_not_before",
+                                            "withdraw_deadline", "withdraw_reason"]}
         result.update(identifier=issue["identifier"], target=json.loads(row["target_json"]) if row["target_json"] else None,
+                      authority=_authority(row),
                       resume_authorized=bool(row["resume_authorized"]), checkpoint=json.loads(row["checkpoint"]),
                       evidence=json.loads(row["evidence"]))
         return result
@@ -742,31 +779,38 @@ class Ledger:
                 "target": json.loads(row["target_json"]) if row["target_json"] else None, "guidance": row["guidance"],
                 "creator": json.loads(row["creator_json"]) if row["creator_json"] else None}
 
-    def create_work_item(self, *, issue_id, session_id, skill, target=None):
+    def create_work_item(self, *, issue_id, session_id, skill, target=None, authority=None):
+        """`authority` is what authorised the item (AUTHORITIES); None records the skill's default."""
         _text(skill, "skill")
+        authority = _checked_authority(skill, authority)
         with self._transaction():
             issue = json.loads(self._issue_row(issue_id)["metadata"])
-            if self.session(session_id) is None:
-                raise LedgerError(f"unknown session: {session_id}")
-            if not _in_scope(issue):
-                raise LedgerError("issue is archived or in a terminal status")
-            if self.connection.execute("SELECT 1 FROM work_items WHERE issue_id=? AND state IN ('queued','running','awaiting_input','awaiting_resource')",
-                                       (issue["id"],)).fetchone():
-                raise LedgerError("an active work item already exists for this issue")
-            # A re-delegation continues its skill's cancelled job, for every write skill (spec §9.4): the successor
-            # reads that job's plan and notices in `recovery` and launches after its cleanup. Chat continues nothing.
-            prior = self.connection.execute(
-                "SELECT id,state FROM work_items WHERE issue_id=? AND skill=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
-                (issue["id"], skill)).fetchone() if skill in WRITE_SKILLS else None
-            predecessor = prior["id"] if prior and prior["state"] == "cancelled" else None
-            item_id = str(uuid4())
-            now = self.clock()
-            self.connection.execute("""INSERT INTO work_items(id,issue_id,session_id,skill,state,priority,target_json,created_at,updated_at,predecessor_id)
-                VALUES(?,?,?,?,'queued',?,?,?,?,?)""",
-                                    (item_id, issue["id"], session_id, skill, issue["priority"] or 5,
-                                     json.dumps(target) if target is not None else None, now, now, predecessor))
-            self._audit(item_id, "create", f"skill {skill}")
-            return self._view(self._row(item_id))
+            return self._view(self._row(self._insert_item(issue, session_id, skill, target, authority)))
+
+    def _insert_item(self, issue, session_id, skill, target, authority):
+        """Caller owns the transaction and has checked `authority`. Queue a new item of `skill` on `issue` (its stored
+        metadata) in `session_id`, and return its id."""
+        if self.session(session_id) is None:
+            raise LedgerError(f"unknown session: {session_id}")
+        if not _in_scope(issue):
+            raise LedgerError("issue is archived or in a terminal status")
+        if self.connection.execute("SELECT 1 FROM work_items WHERE issue_id=? AND state IN ('queued','running','awaiting_input','awaiting_resource')",
+                                   (issue["id"],)).fetchone():
+            raise LedgerError("an active work item already exists for this issue")
+        # A re-delegation continues its skill's cancelled job, for every write skill (spec §9.4): the successor
+        # reads that job's plan and notices in `recovery` and launches after its cleanup. Chat continues nothing.
+        prior = self.connection.execute(
+            "SELECT id,state FROM work_items WHERE issue_id=? AND skill=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
+            (issue["id"], skill)).fetchone() if skill in WRITE_SKILLS else None
+        predecessor = prior["id"] if prior and prior["state"] == "cancelled" else None
+        item_id = str(uuid4())
+        now = self.clock()
+        self.connection.execute("""INSERT INTO work_items(id,issue_id,session_id,skill,state,priority,target_json,created_at,updated_at,predecessor_id,authority)
+            VALUES(?,?,?,?,'queued',?,?,?,?,?,?)""",
+                                (item_id, issue["id"], session_id, skill, issue["priority"] or 5,
+                                 json.dumps(target) if target is not None else None, now, now, predecessor, authority))
+        self._audit(item_id, "create", f"skill {skill}")
+        return item_id
 
     def active_item_for_session(self, session_id):
         row = self.connection.execute("""SELECT * FROM work_items WHERE session_id=? AND state IN
@@ -2100,7 +2144,9 @@ class Ledger:
                        "revalidation_required": True, "source": "previous_worker_checkpoint"}
         view = self._view(row)
         coordination = {key: view[key] for key in ("id", "identifier", "skill", "state", "stage", "generation",
-                                                  "root_repo", "next_root_repo", "target")}
+                                                  "root_repo", "next_root_repo", "target", "authority")}
+        # A withdrawn item's worker saves its progress and runs `withdraw` (design P2).
+        coordination["withdrawn"] = view["withdraw_deadline"] is not None
         authority = self._delegation_session(row["issue_id"], row["session_id"])
         owner = _owner(issue, self._owner_delegation(row["issue_id"]))
         return {"issue": issue, "fingerprint": issue_row["fingerprint"], "coordination": coordination,
