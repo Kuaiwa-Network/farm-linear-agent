@@ -280,6 +280,29 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual((self.state(chat), self.state(fixes[0])), ('delivered', 'queued'))
         self.assertEqual((self.api.activities, self.launcher.stopped), ([], []))
 
+    def test_an_older_job_a_conversation_continues_during_the_confirming_read_is_kept(self):
+        """The same when the handover continues the card's older blocked fix: the conversation's worker found the card
+        delegated on a read of its own, after the confirming read began, and requeued the fix. The fix is older than
+        that read, but its continuation is not, so the cancel leaves it for the next read, and no session is told the
+        work stopped."""
+        iid, session = str(uuid4()), str(uuid4())
+        fix = self.job('fix', state='blocked', issue_id=iid, session=session)
+        chat = self.job('chat', 'delegation', issue_id=iid, session=session)
+        self.ledger.push_inbox(chat['id'], '请接着修')
+        self.now += 1
+        lifecycle = self.reads()
+        lifecycle.refresh(iid)
+        self.now += 60
+
+        def continued():
+            token = self.ledger.claim(chat['id'], worker_id='test')['token']
+            message = self.ledger.issue_context(chat['id'])['session_messages'][-1]['id']
+            self.ledger.request_repair(chat['id'], token, message, APP, 'Continue the fix.', delegate_id=APP)
+        with self.meanwhile(continued):
+            lifecycle.refresh(iid)
+        self.assertEqual((self.state(chat), self.state(fix)), ('delivered', 'queued'))
+        self.assertEqual((self.api.activities, self.launcher.stopped), ([], []))
+
     def test_e3_a_blocked_job_claimed_again_during_the_read_is_flagged_not_killed(self):
         """Design R8: a claimed worker on an unreachable issue is told to stop, never killed at once. A blocked job the
         deciding read listed, which a retry then gave back to a worker before the cancel, is left to the next read,

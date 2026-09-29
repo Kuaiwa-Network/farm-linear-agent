@@ -1686,8 +1686,10 @@ class Ledger:
         since the caller looked. `authority` and `created_before` recheck the rest of such a caller's decision the
         same way: only an item of that authority (a person's answer may have made a conversation a mention's), and
         only one created before that time (a handover may have moved the work to a job the caller never saw; design
-        P3). `drop_progress` is for a caller that posts the item's one closing notice itself: the item's pending
-        session heartbeat goes in the same transaction, so none follows the notice (design P7)."""
+        P3). A handover made at or after `created_before` is new to that caller as well, whatever the age of the job it
+        continued, so it cancels nothing: a worker's own read found the card delegated after the caller's began.
+        `drop_progress` is for a caller that posts the item's one closing notice itself: the item's pending session
+        heartbeat goes in the same transaction, so none follows the notice (design P7)."""
         _text(reason, "reason")
         _checked_guards(authority, created_before)
         with self._transaction():
@@ -1699,6 +1701,9 @@ class Ledger:
                 if destination:
                     target = self._row(destination)
                     if target["issue_id"] == row["issue_id"]:
+                        # The conversation's updated_at is the handover's time: _repair_work delivers it then.
+                        if created_before is not None and row["updated_at"] >= created_before:
+                            return None
                         row = target
             if states is not None and row["state"] not in states:
                 return None
