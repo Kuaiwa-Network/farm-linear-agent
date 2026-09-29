@@ -49,7 +49,9 @@ class PublicationTests(unittest.TestCase):
         own git config could hold, sends fetches to the local origin; the clone's origin stays the configured remote,
         since FarmBot refuses a clone whose origin is another (plan P10)."""
         host = Path(self.tmp.name) / 'host.gitconfig'
-        host.write_text(f'[url "{self.origin}"]\n\tinsteadOf = {self.remote}\n', encoding='utf-8')
+        # Git drops a backslash in a quoted section name unless it is doubled, which a Windows path needs.
+        base = str(self.origin).replace('\\', '\\\\').replace('"', '\\"')
+        host.write_text(f'[url "{base}"]\n\tinsteadOf = {self.remote}\n', encoding='utf-8')
         with patch.dict(os.environ, {'GIT_CONFIG_GLOBAL': str(host)}):
             yield
 
