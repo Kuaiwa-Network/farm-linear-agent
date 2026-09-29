@@ -924,19 +924,21 @@ check, `doctor` must show no finding the check did not expect.
 | AC-8 (I2) | The operator runs `cancel` on a waiting chat. | OPERATOR_CHAT in its thread. |
 | AC-9 (A10) | Optional, and only if the operator accepts a real branch: while a fix runs, choose "No agent". | Within 20 min: UNDELEGATED; doctor shows no running item; `withdraw` or the grace expiry is in the audit. Delegating again starts a fix whose issue-context `recovery` holds the old plan. |
 
-## 9. Open questions for the operator
+## 9. Decisions of the operator
+
+The operator accepted each of these as proposed on 2026-09-29, before implementation.
 
 1. **Grace for a claimed worker.** Twice its renew interval (fix 20 min, chat 10 min) before the
-   controller stops it. Or should FarmBot stop it at once, accepting that a PR created after its last
-   checkpoint is later reported as foreign (critique 2.4)?
+   controller stops it, rather than stopping it at once and later reporting a PR created after its last
+   checkpoint as foreign (critique 2.4).
 2. **Confirmation delay.** Waiting work is cancelled only after a second read, one `reconcile_seconds`
-   (60 s) later. A re-delegation is never delayed by this. Is 1-2 minutes acceptable?
-3. **New Linear writes.** This change adds one closing response when a card is closed (D10), and one note
-   when the operator cancels (D9). Both are visible to people. Keep them?
+   (60 s) later. A re-delegation is never delayed by this.
+3. **New Linear writes.** One closing response when a card is closed (D10), and one note when the operator
+   cancels (D9).
 4. **Where an answer lands.** An @mention that answers a waiting conversation moves it to the mention's
-   thread, instead of resuming it in its old thread. Accept this change in behaviour?
+   thread, instead of resuming it in its old thread.
 5. **Conversations already stranded at deploy time.** They are kept and listed by the doctor for manual
-   cancelling, not cancelled automatically. Accept?
+   cancelling, not cancelled automatically.
 
 ## Appendix A. Critique findings
 
