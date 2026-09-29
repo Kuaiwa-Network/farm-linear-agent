@@ -101,6 +101,7 @@ class LifecycleTests(unittest.TestCase):
 
     def test_lost_delegation_blocks_write_launch_but_keeps_waiting_job(self):
         job = self.item()
+        self.now += 1  # the job is older than the read, which would otherwise spare it whatever P3 says
         lifecycle = self.lifecycle({**status(), 'delegate_id': None})
         reads = []
         self.status_api.issue_status = lambda iid: reads.append(iid) or self.snapshot
@@ -180,6 +181,7 @@ class LifecycleTests(unittest.TestCase):
                 with self.subTest(state=state, delegate=delegate):
                     iid, session = str(uuid4()), str(uuid4())
                     job = self.parked(feature.name, state, iid, session)
+                    self.now += 1  # older than the first read, so only P3's confirmation keeps it after that read
                     lifecycle = self.lifecycle({**status(iid), 'delegate_id': delegate})
                     self.assertIsNotNone(lifecycle.refresh(iid))
                     self.assertEqual(self.ledger.item(job['id'])['state'], state)  # one read only marks (P3)
@@ -385,10 +387,11 @@ class LifecycleTests(unittest.TestCase):
         progress.tick()  # the chat's heartbeat row, which its closing notice must drop
         token = self.ledger.claim(chat['id'], worker_id='test')['token']
         self.ledger.await_input(chat['id'], token, '哪个服？')
+        self.now += 1  # older than the first read, so only P3's confirmation keeps it after that read
         lifecycle = self.reads()
         lifecycle.refresh(chat['issue_id'])
         self.assertEqual(self.state(chat), 'awaiting_input')
-        self.assertEqual(self.ledger.status_check(chat['issue_id'])['undelegated_since'], 1000.0)
+        self.assertEqual(self.ledger.status_check(chat['issue_id'])['undelegated_since'], 1001.0)
         self.assertEqual((self.api.activities, self.api.comments), ([], []))
         self.now += 60
         lifecycle.refresh(chat['issue_id'])
@@ -408,6 +411,7 @@ class LifecycleTests(unittest.TestCase):
 
     def test_a3_delegation_moved_to_another_app_is_withdrawal(self):
         chat = self.job('chat', 'delegation', 'awaiting_input')
+        self.now += 1
         lifecycle = self.reads(delegate=str(uuid4()))
         lifecycle.refresh(chat['issue_id'])
         self.assertEqual(self.state(chat), 'awaiting_input')
@@ -567,13 +571,14 @@ class LifecycleTests(unittest.TestCase):
 
     def test_f1_undelegated_queued_fix_is_read_once_per_interval_then_cancelled(self):
         fix = self.job('fix')
+        self.now += 1
         lifecycle = self.reads()
         self.scheduler.preflight = lifecycle.preflight
         for _ in range(30):
             self.scheduler.tick()
             self.now += 2
         self.assertEqual((self.read_count, self.launcher.spawned, self.state(fix)), (1, [], 'queued'))
-        self.assertEqual(self.now, 1060.0)
+        self.assertEqual(self.now, 1061.0)
         self.assertEqual(lifecycle.tick(), {'checked': fix['issue_id'], 'ok': True})
         self.assertEqual(self.state(fix), 'cancelled')
         self.assertEqual(self.said(fix['session_id']), [('response', UNDELEGATED.format(bot='FarmBot'))])
