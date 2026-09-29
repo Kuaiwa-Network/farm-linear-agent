@@ -69,6 +69,18 @@ class WorkerCliReferenceTests(unittest.TestCase):
                 args = parser().parse_args(argv)
                 self.assertEqual(args.item, "ITEM_ID")
 
+    def test_the_note_on_commands_without_a_token_names_them_in_their_own_paragraph(self):
+        """The note that `fetch-issue` and `issue-context` take no `--token-file` stays with the paragraph about them,
+        and never reads as if about a documented command that takes one, as it did under the `withdraw` example."""
+        notes = [paragraph for paragraph in self.reference().split("\n\n")
+                 if re.search(r"accepts? `--token-file`", paragraph)]
+        self.assertTrue(notes, "workers need to know which commands take no token")
+        for paragraph in notes:
+            with self.subTest(paragraph=paragraph[:60]):
+                self.assertIn("`fetch-issue`", paragraph)
+                self.assertIn("`issue-context`", paragraph)
+                self.assertNotRegex(paragraph, r"python3 -m agent .*--token-file")
+
     def test_documented_checkpoint_is_accepted_and_available_to_the_next_worker(self):
         from agent.ledger import Ledger
         from tests.test_ledger import ISSUE, SESSION, issue

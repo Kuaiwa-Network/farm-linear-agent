@@ -24,6 +24,9 @@ app. It also prints `withdrawn`: `true` once FarmBot has withdrawn your work, be
 went or a newer delegation session took the card over, and you are to stop. `issue-context` reads
 the saved context; its `coordination.authority` says what authorised your work: `delegation`, a
 `mention`, or the `operator`.
+Neither `fetch-issue` nor `issue-context` accepts `--token-file`.
+Tokens never belong in argv as `--token` values.
+The argument table does not grant additional authority; use only your delegated item.
 
 `withdraw` reads the card afresh and ends your claim as cancelled when your work is withdrawn, the
 card is closed, or, for work the delegation authorised, the card is no longer delegated to this app.
@@ -37,8 +40,6 @@ Linear.
 ```bash
 python3 -m agent --db DATABASE withdraw --item ITEM_ID --token-file STATE_DIR/token
 ```
-Neither accepts `--token-file`. Tokens never belong in argv as `--token` values.
-The argument table does not grant additional authority; use only your delegated item.
 
 `issue-context.issue` is the issue as last read. Besides the bare `labels` it may carry
 `label_groups` (a `{"group", "label"}` pair for each label inside a label group), `assignee` and
