@@ -67,8 +67,7 @@ class Lifecycle:
         response in its session; a blocked one has reported already and ends silently (design E1)."""
         for item in self.ledger.unfinished_for_issue(issue_id):
             if item['state'] in ACTIVE_STATES:
-                self.scheduler.stop(item['id'], CLOSED_REASON, states=ACTIVE_STATES,
-                                    notice=notice(item['skill'], 'closed', self.scheduler.bot_name))
+                self.scheduler.stop(item['id'], CLOSED_REASON, states=ACTIVE_STATES, notice=self._notice('closed'))
             else:
                 self.scheduler.stop(item['id'], CLOSED_REASON)
 
@@ -89,7 +88,7 @@ class Lifecycle:
             if item['created_at'] >= before or (not everyone and item['authority'] != 'delegation'):
                 continue
             if item['state'] in UNDELEGATED_STATES:
-                text = None if reason == 'unreachable' else notice(item['skill'], reason, self.scheduler.bot_name)
+                text = None if reason == 'unreachable' else self._notice(reason)
                 self.scheduler.stop(item['id'], WITHDRAWN_REASONS[reason], states=UNDELEGATED_STATES, notice=text,
                                     **guards)
             elif item['state'] == 'running':
@@ -100,6 +99,11 @@ class Lifecycle:
                     pass  # it parked, ended or changed since the listing; the next read decides again
             elif everyone:
                 self.scheduler.stop(item['id'], WITHDRAWN_REASONS[reason], states=('blocked',), **guards)
+
+    def _notice(self, reason):
+        """The response to a job cancelled for `reason`, chosen by the job the cancel ended (Scheduler.stop): that is
+        the job a listed conversation handed over to, when it did so before the cancel."""
+        return lambda cancelled: notice(cancelled['skill'], reason, self.scheduler.bot_name)
 
     def _unreachable(self, issue_id, started):
         """A read found no such issue. Once enough such reads, over long enough, are not explained by an outage of

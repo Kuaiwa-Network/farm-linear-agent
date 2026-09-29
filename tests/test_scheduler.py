@@ -18,7 +18,7 @@ from agent.ledger import Ledger, LedgerError
 from agent.scheduler import Scheduler
 from agent.skills import load_skills
 from agent.slots import SlotPool, slot_entry
-from agent import dispatch, kw_ops
+from agent import dispatch, kw_ops, withdrawal
 from test_ledger import DESIGNER, ISSUE, OTHER, PIN, SESSION, comment, issue
 from test_skills import opt_in_skill, staged_skill
 
@@ -1192,6 +1192,22 @@ class SchedulerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "needs states"):
             self.scheduler.stop(item["id"], "Linear stop", notice="已取消。")
         self.assertEqual((self.ledger.item(item["id"])["state"], self.launcher.stopped), ("queued", []))
+
+    def test_a_stop_notice_is_chosen_for_the_job_the_cancel_ends(self):
+        """A stop that finds a conversation has just handed over to a fix cancels the fix instead. A caller that
+        listed the conversation passes its notice as a function of the job the cancel ended, so the fix's session
+        gets a write job's text, which says the branches are kept, not the conversation's (withdrawn-work design P7)."""
+        app = str(uuid4())
+        chat = self.item(skill="chat")
+        self.ledger.push_inbox(chat["id"], "请修复")
+        token = self.ledger.claim(chat["id"], worker_id="w")["token"]
+        message = self.ledger.issue_context(chat["id"])["session_messages"][-1]["id"]
+        fix = self.ledger.request_repair(chat["id"], token, message, app, "Confirmed repair.", delegate_id=app)
+        cancelled = self.scheduler.stop(chat["id"], "Linear issue closed", states=("queued",),
+                                        notice=lambda job: withdrawal.notice(job["skill"], "closed", "FarmBot"))
+        self.assertEqual((cancelled["id"], self.ledger.item(fix["id"])["state"]), (fix["id"], "cancelled"))
+        self.assertEqual(self.api.activities,
+                         [(fix["session_id"], "response", withdrawal.CLOSED.format(bot="FarmBot"))])
 
     def test_a_withdrawn_worker_is_stopped_when_its_grace_ends(self):
         """Withdrawn-work design P2: the controller cancels and kills a flagged worker that has not run `withdraw` by
