@@ -2329,10 +2329,15 @@ class Ledger:
                             evidence=_json(evidence), generation=row["generation"] + int(state == "queued"))
             return self._view(self._row(row["id"]))
 
-    def push_inbox(self, item_id, body, *, resume_waiting=False, author=None, received_at=None):
+    def push_inbox(self, item_id, body, *, resume_waiting=False, author=None, received_at=None,
+                   demote_to_mention=False):
         """author: the person who wrote the message (a session reply's prompting user, or the creator of the mention
         session it opened), or None when unknown. received_at: when FarmBot received it, in epoch seconds (the
-        receiver passes its webhook's time, which a pending event keeps across a restart), else now."""
+        receiver passes its webhook's time, which a pending event keeps across a restart), else now.
+
+        demote_to_mention: a person answers a delegation's conversation on a card no longer delegated here. The
+        conversation goes on as one that needs no delegation, so the withdrawal of the delegation's work leaves it
+        (design P1). StaleRouting when the item has ended: the caller routes the message again (design J5)."""
         _text(body, "body")
         author_json = _person_json(author, "message author")
         if received_at is not None and (type(received_at) not in (int, float) or not math.isfinite(received_at)):
@@ -2348,10 +2353,15 @@ class Ledger:
                     if target["issue_id"] == row["issue_id"]:
                         row = target
             if row["state"] not in ACTIVE_STATES:
-                raise LedgerError("cannot steer a terminal work item")
+                raise StaleRouting("cannot steer a terminal work item")
             self.connection.execute("INSERT INTO inbox(item_id,body,author_json,created_at) VALUES(?,?,?,?)",
                                     (row["id"], body, author_json, self.clock() if received_at is None else received_at))
             self._audit(row["id"], "inbox", "steering message")
+            if demote_to_mention and row["skill"] == "chat" and _authority(row) == "delegation":
+                self.connection.execute("UPDATE work_items SET authority='mention',updated_at=? WHERE id=?",
+                                        (self.clock(), row["id"]))
+                self._audit(row["id"], "authority", "a person answered it on a card no longer delegated here",
+                            {"from": "delegation", "to": "mention"})
             if resume_waiting and row["state"] == "awaiting_input":
                 # A resume from a human gate, by a reply or a forwarded mention: a new stage (spec §5.8).
                 self._set_state(row["id"], "queued", "human answered in Linear", token=None,

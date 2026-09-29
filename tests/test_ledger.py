@@ -2016,6 +2016,24 @@ class CancelHygieneTests(WithdrawnWorkBase):
                                              drop_progress=True))
         self.assertIsNotNone(self.progress(third["id"]))  # nothing was cancelled, so nothing is dropped
 
+    def test_an_answer_without_the_delegation_demotes_only_the_delegations_conversation(self):
+        """Design P1: a person's answer to a delegation's conversation on a card no longer delegated here makes it a
+        mention's; the same push never touches a write job's or a mention's authority. A push to ended work asks
+        the receiver to route again (J5)."""
+        for skill, authority, after in (("chat", "delegation", "mention"), ("chat", "mention", "mention"),
+                                        ("fix", "delegation", "delegation")):
+            with self.subTest(skill=skill, authority=authority):
+                self.ledger.observe_issue(issue())
+                self.ledger.ensure_session(SESSION, ISSUE, delegation=True)
+                item = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill=skill,
+                                                    target=None if skill == "chat" else PIN, authority=authority)
+                self.ledger.push_inbox(item["id"], "公共测试服", resume_waiting=True, demote_to_mention=True)
+                self.assertEqual(self.ledger.item(item["id"])["authority"], after)
+                self.assertEqual("authority" in self.audit_kinds(item["id"]), authority != after)
+                self.ledger.cancel(item["id"], "next case")
+                with self.assertRaisesRegex(StaleRouting, "cannot steer a terminal work item"):
+                    self.ledger.push_inbox(item["id"], "还在吗？", demote_to_mention=True)
+
     def test_await_input_after_cancel_is_refused(self):
         chat, token = self.claimed(skill="chat")
         self.ledger.cancel(chat["id"], "Linear delegation removed")

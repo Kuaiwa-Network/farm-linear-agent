@@ -127,6 +127,8 @@ class ConversationReceiverTests(ReceiverBase):
         self.assertIn("从零开始", self.ledger.pop_inbox(fix["id"], token)[0])
 
     def test_undelegated_chat_question_can_be_answered_via_new_mention(self):
+        """The waiting conversation moves to the thread that answers it, with every message it had (withdrawn-work
+        design C5): the answer lands where the person asked, not in a thread they may no longer see."""
         self.api.fetch_issue.return_value = issue(delegate_id=None)
         self.receive(self.mention("Which environment?")); self.receiver.process_one()
         chat = self.ledger.items_for_session("mention")[0]
@@ -135,4 +137,8 @@ class ConversationReceiverTests(ReceiverBase):
         event = self.mention("Android test build")
         event["agentSession"]["id"] = "answer"
         self.receive(event); self.receiver.process_one()
-        self.assertEqual(self.ledger.item(chat["id"])["state"], "queued")
+        self.assertEqual(self.ledger.item(chat["id"])["state"], "cancelled")
+        [moved] = self.ledger.items_for_session("answer")
+        self.assertEqual((moved["skill"], moved["state"], moved["authority"]), ("chat", "queued", "mention"))
+        self.assertEqual([m["body"] for m in self.ledger.issue_context(moved["id"])["session_messages"]],
+                         ["Which environment?", "Android test build"])
