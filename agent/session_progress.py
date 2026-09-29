@@ -52,11 +52,13 @@ class SessionProgress:
         return item, f"{item['id']}:{item['state']}:{item['generation']}"
 
     def _reserve(self, item_id, content, status_key):
+        """The new send's activity id, or None when the item's row is gone: a cancellation that posted its own
+        closing notice dropped it, and nothing may follow that notice."""
         activity_id = str(uuid4())
-        self.db.execute("UPDATE session_progress SET activity_id=?,content=?,status_key=?,due_at=?,last_error=NULL WHERE item_id=?",
-                        (activity_id, json.dumps(content, ensure_ascii=False), status_key,
-                         self.ledger.clock() + self.retry_seconds, item_id))
-        return activity_id
+        cursor = self.db.execute("UPDATE session_progress SET activity_id=?,content=?,status_key=?,due_at=?,last_error=NULL WHERE item_id=?",
+                                 (activity_id, json.dumps(content, ensure_ascii=False), status_key,
+                                  self.ledger.clock() + self.retry_seconds, item_id))
+        return activity_id if cursor.rowcount else None
 
     def _send(self, item_id, session_id, content, activity_id):
         # No database or scheduler lock spans the remote request. Stop and worker
@@ -110,6 +112,8 @@ class SessionProgress:
                 item, status_key = current, current_key
                 content = self._content(item)
                 activity_id = self._reserve(item_id, content, status_key)
+                if activity_id is None:
+                    break
                 continue
             if sent:
                 self.db.execute("UPDATE session_progress SET due_at=?,activity_id=NULL,content=NULL,status_key=NULL,last_error=NULL WHERE item_id=? AND activity_id=?",

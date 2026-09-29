@@ -110,6 +110,22 @@ class SessionProgressTests(LedgerBase):
         self.assertEqual([s[1]["type"] for s in self.sent], ["thought", "response"])
         self.assertIn("停止", self.sent[-1][1]["body"])
 
+    def test_a_notice_that_crosses_a_heartbeat_send_is_not_followed_by_a_correction(self):
+        """A cancellation that posts its own closing notice drops the item's progress row. When it commits while a
+        heartbeat is in flight, the notice stays the session's last response: no "stopped" correction follows."""
+        item = self.new_item()
+        def notice_during_send(session, content, activity_id=None):
+            self.send(session, content, activity_id)
+            if content["type"] == "thought":
+                self.ledger.cancel(item["id"], "a new delegation session took the card over", drop_progress=True)
+        self.api.create_activity = notice_during_send
+        self.now += 600
+        self.assertTrue(self.progress.tick())
+        self.assertEqual([s[1]["type"] for s in self.sent], ["thought"])
+        self.now += 600
+        self.assertFalse(self.progress.tick())
+        self.assertEqual(len(self.sent), 1)
+
     def test_failed_state_correction_survives_restart(self):
         item = self.new_item()
         def stop_and_fail_correction(session, content, activity_id=None):
