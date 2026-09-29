@@ -869,10 +869,10 @@ class Ledger:
 
     def stop_target(self, session_id):
         """(item, where): the work a Stop in `session_id` stops, the first of `own`, the session's own active item;
-        `forwarded`, the active item its messages were forwarded to; `latest_delegation`, the issue's active item
-        when this is the card's latest delegation session (design P5). With nothing to stop, item is None and
-        `where` says why: `moved`, the session's last item was superseded by a newer session; `stopped`, it was
-        cancelled; `none`, anything else."""
+        `forwarded`, the active item its messages were forwarded to; `latest_delegation`, the issue's active item of
+        delegation authority when this is the card's latest delegation session (design P5). With nothing to stop,
+        item is None and `where` says why: `moved`, the session's last item was superseded by a newer session;
+        `stopped`, it was cancelled; `none`, anything else."""
         own = self.active_item_for_session(session_id)
         if own is not None:
             return own, "own"
@@ -887,7 +887,10 @@ class Ledger:
         if session["issue_id"]:
             latest = self._owner_delegation(session["issue_id"])
             active = self.active_item_for_issue(session["issue_id"])
-            if latest is not None and latest["session_id"] == session_id and active is not None:
+            # Only work the delegation authorised: a conversation a mention or the operator started after this
+            # session's work ended is not this session's to stop.
+            if (latest is not None and latest["session_id"] == session_id and active is not None
+                    and active["authority"] == "delegation"):
                 return active, "latest_delegation"
         last = self.connection.execute("SELECT * FROM work_items WHERE session_id=? ORDER BY created_at DESC,rowid DESC "
                                        "LIMIT 1", (session_id,)).fetchone()

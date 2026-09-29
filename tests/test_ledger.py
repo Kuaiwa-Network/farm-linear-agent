@@ -2375,6 +2375,26 @@ class StopTargetTests(WithdrawnWorkBase):
         with self.assertRaises(LedgerError):
             self.ledger.record_forward("mention", "no-such-item")
 
+    def test_stop_in_the_latest_delegation_session_leaves_a_conversation_it_did_not_authorise(self):
+        """A1, then a mention: the delegation's conversation in session-1 was cancelled when the delegation went, and
+        a person's @mention or the operator then started a conversation of its own. session-1 is still the card's
+        latest delegation session, but its Stop reaches only work the delegation authorised, so it says its own work
+        has stopped (A2)."""
+        self.ledger.observe_issue(issue(delegate_id=self.APP))
+        self.ledger.ensure_session("session-1", ISSUE, delegation=True)
+        old = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-1", skill="chat", authority="delegation")
+        self.ledger.cancel(old["id"], "Linear delegation removed")
+        self.ledger.observe_issue(issue(delegate_id=None))
+        for session, authority in (("mention", "mention"), ("local-farm-1", "operator")):
+            with self.subTest(authority=authority):
+                self.now += 5
+                self.ledger.ensure_session(session, ISSUE, delegation=False)
+                chat = self.ledger.create_work_item(issue_id=ISSUE, session_id=session, skill="chat",
+                                                    authority=authority)
+                self.assertEqual(self.target("session-1"), (None, "stopped"))
+                self.assertEqual(self.target(session), (chat["id"], "own"))
+                self.ledger.cancel(chat["id"], "Linear stop")
+
     def test_stop_target_says_where_work_went_after_it_left_the_session(self):
         old = self.parked(session="session-0")
         self.ledger.ensure_session("session-1", ISSUE, delegation=True)
