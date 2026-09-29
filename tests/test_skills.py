@@ -69,6 +69,18 @@ class WorkerCliReferenceTests(unittest.TestCase):
                 args = parser().parse_args(argv)
                 self.assertEqual(args.item, "ITEM_ID")
 
+    def test_the_note_on_commands_without_a_token_names_them_in_their_own_paragraph(self):
+        """The note that `fetch-issue` and `issue-context` take no `--token-file` stays with the paragraph about them,
+        and never reads as if about a documented command that takes one, as it did under the `withdraw` example."""
+        notes = [paragraph for paragraph in self.reference().split("\n\n")
+                 if re.search(r"accepts? `--token-file`", paragraph)]
+        self.assertTrue(notes, "workers need to know which commands take no token")
+        for paragraph in notes:
+            with self.subTest(paragraph=paragraph[:60]):
+                self.assertIn("`fetch-issue`", paragraph)
+                self.assertIn("`issue-context`", paragraph)
+                self.assertNotRegex(paragraph, r"python3 -m agent .*--token-file")
+
     def test_documented_checkpoint_is_accepted_and_available_to_the_next_worker(self):
         from agent.ledger import Ledger
         from tests.test_ledger import ISSUE, SESSION, issue
@@ -186,6 +198,40 @@ class PeopleInstructionTests(unittest.TestCase):
             with self.subTest(kind=kind):
                 section = text.split(f"\n## {kind}\n", 1)[1].split("\n## ", 1)[0]
                 self.assertIn("<owner.person.url>", section)
+
+
+class WithdrawalInstructionTests(unittest.TestCase):
+    """A worker whose delegation went, or whose work a newer delegation took over, withdraws rather than pausing or
+    publishing (withdrawn-work design J2, J3, §7.2)."""
+
+    @staticmethod
+    def text(*parts):
+        """The file's text with each run of whitespace, line breaks included, read as one space."""
+        return " ".join(ROOT.joinpath(*parts).read_text(encoding="utf-8").split())
+
+    def test_j2_j3_skill_texts_withdraw_instead_of_pausing(self):
+        fix = self.text("skills", "fix", "SKILL.md")
+        for phrase in ("If `fetch-issue` prints `delegated: false` or `withdrawn: true`",
+                       "any command refuses with `delegation withdrawn`", "publish nothing and ask nothing",
+                       "run `withdraw` and exit", "`withdraw` ends the job as cancelled",
+                       "If `withdraw` refuses because the card is delegated again, continue",
+                       "revoked delegation is never a question; follow the withdrawal rule above"):
+            with self.subTest(skill="fix", phrase=phrase):
+                self.assertIn(phrase, fix)
+        # The rule it replaces told the worker to finish blocked, and the pause list sent revoked delegation to
+        # await-input: the two contradicted each other (J2).
+        self.assertNotIn("re-delegated away, stop publication and finish blocked", fix)
+        self.assertNotIn("(such as revoked delegation,", fix)
+        chat = self.text("skills", "chat", "SKILL.md")
+        for phrase in ("`issue-context.coordination.authority`", "do not ask a question: `await-input` will refuse",
+                       "the card is no longer delegated to `bot_name`", "finish delivered",
+                       "With `mention` or `operator` authority, delegation does not matter to you"):
+            with self.subTest(skill="chat", phrase=phrase):
+                self.assertIn(phrase, chat)
+        reference = self.text("references", "worker-cli.md")
+        for phrase in ("`withdrawn`", "`withdraw`", "save a checkpoint first; exit after it succeeds"):
+            with self.subTest(reference=phrase):
+                self.assertIn(phrase, reference)
 
 
 class SkillRegistryTests(unittest.TestCase):

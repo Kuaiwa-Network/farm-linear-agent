@@ -56,6 +56,10 @@ COMMON_AUTHORITY = (
     "failure counts do not establish that current failures are unrelated. Report unmatched failures "
     "with attribution unresolved. Check every mutation's exit status and returned state; repair a "
     "rejected checkpoint handoff and save it successfully before await-input, await-resource or finish. "
+    # Withdrawn-work design §7.3. A conversation follows its skill's rule instead: it answers once and finishes.
+    "In a write job, if fetch-issue reports delegated false or withdrawn true, or a ledger command refuses with "
+    "'delegation withdrawn', publish nothing and ask nothing: save a checkpoint, run the ledger CLI's withdraw "
+    "command and exit. "
 )
 
 # kw_ops use, bounded to the issue's reproduction and verification; the manifest's `mcp` grants the tools.

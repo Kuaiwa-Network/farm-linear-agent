@@ -13,6 +13,7 @@ from .kw_ops import SERVER as KW_OPS_SERVER, resolve as resolve_kw_ops
 from .memory import publish_snapshot
 from .publication import issue_branch
 from .stages import current_root, runtime_can_launch, write_repositories
+from .withdrawal import NOTICE_REASONS, notice as withdrawal_notice
 
 TERMINAL = ("delivered", "blocked", "cancelled", "failed")
 WAITING = ("awaiting_input", "awaiting_resource")
@@ -272,23 +273,30 @@ class Scheduler:
         self._notify(item_id, "error", f"{self.bot_name} 本实例没有启用 {skill}（本实例运行：{runs}），这项工作没有启动，"
                                        "工作项已标记失败；启用后可回复「重试」。")
 
-    def stop(self, item_id, reason, *, states=None, notice=None):
+    def stop(self, item_id, reason, *, states=None, notice=None, authority=None, created_before=None):
         """Cancel the item, then stop its processes.
 
         `states` (delegation removal, spec §9.8) cancels only an item still in one of those states, atomically; one
-        a worker has claimed since keeps running and nothing is signalled. `notice` is then posted as the session's
-        response, through `_notify` as a launch failure is, only when this call cancelled the item; it needs
-        `states`, without which a repeated stop could not tell. Returns the cancelled item, or None.
+        a worker has claimed since keeps running and nothing is signalled. `authority` and `created_before` recheck
+        the rest of such a caller's decision in the same transaction (Ledger.cancel). `notice` is then posted as the
+        session's response, through `_notify` as a launch failure is, only when this call cancelled the item; it
+        needs `states`, without which a repeated stop could not tell. The item's pending heartbeat goes with a
+        notice, in the cancelling transaction, so the notice is its session's last word (withdrawn-work design P7).
+        `notice` is the text, or a function of the cancelled item's view that returns it: the cancel follows a
+        conversation's handover to the job it continued, which can be another skill's, so a caller that chose by
+        the job it listed would give a fix a conversation's words. Returns the cancelled item, or None.
         """
         if notice is not None and states is None:
             raise ValueError("a stop notice needs states: only then is it known that this stop cancelled the item")
+        conditional = states is not None or authority is not None or created_before is not None
         # Revoke the claim durably before signalling; a late worker may no longer write the ledger.
         control = self.control_ledger_factory() if self.control_ledger_factory else self.ledger
         destination = item_id
         cancelled = None
         try:
             try:
-                cancelled = control.cancel(item_id, reason, states=states)
+                cancelled = control.cancel(item_id, reason, states=states, drop_progress=notice is not None,
+                                           authority=authority, created_before=created_before)
                 if cancelled is not None:
                     destination = cancelled["id"]
             except LedgerError:
@@ -296,7 +304,7 @@ class Scheduler:
         finally:
             if control is not self.ledger:
                 control.close()
-        if states is not None and cancelled is None:
+        if conditional and cancelled is None:
             return None  # not ours to stop: a claimed worker sees the change at its next fetch-issue
         # The batch Editor is not a worker and never went through `spawn`, so `launcher.stop` below cannot
         # see it: its handle lookup and its `descendants` walk both start from a worker pid, and by now that
@@ -315,7 +323,7 @@ class Scheduler:
             # Signal both ends if read-only execution handed off during Stop.
             self.launcher.stop(stopped_id)
         if notice is not None and cancelled is not None:
-            self._notify(destination, "response", notice, item=cancelled)
+            self._notify(destination, "response", notice(cancelled) if callable(notice) else notice, item=cancelled)
         return cancelled
 
     def _reap(self):
@@ -528,8 +536,24 @@ class Scheduler:
                 if not handoff_worker:
                     self.active.pop(row["id"], None)
 
+    def _expire_withdrawals(self):
+        """A withdrawn worker that has not run `withdraw` by the end of its grace is stopped as Stop stops one
+        (withdrawn-work design P2): its claim ends cancelled here, with the one response its session gets, and
+        _stop_cancelled then kills it. An issue out of reach gets no response. The cancel rechecks the flag and its
+        deadline: one a read cleared after this listing keeps its worker."""
+        for item in self.ledger.expired_withdrawals():
+            try:
+                cancelled = self.ledger.expire_withdrawal(item["id"])
+            except LedgerError:
+                continue
+            if cancelled is not None and cancelled["withdraw_reason"] in NOTICE_REASONS:
+                self._notify(cancelled["id"], "response",
+                             withdrawal_notice(cancelled["skill"], cancelled["withdraw_reason"], self.bot_name),
+                             item=cancelled)
+
     def tick(self):
         with self.lock:
+            self._expire_withdrawals()
             self._stop_cancelled()
             reaped = self._reap()
             recovered = self._recover()

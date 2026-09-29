@@ -118,6 +118,46 @@ def _label_groups(nodes):
     return [{"group": group, "label": label} for group, label in sorted(pairs)]
 
 
+class LinearError(RuntimeError):
+    """Linear refused a request, and `kind` says how (withdrawn-work design §5.1, R8): the issue was not found, the
+    app may not read it (`forbidden`), is rate limited or unauthenticated, or anything else (`rejected`). Only a
+    repeated `not_found` ever counts toward an issue being out of reach; every other kind is transient."""
+    KINDS = ("not_found", "forbidden", "ratelimited", "auth", "rejected")
+
+    def __init__(self, kind, message="Linear GraphQL rejected the request"):
+        if kind not in self.KINDS:
+            raise ValueError(f"unknown Linear error kind: {kind!r}")
+        super().__init__(message)
+        self.kind = kind
+
+
+# GraphQL `errors[].extensions.code` values whose meaning is known (design §5.1; the live check LC-7 records the
+# codes Linear really sends). Any other error is `not_found` only when its message says so, else `rejected`.
+_ERROR_CODES = {"RATELIMITED": "ratelimited", "FORBIDDEN": "forbidden", "AUTHENTICATION_ERROR": "auth"}
+_NOT_FOUND = re.compile(r"not found", re.IGNORECASE)
+
+
+def _error_kind(errors):
+    """The LinearError kind for a GraphQL `errors` list: a known code first, then a not-found message."""
+    errors = [error for error in errors if isinstance(error, dict)] if isinstance(errors, list) else []
+    for error in errors:
+        extensions = error.get("extensions")
+        code = extensions.get("code") if isinstance(extensions, dict) else None
+        if code in _ERROR_CODES:
+            return _ERROR_CODES[code]
+    if any(isinstance(error.get("message"), str) and _NOT_FOUND.search(error["message"]) for error in errors):
+        return "not_found"
+    return "rejected"
+
+
+def _error_body(exc):
+    """At most 64 KiB of an HTTP error's body, or nothing when it cannot be read."""
+    try:
+        return exc.read(1 << 16) or b""
+    except (OSError, http.client.HTTPException, ValueError):
+        return b""
+
+
 class UploadError(RuntimeError):
     """An upload could not be fetched or stored. The message names the cause, never the token or a URL."""
 
@@ -218,6 +258,9 @@ class LinearAPI:
         self.request = request or urllib.request.urlopen
         self.token, self.expires = None, 0
         self.app_user_id = None
+        # When a GraphQL call last succeeded, in epoch seconds: an issue counts as out of reach only while other
+        # calls go through (design R8), never during an outage of Linear itself.
+        self.last_success_at = 0
 
     def _request(self, url, data, headers):
         req = urllib.request.Request(url, data=data, headers=headers)
@@ -233,6 +276,8 @@ class LinearAPI:
         self.expires = time.time() + float(result["expires_in"]) - 60
 
     def graphql(self, query, variables=None):
+        """The response's data. A GraphQL error is a LinearError whose kind says how Linear refused (_error_kind), and
+        so is an HTTP 400 that says the app is rate limited; other HTTP failures propagate as they are."""
         if not self.token or time.time() >= self.expires:
             self.authenticate()
         for attempt in range(2):
@@ -242,11 +287,15 @@ class LinearAPI:
                                        {"Content-Type": "application/json", "Authorization": f"Bearer {self.token}"})
                 break
             except urllib.error.HTTPError as exc:
+                # Over its rate limit Linear answers 400 with RATELIMITED (design §3): transient, never not-found.
+                if exc.code == 400 and b"RATELIMITED" in _error_body(exc):
+                    raise LinearError("ratelimited") from None
                 if exc.code != 401 or attempt:
                     raise
                 self.authenticate()
         if result.get("errors") or not isinstance(result.get("data"), dict):
-            raise RuntimeError("Linear GraphQL rejected the request")
+            raise LinearError(_error_kind(result.get("errors")))
+        self.last_success_at = time.time()
         return result["data"]
 
     def identity(self):
@@ -337,14 +386,17 @@ class LinearAPI:
             raise RuntimeError("Linear did not confirm needs-more-info label")
 
     def issue_status(self, issue_id):
+        """The issue's version, closure and delegate. A trashed issue, one being deleted, reads as archived, which
+        closes it; an issue Linear no longer returns is a `not_found` LinearError (withdrawn-work design E3, U7)."""
         issue = self.graphql("""query FarmBotIssueStatus($id: String!) {
-            issue(id: $id) { id updatedAt archivedAt state { name type } delegate { id } }
+            issue(id: $id) { id updatedAt archivedAt trashed state { name type } delegate { id } }
         }""", {"id": issue_id})["issue"]
         if not issue:
-            raise RuntimeError("Issue not found")
+            raise LinearError("not_found", "Issue not found")
         return {"id": issue["id"], "updated_at": issue["updatedAt"],
-                "archived": issue["archivedAt"] is not None, "status": issue["state"]["name"],
-                "status_type": issue["state"]["type"], "delegate_id": (issue.get("delegate") or {}).get("id")}
+                "archived": issue["archivedAt"] is not None or issue.get("trashed") is True,
+                "status": issue["state"]["name"], "status_type": issue["state"]["type"],
+                "delegate_id": (issue.get("delegate") or {}).get("id")}
 
     def fetch_issue(self, issue_ref):
         """Complete detail plus every comment page, shaped for Ledger.observe_issue."""

@@ -18,7 +18,7 @@ from agent.ledger import Ledger, LedgerError
 from agent.scheduler import Scheduler
 from agent.skills import load_skills
 from agent.slots import SlotPool, slot_entry
-from agent import dispatch, kw_ops
+from agent import dispatch, kw_ops, withdrawal
 from test_ledger import DESIGNER, ISSUE, OTHER, PIN, SESSION, comment, issue
 from test_skills import opt_in_skill, staged_skill
 
@@ -1193,10 +1193,77 @@ class SchedulerTests(unittest.TestCase):
             self.scheduler.stop(item["id"], "Linear stop", notice="已取消。")
         self.assertEqual((self.ledger.item(item["id"])["state"], self.launcher.stopped), ("queued", []))
 
+    def test_a_stop_notice_is_chosen_for_the_job_the_cancel_ends(self):
+        """A stop that finds a conversation has just handed over to a fix cancels the fix instead. A caller that
+        listed the conversation passes its notice as a function of the job the cancel ended, so the fix's session
+        gets a write job's text, which says the branches are kept, not the conversation's (withdrawn-work design P7)."""
+        app = str(uuid4())
+        chat = self.item(skill="chat")
+        self.ledger.push_inbox(chat["id"], "请修复")
+        token = self.ledger.claim(chat["id"], worker_id="w")["token"]
+        message = self.ledger.issue_context(chat["id"])["session_messages"][-1]["id"]
+        fix = self.ledger.request_repair(chat["id"], token, message, app, "Confirmed repair.", delegate_id=app)
+        cancelled = self.scheduler.stop(chat["id"], "Linear issue closed", states=("queued",),
+                                        notice=lambda job: withdrawal.notice(job["skill"], "closed", "FarmBot"))
+        self.assertEqual((cancelled["id"], self.ledger.item(fix["id"])["state"]), (fix["id"], "cancelled"))
+        self.assertEqual(self.api.activities,
+                         [(fix["session_id"], "response", withdrawal.CLOSED.format(bot="FarmBot"))])
+
+    def test_a_withdrawn_worker_is_stopped_when_its_grace_ends(self):
+        """Withdrawn-work design P2: the controller cancels and kills a flagged worker that has not run `withdraw` by
+        its deadline, with the one response its reason has; an issue out of reach gets none. A claim a worker
+        withdrew itself, or that ended meanwhile, is left alone."""
+        for reason, said in (("superseded", [("response", "这张卡有了新的委派会话，这里的工作已转到那里继续。")]),
+                             ("unreachable", [])):
+            with self.subTest(reason=reason):
+                session = str(uuid4())
+                item = self.item(issue_id=str(uuid4()), session=session)
+                token = self.ledger.claim(item["id"], worker_id="w")["token"]
+                self.ledger.flag_withdrawal(item["id"], reason, self.now + 30)
+                self.scheduler.tick()
+                self.assertEqual(self.ledger.item(item["id"])["state"], "running")
+                self.now += 30
+                self.scheduler.tick()
+                self.assertEqual(self.ledger.item(item["id"])["state"], "cancelled")
+                with self.assertRaises(LedgerError):
+                    self.ledger.renew(item["id"], token)
+                self.assertIn(item["id"], self.launcher.stopped)
+                self.assertEqual([(kind, body) for sid, kind, body in self.api.activities if sid == session], said)
+                audited = self.ledger.connection.execute("SELECT reason FROM audit WHERE item_id=? AND kind='cancelled'",
+                                                         (item["id"],)).fetchone()
+                self.assertEqual(audited["reason"], f"withdrawal grace expired ({reason})")
+
+    def test_a_withdrawal_cleared_after_the_expiry_listing_keeps_its_worker(self):
+        """A read that finds the delegation back clears the flag after the tick listed the expired withdrawals but
+        before it cancelled this one, as the lifecycle's own connection can: the cancel rechecks the flag and its
+        deadline in its transaction, and the worker keeps its claim."""
+        issue_id = str(uuid4())
+        item = self.item(issue_id=issue_id, session=str(uuid4()))
+        self.ledger.claim(item["id"], worker_id="w")
+        self.ledger.flag_withdrawal(item["id"], "undelegated", self.now + 30)
+        self.now += 30
+        listing = self.ledger.expired_withdrawals
+
+        def cleared_meanwhile():
+            rows = listing()
+            self.ledger.clear_undelegated(issue_id)
+            return rows
+        with patch.object(self.ledger, "expired_withdrawals", cleared_meanwhile):
+            self.scheduler.tick()
+        current = self.ledger.item(item["id"])
+        self.assertEqual((current["state"], current["withdraw_deadline"]), ("running", None))
+        self.assertNotIn(item["id"], self.launcher.stopped)
+        self.assertEqual(self.api.activities, [])
+
     def cancel_with_cli(self, item_id):
+        # `cancel` posts the operator's note (withdrawn-work design I2): to a stub, never to the Linear app whatever
+        # private config this checkout holds.
+        stub = Path(self.tmp.name) / "stub"
+        stub.mkdir(exist_ok=True)
         result = subprocess.run(
             [sys.executable, "-B", "-W", "error", "-m", "agent", "--db", str(self.scheduler.db_path),
              "cancel", "--item", item_id, "--reason", "operator cancellation"],
+            env={**os.environ, "FARMBOT_LINEAR_STUB_DIR": str(stub)},
             cwd=ROOT, capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["state"], "cancelled")

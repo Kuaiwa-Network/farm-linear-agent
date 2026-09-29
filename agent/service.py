@@ -184,7 +184,11 @@ def enqueue(config, *, issue_ref, skill, commit=None, session=None):
                       "server_environment": config.default_server_environment,
                       "selected_at": datetime.now(timezone.utc).isoformat()}
             ledger.set_session_target(session, target)
-        item = ledger.create_work_item(issue_id=observed["id"], session_id=session, skill=skill, target=target)
+        # A write job exists only under the card's delegation, checked above, so losing it withdraws the job. A
+        # conversation needs none: the operator started it, and it stays (withdrawn-work design P1). This is keyed on
+        # the operator path, not on the session's delegation flag, which records the live delegate.
+        item = ledger.create_work_item(issue_id=observed["id"], session_id=session, skill=skill, target=target,
+                                       authority="delegation" if skill in WRITE_SKILLS else "operator")
         ledger.note(item["id"], "enqueue", f"operator enqueued {skill} for {observed['identifier']}")
         return item
     finally:

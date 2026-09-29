@@ -35,6 +35,10 @@ state-changing tools are not.
    `python3 -m agent --db DATABASE issue-context --item ITEM_ID` to load the issue, its comments
    and any pending question, then `python3 -m agent --db DATABASE pop-inbox --item ITEM_ID --token-file STATE_DIR/token`
    to read anything the human added while you were starting.
+   If `fetch-issue` prints `delegated: false` or `withdrawn: true` and `issue-context.coordination.authority`
+   is `delegation`, do not ask a question: `await-input` will refuse. Answer what you can in one response,
+   say the card is no longer delegated to `bot_name` and how to delegate it again, and finish delivered.
+   With `mention` or `operator` authority, delegation does not matter to you.
 4. Interpret the latest `session_messages` in context, including `pending_question`,
    `conversation_history` (earlier questions, answers and findings), and `resumable_work`
    (the delegation's earlier write job). Understand any language; no magic word is required.

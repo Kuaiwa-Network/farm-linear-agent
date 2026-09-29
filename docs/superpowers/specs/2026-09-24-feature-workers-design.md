@@ -965,7 +965,14 @@ prevents launches; D6 says removing it stops FarmBot at its next check, by this 
 status read that finds the delegation removed cancels queued or parked `feature` and `fgui` items,
 with a notice that their branches and PRs remain for the new owner, and cleanup preserves source as
 recovery refs (`docs/operating-contract.md:247-255`); a running worker sees the change at its next
-`fetch-issue` or `verify-publication`, saves a checkpoint and finishes blocked.
+`fetch-issue` or `verify-publication`, saves a checkpoint and runs `withdraw`.
+
+Superseded on 2026-09-29 by the
+[withdrawn-work design](2026-09-29-withdrawn-work-design.md) (P2, P3), for every skill: two status
+reads at least an interval apart confirm the removal before the delegation's queued or parked work,
+whatever its skill, is cancelled, and a running worker is flagged, saves a checkpoint and runs
+`withdraw`, or is stopped at twice its renew interval. A conversation a mention or the operator
+started is kept.
 
 A completed, canceled or duplicate status already cancels every unfinished item, parked ones included
 (`:19-21`), and reopening starts nothing (`docs/operating-contract.md:91-92`). A Code job lives for

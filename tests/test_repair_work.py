@@ -167,6 +167,25 @@ class RepairWorkTests(LedgerBase):
         self.assertEqual(sent[0][1], {"type": "thought", "body": "已排队开始或继续修改，会接着你的回复和已有调查结果处理。"})
         self.assertIn("summary", self.ledger.item(chat["id"])["evidence"])
 
+    def test_j4_request_repair_uses_the_fresh_delegate(self):
+        """Withdrawn-work design J4, U4: a fresh read at the version already stored leaves the stored snapshot's
+        delegate in place, so the CLI hands the ledger the read's own delegate, which refuses on it."""
+        chat, token = self.conversation()
+        self.ledger.observe_issue(issue(delegate_id=APP, labels=[], updated_at="2026-09-21T00:00:00Z"))
+        args = self.cli_request(chat, token)
+        for command in (args, parser().parse_args(["--db", str(self.path), "resume-work", "--item", chat["id"],
+                                                   "--token", token, "--message-id", str(args.message_id)])):
+            with self.subTest(command=command.command):
+                remote = issue(delegate_id=None, labels=[], updated_at="2026-09-21T00:00:00Z")
+                sent = []
+                api = SimpleNamespace(app_user_id=APP, fetch_issue=lambda _: remote,
+                                      create_activity=lambda session, content: sent.append(content))
+                with self.assertRaisesRegex(LedgerError, "delegated"):
+                    run(command, self.ledger, lambda: api)
+                self.assertEqual(self.ledger.issue(ISSUE)["delegate_id"], APP)  # the equal-version read kept it
+                self.assertEqual((self.ledger.item(chat["id"])["state"], self.ledger.queue(), sent),
+                                 ("running", [], []))
+
     def test_cli_fences_stop_while_refreshing_linear(self):
         chat, token = self.conversation()
         args = self.cli_request(chat, token)

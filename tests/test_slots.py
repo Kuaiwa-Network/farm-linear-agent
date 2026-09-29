@@ -8,6 +8,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from agent.launcher import Launcher, RUNTIMES, Unsandboxed
@@ -287,6 +288,22 @@ class CancellingCheckout:
             # Exactly what Scheduler.stop does, in its order.
             self.ledger.cancel_reservations(item, "Linear stop")
             self.ledger.cancel(item, "Linear stop")
+        return result
+
+
+class WithdrawingCheckout(CancellingCheckout):
+    """CancellingCheckout, but what lands during the git stage is a status read confirming that the card's
+    delegation is gone (withdrawn-work design F9): the lifecycle, not a Stop, cancels the item. It fires once."""
+
+    def __init__(self, trees, confirm):
+        super().__init__(trees, None, None)
+        self.confirm = confirm
+
+    def checkout_commit(self, folder, commit):
+        result = self._trees.checkout_commit(folder, commit)
+        confirm, self.confirm = self.confirm, None
+        if confirm is not None:
+            confirm()
         return result
 
 
@@ -845,6 +862,41 @@ class PoolTests(SlotFixture):
         self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "idle_closed")
         self.assertFalse(pool.token_path(item).exists())
         self.assertEqual(pool.tick(), {"settled": 0, "granted": 0, "parked": 0})
+
+    def test_f9_withdrawal_mid_switch_returns_the_slot(self):
+        """Withdrawn-work design F9: the read that confirms the card is no longer delegated lands while the pool
+        switches the slot for the job. The lifecycle cancels it through Scheduler.stop, which leaves the granted
+        reservation for the pool; resume() then refuses the cancelled item and the slot comes back that tick."""
+        from agent.lifecycle import Lifecycle
+        from agent.scheduler import Scheduler
+        from agent.withdrawal import UNDELEGATED
+        from test_receiver import APP
+        from test_scheduler import FakeAPI, FakeLauncher, FakeWorktrees, ROOT, SKILLS
+        self.pool().ensure()
+        item = self.waiting(ISSUE, self.commit("fix"), "batch")
+        api = FakeAPI()
+        scheduler = Scheduler(self.ledger, FakeLauncher(self.root / "runs"), SKILLS, FakeWorktrees(self.root / "wt"),
+                              skill_root=ROOT / "skills", db_path=self.root / "ledger.sqlite3", runtime_name="fake",
+                              host="test", api=api)
+        reads = SimpleNamespace(app_user_id=APP, issue_status=lambda issue_id: {
+            "id": issue_id, "status": "Todo", "status_type": "unstarted", "archived": False, "delegate_id": None,
+            "updated_at": "2026-09-21T00:00:00Z"})
+        lifecycle = Lifecycle(self.ledger, reads, scheduler, clock=lambda: self.now)
+        lifecycle.refresh(ISSUE)  # the first read only marks the card
+
+        def confirm():
+            self.now += 60
+            lifecycle.refresh(ISSUE)
+        unity = FakeUnity(total=4388, passed=4362, failed=26, code=2)
+        pool = self.pool(mcp=FakeMcp(), run_unsandboxed=unity, worktrees=WithdrawingCheckout(self.trees, confirm))
+        result = pool.tick()
+        self.assertEqual(unity.argv, [])
+        self.assertEqual((result["granted"], result["parked"]), (0, 1))
+        self.assertEqual(self.ledger.item(item)["state"], "cancelled")
+        self.assertEqual([r["state"] for r in self.ledger.reservations()], ["cancelled"])
+        self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "idle_closed")
+        self.assertFalse(pool.token_path(item).exists())
+        self.assertEqual(api.activities, [(f"session-{ISSUE}", "response", UNDELEGATED.format(bot="FarmBot"))])
 
     def test_a_cancelled_reservation_cannot_start_after_the_item_is_retried(self):
         self.pool().ensure()

@@ -141,6 +141,76 @@ class LinearAPITests(unittest.TestCase):
         self.assertEqual((value["updated_at"], value["status_type"], value["delegate_id"], value["archived"]),
                          ("2026-09-21T00:00:00Z", "completed", APP, False))
         self.assertNotIn("comments", self.http.calls[-1][2]["query"])
+        self.assertIn("trashed", self.http.calls[-1][2]["query"])  # a deleted issue reads as archived (design E3)
+
+    def test_e3_trashed_issue_reads_as_archived(self):
+        """Withdrawn-work design E3, U7: a deleted issue is trashed before it goes, which closes it like an archive;
+        an issue Linear no longer returns at all is `not_found`, the only kind that counts toward unreachable."""
+        from agent.linear_api import LinearError
+        status = {"id": "issue", "updatedAt": "2026-09-21T00:00:00Z", "archivedAt": None,
+                  "state": {"name": "Todo", "type": "unstarted"}, "delegate": {"id": APP}}
+        api = self.api({"FarmBotIssueStatus": [{"data": {"issue": {**status, "trashed": True}}},
+                                               {"data": {"issue": {**status, "trashed": None}}},
+                                               {"data": {"issue": None}}]})
+        self.assertIs(api.issue_status("issue")["archived"], True)
+        self.assertIs(api.issue_status("issue")["archived"], False)
+        with self.assertRaises(LinearError) as caught:
+            api.issue_status("issue")
+        self.assertEqual(caught.exception.kind, "not_found")
+
+    def test_e6_ratelimited_http_400_is_classified_transient(self):
+        """Design E6, K7: over the rate limit Linear answers HTTP 400 with RATELIMITED, which is transient, never the
+        not-found an unreachable issue needs."""
+        from agent.linear_api import LinearError
+        body = json.dumps({"errors": [{"message": "Rate limit exceeded",
+                                       "extensions": {"code": "RATELIMITED"}}]}).encode()
+        limited = urllib.error.HTTPError("https://api.linear.app/graphql", 400, "Bad Request", {}, io.BytesIO(body))
+        api = self.api({"FarmBotIssueStatus": [limited]})
+        with self.assertRaises(LinearError) as caught:
+            api.issue_status("issue")
+        self.assertEqual((caught.exception.kind, str(caught.exception)),
+                         ("ratelimited", "Linear GraphQL rejected the request"))
+        self.assertIsInstance(caught.exception, RuntimeError)  # callers that catch RuntimeError are unchanged
+        other = urllib.error.HTTPError("https://api.linear.app/graphql", 400, "Bad Request", {}, io.BytesIO(b"{}"))
+        api = self.api({"FarmBotIssueStatus": [other]})
+        with self.assertRaises(urllib.error.HTTPError):
+            api.issue_status("issue")
+
+    def test_graphql_errors_are_classified_by_code_then_by_a_not_found_message(self):
+        """Only an error Linear names as not found can count toward an unreachable issue (design R8, P8); an
+        unrecognised one is `rejected`, which never cancels anything."""
+        from agent.linear_api import LinearError
+        cases = (({"message": "x", "extensions": {"code": "RATELIMITED"}}, "ratelimited"),
+                 ({"message": "Entity not found", "extensions": {"code": "FORBIDDEN"}}, "forbidden"),
+                 ({"message": "x", "extensions": {"code": "AUTHENTICATION_ERROR"}}, "auth"),
+                 ({"message": "Entity not found: Issue", "extensions": {"code": "INVALID_INPUT"}}, "not_found"),
+                 ({"message": "Something else went wrong"}, "rejected"),
+                 ("not an object", "rejected"))
+        for error, kind in cases:
+            with self.subTest(error=error):
+                api = self.api({"FarmBotIssueStatus": [{"errors": [error], "data": {"issue": None}}]})
+                with self.assertRaises(LinearError) as caught:
+                    api.issue_status("issue")
+                self.assertEqual(caught.exception.kind, kind)
+        api = self.api({"FarmBotIssueStatus": [{"data": None}]})
+        with self.assertRaises(LinearError) as caught:
+            api.issue_status("issue")
+        self.assertEqual(caught.exception.kind, "rejected")
+
+    def test_only_a_successful_call_records_when_linear_last_answered(self):
+        """R8 counts not-found reads only while the host's other calls succeed: `last_success_at` says when one did."""
+        from agent.linear_api import LinearError
+        status = {"id": "issue", "updatedAt": "2026-09-21T00:00:00Z", "archivedAt": None, "trashed": False,
+                  "state": {"name": "Todo", "type": "unstarted"}, "delegate": None}
+        api = self.api({"FarmBotIssueStatus": [{"errors": [{"message": "Entity not found"}], "data": None},
+                                               {"data": {"issue": status}}]})
+        self.assertEqual(api.last_success_at, 0)
+        with patch("agent.linear_api.time.time", return_value=5000.0), self.assertRaises(LinearError):
+            api.issue_status("issue")
+        self.assertEqual(api.last_success_at, 0)
+        with patch("agent.linear_api.time.time", return_value=6000.0):
+            api.issue_status("issue")
+        self.assertEqual(api.last_success_at, 6000.0)
 
     def test_identity_requires_expected_name_and_bearer_token(self):
         api = self.api({"FarmBotIdentity": [{"data": {"viewer": {"id": APP, "name": "FarmBot"}, "organization": {"id": "org", "name": "K"}}}]})

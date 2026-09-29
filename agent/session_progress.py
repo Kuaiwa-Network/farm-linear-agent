@@ -2,6 +2,9 @@
 import json
 from uuid import uuid4
 
+from .withdrawal import (HEARTBEAT_PREDECESSOR, HEARTBEAT_STATUS_ERROR, HEARTBEAT_UNDELEGATED,
+                         HEARTBEAT_WITHDRAWING)
+
 
 class SessionProgress:
     def __init__(self, ledger, api, *, interval=600, retry_seconds=60):
@@ -10,19 +13,42 @@ class SessionProgress:
         self.db = ledger.connection
         self.db.execute("""CREATE TABLE IF NOT EXISTS session_progress (
             item_id TEXT PRIMARY KEY REFERENCES work_items(id), due_at REAL NOT NULL,
-            activity_id TEXT, content TEXT, status_key TEXT, last_error TEXT)""")
+            activity_id TEXT, content TEXT, status_key TEXT, last_error TEXT,
+            failures INTEGER NOT NULL DEFAULT 0)""")
+        # Failed sends to the item's session since its last successful one, which space the retries out
+        # (withdrawn-work design X4). Added to a table an older revision created; its rows start at zero.
+        if "failures" not in {row[1] for row in self.db.execute("PRAGMA table_info(session_progress)")}:
+            self.db.execute("ALTER TABLE session_progress ADD COLUMN failures INTEGER NOT NULL DEFAULT 0")
 
     @staticmethod
     def _eligible(item):
         return item["state"] in ("queued", "running", "awaiting_resource")
 
+    def _queued_body(self, item):
+        """What holds a queued job back: the first of a retry delay, its predecessor's cleanup, a failing status read
+        and a card no longer delegated to this app, which only work the delegation authorised depends on
+        (withdrawn-work design C6, §5.1 commit 5); else it waits for an execution resource."""
+        if item["retry_not_before"] > self.ledger.clock():
+            return "工作已保留，正在等待重试。"
+        if item["predecessor_id"]:
+            cleanup = self.ledger.cleanup_record(item["predecessor_id"])
+            if not cleanup or not cleanup["done"]:
+                return HEARTBEAT_PREDECESSOR
+        check = self.ledger.status_check(item["issue_id"]) or {}
+        if check.get("error"):
+            return HEARTBEAT_STATUS_ERROR
+        if check.get("undelegated_since") is not None and item["authority"] == "delegation":
+            return HEARTBEAT_UNDELEGATED
+        return "工作仍在排队，等待可用的执行资源。"
+
     def _content(self, item):
         state = item["state"]
         if state == "queued":
-            body = ("工作已保留，正在等待重试。" if item["retry_not_before"] > self.ledger.clock()
-                    else "工作仍在排队，等待可用的执行资源。")
+            body = self._queued_body(item)
         elif state == "awaiting_resource":
             body = "工作已保留，正在等待 Unity 验证资源。"
+        elif state == "running" and item["withdraw_deadline"] is not None:
+            body = HEARTBEAT_WITHDRAWING  # its worker saves its progress and runs `withdraw` (design P2)
         elif state == "running":
             body = f"工作仍在处理中；已记录阶段：{item['stage'][:120]}。"
             checkpoint = self.db.execute("SELECT max(created_at) FROM audit WHERE item_id=? AND kind='checkpoint'",
@@ -52,11 +78,13 @@ class SessionProgress:
         return item, f"{item['id']}:{item['state']}:{item['generation']}"
 
     def _reserve(self, item_id, content, status_key):
+        """The new send's activity id, or None when the item's row is gone: a cancellation that posted its own
+        closing notice dropped it, and nothing may follow that notice."""
         activity_id = str(uuid4())
-        self.db.execute("UPDATE session_progress SET activity_id=?,content=?,status_key=?,due_at=?,last_error=NULL WHERE item_id=?",
-                        (activity_id, json.dumps(content, ensure_ascii=False), status_key,
-                         self.ledger.clock() + self.retry_seconds, item_id))
-        return activity_id
+        cursor = self.db.execute("UPDATE session_progress SET activity_id=?,content=?,status_key=?,due_at=?,last_error=NULL WHERE item_id=?",
+                                 (activity_id, json.dumps(content, ensure_ascii=False), status_key,
+                                  self.ledger.clock() + self.retry_seconds, item_id))
+        return activity_id if cursor.rowcount else None
 
     def _send(self, item_id, session_id, content, activity_id):
         # No database or scheduler lock spans the remote request. Stop and worker
@@ -64,8 +92,12 @@ class SessionProgress:
         try:
             self.api.create_activity(session_id, content, activity_id=activity_id)
         except Exception as exc:
-            self.db.execute("UPDATE session_progress SET last_error=? WHERE item_id=? AND activity_id=?",
-                            (type(exc).__name__, item_id, activity_id))
+            # Each failure in a row doubles the wait before the same activity is tried again, up to the interval:
+            # a session Linear keeps refusing is not written to once a minute without end (design X4, P7).
+            self.db.execute("""UPDATE session_progress SET last_error=?,failures=failures+1,
+                due_at=?+MIN(?,?*(1<<MIN(failures,20))) WHERE item_id=? AND activity_id=?""",
+                            (type(exc).__name__, self.ledger.clock(), self.interval, self.retry_seconds,
+                             item_id, activity_id))
             return False
         return True
 
@@ -110,9 +142,11 @@ class SessionProgress:
                 item, status_key = current, current_key
                 content = self._content(item)
                 activity_id = self._reserve(item_id, content, status_key)
+                if activity_id is None:
+                    break
                 continue
             if sent:
-                self.db.execute("UPDATE session_progress SET due_at=?,activity_id=NULL,content=NULL,status_key=NULL,last_error=NULL WHERE item_id=? AND activity_id=?",
+                self.db.execute("UPDATE session_progress SET due_at=?,activity_id=NULL,content=NULL,status_key=NULL,last_error=NULL,failures=0 WHERE item_id=? AND activity_id=?",
                                 (self.ledger.clock() + self.interval, item_id, activity_id))
             break
         return True

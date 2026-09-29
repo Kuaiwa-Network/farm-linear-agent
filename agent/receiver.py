@@ -16,9 +16,12 @@ import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from .ledger import LedgerError
+from .ledger import ACTIVE_STATES, LedgerError, StaleRouting
 from .linear_api import person
 from .router import WRITE_SKILLS, route
+from .withdrawal import (DEFER_ACK, DEFER_STILL, DEFER_UNDELEGATED, FORWARD_PARKED_UNDELEGATED, FORWARD_WITHDRAWING,
+                         MOVED_THREAD, RESUME_UNDELEGATED, STOP_ALREADY, STOP_ELSEWHERE, STOP_MOVED, STOP_MOVED_THREAD,
+                         SUPERSEDE_SUFFIX, SUPERSEDED, grace_seconds)
 from .worktrees import WorktreeError
 
 MAX_BODY = 1024 * 1024
@@ -34,6 +37,23 @@ ACK = {"fix": "{bot} 已收到委派，正在排队处理这张修改卡。进�
 # D18: the first message of a delegation whose card has no Bot label, where a Bug card used to start a fix.
 NO_BOT_LABEL = ("{bot} 已收到。这张卡没有 Bot 标签，先以只读对话查看。需要修复或修改，请在这里回复（例如「修复」）；"
                 "以后委派前先加上 Bot/修改 标签，就会直接开始处理。")
+# The states of work no worker holds, which a newer session takes over at once (withdrawn-work design P4).
+UNCLAIMED = ("queued", "awaiting_input", "awaiting_resource")
+# A delegation deferred behind a withdrawing worker waits this long past the worker's deadline, by which the
+# controller has stopped it, before its event reports that the worker has not stopped (design C2).
+DEFER_SLACK = 300
+# An event whose routing met work that changed meanwhile is routed again at most this many times (design J5).
+REROUTES = 2
+FORWARDED = "该 issue 正在处理中，你的消息已转给正在处理的 worker。"
+RESUMED = "收到回复，原工作项已恢复，worker 会先读取你的回答。"
+
+
+class Deferred(Exception):
+    """A new delegation waits for the claimed worker of item `item_id` to withdraw (design P4, C2)."""
+
+    def __init__(self, item_id):
+        super().__init__(item_id)
+        self.item_id = item_id
 
 
 class Receiver:
@@ -176,8 +196,9 @@ class Receiver:
             inserted = self.db.execute("INSERT OR IGNORE INTO stop_requests VALUES (?,?,?,'pending',?,NULL,NULL)",
                                        (stop_key, session_id, str(uuid.uuid4()), self.clock())).rowcount
             if inserted:
-                self.db.execute("UPDATE webhook_events SET status='cancelled',completed_at=? WHERE session_id=? AND status='pending'",
-                                (self.clock(), session_id))
+                # A delegation deferred behind another session's worker goes with the Stop too (design D2).
+                self.db.execute("UPDATE webhook_events SET status='cancelled',completed_at=? WHERE session_id=? "
+                                "AND status IN ('pending','deferred')", (self.clock(), session_id))
         return 200, "stop received" if inserted else "duplicate"
 
     def _send(self, session_id, activity_id, content):
@@ -192,12 +213,16 @@ class Receiver:
             self.db.commit()
         status, error = "done", None
         try:
-            item = self.ledger.active_item_for_session(row["session_id"])
+            # The session's own work, else the work its messages were forwarded to, else, from the card's latest
+            # delegation session, the delegation's work wherever it runs (design P5).
+            item, where = self.ledger.stop_target(row["session_id"])
             if item is not None:
                 self.scheduler.stop(item["id"], "Linear stop")
-                body = f"已停止 {item['identifier']} 上的工作，worker 已终止，占用的资源在静默检查后释放。"
+                body = (f"已停止 {item['identifier']} 上的工作，worker 已终止，占用的资源在静默检查后释放。" if where == "own"
+                        else STOP_ELSEWHERE.format(identifier=item["identifier"]))
             else:
-                body = "当前没有正在进行的工作可停止。"
+                body = {"moved": STOP_MOVED, "moved_thread": STOP_MOVED_THREAD,
+                        "stopped": STOP_ALREADY}.get(where, "当前没有正在进行的工作可停止。")
             self._send(row["session_id"], row["activity_id"], {"type": "response", "body": body})
         except Exception as exc:
             status, error = "uncertain", type(exc).__name__
@@ -211,33 +236,43 @@ class Receiver:
         restart), and the messages it adds keep that time, which dates a ruling given in one of them."""
         issue = self.api.fetch_issue(prepared["issue_id"])
         self.ledger.observe_issue(issue)
+        app = self.identity["appUserId"]
+        delegated = bool(app) and issue.get("delegate_id") == app
+        # This fresh read of the card is a status read too (withdrawn-work design DT1, P3). Finding the delegation
+        # clears the issue's undelegated mark and the flags its loss set; not finding it while the delegation's work
+        # is active asks the lifecycle to read the card now, not at its next interval.
+        if delegated:
+            self.ledger.clear_undelegated(issue["id"])
+        else:
+            current = self.ledger.active_item_for_issue(issue["id"])
+            if current is not None and current["authority"] == "delegation":
+                self.ledger.request_status_check(issue["id"])
         session = self.ledger.session(prepared["session_id"])
-        if (session is None and prepared["action"] == "created" and prepared.get("is_mention")
-                and issue.get("delegate_id") == self.identity["appUserId"]):
+        if session is None and prepared["action"] == "created" and prepared.get("is_mention") and delegated:
             # Delegations may include Linear's synthetic thread comment. Verify
             # its origin off the webhook ACK path before granting write authority.
-            if self.api.session_has_artificial_root(prepared["session_id"], issue["id"], self.identity["appUserId"]):
+            if self.api.session_has_artificial_root(prepared["session_id"], issue["id"], app):
                 prepared = {**prepared, "is_mention": False, "text": ""}
         is_delegation = (session["delegation"] if session else
-                         prepared["action"] == "created" and not prepared.get("is_mention")
-                         and issue.get("delegate_id") == self.identity["appUserId"])
+                         prepared["action"] == "created" and not prepared.get("is_mention") and delegated)
         # .get: an event the previous revision accepted, still pending at upgrade, carries neither person.
         session = self.ledger.ensure_session(prepared["session_id"], issue["id"], is_delegation, prepared["guidance"],
                                              creator=prepared.get("creator"))
         author = prepared.get("author")
         session_id = prepared["session_id"]
+        text = prepared["text"]
 
         def routing():
-            """This session's work, the router's decision, the issue's work in any session, and whether the event
-            concerns feature work."""
+            """This session's work, the router's decision, the issue's work in any session, whether the event
+            concerns feature work, and whether it re-routes a delegation (D16)."""
             active = self.ledger.active_item_for_session(session_id)
             history = self.ledger.items_for_session(session_id)
             # D16: a reply in a delegation session that never had a work item (another session's work declined or
             # took its delegation) routes again on the labels fetched above. Only while the issue is still delegated
             # to this app: routing is what grants write work.
             reroute = (prepared["action"] == "prompted" and is_delegation and active is None and not history
-                       and issue.get("delegate_id") == self.identity["appUserId"])
-            decision = route(action=prepared["action"], is_delegation=is_delegation, text=prepared["text"],
+                       and delegated)
+            decision = route(action=prepared["action"], is_delegation=is_delegation, text=text,
                              labels=issue["labels"], active_state=active["state"] if active else None,
                              terminal_exists=bool(history) and active is None, available_skills=self.skills,
                              label_groups=issue.get("label_groups") or (), reroute=reroute)
@@ -250,11 +285,11 @@ class Receiver:
             feature_work = ((decision.kind == "work" and decision.skill == "feature")
                             or any(entry["skill"] == "feature" for entry in history)
                             or (forwarded and elsewhere["skill"] == "feature"))
-            return active, decision, elsewhere, feature_work
+            return active, decision, elsewhere, feature_work, reroute
 
-        active, decision, elsewhere, feature_work = routing()
+        routed = routing()
         pin = ""
-        if session.get("target") is None and self.worktrees is not None and not feature_work:
+        if session.get("target") is None and self.worktrees is not None and not routed[3]:
             try:
                 commit = self.worktrees.remote_head(TARGET_REPO, timeout=PIN_TIMEOUT)
                 session = self.ledger.set_session_target(prepared["session_id"], {
@@ -270,11 +305,8 @@ class Receiver:
                 # is left to process_one, which marks the event uncertain and says so in the session.
                 pin = "\n暂时无法锁定客户端提交，本次将不做 Unity 验证。"
             # The ls-remote can take seconds, in which work can start, end or move: act on what is true once it
-            # returns, as before plan P6 needed the decision first. Feature work that appeared meanwhile gets no
-            # target line in its acknowledgement.
-            active, decision, elsewhere, feature_work = routing()
-            if feature_work:
-                pin = ""
+            # returns, as before plan P6 needed the decision first.
+            routed = routing()
 
         def acknowledge(kind, body):
             """One event, one activity — and the pin rides in whichever branch sends it. Echoing only from the
@@ -284,55 +316,175 @@ class Receiver:
                 self.api.needs_more_info(issue["id"])
             self._send(session_id, ack_id, {"type": kind, "body": body + pin})
 
-        if elsewhere is not None and elsewhere["session_id"] != session_id:
-            if decision.kind == "work":
-                acknowledge("response", f"{issue['identifier']} 已有进行中的工作（{elsewhere['skill']}），"
-                                        "请在原会话继续，或等它完成后再委派。")
+        def take_over(decision, elsewhere, feature_work):
+            """This delegation session owns the card, whose work is `elsewhere`, in another session (design P4)."""
+            skill = decision.skill if decision.kind == "work" else "chat"
+            if elsewhere["state"] in UNCLAIMED or elsewhere["skill"] == "chat":
+                # Unclaimed work, or any conversation, is cancelled and continued here in one transaction, with its
+                # messages. The receiver only writes the ledger: the scheduler's next tick kills a conversation's
+                # worker, after this acknowledgement, which Linear wants within seconds (critique 2.9).
+                self.ledger.supersede(elsewhere["id"], ACTIVE_STATES if elsewhere["skill"] == "chat" else UNCLAIMED,
+                                      session_id=session_id, skill=skill,
+                                      reason="a new delegation session took the card over",
+                                      target=None if feature_work or skill == "chat" else session.get("target"),
+                                      authority="delegation", text=text, author=author, received_at=received_at)
+                acknowledge("thought", self._opening(decision, text) + "\n" + SUPERSEDE_SUFFIX)
+                self._close_moved(elsewhere, SUPERSEDED)
                 return
-            if decision.kind == "chat":
-                can_resume = elsewhere["skill"] == "chat" or issue.get("delegate_id") == self.identity["appUserId"]
-                delivered = self.ledger.push_inbox(elsewhere["id"], prepared["text"] or "（无正文）",
-                                                   resume_waiting=can_resume, author=author, received_at=received_at)
-                notice = "该 issue 正在处理中，你的消息已转给正在处理的 worker。"
-                if elsewhere["state"] == "awaiting_input" and delivered["state"] == "queued":
-                    notice = "收到回复，原工作项已恢复，worker 会先读取你的回答。"
-                if decision.text and decision.text != prepared["text"]:
+            # A claimed write worker saves its progress and withdraws, or the controller stops it at its deadline;
+            # this event waits for that, then runs as the delegation it is (design C2).
+            grace = self._grace(elsewhere["skill"])
+            self.ledger.flag_withdrawal(elsewhere["id"], "superseded", self.clock() + grace)
+            if prepared.get("deferred"):
+                acknowledge("response", DEFER_STILL)
+                return
+            acknowledge("thought", DEFER_ACK.format(bot=self.bot_name, skill=elsewhere["skill"],
+                                                    minutes=round(grace / 60)))
+            raise Deferred(elsewhere["id"])
+
+        def act(active, decision, elsewhere, feature_work, reroute):
+            if prepared.get("deferred") and not delegated:
+                # The delegation this event waited behind another session's worker to run was removed meanwhile. Its
+                # session still records a delegation, but nothing authorises its work any more, and the person asked
+                # for nothing since: the event answers once and starts nothing (design C2, as D16 needs `delegated`).
+                acknowledge("response", DEFER_UNDELEGATED.format(bot=self.bot_name))
+                return
+            # A delegation's own event, while the card is delegated here, owns the card (design P4).
+            owns = is_delegation and delegated and (prepared["action"] == "created" or reroute)
+            if elsewhere is not None and elsewhere["session_id"] != session_id and decision.kind in ("work", "chat"):
+                if owns:
+                    return take_over(decision, elsewhere, feature_work)
+                if elsewhere["skill"] == "chat" and elsewhere["state"] in UNCLAIMED:
+                    # A waiting conversation moves to the thread that answers it (design C5, 2.12), keeping the
+                    # delegation's authority only while the card is still delegated here. No new delegation took it,
+                    # so the old thread is told only that it moved.
+                    authority = "delegation" if elsewhere["authority"] == "delegation" and delegated else "mention"
+                    self.ledger.supersede(elsewhere["id"], UNCLAIMED, session_id=session_id, skill="chat",
+                                          reason="a person's message moved the conversation to another session",
+                                          authority=authority, text=text, author=author, received_at=received_at,
+                                          takeover=False)
+                    acknowledge("thought", self._opening(decision, text) if decision.kind == "chat"
+                                else ACK["chat"].format(bot=self.bot_name))
+                    self._close_moved(elsewhere, MOVED_THREAD)
+                    return
+                # Forwarded to work that stays where it is, and a Stop here now reaches it (design P5). The notice
+                # says what becomes of the message (design R10).
+                flagged = elsewhere["withdraw_deadline"] is not None
+                resume = (delegated or elsewhere["skill"] == "chat") and not flagged
+                delivered = self.ledger.push_inbox(elsewhere["id"], text or "（无正文）", resume_waiting=resume,
+                                                   author=author, received_at=received_at)
+                self.ledger.record_forward(session_id, delivered["item_id"])
+                if flagged:
+                    notice = FORWARD_WITHDRAWING
+                elif elsewhere["state"] == "awaiting_input" and delivered["state"] == "queued":
+                    notice = RESUMED
+                elif not delegated and elsewhere["authority"] == "delegation":
+                    notice = FORWARD_PARKED_UNDELEGATED.format(bot=self.bot_name, skill=elsewhere["skill"])
+                else:
+                    notice = FORWARDED
+                if decision.text and decision.text != text:
                     notice = decision.text + "\n" + notice
                 acknowledge("thought", notice)
                 return
+            if decision.kind == "work":
+                if decision.skill in WRITE_SKILLS and not is_delegation:
+                    raise RuntimeError("router produced write work from a mention")
+                item = self.ledger.create_work_item(issue_id=issue["id"], session_id=session_id, skill=decision.skill,
+                                                    target=None if feature_work else session.get("target"),
+                                                    authority="delegation")
+                if text:
+                    self.ledger.push_inbox(item["id"], text, author=author, received_at=received_at)
+                acknowledge("thought", self._opening(decision, text))
+            elif decision.kind == "chat":
+                # Design P1: a conversation a delegation opens while the card is delegated here is the delegation's;
+                # any other is a mention's, which no withdrawal of the delegation touches.
+                item = self.ledger.create_work_item(issue_id=issue["id"], session_id=session_id, skill="chat",
+                                                    authority="delegation" if is_delegation and delegated else "mention")
+                if text:
+                    self.ledger.push_inbox(item["id"], text, author=author, received_at=received_at)
+                acknowledge("thought", self._opening(decision, text))
+            elif decision.kind == "steer":
+                self.ledger.push_inbox(active["id"], decision.text, author=author, received_at=received_at)
+                acknowledge("thought", "已转给正在处理的 worker，会在下一次检查点读取。")
+            elif decision.kind == "resume" and active["skill"] == "chat":
+                # An answer on a card no longer delegated here goes on without the delegation (design P1, A2).
+                self.ledger.push_inbox(active["id"], decision.text, resume_waiting=True, author=author,
+                                       received_at=received_at, demote_to_mention=not delegated)
+                acknowledge("thought", "收到回复，继续处理。")
+            elif decision.kind == "resume":
+                self.ledger.push_inbox(active["id"], decision.text, resume_waiting=delegated, author=author,
+                                       received_at=received_at)
+                acknowledge("thought", "收到回复，继续处理。" if delegated
+                            else RESUME_UNDELEGATED.format(bot=self.bot_name))
+            elif decision.kind == "elicit":
+                acknowledge("elicitation", decision.text)
+
+        for attempt in range(REROUTES + 1):
+            if routed[3]:
+                pin = ""  # feature work gets no target line, however it came to be routed
+            try:
+                return act(*routed)
+            except StaleRouting:
+                # The work this event was routed to ended, moved or was claimed meanwhile (a worker's request for a
+                # repair, a Stop, another event): route it again on what is true now (design J5).
+                if attempt == REROUTES:
+                    raise
+                routed = routing()
+
+    def _opening(self, decision, text):
+        """The acknowledgement of new work: its job's, or a conversation's: the first message of a card without a Bot
+        label, the router's explanation, or the plain one."""
         if decision.kind == "work":
-            if decision.skill in WRITE_SKILLS and not is_delegation:
-                raise RuntimeError("router produced write work from a mention")
-            item = self.ledger.create_work_item(issue_id=issue["id"], session_id=session_id, skill=decision.skill,
-                                                target=None if feature_work else (session or {}).get("target"))
-            if prepared["text"]:
-                self.ledger.push_inbox(item["id"], prepared["text"], author=author, received_at=received_at)
-            acknowledge("thought", ACK.get(decision.skill, ACK["chat"]).format(bot=self.bot_name))
-        elif decision.kind == "chat":
-            item = self.ledger.create_work_item(issue_id=issue["id"], session_id=session_id, skill="chat")
-            if prepared["text"]:
-                self.ledger.push_inbox(item["id"], prepared["text"], author=author, received_at=received_at)
-            if decision.unlabelled:
-                body = NO_BOT_LABEL.format(bot=self.bot_name)
+            return ACK.get(decision.skill, ACK["chat"]).format(bot=self.bot_name)
+        if decision.unlabelled:
+            return NO_BOT_LABEL.format(bot=self.bot_name)
+        if decision.text and decision.text != text:
+            return decision.text
+        return ACK["chat"].format(bot=self.bot_name)
+
+    def _grace(self, skill):
+        """The withdrawal grace of a claimed worker of `skill`, from the scheduler's loaded manifests (design P2)."""
+        manifests = getattr(self.scheduler, "skills", None)
+        return grace_seconds(manifests.get(skill) if isinstance(manifests, dict) else None)
+
+    def _close_moved(self, item, body):
+        """Best effort, after the new session's acknowledgement: a superseded item's own session is told where its
+        work went, `body`, SUPERSEDED for a new delegation's takeover or MOVED_THREAD for a conversation a message
+        moved, or the card is, for an operator's `local-` item, which names no Linear session (design P4, P7)."""
+        try:
+            if str(item["session_id"]).startswith("local-"):
+                self.api.create_comment(item["issue_id"], body)
             else:
-                body = (decision.text if decision.text and decision.text != prepared["text"]
-                        else ACK["chat"].format(bot=self.bot_name))
-            acknowledge("thought", body)
-        elif decision.kind == "steer":
-            self.ledger.push_inbox(active["id"], decision.text, author=author, received_at=received_at)
-            acknowledge("thought", "已转给正在处理的 worker，会在下一次检查点读取。")
-        elif decision.kind == "resume":
-            can_resume = active["skill"] == "chat" or issue.get("delegate_id") == self.identity["appUserId"]
-            self.ledger.push_inbox(active["id"], decision.text, resume_waiting=can_resume, author=author,
-                                   received_at=received_at)
-            acknowledge("thought", "收到回复，继续处理。" if can_resume
-                        else f"已保存回复；issue 已不再委派给 {self.bot_name}，暂不继续这项工作。")
-        elif decision.kind == "elicit":
-            acknowledge("elicitation", decision.text)
+                self.api.create_activity(item["session_id"], {"type": "response", "body": body})
+        except Exception:
+            pass
+
+    def _release_deferred(self):
+        """A delegation deferred behind another session's claimed worker goes back to the queue once that worker no
+        longer runs, or once its deadline is DEFER_SLACK past and it still does (design C2). Its payload then says it
+        was deferred, and a fresh activity id lets it answer in its session again: the first carried DEFER_ACK."""
+        with self.lock:
+            rows = self.db.execute("SELECT event_key,payload,error FROM webhook_events WHERE status='deferred' "
+                                   "ORDER BY received_at").fetchall()
+        now = self.clock()
+        for row in rows:
+            try:
+                item = self.ledger.item(row["error"])
+            except LedgerError:
+                item = None
+            if (item is not None and item["state"] == "running" and item["withdraw_deadline"] is not None
+                    and now < item["withdraw_deadline"] + DEFER_SLACK):
+                continue
+            payload = {**json.loads(row["payload"]), "deferred": True}
+            with self.lock, self.db:
+                self.db.execute("UPDATE webhook_events SET status='pending',ack_id=?,payload=?,error=NULL "
+                                "WHERE event_key=? AND status='deferred'",
+                                (str(uuid.uuid4()), json.dumps(payload), row["event_key"]))
 
     def process_one(self):
         if self._process_stop():
             return True
+        self._release_deferred()
         with self.lock:
             row = self.db.execute("SELECT * FROM webhook_events WHERE status='pending' ORDER BY received_at LIMIT 1").fetchone()
             if row is None:
@@ -342,6 +494,9 @@ class Receiver:
         status, error = "done", None
         try:
             self._decide_and_act(json.loads(row["payload"]), row["ack_id"], row["received_at"])
+        except Deferred as deferred:
+            # Acknowledged already. The event keeps its payload and waits for the old worker (design C2).
+            status, error = "deferred", deferred.item_id
         except (LedgerError, RuntimeError, ValueError, KeyError, OSError, sqlite3.Error) as exc:
             status, error = "uncertain", type(exc).__name__
             try:
@@ -349,8 +504,12 @@ class Receiver:
             except Exception:
                 pass
         with self.lock, self.db:
-            self.db.execute("UPDATE webhook_events SET status=?,completed_at=?,error=?,payload=NULL WHERE event_key=?",
-                            (status, self.clock(), error, row["event_key"]))
+            if status == "deferred":
+                self.db.execute("UPDATE webhook_events SET status=?,error=? WHERE event_key=?",
+                                (status, error, row["event_key"]))
+            else:
+                self.db.execute("UPDATE webhook_events SET status=?,completed_at=?,error=?,payload=NULL WHERE event_key=?",
+                                (status, self.clock(), error, row["event_key"]))
         return True
 
     def results(self):

@@ -77,6 +77,20 @@ AUTHORITY_AT_A29D078 = (
     "Use references/worker-cli.md for command arguments and the exact handoff JSON shape."
 )
 AUTHORITY_AT_A29D078_SHA256 = "23d88d27e8d37067c1879514f0a4d578da0c02b04c14832aa29ecfdeff321cde"
+# Withdrawn-work design §7.3: the one sentence the common part gains, the last of it, so that the approval reviewer
+# lets a write worker whose work was withdrawn run `withdraw` instead of publishing or asking. It names write jobs:
+# a conversation follows its skill's rule, answering once and finishing (design §7.2, Appendix C).
+WITHDRAWAL_AT_DESIGN = (
+    "In a write job, if fetch-issue reports delegated false or withdrawn true, or a ledger command refuses with "
+    "'delegation withdrawn', publish nothing and ask nothing: save a checkpoint, run the ledger CLI's withdraw "
+    "command and exit. "
+)
+
+
+def with_withdrawal(text):
+    """The a29d078 text with the withdrawal sentence at the end of its common part, before the kw_ops paragraph."""
+    common, marker, rest = text.partition("When tools.kw_ops.access is present")
+    return common + WITHDRAWAL_AT_DESIGN + marker + rest
 # D18 h, question 5: the export grant fix's AUTHORITY adds. A change to it is a change to what the approval
 # reviewer lets a fix worker export, so it is pinned here word for word.
 FGUI_EXPORT_AT_D18 = (
@@ -249,14 +263,17 @@ class SkillAuthorityTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(AUTHORITY_AT_A29D078.encode("utf-8")).hexdigest(), AUTHORITY_AT_A29D078_SHA256)
 
     def test_chat_receives_the_a29d078_authority_byte_for_byte(self):
-        self.assertEqual(self.message({"id": "i", "skill": "chat"}).split("\n\n", 1)[0], AUTHORITY_AT_A29D078)
+        """Byte for byte but for the withdrawal sentence the withdrawn-work design adds to the common part (§7.3)."""
+        self.assertEqual(self.message({"id": "i", "skill": "chat"}).split("\n\n", 1)[0],
+                         with_withdrawal(AUTHORITY_AT_A29D078))
 
     def test_fix_receives_the_a29d078_authority_plus_the_fgui_export_grant_before_the_reference(self):
         """D18 h and question 5: the approval reviewer trusts only this text, so the export grant farmgui's rules
-        record is stated here for fix alone; everything else is the a29d078 text, byte for byte."""
+        record is stated here for fix alone; everything else is the a29d078 text, byte for byte, with the
+        withdrawal sentence of the withdrawn-work design."""
         reference = dispatch.AUTHORITY_REFERENCE
         self.assertEqual(self.message({"id": "i", "skill": "fix"}).split("\n\n", 1)[0],
-                         AUTHORITY_AT_A29D078[:-len(reference)] + FGUI_EXPORT_AT_D18 + reference)
+                         with_withdrawal(AUTHORITY_AT_A29D078)[:-len(reference)] + FGUI_EXPORT_AT_D18 + reference)
         self.assertEqual(dispatch.FGUI_EXPORT_AUTHORITY, FGUI_EXPORT_AT_D18)
         self.assertNotIn("FairyGUI", dispatch.COMMON_AUTHORITY + dispatch.SKILL_AUTHORITY["chat"])
 
@@ -277,7 +294,7 @@ class SkillAuthorityTests(unittest.TestCase):
         checkpoint rule included, and the reference."""
         reference = "Use references/worker-cli.md for command arguments and the exact handoff JSON shape."
         common, marker, rest = AUTHORITY_AT_A29D078.partition("When tools.kw_ops.access is present")
-        self.assertEqual(dispatch.COMMON_AUTHORITY, common)
+        self.assertEqual(dispatch.COMMON_AUTHORITY, common + WITHDRAWAL_AT_DESIGN)
         self.assertEqual(dispatch.AUTHORITY_REFERENCE, reference)
         self.assertEqual(dispatch.KW_OPS_AUTHORITY, marker + rest[:-len(reference)])
 

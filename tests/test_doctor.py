@@ -237,6 +237,122 @@ class DoctorTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(main(["doctor", "--config", str(self.config_path)]), 1)
 
+    def findings(self, report, code):
+        return [f for f in report["findings"] if f["code"] == code]
+
+    def test_e4_item_outside_issue_prefix_is_a_finding(self):
+        """Withdrawn-work design E4: FarmBot does not notice a card moved to another team, so an active job whose
+        identifier left the host's issue_prefix is listed."""
+        self.ledger.observe_issue(issue(id=OTHER, identifier="OPS-7"))
+        self.ledger.ensure_session("session-2", OTHER, delegation=False)
+        moved = self.ledger.create_work_item(issue_id=OTHER, session_id="session-2", skill="chat")
+        found = self.findings(self.report(), "outside_prefix")
+        self.assertEqual([(f["item_id"], f["identifier"], f["issue_prefix"]) for f in found],
+                         [(moved["id"], "OPS-7", "FARM")])
+        self.assertEqual(self.findings(diagnose(replace(self.config, issue_prefix="OPS"), now=1001), "outside_prefix")[0]
+                         ["item_id"], self.item["id"])
+
+    def test_h4_long_parked_item_is_a_finding(self):
+        """Design H4, B1: a job that has waited more than 7 days for an answer is listed; a reply may be lost, or its
+        session archived while the card stayed delegated, and nothing else would resume it."""
+        claimed = self.running()
+        self.ledger.await_input(self.item["id"], claimed["token"], "private question")
+        self.assertEqual(self.findings(diagnose(self.config, now=1000 + 7 * 86400), "long_parked"), [])
+        found = self.findings(diagnose(self.config, now=1001 + 7 * 86400), "long_parked")
+        self.assertEqual([(f["item_id"], f["identifier"], f["parked_seconds"]) for f in found],
+                         [(self.item["id"], "FARM-1", 7 * 86400 + 1)])
+        self.assertNotIn("private question", json.dumps(found))
+
+    def test_undelegated_work_is_listed_once_the_withdrawal_is_three_intervals_late(self):
+        """Design §5.1 commit 6: two status reads an interval apart withdraw the delegation's work, so a job still
+        active three intervals after the first read found the card undelegated is stuck. A mention's is not."""
+        self.ledger.mark_undelegated(ISSUE, 1000)
+        self.ledger.observe_issue(issue(id=OTHER))
+        self.ledger.ensure_session("mention", OTHER, delegation=False)
+        self.ledger.create_work_item(issue_id=OTHER, session_id="mention", skill="chat")
+        self.ledger.mark_undelegated(OTHER, 1000)
+        self.assertEqual(self.findings(diagnose(self.config, now=1180), "undelegated_work"), [])
+        found = self.findings(diagnose(self.config, now=1181), "undelegated_work")
+        self.assertEqual([(f["item_id"], f["state"], f["undelegated_since"]) for f in found],
+                         [(self.item["id"], "queued", 1000)])
+
+    def test_a_flagged_worker_inside_its_grace_is_not_undelegated_work(self):
+        """Design P2: the second read flags a claimed worker rather than cancelling it, and the worker may run until
+        its deadline, 20 minutes on for a fix; withdrawal_overdue lists it if it outlives that. Flagged work that went
+        back to the queue is never launched again and only a read ends it, so it is still listed."""
+        self.running()
+        self.ledger.mark_undelegated(ISSUE, 1000)
+        self.ledger.flag_withdrawal(self.item["id"], "undelegated", 1060 + 1200)
+        with patch("agent.doctor.probe_process", return_value={"state": "alive", "reason": "job_marker_matches"}):
+            report = diagnose(self.config, now=1300)
+        self.assertEqual(self.findings(report, "undelegated_work"), [])
+        self.assertEqual(self.findings(report, "withdrawal_overdue"), [])
+        self.ledger.clock = lambda: 1100
+        self.ledger.recover(self.item["id"], "lease expired")
+        found = self.findings(diagnose(self.config, now=1300), "undelegated_work")
+        self.assertEqual([(f["item_id"], f["state"]) for f in found], [(self.item["id"], "queued")])
+
+    def test_a_worker_past_its_withdrawal_deadline_is_overdue(self):
+        """Design P2: the controller stops a flagged worker at its deadline; one still running 5 minutes later is
+        listed."""
+        self.running()
+        self.ledger.flag_withdrawal(self.item["id"], "superseded", 1100)
+        with patch("agent.doctor.probe_process", return_value={"state": "alive", "reason": "job_marker_matches"}):
+            self.assertEqual(self.findings(diagnose(self.config, now=1400), "withdrawal_overdue"), [])
+            found = self.findings(diagnose(self.config, now=1401), "withdrawal_overdue")
+        self.assertEqual([(f["item_id"], f["withdraw_reason"], f["withdraw_deadline"]) for f in found],
+                         [(self.item["id"], "superseded", 1100)])
+
+    def test_a_delegation_deferred_for_more_than_45_minutes_is_listed(self):
+        """Design C2: a delegation waits for another session's claimed worker, at most its grace and 5 minutes; one
+        still deferred after 45 minutes is listed with the job it waits for."""
+        self.ledger.connection.execute("""CREATE TABLE webhook_events (
+            event_key TEXT PRIMARY KEY, session_id TEXT NOT NULL, ack_id TEXT NOT NULL, status TEXT NOT NULL,
+            payload TEXT, received_at REAL NOT NULL, completed_at REAL, error TEXT)""")
+        self.ledger.connection.execute("INSERT INTO webhook_events VALUES('k','session-2','a','deferred','{}',1000,NULL,?)",
+                                       (self.item["id"],))
+        self.ledger.connection.execute("INSERT INTO webhook_events VALUES('j','session-3','b','done',NULL,0,1,NULL)")
+        self.assertEqual(self.findings(diagnose(self.config, now=1000 + 2700), "deferred_delegation"), [])
+        found = self.findings(diagnose(self.config, now=1001 + 2700), "deferred_delegation")
+        self.assertEqual([(f["session_id"], f["waits_for"], f["deferred_seconds"]) for f in found],
+                         [("session-2", self.item["id"], 2701)])
+        self.assertNotIn("payload", found[0])
+
+    def test_stored_undelegated_lists_the_delegations_work_only_when_the_app_is_pinned(self):
+        """Design §5.3: before deploying, doctor lists the work the stored snapshot shows on a card not delegated to
+        the pinned app. A conversation a delegation opened before authorities were recorded is listed too, though the
+        new code keeps it; a mention's is not."""
+        app = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
+        self.assertEqual(self.findings(self.report(), "stored_undelegated"), [])
+        self.ledger.observe_issue(issue(id=OTHER, identifier="FARM-2"))
+        self.ledger.ensure_session("delegated-chat", OTHER, delegation=True)
+        old_chat = self.ledger.create_work_item(issue_id=OTHER, session_id="delegated-chat", skill="chat")
+        self.ledger.connection.execute("UPDATE work_items SET authority=NULL WHERE id=?", (old_chat["id"],))
+        self.ledger.observe_issue(issue(id=THIRD, identifier="FARM-3"))
+        self.ledger.ensure_session("mention", THIRD, delegation=False)
+        self.ledger.create_work_item(issue_id=THIRD, session_id="mention", skill="chat")
+        pinned = replace(self.config, expected_app_user_id=app)
+        found = self.findings(diagnose(pinned, now=1001), "stored_undelegated")
+        self.assertEqual({(f["item_id"], f["skill"], f["authority_recorded"]) for f in found},
+                         {(self.item["id"], "fix", True), (old_chat["id"], "chat", False)})
+        self.ledger.observe_issue(issue(delegate_id=app, updated_at="2026-09-30T00:00:00Z"))
+        self.assertEqual({f["item_id"] for f in self.findings(diagnose(pinned, now=1001), "stored_undelegated")},
+                         {old_chat["id"]})
+
+    def test_a_ledger_without_the_withdrawal_columns_reports_none_of_their_findings(self):
+        """Each withdrawn-work finding is read only when its column exists; doctor never migrates."""
+        claimed = self.running()
+        self.ledger.await_input(self.item["id"], claimed["token"], "private question")
+        for table, column in (("work_items", "authority"), ("work_items", "withdraw_deadline"),
+                              ("work_items", "withdraw_reason"), ("issue_checks", "undelegated_since")):
+            self.ledger.connection.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
+        report = diagnose(replace(self.config, expected_app_user_id="e5a8c16d-9f85-4123-acf5-94e41c3304d5"),
+                          now=1001 + 7 * 86400)
+        self.assertNotEqual(report["status"], "incomplete")
+        self.assertEqual(self.codes(report), {"long_parked", "stored_undelegated"})
+        columns = {row[1] for row in self.ledger.connection.execute("PRAGMA table_info(work_items)")}
+        self.assertNotIn("authority", columns)
+
     def test_kw_ops_configuration_is_reported_without_its_token(self):
         self.config.kw_ops = {"url": "https://gm.test/mcp", "token_env": "KW_OPS_TOKEN"}
         with patch.dict(os.environ, {"KW_OPS_TOKEN": "dummy-token-value"}):

@@ -18,10 +18,14 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from agent.heartbeat import OUTCOMES, Heartbeat
-from agent.ledger import Ledger
+from agent.ledger import Ledger, LedgerError
+from agent.lifecycle import Lifecycle
 from agent.monitor import probe_health
 from agent.receiver import MAX_BODY, Receiver, make_server
 from agent.router import Decision
+from agent.withdrawal import (DEFER_ACK, DEFER_STILL, DEFER_UNDELEGATED, FORWARD_PARKED_UNDELEGATED,
+                              FORWARD_WITHDRAWING, MOVED_THREAD, RESUME_UNDELEGATED, STOP_ALREADY, STOP_ELSEWHERE,
+                              STOP_MOVED, STOP_MOVED_THREAD, SUPERSEDE_SUFFIX, SUPERSEDED)
 from agent.worktrees import WorktreeError
 from test_ledger import DESIGNER, ISSUE, OTHER, OWNER, issue
 
@@ -191,13 +195,21 @@ class ReceiverTests(ReceiverBase):
         self.receive(); self.receiver.process_one()
         self.assertEqual(self.receiver.results()[0]["status"], "uncertain")
 
-    def test_delegation_from_a_second_session_on_an_active_issue_is_declined(self):
+    def test_a_delegation_from_a_second_session_takes_the_waiting_work_over(self):
+        """Withdrawn-work design P4: the newer delegation session owns the card. Its queued fix is cancelled and
+        continued there by a linked fix, the new session is acknowledged first, and the old one is told where its
+        work went. Nothing is refused."""
         self.receive(); self.receiver.process_one()
+        [old] = self.ledger.items_for_session("session-1")
         other = self.event(agentSession={"id": "session-2", "issue": {"id": ISSUE, "identifier": "FARM-1", "url": "u"}})
         self.receive(other); self.receiver.process_one()
-        self.assertEqual(self.ledger.items_for_session("session-2"), [])
-        self.assertEqual(self.activities()[-1]["type"], "response")
-        self.assertIn("进行中", self.activities()[-1]["body"])
+        [new] = self.ledger.items_for_session("session-2")
+        self.assertEqual((self.ledger.item(old["id"])["state"], new["skill"], new["state"], new["predecessor_id"]),
+                         ("cancelled", "fix", "queued", old["id"]))
+        self.assertEqual([(call.args[0], call.args[1]) for call in self.api.create_activity.call_args_list[-2:]],
+                         [("session-2", {"type": "thought", "body": FIX_ACK + "\n" + SUPERSEDE_SUFFIX}),
+                          ("session-1", {"type": "response", "body": SUPERSEDED})])
+        self.assertFalse([a for a in self.activities() if "进行中的工作" in a["body"]])
         self.assertEqual(self.receiver.results()[-1]["status"], "done")
 
     def test_mention_from_a_second_session_on_an_active_issue_steers_the_worker(self):
@@ -819,7 +831,8 @@ class BotNameTests(ReceiverBase):
         self.assertEqual(self.activities()[-1]["body"], "FarmBot 已收到，正在查看。")
 
     def test_default_receiver_keeps_the_production_resume_and_error_text(self):
-        self.assertEqual(self.answer_after_undelegation(), "已保存回复；issue 已不再委派给 FarmBot，暂不继续这项工作。")
+        self.assertEqual(self.answer_after_undelegation(),
+                         "已保存回复；这张卡已不再委派给 FarmBot，这项工作即将停止。重新委派给 FarmBot 会从已有进度接着做。")
         self.api.fetch_issue.side_effect = KeyError("labels")
         self.receive(self.event(agentSession={"id": "session-9", "issue": {"id": ISSUE}})); self.receiver.process_one()
         self.assertEqual(self.activities()[-1], {"type": "error", "body": "FarmBot 处理这条消息时出错（KeyError），请稍后重试或联系维护者。"})
@@ -834,7 +847,8 @@ class BotNameTests(ReceiverBase):
 
     def test_a_named_instance_never_says_farmbot_in_resume_or_error_text(self):
         self.receiver_named("TestBot")
-        self.assertEqual(self.answer_after_undelegation(), "已保存回复；issue 已不再委派给 TestBot，暂不继续这项工作。")
+        self.assertEqual(self.answer_after_undelegation(),
+                         "已保存回复；这张卡已不再委派给 TestBot，这项工作即将停止。重新委派给 TestBot 会从已有进度接着做。")
         self.api.fetch_issue.side_effect = KeyError("labels")
         self.receive(self.event(agentSession={"id": "session-9", "issue": {"id": ISSUE}})); self.receiver.process_one()
         self.assertEqual(self.activities()[-1]["body"], "TestBot 处理这条消息时出错（KeyError），请稍后重试或联系维护者。")
@@ -961,27 +975,63 @@ class BotRoutingReceiverTests(ReceiverBase):
         result = self.receiver.results()[-1]
         self.assertEqual((result["status"], result["error"]), ("uncertain", "RuntimeError"))
 
-    def test_the_first_message_is_never_put_before_a_forwarding_notice(self):
-        """An unlabelled delegation while another session's conversation waits for an answer is forwarded to it
-        as an empty message and resumes it, as a card without Bug always was; the delegator reads the notice."""
+    def test_an_unlabelled_delegation_takes_a_waiting_conversation_over_with_its_first_message(self):
+        """Withdrawn-work design P4, C3: an unlabelled delegation while another session's conversation waits for an
+        answer moves that conversation, with its messages, into the delegation's session. The delegator reads the
+        card's first message, and the old session is told where its conversation went."""
         chat = self.conversation_elsewhere()
         token = self.ledger.claim(chat["id"], worker_id="w")["token"]
         self.ledger.pop_inbox(chat["id"], token)  # a message still unread would requeue the pause at once
         self.ledger.await_input(chat["id"], token, "哪个服？")
         self.assertEqual(self.ledger.item(chat["id"])["state"], "awaiting_input")
         self.labelled(["Bug"], [])
-        self.assertEqual(self.delegate(), [])
-        self.assertEqual(self.activities()[-1], {"type": "thought",
-                                                 "body": "收到回复，原工作项已恢复，worker 会先读取你的回答。"})
-        self.assertEqual(self.ledger.item(chat["id"])["state"], "queued")
+        [moved] = self.delegate()
+        self.assertEqual((moved["skill"], moved["state"], moved["authority"]), ("chat", "queued", "delegation"))
+        self.assertEqual(self.ledger.item(chat["id"])["state"], "cancelled")
+        self.assertEqual([m["body"] for m in self.ledger.issue_context(moved["id"])["session_messages"]],
+                         ["@FarmBot 这是什么问题？"])
+        self.assertEqual([(call.args[0], call.args[1]) for call in self.api.create_activity.call_args_list[-2:]],
+                         [("session-1", {"type": "thought", "body": NO_BOT_LABEL + "\n" + SUPERSEDE_SUFFIX}),
+                          ("session-0", {"type": "response", "body": SUPERSEDED})])
 
-    def test_a_delegation_declined_for_other_work_starts_when_a_reply_reroutes_it(self):
+    def claimed_fix_elsewhere(self, session="session-0"):
+        """A fix a delegation of the Bot/修改 card started in `session`, claimed by its worker: (item, token)."""
+        self.labelled(["修改"], CHANGE)
+        [fix] = self.delegate(session)
+        return fix, self.ledger.claim(fix["id"], worker_id="w")["token"]
+
+    def past_the_grace(self):
+        """The receiver's clock passes the flagged worker's deadline and five minutes more, and the deferred
+        delegation is processed again (withdrawn-work design C2)."""
+        later = time.time() + 1200 + 301
+        self.receiver.clock = lambda: later
+        self.assertTrue(self.receiver.process_one())
+
+    def test_a_delegation_for_other_work_takes_a_waiting_conversation_over(self):
+        """Withdrawn-work design P4, C3: the delegation starts its own work at once; the conversation it outranks
+        ends, and its messages go to the new job."""
         self.running("feature")
         chat = self.conversation_elsewhere()
         self.labelled(["Code"], CODE)
+        [item] = self.delegate()
+        self.assertEqual((item["skill"], item["state"]), ("feature", "queued"))
+        self.assertEqual(self.ledger.item(chat["id"])["state"], "cancelled")
+        self.assertEqual([m["body"] for m in self.ledger.issue_context(item["id"])["session_messages"]],
+                         ["@FarmBot 这是什么问题？"])
+
+    def test_a_delegation_deferred_behind_a_worker_that_never_stops_starts_when_a_reply_reroutes_it(self):
+        """D16 after a deferral (withdrawn-work design C2): the old worker outlives its grace, so the delegation's
+        event ends saying so, and a reply once the worker has stopped routes the delegation as it would have."""
+        self.running("feature")
+        fix, token = self.claimed_fix_elsewhere()
+        self.labelled(["Code"], CODE)
         self.assertEqual(self.delegate(), [])
-        self.assertEqual(self.activities()[-1]["body"], "FARM-1 已有进行中的工作（chat），请在原会话继续，或等它完成后再委派。")
-        self.finish(chat)
+        self.assertEqual(self.activities()[-1], {"type": "thought",
+                                                 "body": DEFER_ACK.format(bot="FarmBot", skill="fix", minutes=20)})
+        self.past_the_grace()
+        self.assertEqual(self.activities()[-1], {"type": "response", "body": DEFER_STILL})
+        self.assertEqual(self.ledger.items_for_session("session-1"), [])
+        self.ledger.withdraw(fix["id"], token, delegated=True, closed=False)
         self.receive(self.event("prompted", body="现在开始")); self.receiver.process_one()
         [item] = self.ledger.items_for_session("session-1")
         self.assertEqual((item["skill"], item["state"]), ("feature", "queued"))
@@ -989,10 +1039,11 @@ class BotRoutingReceiverTests(ReceiverBase):
         self.assertEqual(self.ledger.pop_inbox(item["id"], token), ["现在开始"])
 
     def test_a_reply_that_reroutes_a_card_without_a_bot_label_opens_the_conversation(self):
-        chat = self.conversation_elsewhere()
+        fix, token = self.claimed_fix_elsewhere()
         self.labelled(["Bug"], [])
-        self.assertEqual(self.delegate(), [])  # forwarded to the conversation already running
-        self.finish(chat)
+        self.assertEqual(self.delegate(), [])  # deferred behind the fix's worker
+        self.past_the_grace()
+        self.ledger.withdraw(fix["id"], token, delegated=True, closed=False)
         self.receive(self.event("prompted", body="请修复")); self.receiver.process_one()
         [item] = self.ledger.items_for_session("session-1")
         self.assertEqual(item["skill"], "chat")
@@ -1002,10 +1053,11 @@ class BotRoutingReceiverTests(ReceiverBase):
 
     def test_a_reply_reroutes_only_while_the_issue_is_still_delegated(self):
         self.running("feature")
-        chat = self.conversation_elsewhere()
+        fix, token = self.claimed_fix_elsewhere()
         self.labelled(["Code"], CODE)
         self.delegate()
-        self.finish(chat)
+        self.past_the_grace()
+        self.ledger.withdraw(fix["id"], token, delegated=False, closed=False)
         self.api.fetch_issue.return_value = issue(labels=["Code"], delegate_id=None, label_groups=CODE)
         self.receive(self.event("prompted", body="现在开始")); self.receiver.process_one()
         self.assertEqual([item["skill"] for item in self.ledger.items_for_session("session-1")], ["chat"])
@@ -1019,7 +1071,7 @@ class BotRoutingReceiverTests(ReceiverBase):
         self.receive(self.event("prompted", body="那就做吧")); self.receiver.process_one()
         self.assertEqual([item["skill"] for item in self.ledger.items_for_session("session-1")], ["chat", "chat"])
 
-    def test_a_reply_saved_after_undelegation_says_the_work_is_paused(self):
+    def test_a_reply_saved_after_undelegation_says_the_work_will_stop(self):
         self.running("feature")
         self.labelled(["Code"], CODE)
         [item] = self.delegate()
@@ -1027,7 +1079,8 @@ class BotRoutingReceiverTests(ReceiverBase):
         self.ledger.await_input(item["id"], token, "哪个服？")
         self.api.fetch_issue.return_value = issue(labels=["Code"], delegate_id=None, label_groups=CODE)
         self.receive(self.event("prompted", body="公共测试服")); self.receiver.process_one()
-        self.assertEqual(self.activities()[-1]["body"], "已保存回复；issue 已不再委派给 FarmBot，暂不继续这项工作。")
+        self.assertEqual(self.activities()[-1]["body"], RESUME_UNDELEGATED.format(bot="FarmBot"))
+        self.assertEqual(self.ledger.item(item["id"])["state"], "awaiting_input")
 
     def resolving_heads(self):
         """A client head that resolves, recording each read: a session the receiver pins reads it once."""
@@ -1068,14 +1121,27 @@ class BotRoutingReceiverTests(ReceiverBase):
         self.assertEqual(self.activities()[-1]["body"], FIX_ACK + "\n目标已锁定：Farm-Client@ccccccc（公共测试服）。")
         self.assertEqual(heads, ["Farm-Client"])
 
-    def test_a_code_delegation_declined_for_other_work_pins_nothing_before_its_reroute(self):
+    def test_a_code_delegation_that_takes_a_conversation_over_pins_nothing(self):
         self.running("feature")
-        chat = self.conversation_elsewhere()
+        self.conversation_elsewhere()
+        heads = self.resolving_heads()
+        self.labelled(["Code"], CODE)
+        [item] = self.delegate()
+        self.assertEqual((item["skill"], item["target"], self.ledger.session("session-1")["target"]),
+                         ("feature", None, None))
+        self.assertEqual(self.activities()[-2]["body"], "FarmBot 已收到委派，正在排队处理这张功能卡。"
+                                                        "进展、问题和草稿 PR 会更新在这里。\n" + SUPERSEDE_SUFFIX)
+        self.assertEqual(heads, [])
+
+    def test_a_code_delegation_deferred_behind_a_fix_pins_nothing_before_its_reroute(self):
+        self.running("feature")
+        fix, token = self.claimed_fix_elsewhere()
         heads = self.resolving_heads()
         self.labelled(["Code"], CODE)
         self.assertEqual(self.delegate(), [])
-        self.assertEqual(self.activities()[-1]["body"], "FARM-1 已有进行中的工作（chat），请在原会话继续，或等它完成后再委派。")
-        self.finish(chat)
+        self.assertEqual(self.activities()[-1]["body"], DEFER_ACK.format(bot="FarmBot", skill="fix", minutes=20))
+        self.past_the_grace()
+        self.ledger.withdraw(fix["id"], token, delegated=True, closed=False)
         self.receive(self.event("prompted", body="现在开始")); self.receiver.process_one()
         [item] = self.ledger.items_for_session("session-1")
         self.assertEqual((item["skill"], item["target"], self.ledger.session("session-1")["target"]),
@@ -1154,3 +1220,422 @@ class BotRoutingReceiverTests(ReceiverBase):
         self.paused(item, "哪个服？")
         self.receive(self.event("prompted", body="公共测试服")); self.receiver.process_one()
         self.assertEqual(self.allowances(item["id"]), ("queued", (2, 3, 1, 2)))
+
+
+class WithdrawnWorkReceiverTests(ReceiverBase):
+    """The withdrawn-work design at the receiver (P4, P5; tests under their §6 IDs): a new delegation session takes
+    the card over, a waiting conversation moves to the thread that answers it, and a Stop reaches the work a session
+    talked to."""
+    labelled = BotRoutingReceiverTests.labelled
+    delegate = BotRoutingReceiverTests.delegate
+    conversation_elsewhere = BotRoutingReceiverTests.conversation_elsewhere
+    paused = BotRoutingReceiverTests.paused
+    mention_in = BotRoutingReceiverTests.mention_in
+    claimed_fix_elsewhere = BotRoutingReceiverTests.claimed_fix_elsewhere
+    past_the_grace = BotRoutingReceiverTests.past_the_grace
+
+    def undelegated(self, labels=("Bug",), groups=()):
+        """Every later read finds the card delegated to nobody."""
+        self.api.fetch_issue.return_value = issue(labels=list(labels), delegate_id=None, label_groups=list(groups))
+
+    def reply_in(self, session, body, activity="act-1", author=None):
+        """A person's reply in `session`, processed."""
+        event = self.event("prompted", body=body,
+                           agentSession={"id": session, "issue": {"id": ISSUE, "identifier": "FARM-1", "url": "u"}})
+        event["agentActivity"].update(id=activity, agentSessionId=session)
+        if author is not None:
+            event["agentActivity"]["user"] = author
+        self.receive(event)
+        self.receiver.process_one()
+
+    def stop_in(self, session, activity="stop-1"):
+        """A Stop pressed in `session`, processed; the reply it got."""
+        event = self.event("prompted",
+                           agentSession={"id": session, "issue": {"id": ISSUE, "identifier": "FARM-1", "url": "u"}})
+        event["agentActivity"].update(id=activity, agentSessionId=session, signal="stop", content={"type": "prompt"})
+        self.assertEqual(self.receive(event), (200, "stop received"))
+        self.assertTrue(self.receiver.process_one())
+        return self.activities()[-1]
+
+    def waiting_chat(self, session="session-0", said=None):
+        """The conversation a delegation of the unlabelled card opened in `session`, paused for an answer after reading
+        `said`, a reply, when given."""
+        self.labelled(["Bug"], [])
+        [chat] = self.delegate(session)
+        if said is not None:
+            self.reply_in(session, said, activity=f"{session}-said")
+        self.paused(chat, "哪个服？")
+        return self.ledger.item(chat["id"])
+
+    def waiting_fix(self, session="session-1"):
+        """The fix a delegation of the Bot/修改 card started in `session`, paused for an answer."""
+        self.labelled(["修改"], CHANGE)
+        [fix] = self.delegate(session)
+        self.paused(fix, "哪个服？")
+        return self.ledger.item(fix["id"])
+
+    def sent(self):
+        """(session, content) of every activity the receiver posted, in order."""
+        return [(call.args[0], call.args[1]) for call in self.api.create_activity.call_args_list]
+
+    def messages(self, item):
+        return [message["body"] for message in self.ledger.issue_context(item["id"])["session_messages"]]
+
+    def test_a_session_event_is_a_status_read_for_the_card(self):
+        """Design DT1, P3: the receiver's fresh read of the card is a status read too. Finding the delegation clears
+        the issue's mark; not finding it, while the delegation's work is active, asks for a status read now."""
+        fix = self.waiting_fix()
+        self.ledger.mark_undelegated(ISSUE, 1.0)
+        self.reply_in("session-1", "公共测试服")
+        self.assertIsNone(self.ledger.status_check(ISSUE)["undelegated_since"])
+        self.ledger.connection.execute("UPDATE issue_checks SET requested=0,due_at=? WHERE issue_id=?",
+                                       (time.time() + 60, ISSUE))
+        self.undelegated(("Bug", "修改"), CHANGE)
+        self.reply_in("session-1", "还有一点", activity="act-2")
+        check = self.ledger.status_check(ISSUE)
+        self.assertEqual((check["requested"], check["due_at"]), (1, 0))
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "queued")
+
+    def test_a2_reply_in_the_open_session_after_cancel_starts_a_mention_chat(self):
+        fix = self.waiting_fix()
+        self.ledger.cancel(fix["id"], "Linear delegation removed")  # what the lifecycle's confirming read does
+        self.undelegated()
+        self.reply_in("session-1", "还在吗？")
+        chat = self.ledger.active_item_for_session("session-1")
+        self.assertEqual((chat["skill"], chat["state"], chat["authority"]), ("chat", "queued", "mention"))
+        self.assertEqual(self.activities()[-1], {"type": "thought", "body": "FarmBot 已收到，正在查看。"})
+        self.assertEqual(self.messages(chat), ["还在吗？"])
+
+    def test_a2_stop_in_the_open_session_after_cancel_says_it_already_stopped(self):
+        fix = self.waiting_fix()
+        self.ledger.cancel(fix["id"], "Linear delegation removed")
+        self.undelegated()
+        self.assertEqual(self.stop_in("session-1"), {"type": "response", "body": STOP_ALREADY})
+        self.scheduler.stop.assert_not_called()
+
+    def test_a2_reply_to_a_waiting_chat_during_the_window_resumes_it_as_mention(self):
+        chat = self.waiting_chat("session-1")
+        self.undelegated()
+        self.reply_in("session-1", "公共测试服")
+        current = self.ledger.item(chat["id"])
+        self.assertEqual((current["state"], current["authority"]), ("queued", "mention"))
+        self.assertEqual(self.activities()[-1], {"type": "thought", "body": "收到回复，继续处理。"})
+        # The person now talks to FarmBot without a delegation: a confirmed removal leaves the answer alone.
+        now = [time.time()]
+        reads = SimpleNamespace(app_user_id=APP, issue_status=lambda issue_id: {
+            "id": issue_id, "status": "Todo", "status_type": "unstarted", "archived": False, "delegate_id": None,
+            "updated_at": "2026-09-21T00:00:00Z"})
+        lifecycle = Lifecycle(self.ledger, reads, self.scheduler, clock=lambda: now[0])
+        lifecycle.refresh(ISSUE)
+        now[0] += 60
+        lifecycle.refresh(ISSUE)
+        self.assertEqual(self.ledger.item(chat["id"])["state"], "queued")
+        self.scheduler.stop.assert_not_called()
+
+    def test_a6_redelegation_supersedes_without_any_status_read(self):
+        chat = self.waiting_chat("session-0", said="按钮点了没反应")
+        self.labelled(["修改"], CHANGE)
+        [fix] = self.delegate("session-1")
+        self.assertEqual(self.ledger.item(chat["id"])["state"], "cancelled")
+        self.assertEqual((fix["skill"], fix["state"], fix["authority"]), ("fix", "queued", "delegation"))
+        self.assertEqual(self.messages(fix), ["按钮点了没反应"])
+        self.assertEqual(self.sent()[-2:], [("session-1", {"type": "thought", "body": FIX_ACK + "\n" + SUPERSEDE_SUFFIX}),
+                                            ("session-0", {"type": "response", "body": SUPERSEDED})])
+        self.api.issue_status.assert_not_called()
+
+    def test_b1_mention_reaches_a_fix_parked_in_an_unreachable_session_and_stop_follows_it(self):
+        fix = self.waiting_fix("session-1")
+        self.mention_in("session-9", "@FarmBot 公共测试服")
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "queued")
+        self.assertEqual(self.activities()[-1]["body"], "收到回复，原工作项已恢复，worker 会先读取你的回答。")
+        self.assertEqual(self.ledger.connection.execute("SELECT forwarded_item FROM sessions WHERE session_id=?",
+                                                        ("session-9",)).fetchone()[0], fix["id"])
+        self.assertEqual(self.stop_in("session-9"),
+                         {"type": "response", "body": STOP_ELSEWHERE.format(identifier="FARM-1")})
+        self.scheduler.stop.assert_called_once_with(fix["id"], "Linear stop")
+
+    def test_c1_new_delegation_supersedes_a_waiting_item_in_one_transaction(self):
+        self.labelled(["修改"], CHANGE)
+        [old] = self.delegate("session-0")
+        self.reply_in("session-0", "安卓上也有", activity="a-1", author=DESIGNER)
+        self.reply_in("session-0", "iOS 没有", activity="a-2", author=OWNER)
+        self.paused(old, "哪个服？")
+        [new] = self.delegate("session-1")
+        self.assertEqual(self.ledger.item(old["id"])["state"], "cancelled")
+        self.assertEqual((new["state"], new["predecessor_id"]), ("queued", old["id"]))
+        self.assertEqual([(m["body"], m["author"]) for m in self.ledger.issue_context(new["id"])["session_messages"]],
+                         [("安卓上也有", DESIGNER), ("iOS 没有", OWNER)])
+        self.assertEqual(self.sent()[-2:], [("session-1", {"type": "thought", "body": FIX_ACK + "\n" + SUPERSEDE_SUFFIX}),
+                                            ("session-0", {"type": "response", "body": SUPERSEDED})])
+        self.assertEqual(self.receiver.results()[-1]["status"], "done")
+
+    def test_c2_new_delegation_defers_behind_a_claimed_fix_then_continues_it(self):
+        fix, token = self.claimed_fix_elsewhere()
+        self.assertEqual(self.delegate("session-1"), [])
+        flagged = self.ledger.item(fix["id"])
+        self.assertEqual((flagged["state"], flagged["withdraw_reason"]), ("running", "superseded"))
+        self.assertEqual(self.sent()[-1], ("session-1", {"type": "thought",
+                                                         "body": DEFER_ACK.format(bot="FarmBot", skill="fix", minutes=20)}))
+        self.assertEqual(self.receiver.results()[-1]["status"], "deferred")
+        deferred_ack = self.api.create_activity.call_args_list[-1].kwargs["activity_id"]
+        self.assertFalse(self.receiver.process_one())  # nothing to do while the old worker runs
+        self.ledger.withdraw(fix["id"], token, delegated=True, closed=False)
+        self.assertTrue(self.receiver.process_one())
+        [new] = self.ledger.items_for_session("session-1")
+        self.assertEqual((new["skill"], new["state"], new["predecessor_id"]), ("fix", "queued", fix["id"]))
+        answer = self.api.create_activity.call_args_list[-1]
+        self.assertEqual((answer.args[0], answer.args[1]), ("session-1", {"type": "thought", "body": FIX_ACK}))
+        self.assertNotEqual(answer.kwargs["activity_id"], deferred_ack)
+        self.assertEqual(self.receiver.results()[-1]["status"], "done")
+
+    def test_c2_deferred_event_reports_once_if_the_old_worker_is_still_running(self):
+        fix, _ = self.claimed_fix_elsewhere()
+        self.delegate("session-1")
+        self.past_the_grace()
+        self.assertEqual(self.sent()[-1], ("session-1", {"type": "response", "body": DEFER_STILL}))
+        self.assertEqual(self.ledger.items_for_session("session-1"), [])
+        self.assertEqual(self.receiver.results()[-1]["status"], "done")
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "running")
+        count = len(self.sent())
+        self.assertFalse(self.receiver.process_one())
+        self.assertEqual(len(self.sent()), count)
+
+    def test_c2_deferred_delegation_starts_nothing_once_the_card_is_no_longer_delegated(self):
+        """Design C2 runs a deferred delegation as the delegation it was, which only a card still delegated here
+        allows. When the person removed the delegation while the old worker stopped, the event answers once and
+        starts nothing: no write job without a delegation, and no conversation nobody asked for."""
+        fix, token = self.claimed_fix_elsewhere()
+        self.assertEqual(self.delegate("session-1"), [])  # deferred behind the claimed fix
+        self.ledger.withdraw(fix["id"], token, delegated=False, closed=False)
+        self.undelegated(("Bug", "修改"), CHANGE)
+        self.assertTrue(self.receiver.process_one())
+        self.assertEqual(self.ledger.items_for_session("session-1"), [])
+        self.assertIsNone(self.ledger.active_item_for_issue(ISSUE))
+        self.assertEqual(self.sent()[-1],
+                         ("session-1", {"type": "response", "body": DEFER_UNDELEGATED.format(bot="FarmBot")}))
+        self.assertEqual(self.receiver.results()[-1]["status"], "done")
+        self.assertFalse(self.receiver.process_one())
+
+    def test_c2_deferred_delegation_past_the_grace_on_an_undelegated_card_forwards_nothing(self):
+        """The same when the old worker outlives its grace: the event forwards no empty message to that worker and
+        does not report on its stopping; it says that nothing will start."""
+        fix, token = self.claimed_fix_elsewhere()
+        self.delegate("session-1")
+        self.undelegated(("Bug", "修改"), CHANGE)
+        self.past_the_grace()
+        self.assertEqual(self.sent()[-1],
+                         ("session-1", {"type": "response", "body": DEFER_UNDELEGATED.format(bot="FarmBot")}))
+        self.assertEqual(self.ledger.items_for_session("session-1"), [])
+        self.assertEqual(self.ledger.pop_inbox(fix["id"], token), [])
+        self.assertEqual(self.receiver.results()[-1]["status"], "done")
+
+    def test_c2_running_chat_is_superseded_at_once(self):
+        chat = self.conversation_elsewhere()
+        token = self.ledger.claim(chat["id"], worker_id="w")["token"]
+        [fix] = self.delegate("session-1")
+        self.assertEqual(self.ledger.item(chat["id"])["state"], "cancelled")
+        with self.assertRaises(LedgerError):
+            self.ledger.renew(chat["id"], token)
+        self.assertEqual((fix["skill"], fix["state"]), ("fix", "queued"))
+        # The receiver only writes the ledger: the scheduler's next tick kills the worker, after the acknowledgement.
+        self.scheduler.stop.assert_not_called()
+
+    def test_c3_delegation_outranks_a_waiting_mention_chat(self):
+        chat = self.conversation_elsewhere()
+        self.paused(chat, "哪个服？")
+        [fix] = self.delegate("session-1")
+        self.assertEqual(self.ledger.item(chat["id"])["state"], "cancelled")
+        self.assertEqual((fix["skill"], fix["state"], fix["predecessor_id"]), ("fix", "queued", None))
+        self.assertEqual(self.messages(fix), ["@FarmBot 这是什么问题？"])
+        self.assertEqual(self.sent()[-2:], [("session-1", {"type": "thought", "body": FIX_ACK + "\n" + SUPERSEDE_SUFFIX}),
+                                            ("session-0", {"type": "response", "body": SUPERSEDED})])
+
+    def test_c4_local_item_is_superseded_with_an_issue_comment(self):
+        self.ledger.observe_issue(issue(labels=["Bug", "修改"], delegate_id=APP, label_groups=CHANGE))
+        self.ledger.ensure_session(f"local-{ISSUE}", ISSUE, True)
+        local = self.ledger.create_work_item(issue_id=ISSUE, session_id=f"local-{ISSUE}", skill="fix",
+                                             authority="delegation")
+        [fix] = self.delegate("session-1")
+        self.assertEqual(self.ledger.item(local["id"])["state"], "cancelled")
+        self.assertEqual(fix["predecessor_id"], local["id"])
+        self.api.create_comment.assert_called_once_with(ISSUE, SUPERSEDED)
+        self.assertEqual([session for session, _ in self.sent()], ["session-1"])
+
+    def operators_conversation_taken_over(self, claimed):
+        """Design K6: a conversation the operator enqueued (a `local-` session, operator authority), queued or
+        `claimed` by its worker, with one message, and then a Bot/修改 delegation in session-1. Returns the
+        conversation and the fix the delegation started."""
+        self.ledger.observe_issue(issue(labels=["Bug", "修改"], delegate_id=APP, label_groups=CHANGE))
+        self.ledger.ensure_session(f"local-{ISSUE}", ISSUE, True)
+        local = self.ledger.create_work_item(issue_id=ISSUE, session_id=f"local-{ISSUE}", skill="chat",
+                                             authority="operator")
+        self.ledger.push_inbox(local["id"], "维护者：请看一下这张卡")
+        token = self.ledger.claim(local["id"], worker_id="w")["token"] if claimed else None
+        [fix] = self.delegate("session-1")
+        if token is not None:
+            with self.assertRaises(LedgerError):
+                self.ledger.renew(local["id"], token)
+        return self.ledger.item(local["id"]), fix
+
+    def assert_taken_over_with_one_card_note(self, local, fix):
+        """The conversation ended, the fix carries its message and the delegation's authority, and the card, which is
+        where a `local-` job reports, got the one note; the new session was acknowledged as a takeover."""
+        self.assertEqual(local["state"], "cancelled")
+        self.assertEqual((fix["skill"], fix["state"], fix["authority"], fix["predecessor_id"]),
+                         ("fix", "queued", "delegation", None))
+        self.assertEqual(self.messages(fix), ["维护者：请看一下这张卡"])
+        self.api.create_comment.assert_called_once_with(ISSUE, SUPERSEDED)
+        self.assertEqual(self.sent(), [("session-1", {"type": "thought", "body": FIX_ACK + "\n" + SUPERSEDE_SUFFIX})])
+        self.assertEqual(self.receiver.results()[-1]["status"], "done")
+
+    def test_k6_delegation_takes_a_queued_operator_conversation_over(self):
+        self.assert_taken_over_with_one_card_note(*self.operators_conversation_taken_over(claimed=False))
+
+    def test_k6_delegation_takes_a_running_operator_conversation_over(self):
+        """A claimed conversation is superseded at once too (C2); the scheduler's next tick kills its worker."""
+        self.assert_taken_over_with_one_card_note(*self.operators_conversation_taken_over(claimed=True))
+        self.scheduler.stop.assert_not_called()
+
+    def test_c5_mention_supersedes_a_waiting_chat_into_its_own_session(self):
+        chat = self.waiting_chat("session-1")
+        self.mention_in("session-9", "@FarmBot 公共测试服")
+        self.assertEqual(self.ledger.item(chat["id"])["state"], "cancelled")
+        moved = self.ledger.active_item_for_session("session-9")
+        self.assertEqual((moved["skill"], moved["state"], moved["authority"]), ("chat", "queued", "delegation"))
+        self.assertEqual(self.messages(moved), ["@FarmBot 公共测试服"])
+        # A mention moved it, not a new delegation: the old thread's note names none (MOVED_THREAD, not SUPERSEDED).
+        self.assertEqual(self.sent()[-2:], [("session-9", {"type": "thought", "body": "FarmBot 已收到，正在查看。"}),
+                                            ("session-1", {"type": "response", "body": MOVED_THREAD})])
+
+    def test_c5_stop_where_a_mention_moved_the_conversation_from_names_no_delegation(self):
+        """A mention answers a mention's waiting conversation, which moves to the mention's thread. The old thread
+        is told it moved, and a Stop there says where it went, without naming a delegation session: none exists."""
+        chat = self.conversation_elsewhere()
+        self.paused(chat, "哪个服？")
+        self.mention_in("session-9", "@FarmBot 公共测试服")
+        moved = self.ledger.active_item_for_session("session-9")
+        self.assertEqual((moved["skill"], moved["state"], moved["authority"]), ("chat", "queued", "mention"))
+        self.assertEqual(self.sent()[-1], ("session-0", {"type": "response", "body": MOVED_THREAD}))
+        self.assertEqual(self.stop_in("session-0"), {"type": "response", "body": STOP_MOVED_THREAD})
+        self.scheduler.stop.assert_not_called()
+
+    def test_c5_an_operators_conversation_a_mention_moved_is_noted_on_the_card(self):
+        self.ledger.observe_issue(issue(labels=["Bug"], delegate_id=APP))
+        self.ledger.ensure_session(f"local-{ISSUE}", ISSUE, True)
+        local = self.ledger.create_work_item(issue_id=ISSUE, session_id=f"local-{ISSUE}", skill="chat",
+                                             authority="operator")
+        self.mention_in("session-9", "@FarmBot 看一下")
+        self.assertEqual(self.ledger.item(local["id"])["state"], "cancelled")
+        self.assertEqual(self.ledger.active_item_for_session("session-9")["authority"], "mention")
+        self.api.create_comment.assert_called_once_with(ISSUE, MOVED_THREAD)
+
+    def test_a_reply_that_moves_a_conversation_back_to_an_older_thread_names_no_delegation(self):
+        """A delegation took a waiting conversation over (C3), and a reply in the older thread then answers it there,
+        which moves it back. The newer thread is told the conversation moved on, not that a delegation took it."""
+        self.waiting_chat("session-0")
+        [taken] = self.delegate("session-1")
+        self.assertEqual(self.sent()[-1], ("session-0", {"type": "response", "body": SUPERSEDED}))
+        self.paused(taken, "哪个服？")
+        self.reply_in("session-0", "公共测试服")
+        self.assertEqual(self.ledger.active_item_for_session("session-0")["skill"], "chat")
+        self.assertEqual(self.ledger.item(taken["id"])["state"], "cancelled")
+        self.assertEqual(self.sent()[-1], ("session-1", {"type": "response", "body": MOVED_THREAD}))
+
+    def test_c5_mention_to_a_parked_undelegated_fix_says_it_will_not_continue(self):
+        fix = self.waiting_fix("session-1")
+        self.undelegated(("Bug", "修改"), CHANGE)
+        self.mention_in("session-9", "@FarmBot 公共测试服")
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "awaiting_input")
+        self.assertEqual(self.ledger.issue_context(fix["id"])["inbox_pending"], 1)
+        self.assertEqual(self.activities()[-1],
+                         {"type": "thought", "body": FORWARD_PARKED_UNDELEGATED.format(bot="FarmBot", skill="fix")})
+
+    def test_a_mention_to_a_withdrawing_worker_says_the_work_is_stopping(self):
+        fix, token = self.claimed_fix_elsewhere("session-1")
+        self.ledger.flag_withdrawal(fix["id"], "undelegated", time.time() + 1200)
+        self.undelegated(("Bug", "修改"), CHANGE)
+        self.mention_in("session-9", "@FarmBot 还要改吗？")
+        self.assertEqual(self.activities()[-1], {"type": "thought", "body": FORWARD_WITHDRAWING})
+        self.assertEqual(self.ledger.pop_inbox(fix["id"], token), ["@FarmBot 还要改吗？"])
+
+    def test_d2_stop_in_the_latest_delegation_session_stops_work_elsewhere(self):
+        fix, _ = self.claimed_fix_elsewhere()
+        self.delegate("session-1")  # deferred behind the claimed fix
+        self.assertEqual(self.stop_in("session-1"),
+                         {"type": "response", "body": STOP_ELSEWHERE.format(identifier="FARM-1")})
+        self.scheduler.stop.assert_called_once_with(fix["id"], "Linear stop")
+        self.assertEqual([row["status"] for row in self.receiver.results() if row["session_id"] == "session-1"],
+                         ["cancelled"])
+        self.assertFalse(self.receiver.process_one())
+
+    def test_d2_stop_in_a_superseded_session_points_to_the_new_one(self):
+        self.waiting_fix("session-0")
+        self.delegate("session-1")
+        self.assertEqual(self.stop_in("session-0"), {"type": "response", "body": STOP_MOVED})
+        self.scheduler.stop.assert_not_called()
+
+    def test_d3_a_stop_whose_reply_fails_has_still_stopped_the_work(self):
+        """Design D3, unchanged by P5: the work is stopped before the reply is sent, so a reply Linear refuses leaves
+        the Stop recorded as uncertain, not the work running."""
+        fix = self.waiting_fix("session-1")
+        self.api.create_activity.side_effect = RuntimeError("linear down")
+        event = self.event("prompted",
+                           agentSession={"id": "session-1", "issue": {"id": ISSUE, "identifier": "FARM-1", "url": "u"}})
+        event["agentActivity"].update(id="stop-1", signal="stop", content={"type": "prompt"})
+        self.assertEqual(self.receive(event), (200, "stop received"))
+        self.assertTrue(self.receiver.process_one())
+        self.scheduler.stop.assert_called_once_with(fix["id"], "Linear stop")
+        with self.receiver.lock:
+            recorded = self.receiver.db.execute("SELECT status,error FROM stop_requests").fetchall()
+        self.assertEqual([tuple(row) for row in recorded], [("uncertain", "RuntimeError")])
+
+    def test_k4_removing_the_bot_label_from_a_delegated_card_stops_nothing(self):
+        """Design K4: a label is not a stop signal. With the Bot label gone from the card, which is still delegated, a
+        reply resumes the waiting fix as before, and nothing asks for a status read."""
+        fix = self.waiting_fix("session-1")
+        self.labelled(["Bug"], [])
+        self.reply_in("session-1", "公共测试服")
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "queued")
+        self.assertEqual(self.activities()[-1], {"type": "thought", "body": "收到回复，继续处理。"})
+        self.assertEqual(self.ledger.status_check(ISSUE)["requested"], 0)
+
+    def test_j5_forward_that_meets_a_terminal_item_reroutes_to_a_new_chat(self):
+        fix = self.waiting_fix("session-1")
+        push = self.receiver.ledger.push_inbox
+
+        def cancelled_first(item_id, *args, **kwargs):
+            self.receiver.ledger.push_inbox = push
+            self.ledger.cancel(fix["id"], "Linear stop")
+            return push(item_id, *args, **kwargs)
+        self.receiver.ledger.push_inbox = cancelled_first
+        self.mention_in("session-9", "@FarmBot 进展如何？")
+        chat = self.ledger.active_item_for_session("session-9")
+        self.assertEqual((chat["skill"], chat["state"]), ("chat", "queued"))
+        self.assertEqual(self.messages(chat), ["@FarmBot 进展如何？"])
+        self.assertEqual(self.receiver.results()[-1]["status"], "done")
+
+    def test_supersede_race_with_request_repair_reroutes_once(self):
+        """Design X1: the delegation chat's worker hands over to a fix between the receiver's routing and its
+        supersede. The supersede finds the chat gone and routes again, and the new session takes the fix over."""
+        self.labelled(["Bug"], [])
+        [chat] = self.delegate("session-0")
+        self.reply_in("session-0", "请修复", activity="r-1")
+        token = self.ledger.claim(chat["id"], worker_id="w")["token"]
+        message = self.ledger.issue_context(chat["id"])["session_messages"][-1]["id"]
+        self.labelled(["修改"], CHANGE)
+        supersede = self.receiver.ledger.supersede
+        repaired = []
+
+        def repair_first(*args, **kwargs):
+            self.receiver.ledger.supersede = supersede
+            repaired.append(self.ledger.request_repair(chat["id"], token, message, APP, "Confirmed repair.",
+                                                       delegate_id=APP))
+            return supersede(*args, **kwargs)
+        self.receiver.ledger.supersede = repair_first
+        [fix] = self.delegate("session-1")
+        active = [row["id"] for row in self.ledger.status()["items"]
+                  if row["state"] in ("queued", "running", "awaiting_input", "awaiting_resource")]
+        self.assertEqual(active, [fix["id"]])
+        self.assertEqual(self.ledger.item(repaired[0]["id"])["state"], "cancelled")
+        self.assertEqual(fix["predecessor_id"], repaired[0]["id"])
+        self.assertEqual(self.receiver.results()[-1]["status"], "done")

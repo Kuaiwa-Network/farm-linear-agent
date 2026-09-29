@@ -122,18 +122,19 @@ once in the same way, and back again on a rollback.
 | Assign (delegate) an issue labelled Bot/修改 to @FarmBot | starts a `fix` work item when this instance runs `fix`, whatever else the card carries and whatever text comes with it (otherwise the read-only conversation that says so); first activity within 10 s; posts 「👀 <bot_name> 已开始处理」 (「👀 FarmBot 已开始处理」 in production) once the worker claims |
 | Delegate an issue labelled Bot/UI or Bot/Code | starts `fgui` or `feature` when this instance enables it (neither exists yet); a `feature` session gets no Farm-Client target, and no activity in it, nor the reply to a mention forwarded to its job, carries a target line; otherwise, and for an unknown Bot child or two, the read-only conversation, whose first activity says what this instance runs |
 | Delegate an issue without a Bot label, whatever its Bug, Improvement, Feature or 部门 labels | starts the read-only conversation; on an instance that runs `fix`, its first activity says the card has no Bot label, that a reply such as 「修复」 starts a fix, and that Bot/修改 set before delegating starts one directly. It investigates, answers or clarifies intent. A standalone `修改`, `UI` or `Code` label outside the group routes like any other label |
-| Reply in a delegation session that never had a work item, for example after another session's work declined it | while the issue is still delegated to FarmBot, routes again on its current labels with your reply as the delegation's text: a Bot child whose skill this instance runs starts its worker; otherwise, the read-only conversation |
+| Reply in a delegation session that never had a work item, for example one whose delegation waited for another session's worker longer than that worker's grace | while the issue is still delegated to FarmBot, routes again on its current labels with your reply as the delegation's text: a Bot child whose skill this instance runs starts its worker; otherwise, the read-only conversation |
 | Ask for a fix, a change or the card's feature in a conversation (a reply, or @FarmBot) | when the issue has recorded delegation and is still delegated to FarmBot, continues the delegation's earlier `fix` or `feature` job whatever the label now says, on an instance that runs its skill; with no earlier job, starts the workflow the Bot label names on an instance that runs it, `fix` with Bot/修改 or no Bot label and `feature` with Bot/Code; with Bot/UI, Bot children that name no workflow, or a workflow this instance does not run, the conversation says why nothing starts |
 | @FarmBot in a comment or the session | interprets intent in read-only execution; a mention never starts write work itself |
 | Reply in a session while a worker runs | the text reaches the worker at its next checkpoint |
-| Reply to a FarmBot question | the parked work item resumes with your answer |
+| Reply to a FarmBot question | the parked work item resumes with your answer. On a card no longer delegated to FarmBot, a conversation the delegation opened resumes as one that needs no delegation, so withdrawing the delegation's work leaves it; a parked write job keeps your reply and says the work will stop, and delegating the card again continues it with the reply |
 | Ask naturally to resume finished work, in its session or an @FarmBot mention | chat interprets intent, checks current delegation, and continues the delegation's earlier job, a fix or, on an instance that runs `feature`, a feature job, with the complete reply (a cancelled job gets a fresh linked job); no keyword is required. Negations and questions about restarting do not restart work |
-| Close an issue (a status of type `completed`, `canceled` or `duplicate`, such as Done, Canceled or Duplicate) or archive it | cancels unfinished/blocked work after a current status read, stops owned processes, preserves source and safely cleans worktrees; keeps logs |
-| Remove FarmBot's delegation from an issue, or delegate it to another app | at the next status read, cancels the issue's job of a skill with an initial root (none in this revision) while that job is queued or waits for input or a resource, and posts one response in the job's session: its branches and draft PRs stay for whoever takes the card over, and delegating the card to FarmBot again continues from them. A job a worker has claimed is not stopped; the worker sees the change itself (`fetch-issue` prints `delegated: false`, and `verify-publication` and `handoff-repository` refuse). Other work is not cancelled: no write worker launches while the issue is not delegated to FarmBot, and a parked fix stays parked |
+| Close an issue (a status of type `completed`, `canceled` or `duplicate`, such as Done, Canceled or Duplicate) or archive it | cancels unfinished/blocked work after a current status read, stops owned processes, preserves source and safely cleans worktrees; keeps logs; and posts one closing response in the session of each job it cancels while active (an issue comment for an operator-enqueued job). A deleted issue reads as archived while Linear still returns it |
+| Remove FarmBot's delegation, delegate the card to another app, or dismiss FarmBot's session | two status reads at least `reconcile_seconds` apart (the first is usually within a second of the change) confirm it; the issue's work that the delegation authorised then stops: a queued or waiting job is cancelled with one response in its session (an issue comment for an operator-enqueued job), and a running worker is told to save its progress and stop, and is stopped after twice its renew interval. Branches, draft PRs and recovery refs stay, and delegating the card again continues from them. Conversations started by an @mention or by an operator are not affected. Nothing is cancelled for work created or continued after the read began, or when the delegation comes back before the second read |
+| Remove a Bot label from a delegated card | nothing; only removing the delegation or Stop stops work |
 | Reopen an issue | starts nothing; request continuation or delegate explicitly |
-| Press Stop | the worker process is killed promptly, without waiting for the scheduler; the item is cancelled; FarmBot confirms in the session |
-| Delegate an issue that already has FarmBot work in another session | with a Bot child this instance runs, declines with a note naming the issue and the running skill; otherwise the delegation is forwarded to that work like a message, resuming it if it waits for an answer; the existing work continues either way |
-| @FarmBot on an issue that already has FarmBot work in another session | your text is forwarded to the running worker; you get a short notice |
+| Press Stop | the worker process is killed promptly, without waiting for the scheduler; the item is cancelled; FarmBot confirms in the session. A Stop in a session that forwarded a message to the work, or in the card's latest delegation session, stops the card's work wherever it runs; in a session whose work moved to another session, or had already stopped, FarmBot says so and stops nothing |
+| Delegate an issue that already has FarmBot work in another session | the new delegation takes the card over: waiting or queued work and any conversation move to the new session (the old job is cancelled and continued by a linked job with its messages; the old session gets one note); a running write worker is told to save and stop, and the new session starts once it has |
+| @FarmBot on an issue that already has FarmBot work in another session | a waiting conversation moves to your thread and answers there; otherwise your text is forwarded to that work, and the notice says whether it was resumed, will be read at the next checkpoint, or will not continue because the card is no longer delegated |
 
 The Bot label group (D18) is team-scoped and single-select, so a card carries at most one child:
 修改, UI or Code. Bug, Improvement, Feature and the 部门 labels are for people and start nothing.
@@ -280,7 +281,10 @@ that runs `feature` but not `fix` reads the card, then refuses a first fix. The 
 the session reads 「已排队开始或继续修改…」 for a fix and 「已排队开始或继续这项工作…」 for other work. FarmBot never sets a
 Bot label; the one label it writes is `needs-more-info`. `resume-work` remains a resume-only
 compatibility command. Cancelled jobs stay cancelled and receive a fresh successor ID; other
-terminal jobs keep their ID. A job a conversation starts or continues begins at its initial root,
+terminal jobs keep their ID. A write job's successor reports in the card's latest delegation session
+a person opened, which a re-delegation may have replaced since the job started; an operator-enqueued
+job's successor, and a conversation's, keep their session. Both commands check the delegate their
+own fresh read returned, not the stored snapshot. A job a conversation starts or continues begins at its initial root,
 which for a fix is the neutral investigation. The launch includes one bounded `prior_context`
 summary from the investigator or the current fix checkpoint; replies, questions and the full prior
 findings remain available in `issue-context`. Both are recall that the new worker must verify. A
@@ -390,7 +394,9 @@ investigation. Do not roll back during a pending repository handoff: older code 
 its process-teardown fence or stage publishing restriction.
 
 CLI `cancel` revokes the claim immediately; the next scheduler tick stops owned worker/batch
-processes. Linear Stop and closure reconciliation revoke the claim before signalling. A pending
+processes. For a job it cancels while active it posts one note in the job's session (an issue
+comment for an operator-enqueued job) and drops the job's pending heartbeat, so no "工作已停止。"
+follows the note; a blocked job ends silently. Linear Stop and closure reconciliation revoke the claim before signalling. A pending
 batch launch is fenced. A cancelled job never becomes queued again: explicit authorized `retry`,
 `resume-work` or `request-repair` creates a fresh linked job, and so does delegating the issue again
 when the latest job of the skill it routes to (any write skill) was cancelled. The linked job waits
@@ -407,10 +413,36 @@ source timestamps so older snapshots cannot undo a newer closure. An issue is cl
 archived or its workflow-state type is `completed`, `canceled` or `duplicate`; Linear gives Duplicate
 a type of its own rather than `canceled`. Other types, including `started` review and acceptance
 statuses, leave work running. Before every launch, a fresh status/delegation check must succeed and
-find the issue open. Errors defer launch with bounded retry delay; losing delegation
-prevents new write workers from launching, and cancels a job of a skill with an initial root that
-no worker holds (Triggers). Polling makes no other Linear write than that job's one session
-response, or, for an operator-enqueued job, one issue comment.
+find the issue open, and work the delegation authorised launches only while the card is delegated
+to this app, whose identity must be known. Errors defer launch with bounded retry delay. A launch
+preflight on an issue marked undelegated or failing waits for the issue's next due read, so a
+held-back job reads Linear at most once per interval. Losing delegation withdraws the work it
+authorised after a confirming read (Triggers, Withdrawn work). Polling writes only the cancellation
+and closing responses above.
+
+Withdrawing work whose delegation is gone uses additive columns, added when a ledger opens:
+`work_items.authority`, `withdraw_deadline` and `withdraw_reason`, `issue_checks.undelegated_since`
+and `unreachable_since`, and `sessions.forwarded_item`. `authority` records, when a job is created,
+what authorised it: the card's delegation for every write job, the operator for a conversation
+`agent.service enqueue` starts, and otherwise a mention. Existing rows are not rewritten: a write job
+stored before this revision reads as authorised by the delegation, a conversation as by a mention.
+Older code ignores the columns, so rolling back keeps working, and checking out older code does not
+remove them. It also ignores a withdrawal flag, so a flagged worker runs on. One flagged because
+the delegation went is refused by `verify-publication` while the card stays undelegated; one flagged
+because a newer delegation session took the card over may publish, since the card is still
+delegated. Flagged work that went back to the queue launches again. Older code never processes a
+delegation event left in `webhook_events` with status `deferred`: its session routes again on the
+person's next reply, or the operator sets its status back to `pending`.
+
+Before deploying this revision, run `doctor` with `expected_app_user_id` pinned: it lists as
+`stored_undelegated` the active work the stored snapshot shows on a card not delegated to this app.
+Decide on each. After the deploy, a write job on a card still undelegated is cancelled at the first
+confirming status read and its session gets the undelegated response; a conversation stored before
+this revision reads as a mention's, is kept and stays listed, for the operator to cancel by hand.
+The change adds no process code: withdrawal kills go through the same launcher stop as Stop and
+closure, now in more situations, so run the Windows suite, including `tests/test_windows_workers.py`,
+on the Windows runner before deploying there. A killed `git` that leaves an `index.lock` shows as
+`cleanup_pending`.
 
 Cleanup records the old PID and preserves dirty tracked/non-ignored untracked source as local WIP
 commits. Every repository HEAD, including clean unpublished commits, gets a durable
@@ -707,8 +739,10 @@ a claim ends; memory operations do not renew the lease.
 
 queued → running → delivered | blocked | failed; running ↔ awaiting_input (human gate);
 running → awaiting_resource (Unity slot); any active state or blocked → cancelled (Stop or issue closure);
-queued, awaiting_input or awaiting_resource → cancelled for a skill with an initial root when its issue
-is no longer delegated to FarmBot.
+queued, awaiting_input or awaiting_resource → cancelled when the delegation that authorised the job is
+withdrawn, it is superseded by a newer delegation session, or the issue is unreachable; running →
+cancelled by the worker's `withdraw`, or by the controller when the withdrawal grace ends (Withdrawn
+work).
 A waiting item has no process. A repository handoff is queued with its retired worker PID retained;
 it cannot be claimed or launched until the controller certifies teardown and clears that PID.
 An item in awaiting_resource holds a queued reservation; only the pool's grant turns
@@ -731,17 +765,112 @@ way back, and a requeue leaves a thought.
 
 The host posts session progress every ten minutes for queued, running and resource-waiting
 work. It reports the recorded state and checkpoint age without extending the worker's lease
-or claiming new results. Awaiting-input, terminal and synthetic local sessions receive no
+or claiming new results. A queued job's heartbeat names what holds it back, the first of a retry
+delay, its predecessor's cleanup, a failing status read and, for work the delegation authorised, a
+card no longer delegated here; a worker told to withdraw reports that it is saving its progress and
+stopping. Awaiting-input, terminal and synthetic local sessions receive no
 regular heartbeat. Timing and pending activity IDs survive restarts; a failed send retries
-after sixty seconds. A state change while an activity is in flight is followed by a durable
-correction so completed or waiting sessions do not remain active. Reporting uses its own
+after sixty seconds, and each further failure in a row doubles the wait, up to the ten-minute
+interval, until a send succeeds. A state change while an activity is in flight is followed by a durable
+correction so completed or waiting sessions do not remain active, except after a cancellation that
+posted its own notice, which drops the job's pending send. Reporting uses its own
 loop and connection; slow Linear requests do not hold the scheduler lock.
 
-At service startup the progress publisher creates the additive `session_progress` table;
-existing work-item rows are not rewritten. Pending sends and their retry timing remain
+At service startup the progress publisher creates the additive `session_progress` table, and adds
+its `failures` column (the failed sends in a row) to a table an older revision created; existing
+rows start at zero and work-item rows are not rewritten. Pending sends and their retry timing remain
 in that table across restarts. Rolling back to older code stops periodic reporting and
-leaves the table unused; it does not reverse or delete saved work. Deploy or roll back
+leaves the table unused; it does not reverse or delete saved work. A revision that reports progress
+but predates `failures` ignores the column and retries a failing send every minute. Deploy or roll back
 the host code and worker skill files together after the service has been settled.
+
+## Withdrawn work
+
+This section states the rules of `docs/superpowers/specs/2026-09-29-withdrawn-work-design.md` as
+implemented; that design's Appendix C lists where the implementation departs from its text.
+
+**Authority.** Each job records, once, when it is created, what authorised it (`work_items.authority`):
+
+| Authority | Given to |
+|---|---|
+| `delegation` | every write job, wherever it is created; a conversation a delegation opens, or a reply in a delegation session routes again, while the card is delegated to this app; a conversation that replaces such a one while the card is still delegated |
+| `mention` | a conversation an @mention opens, or a person's message while the card is not delegated to this app |
+| `operator` | a conversation `agent.service enqueue` starts |
+
+It changes in one case: a person answering a delegation's parked conversation on a card no longer
+delegated to this app turns it into a mention's, so the answer is not cancelled a minute later.
+`issue-context.coordination` shows `authority`, and `withdrawn` while the job is flagged.
+
+**Withdrawal.** Work is withdrawn when the delegation that authorised it is gone, confirmed by two
+reads; when a newer delegation session takes the card over; or when the issue is unreachable. Only
+an unreachable issue withdraws a mention's or the operator's conversation.
+
+| State | On withdrawal |
+|---|---|
+| queued (launched or not, delayed, or with a repository handoff pending), awaiting_input, awaiting_resource | cancelled at once through the scheduler's stop, which kills a spawned or retiring worker and cancels or settles the job's reservation; one response in its session (none when the issue is unreachable) |
+| running | flagged with a deadline of twice the skill's `renew_minutes` (20 minutes for `fix`, 10 for `chat`). `fetch-issue` prints `withdrawn: true`; `verify-publication`, `handoff-repository`, `await-input` and `await-resource` refuse with `delegation withdrawn`. The worker saves a checkpoint and runs `withdraw`, which ends its claim as cancelled and posts the response; at the deadline the controller cancels and kills it as Stop does. A flagged worker that finishes blocked is recorded cancelled, so a later delegation continues its plan. Flagged work that goes back to the queue never launches |
+| blocked | unchanged; closure, or an unreachable issue, cancels it silently |
+
+**Confirmation.** The first status read that finds the card not delegated to this app records
+`issue_checks.undelegated_since`. A later read, started at least `reconcile_seconds` after that,
+that finds the same withdraws the delegation's work. Any read that finds the delegation, including
+the receiver's fresh read at each agent-session event and a worker's `withdraw`, clears the mark
+and the flags the lost delegation set. A read never withdraws work created after it began, nor
+older work that a conversation handed over to after it began. Without this app's identity nothing
+is withdrawn, but no delegation work launches. A worker's `fetch-issue` that finds the card
+undelegated asks for a status read now; a worker never cancels other work.
+
+**A new delegation owns the card.** A delegation's `created` event, or a reply that routes a
+delegation session again, while the card is delegated here and work is active in another session:
+
+- unclaimed work, or any conversation, is cancelled and continued in the new session in one
+  ledger transaction, with its messages; a write job of the same skill links it as its
+  predecessor. The new session is acknowledged first, with a note that the earlier work moved
+  here, and the old session then gets one note (an issue comment for an operator-enqueued job);
+- a claimed write worker is flagged; the new session is told the earlier work is saving and
+  stopping, and its event waits until that worker no longer runs, then runs as a delegation. Past
+  the worker's deadline and 5 more minutes it says once that the earlier work has not stopped, and
+  a reply there starts it; when the card lost its delegation meanwhile, it starts nothing and says so.
+
+A mention, or a reply in another thread, that answers a waiting conversation moves it to that thread
+in the same way; the old thread is told only that it moved. A job's session never changes.
+
+**Stop** in a session stops the first of: the session's own active job; the job its messages were
+forwarded to; the card's work the delegation authorised, when this is the card's latest delegation
+session. It also cancels a delegation event waiting in that session. Otherwise it answers that the
+work moved to a new delegation session or another thread, that it has already stopped, or that
+nothing runs.
+
+**Unreachable issue.** Three status reads in a row that Linear answers "not found" (a GraphQL error
+whose message says so, or no issue), over at least 15 minutes, while the host's other Linear calls
+succeed, cancel the issue's unclaimed and blocked work silently and flag its running workers. A
+forbidden, rate-limited (HTTP 400 `RATELIMITED`) or unauthenticated answer, or any other error, only
+backs off. A trashed issue reads as archived, which is closure.
+
+**Sessions.** FarmBot reads no agent-session state. Removing the delegation, which archiving the
+session in Linear's interface does, and dismissing the session both remove the delegate, which the
+status reads see; delegating again opens a new session whose `created` event takes the card over.
+If Linear lets a session be archived while the card stays delegated, its work is kept: a mention
+reaches it, a Stop in the mention's thread stops it, removing the delegation withdraws it, and
+`doctor` lists it after 7 days of waiting.
+
+**Notices.** A cancellation posts one response, into the job's own session or, for an
+operator-enqueued job, as an issue comment; a conversation's never mentions branches. It is posted
+best effort and never retried, and the job's pending heartbeat is dropped in the same transaction.
+FarmBot never closes a PR, deletes a branch, removes a label, delegates to itself or changes status or
+assignee because work was withdrawn; branches, draft PRs, checkpoints, plans, messages and cleanup
+evidence stay.
+
+**Doctor.** These findings are read only from a ledger that has their columns:
+
+| Finding | Condition |
+|---|---|
+| `undelegated_work` | work the delegation authorised is active on an issue a status read marked undelegated more than 3 × `reconcile_seconds` ago, except a flagged worker still running, which `withdrawal_overdue` covers |
+| `withdrawal_overdue` | a flagged worker still runs more than 300 s after its deadline |
+| `long_parked` | a job has waited for an answer (`awaiting_input`) for more than 7 days |
+| `deferred_delegation` | a delegation event has waited for another session's worker for more than 45 minutes |
+| `outside_prefix` | an active job's identifier is outside `issue_prefix`, for example after a move to another team, which FarmBot does not detect |
+| `stored_undelegated` | with `expected_app_user_id` pinned, the stored snapshot of an active job's card is not delegated to that app: the delegation's work, and conversations delegation sessions opened before authorities were recorded |
 
 ## People
 
