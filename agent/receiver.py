@@ -19,8 +19,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from .ledger import ACTIVE_STATES, LedgerError, StaleRouting
 from .linear_api import person
 from .router import WRITE_SKILLS, route
-from .withdrawal import (DEFER_ACK, DEFER_STILL, FORWARD_PARKED_UNDELEGATED, FORWARD_WITHDRAWING, RESUME_UNDELEGATED,
-                         STOP_ALREADY, STOP_ELSEWHERE, STOP_MOVED, SUPERSEDE_SUFFIX, SUPERSEDED, grace_seconds)
+from .withdrawal import (DEFER_ACK, DEFER_STILL, DEFER_UNDELEGATED, FORWARD_PARKED_UNDELEGATED, FORWARD_WITHDRAWING,
+                         RESUME_UNDELEGATED, STOP_ALREADY, STOP_ELSEWHERE, STOP_MOVED, SUPERSEDE_SUFFIX, SUPERSEDED,
+                         grace_seconds)
 from .worktrees import WorktreeError
 
 MAX_BODY = 1024 * 1024
@@ -341,6 +342,12 @@ class Receiver:
             raise Deferred(elsewhere["id"])
 
         def act(active, decision, elsewhere, feature_work, reroute):
+            if prepared.get("deferred") and not delegated:
+                # The delegation this event waited behind another session's worker to run was removed meanwhile. Its
+                # session still records a delegation, but nothing authorises its work any more, and the person asked
+                # for nothing since: the event answers once and starts nothing (design C2, as D16 needs `delegated`).
+                acknowledge("response", DEFER_UNDELEGATED.format(bot=self.bot_name))
+                return
             # A delegation's own event, while the card is delegated here, owns the card (design P4).
             owns = is_delegation and delegated and (prepared["action"] == "created" or reroute)
             if elsewhere is not None and elsewhere["session_id"] != session_id and decision.kind in ("work", "chat"):

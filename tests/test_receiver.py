@@ -23,8 +23,9 @@ from agent.lifecycle import Lifecycle
 from agent.monitor import probe_health
 from agent.receiver import MAX_BODY, Receiver, make_server
 from agent.router import Decision
-from agent.withdrawal import (DEFER_ACK, DEFER_STILL, FORWARD_PARKED_UNDELEGATED, FORWARD_WITHDRAWING,
-                              RESUME_UNDELEGATED, STOP_ALREADY, STOP_ELSEWHERE, STOP_MOVED, SUPERSEDE_SUFFIX, SUPERSEDED)
+from agent.withdrawal import (DEFER_ACK, DEFER_STILL, DEFER_UNDELEGATED, FORWARD_PARKED_UNDELEGATED,
+                              FORWARD_WITHDRAWING, RESUME_UNDELEGATED, STOP_ALREADY, STOP_ELSEWHERE, STOP_MOVED,
+                              SUPERSEDE_SUFFIX, SUPERSEDED)
 from agent.worktrees import WorktreeError
 from test_ledger import DESIGNER, ISSUE, OTHER, OWNER, issue
 
@@ -1398,6 +1399,35 @@ class WithdrawnWorkReceiverTests(ReceiverBase):
         count = len(self.sent())
         self.assertFalse(self.receiver.process_one())
         self.assertEqual(len(self.sent()), count)
+
+    def test_c2_deferred_delegation_starts_nothing_once_the_card_is_no_longer_delegated(self):
+        """Design C2 runs a deferred delegation as the delegation it was, which only a card still delegated here
+        allows. When the person removed the delegation while the old worker stopped, the event answers once and
+        starts nothing: no write job without a delegation, and no conversation nobody asked for."""
+        fix, token = self.claimed_fix_elsewhere()
+        self.assertEqual(self.delegate("session-1"), [])  # deferred behind the claimed fix
+        self.ledger.withdraw(fix["id"], token, delegated=False, closed=False)
+        self.undelegated(("Bug", "修改"), CHANGE)
+        self.assertTrue(self.receiver.process_one())
+        self.assertEqual(self.ledger.items_for_session("session-1"), [])
+        self.assertIsNone(self.ledger.active_item_for_issue(ISSUE))
+        self.assertEqual(self.sent()[-1],
+                         ("session-1", {"type": "response", "body": DEFER_UNDELEGATED.format(bot="FarmBot")}))
+        self.assertEqual(self.receiver.results()[-1]["status"], "done")
+        self.assertFalse(self.receiver.process_one())
+
+    def test_c2_deferred_delegation_past_the_grace_on_an_undelegated_card_forwards_nothing(self):
+        """The same when the old worker outlives its grace: the event forwards no empty message to that worker and
+        does not report on its stopping; it says that nothing will start."""
+        fix, token = self.claimed_fix_elsewhere()
+        self.delegate("session-1")
+        self.undelegated(("Bug", "修改"), CHANGE)
+        self.past_the_grace()
+        self.assertEqual(self.sent()[-1],
+                         ("session-1", {"type": "response", "body": DEFER_UNDELEGATED.format(bot="FarmBot")}))
+        self.assertEqual(self.ledger.items_for_session("session-1"), [])
+        self.assertEqual(self.ledger.pop_inbox(fix["id"], token), [])
+        self.assertEqual(self.receiver.results()[-1]["status"], "done")
 
     def test_c2_running_chat_is_superseded_at_once(self):
         chat = self.conversation_elsewhere()

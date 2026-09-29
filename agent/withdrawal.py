@@ -25,6 +25,8 @@ _NOTICES = {'undelegated': (UNDELEGATED, UNDELEGATED_CHAT), 'superseded': (SUPER
 SUPERSEDE_SUFFIX = '此前在另一个会话中的工作已转到这里继续。'
 DEFER_ACK = '{bot} 已收到委派。这张卡上一次的 {skill} 工作正在保存进度并停止（最长约 {minutes} 分钟），停止后会在这里接着处理。'
 DEFER_STILL = '上一次的工作还没有停止。稍后在这里回复任意内容即可开始。'
+# A deferred delegation whose card was no longer delegated here when its turn came: it starts nothing.
+DEFER_UNDELEGATED = '这张卡已不再委派给 {bot}，这次委派的工作不会开始。需要时重新委派给 {bot}，或在评论里 @{bot}。'
 
 # Replies, forwarded messages and Stop while or after work is withdrawn.
 RESUME_UNDELEGATED = '已保存回复；这张卡已不再委派给 {bot}，这项工作即将停止。重新委派给 {bot} 会从已有进度接着做。'
