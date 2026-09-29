@@ -1760,9 +1760,10 @@ class Ledger:
 
     def withdraw(self, item_id, token, *, delegated, closed):
         """A worker ends its own claim as cancelled once its work is withdrawn: flagged, or the card is not delegated
-        to this app (`delegated`) or is closed (`closed`), as its CLI has just read. Cancelled, not blocked: a later
-        delegation continues the job from its plan (design P2, F14). Returns (view, reason): the flag's reason, else
-        `closed`, else `undelegated`."""
+        to this app (`delegated`) or is closed (`closed`), as its CLI has just read. Only work the delegation
+        authorised ends with it: a conversation a mention or the operator started continues on an undelegated card
+        (design P2, G2). Cancelled, not blocked: a later delegation continues the job from its plan (design P2,
+        F14). Returns (view, reason): the flag's reason, else `closed`, else `undelegated`."""
         if type(delegated) is not bool or type(closed) is not bool:
             raise LedgerError("delegated and closed must be booleans")
         with self._transaction():
@@ -1771,8 +1772,10 @@ class Ledger:
                 reason = row["withdraw_reason"] or "undelegated"
             elif closed:
                 reason = "closed"
-            elif not delegated:
+            elif not delegated and _authority(row) == "delegation":
                 reason = "undelegated"
+            elif not delegated:
+                raise LedgerError("this conversation does not depend on the card's delegation; continue it")
             else:
                 raise LedgerError("the card is still delegated to this app and nothing withdrew this work; continue it")
             self._cancel_row(row, f"withdrawn by its worker: {reason}", drop_progress=True)

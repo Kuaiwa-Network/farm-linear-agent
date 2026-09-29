@@ -2169,6 +2169,28 @@ class WithdrawalTests(WithdrawnWorkBase):
                 self.assertEqual((view["state"], reason), ("cancelled", expected))
                 item, token = self.claimed()
 
+    def test_withdraw_refuses_a_conversation_the_delegation_never_authorised(self):
+        """A conversation a mention or the operator started does not depend on the delegation (P2, A8, G2): its
+        worker's withdraw on an undelegated card is refused, and it answers on. Closure and an unreachable issue
+        still end it."""
+        self.ledger.observe_issue(issue(delegate_id=None))
+        for session, authority in (("mention", "mention"), ("local-farm-1", "operator")):
+            with self.subTest(authority=authority):
+                self.ledger.ensure_session(session, ISSUE, delegation=False)
+                chat = self.ledger.create_work_item(issue_id=ISSUE, session_id=session, skill="chat",
+                                                    authority=authority)
+                token = self.ledger.claim(chat["id"], worker_id="w")["token"]
+                with self.assertRaisesRegex(LedgerError, "does not depend on the card's delegation"):
+                    self.ledger.withdraw(chat["id"], token, delegated=False, closed=False)
+                self.assertEqual(self.ledger.item(chat["id"])["state"], "running")
+                self.ledger.flag_withdrawal(chat["id"], "unreachable", self.now + 600)
+                view, reason = self.ledger.withdraw(chat["id"], token, delegated=False, closed=False)
+                self.assertEqual((view["state"], reason), ("cancelled", "unreachable"))
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id="mention", skill="chat", authority="mention")
+        token = self.ledger.claim(chat["id"], worker_id="w")["token"]
+        view, reason = self.ledger.withdraw(chat["id"], token, delegated=False, closed=True)
+        self.assertEqual((view["state"], reason), ("cancelled", "closed"))
+
     def test_f14_flagged_blocked_finish_is_recorded_cancelled_and_continued(self):
         item, token = self.claimed()
         action = self.ledger.prepare_comment(item["id"], token, "blocker", "委派已撤回，未发布。")
