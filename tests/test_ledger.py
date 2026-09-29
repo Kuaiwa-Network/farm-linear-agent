@@ -2450,6 +2450,20 @@ class StopTargetTests(WithdrawnWorkBase):
         self.assertEqual(self.target("session-1"), (None, "stopped"))
         self.assertEqual(self.target("mention"), (None, "none"))  # the work it was forwarded to has ended
 
+    def test_stop_target_tells_a_conversation_a_message_moved_from_one_a_delegation_took_over(self):
+        """A supersede records whether a new delegation took the work over or a person's message moved a waiting
+        conversation to its thread (design C5), so a Stop in the old thread names no delegation that does not exist."""
+        old = self.parked(skill="chat", session="session-0", delegation=False)
+        self.ledger.ensure_session("mention", ISSUE, delegation=False)
+        _, moved = self.ledger.supersede(old["id"], UNCLAIMED, session_id="mention", skill="chat", authority="mention",
+                                         reason="a person's message moved the conversation to another session",
+                                         takeover=False)
+        self.assertEqual(self.target("session-0"), (None, "moved_thread"))
+        self.ledger.ensure_session("session-1", ISSUE, delegation=True)
+        self.ledger.supersede(moved["id"], UNCLAIMED, session_id="session-1", skill="chat", authority="delegation",
+                              reason="a new delegation session took the card over")
+        self.assertEqual(self.target("mention"), (None, "moved"))
+
 
 class ReservationTests(unittest.TestCase):
     def test_requested_fix_commit_does_not_overwrite_baseline(self):

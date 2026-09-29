@@ -24,8 +24,8 @@ from agent.monitor import probe_health
 from agent.receiver import MAX_BODY, Receiver, make_server
 from agent.router import Decision
 from agent.withdrawal import (DEFER_ACK, DEFER_STILL, DEFER_UNDELEGATED, FORWARD_PARKED_UNDELEGATED,
-                              FORWARD_WITHDRAWING, RESUME_UNDELEGATED, STOP_ALREADY, STOP_ELSEWHERE, STOP_MOVED,
-                              SUPERSEDE_SUFFIX, SUPERSEDED)
+                              FORWARD_WITHDRAWING, MOVED_THREAD, RESUME_UNDELEGATED, STOP_ALREADY, STOP_ELSEWHERE,
+                              STOP_MOVED, STOP_MOVED_THREAD, SUPERSEDE_SUFFIX, SUPERSEDED)
 from agent.worktrees import WorktreeError
 from test_ledger import DESIGNER, ISSUE, OTHER, OWNER, issue
 
@@ -1468,8 +1468,43 @@ class WithdrawnWorkReceiverTests(ReceiverBase):
         moved = self.ledger.active_item_for_session("session-9")
         self.assertEqual((moved["skill"], moved["state"], moved["authority"]), ("chat", "queued", "delegation"))
         self.assertEqual(self.messages(moved), ["@FarmBot 公共测试服"])
+        # A mention moved it, not a new delegation: the old thread's note names none (MOVED_THREAD, not SUPERSEDED).
         self.assertEqual(self.sent()[-2:], [("session-9", {"type": "thought", "body": "FarmBot 已收到，正在查看。"}),
-                                            ("session-1", {"type": "response", "body": SUPERSEDED})])
+                                            ("session-1", {"type": "response", "body": MOVED_THREAD})])
+
+    def test_c5_stop_where_a_mention_moved_the_conversation_from_names_no_delegation(self):
+        """A mention answers a mention's waiting conversation, which moves to the mention's thread. The old thread
+        is told it moved, and a Stop there says where it went, without naming a delegation session: none exists."""
+        chat = self.conversation_elsewhere()
+        self.paused(chat, "哪个服？")
+        self.mention_in("session-9", "@FarmBot 公共测试服")
+        moved = self.ledger.active_item_for_session("session-9")
+        self.assertEqual((moved["skill"], moved["state"], moved["authority"]), ("chat", "queued", "mention"))
+        self.assertEqual(self.sent()[-1], ("session-0", {"type": "response", "body": MOVED_THREAD}))
+        self.assertEqual(self.stop_in("session-0"), {"type": "response", "body": STOP_MOVED_THREAD})
+        self.scheduler.stop.assert_not_called()
+
+    def test_c5_an_operators_conversation_a_mention_moved_is_noted_on_the_card(self):
+        self.ledger.observe_issue(issue(labels=["Bug"], delegate_id=APP))
+        self.ledger.ensure_session(f"local-{ISSUE}", ISSUE, True)
+        local = self.ledger.create_work_item(issue_id=ISSUE, session_id=f"local-{ISSUE}", skill="chat",
+                                             authority="operator")
+        self.mention_in("session-9", "@FarmBot 看一下")
+        self.assertEqual(self.ledger.item(local["id"])["state"], "cancelled")
+        self.assertEqual(self.ledger.active_item_for_session("session-9")["authority"], "mention")
+        self.api.create_comment.assert_called_once_with(ISSUE, MOVED_THREAD)
+
+    def test_a_reply_that_moves_a_conversation_back_to_an_older_thread_names_no_delegation(self):
+        """A delegation took a waiting conversation over (C3), and a reply in the older thread then answers it there,
+        which moves it back. The newer thread is told the conversation moved on, not that a delegation took it."""
+        self.waiting_chat("session-0")
+        [taken] = self.delegate("session-1")
+        self.assertEqual(self.sent()[-1], ("session-0", {"type": "response", "body": SUPERSEDED}))
+        self.paused(taken, "哪个服？")
+        self.reply_in("session-0", "公共测试服")
+        self.assertEqual(self.ledger.active_item_for_session("session-0")["skill"], "chat")
+        self.assertEqual(self.ledger.item(taken["id"])["state"], "cancelled")
+        self.assertEqual(self.sent()[-1], ("session-1", {"type": "response", "body": MOVED_THREAD}))
 
     def test_c5_mention_to_a_parked_undelegated_fix_says_it_will_not_continue(self):
         fix = self.waiting_fix("session-1")

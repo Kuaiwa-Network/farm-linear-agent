@@ -882,8 +882,9 @@ class Ledger:
         """(item, where): the work a Stop in `session_id` stops, the first of `own`, the session's own active item;
         `forwarded`, the active item its messages were forwarded to; `latest_delegation`, the issue's active item of
         delegation authority when this is the card's latest delegation session (design P5). With nothing to stop,
-        item is None and `where` says why: `moved`, the session's last item was superseded by a newer session;
-        `stopped`, it was cancelled; `none`, anything else."""
+        item is None and `where` says why: `moved`, a new delegation session took the session's last item over;
+        `moved_thread`, a person's message moved that conversation to another thread (design C5); `stopped`, it was
+        cancelled; `none`, anything else."""
         own = self.active_item_for_session(session_id)
         if own is not None:
             return own, "own"
@@ -907,10 +908,15 @@ class Ledger:
                                        "LIMIT 1", (session_id,)).fetchone()
         if last is None or last["state"] != "cancelled":
             return None, "none"
-        # A takeover either cancelled the item at once or, for a claimed worker, flagged it until it withdrew.
-        moved = last["withdraw_reason"] == "superseded" or self.connection.execute(
-            "SELECT 1 FROM audit WHERE item_id=? AND kind='superseded' LIMIT 1", (last["id"],)).fetchone()
-        return None, "moved" if moved else "stopped"
+        # A takeover either cancelled the item at once or, for a claimed worker, flagged it until it withdrew. Only a
+        # supersede can move work without a new delegation, and it records which it was.
+        if last["withdraw_reason"] == "superseded":
+            return None, "moved"
+        superseded = self.connection.execute("SELECT details FROM audit WHERE item_id=? AND kind='superseded' "
+                                             "ORDER BY id DESC LIMIT 1", (last["id"],)).fetchone()
+        if superseded is None:
+            return None, "stopped"
+        return None, "moved" if json.loads(superseded["details"]).get("takeover", True) else "moved_thread"
 
     def items_for_session(self, session_id):
         rows = self.connection.execute("SELECT * FROM work_items WHERE session_id=? ORDER BY created_at, id", (session_id,))
@@ -1736,13 +1742,17 @@ class Ledger:
             self.connection.execute("DELETE FROM session_progress WHERE item_id=?", (row["id"],))
 
     def supersede(self, expected_id, expected_states, *, session_id, skill, reason, target=None, authority=None,
-                  text=None, author=None, received_at=None):
+                  text=None, author=None, received_at=None, takeover=True):
         """A newer session takes the card's work over (design P4), in one transaction: `expected_id`, still in one of
         `expected_states`, is cancelled, and a `skill` item is queued in `session_id` with every message the old one
         had, each with its author and time, then `text`, which `author` wrote and FarmBot received at `received_at`,
         as push_inbox records it. A write item of the old one's skill links it as its predecessor. An item's session
         never changes, so nothing is adopted. StaleRouting when the old item has left those states: the caller
-        routes the event again. Returns the views (cancelled, created)."""
+        routes the event again. Returns the views (cancelled, created).
+
+        `takeover` False records that a person's message moved a waiting conversation to its own thread (design C5)
+        rather than a new delegation session taking the card over, so that nothing tells the old thread of a
+        delegation that does not exist (stop_target)."""
         _text(skill, "skill")
         _text(reason, "reason")
         authority = _checked_authority(skill, authority)
@@ -1765,8 +1775,10 @@ class Ledger:
             if text and text.strip():
                 self.connection.execute("INSERT INTO inbox(item_id,body,author_json,created_at) VALUES(?,?,?,?)",
                                         (created, text, author_json, self.clock() if received_at is None else received_at))
-            self._audit(row["id"], "superseded", reason, {"by": created, "session_id": session_id})
-            self._audit(created, "supersedes", reason, {"superseded": row["id"], "session_id": row["session_id"]})
+            self._audit(row["id"], "superseded", reason,
+                        {"by": created, "session_id": session_id, "takeover": bool(takeover)})
+            self._audit(created, "supersedes", reason,
+                        {"superseded": row["id"], "session_id": row["session_id"], "takeover": bool(takeover)})
             return self._view(self._row(row["id"])), self._view(self._row(created))
 
     WITHDRAW_REASONS = ("undelegated", "superseded", "unreachable")

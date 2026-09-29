@@ -20,8 +20,8 @@ from .ledger import ACTIVE_STATES, LedgerError, StaleRouting
 from .linear_api import person
 from .router import WRITE_SKILLS, route
 from .withdrawal import (DEFER_ACK, DEFER_STILL, DEFER_UNDELEGATED, FORWARD_PARKED_UNDELEGATED, FORWARD_WITHDRAWING,
-                         RESUME_UNDELEGATED, STOP_ALREADY, STOP_ELSEWHERE, STOP_MOVED, SUPERSEDE_SUFFIX, SUPERSEDED,
-                         grace_seconds)
+                         MOVED_THREAD, RESUME_UNDELEGATED, STOP_ALREADY, STOP_ELSEWHERE, STOP_MOVED, STOP_MOVED_THREAD,
+                         SUPERSEDE_SUFFIX, SUPERSEDED, grace_seconds)
 from .worktrees import WorktreeError
 
 MAX_BODY = 1024 * 1024
@@ -221,7 +221,8 @@ class Receiver:
                 body = (f"已停止 {item['identifier']} 上的工作，worker 已终止，占用的资源在静默检查后释放。" if where == "own"
                         else STOP_ELSEWHERE.format(identifier=item["identifier"]))
             else:
-                body = {"moved": STOP_MOVED, "stopped": STOP_ALREADY}.get(where, "当前没有正在进行的工作可停止。")
+                body = {"moved": STOP_MOVED, "moved_thread": STOP_MOVED_THREAD,
+                        "stopped": STOP_ALREADY}.get(where, "当前没有正在进行的工作可停止。")
             self._send(row["session_id"], row["activity_id"], {"type": "response", "body": body})
         except Exception as exc:
             status, error = "uncertain", type(exc).__name__
@@ -328,7 +329,7 @@ class Receiver:
                                       target=None if feature_work or skill == "chat" else session.get("target"),
                                       authority="delegation", text=text, author=author, received_at=received_at)
                 acknowledge("thought", self._opening(decision, text) + "\n" + SUPERSEDE_SUFFIX)
-                self._close_moved(elsewhere)
+                self._close_moved(elsewhere, SUPERSEDED)
                 return
             # A claimed write worker saves its progress and withdraws, or the controller stops it at its deadline;
             # this event waits for that, then runs as the delegation it is (design C2).
@@ -355,14 +356,16 @@ class Receiver:
                     return take_over(decision, elsewhere, feature_work)
                 if elsewhere["skill"] == "chat" and elsewhere["state"] in UNCLAIMED:
                     # A waiting conversation moves to the thread that answers it (design C5, 2.12), keeping the
-                    # delegation's authority only while the card is still delegated here.
+                    # delegation's authority only while the card is still delegated here. No new delegation took it,
+                    # so the old thread is told only that it moved.
                     authority = "delegation" if elsewhere["authority"] == "delegation" and delegated else "mention"
                     self.ledger.supersede(elsewhere["id"], UNCLAIMED, session_id=session_id, skill="chat",
                                           reason="a person's message moved the conversation to another session",
-                                          authority=authority, text=text, author=author, received_at=received_at)
+                                          authority=authority, text=text, author=author, received_at=received_at,
+                                          takeover=False)
                     acknowledge("thought", self._opening(decision, text) if decision.kind == "chat"
                                 else ACK["chat"].format(bot=self.bot_name))
-                    self._close_moved(elsewhere)
+                    self._close_moved(elsewhere, MOVED_THREAD)
                     return
                 # Forwarded to work that stays where it is, and a Stop here now reaches it (design P5). The notice
                 # says what becomes of the message (design R10).
@@ -444,14 +447,15 @@ class Receiver:
         manifests = getattr(self.scheduler, "skills", None)
         return grace_seconds(manifests.get(skill) if isinstance(manifests, dict) else None)
 
-    def _close_moved(self, item):
+    def _close_moved(self, item, body):
         """Best effort, after the new session's acknowledgement: a superseded item's own session is told where its
-        work went, or the card is, for an operator's `local-` item, which names no Linear session (design P4, P7)."""
+        work went, `body`, SUPERSEDED for a new delegation's takeover or MOVED_THREAD for a conversation a message
+        moved, or the card is, for an operator's `local-` item, which names no Linear session (design P4, P7)."""
         try:
             if str(item["session_id"]).startswith("local-"):
-                self.api.create_comment(item["issue_id"], SUPERSEDED)
+                self.api.create_comment(item["issue_id"], body)
             else:
-                self.api.create_activity(item["session_id"], {"type": "response", "body": SUPERSEDED})
+                self.api.create_activity(item["session_id"], {"type": "response", "body": body})
         except Exception:
             pass
 

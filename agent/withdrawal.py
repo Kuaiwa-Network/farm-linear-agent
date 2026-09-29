@@ -13,6 +13,9 @@ UNDELEGATED = ('这张卡已不再委派给 {bot}，这项工作已取消。已�
                '重新委派给 {bot} 时会从已有进度接着做。')
 UNDELEGATED_CHAT = '这张卡已不再委派给 {bot}，这段对话已结束。需要继续时，重新委派给 {bot}，或在评论里 @{bot}。'
 SUPERSEDED = '这张卡有了新的委派会话，这里的工作已转到那里继续。'
+# A waiting conversation a person's message moved to the thread it was written in, which no new delegation opened
+# (design C5): the old thread, or for an operator's conversation the card, is told without naming a delegation.
+MOVED_THREAD = '这段对话已转到另一个讨论串继续。'
 CLOSED = '这张卡已关闭或归档，{bot} 已停止这里的工作。已推送的分支和草稿 PR 都保留。'
 CLOSED_CHAT = '这张卡已关闭或归档，这段对话已结束。'
 OPERATOR = '维护者已停止这项工作。已推送的分支和草稿 PR 都保留。'
@@ -34,6 +37,7 @@ FORWARD_PARKED_UNDELEGATED = '已保存你的消息；这张卡已不再委派�
 FORWARD_WITHDRAWING = '已保存你的消息；这张卡上的工作正在停止。'
 STOP_ELSEWHERE = '已停止 {identifier} 上在另一个会话中进行的工作，worker 已终止，占用的资源在静默检查后释放。'
 STOP_MOVED = '这里的工作已转到新的委派会话；要停止，请在那个会话里按 Stop。'
+STOP_MOVED_THREAD = '这段对话已转到另一个讨论串继续；要停止，请在那个讨论串里按 Stop。'
 STOP_ALREADY = '这里的工作已经停止。'
 
 # Session heartbeats for a job that waits or stops for one of these reasons.
