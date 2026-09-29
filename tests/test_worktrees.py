@@ -718,7 +718,11 @@ class ReadCheckoutTests(unittest.TestCase):
         (clone / "info").mkdir(exist_ok=True)
         (clone / "info" / "attributes").write_text("* filter=lfs\n", encoding="utf-8")
         with patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": str(host)}):
-            git("clone", "-q", str(self.origin), str(root / "control"), cwd=root)
+            # The control clone reads only the host config above: a system config can enable git-lfs's process
+            # filter, which git prefers to the host's smudge (CI's macOS runner has one). The read-only checkouts
+            # below run with whatever the machine's system config enables as well.
+            with patch.dict(os.environ, {"GIT_CONFIG_NOSYSTEM": "1"}):
+                git("clone", "-q", str(self.origin), str(root / "control"), cwd=root)
             ran = set(marker.read_text(encoding="utf-8").split())
             self.assertLessEqual({"post-checkout", "smudge"}, ran)  # the host's hook and filter do run elsewhere
             marker.unlink()
