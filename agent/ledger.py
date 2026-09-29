@@ -766,8 +766,12 @@ class Ledger:
         """A read found the card delegated to this app: the mark goes, and with it the flags it set (design P3)."""
         issue_id = _uuid(issue_id, "issue")
         with self._transaction():
-            self.connection.execute("UPDATE issue_checks SET undelegated_since=NULL WHERE issue_id=?", (issue_id,))
-            return self._clear_withdrawals(issue_id)
+            return self._clear_undelegated(issue_id)
+
+    def _clear_undelegated(self, issue_id):
+        """Caller owns the transaction."""
+        self.connection.execute("UPDATE issue_checks SET undelegated_since=NULL WHERE issue_id=?", (issue_id,))
+        return self._clear_withdrawals(issue_id)
 
     def unfinished_for_issue(self, issue_id):
         return [self._view(r) for r in self.connection.execute("""SELECT * FROM work_items WHERE issue_id=?
@@ -1762,14 +1766,17 @@ class Ledger:
         """A worker ends its own claim as cancelled once its work is withdrawn: flagged, or the card is not delegated
         to this app (`delegated`) or is closed (`closed`), as its CLI has just read. Only work the delegation
         authorised ends with it: a conversation a mention or the operator started continues on an undelegated card
-        (design P2, G2). Cancelled, not blocked: a later delegation continues the job from its plan (design P2,
-        F14). Returns (view, reason): the flag's reason, else `closed`, else `undelegated`."""
+        (design P2, G2). A flag the delegation's loss set does not count once the read finds the card delegated
+        again: the flag is cleared and the work continues (design P3). Cancelled, not blocked: a later delegation
+        continues the job from its plan (design P2, F14). Returns (view, reason): the flag's reason, else `closed`,
+        else `undelegated`."""
         if type(delegated) is not bool or type(closed) is not bool:
             raise LedgerError("delegated and closed must be booleans")
         with self._transaction():
             row = self._owned(item_id, token)
-            if row["withdraw_deadline"] is not None:
-                reason = row["withdraw_reason"] or "undelegated"
+            flag = (row["withdraw_reason"] or "undelegated") if row["withdraw_deadline"] is not None else None
+            if flag is not None and not (flag == "undelegated" and delegated and not closed):
+                reason = flag
             elif closed:
                 reason = "closed"
             elif not delegated and _authority(row) == "delegation":
@@ -1777,10 +1784,17 @@ class Ledger:
             elif not delegated:
                 raise LedgerError("this conversation does not depend on the card's delegation; continue it")
             else:
-                raise LedgerError("the card is still delegated to this app and nothing withdrew this work; continue it")
-            self._cancel_row(row, f"withdrawn by its worker: {reason}", drop_progress=True)
-            self._audit(row["id"], "withdrawn", reason)
-            return self._view(self._row(row["id"])), reason
+                # The caller's read found the card delegated. Like any read that does, it clears the issue's mark and
+                # the flags the delegation's loss set (design P3): the work goes on. This commits before the refusal.
+                self._clear_undelegated(row["issue_id"])
+                reason = None
+            if reason is not None:
+                self._cancel_row(row, f"withdrawn by its worker: {reason}", drop_progress=True)
+                self._audit(row["id"], "withdrawn", reason)
+                return self._view(self._row(row["id"])), reason
+        if flag is not None:
+            raise LedgerError("the card is delegated to this app again, so its withdrawal is cleared; continue the work")
+        raise LedgerError("the card is still delegated to this app and nothing withdrew this work; continue it")
 
     def _refuse_withdrawn(self, row):
         if row["withdraw_deadline"] is not None:

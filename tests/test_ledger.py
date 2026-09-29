@@ -2169,6 +2169,36 @@ class WithdrawalTests(WithdrawnWorkBase):
                 self.assertEqual((view["state"], reason), ("cancelled", expected))
                 item, token = self.claimed()
 
+    def test_withdraw_clears_an_undelegated_flag_once_the_workers_read_finds_the_delegation(self):
+        """A read that finds the delegation clears the mark and the flags its loss set (P3), the worker's own read
+        included: withdraw refuses, and the work goes on and may pause again. A flag it did not set still ends the
+        work on a delegated card."""
+        item, token = self.claimed()
+        self.ledger.mark_undelegated(ISSUE, 900.0)
+        self.ledger.flag_withdrawal(item["id"], "undelegated", self.now + 1200)
+        with self.assertRaisesRegex(LedgerError, "delegated to this app again"):
+            self.ledger.withdraw(item["id"], token, delegated=True, closed=False)
+        view = self.ledger.item(item["id"])
+        self.assertEqual((view["state"], view["withdraw_deadline"], view["withdraw_reason"]), ("running", None, None))
+        self.assertIsNone(self.ledger.status_check(ISSUE)["undelegated_since"])
+        last = self.ledger.connection.execute("SELECT kind,reason FROM audit WHERE item_id=? ORDER BY id DESC LIMIT 1",
+                                              (item["id"],)).fetchone()
+        self.assertEqual((last["kind"], last["reason"]), ("withdrawal", "cleared: the card is delegated again"))
+        self.assertEqual(self.ledger.await_input(item["id"], token, "要继续吗？")["state"], "awaiting_input")
+        self.ledger.cancel(item["id"], "Linear stop")
+        item, token = self.claimed()
+        self.ledger.mark_undelegated(ISSUE, 1000.0)
+        with self.assertRaisesRegex(LedgerError, "still delegated"):
+            self.ledger.withdraw(item["id"], token, delegated=True, closed=False)
+        self.assertIsNone(self.ledger.status_check(ISSUE)["undelegated_since"])  # an unflagged read clears it too
+        self.ledger.cancel(item["id"], "Linear stop")
+        for flag in ("superseded", "unreachable"):
+            with self.subTest(flag=flag):
+                item, token = self.claimed()
+                self.ledger.flag_withdrawal(item["id"], flag, self.now + 1200)
+                view, reason = self.ledger.withdraw(item["id"], token, delegated=True, closed=False)
+                self.assertEqual((view["state"], reason), ("cancelled", flag))
+
     def test_withdraw_refuses_a_conversation_the_delegation_never_authorised(self):
         """A conversation a mention or the operator started does not depend on the delegation (P2, A8, G2): its
         worker's withdraw on an undelegated card is refused, and it answers on. Closure and an unreachable issue
