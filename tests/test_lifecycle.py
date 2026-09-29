@@ -443,6 +443,18 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(self.state(chat), 'cancelled')
         self.assertEqual(self.said(chat['session_id']), [('response', UNDELEGATED_CHAT.format(bot='FarmBot'))])
 
+    def test_a4_delegation_moved_to_the_other_instance_flags_a_running_fix(self):
+        """Design A4: the other FarmBot instance is just another app to this one, so the move is A3. A running write
+        worker is flagged, not killed: until it withdraws, verify-publication refuses it (A10), and the other
+        instance's worker finds its branches through foreign-work."""
+        fix = self.job('fix', state='running')
+        self.now += 1
+        self.confirm(self.reads(delegate=str(uuid4())), fix['issue_id'])
+        flagged = self.ledger.item(fix['id'])
+        self.assertEqual((flagged['state'], flagged['withdraw_reason'], flagged['withdraw_deadline']),
+                         ('running', 'undelegated', self.now + 1200))
+        self.assertEqual((self.api.activities, self.launcher.stopped), ([], []))
+
     def test_a5_a_read_that_finds_the_delegation_clears_the_mark(self):
         fix = self.job('fix', state='awaiting_input')
         lifecycle = self.reads()
@@ -673,6 +685,21 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual((current['state'], current['next_root_repo']), ('cancelled', None))
         self.assertIn(fix['id'], self.launcher.stopped)
 
+    def test_f12_a_job_waiting_only_for_its_cleanup_is_left_to_the_cleanup(self):
+        """Design F12: a job that has ended but whose cleanup has not run holds nothing a withdrawal could free. The
+        poll does not read its card, a read that finds the card undelegated says and stops nothing, and the scheduler
+        still cleans up after it."""
+        fix = self.job('fix', state='awaiting_input')
+        self.ledger.cancel(fix['id'], 'Linear stop')  # ended by a Stop, before the scheduler's cleanup
+        self.now += 1
+        lifecycle = self.reads()
+        self.assertEqual(lifecycle.tick(), {'checked': None})
+        self.confirm(lifecycle, fix['issue_id'])
+        self.assertEqual((self.state(fix), self.ledger.cleanup_record(fix['id'])['done']), ('cancelled', False))
+        self.assertEqual((self.api.activities, self.launcher.stopped), ([], []))
+        self.scheduler.tick()
+        self.assertIn(('removed', fix['id'], None), self.trees.added)
+
     def test_f13_blocked_item_is_untouched_by_undelegation(self):
         fix = self.job('fix', state='blocked')
         self.confirm(self.reads(), fix['issue_id'])
@@ -702,6 +729,25 @@ class LifecycleTests(unittest.TestCase):
         self.now += 60
         self.assertEqual(lifecycle.tick()['checked'], fix['issue_id'])
         self.assertEqual(self.state(fix), 'cancelled')
+
+    def test_h5_a_removal_while_the_controller_was_down_is_confirmed_after_restart(self):
+        """Design H5: the delegation went while no controller ran. After the restart the overdue card is read at once,
+        and that read only marks it, however long the downtime was; the next poll, an interval later, withdraws."""
+        fix = self.job('fix', state='awaiting_input')
+        self.now += 1
+        running = self.reads(delegate=APP)
+        self.assertEqual(running.tick()['checked'], fix['issue_id'])
+        self.delegate = None  # removed while the controller was down for two hours
+        self.now += 7200
+        restarted = Lifecycle(self.ledger, self.status_api, self.scheduler, clock=lambda: self.now)
+        self.assertEqual(restarted.tick()['checked'], fix['issue_id'])
+        self.assertEqual(self.state(fix), 'awaiting_input')
+        self.assertEqual(self.ledger.status_check(fix['issue_id'])['undelegated_since'], self.now)
+        self.assertEqual(restarted.tick(), {'checked': None})
+        self.now += 60
+        self.assertEqual(restarted.tick()['checked'], fix['issue_id'])
+        self.assertEqual(self.state(fix), 'cancelled')
+        self.assertEqual(self.said(fix['session_id']), [('response', UNDELEGATED.format(bot='FarmBot'))])
 
     def test_i1_enqueued_write_item_is_withdrawn_by_comment_and_operator_chat_kept(self):
         fix_issue, chat_issue = str(uuid4()), str(uuid4())

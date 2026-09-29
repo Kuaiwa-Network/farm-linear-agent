@@ -1574,6 +1574,31 @@ class WithdrawnWorkReceiverTests(ReceiverBase):
         self.assertEqual(self.stop_in("session-0"), {"type": "response", "body": STOP_MOVED})
         self.scheduler.stop.assert_not_called()
 
+    def test_d3_a_stop_whose_reply_fails_has_still_stopped_the_work(self):
+        """Design D3, unchanged by P5: the work is stopped before the reply is sent, so a reply Linear refuses leaves
+        the Stop recorded as uncertain, not the work running."""
+        fix = self.waiting_fix("session-1")
+        self.api.create_activity.side_effect = RuntimeError("linear down")
+        event = self.event("prompted",
+                           agentSession={"id": "session-1", "issue": {"id": ISSUE, "identifier": "FARM-1", "url": "u"}})
+        event["agentActivity"].update(id="stop-1", signal="stop", content={"type": "prompt"})
+        self.assertEqual(self.receive(event), (200, "stop received"))
+        self.assertTrue(self.receiver.process_one())
+        self.scheduler.stop.assert_called_once_with(fix["id"], "Linear stop")
+        with self.receiver.lock:
+            recorded = self.receiver.db.execute("SELECT status,error FROM stop_requests").fetchall()
+        self.assertEqual([tuple(row) for row in recorded], [("uncertain", "RuntimeError")])
+
+    def test_k4_removing_the_bot_label_from_a_delegated_card_stops_nothing(self):
+        """Design K4: a label is not a stop signal. With the Bot label gone from the card, which is still delegated, a
+        reply resumes the waiting fix as before, and nothing asks for a status read."""
+        fix = self.waiting_fix("session-1")
+        self.labelled(["Bug"], [])
+        self.reply_in("session-1", "公共测试服")
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "queued")
+        self.assertEqual(self.activities()[-1], {"type": "thought", "body": "收到回复，继续处理。"})
+        self.assertEqual(self.ledger.status_check(ISSUE)["requested"], 0)
+
     def test_j5_forward_that_meets_a_terminal_item_reroutes_to_a_new_chat(self):
         fix = self.waiting_fix("session-1")
         push = self.receiver.ledger.push_inbox
