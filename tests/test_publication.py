@@ -199,7 +199,10 @@ class PublicationTests(unittest.TestCase):
         Pointed at another worktree of this issue, the job's worktree would pass as that one."""
         with self.fetching_from_the_local_origin():
             other = self.trees.add('farmgui', 'other', 'farmbot/farm-1248-other')
-        (self.path / '.git').write_text((other / '.git').read_text(encoding='utf-8'), encoding='utf-8')
+        pointer = (other / '.git').read_text(encoding='utf-8')
+        # Git for Windows hides .git, and Windows refuses to open a hidden file for overwrite: replace it instead.
+        (self.path / '.git').unlink()
+        (self.path / '.git').write_text(pointer, encoding='utf-8')
         with self.assertRaises(publication.PublicationError):
             self.verifier.verify('farmgui', 'job', 'FARM-1248')
 
