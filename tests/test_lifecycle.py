@@ -225,6 +225,83 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(self.ledger.item(job['id'])['state'], 'running')
         self.assertEqual((self.api.activities, self.launcher.stopped), ([], []))
 
+    def meanwhile(self, change):
+        """Patch the ledger's listing of an issue's work so that `change` runs after the listing, before the read acts
+        on it: what the receiver's or a worker's own connection can commit in that window."""
+        listing = self.ledger.unfinished_for_issue
+
+        def listed_then_changed(issue_id):
+            rows = listing(issue_id)
+            change()
+            return rows
+        return patch.object(self.ledger, 'unfinished_for_issue', listed_then_changed)
+
+    def test_an_answer_that_demotes_a_conversation_during_the_confirming_read_keeps_it(self):
+        """Design P1, A2d: a person's answer makes the delegation's conversation a mention's, which no withdrawal of
+        the delegation touches. When the answer lands after the confirming read listed the conversation, the cancel
+        or the flag rechecks its authority and leaves it alone."""
+        for state in ('awaiting_input', 'running'):
+            with self.subTest(state=state):
+                chat = self.job('chat', 'delegation', state)
+                lifecycle = self.reads()
+                lifecycle.refresh(chat['issue_id'])
+                self.now += 60
+
+                def answered():
+                    self.ledger.push_inbox(chat['id'], '公共测试服', resume_waiting=True, demote_to_mention=True)
+                with self.meanwhile(answered):
+                    lifecycle.refresh(chat['issue_id'])
+                current = self.ledger.item(chat['id'])
+                self.assertEqual((current['state'], current['authority'], current['withdraw_deadline']),
+                                 ('queued' if state == 'awaiting_input' else 'running', 'mention', None))
+                self.assertEqual(self.said(chat['session_id']), [])
+                self.assertNotIn(chat['id'], self.launcher.stopped)
+
+    def test_work_a_conversation_hands_over_to_during_the_confirming_read_is_kept(self):
+        """Design P3, A11 through a handover: the confirming read listed a queued delegation conversation, which its
+        worker then claimed and handed over to a new fix before the cancel. The cancel follows the handover to that
+        fix, created after the read began, and leaves it: the read cannot have seen what authorised it."""
+        chat = self.job('chat', 'delegation')
+        self.ledger.push_inbox(chat['id'], '请修复')
+        lifecycle = self.reads()
+        lifecycle.refresh(chat['issue_id'])
+        self.now += 60
+        fixes = []
+
+        def handed_over():
+            token = self.ledger.claim(chat['id'], worker_id='test')['token']
+            message = self.ledger.issue_context(chat['id'])['session_messages'][-1]['id']
+            fixes.append(self.ledger.request_repair(chat['id'], token, message, APP, 'Confirmed repair.',
+                                                    delegate_id=APP))
+        with self.meanwhile(handed_over):
+            lifecycle.refresh(chat['issue_id'])
+        self.assertEqual((self.state(chat), self.state(fixes[0])), ('delivered', 'queued'))
+        self.assertEqual((self.api.activities, self.launcher.stopped), ([], []))
+
+    def test_e3_a_blocked_job_claimed_again_during_the_read_is_flagged_not_killed(self):
+        """Design R8: a claimed worker on an unreachable issue is told to stop, never killed at once. A blocked job the
+        deciding read listed, which a retry then gave back to a worker before the cancel, is left to the next read,
+        which flags it."""
+        iid = str(uuid4())
+        blocked = self.job('fix', state='blocked', issue_id=iid)
+        lifecycle = self.not_found()
+        for elapsed in (0, 450):
+            self.now = 1000.0 + elapsed
+            lifecycle.refresh(iid)
+        self.now = 1900.0
+
+        def retried_and_claimed():
+            self.ledger.retry(blocked['id'], 'a person asked to retry')
+            self.ledger.claim(blocked['id'], worker_id='test')
+        with self.meanwhile(retried_and_claimed):
+            lifecycle.refresh(iid)
+        self.assertEqual(self.state(blocked), 'running')
+        self.assertNotIn(blocked['id'], self.launcher.stopped)
+        self.now += 300
+        lifecycle.refresh(iid)
+        current = self.ledger.item(blocked['id'])
+        self.assertEqual((current['state'], current['withdraw_reason']), ('running', 'unreachable'))
+
     def test_an_unknown_app_identity_cancels_nothing(self):
         feature = self.serve_feature()
         job = self.item(skill=feature.name)

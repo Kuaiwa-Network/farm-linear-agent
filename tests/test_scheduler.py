@@ -1217,6 +1217,28 @@ class SchedulerTests(unittest.TestCase):
                                                          (item["id"],)).fetchone()
                 self.assertEqual(audited["reason"], f"withdrawal grace expired ({reason})")
 
+    def test_a_withdrawal_cleared_after_the_expiry_listing_keeps_its_worker(self):
+        """A read that finds the delegation back clears the flag after the tick listed the expired withdrawals but
+        before it cancelled this one, as the lifecycle's own connection can: the cancel rechecks the flag and its
+        deadline in its transaction, and the worker keeps its claim."""
+        issue_id = str(uuid4())
+        item = self.item(issue_id=issue_id, session=str(uuid4()))
+        self.ledger.claim(item["id"], worker_id="w")
+        self.ledger.flag_withdrawal(item["id"], "undelegated", self.now + 30)
+        self.now += 30
+        listing = self.ledger.expired_withdrawals
+
+        def cleared_meanwhile():
+            rows = listing()
+            self.ledger.clear_undelegated(issue_id)
+            return rows
+        with patch.object(self.ledger, "expired_withdrawals", cleared_meanwhile):
+            self.scheduler.tick()
+        current = self.ledger.item(item["id"])
+        self.assertEqual((current["state"], current["withdraw_deadline"]), ("running", None))
+        self.assertNotIn(item["id"], self.launcher.stopped)
+        self.assertEqual(self.api.activities, [])
+
     def cancel_with_cli(self, item_id):
         result = subprocess.run(
             [sys.executable, "-B", "-W", "error", "-m", "agent", "--db", str(self.scheduler.db_path),

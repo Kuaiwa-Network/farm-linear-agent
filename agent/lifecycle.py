@@ -77,22 +77,29 @@ class Lifecycle:
         with `everyone` all of it. Work created at or after `before`, when the read that decided this began, is left
         alone: that read cannot have seen what authorised it (design P3, A11). A job no worker holds is cancelled, with
         one response unless the issue is out of reach; a claimed worker is flagged, to save its progress and run
-        `withdraw` before its grace ends; a blocked job holds nothing and ends only with the issue."""
+        `withdraw` before its grace ends; a blocked job holds nothing and ends only with the issue.
+
+        The listing may be stale by the time each job is acted on: the receiver, the workers and this loop write the
+        ledger on their own connections. So the state, the authority and the creation time this decides on are
+        checked again in the transaction that cancels or flags the job, and a job that changed meanwhile is left to
+        the next read."""
         now = self.clock()
+        guards = {'created_before': before} if everyone else {'created_before': before, 'authority': 'delegation'}
         for item in self.ledger.unfinished_for_issue(issue_id):
             if item['created_at'] >= before or (not everyone and item['authority'] != 'delegation'):
                 continue
             if item['state'] in UNDELEGATED_STATES:
                 text = None if reason == 'unreachable' else notice(item['skill'], reason, self.scheduler.bot_name)
-                self.scheduler.stop(item['id'], WITHDRAWN_REASONS[reason], states=UNDELEGATED_STATES, notice=text)
+                self.scheduler.stop(item['id'], WITHDRAWN_REASONS[reason], states=UNDELEGATED_STATES, notice=text,
+                                    **guards)
             elif item['state'] == 'running':
                 deadline = now + grace_seconds(self.scheduler.skills.get(item['skill']))
                 try:
-                    self.ledger.flag_withdrawal(item['id'], reason, deadline)
+                    self.ledger.flag_withdrawal(item['id'], reason, deadline, **guards)
                 except StaleRouting:
-                    pass  # its worker parked or ended since the listing; the next read decides again
+                    pass  # it parked, ended or changed since the listing; the next read decides again
             elif everyone:
-                self.scheduler.stop(item['id'], WITHDRAWN_REASONS[reason])
+                self.scheduler.stop(item['id'], WITHDRAWN_REASONS[reason], states=('blocked',), **guards)
 
     def _unreachable(self, issue_id, started):
         """A read found no such issue. Once enough such reads, over long enough, are not explained by an outage of

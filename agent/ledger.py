@@ -79,6 +79,14 @@ def _authority(row):
     return row["authority"] or _default_authority(row["skill"])
 
 
+def _checked_guards(authority, created_before):
+    """A caller's recheck of the item it decided on: an authority of AUTHORITIES and a finite time, or None."""
+    if authority is not None and authority not in AUTHORITIES:
+        raise LedgerError(f"authority must be one of {', '.join(AUTHORITIES)}")
+    if created_before is not None and (type(created_before) not in (int, float) or not math.isfinite(created_before)):
+        raise LedgerError("created_before must be a finite number of seconds")
+
+
 def _text(value, name, *, empty=False):
     if not isinstance(value, str) or (not empty and not value.strip()):
         raise LedgerError(f"{name} must be {'a string' if empty else 'a nonempty string'}")
@@ -926,10 +934,22 @@ class Ledger:
 
     def expired_withdrawals(self):
         """Running items whose withdrawal grace has ended: their workers did not run `withdraw` in time, and the
-        controller stops them (design P2)."""
+        controller stops them (design P2) through expire_withdrawal."""
         rows = self.connection.execute("SELECT * FROM work_items WHERE state='running' AND withdraw_deadline<=? "
                                        "ORDER BY withdraw_deadline, id", (self.clock(),))
         return [self._view(row) for row in rows]
+
+    def expire_withdrawal(self, item_id):
+        """Cancel `item_id` if it is still a running item whose withdrawal grace has ended, checked in the cancelling
+        transaction: a read that found the delegation back may have cleared the flag since the listing, and the
+        worker then keeps its claim. Returns the cancelled view, whose `withdraw_reason` says why, or None."""
+        with self._transaction():
+            row = self._row(item_id)
+            if (row["state"] != "running" or row["withdraw_deadline"] is None
+                    or row["withdraw_deadline"] > self.clock()):
+                return None
+            self._cancel_row(row, f"withdrawal grace expired ({row['withdraw_reason']})", drop_progress=True)
+            return self._view(self._row(row["id"]))
 
     def launched(self):
         """Queued items whose worker was spawned but has not claimed yet."""
@@ -1654,12 +1674,16 @@ class Ledger:
             self._set_state(row["id"], "queued", reason, needs_resource=None)
             return self._view(self._row(row["id"]))
 
-    def cancel(self, item_id, reason, *, states=None, drop_progress=False):
+    def cancel(self, item_id, reason, *, states=None, drop_progress=False, authority=None, created_before=None):
         """`states` cancels only an item in one of those states, in this same transaction, and returns None for any
         other: delegation removal (spec §9.8) cancels queued and waiting work, never an attempt a worker has claimed
-        since the caller looked. `drop_progress` is for a caller that posts the item's one closing notice itself: the
-        item's pending session heartbeat goes in the same transaction, so none follows the notice (design P7)."""
+        since the caller looked. `authority` and `created_before` recheck the rest of such a caller's decision the
+        same way: only an item of that authority (a person's answer may have made a conversation a mention's), and
+        only one created before that time (a handover may have moved the work to a job the caller never saw; design
+        P3). `drop_progress` is for a caller that posts the item's one closing notice itself: the item's pending
+        session heartbeat goes in the same transaction, so none follows the notice (design P7)."""
         _text(reason, "reason")
+        _checked_guards(authority, created_before)
         with self._transaction():
             row = self._row(item_id)
             # Stop may have selected the source just before the atomic handoff.
@@ -1672,12 +1696,21 @@ class Ledger:
                         row = target
             if states is not None and row["state"] not in states:
                 return None
+            if not self._still_decided(row, authority, created_before):
+                return None
             if row["state"] == "cancelled":
                 return self._view(row)
             if row["state"] not in (*ACTIVE_STATES, "blocked"):
                 raise LedgerError("work item is already terminal")
             self._cancel_row(row, reason, drop_progress=drop_progress)
             return self._view(self._row(row["id"]))
+
+    @staticmethod
+    def _still_decided(row, authority, created_before):
+        """Whether `row` still has the `authority` and the creation before `created_before` a caller decided on;
+        None skips either check."""
+        return ((authority is None or _authority(row) == authority)
+                and (created_before is None or row["created_at"] < created_before))
 
     def _cancel_row(self, row, reason, *, drop_progress):
         """Caller owns the transaction and has checked that `row` is active or blocked: revoke its claim, keep its
@@ -1739,19 +1772,22 @@ class Ledger:
     WITHDRAW_REASONS = ("undelegated", "superseded", "unreachable")
     WITHDRAWN = "delegation withdrawn: save a checkpoint, then run withdraw and exit"
 
-    def flag_withdrawal(self, item_id, reason, deadline):
+    def flag_withdrawal(self, item_id, reason, deadline, *, authority=None, created_before=None):
         """Tell a claimed worker its work is withdrawn (design P2). It keeps its claim, to save its progress and run
         `withdraw`, and the controller stops it at `deadline`, in epoch seconds. Only the first flag counts: True when
         this call set it, False when the item has one already. StaleRouting when no worker holds the item: the caller
-        cancels it instead."""
+        cancels it instead; and when `authority` or `created_before` no longer hold, as `cancel` rechecks them."""
         if reason not in self.WITHDRAW_REASONS:
             raise LedgerError(f"withdrawal reason must be one of {', '.join(self.WITHDRAW_REASONS)}")
         if type(deadline) not in (int, float) or not math.isfinite(deadline):
             raise LedgerError("withdrawal deadline must be a finite number of seconds")
+        _checked_guards(authority, created_before)
         with self._transaction():
             row = self._row(item_id)
             if row["state"] != "running":
                 raise StaleRouting(f"work item {row['id']} is {row['state']}, not running; cancel it instead")
+            if not self._still_decided(row, authority, created_before):
+                raise StaleRouting(f"work item {row['id']} is no longer the work the caller decided on")
             if row["withdraw_deadline"] is not None:
                 return False
             self.connection.execute("UPDATE work_items SET withdraw_deadline=?,withdraw_reason=?,updated_at=? WHERE id=?",

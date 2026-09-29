@@ -2034,6 +2034,28 @@ class CancelHygieneTests(WithdrawnWorkBase):
                 with self.assertRaisesRegex(StaleRouting, "cannot steer a terminal work item"):
                     self.ledger.push_inbox(item["id"], "还在吗？", demote_to_mention=True)
 
+    def test_cancel_and_flag_recheck_the_authority_and_creation_they_are_given(self):
+        """Design P3: a caller that decided from a listing hands its reasons to the transaction that acts, and an item
+        they no longer describe is left as it is: None from cancel, StaleRouting from the flag."""
+        chat = self.new_item(skill="chat", target=None)  # a mention's, the default for a chat
+        created = chat["created_at"]
+        for guards in ({"authority": "delegation"}, {"created_before": created}):
+            with self.subTest(guards=guards):
+                self.assertIsNone(self.ledger.cancel(chat["id"], "Linear delegation removed", **guards))
+        with self.assertRaises(LedgerError):
+            self.ledger.cancel(chat["id"], "Linear delegation removed", authority="nobody")
+        with self.assertRaises(LedgerError):
+            self.ledger.cancel(chat["id"], "Linear delegation removed", created_before=float("nan"))
+        token = self.ledger.claim(chat["id"], worker_id="w")["token"]
+        for guards in ({"authority": "delegation"}, {"created_before": created}):
+            with self.subTest(guards=guards), self.assertRaises(StaleRouting):
+                self.ledger.flag_withdrawal(chat["id"], "undelegated", self.now + 600, **guards)
+        self.assertTrue(self.ledger.flag_withdrawal(chat["id"], "undelegated", self.now + 600, authority="mention",
+                                                    created_before=created + 1))
+        self.ledger.renew(chat["id"], token)
+        self.assertEqual(self.ledger.cancel(chat["id"], "Linear stop", authority="mention",
+                                            created_before=created + 1)["state"], "cancelled")
+
     def test_await_input_after_cancel_is_refused(self):
         chat, token = self.claimed(skill="chat")
         self.ledger.cancel(chat["id"], "Linear delegation removed")
