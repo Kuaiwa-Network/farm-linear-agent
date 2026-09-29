@@ -50,6 +50,10 @@ class LedgerError(ValueError):
     """Invalid input or a conflicting state transition; safe to show on stderr."""
 
 
+class StaleRouting(LedgerError):
+    """The item a caller routed to is no longer in the state it saw: route again (withdrawn-work design J5)."""
+
+
 def _default_authority(skill):
     return "delegation" if skill in WRITE_SKILLS else "mention"
 
@@ -731,14 +735,39 @@ class Ledger:
             ORDER BY c.checked_at,c.due_at,c.issue_id LIMIT 1""", (self.clock(),)).fetchone()
         return row["issue_id"] if row else None
 
-    def finish_status_check(self, issue_id, interval, error=None):
+    def finish_status_check(self, issue_id, interval, error=None, *, unreachable=False):
+        """`unreachable`: Linear said the issue does not exist. The first such read in a row is kept in
+        `unreachable_since`; any other result, a failure of another kind included, clears it (design R8)."""
         with self._transaction():
             previous = self.status_check(issue_id)
             failures = previous["failures"] + 1 if error else 0
             delay = min(300, 5 * 2 ** min(failures - 1, 6)) if error else interval
             self.connection.execute("""UPDATE issue_checks SET due_at=?,checked_at=?,requested=0,
-                failures=?,error=? WHERE issue_id=?""",
-                (self.clock() + delay, self.clock(), failures, error, issue_id))
+                failures=?,error=?,unreachable_since=CASE WHEN ? THEN COALESCE(unreachable_since,?) END
+                WHERE issue_id=?""",
+                (self.clock() + delay, self.clock(), failures, error, bool(unreachable), self.clock(), issue_id))
+
+    def mark_undelegated(self, issue_id, observed_at):
+        """Record `observed_at`, the start of a status read that found the card not delegated to this app, unless an
+        earlier one is recorded, and return the recorded one: work is withdrawn only once a later read, at least an
+        interval after it, confirms (design P3)."""
+        issue_id = _uuid(issue_id, "issue")
+        if type(observed_at) not in (int, float) or not math.isfinite(observed_at):
+            raise LedgerError("observed_at must be a finite number of seconds")
+        with self._transaction():
+            self._issue_row(issue_id)
+            self.connection.execute("INSERT OR IGNORE INTO issue_checks(issue_id) VALUES(?)", (issue_id,))
+            self.connection.execute("UPDATE issue_checks SET undelegated_since=COALESCE(undelegated_since,?) "
+                                    "WHERE issue_id=?", (observed_at, issue_id))
+            return self.connection.execute("SELECT undelegated_since FROM issue_checks WHERE issue_id=?",
+                                           (issue_id,)).fetchone()[0]
+
+    def clear_undelegated(self, issue_id):
+        """A read found the card delegated to this app: the mark goes, and with it the flags it set (design P3)."""
+        issue_id = _uuid(issue_id, "issue")
+        with self._transaction():
+            self.connection.execute("UPDATE issue_checks SET undelegated_since=NULL WHERE issue_id=?", (issue_id,))
+            return self._clear_withdrawals(issue_id)
 
     def unfinished_for_issue(self, issue_id):
         return [self._view(r) for r in self.connection.execute("""SELECT * FROM work_items WHERE issue_id=?
@@ -825,6 +854,46 @@ class Ledger:
                 ORDER BY c.created_at DESC,c.rowid DESC LIMIT 1""", (session_id,)).fetchone()
         return self._view(row) if row else None
 
+    def record_forward(self, session_id, item_id):
+        """`session_id`'s messages went to `item_id`, work of another session: a Stop there reaches it (design P5)."""
+        _text(session_id, "session_id")
+        with self._transaction():
+            if self.session(session_id) is None:
+                raise LedgerError(f"unknown session: {session_id}")
+            self._row(item_id)
+            self.connection.execute("UPDATE sessions SET forwarded_item=? WHERE session_id=?", (item_id, session_id))
+
+    def stop_target(self, session_id):
+        """(item, where): the work a Stop in `session_id` stops, the first of `own`, the session's own active item;
+        `forwarded`, the active item its messages were forwarded to; `latest_delegation`, the issue's active item
+        when this is the card's latest delegation session (design P5). With nothing to stop, item is None and
+        `where` says why: `moved`, the session's last item was superseded by a newer session; `stopped`, it was
+        cancelled; `none`, anything else."""
+        own = self.active_item_for_session(session_id)
+        if own is not None:
+            return own, "own"
+        session = self.connection.execute("SELECT * FROM sessions WHERE session_id=?", (session_id,)).fetchone()
+        if session is None:
+            return None, "none"
+        if session["forwarded_item"]:
+            row = self.connection.execute("""SELECT * FROM work_items WHERE id=? AND state IN
+                ('queued','running','awaiting_input','awaiting_resource')""", (session["forwarded_item"],)).fetchone()
+            if row is not None:
+                return self._view(row), "forwarded"
+        if session["issue_id"]:
+            latest = self._owner_delegation(session["issue_id"])
+            active = self.active_item_for_issue(session["issue_id"])
+            if latest is not None and latest["session_id"] == session_id and active is not None:
+                return active, "latest_delegation"
+        last = self.connection.execute("SELECT * FROM work_items WHERE session_id=? ORDER BY created_at DESC,rowid DESC "
+                                       "LIMIT 1", (session_id,)).fetchone()
+        if last is None or last["state"] != "cancelled":
+            return None, "none"
+        # A takeover either cancelled the item at once or, for a claimed worker, flagged it until it withdrew.
+        moved = last["withdraw_reason"] == "superseded" or self.connection.execute(
+            "SELECT 1 FROM audit WHERE item_id=? AND kind='superseded' LIMIT 1", (last["id"],)).fetchone()
+        return None, "moved" if moved else "stopped"
+
     def items_for_session(self, session_id):
         rows = self.connection.execute("SELECT * FROM work_items WHERE session_id=? ORDER BY created_at, id", (session_id,))
         return [self._view(row) for row in rows]
@@ -838,8 +907,11 @@ class Ledger:
         return self._view(self._row(item_id))
 
     def queue(self):
+        # Withdrawn work that went back to the queue (an expired lease, a retry delay) is never launched again: it
+        # waits for the status read or the new session that ends it, or for a read that finds the delegation back.
         rows = self.connection.execute("SELECT * FROM work_items WHERE state='queued' AND worker_pid IS NULL "
-                                       "AND retry_not_before<=? ORDER BY priority, created_at, id", (self.clock(),))
+                                       "AND retry_not_before<=? AND withdraw_deadline IS NULL "
+                                       "ORDER BY priority, created_at, id", (self.clock(),))
         return [self._view(row) for row in rows]
 
     def launched(self):
@@ -1165,6 +1237,7 @@ class Ledger:
             raise LedgerError(f"repository is not a {skill.name} target")
         with self._transaction():
             row = self._owned(item_id, token)
+            self._refuse_withdrawn(row)
             if skill.name != row["skill"]:
                 raise LedgerError("repository handoff requires the work item's own skill manifest")
             if not skill.staged:
@@ -1238,8 +1311,10 @@ class Ledger:
         if reason not in AWAIT_REASONS:
             raise LedgerError("await-input reason must be question or waiting")
         with self._transaction():
-            self.require_valid_checkpoint(item_id, token)
             row = self._owned(item_id, token)
+            # Withdrawn work is never parked: nothing would answer it on the card it left.
+            self._refuse_withdrawn(row)
+            self.require_valid_checkpoint(item_id, token)
             self.require_no_reservation(row["id"])
             checkpoint = json.loads(row["checkpoint"])
             checkpoint["pending_question"] = question
@@ -1268,8 +1343,9 @@ class Ledger:
         if mode not in ("interactive", "batch"):
             raise LedgerError("mode must be interactive or batch")
         with self._transaction():
-            self.require_valid_checkpoint(item_id, token)
             row = self._owned(item_id, token)
+            self._refuse_withdrawn(row)
+            self.require_valid_checkpoint(item_id, token)
             if row["skill"] == "fix" and row["root_repo"] not in (None, "Farm-Client"):
                 raise LedgerError("Unity verification requires the neutral or Farm-Client stage")
             target = json.loads(row["target_json"]) if row["target_json"] else None
@@ -1561,10 +1637,11 @@ class Ledger:
             self._set_state(row["id"], "queued", reason, needs_resource=None)
             return self._view(self._row(row["id"]))
 
-    def cancel(self, item_id, reason, *, states=None):
+    def cancel(self, item_id, reason, *, states=None, drop_progress=False):
         """`states` cancels only an item in one of those states, in this same transaction, and returns None for any
         other: delegation removal (spec §9.8) cancels queued and waiting work, never an attempt a worker has claimed
-        since the caller looked."""
+        since the caller looked. `drop_progress` is for a caller that posts the item's one closing notice itself: the
+        item's pending session heartbeat goes in the same transaction, so none follows the notice (design P7)."""
         _text(reason, "reason")
         with self._transaction():
             row = self._row(item_id)
@@ -1582,22 +1659,129 @@ class Ledger:
                 return self._view(row)
             if row["state"] not in (*ACTIVE_STATES, "blocked"):
                 raise LedgerError("work item is already terminal")
-            pid = self.last_worker_pid(row["id"])
-            self.connection.execute(
-                "INSERT OR IGNORE INTO job_cleanup(item_id,worker_pid,updated_at) VALUES(?,?,?)",
-                (row["id"], pid, self.clock()))
-            # The operator CLI path must not orphan a slot: a queued request dies with the item, an active one
-            # keeps the slot until the pool has probed and released it.
-            self.connection.execute(
-                """UPDATE reservations
-                   SET state=CASE WHEN state='queued' THEN 'cancelled' ELSE 'cancel_requested' END,
-                       released_at=CASE WHEN state='queued' THEN ? ELSE released_at END,
-                       release_reason=CASE WHEN state='queued' THEN ? ELSE release_reason END
-                   WHERE item_id=? AND state IN ('queued','active')""",
-                (self.clock(), reason[:500], row["id"]))
-            self._set_state(row["id"], "cancelled", reason, token=None, lease_expires_at=None, worker_pid=None,
-                            needs_resource=None, next_root_repo=None)
+            self._cancel_row(row, reason, drop_progress=drop_progress)
             return self._view(self._row(row["id"]))
+
+    def _cancel_row(self, row, reason, *, drop_progress):
+        """Caller owns the transaction and has checked that `row` is active or blocked: revoke its claim, keep its
+        worker's pid for cleanup and cancel it."""
+        pid = self.last_worker_pid(row["id"])
+        self.connection.execute(
+            "INSERT OR IGNORE INTO job_cleanup(item_id,worker_pid,updated_at) VALUES(?,?,?)",
+            (row["id"], pid, self.clock()))
+        # The operator CLI path must not orphan a slot: a queued request dies with the item, an active one
+        # keeps the slot until the pool has probed and released it.
+        self.connection.execute(
+            """UPDATE reservations
+               SET state=CASE WHEN state='queued' THEN 'cancelled' ELSE 'cancel_requested' END,
+                   released_at=CASE WHEN state='queued' THEN ? ELSE released_at END,
+                   release_reason=CASE WHEN state='queued' THEN ? ELSE release_reason END
+               WHERE item_id=? AND state IN ('queued','active')""",
+            (self.clock(), reason[:500], row["id"]))
+        self._set_state(row["id"], "cancelled", reason, token=None, lease_expires_at=None, worker_pid=None,
+                        needs_resource=None, next_root_repo=None)
+        # SessionProgress creates its table on the ledger's connection; a ledger it never ran on has none.
+        if drop_progress and self.connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='session_progress'").fetchone():
+            self.connection.execute("DELETE FROM session_progress WHERE item_id=?", (row["id"],))
+
+    def supersede(self, expected_id, expected_states, *, session_id, skill, reason, target=None, authority=None,
+                  text=None, author=None, received_at=None):
+        """A newer session takes the card's work over (design P4), in one transaction: `expected_id`, still in one of
+        `expected_states`, is cancelled, and a `skill` item is queued in `session_id` with every message the old one
+        had, each with its author and time, then `text`, which `author` wrote and FarmBot received at `received_at`,
+        as push_inbox records it. A write item of the old one's skill links it as its predecessor. An item's session
+        never changes, so nothing is adopted. StaleRouting when the old item has left those states: the caller
+        routes the event again. Returns the views (cancelled, created)."""
+        _text(skill, "skill")
+        _text(reason, "reason")
+        authority = _checked_authority(skill, authority)
+        if text is not None:
+            _text(text, "text", empty=True)
+        author_json = _person_json(author, "message author")
+        if received_at is not None and (type(received_at) not in (int, float) or not math.isfinite(received_at)):
+            raise LedgerError("received_at must be a finite number of seconds")
+        with self._transaction():
+            row = self._row(expected_id)
+            if row["state"] not in expected_states:
+                raise StaleRouting(f"work item {row['id']} is {row['state']} now; route the event again")
+            issue = json.loads(self._issue_row(row["issue_id"])["metadata"])
+            self._cancel_row(row, reason, drop_progress=True)
+            created = self._insert_item(issue, session_id, skill, target, authority)
+            messages = self.connection.execute(
+                "SELECT body,author_json,created_at FROM inbox WHERE item_id=? ORDER BY id", (row["id"],)).fetchall()
+            self.connection.executemany("INSERT INTO inbox(item_id,body,author_json,created_at) VALUES(?,?,?,?)",
+                                        [(created, m["body"], m["author_json"], m["created_at"]) for m in messages])
+            if text and text.strip():
+                self.connection.execute("INSERT INTO inbox(item_id,body,author_json,created_at) VALUES(?,?,?,?)",
+                                        (created, text, author_json, self.clock() if received_at is None else received_at))
+            self._audit(row["id"], "superseded", reason, {"by": created, "session_id": session_id})
+            self._audit(created, "supersedes", reason, {"superseded": row["id"], "session_id": row["session_id"]})
+            return self._view(self._row(row["id"])), self._view(self._row(created))
+
+    WITHDRAW_REASONS = ("undelegated", "superseded", "unreachable")
+    WITHDRAWN = "delegation withdrawn: save a checkpoint, then run withdraw and exit"
+
+    def flag_withdrawal(self, item_id, reason, deadline):
+        """Tell a claimed worker its work is withdrawn (design P2). It keeps its claim, to save its progress and run
+        `withdraw`, and the controller stops it at `deadline`, in epoch seconds. Only the first flag counts: True when
+        this call set it, False when the item has one already. StaleRouting when no worker holds the item: the caller
+        cancels it instead."""
+        if reason not in self.WITHDRAW_REASONS:
+            raise LedgerError(f"withdrawal reason must be one of {', '.join(self.WITHDRAW_REASONS)}")
+        if type(deadline) not in (int, float) or not math.isfinite(deadline):
+            raise LedgerError("withdrawal deadline must be a finite number of seconds")
+        with self._transaction():
+            row = self._row(item_id)
+            if row["state"] != "running":
+                raise StaleRouting(f"work item {row['id']} is {row['state']}, not running; cancel it instead")
+            if row["withdraw_deadline"] is not None:
+                return False
+            self.connection.execute("UPDATE work_items SET withdraw_deadline=?,withdraw_reason=?,updated_at=? WHERE id=?",
+                                    (deadline, reason, self.clock(), row["id"]))
+            self._audit(row["id"], "withdrawal", reason, {"deadline": deadline})
+            return True
+
+    def _clear_withdrawals(self, issue_id):
+        """Caller owns the transaction. A read found the card delegated again: the flags that loss of delegation set
+        on the issue's work go. A takeover by a newer session stays."""
+        rows = self.connection.execute("""SELECT id FROM work_items WHERE issue_id=? AND withdraw_reason='undelegated'
+            AND state IN ('queued','running','awaiting_input','awaiting_resource')""", (issue_id,)).fetchall()
+        for row in rows:
+            self.connection.execute("UPDATE work_items SET withdraw_deadline=NULL,withdraw_reason=NULL,updated_at=? "
+                                    "WHERE id=?", (self.clock(), row["id"]))
+            self._audit(row["id"], "withdrawal", "cleared: the card is delegated again")
+        return [row["id"] for row in rows]
+
+    def clear_withdrawals(self, issue_id):
+        issue_id = _uuid(issue_id, "issue")
+        with self._transaction():
+            return self._clear_withdrawals(issue_id)
+
+    def withdraw(self, item_id, token, *, delegated, closed):
+        """A worker ends its own claim as cancelled once its work is withdrawn: flagged, or the card is not delegated
+        to this app (`delegated`) or is closed (`closed`), as its CLI has just read. Cancelled, not blocked: a later
+        delegation continues the job from its plan (design P2, F14). Returns (view, reason): the flag's reason, else
+        `closed`, else `undelegated`."""
+        if type(delegated) is not bool or type(closed) is not bool:
+            raise LedgerError("delegated and closed must be booleans")
+        with self._transaction():
+            row = self._owned(item_id, token)
+            if row["withdraw_deadline"] is not None:
+                reason = row["withdraw_reason"] or "undelegated"
+            elif closed:
+                reason = "closed"
+            elif not delegated:
+                reason = "undelegated"
+            else:
+                raise LedgerError("the card is still delegated to this app and nothing withdrew this work; continue it")
+            self._cancel_row(row, f"withdrawn by its worker: {reason}", drop_progress=True)
+            self._audit(row["id"], "withdrawn", reason)
+            return self._view(self._row(row["id"])), reason
+
+    def _refuse_withdrawn(self, row):
+        if row["withdraw_deadline"] is not None:
+            raise LedgerError(self.WITHDRAWN)
 
     def fail(self, item_id, reason):
         _text(reason, "reason")
@@ -1681,9 +1865,11 @@ class Ledger:
                 if row["state"] == "cancelled":
                     return self._view(self._row(self._cancelled_successor(row, reason)))
                 self._guard_cleanup_retry(row["id"])
+                # A retry is a person's decision to run the job again, so a withdrawal it outlived goes: queue()
+                # would never launch it otherwise.
                 self._set_state(row["id"], "queued", reason, worker_pid=None, generation=row["generation"] + 1,
                                 requeue_requested=0, capacity_retries=0, publication_retries=0, retry_not_before=0,
-                                root_repo=None, next_root_repo=None)
+                                root_repo=None, next_root_repo=None, withdraw_deadline=None, withdraw_reason=None)
                 self.connection.execute('DELETE FROM resource_job_retries WHERE item_id=?', (row['id'],))
             except sqlite3.IntegrityError:
                 raise LedgerError("another active work item exists for this issue")
@@ -1700,20 +1886,25 @@ class Ledger:
             ORDER BY (w.session_id=?) DESC,w.created_at DESC,w.rowid DESC LIMIT 1""",
             (issue_id, *CONVERSATION_SKILLS, session_id)).fetchone()
 
-    def resume_work(self, item_id, token, message_id, app_user_id):
+    # The delegate a caller has not read afresh: the stored snapshot's.
+    _STORED = object()
+
+    def resume_work(self, item_id, token, message_id, app_user_id, *, delegate_id=_STORED):
         """Compatibility command: only resume previously delegated repair work."""
         return self._repair_work(item_id, token, message_id, app_user_id, allow_start=False,
-                                 summary="Continued previously delegated work")
+                                 summary="Continued previously delegated work", delegate_id=delegate_id)
 
-    def request_repair(self, item_id, token, message_id, app_user_id, summary, *, start_skill="fix"):
+    def request_repair(self, item_id, token, message_id, app_user_id, summary, *, start_skill="fix",
+                       delegate_id=_STORED):
         """Request writable execution after interpreting the current conversation. `start_skill` is the job a first
         start creates, the one the card's Bot label names (D18 f), which the CLI passes; a request continues the
-        delegation's earlier job, whatever it names."""
+        delegation's earlier job, whatever it names. `delegate_id` is the card's delegate as the caller has just read
+        it, which decides over the stored snapshot's (design J4)."""
         _text(summary, "repair summary")
         if len(summary) > 8000:
             raise LedgerError("repair summary must be at most 8000 characters")
         return self._repair_work(item_id, token, message_id, app_user_id, allow_start=True, summary=summary,
-                                 start_skill=start_skill)
+                                 start_skill=start_skill, delegate_id=delegate_id)
 
     def _delegation_session(self, issue_id, preferred):
         return self.connection.execute("""SELECT * FROM sessions WHERE issue_id=? AND delegation=1
@@ -1726,7 +1917,8 @@ class Ledger:
         return self.connection.execute("""SELECT * FROM sessions WHERE issue_id=? AND delegation=1
             AND session_id NOT LIKE 'local-%' ORDER BY created_at DESC,rowid DESC LIMIT 1""", (issue_id,)).fetchone()
 
-    def _repair_work(self, item_id, token, message_id, app_user_id, *, allow_start, summary, start_skill="fix"):
+    def _repair_work(self, item_id, token, message_id, app_user_id, *, allow_start, summary, start_skill="fix",
+                     delegate_id=_STORED):
         """Atomically retire read-only execution and queue its authorized repair.
 
         Intent belongs to the worker; the CLI checks fresh Linear state. The
@@ -1739,7 +1931,9 @@ class Ledger:
             if chat["skill"] != "chat":
                 raise LedgerError("repair transition requires an owned read-only chat item")
             issue = json.loads(self._issue_row(chat["issue_id"])["metadata"])
-            if not _in_scope(issue) or not app_user_id or issue.get("delegate_id") != app_user_id:
+            # The stored snapshot keeps an older delegate when a read's updatedAt did not move, so a fresh read decides.
+            delegate = issue.get("delegate_id") if delegate_id is self._STORED else delegate_id
+            if not _in_scope(issue) or not app_user_id or delegate != app_user_id:
                 raise LedgerError("issue must remain open and delegated to FarmBot")
             messages = self.connection.execute(
                 "SELECT id,body,author_json,created_at FROM inbox WHERE item_id=? ORDER BY id", (item_id,)).fetchall()
@@ -1762,8 +1956,8 @@ class Ledger:
                 # Plan P6: the session's Farm-Client target is a fix's reproduction baseline; a feature job takes none.
                 target = authority["target_json"] if start_skill == "fix" else None
                 self.connection.execute("""INSERT INTO work_items
-                    (id,issue_id,session_id,skill,state,priority,target_json,created_at,updated_at)
-                    VALUES(?,?,?,?,'queued',?,?,?,?)""",
+                    (id,issue_id,session_id,skill,state,priority,target_json,created_at,updated_at,authority)
+                    VALUES(?,?,?,?,'queued',?,?,?,?,'delegation')""",
                     (destination, chat["issue_id"], authority["session_id"], start_skill, issue["priority"] or 5,
                      target, now, now))
                 self._audit(destination, "create", "conversation requested first repair" if start_skill == "fix"
@@ -1777,7 +1971,7 @@ class Ledger:
                                 token=None, lease_expires_at=None, worker_pid=None,
                                 generation=work["generation"] + 1, requeue_requested=0,
                                 capacity_retries=0, publication_retries=0, retry_not_before=0,
-                                root_repo=None, next_root_repo=None)
+                                root_repo=None, next_root_repo=None, withdraw_deadline=None, withdraw_reason=None)
                 self.connection.execute('DELETE FROM resource_job_retries WHERE item_id=?', (destination,))
             self.connection.execute("UPDATE work_items SET evidence=? WHERE id=?", (
                 _json({"summary": summary, "prs": [],
@@ -1790,14 +1984,21 @@ class Ledger:
             return self._view(self._row(destination))
 
     def _cancelled_successor(self, previous, reason):
-        """Caller owns the transaction; no execution fields are inherited."""
+        """Caller owns the transaction; no execution fields are inherited. A write job's successor reports in the
+        card's latest delegation session a person opened, which a re-delegation may have replaced since the job
+        started (design C7); an operator's `local-` job keeps its own session. A conversation keeps its session and
+        its authority: it may be a mention's, which no delegation session carries."""
+        session_id = previous["session_id"]
+        if previous["skill"] in WRITE_SKILLS and not str(session_id).startswith("local-"):
+            latest = self._owner_delegation(previous["issue_id"])
+            session_id = latest["session_id"] if latest is not None else session_id
         item_id, now = str(uuid4()), self.clock()
         self.connection.execute("""INSERT INTO work_items
-            (id,issue_id,session_id,skill,state,priority,target_json,predecessor_id,created_at,updated_at)
-            VALUES(?,?,?,?,'queued',?,?,?,?,?)""",
-            (item_id, previous["issue_id"], previous["session_id"], previous["skill"], previous["priority"],
-             previous["target_json"], previous["id"], now, now))
-        self._audit(item_id, "create", reason, {"predecessor_id": previous["id"]})
+            (id,issue_id,session_id,skill,state,priority,target_json,predecessor_id,created_at,updated_at,authority)
+            VALUES(?,?,?,?,'queued',?,?,?,?,?,?)""",
+            (item_id, previous["issue_id"], session_id, previous["skill"], previous["priority"],
+             previous["target_json"], previous["id"], now, now, _authority(previous)))
+        self._audit(item_id, "create", reason, {"predecessor_id": previous["id"], "session_id": session_id})
         return item_id
 
     def _guard_cleanup_retry(self, item_id):
@@ -2084,6 +2285,13 @@ class Ledger:
                                               "delivery may only claim pull requests it announced")
                     self._audit(row["id"], "borrowed_comment", kind,
                                 {"action_id": action["action_id"], "prepared_by": action["item_id"]})
+            if row["withdraw_deadline"] is not None and outcome == "blocked":
+                # Withdrawn work that stops short of a delivery ends cancelled, not blocked: a later delegation then
+                # continues it from its plan (design F14). The worker's evidence stays on the item.
+                self.connection.execute("UPDATE work_items SET evidence=? WHERE id=?", (_json(evidence), row["id"]))
+                self._cancel_row(row, f"withdrawn ({row['withdraw_reason']}); its worker finished blocked",
+                                 drop_progress=False)
+                return self._view(self._row(row["id"]))
             current = self._issue_row(row["issue_id"])["fingerprint"]
             changed = current != row["claimed_fingerprint"] or row["requeue_requested"]
             state = "queued" if changed else outcome

@@ -7,7 +7,8 @@ import threading
 import unittest
 from pathlib import Path
 
-from agent.ledger import MARKER, Ledger, LedgerError
+from agent.ledger import ACTIVE_STATES, MARKER, Ledger, LedgerError, StaleRouting
+from agent.session_progress import SessionProgress
 from agent.skills import load_skills
 from agent.stages import write_repositories
 from test_skills import opt_in_skill, staged_skill, write_skill
@@ -1937,6 +1938,402 @@ class SecondItemOnOneIssueTests(LedgerBase):
             self.ledger.finish(item["id"], token, "delivered",
                                {"summary": "错误种类", "comment_action_id": unposted["action_id"],
                                 "verification": "dotnet test", "no_change": "无需改动", "prs": []})
+
+
+# The states in which no worker holds an item: the ones a supersede or a confirmed withdrawal cancels at once.
+UNCLAIMED = ("queued", "awaiting_input", "awaiting_resource")
+HANDOFF = {"facts": [], "hypotheses": [], "checks": [], "repositories": [], "next_actions": ["Retest the reward"]}
+
+
+class WithdrawnWorkBase(LedgerBase):
+    APP = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
+
+    def claimed(self, skill="fix"):
+        """A claimed item of `skill` in SESSION, on a card delegated to the app, whose worker is pid 4321."""
+        item = self.new_item(skill=skill, target=None if skill == "chat" else PIN, delegate_id=self.APP)
+        self.ledger.set_worker(item["id"], 4321, "test")
+        return item, self.ledger.claim(item["id"], worker_id="worker-one")["token"]
+
+    def parked(self, skill="fix", session="session-0", delegation=True, messages=()):
+        """An item of `skill` in `session`, parked for a question after reading `messages`, (body, author, received
+        at) triples."""
+        self.ledger.observe_issue(issue(delegate_id=self.APP))
+        self.ledger.ensure_session(session, ISSUE, delegation=delegation)
+        item = self.ledger.create_work_item(issue_id=ISSUE, session_id=session, skill=skill,
+                                            target=None if skill == "chat" else PIN)
+        self.ledger.set_worker(item["id"], 4321, "test")
+        token = self.ledger.claim(item["id"], worker_id="parked")["token"]
+        for body, author, received_at in messages:
+            self.ledger.push_inbox(item["id"], body, author=author, received_at=received_at)
+        self.ledger.pop_inbox(item["id"], token)
+        return self.ledger.await_input(item["id"], token, "奖励应该按哪个时间点算？")
+
+    def pending_progress(self, item_id):
+        """A heartbeat SessionProgress reserved for the item and has not sent yet."""
+        SessionProgress(self.ledger, None)
+        self.ledger.connection.execute(
+            "INSERT INTO session_progress(item_id,due_at,activity_id,content,status_key) VALUES(?,?,?,?,?)",
+            (item_id, self.now, "activity-1", json.dumps({"type": "thought", "body": "工作仍在处理中。"}),
+             f"{item_id}:running:0"))
+
+    def progress(self, item_id):
+        row = self.ledger.connection.execute("SELECT * FROM session_progress WHERE item_id=?", (item_id,)).fetchone()
+        return dict(row) if row else None
+
+    def inbox(self, item_id):
+        return [(row["body"], json.loads(row["author_json"]) if row["author_json"] else None, row["created_at"])
+                for row in self.ledger.connection.execute(
+                    "SELECT body,author_json,created_at FROM inbox WHERE item_id=? ORDER BY id", (item_id,))]
+
+    def audit_kinds(self, item_id):
+        return [row["kind"] for row in self.ledger.connection.execute(
+            "SELECT kind FROM audit WHERE item_id=? ORDER BY id", (item_id,))]
+
+
+class CancelHygieneTests(WithdrawnWorkBase):
+    def test_cancel_with_drop_progress_removes_only_that_items_pending_heartbeat(self):
+        """A cancellation that posts its own notice drops the item's pending heartbeat in the same transaction, so
+        SessionProgress never follows the notice with a second response (design P7)."""
+        bare = self.new_item()
+        self.assertEqual(self.ledger.cancel(bare["id"], "Linear stop", drop_progress=True)["state"], "cancelled")
+        first = self.new_item()
+        self.ledger.observe_issue(issue(id=OTHER, identifier="FARM-2"))
+        self.ledger.ensure_session("session-2", OTHER, delegation=True)
+        second = self.ledger.create_work_item(issue_id=OTHER, session_id="session-2", skill="fix", target=PIN)
+        for item in (first, second):
+            self.pending_progress(item["id"])
+        self.ledger.cancel(second["id"], "Linear stop")
+        self.assertIsNotNone(self.progress(second["id"]))  # SessionProgress still corrects it to "stopped"
+        self.ledger.cancel(first["id"], "Linear delegation removed", drop_progress=True)
+        self.assertIsNone(self.progress(first["id"]))
+        third = self.ledger.create_work_item(issue_id=OTHER, session_id="session-2", skill="fix", target=PIN)
+        self.ledger.claim(third["id"], worker_id="w")
+        self.pending_progress(third["id"])
+        self.assertIsNone(self.ledger.cancel(third["id"], "Linear delegation removed", states=UNCLAIMED,
+                                             drop_progress=True))
+        self.assertIsNotNone(self.progress(third["id"]))  # nothing was cancelled, so nothing is dropped
+
+    def test_await_input_after_cancel_is_refused(self):
+        chat, token = self.claimed(skill="chat")
+        self.ledger.cancel(chat["id"], "Linear delegation removed")
+        with self.assertRaisesRegex(LedgerError, "running claim"):
+            self.ledger.await_input(chat["id"], token, "还需要什么信息？")
+        self.assertEqual(self.ledger.item(chat["id"])["state"], "cancelled")
+
+    def test_k5_new_chat_sees_the_cancelled_chats_messages_in_history(self):
+        chat = self.new_item(skill="chat", target=None)
+        self.ledger.push_inbox(chat["id"], "奖励领了两次", author=DESIGNER)
+        self.ledger.cancel(chat["id"], "Linear delegation removed")
+        fresh = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="chat")
+        history = self.ledger.issue_context(fresh["id"])["conversation_history"]
+        self.assertEqual([(entry["item_id"], [message["body"] for message in entry["messages"]]) for entry in history],
+                         [(chat["id"], ["奖励领了两次"]), (fresh["id"], [])])
+
+
+class SupersedeTests(WithdrawnWorkBase):
+    """A new delegation session, or a mention answering a waiting conversation, takes the card's work over in one
+    transaction: the old item is cancelled, the new one queued with its messages (design P4)."""
+
+    def test_supersede_cancels_creates_links_and_carries_the_messages_in_one_transaction(self):
+        old = self.parked(messages=(("先看服务端日志", DESIGNER, 1500.0), ("日志在群里", OWNER, 1600.0)))
+        self.pending_progress(old["id"])
+        self.ledger.ensure_session("session-1", ISSUE, delegation=True)
+        self.now = 2000.0
+        cancelled, created = self.ledger.supersede(
+            old["id"], UNCLAIMED, session_id="session-1", skill="fix", target=PIN, authority="delegation",
+            text="按新的描述修", author=LEAD, received_at=1990.0, reason="a new delegation session took the card over")
+        self.assertEqual((cancelled["id"], cancelled["state"]), (old["id"], "cancelled"))
+        self.assertEqual((created["session_id"], created["skill"], created["state"], created["predecessor_id"],
+                          created["authority"], created["target"]),
+                         ("session-1", "fix", "queued", old["id"], "delegation", PIN))
+        self.assertEqual(self.inbox(created["id"]), [("先看服务端日志", DESIGNER, 1500.0), ("日志在群里", OWNER, 1600.0),
+                                                     ("按新的描述修", LEAD, 1990.0)])
+        self.assertIsNone(self.progress(old["id"]))
+        self.assertIn("superseded", self.audit_kinds(old["id"]))
+        self.assertIn("supersedes", self.audit_kinds(created["id"]))
+        self.assertEqual(self.ledger.active_item_for_issue(ISSUE)["id"], created["id"])
+        self.assertIsNotNone(self.ledger.cleanup_record(old["id"]))  # its worktree is preserved like any cancel's
+
+    def test_supersede_refuses_a_stale_routing_and_changes_nothing(self):
+        item, token = self.claimed()
+        self.ledger.ensure_session("session-2", ISSUE, delegation=True)
+        with self.assertRaises(StaleRouting):
+            self.ledger.supersede(item["id"], UNCLAIMED, session_id="session-2", skill="fix", target=PIN,
+                                  reason="a new delegation session took the card over")
+        self.assertEqual(self.ledger.item(item["id"])["state"], "running")
+        self.assertEqual(self.ledger.items_for_session("session-2"), [])
+        self.ledger.renew(item["id"], token)  # the claim survived
+        self.ledger.cancel(item["id"], "Linear stop")
+        with self.assertRaises(StaleRouting):
+            self.ledger.supersede(item["id"], UNCLAIMED, session_id="session-2", skill="fix", target=PIN,
+                                  reason="a new delegation session took the card over")
+        self.assertTrue(issubclass(StaleRouting, LedgerError))
+
+    def test_supersede_rolls_back_when_the_new_item_cannot_be_created(self):
+        old = self.parked()
+        for session, skill, authority in (("session-9", "fix", "delegation"), ("session-0", "fix", "mention")):
+            with self.subTest(session=session, authority=authority):
+                with self.assertRaises(LedgerError) as caught:
+                    self.ledger.supersede(old["id"], UNCLAIMED, session_id=session, skill=skill, target=PIN,
+                                          authority=authority, text="继续", reason="takeover")
+                self.assertNotIsInstance(caught.exception, StaleRouting)
+                self.assertEqual(self.ledger.item(old["id"])["state"], "awaiting_input")
+        self.assertEqual(len(self.ledger.items_for_session("session-0")), 1)
+
+    def test_a_superseded_mention_conversation_moves_into_a_fix_that_links_nothing(self):
+        chat = self.parked(skill="chat", session="mention", delegation=False,
+                           messages=(("排行榜奖励重复了", DESIGNER, 1500.0),))
+        self.assertEqual(chat["authority"], "mention")
+        self.ledger.ensure_session(SESSION, ISSUE, delegation=True)
+        _, created = self.ledger.supersede(chat["id"], UNCLAIMED, session_id=SESSION, skill="fix", target=PIN,
+                                           authority="delegation", reason="a delegation took the card over")
+        self.assertIsNone(created["predecessor_id"])  # a conversation is no write job's past
+        self.assertEqual(self.inbox(created["id"]), [("排行榜奖励重复了", DESIGNER, 1500.0)])
+        self.assertEqual(self.ledger.item(chat["id"])["state"], "cancelled")
+
+    def test_a_running_conversation_superseded_loses_its_claim(self):
+        chat, token = self.claimed(skill="chat")
+        self.ledger.ensure_session("session-2", ISSUE, delegation=True)
+        self.ledger.supersede(chat["id"], ACTIVE_STATES, session_id="session-2", skill="fix", target=PIN,
+                              authority="delegation", reason="a delegation took the card over")
+        with self.assertRaises(LedgerError):
+            self.ledger.renew(chat["id"], token)
+        self.assertEqual(self.ledger.cleanup_record(chat["id"])["worker_pid"], 4321)  # the scheduler stops it
+
+
+class WithdrawalTests(WithdrawnWorkBase):
+    """Claimed work the delegation no longer authorises keeps its claim until its worker saves its progress and runs
+    `withdraw`, or the controller's deadline passes (design P2)."""
+
+    def test_flag_withdrawal_marks_a_running_item_once_and_refuses_one_no_worker_holds(self):
+        item = self.new_item(delegate_id=self.APP)
+        with self.assertRaises(StaleRouting):
+            self.ledger.flag_withdrawal(item["id"], "undelegated", self.now + 1200)
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        with self.assertRaisesRegex(LedgerError, "reason"):
+            self.ledger.flag_withdrawal(item["id"], "bored", self.now + 1200)
+        self.assertTrue(self.ledger.flag_withdrawal(item["id"], "undelegated", self.now + 1200))
+        self.assertFalse(self.ledger.flag_withdrawal(item["id"], "superseded", self.now + 60))
+        view = self.ledger.item(item["id"])
+        self.assertEqual((view["state"], view["withdraw_deadline"], view["withdraw_reason"]),
+                         ("running", self.now + 1200, "undelegated"))
+        self.assertTrue(self.ledger.issue_context(item["id"])["coordination"]["withdrawn"])
+        self.ledger.renew(item["id"], token)  # the worker keeps its claim to save its progress
+
+    def test_a_flagged_worker_may_not_pause_wait_for_a_resource_or_hand_off(self):
+        item, token = self.claimed()
+        self.ledger.checkpoint(item["id"], token, {"handoff": HANDOFF})
+        self.ledger.flag_withdrawal(item["id"], "undelegated", self.now + 1200)
+        calls = {"question": lambda: self.ledger.await_input(item["id"], token, "要继续吗？"),
+                 "waiting": lambda: self.ledger.await_input(item["id"], token, "等策划确认", reason="waiting"),
+                 "resource": lambda: self.ledger.await_resource(item["id"], token, "unity_slot", "batch"),
+                 "handoff": lambda: self.ledger.handoff_repository(item["id"], token, "Farm-Contract",
+                                                                   skill=SKILLS["fix"])}
+        for name, call in calls.items():
+            with self.subTest(call=name):
+                with self.assertRaisesRegex(LedgerError,
+                                            "delegation withdrawn: save a checkpoint, then run withdraw and exit"):
+                    call()
+        self.assertEqual(self.ledger.item(item["id"])["state"], "running")
+        self.assertEqual(self.ledger.reservations(), [])
+
+    def test_withdraw_ends_the_claim_as_cancelled_and_a_new_delegation_continues_it(self):
+        item, token = self.claimed()
+        plan = {"change": "奖励只发一次", "started": True}
+        self.ledger.checkpoint(item["id"], token, {"plan": plan})
+        self.pending_progress(item["id"])
+        self.ledger.flag_withdrawal(item["id"], "superseded", self.now + 1200)
+        view, reason = self.ledger.withdraw(item["id"], token, delegated=True, closed=False)
+        self.assertEqual((view["state"], reason), ("cancelled", "superseded"))
+        with self.assertRaises(LedgerError):
+            self.ledger.renew(item["id"], token)
+        self.assertIsNone(self.progress(item["id"]))
+        self.assertEqual(self.ledger.cleanup_record(item["id"])["worker_pid"], 4321)
+        self.assertIn("withdrawn", self.audit_kinds(item["id"]))
+        self.ledger.ensure_session("session-2", ISSUE, delegation=True)
+        successor = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-2", skill="fix", target=PIN)
+        self.assertEqual(successor["predecessor_id"], item["id"])
+        self.assertEqual(self.ledger.issue_context(successor["id"])["recovery"]["plan"], plan)
+
+    def test_withdraw_refuses_while_the_card_is_delegated_and_nothing_withdrew_the_work(self):
+        item, token = self.claimed()
+        with self.assertRaisesRegex(LedgerError, "still delegated"):
+            self.ledger.withdraw(item["id"], token, delegated=True, closed=False)
+        with self.assertRaisesRegex(LedgerError, "running claim"):
+            self.ledger.withdraw(item["id"], "claim_other", delegated=False, closed=False)
+        self.assertEqual(self.ledger.item(item["id"])["state"], "running")
+        for delegated, closed, expected in ((False, False, "undelegated"), (True, True, "closed"),
+                                            (False, True, "closed")):
+            with self.subTest(delegated=delegated, closed=closed):
+                view, reason = self.ledger.withdraw(item["id"], token, delegated=delegated, closed=closed)
+                self.assertEqual((view["state"], reason), ("cancelled", expected))
+                item, token = self.claimed()
+
+    def test_f14_flagged_blocked_finish_is_recorded_cancelled_and_continued(self):
+        item, token = self.claimed()
+        action = self.ledger.prepare_comment(item["id"], token, "blocker", "委派已撤回，未发布。")
+        self.ledger.confirm_comment(action["action_id"], "remote-1")
+        self.ledger.flag_withdrawal(item["id"], "undelegated", self.now + 1200)
+        view = self.ledger.finish(item["id"], token, "blocked",
+                                  {"summary": "委派已撤回", "comment_action_id": action["action_id"]})
+        self.assertEqual(view["state"], "cancelled")
+        self.assertEqual(view["evidence"]["summary"], "委派已撤回")
+        with self.assertRaises(LedgerError):
+            self.ledger.renew(item["id"], token)
+        self.ledger.ensure_session("session-2", ISSUE, delegation=True)
+        successor = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-2", skill="fix", target=PIN)
+        self.assertEqual(successor["predecessor_id"], item["id"])
+
+    def test_a_flagged_worker_that_delivers_is_delivered(self):
+        chat, token = self.claimed(skill="chat")
+        self.ledger.flag_withdrawal(chat["id"], "undelegated", self.now + 600)
+        view = self.ledger.finish(chat["id"], token, "delivered", {"summary": "已回答", "verification": "读了代码"})
+        self.assertEqual(view["state"], "delivered")
+
+    def test_withdrawn_work_is_not_relaunched_until_a_read_finds_the_delegation_again(self):
+        item, _ = self.claimed()
+        self.ledger.flag_withdrawal(item["id"], "undelegated", self.now + 1200)
+        self.now += 61
+        self.ledger.recover(item["id"], "lease expired")
+        self.assertEqual(self.ledger.item(item["id"])["state"], "queued")
+        self.assertEqual(self.ledger.queue(), [])
+        self.ledger.clear_undelegated(ISSUE)
+        self.assertEqual([row["id"] for row in self.ledger.queue()], [item["id"]])
+        self.assertEqual((self.ledger.item(item["id"])["withdraw_deadline"], self.ledger.item(item["id"])["withdraw_reason"]),
+                         (None, None))
+
+    def test_a_read_that_finds_the_delegation_keeps_a_takeover_by_a_newer_session(self):
+        item, _ = self.claimed()
+        self.ledger.flag_withdrawal(item["id"], "superseded", self.now + 1200)
+        self.ledger.clear_undelegated(ISSUE)
+        self.assertEqual(self.ledger.item(item["id"])["withdraw_reason"], "superseded")
+
+    def test_mark_undelegated_keeps_the_first_observation_until_a_read_finds_the_delegation(self):
+        self.ledger.observe_issue(issue())
+        self.assertEqual(self.ledger.mark_undelegated(ISSUE, 1000.0), 1000.0)
+        self.assertEqual(self.ledger.mark_undelegated(ISSUE, 1060.0), 1000.0)
+        self.assertEqual(self.ledger.status_check(ISSUE)["undelegated_since"], 1000.0)
+        self.ledger.clear_undelegated(ISSUE)
+        self.assertIsNone(self.ledger.status_check(ISSUE)["undelegated_since"])
+        self.assertEqual(self.ledger.mark_undelegated(ISSUE, 1120.0), 1120.0)
+        with self.assertRaises(LedgerError):
+            self.ledger.mark_undelegated(OTHER, 1120.0)  # an issue never observed
+
+    def test_unreachable_since_is_set_by_the_first_not_found_and_cleared_by_any_other_result(self):
+        self.ledger.observe_issue(issue())
+        self.ledger.finish_status_check(ISSUE, 60, "LinearError: not found", unreachable=True)
+        self.now += 300
+        self.ledger.finish_status_check(ISSUE, 60, "LinearError: not found", unreachable=True)
+        check = self.ledger.status_check(ISSUE)
+        self.assertEqual((check["failures"], check["unreachable_since"]), (2, 1000.0))
+        self.ledger.finish_status_check(ISSUE, 60, "LinearError: rate limited")
+        check = self.ledger.status_check(ISSUE)
+        self.assertEqual((check["failures"], check["unreachable_since"]), (3, None))
+        self.ledger.finish_status_check(ISSUE, 60, "LinearError: not found", unreachable=True)
+        self.assertEqual(self.ledger.status_check(ISSUE)["unreachable_since"], self.now)
+        self.ledger.finish_status_check(ISSUE, 60)
+        check = self.ledger.status_check(ISSUE)
+        self.assertEqual((check["failures"], check["unreachable_since"]), (0, None))
+
+
+class ContinuationSessionTests(WithdrawnWorkBase):
+    """A continuation lands in the card's latest delegation session, the one a person can still open, and a
+    conversation's request to repair checks the delegate its caller just read (design C7, J4)."""
+
+    def conversation(self, session="mention"):
+        self.ledger.ensure_session(session, ISSUE, delegation=session != "mention")
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id=session, skill="chat")
+        token = self.ledger.claim(chat["id"], worker_id="conversation")["token"]
+        self.ledger.push_inbox(chat["id"], "继续修奖励")
+        return chat, token, self.ledger.issue_context(chat["id"])["session_messages"][-1]["id"]
+
+    def authority_column(self, item_id):
+        return self.ledger.connection.execute("SELECT authority FROM work_items WHERE id=?", (item_id,)).fetchone()[0]
+
+    def test_c7_cancelled_successor_records_the_latest_delegation_session(self):
+        fix = self.new_item(delegate_id=self.APP)
+        self.ledger.cancel(fix["id"], "Linear delegation removed")
+        self.now += 1
+        self.ledger.ensure_session("session-2", ISSUE, delegation=True)
+        self.now += 1
+        self.ledger.ensure_session("local-farm-1", ISSUE, delegation=True)  # an operator's enqueue opens no thread
+        chat, token, message = self.conversation()
+        successor = self.ledger.request_repair(chat["id"], token, message, self.APP, "继续修奖励")
+        self.assertEqual((successor["session_id"], successor["predecessor_id"], self.authority_column(successor["id"])),
+                         ("session-2", fix["id"], "delegation"))
+        self.ledger.cancel(successor["id"], "Linear stop")
+        local = self.ledger.create_work_item(issue_id=ISSUE, session_id="local-farm-1", skill="fix", target=PIN)
+        self.ledger.cancel(local["id"], "operator cancel")
+        self.assertEqual(self.ledger.retry(local["id"], "operator retry")["session_id"], "local-farm-1")
+
+    def test_i3_retry_of_cancelled_item_uses_latest_delegation_session(self):
+        fix = self.new_item(delegate_id=self.APP)
+        self.ledger.cancel(fix["id"], "Linear delegation removed")
+        self.now += 1
+        self.ledger.ensure_session("session-2", ISSUE, delegation=True)
+        successor = self.ledger.retry(fix["id"], "operator retry")
+        self.assertEqual((successor["session_id"], successor["predecessor_id"], self.authority_column(successor["id"])),
+                         ("session-2", fix["id"], "delegation"))
+
+    def test_retry_of_a_cancelled_conversation_keeps_its_session_and_authority(self):
+        self.ledger.observe_issue(issue(delegate_id=self.APP))
+        self.ledger.ensure_session("mention", ISSUE, delegation=False)
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id="mention", skill="chat")
+        self.ledger.cancel(chat["id"], "Linear stop")
+        self.ledger.ensure_session("session-2", ISSUE, delegation=True)
+        successor = self.ledger.retry(chat["id"], "operator retry")
+        self.assertEqual((successor["session_id"], successor["authority"]), ("mention", "mention"))
+
+    def test_j4_request_repair_checks_the_fresh_delegate_it_is_given(self):
+        self.ledger.observe_issue(issue(delegate_id=self.APP))
+        chat, token, message = self.conversation(session=SESSION)
+        with self.assertRaisesRegex(LedgerError, "delegated"):
+            self.ledger.request_repair(chat["id"], token, message, self.APP, "修复奖励", delegate_id=None)
+        self.assertEqual(self.ledger.item(chat["id"])["state"], "running")
+        self.ledger.observe_issue(issue(delegate_id=None))  # the stored snapshot lags behind the caller's read
+        fix = self.ledger.request_repair(chat["id"], token, message, self.APP, "修复奖励", delegate_id=self.APP)
+        self.assertEqual((fix["skill"], fix["session_id"], self.authority_column(fix["id"])),
+                         ("fix", SESSION, "delegation"))
+
+
+class StopTargetTests(WithdrawnWorkBase):
+    """A Stop reaches the work its session talked to (design P5), and otherwise says where that work went."""
+
+    def target(self, session_id):
+        item, where = self.ledger.stop_target(session_id)
+        return (item["id"] if item else None), where
+
+    def test_stop_target_finds_the_sessions_own_then_forwarded_then_latest_delegation_work(self):
+        self.ledger.observe_issue(issue(delegate_id=self.APP))
+        self.ledger.ensure_session("session-a", ISSUE, delegation=True)
+        old = self.parked(session="session-0")
+        self.assertEqual(self.target("session-0"), (old["id"], "own"))
+        self.ledger.ensure_session("mention", ISSUE, delegation=False)
+        self.assertEqual(self.target("mention"), (None, "none"))
+        self.ledger.record_forward("mention", old["id"])
+        self.assertEqual(self.target("mention"), (old["id"], "forwarded"))
+        self.now += 1
+        self.ledger.ensure_session("session-1", ISSUE, delegation=True)
+        self.now += 1
+        self.ledger.ensure_session("local-farm-1", ISSUE, delegation=True)
+        self.assertEqual(self.target("session-1"), (old["id"], "latest_delegation"))
+        self.assertEqual(self.target("session-a"), (None, "none"))  # an older delegation session reaches nothing
+        with self.assertRaises(LedgerError):
+            self.ledger.record_forward("session-9", old["id"])
+        with self.assertRaises(LedgerError):
+            self.ledger.record_forward("mention", "no-such-item")
+
+    def test_stop_target_says_where_work_went_after_it_left_the_session(self):
+        old = self.parked(session="session-0")
+        self.ledger.ensure_session("session-1", ISSUE, delegation=True)
+        _, created = self.ledger.supersede(old["id"], UNCLAIMED, session_id="session-1", skill="fix", target=PIN,
+                                           authority="delegation", reason="a new delegation session took the card over")
+        self.assertEqual(self.target("session-0"), (None, "moved"))
+        self.ledger.ensure_session("mention", ISSUE, delegation=False)
+        self.ledger.record_forward("mention", created["id"])
+        self.ledger.cancel(created["id"], "Linear stop")
+        self.assertEqual(self.target("session-1"), (None, "stopped"))
+        self.assertEqual(self.target("mention"), (None, "none"))  # the work it was forwarded to has ended
 
 
 class ReservationTests(unittest.TestCase):

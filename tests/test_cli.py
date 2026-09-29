@@ -408,17 +408,18 @@ class CliTests(unittest.TestCase):
         text = (self.stub / "calls.jsonl").read_text(encoding="utf-8") if (self.stub / "calls.jsonl").exists() else ""
         return [json.loads(line) for line in text.splitlines()]
 
-    def seeded_item(self, issue_id=ISSUE, session="session-1", skill="fix", target=None):
+    def seeded_item(self, issue_id=ISSUE, session="session-1", skill="fix", target=None, delegation=True):
         """Create a work item the way the receiver would, then return its id.
 
         `target` is the pin the receiver snapshots onto the item. It defaults to None because most tests
         here never ask for a resource, and `await_resource` is the one command that refuses an item without
-        one: a slot cannot be switched to a commit that does not exist.
+        one: a slot cannot be switched to a commit that does not exist. `delegation` is false for a session an
+        @mention opened.
         """
         from agent.ledger import Ledger
         ledger = Ledger(self.db)
         ledger.observe_issue(issue(id=issue_id, labels=["Bug"]))
-        ledger.ensure_session(session, issue_id, delegation=True)
+        ledger.ensure_session(session, issue_id, delegation=delegation)
         item = ledger.create_work_item(issue_id=issue_id, session_id=session, skill=skill, target=target)
         ledger.close()
         return item["id"]
@@ -630,7 +631,8 @@ class CliTests(unittest.TestCase):
         app = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
         fix = self.seeded_item()
         self.run_cli("cancel", "--item", fix, "--reason", "stopped")
-        chat = self.seeded_item(session="mention", skill="chat")
+        # A mention's conversation: a newer delegation session would itself receive the continuation (C7).
+        chat = self.seeded_item(session="mention", skill="chat", delegation=False)
         ledger = Ledger(self.db)
         try:
             ledger.push_inbox(chat, "请接着做，初始为零，只计算主动解锁")

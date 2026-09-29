@@ -419,7 +419,8 @@ what authorised it: the card's delegation for every write job, the operator for 
 `agent.service enqueue` starts, and otherwise a mention. Existing rows are not rewritten: a write job
 stored before this revision reads as authorised by the delegation, a conversation as by a mention.
 Older code ignores the columns, so rolling back keeps working, and checking out older code does not
-remove them.
+remove them. It also ignores a withdrawal flag: a flagged worker then runs on until
+`verify-publication` refuses it, and flagged work that went back to the queue launches again.
 
 Cleanup records the old PID and preserves dirty tracked/non-ignored untracked source as local WIP
 commits. Every repository HEAD, including clean unpublished commits, gets a durable
