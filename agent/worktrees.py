@@ -9,14 +9,39 @@ import stat
 import subprocess
 import time
 
+from .launcher import _read_worker_text
+
 SAFE_BRANCH = re.compile(r"^[A-Za-z0-9._/一-鿿-]+$")
 # Task worktrees are for code: LFS pointers stay pointers (Farm-Client carries gigabytes of binaries), and a
 # missing credential fails at once instead of waiting on a prompt no one will answer.
 GIT_ENV = {"GIT_LFS_SKIP_SMUDGE": "1", "GIT_TERMINAL_PROMPT": "0"}
-# Controller git in a clone a worker can write: a worker rooted in a repository has FarmBot's clone of it among its
-# writable roots, hooks directory and config included. Each call added since the Phase B plan runs with hooks and
-# fsmonitor off (P10); the clone's other settings still apply, as to the calls made before (its Known Risks).
+# FarmBot's own git runs outside every worker sandbox, in clones and worktrees a worker writes parts of, so every
+# call runs with hooks and fsmonitor off (plan P10): a worker can no longer write a clone's hooks or config, and this
+# keeps anything written there before, or by hand, from running.
 HOOKS_OFF = ("-c", f"core.hooksPath={os.devnull}", "-c", "core.fsmonitor=false")
+# What a clone's config may hold (plan P10): what ensure_clone, `git init`, `worktree add --track`, `branch
+# --set-upstream-to` and git-lfs write there, and a commit identity. Anything else could make FarmBot's git run a
+# program (an ssh command, a filter, an include) or fetch from elsewhere, so a clone that holds it is not used. Git
+# lists section and key names in lower case.
+CLONE_CONFIG = re.compile(r"core\.(?:repositoryformatversion|filemode|bare|ignorecase|precomposeunicode|symlinks"
+                          r"|logallrefupdates)|remote\.origin\.(?:url|pushurl|fetch)|branch\..+\.(?:remote|merge)"
+                          r"|lfs\.repositoryformatversion|lfs\..+\.(?:access|locksverify)|user\.(?:name|email)")
+CLONE_FETCH = "+refs/heads/*:refs/remotes/origin/*"
+# A github.com repository URL, its owner and name: publication compares remotes by these, whatever the spelling.
+GITHUB_REMOTE = re.compile(r"(?:https://github\.com/|ssh://git@github\.com/|git@github\.com:)"
+                           r"([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?", re.IGNORECASE)
+
+
+def _same_remote(url, configured):
+    """Whether a clone's origin URL is the configured remote: the same string, or the same github.com repository
+    spelled another way (https or ssh, case, a .git suffix), as publication compares them."""
+    if url == configured:
+        return True
+    found, wanted = GITHUB_REMOTE.fullmatch(url), GITHUB_REMOTE.fullmatch(configured)
+    return bool(found and wanted) and [part.casefold() for part in found.groups()] == [
+        part.casefold() for part in wanted.groups()]
+# The files a clone's info/ may hold: git init's exclude, and the refs list a repack writes.
+CLONE_INFO = frozenset({"exclude", "refs"})
 # Controller git in the read-only checkouts of a manifest's `reads` (spec §8.3, §9.6), each a repository of the
 # controller's own that borrows only its clone's objects: hooks and fsmonitor off, and the LFS filter emptied, so a
 # checkout holds LFS pointers and git runs no filter program, whatever the host's git configuration says.
@@ -51,9 +76,9 @@ class WorktreeError(RuntimeError):
 
 
 def _git(*args, cwd, env=GIT_ENV, timeout=600, config=()):
-    """`config` is `-c` settings placed before the subcommand, such as HOOKS_OFF."""
-    result = subprocess.run(["git", *config, *args], cwd=str(cwd), capture_output=True, text=True, timeout=timeout,
-                            env={**os.environ, **env})
+    """`config` is further `-c` settings placed before the subcommand, after HOOKS_OFF, which every call has."""
+    result = subprocess.run(["git", *HOOKS_OFF, *config, *args], cwd=str(cwd), capture_output=True, text=True,
+                            timeout=timeout, env={**os.environ, **env})
     if result.returncode:
         raise WorktreeError(f"git {args[0]} failed: {result.stderr.strip()[:500]}")
     return result.stdout.strip()
@@ -91,15 +116,146 @@ class Worktrees:
         self.worktrees_root = Path(worktrees_root)
         self.remotes = dict(remotes)
         self._head_cache = {}
+        self._checked = {}  # repo -> the state of its clone's config and info/ when last found clean
 
     def clone_path(self, repo):
         if repo not in self.remotes:
             raise WorktreeError(f"unknown repository: {repo}")
         return self.repos_root / f"{repo}.git"
 
+    def clone_problems(self, repo):
+        """What FarmBot's clone of `repo` holds that FarmBot did not write there (plan P10), or an empty list: config
+        keys other than CLONE_CONFIG's, an origin or fetch refspec other than the configured ones, files in info/
+        other than CLONE_INFO, and legacy remote definitions. Names keys and files, never values. Reads files only:
+        `git config --file` follows no include and runs nothing. Hooks are not checked; FarmBot's git never runs
+        them (HOOKS_OFF)."""
+        clone = self.clone_path(repo)
+        config = clone / "config"
+        if _is_link(config) or not config.is_file():
+            return ["config is not a regular file"]
+        listed = subprocess.run(["git", "config", "--file", str(config), "--null", "--list"], capture_output=True,
+                                timeout=60, env={**os.environ, **GIT_ENV})
+        if listed.returncode:
+            return ["config is unreadable"]
+        problems, urls, configured = [], [], self.remotes[repo]
+        for entry in listed.stdout.decode("utf-8", errors="replace").split("\0"):
+            if not entry:
+                continue
+            key, _, value = entry.partition("\n")
+            if not CLONE_CONFIG.fullmatch(key):
+                problems.append(f"config key {key[:120]}")
+            elif key == "remote.origin.url":
+                urls.append(value)
+            elif key == "remote.origin.pushurl" and not _same_remote(value, configured):
+                problems.append("config remote.origin.pushurl is not the configured remote")
+            elif key == "remote.origin.fetch" and value != CLONE_FETCH:
+                problems.append("config remote.origin.fetch is not FarmBot's refspec")
+            elif key == "core.bare" and value.lower() != "true":
+                problems.append("config core.bare is not true")
+        if len(urls) != 1 or not _same_remote(urls[0], configured):
+            problems.append("config remote.origin.url is not the configured remote")
+        info = clone / "info"
+        if _is_link(info):
+            problems.append("info is a link")
+        elif info.is_dir():
+            problems += [f"info/{entry.name[:120]}" for entry in sorted(info.iterdir()) if entry.name not in CLONE_INFO]
+        for legacy in ("remotes", "branches"):
+            if _is_link(clone / legacy) or ((clone / legacy).is_dir() and any((clone / legacy).iterdir())):
+                problems.append(f"{legacy}/ defines remotes")
+        return list(dict.fromkeys(problems))
+
+    def _check_clone(self, repo, clone):
+        """Refuse a clone that holds what FarmBot did not write (clone_problems). Checked again whenever its config
+        or info/ changes: FarmBot's own writes (a tracking branch) change them too."""
+        def stamp(path):
+            try:
+                status = os.lstat(path)
+            except FileNotFoundError:
+                return None
+            return status.st_mtime_ns, status.st_size, status.st_ino
+
+        state = tuple(stamp(clone / name) for name in ("config", "info", "remotes", "branches"))
+        if self._checked.get(repo) == state:
+            return
+        problems = self.clone_problems(repo)
+        if problems:
+            self._checked.pop(repo, None)
+            raise WorktreeError(f"{repo}: FarmBot's clone holds what FarmBot did not write "
+                                f"({'; '.join(problems[:10])}); inspect and remove it before this clone is used again")
+        self._checked[repo] = state
+
+    def _clone(self, repo):
+        """The clone of `repo`, checked (_check_clone), for FarmBot's own git in it or its worktrees."""
+        clone = self.clone_path(repo)
+        if clone.exists():
+            self._check_clone(repo, clone)
+        return clone
+
+    def worktree_entry(self, repo, path):
+        """The entry under `<clone>/worktrees/` that belongs to the worktree of `repo` at `path` (plan P10).
+
+        The worktree's `.git` file names it, the entry's own `gitdir` file must name that worktree back, and its
+        `commondir` file must name the clone: git follows `commondir` for branch refs even where GIT_COMMON_DIR names
+        the clone (git 2.54). A worker can rewrite all three, but no other entry, so it cannot claim another
+        worktree's. Each is read without following a link or waiting on a FIFO."""
+        clone = self._clone(repo)
+        path = Path(path)
+        entries = clone / "worktrees"
+        try:
+            if _is_link(path) or _is_link(path / ".git") or _is_link(entries):
+                raise WorktreeError("linked")
+            pointer = _read_worker_text(path / ".git")
+            if not pointer.startswith("gitdir:"):
+                raise WorktreeError("no gitdir")
+            named = Path(pointer[len("gitdir:"):].strip())
+            named = named if named.is_absolute() else path / named
+            entry = entries / named.name
+            if named.parent.resolve() != entries.resolve() or _is_link(entry) or not entry.is_dir():
+                raise WorktreeError("outside the clone")
+            back = Path(_read_worker_text(entry / "gitdir").strip())
+            back = back if back.is_absolute() else entry / back
+            if back.resolve() != (path / ".git").resolve():
+                raise WorktreeError("names another worktree")
+            common = Path(_read_worker_text(entry / "commondir").strip())
+            common = common if common.is_absolute() else entry / common
+            if _is_link(entry / "commondir") or common.resolve() != clone.resolve():
+                raise WorktreeError("names another clone")
+        except (WorktreeError, OSError, UnicodeDecodeError) as exc:
+            raise WorktreeError(f"{repo}: {path.name} is not a worktree of FarmBot's clone "
+                                f"({exc if isinstance(exc, WorktreeError) else type(exc).__name__})") from exc
+        return entry
+
+    def git_in(self, path, *args, env=GIT_ENV, **kwargs):
+        """FarmBot's git in the item worktree at `<worktrees>/<item>/<repo>` (plan P10), with the repository named
+        explicitly: the worktree's `.git` file and its entry's `commondir` are the worker's to rewrite, and would
+        otherwise decide which repository, and so whose config, git uses."""
+        path = Path(path)
+        explicit = {"GIT_DIR": str(self.worktree_entry(path.name, path)), "GIT_COMMON_DIR": str(self._clone(path.name)),
+                    "GIT_WORK_TREE": str(path)}
+        return _git(*args, cwd=path, env={**env, **explicit}, **kwargs)
+
+    def _item_worktree(self, path):
+        """Whether `path` is an item's worktree, `<worktrees>/<item>/<repo>`, rather than a slot or a read-only
+        checkout."""
+        path = Path(path)
+        return (path.name in self.remotes and not path.parent.name.endswith(".reads")
+                and path.parent.parent.resolve() == self.worktrees_root.resolve())
+
+    def writable_parts(self, repo, path):
+        """What a worker whose worktree of `repo` is at `path` may write in FarmBot's clone (plan P10): the objects,
+        refs, reflogs and LFS store its commits, fetches and pushes write, and the worktree's own entry (its HEAD,
+        index and state). Never the clone's config, hooks, info or other entries, which FarmBot's own git reads
+        outside the sandbox. Makes logs/ and lfs/ first, since git makes them only when it first needs them."""
+        clone = self._clone(repo)
+        entry = self.worktree_entry(repo, path)
+        for name in ("logs", "lfs"):
+            (clone / name).mkdir(exist_ok=True)
+        return [clone / "objects", clone / "refs", clone / "logs", clone / "lfs", entry]
+
     def ensure_clone(self, repo, seed_from=None):
         path = self.clone_path(repo)
         if path.exists():
+            self._check_clone(repo, path)
             return path
         self.repos_root.mkdir(parents=True, exist_ok=True)
         # The destination directory is this method's only readiness marker, so build under a temporary
@@ -297,6 +453,8 @@ class Worktrees:
             raise WorktreeError(f"invalid recovery ref {ref}: {exc}") from exc
 
     def head(self, path):
+        if self._item_worktree(path):
+            return self.git_in(path, "rev-parse", "HEAD")
         return _git("rev-parse", "HEAD", cwd=path)
 
     def verification_commit(self, repo, item_id, commit):
@@ -305,15 +463,15 @@ class Worktrees:
             raise WorktreeError("verification commit must be a full lowercase commit SHA")
         root = self.worktrees_root.resolve()
         path = root / item_id / repo
-        if (not path.is_dir() or path.resolve() != path or not path.is_relative_to(root)
-                or Path(_git("rev-parse", "--show-toplevel", cwd=path)).resolve() != path):
+        if not path.is_dir() or path.resolve() != path or not path.is_relative_to(root):
             raise WorktreeError("verification requires the item's own worktree")
-        common = Path(_git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=path)).resolve()
-        if common != self.clone_path(repo).resolve():
-            raise WorktreeError("verification worktree does not belong to FarmBot's configured clone")
-        if self.head(path) != commit:
+        try:
+            self.worktree_entry(repo, path)
+        except WorktreeError as exc:
+            raise WorktreeError(f"verification worktree does not belong to FarmBot's configured clone: {exc}") from exc
+        if self.git_in(path, "rev-parse", "HEAD") != commit:
             raise WorktreeError("verification commit must equal the item's current worktree HEAD")
-        if _git("status", "--porcelain", "--untracked-files=all", cwd=path):
+        if self.git_in(path, "status", "--porcelain", "--untracked-files=all"):
             raise WorktreeError("verification requires a clean worktree; commit all intended changes first")
         return commit
 
@@ -350,19 +508,19 @@ class Worktrees:
                 # worktree never pays for `git add --all`, which walks the whole index and a Farm-Client
                 # worktree is gigabytes; the second because the two calls are not one atomic act and the
                 # worker's own processes have only just been killed.
-                if _git("status", "--porcelain=v1", cwd=path) == "":
+                if self.git_in(path, "status", "--porcelain=v1") == "":
                     continue
-                _git("add", "--all", "--", ".", cwd=path)
-                if _git("diff", "--cached", "--name-only", cwd=path) == "":
+                self.git_in(path, "add", "--all", "--", ".")
+                if self.git_in(path, "diff", "--cached", "--name-only") == "":
                     continue
-                if _git("rev-parse", "--abbrev-ref", "HEAD", cwd=path) == "HEAD":
+                if self.git_in(path, "rev-parse", "--abbrev-ref", "HEAD") == "HEAD":
                     # A commit on a detached head is referenced by nothing, so `worktree prune` would sweep
                     # it as surely as the files. Read-only skills get detached worktrees (add_detached).
                     # After the staged-diff guard, so a worktree with nothing to keep leaves no stray ref.
-                    name = self._unused_branch(f"farmbot/wip/{_branch_safe(item_id)}", path)
-                    _git("checkout", "--quiet", "-b", name, cwd=path)
-                _git(*self.WIP_IDENTITY, "commit", "--no-verify", "--quiet", "-m", message, cwd=path)
-                report["committed"][path.name] = _git("rev-parse", "HEAD", cwd=path)
+                    name = self._unused_branch(f"farmbot/wip/{_branch_safe(item_id)}", self.clone_path(path.name))
+                    self.git_in(path, "checkout", "--quiet", "-b", name)
+                self.git_in(path, *self.WIP_IDENTITY, "commit", "--no-verify", "--quiet", "-m", message)
+                report["committed"][path.name] = self.git_in(path, "rev-parse", "HEAD")
             except (WorktreeError, subprocess.SubprocessError, OSError) as exc:
                 report["errors"][path.name] = f"{type(exc).__name__}: {exc}"[:500]
         return report
@@ -371,20 +529,19 @@ class Worktrees:
         if not item_id or Path(item_id).name != item_id or item_id in (".", ".."):
             raise WorktreeError("unsafe item path")
         root = self.worktrees_root / item_id
-        if self.worktrees_root.is_symlink() or root.is_symlink():
+        if _is_link(self.worktrees_root) or _is_link(root):
             raise WorktreeError("symlinked worktree root")
         if not root.exists():
             return []
         paths = sorted(root.iterdir())
         for path in paths:
-            if path.is_symlink() or not path.is_dir() or (path / ".git").is_symlink():
+            if _is_link(path) or not path.is_dir() or _is_link(path / ".git"):
                 raise WorktreeError("unexpected managed worktree entry")
-            clone = self.clone_path(path.name)
-            common = Path(_git("rev-parse", "--git-common-dir", cwd=path))
-            if not common.is_absolute():
-                common = path / common
-            if common.resolve() != clone.resolve():
-                raise WorktreeError("worktree belongs to a different clone")
+            self._clone(path.name)  # an unknown repository, or a clone holding what FarmBot did not write
+            try:
+                self.worktree_entry(path.name, path)
+            except WorktreeError as exc:
+                raise WorktreeError(f"worktree belongs to a different clone: {exc}") from exc
         return paths
 
     def preserve(self, item_id):
@@ -400,7 +557,7 @@ class Worktrees:
         for path in paths:
             try:
                 sha = self.head(path)
-                clone = self.clone_path(path.name)
+                clone = self._clone(path.name)
                 ref = self._recovery_ref(item_id)
                 previous = self._recovery_commit(clone, ref)
                 history = f"refs/farmbot/recovery-history/{_branch_safe(item_id)}/"
@@ -432,13 +589,13 @@ class Worktrees:
             ref = evidence.get("refs", {}).get(path.name)
             if not sha or not ref or self.head(path) != sha:
                 raise WorktreeError("HEAD was not preserved")
-            if _git("rev-parse", "--verify", ref, cwd=self.clone_path(path.name)) != sha:
+            if _git("rev-parse", "--verify", ref, cwd=self._clone(path.name)) != sha:
                 raise WorktreeError("recovery ref no longer matches")
-            if _git("status", "--porcelain=v1", cwd=path):
+            if self.git_in(path, "status", "--porcelain=v1"):
                 raise WorktreeError("worktree changed after preservation")
         for path in paths:
             # No --force: Git performs its own final dirty-worktree check.
-            _git("worktree", "remove", str(path), cwd=self.clone_path(path.name))
+            _git("worktree", "remove", str(path), cwd=self._clone(path.name))
         root = self.worktrees_root / item_id
         if root.exists():
             root.rmdir()
@@ -448,7 +605,7 @@ class Worktrees:
         if not item_root.exists():
             return
         for path in item_root.iterdir():
-            clone = self.clone_path(path.name)
+            clone = self._clone(path.name)
             _git("worktree", "remove", "--force", str(path), cwd=clone)
             _git("worktree", "prune", cwd=clone)
         shutil.rmtree(item_root, ignore_errors=True)
@@ -645,7 +802,7 @@ class Worktrees:
         path, evidence_dir = Path(path).resolve(strict=True), Path(evidence_dir).resolve()
         common = Path(_git("rev-parse", "--path-format=absolute", "--git-common-dir",
                            cwd=path, env=SLOT_ENV)).resolve()
-        if common != self.clone_path(repo).resolve():
+        if common != self._clone(repo).resolve():
             raise WorktreeError("slot does not belong to the configured clone")
         before = source_snapshot(path)
         changed = before["dirty"]

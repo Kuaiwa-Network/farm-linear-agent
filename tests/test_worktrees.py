@@ -1,7 +1,9 @@
 import contextlib
 import os
+import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -351,7 +353,10 @@ class WorktreeTests(unittest.TestCase):
         real = subprocess.run
 
         def record(args, **kwargs):
-            seen.append((args[1] if args[0] == "git" else args[0], dict(kwargs.get("env") or {})))
+            rest = list(args[1:])
+            while rest[:1] == ["-c"]:  # HOOKS_OFF and any other settings come before the subcommand
+                rest = rest[2:]
+            seen.append((rest[0] if args[0] == "git" else args[0], dict(kwargs.get("env") or {})))
             return real(args, **kwargs)
 
         commit = self.trees.resolve_commit("Farm-Client")
@@ -568,26 +573,27 @@ class ReattachTests(unittest.TestCase):
 
     @unittest.skipIf(os.name == "nt", "the planted hooks and fsmonitor are shell scripts")
     def test_no_hook_or_fsmonitor_planted_in_the_clone_runs_while_re_attaching(self):
-        """Plan P10. The control shows the planted scripts do run in today's add, which Phase B leaves as it is
-        (the plan's Known Risks)."""
+        """Plan P10: hooks left in the clone's hooks directory run in none of FarmBot's own git, a plain add included,
+        and an fsmonitor set in its config makes the clone refused before any git runs there."""
         marker = Path(self.tmp.name) / "ran.txt"
         self.pushed_and_ended()
         clone = self.trees.ensure_clone("Farm-Client")
-        # What a worker rooted in this repository can write into FarmBot's clone of it.
+        # What a worker rooted in this repository could write into FarmBot's clone of it before plan P10.
         (clone / "hooks").mkdir(exist_ok=True)
         for name in ("post-checkout", "reference-transaction"):
             (clone / "hooks" / name).write_text(f"#!/bin/sh\necho {name} >> '{marker}'\n", encoding="utf-8")
             (clone / "hooks" / name).chmod(0o755)
+        self.trees.add("Farm-Client", "control", "farmbot/control")
+        path = self.trees.add("Farm-Client", "item-2", "farmbot/farm-1", attach=True)
+        self.assertFalse(marker.exists())
+        self.assertEqual(git("branch", "--show-current", cwd=path), "farmbot/farm-1")
         fsmonitor = Path(self.tmp.name) / "fsmonitor.sh"
         fsmonitor.write_text(f"#!/bin/sh\necho fsmonitor >> '{marker}'\nexit 1\n", encoding="utf-8")
         fsmonitor.chmod(0o755)
         git("config", "core.fsmonitor", str(fsmonitor), cwd=clone)
-        self.trees.add("Farm-Client", "control", "farmbot/control")
-        self.assertIn("post-checkout", marker.read_text(encoding="utf-8"))
-        marker.unlink()
-        path = self.trees.add("Farm-Client", "item-2", "farmbot/farm-1", attach=True)
+        with self.assertRaisesRegex(WorktreeError, "config key core.fsmonitor"):
+            self.trees.add("Farm-Client", "item-3", "farmbot/farm-1", attach=True)
         self.assertFalse(marker.exists())
-        self.assertEqual(git("branch", "--show-current", cwd=path), "farmbot/farm-1")
 
 
 class ReadCheckoutTests(unittest.TestCase):
@@ -710,13 +716,9 @@ class ReadCheckoutTests(unittest.TestCase):
                         f"[filter \"lfs\"]\n\tsmudge = {script('smudge', 'cat >/dev/null; echo SMUDGED')} %f\n"
                         f"\tclean = {script('clean', 'cat')} %f\n\trequired = true\n", encoding="utf-8")
         clone = self.trees.ensure_clone("Farm-Client")
-        # What a worker rooted in this repository can write into FarmBot's clone of it.
-        git("config", f"url.{root / 'elsewhere'}.insteadOf", str(self.origin), cwd=clone)
-        git("config", "core.hooksPath", str(hooks), cwd=clone)
-        git("config", "core.fsmonitor", str(script("clone-fsmonitor", "exit 1")), cwd=clone)
-        git("config", "filter.lfs.smudge", f"{script('clone-smudge', 'cat')} %f", cwd=clone)
-        (clone / "info").mkdir(exist_ok=True)
-        (clone / "info" / "attributes").write_text("* filter=lfs\n", encoding="utf-8")
+        # A hook left in the clone's own hooks directory, which a worker could write before plan P10.
+        for name in ("post-checkout", "reference-transaction"):
+            script(f"clone-{name}").rename(clone / "hooks" / name)
         with patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": str(host)}):
             # The control clone reads only the host config above: a system config can enable git-lfs's process
             # filter, which git prefers to the host's smudge (CI's macOS runner has one). The read-only checkouts
@@ -734,6 +736,20 @@ class ReadCheckoutTests(unittest.TestCase):
         keys = set(git("config", "--local", "--name-only", "--list", cwd=path).splitlines())
         self.assertEqual({key for key in keys if not key.startswith("core.")}, {"remote.origin.url"})
         self.assertFalse(keys & {"core.hookspath", "core.fsmonitor"})
+        # Settings in the clone's config or info/, which a worker could write before plan P10, are not read at all:
+        # the clone is refused, naming what it holds.
+        git("config", f"url.{root / 'elsewhere'}.insteadOf", str(self.origin), cwd=clone)
+        git("config", "core.hooksPath", str(hooks), cwd=clone)
+        git("config", "core.fsmonitor", str(script("clone-fsmonitor", "exit 1")), cwd=clone)
+        git("config", "filter.lfs.smudge", f"{script('clone-smudge', 'cat')} %f", cwd=clone)
+        (clone / "info" / "attributes").write_text("* filter=lfs\n", encoding="utf-8")
+        with self.assertRaisesRegex(WorktreeError, "did not write") as refused:
+            self.trees.read_checkout("Farm-Client", "item-1")
+        for name in ("config key core.hookspath", "config key core.fsmonitor", "config key filter.lfs.smudge",
+                     "info/attributes", "config key url."):
+            self.assertIn(name, str(refused.exception))
+        self.assertNotIn(str(hooks), str(refused.exception))  # names, never values
+        self.assertFalse(marker.exists())
 
     def test_a_publication_retry_reuses_the_checkout_without_a_fetch(self):
         path = self.trees.read_checkout("Farm-Contract", "item-1")
@@ -851,3 +867,184 @@ class ReadCheckoutTests(unittest.TestCase):
         with self.assertRaisesRegex(WorktreeError, "link"):
             agent.worktrees._remove_tree(junction)
         self.assertEqual(kept.read_text(encoding="utf-8"), "not FarmBot's\n")
+
+
+class ControllerGitTests(unittest.TestCase):
+    """Plan P10: FarmBot's own git runs outside every worker sandbox, in clones and worktrees a worker writes parts of.
+    Nothing a worker could write there may make it run a program, read another repository or be sent elsewhere."""
+
+    def setUp(self):
+        WorktreeTests.setUp(self)
+        self.marker = Path(self.tmp.name) / "ran.txt"
+
+    def script(self, name, body=""):
+        path = Path(self.tmp.name) / "scripts" / name
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(f"#!/bin/sh\necho {name} >> '{self.marker}'\n{body}", encoding="utf-8")
+        path.chmod(0o755)
+        return path
+
+    def entry(self, path):
+        return self.trees.clone_path("Farm-Client") / "worktrees" / Path(
+            (path / ".git").read_text(encoding="utf-8").split("gitdir:", 1)[1].strip()).name
+
+    def test_a_worker_may_write_only_the_parts_of_the_clone_its_git_needs(self):
+        path = self.trees.add("Farm-Client", "item-1", "farmbot/farm-1")
+        clone = self.trees.clone_path("Farm-Client")
+        parts = self.trees.writable_parts("Farm-Client", path)
+        self.assertEqual(parts, [clone / "objects", clone / "refs", clone / "logs", clone / "lfs", self.entry(path)])
+        self.assertTrue(all(part.is_dir() for part in parts))  # logs/ and lfs/ made first, so a root exists
+        for kept in (clone, clone / "config", clone / "hooks", clone / "info", clone / "packed-refs",
+                     clone / "worktrees"):
+            with self.subTest(kept=kept.name):
+                self.assertFalse(any(kept == part or kept.is_relative_to(part) for part in parts))
+        other = self.trees.add("Farm-Client", "item-2", "farmbot/farm-2")
+        self.assertNotIn(self.trees.writable_parts("Farm-Client", other)[-1], parts)  # its own entry, no other
+
+    @unittest.skipUnless(sys.platform == "darwin" and shutil.which("sandbox-exec"), "macOS's Seatbelt, as Codex's")
+    def test_within_those_parts_a_worker_commits_and_pushes_but_cannot_touch_the_config(self):
+        """The writable roots the scheduler passes, enforced by the macOS Seatbelt that Codex's workspace-write
+        sandbox uses: writes are allowed only under the worktree, the clone's parts and the local origin, which
+        stands in for GitHub."""
+        path = self.trees.add("Farm-Client", "item-1", "farmbot/farm-1")
+        clone = self.trees.clone_path("Farm-Client")
+        allowed = [path, *self.trees.writable_parts("Farm-Client", path), self.origin]
+        profile = ("(version 1)\n(allow default)\n(deny file-write*)\n(allow file-write*\n"
+                   + "".join(f'  (subpath "{os.path.realpath(root)}")\n' for root in allowed)
+                   + '  (literal "/dev/null"))\n')
+
+        def jailed(*command):
+            return subprocess.run(["sandbox-exec", "-p", profile, *command], cwd=path, capture_output=True, text=True)
+
+        (path / "README.md").write_text("changed\n", encoding="utf-8")
+        for command in (["git", "-c", "user.name=w", "-c", "user.email=w@w", "commit", "-qam", "change"],
+                        ["git", "fetch", "-q", "origin"],
+                        ["git", "push", "-q", "--no-follow-tags", "origin", "HEAD:refs/heads/farmbot/farm-1"]):
+            with self.subTest(command=command[-3]):
+                done = jailed(*command)
+                self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(git("rev-parse", "farmbot/farm-1", cwd=self.origin), self.trees.head(path))
+        for target in (clone / "config", clone / "hooks" / "post-checkout", clone / "info" / "attributes"):
+            with self.subTest(target=target.name):
+                self.assertNotEqual(jailed("sh", "-c", f"echo planted >> '{target}'").returncode, 0)
+        self.assertNotIn("planted", (clone / "config").read_text(encoding="utf-8"))
+
+    @unittest.skipIf(os.name == "nt", "the filter here is a shell script")
+    def test_farmbots_git_in_a_worktree_follows_neither_of_its_pointers(self):
+        """A worker writes its worktree's `.git` file and its entry's `commondir`. Each is sent here to a copy of
+        the clone whose config runs a program on `git add`: FarmBot's git refuses the worktree rather than follow
+        either, and with both intact it commits into the clone itself."""
+        path = self.trees.add("Farm-Client", "item-1", "farmbot/farm-1")
+        clone, entry = self.trees.clone_path("Farm-Client"), self.entry(path)
+        start = git("rev-parse", "farmbot/farm-1", cwd=clone)
+        evil = Path(self.tmp.name) / "evil.git"
+        shutil.copytree(clone, evil, symlinks=True)
+        git("config", "--file", str(evil / "config"), "filter.evil.clean", str(self.script("clean", "cat")), cwd=evil)
+        git("config", "--file", str(evil / "config"), "filter.evil.required", "true", cwd=evil)
+        (path / ".gitattributes").write_text("* filter=evil\n", encoding="utf-8")
+        (path / "README.md").write_text("changed\n", encoding="utf-8")
+        fake = Path(self.tmp.name) / "fake-gitdir"
+        shutil.copytree(entry, fake)
+        (fake / "commondir").write_text(f"{evil}\n", encoding="utf-8")
+        pointer, common = (path / ".git").read_text(encoding="utf-8"), (entry / "commondir").read_text(encoding="utf-8")
+        for rewrite, target, text in (("commondir", entry / "commondir", f"{evil}\n"),
+                                      (".git", path / ".git", f"gitdir: {fake}\n")):
+            target.write_text(text, encoding="utf-8")
+            for name, call in (("head", lambda: self.trees.head(path)),
+                               ("verification", lambda: self.trees.verification_commit("Farm-Client", "item-1", start)),
+                               ("preserve", lambda: self.trees.preserve("item-1"))):
+                with self.subTest(rewrite=rewrite, call=name), self.assertRaises(WorktreeError):
+                    call()
+            self.assertIn("Farm-Client", self.trees.commit_wip("item-1", "wip")["errors"])
+            (path / ".git").write_text(pointer, encoding="utf-8")
+            (entry / "commondir").write_text(common, encoding="utf-8")
+        self.assertEqual(git("rev-parse", "farmbot/farm-1", cwd=evil), start)
+        report = self.trees.commit_wip("item-1", "wip")
+        self.assertEqual(report["errors"], {})
+        self.assertEqual(git("rev-parse", "farmbot/farm-1", cwd=clone), report["committed"]["Farm-Client"])
+        self.assertFalse(self.marker.exists())  # the clone's config names no `evil` filter
+
+    @unittest.skipIf(os.name == "nt", "the hooks here are shell scripts")
+    def test_farmbots_own_git_runs_no_hook_left_in_the_clone(self):
+        clone = self.trees.ensure_clone("Farm-Client")
+        for name in ("post-checkout", "reference-transaction", "post-commit", "pre-commit", "post-index-change"):
+            self.script(name).rename(clone / "hooks" / name)
+        path = self.trees.add("Farm-Client", "item-1", "farmbot/farm-1")
+        self.trees.fetch("Farm-Client")
+        (path / "README.md").write_text("changed\n", encoding="utf-8")
+        saved = self.trees.preserve("item-1")
+        self.assertEqual(saved["errors"], {})
+        self.trees.remove_preserved("item-1", saved)
+        self.assertFalse(self.marker.exists())
+
+    def test_a_clone_holding_what_farmbot_did_not_write_is_refused_by_name(self):
+        clone = self.trees.ensure_clone("Farm-Client")
+        self.trees.add("Farm-Client", "item-1", "farmbot/farm-1")
+        secret = "value-that-must-not-appear"
+        stranger = "https://github.com/stranger/Farm-Client.git"
+        planted = (("config key core.sshcommand", "core.sshCommand", secret),
+                   ("config key include.path", "include.path", secret),
+                   ("config key url.https://elsewhere.example/.insteadof", "url.https://elsewhere.example/.insteadOf",
+                    secret),
+                   ("config key filter.evil.smudge", "filter.evil.smudge", secret),
+                   ("config key extensions.worktreeconfig", "extensions.worktreeConfig", "true"),
+                   ("config key credential.helper", "credential.helper", secret),
+                   ("config key remote.origin.uploadpack", "remote.origin.uploadpack", secret),
+                   ("config key core.alternaterefscommand", "core.alternateRefsCommand", secret),
+                   ("config remote.origin.url is not the configured remote", "remote.origin.url", stranger),
+                   ("config remote.origin.pushurl is not the configured remote", "remote.origin.pushurl", stranger),
+                   ("config remote.origin.fetch is not FarmBot's refspec", "remote.origin.fetch", "+refs/*:refs/*"))
+        for name, key, value in planted:
+            with self.subTest(key=key):
+                before = (clone / "config").read_bytes()
+                git("config", key, value, cwd=clone)
+                try:
+                    with self.assertRaisesRegex(WorktreeError, "did not write") as refused:
+                        self.trees.ensure_clone("Farm-Client")
+                    self.assertIn(name, str(refused.exception))
+                    self.assertIn(name, self.trees.clone_problems("Farm-Client"))
+                    self.assertNotIn(secret, str(refused.exception))
+                finally:
+                    (clone / "config").write_bytes(before)
+                self.assertEqual(self.trees.ensure_clone("Farm-Client"), clone)
+        for name, relative in (("info/attributes", "info/attributes"), ("info/sparse-checkout", "info/sparse-checkout"),
+                               ("remotes/ defines remotes", "remotes/origin"),
+                               ("branches/ defines remotes", "branches/origin")):
+            with self.subTest(file=relative):
+                target = clone / relative
+                target.parent.mkdir(exist_ok=True)
+                target.write_text(f"{secret}\n", encoding="utf-8")
+                try:
+                    with self.assertRaisesRegex(WorktreeError, "did not write") as refused:
+                        self.trees.ensure_clone("Farm-Client")
+                    self.assertIn(name, str(refused.exception))
+                    self.assertNotIn(secret, str(refused.exception))
+                finally:
+                    target.unlink()
+                self.assertEqual(self.trees.ensure_clone("Farm-Client"), clone)
+
+    def test_what_farmbot_and_git_lfs_write_in_a_clone_is_accepted(self):
+        clone = self.trees.ensure_clone("Farm-Client")
+        self.trees.add("Farm-Client", "item-1", "farmbot/farm-1")
+        git("branch", "--set-upstream-to=origin/main", "farmbot/farm-1", cwd=clone)
+        for key, value in (("lfs.repositoryformatversion", "0"),
+                           ("lfs.https://github.com/Kuaiwa-Network/Farm-Client.git/info/lfs.access", "basic"),
+                           ("user.email", "farmbot@localhost"), ("remote.origin.pushurl", str(self.origin))):
+            git("config", key, value, cwd=clone)
+        (clone / "info").mkdir(exist_ok=True)
+        (clone / "info" / "refs").write_text("", encoding="utf-8")  # what a repack writes
+        self.assertEqual(self.trees.clone_problems("Farm-Client"), [])
+        self.assertEqual(self.trees.ensure_clone("Farm-Client"), clone)
+
+    @unittest.skipUnless(os.name == "nt", "junctions are Windows'")
+    def test_cleanup_refuses_a_junction_in_the_item_directory(self):
+        outside = Path(self.tmp.name) / "outside"
+        outside.mkdir()
+        (outside / "kept.txt").write_text("not FarmBot's\n", encoding="utf-8")
+        item = self.trees.worktrees_root / "item-1"
+        item.mkdir(parents=True)
+        subprocess.run(["cmd", "/c", "mklink", "/J", str(item / "Farm-Client"), str(outside)], check=True,
+                       capture_output=True)
+        with self.assertRaisesRegex(WorktreeError, "unexpected managed worktree entry"):
+            self.trees.preserve("item-1")
+        self.assertTrue((outside / "kept.txt").is_file())

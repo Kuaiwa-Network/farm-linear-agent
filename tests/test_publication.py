@@ -1,8 +1,11 @@
+import contextlib
 import copy
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from agent import publication
 from agent.worktrees import Worktrees
@@ -40,6 +43,16 @@ class PublicationTests(unittest.TestCase):
     def verify(self):
         return self.verifier.verify('farmgui', 'job', 'FARM-1248', self.branch)
 
+    @contextlib.contextmanager
+    def fetching_from_the_local_origin(self):
+        """The configured remote is github.com, which these tests never reach. A host-level rewrite, as an operator's
+        own git config could hold, sends fetches to the local origin; the clone's origin stays the configured remote,
+        since FarmBot refuses a clone whose origin is another (plan P10)."""
+        host = Path(self.tmp.name) / 'host.gitconfig'
+        host.write_text(f'[url "{self.origin}"]\n\tinsteadOf = {self.remote}\n', encoding='utf-8')
+        with patch.dict(os.environ, {'GIT_CONFIG_GLOBAL': str(host)}):
+            yield
+
     def test_test_workspace_issue_can_publish_only_its_own_feature_branch(self):
         verifier = publication.PublicationVerifier(self.trees, api=self.verifier.api, issue_prefix='FBTEST')
         branch = 'farmbot/fbtest-42-材料商店'
@@ -64,12 +77,11 @@ class PublicationTests(unittest.TestCase):
                 (43, 'farmbot/fbtest-43-材料商店', 'farmbot/fbtest-43-材料商店'),
                 (44, 'farmbot/fbtest-440', 'farmbot/fbtest-44')):
             with self.subTest(suggested=suggested):
-                git('remote', 'set-url', 'origin', str(self.origin), cwd=self.path)
                 identifier, item_id = f'FBTEST-{number}', f'job-{number}'
-                paths = scheduler._worktrees_for(SimpleNamespace(writes=['farmgui'], initial_root=None),
-                    {'id': item_id, 'publication_retries': 0},
-                    {'identifier': identifier, 'branch_name': suggested})
-                git('remote', 'set-url', 'origin', self.remote, cwd=self.path)
+                with self.fetching_from_the_local_origin():
+                    paths = scheduler._worktrees_for(SimpleNamespace(writes=['farmgui'], initial_root=None),
+                        {'id': item_id, 'publication_retries': 0},
+                        {'identifier': identifier, 'branch_name': suggested})
                 scope = verifier.scope(item={'id': item_id, 'skill': 'fix'},
                     issue={'identifier': identifier}, paths=paths, delegated=True)
                 self.assertEqual(scope['repositories']['farmgui']['status'], 'verified')
@@ -180,19 +192,34 @@ class PublicationTests(unittest.TestCase):
         with self.assertRaises(publication.PublicationError):
             self.verify()
 
+    def test_a_worktree_whose_pointer_names_another_worktrees_entry_is_rejected(self):
+        """Plan P10: the controller runs this check at every launch, and a worker writes its worktree's `.git` file.
+        Pointed at another worktree of this issue, the job's worktree would pass as that one."""
+        with self.fetching_from_the_local_origin():
+            other = self.trees.add('farmgui', 'other', 'farmbot/farm-1248-other')
+        (self.path / '.git').write_text((other / '.git').read_text(encoding='utf-8'), encoding='utf-8')
+        with self.assertRaises(publication.PublicationError):
+            self.verifier.verify('farmgui', 'job', 'FARM-1248')
+
     def test_publish_names_origin_so_its_expanded_url_is_not_rewritten_again(self):
+        """The worker pushes to `origin`, never to the expanded URL, which git would rewrite again. Push rewrites
+        belong to the host's own git config (plan P10): a clone whose origin is renamed away from the configured
+        remote and rewritten back by the clone's config is refused."""
+        ssh = 'git' + '@github.com:'
+        host = Path(self.tmp.name) / 'host.gitconfig'
+        host.write_text(f'[url "{ssh}"]\n\tpushInsteadOf = https://github.com/\n', encoding='utf-8')
+        with patch.dict(os.environ, {'GIT_CONFIG_GLOBAL': str(host)}):
+            result = self.verify()
+        self.assertEqual((result['push_remote'], result['push_url']), ('origin', ssh + 'Kuaiwa-Network/farmgui.git'))
         git('remote', 'set-url', 'origin', 'https://alias.example/farmgui.git', cwd=self.path)
         git('config', 'url.https://github.com/Kuaiwa-Network/.pushInsteadOf', 'https://alias.example/', cwd=self.path)
-        git('config', 'url.https://github.com/stranger/.pushInsteadOf', 'https://github.com/Kuaiwa-Network/', cwd=self.path)
-        result = self.verify()
-        self.assertEqual(result['push_remote'], 'origin')
-        self.assertEqual(result['push_url'], self.remote)
+        with self.assertRaises(publication.PublicationError):
+            self.verify()
 
     def test_successor_scope_uses_its_actual_suffixed_issue_branch(self):
         # Retained predecessor branches cause Worktrees.add to choose an issue-specific suffix.
-        git('remote', 'set-url', 'origin', str(self.origin), cwd=self.path)
-        successor = self.trees.add('farmgui', 'successor', self.branch)
-        git('remote', 'set-url', 'origin', self.remote, cwd=self.path)
+        with self.fetching_from_the_local_origin():
+            successor = self.trees.add('farmgui', 'successor', self.branch)
         scope = self.verifier.scope(item={'id': 'successor', 'skill': 'fix'},
             issue={'identifier': 'FARM-1248'}, paths={'farmgui': successor}, delegated=True)
         self.assertEqual(scope['repositories']['farmgui']['status'], 'verified')
