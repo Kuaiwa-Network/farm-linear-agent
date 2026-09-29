@@ -10,7 +10,7 @@ from pathlib import Path
 from agent.ledger import MARKER, Ledger, LedgerError
 from agent.skills import load_skills
 from agent.stages import write_repositories
-from test_skills import staged_skill, write_skill
+from test_skills import opt_in_skill, staged_skill, write_skill
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = load_skills(ROOT / "skills")
@@ -439,6 +439,202 @@ class StagedHandoffTests(LedgerBase):
         self.assertEqual(write_repositories(successor, self.feature), ("Farm-Contract",))
 
 
+class SuccessorTests(LedgerBase):
+    """A job that starts at an initial root continues across Stop, re-delegation and conversations: its successor
+    links the cancelled job, restarts at the initial root and reads its plan (spec §5.7, §9.4; plan P4)."""
+    APP = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
+    # The plan after stage A, in the Phase B plan's Shared Interfaces shape.
+    PLAN = {"stages": {"A": "done", "B": "pending", "C": "pending", "D": "pending", "G": "pending"},
+            "prs": {"Farm-Contract": [{"branch": "farmbot/farm-1", "role": "issue", "head": "a" * 40,
+                                       "pr": {"url": "https://github.com/Kuaiwa-Network/Farm-Contract/pull/12",
+                                              "state": "draft", "merge": None}}]},
+            "started": True}
+
+    def setUp(self):
+        super().setUp()
+        self.feature = opt_in_skill(Path(self.tmp.name) / "skills")
+
+    def job(self, skill="feature", session=SESSION):
+        """A job of `skill` in delegation session `session` on the issue, which stays delegated to the app. No
+        target: neither the receiver nor a conversation gives a feature job one (plan P6)."""
+        self.ledger.observe_issue(issue(delegate_id=self.APP))
+        self.ledger.ensure_session(session, ISSUE, delegation=True)
+        return self.ledger.create_work_item(issue_id=ISSUE, session_id=session, skill=skill)
+
+    def at_second_stage(self, item):
+        """Run `item` through stage A, with its first question round (`questions-1`, plan P15) and a plan, into its
+        common-rooted stage, where a Stop would find it."""
+        self.ledger.set_worker(item["id"], 4321, "test")
+        token = self.ledger.claim(item["id"], worker_id="stage-a")["token"]
+        self.ledger.prepare_notice(item["id"], token, "question", "questions-1", "契约提案有两个问题需要确认。")
+        self.ledger.confirm_notice(item["id"], "questions-1", "comment-questions-1")
+        self.ledger.checkpoint(item["id"], token, {"plan": self.PLAN, "handoff": {
+            "facts": [], "hypotheses": [], "checks": [], "repositories": [], "next_actions": ["Declare the config"]}})
+        self.ledger.handoff_repository(item["id"], token, "common", skill=self.feature)
+        self.ledger.complete_repository_handoff(item["id"], 4321, skill=self.feature)
+        self.assertEqual(self.ledger.item(item["id"])["root_repo"], "common")
+        return item
+
+    def conversation(self, session="mention"):
+        """A claimed conversation on the issue with one message; `mention` is not a delegation session."""
+        self.ledger.ensure_session(session, ISSUE, delegation=session != "mention")
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id=session, skill="chat")
+        self.ledger.push_inbox(chat["id"], "继续做")
+        return chat, self.ledger.claim(chat["id"], worker_id="conversation")["token"]
+
+    def request(self, chat, token):
+        message = self.ledger.issue_context(chat["id"])["session_messages"][-1]["id"]
+        return self.ledger.request_repair(chat["id"], token, message, self.APP, "Continue the feature.")
+
+    def test_a_redelegation_links_the_cancelled_job_of_its_skill_and_restarts_it_at_its_initial_root(self):
+        """The successor reads the plan and the posted notices, so its next question round is `questions-2` (P15)."""
+        first = self.at_second_stage(self.job())
+        self.ledger.cancel(first["id"], "Stop")
+        second = self.job(session="session-2")
+        self.assertEqual(second["predecessor_id"], first["id"])
+        self.assertIsNone(second["root_repo"])
+        self.assertEqual(write_repositories(second, self.feature), ("Farm-Contract",))
+        recovery = self.ledger.issue_context(second["id"])["recovery"]
+        self.assertEqual((recovery["predecessor_id"], recovery["plan"]), (first["id"], self.PLAN))
+        self.assertEqual([(n["item_id"], n["request_id"], n["kind"], n["remote_id"]) for n in recovery["notices"]],
+                         [(first["id"], "questions-1", "question", "comment-questions-1")])
+
+    def test_only_a_cancelled_job_of_the_same_write_skill_is_linked(self):
+        fix = self.job(skill="fix")
+        self.ledger.cancel(fix["id"], "Stop")
+        feature = self.job()
+        self.assertIsNone(feature["predecessor_id"])  # another skill's job is not this job's past
+        self.ledger.fail_queued(feature["id"], "budget exhausted")
+        again = self.job(session="session-2")
+        self.assertIsNone(again["predecessor_id"])  # a failed job is retried, not succeeded
+        self.ledger.cancel(again["id"], "Stop")
+        self.assertIsNone(self.job(skill="chat", session="session-3")["predecessor_id"])  # chat continues nothing
+
+    def test_a_conversation_continues_the_delegations_latest_write_job_whatever_its_skill(self):
+        fix = self.job(skill="fix")
+        self.ledger.cancel(fix["id"], "Stop")
+        self.now += 1
+        feature = self.at_second_stage(self.job(session="session-2"))
+        self.ledger.cancel(feature["id"], "Stop")
+        chat, token = self.conversation()
+        self.assertEqual(self.ledger.issue_context(chat["id"])["resumable_work"]["id"], feature["id"])
+        successor = self.request(chat, token)
+        self.assertEqual((successor["skill"], successor["predecessor_id"], successor["session_id"]),
+                         ("feature", feature["id"], "session-2"))
+        self.assertEqual(write_repositories(successor, self.feature), ("Farm-Contract",))
+        self.assertEqual(self.ledger.issue_context(successor["id"])["recovery"]["plan"], self.PLAN)
+
+    def test_a_conversation_in_a_delegation_session_continues_that_sessions_job(self):
+        fix = self.job(skill="fix")
+        self.ledger.cancel(fix["id"], "Stop")
+        self.now += 1
+        self.ledger.cancel(self.job(session="session-2")["id"], "Stop")
+        chat, _ = self.conversation(session=SESSION)
+        self.assertEqual(self.ledger.issue_context(chat["id"])["resumable_work"]["id"], fix["id"])
+
+    def test_a_continued_job_restarts_at_its_initial_root_and_keeps_its_plan(self):
+        feature = self.at_second_stage(self.job())
+        self.ledger.fail_queued(feature["id"], "budget exhausted")
+        chat, token = self.conversation()
+        resumed = self.request(chat, token)
+        self.assertEqual((resumed["id"], resumed["state"], resumed["root_repo"]), (feature["id"], "queued", None))
+        self.assertEqual(write_repositories(resumed, self.feature), ("Farm-Contract",))
+        self.assertEqual(self.ledger.issue_context(feature["id"])["plan"], self.PLAN)
+
+    def test_an_fgui_job_is_not_continued_from_a_conversation(self):
+        self.ledger.cancel(self.job(skill="fgui")["id"], "Stop")
+        chat, _ = self.conversation()
+        self.assertIsNone(self.ledger.issue_context(chat["id"])["resumable_work"])
+
+
+class StageAllowanceTests(LedgerBase):
+    """Automatic-retry allowances bound one stage of a job that starts at an initial root, and the whole job of a
+    fix (spec §5.8, D16): capacity and publication retries and the Unity execution and setup budgets."""
+    SPENT = (2, 3, 1, 2)
+
+    def setUp(self):
+        super().setUp()
+        self.feature = opt_in_skill(Path(self.tmp.name) / "skills")
+
+    def running(self, skill="feature"):
+        """A claimed job of `skill`; a feature job has no target, as the receiver and a conversation make it (P6)."""
+        item = self.new_item(skill=skill, target=None if skill == "feature" else PIN)
+        self.ledger.set_worker(item["id"], 4321, "test")
+        return item["id"], self.ledger.claim(item["id"], worker_id="w")["token"]
+
+    def spend(self, item_id):
+        """Use part of every allowance, as delayed capacity and publication retries and Unity recoveries do."""
+        self.ledger.connection.execute("UPDATE work_items SET capacity_retries=2,publication_retries=3 WHERE id=?",
+                                       (item_id,))
+        self.ledger.connection.execute("INSERT OR REPLACE INTO resource_job_retries(item_id,attempts,setup_attempts) "
+                                       "VALUES(?,1,2)", (item_id,))
+
+    def allowances(self, item_id):
+        item, recovery = self.ledger.item(item_id), self.ledger.issue_context(item_id)["resource_recovery"]
+        return item["capacity_retries"], item["publication_retries"], recovery["attempts"], recovery["setup_attempts"]
+
+    def hand_off(self, item_id, token, to_repo, skill):
+        self.ledger.checkpoint(item_id, token, {"handoff": {
+            "facts": [], "hypotheses": [], "checks": [], "repositories": [], "next_actions": ["Start the next stage"]}})
+        self.spend(item_id)
+        self.ledger.handoff_repository(item_id, token, to_repo, skill=skill)
+        return self.ledger.complete_repository_handoff(item_id, 4321, skill=skill)
+
+    def test_a_completed_handoff_starts_the_next_stage_with_fresh_allowances(self):
+        item_id, token = self.running()
+        self.assertEqual(self.hand_off(item_id, token, "common", self.feature)["root_repo"], "common")
+        self.assertEqual(self.allowances(item_id), (0, 0, 0, 0))
+
+    def test_an_answer_to_a_pause_resumes_the_job_with_fresh_allowances(self):
+        """Both reasons resume a new stage, such as the gap-list questions and the config-ready pause after the
+        `config-needed` notice (P15), and so does an answer that arrived before the pause was parked, which requeues
+        the item at once (spec §5.2)."""
+        for reason, early in (("question", False), ("waiting", False), ("waiting", True)):
+            with self.subTest(reason=reason, early=early):
+                self.setUp()
+                item_id, token = self.running()
+                self.spend(item_id)
+                if early:
+                    self.ledger.push_inbox(item_id, "配置已经发布")
+                self.ledger.await_input(item_id, token, "配置发布了吗？", reason=reason)
+                if not early:
+                    self.assertEqual(self.allowances(item_id), self.SPENT)  # parked: nothing has resumed yet
+                    self.ledger.push_inbox(item_id, "配置已经发布", resume_waiting=True)
+                self.assertEqual((self.ledger.item(item_id)["state"], self.allowances(item_id)), ("queued", (0, 0, 0, 0)))
+
+    def test_the_same_stage_keeps_its_allowances(self):
+        """A message to a running attempt, a recovered lease and a slot the pool grants continue one stage. No Phase B
+        feature job waits for a slot (it has no target and its manifest lists no resource: P6, P11), but fgui will;
+        the pool's grant is `Ledger.resume` of an item parked for its slot (`SlotPool.grant`), parked here directly."""
+        item_id, _ = self.running()
+        self.spend(item_id)
+        self.ledger.push_inbox(item_id, "顺便看一下日志", resume_waiting=True)  # steering a running attempt
+        self.now += 61
+        self.ledger.recover(item_id, "worker exited with an expired lease")
+        self.ledger.connection.execute("UPDATE work_items SET state='awaiting_resource',needs_resource=? WHERE id=?",
+                                       ("unity_slot:batch", item_id))
+        self.ledger.resume(item_id, "the pool granted the slot")
+        self.assertEqual((self.ledger.item(item_id)["state"], self.allowances(item_id)), ("queued", self.SPENT))
+
+    def test_fix_keeps_job_lifetime_allowances(self):
+        item_id, token = self.running(skill="fix")
+        self.hand_off(item_id, token, "Farm-Contract", SKILLS["fix"])
+        self.assertEqual(self.allowances(item_id), self.SPENT)
+        token = self.ledger.claim(item_id, worker_id="w2")["token"]
+        self.ledger.await_input(item_id, token, "哪个服？")
+        self.ledger.push_inbox(item_id, "公共测试服", resume_waiting=True)
+        self.assertEqual((self.ledger.item(item_id)["state"], self.allowances(item_id)), ("queued", self.SPENT))
+
+    def test_the_rule_names_every_repository_skill_with_an_initial_root_and_not_fix(self):
+        """The ledger reads no manifests, so it knows these skills by name; this keeps the names and the manifests
+        together when a skill with an initial root ships."""
+        from agent.ledger import STAGE_ALLOWANCE_SKILLS
+        self.assertLessEqual({name for name, skill in SKILLS.items() if skill.initial_root is not None},
+                             set(STAGE_ALLOWANCE_SKILLS))
+        self.assertIn(self.feature.name, STAGE_ALLOWANCE_SKILLS)
+        self.assertNotIn("fix", STAGE_ALLOWANCE_SKILLS)
+
+
 class LeaseTests(LedgerBase):
     def test_claim_requires_queued_and_issues_cli_safe_token(self):
         item = self.new_item()
@@ -544,6 +740,18 @@ class LeaseTests(LedgerBase):
         self.ledger.set_worker(item["id"], 4242, "h")
         self.assertIsNone(self.ledger.cancel(item["id"], "stop")["worker_pid"])
         self.assertIsNone(self.ledger.retry(item["id"], "human asked 重试")["worker_pid"])
+
+    def test_a_cancel_limited_to_waiting_states_never_takes_a_claimed_item(self):
+        """Delegation removal (spec §9.8) cancels only work no worker holds, decided in the cancel's own transaction."""
+        waiting = ("queued", "awaiting_input", "awaiting_resource")
+        item = self.new_item()
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        self.assertIsNone(self.ledger.cancel(item["id"], "delegation removed", states=waiting))
+        self.ledger.renew(item["id"], token)  # the claim is untouched
+        self.ledger.await_input(item["id"], token, "Which server?")
+        self.assertEqual(self.ledger.cancel(item["id"], "delegation removed", states=waiting)["state"], "cancelled")
+        self.assertIsNone(self.ledger.cancel(item["id"], "delegation removed", states=waiting))  # nothing left to do
+        self.assertEqual(self.ledger.cancel(item["id"], "stop")["state"], "cancelled")  # without states, as before
 
     def test_retry_cancelled_item_creates_fresh_generation_on_successor(self):
         item = self.new_item()
@@ -1213,6 +1421,104 @@ class PlanTests(LedgerBase):
         with self.assertRaisesRegex(LedgerError, "lease expired"):
             self.ledger.checkpoint(item_id, fresh, {"plan": {"stages": {"A": "late"}}})
         self.assertEqual(self.ledger.issue_context(item_id)["plan"], self.PLAN)
+
+    # Plan P9: an issue entry of plan.prs decides where later attempts' worktrees start (spec §5.7), so the
+    # checkpoint refuses one no launch could check out, while the worker can still correct it.
+    def test_an_issue_entry_names_this_issues_own_farmbot_branch(self):
+        item_id, token = self.running()
+        self.ledger.checkpoint(item_id, token, {"plan": self.PLAN})
+        stage = self.ledger.item(item_id)["stage"]
+        for branch in ("main", "farmbot/farm-2", "farmbot/farm-10", "designer-one/farm-1-harvest", "farmbot/farm-1 x",
+                       "farmbot/farm-1-a:b", "farmbot/farm-1-x\n", "farmbot/farm-1-a..b", "farmbot/farm-1-x.lock",
+                       "farmbot/farm-1-x/", ["farmbot/farm-1"], None):
+            with self.subTest(branch=branch):
+                plan = {"prs": {"common": [{"branch": branch, "role": "issue", "head": "b" * 40}]}}
+                with self.assertRaisesRegex(LedgerError, r"plan\.prs\.common: an issue entry names this issue's own "
+                                                         r"branch, farmbot/farm-1 or farmbot/farm-1-<suffix>"):
+                    self.ledger.checkpoint(item_id, token, {"stage": "declarations", "plan": plan})
+        self.assertEqual((self.ledger.issue_context(item_id)["plan"], self.ledger.item(item_id)["stage"]),
+                         (self.PLAN, stage))  # nothing of a refused checkpoint is saved
+        # Any other branch may be recorded, a person's included, under another role or none.
+        other = {"prs": {"common": [{"branch": "farmbot/farm-1", "role": "issue", "head": "b" * 40},
+                                    {"branch": "designer-one/farm-1-harvest", "head": "c" * 40}]}}
+        self.assertEqual(self.ledger.checkpoint(item_id, token, {"plan": other})["checkpoint"]["plan"], other)
+
+    def test_a_repository_has_one_issue_entry(self):
+        item_id, token = self.running()
+        for second in ("farmbot/farm-1-2", "farmbot/farm-1"):
+            with self.subTest(second=second), self.assertRaisesRegex(
+                    LedgerError, r"plan\.prs\.common has more than one issue entry"):
+                self.ledger.checkpoint(item_id, token, {"plan": {"prs": {"common": [
+                    {"branch": "farmbot/farm-1", "role": "issue"}, {"branch": second, "role": "issue"}]}}})
+        self.assertIsNone(self.ledger.issue_context(item_id)["plan"])
+
+    def test_an_issue_entry_follows_the_hosts_issue_namespace(self):
+        """The worker CLI passes the host's issue_prefix; FARM-1 is outside an FBTEST host's namespace."""
+        item_id, token = self.running()
+        with self.assertRaisesRegex(LedgerError, r"plan\.prs\.Farm-Contract: .*configured issue namespace"):
+            self.ledger.checkpoint(item_id, token, {"plan": self.PLAN}, issue_prefix="FBTEST")
+        self.ledger.checkpoint(item_id, token, {"plan": {"stages": {"A": "done"}}}, issue_prefix="FBTEST")
+
+    def test_a_fix_plan_that_records_its_own_branches_is_accepted_as_before(self):
+        """A fix records the branch its worktree is on: Linear's suggestion, or the -<job> copy of a successor."""
+        item_id, token = self.running()
+        plan = {"prs": {"Farm-Client": [{"branch": "farmbot/farm-1-harvest-duplicates-rewards", "role": "issue",
+                                         "head": "a" * 40,
+                                         "url": "https://github.com/Kuaiwa-Network/Farm-Client/pull/7"}],
+                        "farm-hive": [{"branch": f"farmbot/farm-1-{item_id}", "role": "issue", "head": "b" * 40}]}}
+        self.assertEqual(self.ledger.checkpoint(item_id, token, {"plan": plan})["checkpoint"]["plan"], plan)
+        self.assertEqual(self.ledger.recorded_branches(item_id),
+                         {"Farm-Client": "farmbot/farm-1-harvest-duplicates-rewards",
+                          "farm-hive": f"farmbot/farm-1-{item_id}"})
+
+    def test_a_feature_plan_records_one_issue_branch_per_repository_beside_its_suffix_branches(self):
+        item = self.new_item(skill="feature", target=None)
+        self.ledger.set_worker(item["id"], 4321, "test")
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+
+        def entry(branch, role, head):
+            return {"branch": branch, "role": role, "head": head * 40, "pr": None}
+        plan = {"stages": {"A": "done", "B": "done", "C": "done", "D": "done", "G": "pending"},
+                "prs": {"Farm-Contract": [entry("farmbot/farm-1", "issue", "a"),
+                                          entry("farmbot/farm-1-waivers", "waivers", "b")],
+                        "common": [entry("farmbot/farm-1", "issue", "c"), entry("farmbot/farm-1-config", "config", "d")],
+                        "farm-hive": [entry("farmbot/farm-1", "issue", "e"),
+                                      entry("farmbot/farm-1-followup", "followup", "f")]}}
+        self.assertEqual(self.ledger.checkpoint(item["id"], token, {"plan": plan})["checkpoint"]["plan"], plan)
+        self.assertEqual(self.ledger.recorded_branches(item["id"]),
+                         dict.fromkeys(("Farm-Contract", "common", "farm-hive"), "farmbot/farm-1"))
+
+    def test_recorded_branches_are_the_issue_entries_of_the_nearest_plan(self):
+        """Spec §5.7 "Re-attachment": the scheduler reads only these; any other plan content is the worker's own."""
+        item_id, token = self.running()
+        self.assertEqual(self.ledger.recorded_branches(item_id), {})
+        plan = {"prs": {"Farm-Contract": [{"branch": "farmbot/farm-1-waivers", "role": "waivers"},
+                                          {"branch": "farmbot/farm-1", "role": "issue", "head": "a" * 40, "pr": None}],
+                        "common": ["farmbot/farm-1", {"branch": "farmbot/farm-1", "role": "config"}],
+                        "farm-hive": {"branch": "farmbot/farm-1", "role": "issue"}}}
+        self.ledger.checkpoint(item_id, token, {"plan": plan})
+        self.assertEqual(self.ledger.recorded_branches(item_id), {"Farm-Contract": "farmbot/farm-1"})
+        self.ledger.cancel(item_id, "Stop")
+        successor = self.ledger.retry(item_id, "continue")["id"]
+        self.assertEqual(self.ledger.recorded_branches(successor), {"Farm-Contract": "farmbot/farm-1"})
+        self.ledger.set_worker(successor, 4322, "test")
+        token = self.ledger.claim(successor, worker_id="w2")["token"]
+        self.ledger.checkpoint(successor, token, {"plan": {"stages": {"A": "done"}}})
+        self.assertEqual(self.ledger.recorded_branches(successor), {})  # its own plan, once it saved one
+
+    def test_a_plan_written_around_the_checkpoint_is_checked_again_when_read(self):
+        """The ledger file sits in a directory every worker can write, so the scheduler's read applies P9's rules
+        again."""
+        item_id, _ = self.running()
+        for plan, error in (({"prs": {"common": [{"branch": "main", "role": "issue"}]}}, "farmbot/farm-1 or"),
+                            ({"prs": {"common": [{"branch": "farmbot/farm-1", "role": "issue"},
+                                                 {"branch": "farmbot/farm-1-2", "role": "issue"}]}},
+                             "more than one issue entry")):
+            with self.subTest(error=error):
+                self.ledger.connection.execute("UPDATE work_items SET checkpoint=? WHERE id=?",
+                                               (json.dumps({"plan": plan}), item_id))
+                with self.assertRaisesRegex(LedgerError, error):
+                    self.ledger.recorded_branches(item_id)
 
 
 class NoticeTests(LedgerBase):

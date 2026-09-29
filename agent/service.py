@@ -20,7 +20,7 @@ from .lifecycle import Lifecycle
 from .publication import PublicationVerifier
 from .resource_recovery import RecoveryController
 from .receiver import Receiver, make_server
-from .router import WRITE_SKILLS
+from .router import BOT_GROUP, BOT_SKILLS, WRITE_SKILLS, bot_children
 from .scheduler import Scheduler
 from .session_progress import SessionProgress
 from .skills import enabled_skills, load_skills
@@ -143,10 +143,17 @@ def enqueue(config, *, issue_ref, skill, commit=None, session=None):
     scheduler and the worker both read that prefix and report through an issue comment instead.
     """
     check_ownership(config, require_initialized=True)
-    enabled = enabled_skills(load_skills(ROOT / "skills"), config.enabled_skills, authority=SKILL_AUTHORITY)
+    loaded = load_skills(ROOT / "skills")
+    enabled = enabled_skills(loaded, config.enabled_skills, authority=SKILL_AUTHORITY)
     if skill not in enabled:
-        raise RuntimeError(f"{skill} is not a skill this instance runs ({', '.join(sorted(enabled))}); "
-                           "enabled_skills in the private config chooses them (spec §9.11)")
+        # An opt-in skill is loaded but runs only where the list names it (P1); say so, as the list alone does not.
+        rule = (f"{skill} is opt-in, so enabled_skills in the private config must name it"
+                if skill in loaded and loaded[skill].opt_in else "enabled_skills in the private config chooses them")
+        raise RuntimeError(f"{skill} is not a skill this instance runs ({', '.join(sorted(enabled))}); {rule} "
+                           "(spec §9.11)")
+    if skill == "feature" and commit is not None:
+        # Plan P6: the Farm-Client target a commit pins is a fix's reproduction baseline, and a feature job has none.
+        raise RuntimeError("--commit pins a fix's Farm-Client target, and a feature job takes none")
     api = linear_api(config)
     paths = Paths(config)
     paths.config_dir.mkdir(parents=True, exist_ok=True)
@@ -158,14 +165,25 @@ def enqueue(config, *, issue_ref, skill, commit=None, session=None):
         if skill in WRITE_SKILLS and not delegated:
             raise RuntimeError(f"{skill} is write-capable and this issue is not delegated to FarmBot; "
                                f"delegate it in Linear first (spec §4)")
+        # fgui and feature start only on a card whose one Bot child names them, as a delegation does (spec §9.11,
+        # D18). fix reads no label here, as before (Bot label group design §8).
+        wanted = [child for child, name in BOT_SKILLS.items() if name == skill and name != "fix"]
+        children = bot_children(issue.get("label_groups"))
+        if wanted and children != wanted:
+            carries = "、".join(f"{BOT_GROUP}/{child}" for child in children) or "no Bot label"
+            raise RuntimeError(f"{skill} starts only on a card labelled {BOT_GROUP}/{wanted[0]}, as a delegation "
+                               f"does; this card carries {carries}")
         session = session or f"local-{observed['id']}"
         ledger.ensure_session(session, observed["id"], delegated)
-        trees = Worktrees(paths.repos, paths.worktrees, config.repos)
-        target = {"repository": "Farm-Client", "requested_ref": "default",
-                  "commit_sha": commit or trees.resolve_commit("Farm-Client"),
-                  "server_environment": config.default_server_environment,
-                  "selected_at": datetime.now(timezone.utc).isoformat()}
-        ledger.set_session_target(session, target)
+        target = None
+        if skill != "feature":
+            # A feature job gets no Farm-Client target and its session stores none, as for a delegation (plan P6).
+            trees = Worktrees(paths.repos, paths.worktrees, config.repos)
+            target = {"repository": "Farm-Client", "requested_ref": "default",
+                      "commit_sha": commit or trees.resolve_commit("Farm-Client"),
+                      "server_environment": config.default_server_environment,
+                      "selected_at": datetime.now(timezone.utc).isoformat()}
+            ledger.set_session_target(session, target)
         item = ledger.create_work_item(issue_id=observed["id"], session_id=session, skill=skill, target=target)
         ledger.note(item["id"], "enqueue", f"operator enqueued {skill} for {observed['identifier']}")
         return item

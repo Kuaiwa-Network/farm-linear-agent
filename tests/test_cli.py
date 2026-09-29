@@ -755,6 +755,47 @@ class CliTests(unittest.TestCase):
                                 self.json_file("ok.json", {"published_prs": ["https://github.com/Kuaiwa-Network/Farm-Client/pull/1"]}))
         self.assertEqual(accepted["state"], "running")
 
+    def test_checkpoint_checks_a_plans_issue_branches_in_the_hosts_issue_namespace(self):
+        """Plan P9 in the worker CLI: the private config's issue_prefix names the branches, as for the scheduler and
+        the publication verifier."""
+        from agent.ledger import Ledger
+        config = self.root / "config.json"
+        config.write_text(json.dumps({"client_id": "c", "client_secret": "s", "webhook_secret": "w", "repos": {},
+                                      "local_root": str(self.root / "local"), "issue_prefix": "FBTEST"}),
+                          encoding="utf-8")
+        self.env["FARMBOT_CONFIG"] = str(config)
+        ledger = Ledger(self.db)
+        ledger.observe_issue(issue(identifier="FBTEST-7", branch_name="farmbot/fbtest-7", labels=["Bug"]))
+        ledger.ensure_session("session-1", ISSUE, delegation=True)
+        item = ledger.create_work_item(issue_id=ISSUE, session_id="session-1", skill="fix")["id"]
+        ledger.close()
+        token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
+
+        def plan(branch):
+            return self.json_file("plan.json", {"plan": {"prs": {"Farm-Client": [{"branch": branch, "role": "issue"}]}}})
+        refused = self.run_cli("checkpoint", "--item", item, "--token", token, "--input", plan("farmbot/farm-7"),
+                               success=False)
+        self.assertIn("farmbot/fbtest-7 or farmbot/fbtest-7-<suffix>", refused.stderr)
+        saved = self.run_cli("checkpoint", "--item", item, "--token", token, "--input", plan("farmbot/fbtest-7"))
+        self.assertEqual(saved["checkpoint"]["plan"]["prs"]["Farm-Client"][0]["branch"], "farmbot/fbtest-7")
+
+    def test_fetch_issue_says_whether_the_issue_is_still_delegated_to_this_app(self):
+        """Spec §9.8: a claimed worker learns at its next fetch-issue that the delegation was removed or moved."""
+        from types import SimpleNamespace
+        from agent.__main__ import parser, run
+        from agent.ledger import Ledger
+        app = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
+        item = self.seeded_item()
+        ledger = Ledger(self.db)
+        self.addCleanup(ledger.close)
+        args = parser().parse_args(["--db", str(self.db), "fetch-issue", "--item", item])
+        for delegate, delegated in ((app, True), (None, False), ("10000000-0000-4000-8000-000000000009", False)):
+            with self.subTest(delegate=delegate):
+                current = issue(labels=["Bug"], delegate_id=delegate)
+                fetched = run(args, ledger, lambda: SimpleNamespace(app_user_id=app, fetch_issue=lambda _: current))
+                self.assertEqual((fetched["identifier"], fetched["delegated"]), ("FARM-1", delegated))
+        self.assertIs(self.run_cli("fetch-issue", "--item", item)["delegated"], False)  # the stub's card: undelegated
+
     def test_a_worker_requests_a_slot_and_the_request_is_queued(self):
         item = self.seeded_item(target=PIN)
         token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]

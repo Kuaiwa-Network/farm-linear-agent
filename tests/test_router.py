@@ -1,6 +1,6 @@
 import unittest
 
-from agent.router import Decision, route, start_refusal
+from agent.router import Decision, route, start_refusal, start_skill
 
 SKILLS = {"chat", "fix"}
 
@@ -177,3 +177,24 @@ class StartRequestTests(unittest.TestCase):
                 refusal = start_refusal(children, FEATURES)
                 self.assertIn("not exactly one of Bot/修改, Bot/UI or Bot/Code, so it names no workflow", refusal)
                 self.assertIn("、".join(f"Bot/{child}" for child in children), refusal)
+
+    def test_the_label_names_the_skill_a_first_start_creates(self):
+        for children, skill in (([], "fix"), (["修改"], "fix"), (["Code"], "feature"), (["UI"], "fgui"),
+                                (["Art"], None), (["Code", "UI"], None)):
+            with self.subTest(children=children):
+                self.assertEqual(start_skill(children), skill)
+
+    def test_a_code_card_may_start_feature_where_this_instance_runs_it(self):
+        """Phase B: a conversation starts feature as D18 f planned; fgui still starts only on delegation."""
+        self.assertIsNone(start_refusal(["Code"], FEATURES))
+        self.assertIsNone(start_refusal(["Code"], {"chat", "feature"}))
+        self.assertEqual(start_refusal(["UI"], FEATURES),
+                         "this issue carries Bot/UI, so it is fgui work, not a fix; fgui work starts only when an "
+                         "issue labelled Bot/UI is delegated")
+
+    def test_without_fix_a_card_whose_label_names_fix_starts_nothing(self):
+        """A host may run feature and not fix: a request there reads Linear, then refuses a first fix."""
+        for children in ([], ["修改"]):
+            with self.subTest(children=children):
+                self.assertEqual(start_refusal(children, {"chat", "feature"}),
+                                 "repair execution is not available on this host")

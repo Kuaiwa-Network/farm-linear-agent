@@ -7,10 +7,10 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from .config import Paths, linear_api, load_config
+from .config import Config, Paths, linear_api, load_config
 from .ledger import AWAIT_REASONS, NOTICE_KINDS, TERMINAL_STATUS_TYPES, Ledger, LedgerError
 from .memory import prune_snapshots
-from .router import WRITE_SKILLS
+from .router import CONVERSATION_SKILLS, WRITE_SKILLS, continuation_refusal
 from .stages import write_repositories
 
 
@@ -140,7 +140,7 @@ def resolve_token(args):
 
 def enabled_skill_names():
     """The skills this host runs (spec §9.11). With no readable private config, as in test fixtures, every loaded
-    skill: the scheduler still refuses to launch one the controller's config leaves out."""
+    skill but the opt-in ones (P1): the scheduler still refuses to launch one the controller's config leaves out."""
     from .config import ROOT
     from .dispatch import SKILL_AUTHORITY
     from .skills import enabled_skills, load_skills
@@ -151,22 +151,41 @@ def enabled_skill_names():
     return set(enabled_skills(load_skills(ROOT / "skills"), names, authority=SKILL_AUTHORITY))
 
 
-def start_request_refusal(ledger, item_id, issue, running):
-    """D18 f (Bot label group design §4.4): a start request in a conversation follows the card's Bot label. It
-    starts `fix` on a card whose only Bot child is 修改 or that has none; on a UI or Code card, or one whose Bot
-    children name no workflow, a first start is refused, and the refusal says why. None when the
-    request goes on: also when it continues an earlier fix, whatever the label now says, and when the item is not
-    a conversation, which the ledger refuses itself. The ledger continues only fix jobs, so an fgui or feature job
-    on the issue lifts nothing until the phase that continues those jobs. While the chat item is active no other
-    item can appear on the issue, so this cannot change before the ledger's transaction."""
-    from .router import bot_children, start_refusal
-    refusal = start_refusal(bot_children(issue.get("label_groups")), running)
-    if refusal is None:
-        return None
+def conversation_request(ledger, item_id, issue, running, *, start):
+    """What a request in a conversation starts or continues, as (skill, refusal); at most one is not None.
+
+    The delegation's own earlier job (`resumable_work`: a fix, or a feature job; spec §9.4) continues, whatever the
+    card's label now says, where this host runs its skill. Otherwise `request-repair` (start=True) starts the
+    workflow the card's Bot label names, where this host runs it and a conversation may start it (D18 f; Bot label
+    group design §4.4): 修改 or no Bot child, `fix`; Code, `feature`. `resume-work` (start=False) starts nothing.
+    A refusal says why nothing starts. Where the delegation's job has a skill this host does not run, a label that
+    refuses a first start says so first, and no other skill's job starts in its place. (None, None) also when the
+    item is not a conversation, which the ledger refuses itself. While the chat item is active no other item can
+    appear on the issue, so this cannot change before the ledger's transaction."""
+    from .router import bot_children, start_refusal, start_skill
     context = ledger.issue_context(item_id)
-    if context["coordination"]["skill"] != "chat" or context["resumable_work"] is not None:
-        return None
-    return refusal
+    if context["coordination"]["skill"] != "chat":
+        return None, None
+    work = context["resumable_work"]
+    if work is not None and work["skill"] in running:
+        return work["skill"], None
+    children = bot_children(issue.get("label_groups"))
+    refusal = start_refusal(children, running) if start else None
+    if refusal is None and work is not None:
+        refusal = continuation_refusal(work["skill"])
+    if refusal is not None:
+        return None, refusal
+    return (start_skill(children) if start else None), None
+
+
+def configured_issue_prefix():
+    """The host's issue namespace (Config.issue_prefix), in which a plan's issue branches are checked (plan P9);
+    Config's default where no private config is readable, as in test fixtures, which the scheduler and the
+    publication verifier default to as well."""
+    try:
+        return load_config(secure_permissions=False).issue_prefix
+    except (OSError, ValueError):
+        return Config.issue_prefix
 
 
 def verify_late_prs(ledger, args, token, progress):
@@ -316,7 +335,11 @@ def run(args, ledger, api_factory):
     if c == "queue":
         return ledger.queue()
     if c == "fetch-issue":
-        return ledger.observe_issue(api_factory().fetch_issue(ledger.item(args.item)["issue_id"]))
+        api = api_factory()
+        issue = api.fetch_issue(ledger.item(args.item)["issue_id"])
+        # Spec §9.8: a claimed worker learns here that the delegation was removed or moved, and finishes blocked.
+        # LinearAPI.fetch_issue establishes this app's identity before it reads the issue.
+        return {**ledger.observe_issue(issue), "delegated": issue.get("delegate_id") == api.app_user_id}
     if c == "claim":
         return ledger.claim(args.item, worker_id=args.worker_id)
     if c == "renew":
@@ -338,7 +361,8 @@ def run(args, ledger, api_factory):
                 check_pr_targets(published)
         token = resolve_token(args)
         return ledger.checkpoint(args.item, token, progress,
-                                 verified_prs=verify_late_prs(ledger, args, token, progress))
+                                 verified_prs=verify_late_prs(ledger, args, token, progress),
+                                 issue_prefix=configured_issue_prefix())
     if c == "handoff-repository":
         from .config import ROOT
         from .skills import load_skills
@@ -406,25 +430,29 @@ def run(args, ledger, api_factory):
         token = resolve_token(args)
         ledger.renew(args.item, token)
         item = ledger.item(args.item)
-        # Both queue fix work, which this host may not run (spec §9.11): refuse before asking Linear anything.
+        # Both queue write work, which this host may not run (spec §9.11): refuse before asking Linear anything
+        # when it runs no skill a conversation starts or continues. Which one applies needs the fresh card.
         running = enabled_skill_names()
-        if "fix" not in running:
+        if not running & set(CONVERSATION_SKILLS):
             raise LedgerError("repair execution is not available on this host")
         api = api_factory()
         current = api.fetch_issue(item["issue_id"])
         ledger.observe_issue(current)
+        skill, refusal = conversation_request(ledger, args.item, current, running, start=c == "request-repair")
+        if refusal is not None:
+            raise LedgerError(refusal)
         if c == "request-repair":
-            refusal = start_request_refusal(ledger, args.item, current, running)
-            if refusal is not None:
-                raise LedgerError(refusal)
+            # A request from a work item names no skill here; the ledger refuses it itself.
             resumed = ledger.request_repair(args.item, token, args.message_id, api.app_user_id,
-                                             read_text(args.summary_file))
+                                             read_text(args.summary_file), start_skill=skill or "fix")
         else:
             resumed = ledger.resume_work(args.item, token, args.message_id, api.app_user_id)
         try:
+            # D18: 修改 names the fix workflow; other work is named generically, never promised as a fix.
+            named = "修改" if resumed["skill"] == "fix" else "这项工作"
             api.create_activity(item["session_id"], {
                 "type": "thought" if item["session_id"] == resumed["session_id"] else "response",
-                "body": ("已排队开始或继续修改，会接着你的回复和已有调查结果处理。"
+                "body": (f"已排队开始或继续{named}，会接着你的回复和已有调查结果处理。"
                          + ("后续进展记录在原委派会话和 issue 下。"
                             if item["session_id"] != resumed["session_id"] else ""))})
         except Exception as exc:

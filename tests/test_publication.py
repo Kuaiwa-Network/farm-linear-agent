@@ -66,7 +66,7 @@ class PublicationTests(unittest.TestCase):
             with self.subTest(suggested=suggested):
                 git('remote', 'set-url', 'origin', str(self.origin), cwd=self.path)
                 identifier, item_id = f'FBTEST-{number}', f'job-{number}'
-                paths = scheduler._worktrees_for(SimpleNamespace(writes=['farmgui']),
+                paths = scheduler._worktrees_for(SimpleNamespace(writes=['farmgui'], initial_root=None),
                     {'id': item_id, 'publication_retries': 0},
                     {'identifier': identifier, 'branch_name': suggested})
                 git('remote', 'set-url', 'origin', self.remote, cwd=self.path)
@@ -83,7 +83,7 @@ class PublicationTests(unittest.TestCase):
                               issue_prefix='FBTEST')
         for identifier in ('FARM-42', '../FBTEST-42', 'FBTEST-42/other', 'FBTEST-.*', None):
             with self.subTest(identifier=identifier), self.assertRaises(publication.PublicationError):
-                scheduler._worktrees_for(SimpleNamespace(writes=['farmgui']),
+                scheduler._worktrees_for(SimpleNamespace(writes=['farmgui'], initial_root=None),
                     {'id': 'rejected', 'publication_retries': 0},
                     {'identifier': identifier, 'branch_name': 'farmbot/fbtest-42'})
         self.assertFalse((self.trees.worktrees_root / 'rejected').exists())

@@ -10,6 +10,10 @@ WRITE_SKILLS = ("fix", "fgui", "feature")
 BOT_GROUP = "Bot"
 BOT_GROUPS = (BOT_GROUP, "功能")
 BOT_SKILLS = {"修改": "fix", "UI": "fgui", "Code": "feature"}
+# The write skills a request in a conversation may start or continue (spec §9.4; D18 f): it continues the
+# delegation's earlier job whatever the card's label now says, and otherwise starts the job the label names. fgui
+# joins when its phase lands.
+CONVERSATION_SKILLS = ("fix", "feature")
 
 
 @dataclass(frozen=True)
@@ -42,24 +46,40 @@ def _not_run(children, skill, available_skills):
             f"本实例运行：{runs}。先以只读对话查看，不会开始这项工作。")
 
 
-def start_refusal(children, available_skills):
-    """Why a start request in a conversation starts nothing here, or None when it may start or continue `fix`.
+def start_skill(children):
+    """The skill a first start in a conversation creates on a card with these Bot children (D18 f): 修改 or none,
+    `fix`; UI, `fgui`; Code, `feature`. None for an unknown child or two, which name no workflow."""
+    if not children:
+        return "fix"
+    return BOT_SKILLS.get(children[0]) if len(children) == 1 else None
 
-    D18 f (design §4.4): the card's Bot label chooses the workflow. No Bot child, or only 修改, is `fix`. A first
-    `fgui` or `feature` job cannot be started from a conversation in this release, and an unknown child or two
-    children name no workflow."""
-    skill = BOT_SKILLS.get(children[0]) if len(children) == 1 else None
-    if not children or skill == "fix":
+
+def start_refusal(children, available_skills):
+    """Why a first start in a conversation starts nothing here, or None when it may start `start_skill(children)`.
+
+    D18 f (design §4.4): the card's Bot label chooses the workflow, where this instance runs it and a conversation
+    may start it (CONVERSATION_SKILLS): no Bot child, or only 修改, `fix`; Code, `feature`. A first `fgui` job
+    cannot be started from a conversation yet, and an unknown child or two children name no workflow."""
+    skill = start_skill(children)
+    if skill in CONVERSATION_SKILLS and skill in available_skills:
         return None
     labels = _named(children)
     if skill is None:
         return (f"this issue carries {labels}, not exactly one of {BOT_GROUP}/修改, {BOT_GROUP}/UI or "
                 f"{BOT_GROUP}/Code, so it names no workflow; correct the label, then ask again")
+    if skill == "fix":
+        return "repair execution is not available on this host"
     if skill not in available_skills:
         return (f"this issue carries {labels}, so it is {skill} work, not a fix, and this instance does not run "
                 f"{skill} yet")
     return (f"this issue carries {labels}, so it is {skill} work, not a fix; {skill} work starts only when an "
             f"issue labelled {labels} is delegated")
+
+
+def continuation_refusal(skill):
+    """Why a request in a conversation continues nothing here: the delegation's own earlier job is `skill` work,
+    which this instance does not run, and a request never starts another skill's job in its place (spec §9.4)."""
+    return f"this issue's earlier {skill} job continues only on an instance that runs {skill}, and this one does not"
 
 
 def route(*, action, is_delegation, text, labels, active_state, terminal_exists, available_skills,

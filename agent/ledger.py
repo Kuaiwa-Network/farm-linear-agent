@@ -17,8 +17,11 @@ import time
 from uuid import UUID, uuid4
 
 from . import memory
+from .publication import PublicationError, is_issue_branch, issue_branch
 from .resource_recovery import RecoveryStore, SCHEMA as RECOVERY_SCHEMA
+from .router import CONVERSATION_SKILLS, WRITE_SKILLS
 from .stages import current_root
+from .worktrees import SAFE_BRANCH
 
 MARKER = re.compile(r"\[farmbot:[0-9a-f]{64}\]")
 STATES = ("queued", "running", "awaiting_input", "awaiting_resource",
@@ -32,6 +35,10 @@ NOTICE_KINDS = ("question", "waiting", "foreign_work")
 REQUEST_ID = re.compile(r"[A-Za-z0-9._-]{1,64}")
 # Why a pause waits (spec §5.2): a question needs an answer and adds needs-more-info; waiting is a human step elsewhere.
 AWAIT_REASONS = ("question", "waiting")
+# The skills that start at an initial root, whose jobs last days across stages and human gates: their
+# automatic-retry allowances bound one stage, not the job (spec §5.8, D16). The ledger reads no manifests, so it
+# knows them by name, as it knows fix, whose allowances last the job.
+STAGE_ALLOWANCE_SKILLS = ("feature", "fgui")
 
 
 class LedgerError(ValueError):
@@ -283,6 +290,41 @@ def _validate_plan(value):
             pending.extend((f"{where}[{index}]", entry) for index, entry in enumerate(item))
         elif isinstance(item, str) and len(item) > 2000:
             raise LedgerError(f"{where} text exceeds 2000 characters")
+
+
+def _git_accepts(branch):
+    """git check-ref-format's rules for a branch name that SAFE_BRANCH's characters leave open: no `..`, no empty
+    component, none that starts with `.` or ends with `.lock`, and no `.` at the end."""
+    return ".." not in branch and not branch.endswith(".") and all(
+        part and not part.startswith(".") and not part.endswith(".lock") for part in branch.split("/"))
+
+
+def plan_issue_branches(plan, identifier, issue_prefix):
+    """{repository: branch}: the issue branches a plan records, one entry of `plan.prs` with "role": "issue" per
+    repository (spec §5.7 "Re-attachment"; plan P9). Each names this issue's FarmBot branch under the issue-branch
+    policy publication enforces (`publication.is_issue_branch`), spelt as FarmBot's worktrees and git accept it, or
+    no later launch could check it out. Entries of other roles, and values of other shapes, are the worker's own
+    record and decide nothing. LedgerError names the first entry that breaks a rule."""
+    recorded = plan.get("prs") if isinstance(plan, dict) else None
+    found = {}
+    for repo, entries in (recorded.items() if isinstance(recorded, dict) else ()):
+        for entry in (entries if isinstance(entries, list) else ()):
+            if not (isinstance(entry, dict) and entry.get("role") == "issue"):
+                continue
+            if repo in found:
+                raise LedgerError(f"plan.prs.{repo} has more than one issue entry: record one issue branch per "
+                                  "repository, and any other branch under another role")
+            try:
+                canonical = issue_branch(identifier, issue_prefix)
+            except PublicationError as exc:
+                raise LedgerError(f"plan.prs.{repo}: {exc}") from None
+            branch = entry.get("branch")
+            if not (is_issue_branch(branch, identifier, issue_prefix) and SAFE_BRANCH.fullmatch(branch)
+                    and _git_accepts(branch)):
+                raise LedgerError(f"plan.prs.{repo}: an issue entry names this issue's own branch, {canonical} or "
+                                  f"{canonical}-<suffix>, as git spells it; {branch!r} is not one")
+            found[repo] = branch
+    return found
 
 
 def _validate_handoff(value):
@@ -711,9 +753,11 @@ class Ledger:
             if self.connection.execute("SELECT 1 FROM work_items WHERE issue_id=? AND state IN ('queued','running','awaiting_input','awaiting_resource')",
                                        (issue["id"],)).fetchone():
                 raise LedgerError("an active work item already exists for this issue")
+            # A re-delegation continues its skill's cancelled job, for every write skill (spec §9.4): the successor
+            # reads that job's plan and notices in `recovery` and launches after its cleanup. Chat continues nothing.
             prior = self.connection.execute(
                 "SELECT id,state FROM work_items WHERE issue_id=? AND skill=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
-                (issue["id"], skill)).fetchone() if skill == "fix" else None
+                (issue["id"], skill)).fetchone() if skill in WRITE_SKILLS else None
             predecessor = prior["id"] if prior and prior["state"] == "cancelled" else None
             item_id = str(uuid4())
             now = self.clock()
@@ -949,7 +993,9 @@ class Ledger:
         if error := self.checkpoint_error(item_id):
             raise LedgerError(f"repair the rejected checkpoint handoff before pausing or finishing: {error}")
 
-    def checkpoint(self, item_id, token, progress, *, verified_prs=()):
+    def checkpoint(self, item_id, token, progress, *, verified_prs=(), issue_prefix="FARM"):
+        """`issue_prefix` is the host's issue namespace (Config.issue_prefix), which the worker CLI passes: a plan's
+        issue branches are checked against it (plan P9)."""
         if not isinstance(progress, dict):
             raise LedgerError("checkpoint input must be an object")
         handoff_updated = "handoff" in progress
@@ -985,6 +1031,10 @@ class Ledger:
                 progress["worker_id"] = previous["worker_id"]
             known = {r["url"] for r in self.connection.execute("SELECT url FROM published_prs WHERE issue_id=?", (row["issue_id"],))}
             issue = json.loads(self._issue_row(row["issue_id"])["metadata"])
+            if "plan" in progress:
+                # P9: a recorded issue branch decides where later attempts' worktrees start (spec §5.7). Refused
+                # outright, like any invalid plan, before anything of this checkpoint is written.
+                plan_issue_branches(progress["plan"], issue["identifier"], issue_prefix)
             existing_input = set(issue["attachments"])
             new_prs = set(published) - known
             late_prs = new_prs & existing_input
@@ -1117,9 +1167,21 @@ class Ledger:
                     or row["worker_pid"] != expected_pid or row["token"] is not None):
                 raise LedgerError("repository handoff no longer matches the retired worker")
             self._set_state(item_id, "queued", "repository handoff complete", root_repo=target,
-                            next_root_repo=None, worker_pid=None)
+                            next_root_repo=None, worker_pid=None, **self._new_stage_allowances(row))
             self._audit(item_id, "repository_handoff_complete", details={"to": target})
             return self._view(self._row(item_id))
+
+    def _new_stage_allowances(self, row):
+        """Caller owns the transaction. A new stage of a job whose skill starts at an initial root (a completed
+        repository handoff, or a resume from a human gate) gets the automatic-retry allowances a job starts with
+        (spec §5.8, D16): this clears the item's Unity execution and setup budgets and returns the capacity and
+        publication counters to reset beside its next state. For every other skill it changes nothing and returns
+        {}: a fix's allowances last its job, reset only by `retry` and a requested continuation."""
+        if row["skill"] not in STAGE_ALLOWANCE_SKILLS:
+            return {}
+        self.connection.execute("DELETE FROM resource_job_retries WHERE item_id=?", (row["id"],))
+        self._audit(row["id"], "stage_allowances", "automatic-retry allowances reset for a new stage")
+        return {"capacity_retries": 0, "publication_retries": 0}
 
     def require_no_reservation(self, item_id):
         """A pause holds no process and no Unity slot (spec §5.2): release or withdraw the request first."""
@@ -1142,9 +1204,11 @@ class Ledger:
             # transaction. Do not strand that reply behind an awaiting-input gate.
             pending = self.connection.execute("SELECT 1 FROM inbox WHERE item_id=? AND consumed_at IS NULL",
                                               (item_id,)).fetchone() is not None
+            # An answer that is already here resumes the gate at once, and so starts a new stage (spec §5.8).
             self._set_state(row["id"], "queued" if pending else "awaiting_input", "human gate",
                             token=None, lease_expires_at=None, worker_pid=None,
-                            resume_authorized=int(pending), checkpoint=_json(checkpoint))
+                            resume_authorized=int(pending), checkpoint=_json(checkpoint),
+                            **(self._new_stage_allowances(row) if pending else {}))
             return self._view(self._row(row["id"]))
 
     RESERVATION_OPEN = ("queued", "active", "cancel_requested")
@@ -1453,7 +1517,10 @@ class Ledger:
             self._set_state(row["id"], "queued", reason, needs_resource=None)
             return self._view(self._row(row["id"]))
 
-    def cancel(self, item_id, reason):
+    def cancel(self, item_id, reason, *, states=None):
+        """`states` cancels only an item in one of those states, in this same transaction, and returns None for any
+        other: delegation removal (spec §9.8) cancels queued and waiting work, never an attempt a worker has claimed
+        since the caller looked."""
         _text(reason, "reason")
         with self._transaction():
             row = self._row(item_id)
@@ -1465,6 +1532,8 @@ class Ledger:
                     target = self._row(destination)
                     if target["issue_id"] == row["issue_id"]:
                         row = target
+            if states is not None and row["state"] not in states:
+                return None
             if row["state"] == "cancelled":
                 return self._view(row)
             if row["state"] not in (*ACTIVE_STATES, "blocked"):
@@ -1577,23 +1646,30 @@ class Ledger:
             return self._view(self._row(row["id"]))
 
     def _resumable_work(self, issue_id, session_id):
-        return self.connection.execute("""SELECT w.* FROM work_items w JOIN sessions s
-            ON s.session_id=w.session_id WHERE w.issue_id=? AND w.skill='fix' AND s.delegation=1
+        """The delegation's own earlier write job, which a request in a conversation continues whatever the card's
+        label now says: the latest fix or feature job of a delegation session on the issue, this conversation's
+        session first (spec §9.4). The CLI continues it only where the host runs its skill."""
+        skills = ",".join("?" * len(CONVERSATION_SKILLS))
+        return self.connection.execute(f"""SELECT w.* FROM work_items w JOIN sessions s
+            ON s.session_id=w.session_id WHERE w.issue_id=? AND w.skill IN ({skills}) AND s.delegation=1
             AND w.state IN ('blocked','delivered','cancelled','failed')
             ORDER BY (w.session_id=?) DESC,w.created_at DESC,w.rowid DESC LIMIT 1""",
-            (issue_id, session_id)).fetchone()
+            (issue_id, *CONVERSATION_SKILLS, session_id)).fetchone()
 
     def resume_work(self, item_id, token, message_id, app_user_id):
         """Compatibility command: only resume previously delegated repair work."""
         return self._repair_work(item_id, token, message_id, app_user_id, allow_start=False,
                                  summary="Continued previously delegated work")
 
-    def request_repair(self, item_id, token, message_id, app_user_id, summary):
-        """Request writable execution after interpreting the current conversation."""
+    def request_repair(self, item_id, token, message_id, app_user_id, summary, *, start_skill="fix"):
+        """Request writable execution after interpreting the current conversation. `start_skill` is the job a first
+        start creates, the one the card's Bot label names (D18 f), which the CLI passes; a request continues the
+        delegation's earlier job, whatever it names."""
         _text(summary, "repair summary")
         if len(summary) > 8000:
             raise LedgerError("repair summary must be at most 8000 characters")
-        return self._repair_work(item_id, token, message_id, app_user_id, allow_start=True, summary=summary)
+        return self._repair_work(item_id, token, message_id, app_user_id, allow_start=True, summary=summary,
+                                 start_skill=start_skill)
 
     def _delegation_session(self, issue_id, preferred):
         return self.connection.execute("""SELECT * FROM sessions WHERE issue_id=? AND delegation=1
@@ -1606,12 +1682,14 @@ class Ledger:
         return self.connection.execute("""SELECT * FROM sessions WHERE issue_id=? AND delegation=1
             AND session_id NOT LIKE 'local-%' ORDER BY created_at DESC,rowid DESC LIMIT 1""", (issue_id,)).fetchone()
 
-    def _repair_work(self, item_id, token, message_id, app_user_id, *, allow_start, summary):
+    def _repair_work(self, item_id, token, message_id, app_user_id, *, allow_start, summary, start_skill="fix"):
         """Atomically retire read-only execution and queue its authorized repair.
 
         Intent belongs to the worker; the CLI checks fresh Linear state. The
         transaction fences claim ownership, newer input, provenance and concurrency.
         """
+        if start_skill not in CONVERSATION_SKILLS:
+            raise LedgerError(f"a conversation starts only {' or '.join(CONVERSATION_SKILLS)} work")
         with self._transaction():
             chat = self._owned(item_id, token)
             if chat["skill"] != "chat":
@@ -1637,12 +1715,15 @@ class Ledger:
                             token=None, lease_expires_at=None, worker_pid=None)
             if work is None:
                 destination, now = str(uuid4()), self.clock()
+                # Plan P6: the session's Farm-Client target is a fix's reproduction baseline; a feature job takes none.
+                target = authority["target_json"] if start_skill == "fix" else None
                 self.connection.execute("""INSERT INTO work_items
                     (id,issue_id,session_id,skill,state,priority,target_json,created_at,updated_at)
-                    VALUES(?,?,?,'fix','queued',?,?,?,?)""",
-                    (destination, chat["issue_id"], authority["session_id"], issue["priority"] or 5,
-                     authority["target_json"], now, now))
-                self._audit(destination, "create", "conversation requested first repair")
+                    VALUES(?,?,?,?,'queued',?,?,?,?)""",
+                    (destination, chat["issue_id"], authority["session_id"], start_skill, issue["priority"] or 5,
+                     target, now, now))
+                self._audit(destination, "create", "conversation requested first repair" if start_skill == "fix"
+                            else f"conversation requested a first {start_skill} job")
             elif work["state"] == "cancelled":
                 destination = self._cancelled_successor(work, "human requested continuation via chat")
             else:
@@ -1752,6 +1833,15 @@ class Ledger:
             row = (self.connection.execute("SELECT * FROM work_items WHERE id=?", (row["predecessor_id"],)).fetchone()
                    if row["predecessor_id"] else None)
         return None
+
+    def recorded_branches(self, item_id, *, issue_prefix="FARM"):
+        """{repository: branch}: the issue branches the job's plan records (spec §5.7 "Re-attachment"), from the
+        item's own plan, else the plan of the nearest predecessor that saved one, as recovery.plan is found. The
+        checkpoint refused a plan that breaks plan_issue_branches' rules (P9); they are applied again here, because
+        the scheduler checks out what this returns and the ledger file is in a directory every worker can write."""
+        row = self._row(item_id)
+        identifier = json.loads(self._issue_row(row["issue_id"])["metadata"])["identifier"]
+        return plan_issue_branches(self._predecessor_plan(row), identifier, issue_prefix)
 
     def prepare_comment(self, item_id, token, kind, body):
         """Claim the one outbox row for this issue, claimed input, generation and kind, and say plainly
@@ -1981,8 +2071,10 @@ class Ledger:
                                     (row["id"], body, author_json, self.clock() if received_at is None else received_at))
             self._audit(row["id"], "inbox", "steering message")
             if resume_waiting and row["state"] == "awaiting_input":
+                # A resume from a human gate, by a reply or a forwarded mention: a new stage (spec §5.8).
                 self._set_state(row["id"], "queued", "human answered in Linear", token=None,
-                                lease_expires_at=None, worker_pid=None, resume_authorized=1)
+                                lease_expires_at=None, worker_pid=None, resume_authorized=1,
+                                **self._new_stage_allowances(row))
             return {"item_id": row["id"], "state": self._row(row["id"])["state"], "pending": self.connection.execute(
                 "SELECT count(*) FROM inbox WHERE item_id=? AND consumed_at IS NULL", (row["id"],)).fetchone()[0]}
 

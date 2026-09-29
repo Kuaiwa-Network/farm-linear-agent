@@ -7,7 +7,8 @@ from .kw_ops import GRANTS
 
 TRIGGERS = ("delegation", "mention")
 REQUIRED = ("name", "trigger", "intents", "writes", "resources", "gates", "mcp", "budget")
-OPTIONAL = ("initial_root", "staged", "reads")  # the stage keys (spec §9.5)
+# The stage keys (spec §9.5), then opt_in and exclusive (Phase B plan, P1 and P8).
+OPTIONAL = ("initial_root", "staged", "reads", "opt_in", "exclusive")
 BUDGET_KEYS = ("lease_seconds", "max_hours", "renew_minutes")
 
 
@@ -32,6 +33,10 @@ class Skill:
     initial_root: str | None = None
     staged: bool = False
     reads: tuple = ()
+    # An opt-in skill is loaded everywhere but runs only where the host's enabled_skills names it (P1). Of all
+    # exclusive skills together, at most one attempt may run at a time (P8, spec §5.8).
+    opt_in: bool = False
+    exclusive: bool = False
 
     @property
     def skill_md(self):
@@ -69,6 +74,11 @@ def _load_one(directory):
         raise SkillError(f"{manifest_path}: reads must be a list of strings")
     if initial_root is not None and (not staged or initial_root not in manifest["writes"]):
         raise SkillError(f"{manifest_path}: initial_root must name one of a staged skill's writes")
+    opt_in = manifest.get("opt_in", False)
+    exclusive = manifest.get("exclusive", False)
+    for key, value in (("opt_in", opt_in), ("exclusive", exclusive)):
+        if type(value) is not bool:
+            raise SkillError(f"{manifest_path}: {key} must be true or false")
     if not manifest["trigger"] or not set(manifest["trigger"]) <= set(TRIGGERS):
         raise SkillError(f"{manifest_path}: trigger must be a nonempty subset of {TRIGGERS}")
     budget = manifest["budget"]
@@ -81,7 +91,7 @@ def _load_one(directory):
     return Skill(name=manifest["name"], trigger=tuple(manifest["trigger"]), intents=tuple(manifest["intents"]),
                  writes=tuple(manifest["writes"]), resources=tuple(manifest["resources"]), gates=tuple(manifest["gates"]),
                  mcp=tuple(manifest["mcp"]), budget=dict(budget), path=directory,
-                 initial_root=initial_root, staged=staged, reads=tuple(reads))
+                 initial_root=initial_root, staged=staged, reads=tuple(reads), opt_in=opt_in, exclusive=exclusive)
 
 
 def load_skills(root):
@@ -97,14 +107,17 @@ def load_skills(root):
 
 
 def enabled_skills(skills, names, *, authority):
-    """The loaded skills this host runs: every one when its private config names none (spec §9.11).
+    """The loaded skills this host runs: when its private config names none, every one but the opt-in skills
+    (spec §9.11; Phase B plan P1), so a checkout that ships an opt-in skill starts nothing new until a host names it.
 
     A name the checkout lacks is a configuration error, not a skill silently left off; `chat` must stay, because
-    every route that is not write work falls back to it; and every skill that runs needs its part of the dispatch
-    AUTHORITY (`authority`, keyed by skill name), without which each of its launches would fail only after its
-    worktrees were made."""
+    every route that is not write work falls back to it, and so it cannot be opt-in; and every skill that runs needs
+    its part of the dispatch AUTHORITY (`authority`, keyed by skill name), without which each of its launches would
+    fail only after its worktrees were made."""
     if names is None:
-        selected = dict(skills)
+        selected = {name: skill for name, skill in skills.items() if not skill.opt_in}
+        if "chat" in skills and "chat" not in selected:
+            raise SkillError("chat cannot be opt-in: every route that is not write work falls back to it")
     else:
         unknown = sorted(set(names) - set(skills))
         if unknown:

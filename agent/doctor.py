@@ -1,4 +1,5 @@
 """Read-only host diagnostics. Never open Ledger: its constructor migrates the DB."""
+import json
 import os
 import sqlite3
 import stat
@@ -8,9 +9,16 @@ from uuid import UUID
 
 from .config import Paths, ROOT, load_config
 from .dispatch import SKILL_AUTHORITY
+from .foreign_work import plan_work
+from .ledger import ACTIVE_STATES, AWAIT_REASONS
 from .readonly_db import snapshot_connection
 from .skills import SkillError, enabled_skills, load_skills
-from .stages import runtime_can_launch
+from .stages import current_root, runtime_can_launch
+
+# The words a job's plan may use for its stages and pauses (the Phase B plan's shared interfaces). Doctor copies
+# only these out of a worker-written plan, never its prose, question text or branch names.
+STAGE_LETTERS = ("A", "B", "C", "D", "E", "F", "G")
+PAUSE_KINDS = ("answers", "config_ready", "closing", "foreign_work", "stage_limit")
 
 
 class _SchemaMismatch(ValueError):
@@ -79,11 +87,15 @@ def _snapshot(path):
             raise _SchemaMismatch(missing)
         def rows(query):
             return [dict(row) for row in db.execute(query)]
+        # Read for the plan summary of a job with an initial root and dropped from every job entry (diagnose); a
+        # ledger older than root_repo reads as having none.
+        root_repo = "w.root_repo" if "root_repo" in columns else "NULL"
         return {
             "counts": {row["state"]: row["count"] for row in rows(
                 "SELECT state,COUNT(*) AS count FROM work_items GROUP BY state")},
-            "jobs": rows("""SELECT w.id AS item_id,w.issue_id,json_extract(i.metadata,'$.identifier') AS identifier,
-                w.skill,w.state,w.stage,w.host,w.worker_pid,w.lease_expires_at,w.updated_at
+            "jobs": rows(f"""SELECT w.id AS item_id,w.issue_id,json_extract(i.metadata,'$.identifier') AS identifier,
+                w.skill,w.state,w.stage,w.host,w.worker_pid,w.lease_expires_at,w.updated_at,
+                {root_repo} AS _root_repo,w.checkpoint AS _checkpoint
                 FROM work_items w JOIN issues i ON i.id=w.issue_id
                 WHERE w.state IN ('queued','running','awaiting_input','awaiting_resource')
                 OR (w.state IN ('blocked','failed') AND NOT EXISTS (
@@ -102,6 +114,36 @@ def _snapshot(path):
                 c.failures,c.checked_at,c.due_at FROM issue_checks c JOIN issues i ON i.id=c.issue_id
                 WHERE c.error IS NOT NULL ORDER BY c.checked_at,c.issue_id"""),
         }
+
+
+def _plan_summary(skill, root_repo, checkpoint_json, job, now):
+    """Doctor's view of an unfinished job of a skill with an initial root (spec §9.11): its current root, the stage
+    states and PR links its plan records and, while it waits for a person, the pause's kind (from the plan), reason
+    and age (from the ledger: a parked item's updated_at is when it parked)."""
+    try:
+        checkpoint = json.loads(checkpoint_json)
+    except (TypeError, ValueError, RecursionError):
+        checkpoint = {}
+    checkpoint = checkpoint if isinstance(checkpoint, dict) else {}
+    plan = checkpoint.get("plan") if isinstance(checkpoint.get("plan"), dict) else {}
+    stages = plan.get("stages") if isinstance(plan.get("stages"), dict) else {}
+    pause = None
+    if job["state"] == "awaiting_input":
+        recorded = plan.get("pause") if isinstance(plan.get("pause"), dict) else {}
+        pause = {"kind": recorded.get("kind") if recorded.get("kind") in PAUSE_KINDS else None,
+                 "reason": checkpoint.get("pending_reason") if checkpoint.get("pending_reason") in AWAIT_REASONS else None,
+                 "age_seconds": max(0, int(now - job["updated_at"]))}
+    try:
+        prs = sorted(plan_work(plan)[1].values())
+    except RecursionError:  # checkpoint bounds a plan's size, not its depth
+        prs = []
+    return {"root": current_root(root_repo, skill),
+            "stages": {letter: "skipped" if state.startswith("skipped") else state
+                       for letter, state in sorted(stages.items())
+                       if letter in STAGE_LETTERS and isinstance(state, str)
+                       and (state in ("pending", "done") or state.startswith("skipped"))},
+            "pause": pause,
+            "prs": prs}
 
 
 def _logs(paths, item_id):
@@ -146,6 +188,7 @@ def diagnose(config, *, now=None):
                                   if kw_ops else {"configured": False})}
     # spec §9.11: which of this checkout's skills the config runs; serve refuses a list it cannot honour.
     configured = config.enabled_skills is not None
+    loaded = {}
     try:
         loaded = load_skills(ROOT / "skills")
     except (SkillError, OSError) as exc:
@@ -154,7 +197,9 @@ def diagnose(config, *, now=None):
                  incomplete=True, error_type=type(exc).__name__)
     else:
         report["skills"] = {"loaded": sorted(loaded), "enabled": None, "configured": configured}
-        names = set(loaded) if config.enabled_skills is None else set(config.enabled_skills)
+        # What serve would try to run: without the key, every loaded skill but the opt-in ones (P1).
+        names = ({name for name, skill in loaded.items() if not skill.opt_in} if config.enabled_skills is None
+                 else set(config.enabled_skills))
         try:
             enabled = enabled_skills(loaded, config.enabled_skills, authority=SKILL_AUTHORITY)
         except SkillError:
@@ -180,6 +225,11 @@ def diagnose(config, *, now=None):
                  **({"missing_schema": exc.missing} if isinstance(exc, _SchemaMismatch) else {}))
         return report
     report["counts"]["total"] = sum(report["counts"].values())
+    rooted = {name: skill for name, skill in loaded.items() if skill.initial_root}
+    for job in report["jobs"]:
+        root_repo, checkpoint = job.pop("_root_repo"), job.pop("_checkpoint")
+        if job["skill"] in rooted and job["state"] in ACTIVE_STATES:
+            job["plan"] = _plan_summary(rooted[job["skill"]], root_repo, checkpoint, job, report["checked_at"])
     jobs = {job["item_id"]: job for job in report["jobs"]}
     for job in report["jobs"]:
         try:

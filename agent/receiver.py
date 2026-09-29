@@ -225,8 +225,36 @@ class Receiver:
         session = self.ledger.ensure_session(prepared["session_id"], issue["id"], is_delegation, prepared["guidance"],
                                              creator=prepared.get("creator"))
         author = prepared.get("author")
+        session_id = prepared["session_id"]
+
+        def routing():
+            """This session's work, the router's decision, the issue's work in any session, and whether the event
+            concerns feature work."""
+            active = self.ledger.active_item_for_session(session_id)
+            history = self.ledger.items_for_session(session_id)
+            # D16: a reply in a delegation session that never had a work item (another session's work declined or
+            # took its delegation) routes again on the labels fetched above. Only while the issue is still delegated
+            # to this app: routing is what grants write work.
+            reroute = (prepared["action"] == "prompted" and is_delegation and active is None and not history
+                       and issue.get("delegate_id") == self.identity["appUserId"])
+            decision = route(action=prepared["action"], is_delegation=is_delegation, text=prepared["text"],
+                             labels=issue["labels"], active_state=active["state"] if active else None,
+                             terminal_exists=bool(history) and active is None, available_skills=self.skills,
+                             label_groups=issue.get("label_groups") or (), reroute=reroute)
+            elsewhere = self.ledger.active_item_for_issue(issue["id"])
+            # Plan P6: the Farm-Client target is a fix's reproduction baseline. A session whose delegation starts
+            # feature work gets none, declined or not, and no later event in it adds one, such as a reply that
+            # steers or resumes that work; nor does a mention in another session that is forwarded to a feature
+            # job. No acknowledgement of such an event carries a target line.
+            forwarded = decision.kind == "chat" and elsewhere is not None and elsewhere["session_id"] != session_id
+            feature_work = ((decision.kind == "work" and decision.skill == "feature")
+                            or any(entry["skill"] == "feature" for entry in history)
+                            or (forwarded and elsewhere["skill"] == "feature"))
+            return active, decision, elsewhere, feature_work
+
+        active, decision, elsewhere, feature_work = routing()
         pin = ""
-        if session.get("target") is None and self.worktrees is not None:
+        if session.get("target") is None and self.worktrees is not None and not feature_work:
             try:
                 commit = self.worktrees.remote_head(TARGET_REPO, timeout=PIN_TIMEOUT)
                 session = self.ledger.set_session_target(prepared["session_id"], {
@@ -241,17 +269,12 @@ class Receiver:
                 # as an unreachable origin would hide it from a human and from the event's own status, so it
                 # is left to process_one, which marks the event uncertain and says so in the session.
                 pin = "\n暂时无法锁定客户端提交，本次将不做 Unity 验证。"
-        active = self.ledger.active_item_for_session(prepared["session_id"])
-        history = self.ledger.items_for_session(prepared["session_id"])
-        # D16: a reply in a delegation session that never had a work item (another session's work declined or
-        # took its delegation) routes again on the labels fetched above. Only while the issue is still delegated
-        # to this app: routing is what grants write work.
-        reroute = (prepared["action"] == "prompted" and is_delegation and active is None and not history
-                   and issue.get("delegate_id") == self.identity["appUserId"])
-        decision = route(action=prepared["action"], is_delegation=is_delegation, text=prepared["text"], labels=issue["labels"],
-                         active_state=active["state"] if active else None, terminal_exists=bool(history) and active is None,
-                         available_skills=self.skills, label_groups=issue.get("label_groups") or (), reroute=reroute)
-        session_id = prepared["session_id"]
+            # The ls-remote can take seconds, in which work can start, end or move: act on what is true once it
+            # returns, as before plan P6 needed the decision first. Feature work that appeared meanwhile gets no
+            # target line in its acknowledgement.
+            active, decision, elsewhere, feature_work = routing()
+            if feature_work:
+                pin = ""
 
         def acknowledge(kind, body):
             """One event, one activity — and the pin rides in whichever branch sends it. Echoing only from the
@@ -261,7 +284,6 @@ class Receiver:
                 self.api.needs_more_info(issue["id"])
             self._send(session_id, ack_id, {"type": kind, "body": body + pin})
 
-        elsewhere = self.ledger.active_item_for_issue(issue["id"])
         if elsewhere is not None and elsewhere["session_id"] != session_id:
             if decision.kind == "work":
                 acknowledge("response", f"{issue['identifier']} 已有进行中的工作（{elsewhere['skill']}），"
@@ -282,7 +304,7 @@ class Receiver:
             if decision.skill in WRITE_SKILLS and not is_delegation:
                 raise RuntimeError("router produced write work from a mention")
             item = self.ledger.create_work_item(issue_id=issue["id"], session_id=session_id, skill=decision.skill,
-                                                target=(session or {}).get("target"))
+                                                target=None if feature_work else (session or {}).get("target"))
             if prepared["text"]:
                 self.ledger.push_inbox(item["id"], prepared["text"], author=author, received_at=received_at)
             acknowledge("thought", ACK.get(decision.skill, ACK["chat"]).format(bot=self.bot_name))

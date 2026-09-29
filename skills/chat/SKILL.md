@@ -37,7 +37,7 @@ state-changing tools are not.
    to read anything the human added while you were starting.
 4. Interpret the latest `session_messages` in context, including `pending_question`,
    `conversation_history` (earlier questions, answers and findings), and `resumable_work`
-   (prior repair execution). Understand any language; no magic word is required.
+   (the delegation's earlier write job). Understand any language; no magic word is required.
    “修复”, “改一下”, “fix what you found”, “the blocker is sorted, pick this back up”, and an
    answer confirming repair or a change can request writable execution. “Explain only”, “don't
    restart yet”, quotations and “how would you fix it?” call for an answer, not a repair.
@@ -48,22 +48,24 @@ state-changing tools are not.
    and exit. A missing Bot label alone does not require clarification or re-delegation.
    Do not ask for confirmation of a clear authorized request.
 
-   When repair is requested, write `STATE_DIR/repair-summary.md` (at most 8,000 characters):
-   the user's intended change and constraints, confirmed findings with source pointers,
-   uncertainties and the next useful step. Then call:
+   When repair or other work on the card is requested, write `STATE_DIR/repair-summary.md` (at
+   most 8,000 characters): the user's intended change and constraints, confirmed findings with
+   source pointers, uncertainties and the next useful step. Then call:
    `python3 -m agent --db DATABASE request-repair --item ITEM_ID --token-file STATE_DIR/token --message-id MESSAGE_ID --summary-file STATE_DIR/repair-summary.md`.
-   Use the latest message ID whose full conversation you have interpreted. The host
-   checks that this instance runs `fix`, then fresh delegation, issue state, claim and
-   recorded delegation provenance. It resumes the prior fix or starts the first fix,
-   preserving messages and your summary. The card's Bot label decides what it may start:
-   with Bot/修改 or no Bot label, `fix`. On a card labelled Bot/UI or Bot/Code, or whose
-   Bot children name no workflow, it continues only an earlier fix and otherwise refuses,
-   and its message says why. There, with `resumable_work` null, call it for any start
-   request and relay its refusal. When `resumable_work` shows an earlier fix, call it only
-   if the person asks to continue that fix, since any call continues it; answer a request
-   for the card's UI or Code work yourself: the label makes it `fgui` or `feature` work,
-   which this release neither runs nor starts from a conversation. A cancelled fix gets a
-   fresh linked job after safe cleanup; other terminal fixes retain their job ID. No prior
+   Use the latest message ID whose full conversation you have interpreted. The host checks
+   fresh delegation, issue state, claim and recorded delegation provenance, and that this
+   instance runs the workflow the request starts or continues. It continues the delegation's
+   earlier job, `resumable_work` in context (a fix, or a `feature` job), whatever the card's
+   label now says; otherwise it starts the workflow the card's Bot label names, preserving
+   messages and your summary: with Bot/修改 or no Bot label, `fix`; with Bot/Code, `feature`,
+   on an instance that runs it. On a Bot/Code card a request to build the feature, such as
+   「开始做」, is such a request. On a card labelled Bot/UI, on Bot/Code where this instance
+   does not run `feature`, or on one whose Bot children name no workflow, it starts nothing
+   and its message says why. With `resumable_work` null, call it for any start request and
+   relay a refusal. When `resumable_work` shows an earlier job, call it only if the person
+   asks to continue that job, since any call continues it; answer a request for other work
+   on the card yourself, saying which job a request would continue. A cancelled job gets a
+   fresh linked job after safe cleanup; other terminal jobs retain their job ID. No prior
    repair is required. `delegation_session` in context is recorded provenance, not a
    substitute for the command's fresh authorization check. FarmBot never adds or changes a
    Bot label.

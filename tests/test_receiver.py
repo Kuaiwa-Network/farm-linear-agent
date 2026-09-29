@@ -277,6 +277,28 @@ class ReceiverTests(ReceiverBase):
         self.assertTrue(self.receiver.process_one())
         self.assertEqual(self.ledger.session("session-1")["target"]["commit_sha"], "c" * 40)
 
+    def test_the_decision_follows_what_changed_while_the_pin_was_resolved(self):
+        """Plan P6 routes before the pin, and the pin's ls-remote can take seconds. Work that ends meanwhile in another
+        session must not be steered: the event is routed again once the pin returns, on what is true then."""
+        self.receive()
+        self.receiver.process_one()  # a delegated fix in session-1; this receiver has no worktrees, so no pin
+        [fix] = self.ledger.items_for_session("session-1")
+        self.ledger.claim(fix["id"], worker_id="w")
+
+        def remote_head(repo, timeout=8):
+            self.ledger.fail(fix["id"], "worker exited")  # the fix ends while ls-remote runs
+            return "c" * 40
+
+        self.receiver.worktrees = SimpleNamespace(remote_head=remote_head)
+        self.receive(self.event(agentSession={"id": "session-2", "issue": {"id": ISSUE, "identifier": "FARM-1",
+                                                                             "url": "u"},
+                                              "comment": {"body": "@FarmBot 这个问题现在怎样了？"}}))
+        self.assertTrue(self.receiver.process_one())
+        self.assertEqual(self.receiver.results()[-1]["status"], "done")
+        self.assertEqual([(item["skill"], item["state"]) for item in self.ledger.items_for_session("session-2")],
+                         [("chat", "queued")])
+        self.assertNotEqual(self.activities()[-1]["type"], "error")
+
 
 class SessionPeopleTests(ReceiverBase):
     """Who opened each session and who wrote each message (spec §5.3, §9.2). Linear's webhook users also carry an
@@ -1006,3 +1028,129 @@ class BotRoutingReceiverTests(ReceiverBase):
         self.api.fetch_issue.return_value = issue(labels=["Code"], delegate_id=None, label_groups=CODE)
         self.receive(self.event("prompted", body="公共测试服")); self.receiver.process_one()
         self.assertEqual(self.activities()[-1]["body"], "已保存回复；issue 已不再委派给 FarmBot，暂不继续这项工作。")
+
+    def resolving_heads(self):
+        """A client head that resolves, recording each read: a session the receiver pins reads it once."""
+        heads = []
+        self.receiver.worktrees = SimpleNamespace(remote_head=lambda repo, timeout=8: heads.append(repo) or "c" * 40)
+        return heads
+
+    def paused(self, item, question, reason="question"):
+        """Claim `item`, read its messages as a worker does (an unread one would requeue the pause at once), and
+        pause it on a human step."""
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        self.ledger.pop_inbox(item["id"], token)
+        self.assertEqual(self.ledger.await_input(item["id"], token, question, reason=reason)["state"],
+                         "awaiting_input")
+
+    def mention_in(self, session, body):
+        """A mention that opens `session` on the issue, processed."""
+        self.receive(self.event(agentSession={"id": session, "issue": {"id": ISSUE, "identifier": "FARM-1", "url": "u"},
+                                              "comment": {"body": body}}))
+        self.receiver.process_one()
+
+    def test_a_code_delegation_gets_its_own_acknowledgement_and_no_client_target(self):
+        """Plan P6: the Farm-Client pin is a fix's reproduction baseline. A feature session gets none and its
+        acknowledgement no target line, even where the client head resolves; a fix session still gets both."""
+        self.running("feature")
+        heads = self.resolving_heads()
+        self.labelled(["Code"], CODE)
+        [item] = self.delegate()
+        self.assertEqual((item["skill"], item["target"], self.ledger.session("session-1")["target"]),
+                         ("feature", None, None))
+        self.assertEqual(self.activities()[-1], {"type": "thought", "body": "FarmBot 已收到委派，正在排队处理这张功能卡。"
+                                                                          "进展、问题和草稿 PR 会更新在这里。"})
+        self.assertEqual(heads, [])
+        self.ledger.cancel(item["id"], "next case")
+        self.labelled(["修改"], CHANGE)
+        [fix] = self.delegate("session-2")
+        self.assertEqual((fix["skill"], fix["target"]["commit_sha"]), ("fix", "c" * 40))
+        self.assertEqual(self.activities()[-1]["body"], FIX_ACK + "\n目标已锁定：Farm-Client@ccccccc（公共测试服）。")
+        self.assertEqual(heads, ["Farm-Client"])
+
+    def test_a_code_delegation_declined_for_other_work_pins_nothing_before_its_reroute(self):
+        self.running("feature")
+        chat = self.conversation_elsewhere()
+        heads = self.resolving_heads()
+        self.labelled(["Code"], CODE)
+        self.assertEqual(self.delegate(), [])
+        self.assertEqual(self.activities()[-1]["body"], "FARM-1 已有进行中的工作（chat），请在原会话继续，或等它完成后再委派。")
+        self.finish(chat)
+        self.receive(self.event("prompted", body="现在开始")); self.receiver.process_one()
+        [item] = self.ledger.items_for_session("session-1")
+        self.assertEqual((item["skill"], item["target"], self.ledger.session("session-1")["target"]),
+                         ("feature", None, None))
+        self.assertEqual(heads, [])
+
+    def test_a_reply_to_feature_work_pins_nothing_either(self):
+        """Plan P6 holds for the whole session: a reply that steers the feature job, or resumes it from a pause,
+        reads no client head and adds no target line, although the session still has no target."""
+        self.running("feature")
+        heads = self.resolving_heads()
+        self.labelled(["Code"], CODE)
+        [item] = self.delegate()
+        self.receive(self.event("prompted", body="先看协议")); self.receiver.process_one()
+        self.assertEqual(self.activities()[-1]["body"], "已转给正在处理的 worker，会在下一次检查点读取。")
+        self.paused(item, "配置发布了吗？", reason="waiting")
+        answer = self.event("prompted", body="配置已经发布")
+        answer["agentActivity"]["id"] = "act-2"  # a second reply is a second activity
+        self.receive(answer); self.receiver.process_one()
+        self.assertEqual(self.activities()[-1]["body"], "收到回复，继续处理。")
+        self.assertEqual((heads, self.ledger.session("session-1")["target"]), ([], None))
+
+    def test_a_mention_forwarded_to_paused_feature_work_pins_nothing(self):
+        """Plan P6 for a mention in another session that resumes the paused feature job: its acknowledgement is
+        about that job, so it carries no target line and the mention's session stores none. A mention that resumes
+        a paused fix is pinned as before."""
+        self.running("feature")
+        heads = self.resolving_heads()
+        self.labelled(["Code"], CODE)
+        [feature] = self.delegate()
+        self.paused(feature, "配置发布了吗？", reason="waiting")
+        self.mention_in("session-9", "@FarmBot 配置已经发布")
+        self.assertEqual(self.activities()[-1]["body"], "收到回复，原工作项已恢复，worker 会先读取你的回答。")
+        self.assertEqual((heads, self.ledger.session("session-9")["target"]), ([], None))
+        self.ledger.cancel(feature["id"], "next case")
+        self.labelled(["修改"], CHANGE)
+        [fix] = self.delegate("session-2")
+        self.paused(fix, "哪个服？")
+        self.mention_in("session-8", "@FarmBot 公共测试服")
+        self.assertEqual(self.activities()[-1]["body"], "收到回复，原工作项已恢复，worker 会先读取你的回答。"
+                                                        "\n目标已锁定：Farm-Client@ccccccc（公共测试服）。")
+        self.assertEqual(heads, ["Farm-Client", "Farm-Client"])
+
+    def spend(self, item):
+        """Use part of every automatic-retry allowance of `item`, as delayed retries and Unity recoveries do."""
+        self.ledger.connection.execute("UPDATE work_items SET capacity_retries=2,publication_retries=3 WHERE id=?",
+                                       (item["id"],))
+        self.ledger.connection.execute("INSERT OR REPLACE INTO resource_job_retries(item_id,attempts,setup_attempts) "
+                                       "VALUES(?,1,2)", (item["id"],))
+
+    def allowances(self, item_id):
+        item, recovery = self.ledger.item(item_id), self.ledger.issue_context(item_id)["resource_recovery"]
+        return item["state"], (item["capacity_retries"], item["publication_retries"], recovery["attempts"],
+                               recovery["setup_attempts"])
+
+    def test_a_reply_or_a_mention_that_resumes_a_paused_feature_job_gives_it_fresh_allowances(self):
+        """Spec §5.8: both receiver paths that resume a human gate, a reply in the session and a mention in another
+        session forwarded to the paused job, start a new stage of a job that begins at an initial root."""
+        self.running("feature")
+        self.labelled(["Code"], CODE)
+        [item] = self.delegate()
+        self.spend(item)
+        self.paused(item, "配置发布了吗？", reason="waiting")
+        self.receive(self.event("prompted", body="配置已经发布")); self.receiver.process_one()
+        self.assertEqual(self.activities()[-1]["body"], "收到回复，继续处理。")
+        self.assertEqual(self.allowances(item["id"]), ("queued", (0, 0, 0, 0)))
+        self.spend(item)
+        self.paused(item, "配置发布了吗？", reason="waiting")
+        self.mention_in("session-9", "@FarmBot 配置已经发布")
+        self.assertEqual(self.activities()[-1]["body"], "收到回复，原工作项已恢复，worker 会先读取你的回答。")
+        self.assertEqual(self.allowances(item["id"]), ("queued", (0, 0, 0, 0)))
+
+    def test_a_reply_that_resumes_a_paused_fix_keeps_its_allowances(self):
+        [item] = self.delegate()  # the base card, Bot/修改: a fix
+        self.spend(item)
+        self.paused(item, "哪个服？")
+        self.receive(self.event("prompted", body="公共测试服")); self.receiver.process_one()
+        self.assertEqual(self.allowances(item["id"]), ("queued", (2, 3, 1, 2)))

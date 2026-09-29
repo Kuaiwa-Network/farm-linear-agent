@@ -29,6 +29,14 @@ def issue_branch(identifier, issue_prefix='FARM'):
     return 'farmbot/' + identifier.lower()
 
 
+def is_issue_branch(branch, identifier, issue_prefix='FARM'):
+    """The issue-branch policy: `branch` is this issue's FarmBot branch, `farmbot/<key>` or `farmbot/<key>-<suffix>`.
+    Publication applies it to the branch it publishes, and a checkpoint to the issue branches a plan records (plan
+    P9). Raises PublicationError, as issue_branch does, for an identifier outside the configured namespace."""
+    prefix = issue_branch(identifier, issue_prefix)
+    return isinstance(branch, str) and (branch == prefix or branch.startswith(prefix + '-'))
+
+
 def github_repository(url):
     match = re.fullmatch(r'(?:https://github\.com/|ssh://git@github\.com/|git@github\.com:)'
                          r'([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?', str(url), re.IGNORECASE)
@@ -113,9 +121,7 @@ class PublicationVerifier:
             raise PublicationError("publication requires this job's own configured worktree")
         actual_branch = _git('branch', '--show-current', cwd=path)
         branch = actual_branch if branch is None else branch
-        if (not isinstance(branch, str)
-                or not (branch == prefix or branch.startswith(prefix + '-'))
-                or actual_branch != branch):
+        if not is_issue_branch(branch, identifier, self.issue_prefix) or actual_branch != branch:
             raise PublicationError("publication requires this issue's FarmBot feature branch")
         push_urls = _git('remote', 'get-url', '--push', '--all', 'origin', cwd=path).splitlines()
         if len(push_urls) != 1 or github_repository(push_urls[0]).casefold() != expected.casefold():

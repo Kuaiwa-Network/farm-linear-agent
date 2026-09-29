@@ -44,7 +44,9 @@ class Scheduler:
         self.bot_name = bot_name
         self.kw_ops_config = dict(kw_ops or {})
         # The loaded skills this host runs (spec §9.11); tick() refuses a queued item of any other loaded skill.
-        self.enabled_skills = set(skills or ()) if enabled_skills is None else set(enabled_skills)
+        # Without a set, every loaded skill but the opt-in ones, as skills.enabled_skills decides (P1).
+        self.enabled_skills = ({name for name, skill in (skills or {}).items() if not skill.opt_in}
+                               if enabled_skills is None else set(enabled_skills))
         self.guidance_for = guidance_for
         self.claim_timeout = claim_timeout
         # {slot_id: entry}, the same entries service.build hands the pool. The only thing read out of them
@@ -63,12 +65,30 @@ class Scheduler:
         paths = {}
         if skill.writes:
             branch = self._branch(issue)
+            # P4: a job with an initial root goes back to the issue branch its plan, or its nearest predecessor's,
+            # records for a repository (spec §5.7). fix has no initial root and keeps today's branches.
+            recorded = self._recorded_branches(item) if skill.initial_root else {}
             for repo in skill.writes:
                 options = {"refresh": False} if item["publication_retries"] else {}
-                paths[repo] = self.worktrees.add(repo, item["id"], branch, **options)
+                if repo in recorded:
+                    paths[repo] = self.worktrees.add(repo, item["id"], recorded[repo], attach=True, **options)
+                else:
+                    paths[repo] = self.worktrees.add(repo, item["id"], branch, **options)
         else:
             paths[READ_REPO] = self.worktrees.add_detached(READ_REPO, item["id"])
         return paths
+
+    def _recorded_branches(self, item):
+        """The issue branches the job's plan records (Ledger.recorded_branches), checked in this host's issue
+        namespace as the checkpoint that saved them was (P9): a name a worker wrote chooses a checkout only when it
+        is this issue's own FarmBot branch."""
+        return self.ledger.recorded_branches(item["id"], issue_prefix=self.issue_prefix)
+
+    def _reads_for(self, skill, item):
+        """{repo: path} of the read-only default-branch checkouts the manifest's `reads` names (spec §9.6), made or
+        refreshed for this launch. A publication retry reuses those it has without a fetch, as it reuses worktrees."""
+        return {repo: self.worktrees.read_checkout(repo, item["id"], refresh=not item["publication_retries"])
+                for repo in skill.reads}
 
     @staticmethod
     def _batch_result(state_dir):
@@ -93,6 +113,7 @@ class Scheduler:
         write_repos = write_repositories(item, skill)
         issue = self.ledger.issue(item["issue_id"])
         paths = self._worktrees_for(skill, item, issue)
+        reads = self._reads_for(skill, item)
         repo_root = Path(self.skill_root).parent
         # Enforcement is tool injection (spec §7): what a worker can reach is decided here, never from a
         # repository-local .codex/config.toml. A reservation-bound server such as the Unity MCP is decided
@@ -168,7 +189,7 @@ class Scheduler:
                                    repo_root=repo_root, state_dir=self.launcher.state_dir(item["id"]),
                                    resource=resource, memory=memory, publication=publication, user_requests=requests,
                                    bot_name=self.bot_name, write_repositories=write_repos, root_repository=root,
-                                   prior_context=prior_context, tools=tools)
+                                   prior_context=prior_context, tools=tools, reads=reads)
         # The runtime's cwd is writable too. A read-only conversation must run
         # from its private state directory, not from the detached source checkout.
         primary = (paths[write_repos[0]] if write_repos else self.launcher.state_dir(item["id"]))
@@ -205,17 +226,20 @@ class Scheduler:
         self.active[item["id"]] = handle
         return handle
 
-    def _notify(self, item_id, kind, body):
+    def _notify(self, item_id, kind, body, *, item=None):
         """Best-effort session activity for outcomes the worker cannot report itself: it is dead or never ran.
 
         A `local-` session id was minted by `agent.service enqueue`, not by Linear, and names no agent
         session: create_activity against the real API would fail on every one of these notices and leave the
         operator with nothing. The issue comment is the only reporting surface such an item has.
+
+        `item`, a view of the item the caller already holds, spares a read on the scheduler's own connection, which
+        a caller on another thread (the lifecycle loop through `stop`) must not use.
         """
         if self.api is None:
             return
         try:
-            item = self.ledger.item(item_id)
+            item = item or self.ledger.item(item_id)
             if str(item["session_id"]).startswith("local-"):
                 self.api.create_comment(item["issue_id"], body)
             else:
@@ -247,18 +271,32 @@ class Scheduler:
         self._notify(item_id, "error", f"{self.bot_name} 本实例没有启用 {skill}（本实例运行：{runs}），这项工作没有启动，"
                                        "工作项已标记失败；启用后可回复「重试」。")
 
-    def stop(self, item_id, reason):
+    def stop(self, item_id, reason, *, states=None, notice=None):
+        """Cancel the item, then stop its processes.
+
+        `states` (delegation removal, spec §9.8) cancels only an item still in one of those states, atomically; one
+        a worker has claimed since keeps running and nothing is signalled. `notice` is then posted as the session's
+        response, through `_notify` as a launch failure is, only when this call cancelled the item; it needs
+        `states`, without which a repeated stop could not tell. Returns the cancelled item, or None.
+        """
+        if notice is not None and states is None:
+            raise ValueError("a stop notice needs states: only then is it known that this stop cancelled the item")
         # Revoke the claim durably before signalling; a late worker may no longer write the ledger.
         control = self.control_ledger_factory() if self.control_ledger_factory else self.ledger
         destination = item_id
+        cancelled = None
         try:
             try:
-                destination = control.cancel(item_id, reason)["id"]
+                cancelled = control.cancel(item_id, reason, states=states)
+                if cancelled is not None:
+                    destination = cancelled["id"]
             except LedgerError:
                 pass
         finally:
             if control is not self.ledger:
                 control.close()
+        if states is not None and cancelled is None:
+            return None  # not ours to stop: a claimed worker sees the change at its next fetch-issue
         # The batch Editor is not a worker and never went through `spawn`, so `launcher.stop` below cannot
         # see it: its handle lookup and its `descendants` walk both start from a worker pid, and by now that
         # worker has already exited — it asked for the reservation and quit. Killing the group here is what
@@ -275,6 +313,9 @@ class Scheduler:
             self.launcher.stop_unsandboxed(stopped_id)
             # Signal both ends if read-only execution handed off during Stop.
             self.launcher.stop(stopped_id)
+        if notice is not None and cancelled is not None:
+            self._notify(destination, "response", notice, item=cancelled)
+        return cancelled
 
     def _reap(self):
         reaped = 0
@@ -448,11 +489,21 @@ class Scheduler:
             self.ledger.record_cleanup(item_id, result)
             self.ledger.begin_cleanup_removal(item_id)
             self.worktrees.remove_preserved(item_id, result)
+            self.worktrees.remove_reads(item_id)  # the read-only checkouts go with the worktrees (spec §9.6)
             self.ledger.record_cleanup(item_id, result, done=True)
         except Exception as exc:
             # A concurrent same-ID retry retires cleanup authority. It must not delete active files.
             if self.ledger.item(item_id)["state"] in TERMINAL:
                 self.ledger.record_cleanup(item_id, result, error=str(exc)[:500])
+
+    def _exclusive_running(self):
+        """Whether an attempt of an exclusive skill holds one of this controller's worker slots: one it launched and
+        has not reaped, a retiring handoff attempt included, counted as max_concurrent counts them."""
+        for item_id in self.active:
+            skill = self.skills.get(self.ledger.item(item_id)["skill"])
+            if skill is not None and skill.exclusive:
+                return True
+        return False
 
     def _sweep_worktrees(self):
         for row in self.ledger.status()["items"]:
@@ -493,6 +544,10 @@ class Scheduler:
                 if len(self.active) >= self.max_concurrent:
                     break
                 if item["skill"] not in self.skills or item["id"] in self.active:
+                    continue
+                # At most one attempt of any exclusive skill at a time (spec §5.8, D16; P8). A waiting one is only
+                # passed over, so it keeps its place in the queue, and fix and chat go on up to max_concurrent.
+                if self.skills[item["skill"]].exclusive and self._exclusive_running():
                     continue
                 if item.get("predecessor_id"):
                     cleanup = self.ledger.cleanup_record(item["predecessor_id"])

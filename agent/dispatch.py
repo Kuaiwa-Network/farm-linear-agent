@@ -98,7 +98,7 @@ def authority(skill):
 def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, guidance, budget, repo_root=None,
                      state_dir=None, resource=None, memory=None, publication=None, user_requests=None,
                      bot_name="FarmBot", write_repositories=(), root_repository=None, prior_context=None,
-                     tools=None):
+                     tools=None, reads=None):
     text = authority(item.get("skill"))  # refuses a skill that states no grants, before any payload exists
     root = Path(repo_root) if repo_root is not None else Path(skill_path).parent.parent.parent
     payload = {
@@ -135,4 +135,8 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
         "renew_minutes": budget["renew_minutes"],
         "guidance": guidance or "",
     }
+    if reads:
+        # Read-only default-branch checkouts for the manifest's `reads` (spec §9.6): never among `worktrees`, never
+        # a write root. A skill without `reads` gets no key, so fix and chat launches are unchanged.
+        payload["reads"] = {name: str(path) for name, path in reads.items()}
     return text + "\n\n" + json.dumps(payload, ensure_ascii=False, indent=2)

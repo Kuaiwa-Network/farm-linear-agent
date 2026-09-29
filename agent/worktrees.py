@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import time
 
@@ -12,6 +13,15 @@ SAFE_BRANCH = re.compile(r"^[A-Za-z0-9._/一-鿿-]+$")
 # Task worktrees are for code: LFS pointers stay pointers (Farm-Client carries gigabytes of binaries), and a
 # missing credential fails at once instead of waiting on a prompt no one will answer.
 GIT_ENV = {"GIT_LFS_SKIP_SMUDGE": "1", "GIT_TERMINAL_PROMPT": "0"}
+# Controller git in a clone a worker can write: a worker rooted in a repository has FarmBot's clone of it among its
+# writable roots, hooks directory and config included. Each call added since the Phase B plan runs with hooks and
+# fsmonitor off (P10); the clone's other settings still apply, as to the calls made before (its Known Risks).
+HOOKS_OFF = ("-c", f"core.hooksPath={os.devnull}", "-c", "core.fsmonitor=false")
+# Controller git in the read-only checkouts of a manifest's `reads` (spec §8.3, §9.6), each a repository of the
+# controller's own that borrows only its clone's objects: hooks and fsmonitor off, and the LFS filter emptied, so a
+# checkout holds LFS pointers and git runs no filter program, whatever the host's git configuration says.
+READ_ONLY_GIT = (*HOOKS_OFF, "-c", "filter.lfs.process=", "-c", "filter.lfs.smudge=", "-c", "filter.lfs.clean=",
+                 "-c", "filter.lfs.required=false")
 # A slot is what Unity opens, so its binaries must be real files. Smudge stays on for every slot call (spec §7).
 # The "0" is explicit and not an omission: _git merges os.environ, so merely leaving the key out lets an
 # operator shell that exported GIT_LFS_SKIP_SMUDGE=1 — the shell that built this host's first slot did — win
@@ -40,12 +50,39 @@ class WorktreeError(RuntimeError):
     pass
 
 
-def _git(*args, cwd, env=GIT_ENV, timeout=600):
-    result = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True, timeout=timeout,
+def _git(*args, cwd, env=GIT_ENV, timeout=600, config=()):
+    """`config` is `-c` settings placed before the subcommand, such as HOOKS_OFF."""
+    result = subprocess.run(["git", *config, *args], cwd=str(cwd), capture_output=True, text=True, timeout=timeout,
                             env={**os.environ, **env})
     if result.returncode:
         raise WorktreeError(f"git {args[0]} failed: {result.stderr.strip()[:500]}")
     return result.stdout.strip()
+
+
+def _is_link(path):
+    """A symlink, or on Windows a junction or another reparse point: an entry that redirects a path. Path.is_symlink
+    is false for a junction (agent.uploads checks links the same way)."""
+    try:
+        status = os.lstat(path)
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    return (stat.S_ISLNK(status.st_mode)
+            or bool(getattr(status, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT))
+
+
+def _remove_tree(path):
+    """Remove a directory FarmBot made, the read-only files git leaves on Windows included. A link in place of the
+    tree is refused, here and by the callers; rmtree never follows one inside it, and the retry after a failure
+    clears read-only only on an entry that is not a link, so nothing outside the tree changes."""
+    def writable(function, name, exc):
+        if function is os.path.islink or _is_link(name):
+            raise exc
+        os.chmod(name, stat.S_IWRITE)
+        function(name)
+    if _is_link(path):
+        raise WorktreeError("refusing to remove a link in place of a directory")
+    if path.exists():
+        shutil.rmtree(path, onexc=writable)
 
 
 class Worktrees:
@@ -90,12 +127,12 @@ class Worktrees:
             staging.rename(path)
         return path
 
-    def fetch(self, repo):
-        _git("fetch", "--quiet", "--prune", "origin", cwd=self.ensure_clone(repo))
+    def fetch(self, repo, *, config=()):
+        _git("fetch", "--quiet", "--prune", "origin", cwd=self.ensure_clone(repo), config=config)
 
-    def default_branch(self, repo):
+    def default_branch(self, repo, *, config=()):
         clone = self.ensure_clone(repo)
-        out = _git("ls-remote", "--symref", "origin", "HEAD", cwd=clone)
+        out = _git("ls-remote", "--symref", "origin", "HEAD", cwd=clone, config=config)
         for line in out.splitlines():
             if line.startswith("ref:"):
                 return line.split()[1].removeprefix("refs/heads/")
@@ -142,7 +179,16 @@ class Worktrees:
         self._head_cache[repo] = (time.monotonic(), commit, None)
         return commit
 
-    def add(self, repo, item_id, branch, *, refresh=True):
+    def add(self, repo, item_id, branch, *, refresh=True, attach=False):
+        """The item's write worktree of `repo` on `branch`; an existing one is returned as it is.
+
+        By default a new worktree restarts at the item's recovery commit when cleanup preserved one, else tracks
+        origin/<branch> when only the remote has that branch, else starts from the default branch; its branch is
+        `branch`, or `<branch>-<item_id>` when the clone already has `branch`.
+
+        `attach` is for the issue branch a job's plan records (spec §5.7 "Re-attachment"): the worktree checks out
+        that branch itself, never a copy under another name, after a fetch. See `_attach`.
+        """
         if not branch or not SAFE_BRANCH.match(branch) or branch.startswith("-"):
             raise WorktreeError("unsafe branch name")
         path = self.worktrees_root / item_id / repo
@@ -151,6 +197,8 @@ class Worktrees:
         if not refresh and path.exists():
             return path
         clone = self.ensure_clone(repo)
+        if attach:
+            return self._attach(repo, clone, path, branch)
         recovery = self._recovery_commit(clone, self._recovery_ref(item_id)) if not path.exists() else None
         if recovery:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -170,6 +218,55 @@ class Worktrees:
             name = branch if branch not in local_branches else f"{branch}-{item_id}"
             _git("worktree", "add", "--quiet", "-b", name, str(path), f"origin/{self.default_branch(repo)}", cwd=clone)
         return path
+
+    def _attach(self, repo, clone, path, branch):
+        """Check out `branch` itself after a fetch (spec §5.7): the clone's own branch, moved forward to
+        origin/<branch> when the remote is ahead of it and kept as it is when it has commits of its own, which the
+        worker integrates without force-pushing; else a new branch tracking origin/<branch>; else, with neither (a
+        clone made again since), a new branch of that name from the default branch. It tracks origin/<branch>
+        whenever the remote has that branch. The item's recovery ref is not consulted: it stays where cleanup left
+        it, and a successor or a cleaned-up continuation goes on from the branch the plan names. Every git call
+        runs with HOOKS_OFF (P10)."""
+        self.fetch(repo, config=HOOKS_OFF)
+        if path.exists():
+            return path
+        local, remote = f"refs/heads/{branch}", f"refs/remotes/origin/{branch}"
+        local_commit, remote_commit = self._ref_commit(clone, local), self._ref_commit(clone, remote)
+        if local_commit and self._checked_out(clone, local):
+            raise WorktreeError(f"{branch} is checked out in another worktree of the {repo} clone")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if (local_commit and remote_commit and local_commit != remote_commit
+                and _git("rev-list", "--count", f"{remote_commit}..{local_commit}", cwd=clone, config=HOOKS_OFF) == "0"):
+            # Others pushed on top of it: a fast-forward, which update-ref makes only from the commit just read.
+            _git("update-ref", local, remote_commit, local_commit, cwd=clone, config=HOOKS_OFF)
+        if local_commit:
+            _git("worktree", "add", "--quiet", str(path), branch, cwd=clone, config=HOOKS_OFF)
+            if remote_commit:
+                _git("branch", "--quiet", f"--set-upstream-to=origin/{branch}", branch, cwd=clone, config=HOOKS_OFF)
+        elif remote_commit:
+            _git("worktree", "add", "--quiet", "--track", "-b", branch, str(path), f"origin/{branch}", cwd=clone,
+                 config=HOOKS_OFF)
+        else:
+            default = self.default_branch(repo, config=HOOKS_OFF)
+            _git("worktree", "add", "--quiet", "-b", branch, str(path), f"origin/{default}", cwd=clone,
+                 config=HOOKS_OFF)
+        return path
+
+    @staticmethod
+    def _ref_commit(clone, ref):
+        """The commit a full ref name points at, or None. for-each-ref also lists refs below a pattern, hence the
+        exact comparison."""
+        for line in _git("for-each-ref", "--format=%(objectname) %(refname)", ref, cwd=clone,
+                         config=HOOKS_OFF).splitlines():
+            commit, _, name = line.partition(" ")
+            if name == ref:
+                return commit
+        return None
+
+    @staticmethod
+    def _checked_out(clone, ref):
+        """Whether a worktree of the clone has `ref` checked out."""
+        return f"branch {ref}" in _git("worktree", "list", "--porcelain", cwd=clone, config=HOOKS_OFF).splitlines()
 
     @staticmethod
     def _unused_branch(name, cwd):
@@ -370,6 +467,83 @@ class Worktrees:
         path.parent.mkdir(parents=True, exist_ok=True)
         _git("worktree", "add", "--quiet", "--detach", str(path), f"origin/{self.default_branch(repo)}", cwd=clone)
         return path
+
+    def reads_root(self, item_id):
+        """`<worktrees>/<item>.reads`: one item's read-only checkouts, beside its worktree directory and never in it,
+        because cleanup maps every entry under `<worktrees>/<item>/` to one of FarmBot's clones (spec §9.6)."""
+        if not item_id or Path(item_id).name != item_id or item_id in (".", ".."):
+            raise WorktreeError("unsafe item path")
+        return self.worktrees_root / f"{item_id}.reads"
+
+    def read_checkout(self, repo, item_id, *, refresh=True):
+        """A read-only checkout of `repo`'s default branch for a manifest's `reads` (spec §9.6), at
+        `<worktrees>/<item>.reads/<repo>@main`, detached at the commit origin's default branch has now.
+
+        It is a repository of the controller's own, fetched from the configured remote, and never a worktree of
+        FarmBot's bare clone: a worker rooted in that repository can write the clone, its config, hooks and
+        attributes included, and git would honour them here. It borrows only the clone's objects (alternates), so
+        a large history is not fetched again. Every call runs with READ_ONLY_GIT and GIT_ENV. Each call fetches
+        and checks out the default branch again; with `refresh` False an existing checkout is returned as it is,
+        as a publication retry reuses its worktrees. It holds none of the job's work, so it gets no recovery ref.
+        Anything else found at the path, such as a half-made checkout or one of another remote or clone, is
+        replaced.
+        """
+        if repo not in self.remotes:
+            raise WorktreeError(f"unknown repository: {repo}")
+        root = self.reads_root(item_id)
+        path = root / f"{repo}@main"
+        if _is_link(self.worktrees_root) or _is_link(root) or _is_link(path):
+            raise WorktreeError("symlinked read-only checkout")
+        objects = (self.ensure_clone(repo) / "objects").absolute()  # alternates read a relative path elsewhere
+        own = self._own_read_checkout(path, self.remotes[repo], objects)
+        if own and not refresh:
+            return path
+        if not own:
+            _remove_tree(path)
+            path.mkdir(parents=True)
+            _git("init", "--quiet", str(path), cwd=path, config=READ_ONLY_GIT)
+            _git("config", "remote.origin.url", self.remotes[repo], cwd=path, config=READ_ONLY_GIT)
+            info = path / ".git" / "objects" / "info"
+            info.mkdir(parents=True, exist_ok=True)
+            # A bare newline on every platform: git keeps a carriage return in the path and ignores the store.
+            (info / "alternates").write_text(f"{objects}\n", encoding="utf-8", newline="\n")
+        default = None
+        for line in _git("ls-remote", "--symref", "origin", "HEAD", cwd=path, config=READ_ONLY_GIT).splitlines():
+            if line.startswith("ref:"):
+                default = line.split()[1].removeprefix("refs/heads/")
+        if not default or not SAFE_BRANCH.match(default):
+            raise WorktreeError(f"{repo}: origin has no usable HEAD")
+        tracking = f"refs/remotes/origin/{default}"
+        _git("fetch", "--quiet", "--no-tags", "origin", f"+refs/heads/{default}:{tracking}", cwd=path,
+             config=READ_ONLY_GIT)
+        commit = _git("rev-parse", "--verify", "--end-of-options", f"{tracking}^{{commit}}", cwd=path,
+                      config=READ_ONLY_GIT)
+        _git("checkout", "--quiet", "--detach", "--force", commit, cwd=path, config=READ_ONLY_GIT)
+        return path
+
+    @staticmethod
+    def _own_read_checkout(path, url, objects):
+        """Whether `path` is a read-only checkout this class made for `url` and its clone's `objects`: its own `.git`
+        directory, whose origin is that remote and whose only borrowed store is that clone's. Resolved paths are
+        compared because git may otherwise find a repository above it."""
+        dot_git = path / ".git"
+        if _is_link(dot_git) or not dot_git.is_dir():
+            return False
+        try:
+            found = Path(_git("rev-parse", "--absolute-git-dir", cwd=path, config=READ_ONLY_GIT))
+            return (found.resolve() == dot_git.resolve()
+                    and _git("config", "--local", "--get", "remote.origin.url", cwd=path, config=READ_ONLY_GIT) == url
+                    and (dot_git / "objects" / "info" / "alternates").read_bytes() == f"{objects}\n".encode("utf-8"))
+        except (WorktreeError, OSError, UnicodeDecodeError):
+            return False
+
+    def remove_reads(self, item_id):
+        """Remove the item's read-only checkouts, as its worktrees are removed (spec §9.6); nothing in them is
+        preserved, and the objects they borrowed stay in FarmBot's clones."""
+        root = self.reads_root(item_id)
+        if _is_link(self.worktrees_root) or _is_link(root):
+            raise WorktreeError("symlinked read-only checkout root")
+        _remove_tree(root)
 
     def add_slot(self, repo, path, commit):
         """A slot is a long-lived detached worktree whose binaries are files, not pointers (spec §7, §8)."""

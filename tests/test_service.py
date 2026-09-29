@@ -26,9 +26,10 @@ from agent.heartbeat import LOOPS, read
 from agent.launcher import Launcher, _write_worker_file
 from agent.ledger import Ledger, LedgerError
 from agent.service import Components, build, enqueue, main, seed_clones, serve
-from agent.skills import SkillError
+from agent.skills import SkillError, load_skills
 from agent.slots import SlotError
-from test_ledger import ISSUE, LEAD, PIN, issue
+from test_ledger import ISSUE, LEAD, OTHER, PIN, issue
+from test_skills import opt_in_skill
 
 APP = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
 REPOS = ("Farm-Client", "farm-hive", "farmgui", "common", "Farm-Contract")
@@ -169,6 +170,30 @@ class ServeTests(unittest.TestCase):
         self.assertEqual(set(service.scheduler.skills), {"chat", "fix"})
         # A config without the key runs every skill in the checkout.
         self.assertEqual((self.c.receiver.skills, self.c.scheduler.enabled_skills), ({"chat", "fix"}, {"chat", "fix"}))
+
+    def test_an_opt_in_skill_is_loaded_but_routed_and_scheduled_only_where_the_config_names_it(self):
+        """P1: a checkout that ships an opt-in skill starts nothing new on a host whose config does not name it."""
+        fixture = opt_in_skill(Path(self.tmp.name) / "fixture-skills")
+        skills = {**load_skills(service_module.ROOT / "skills"), fixture.name: fixture}
+
+        def built(name, enabled=None):
+            config = Config(client_id="client", client_secret="s", webhook_secret="signing-secret", host="test",
+                            runtime="fake", repos=self.c.config.repos, port=0,
+                            local_root=Path(self.tmp.name) / name, enabled_skills=enabled)
+            service = build(config)
+            self.close_later(service)
+            return service
+
+        with patch("agent.service.load_skills", return_value=skills):
+            unnamed = built("opt-in-unnamed")
+            with patch.dict(service_module.SKILL_AUTHORITY, {fixture.name: "Fixture feature grants. "}):
+                named = built("opt-in-named", ["chat", "fix", "feature"])
+        self.assertEqual((unnamed.receiver.skills, unnamed.scheduler.enabled_skills, unnamed.skills),
+                         ({"chat", "fix"}, {"chat", "fix"}, {"chat", "fix"}))
+        # Still loaded, so the scheduler refuses a queued item of it instead of leaving it waiting.
+        self.assertIn("feature", unnamed.scheduler.skills)
+        self.assertEqual((named.receiver.skills, named.scheduler.enabled_skills, named.skills),
+                         ({"chat", "fix", "feature"},) * 3)
 
     def test_build_refuses_an_unknown_enabled_skill_before_opening_any_state(self):
         from agent.skills import SkillError
@@ -664,12 +689,59 @@ class EnqueueTests(unittest.TestCase):
         self.assertFalse(Paths(self.config).ledger.exists())
         self.assertFalse((self.stub / "calls.jsonl").exists())  # refused before Linear was asked anything
 
+    def test_enqueue_names_the_rule_for_an_opt_in_skill_the_config_leaves_out(self):
+        """P1: the refusal says why a loaded skill does not run, before Linear or a ledger is touched."""
+        fixture = opt_in_skill(Path(self.tmp.name) / "fixture-skills")
+        skills = {**load_skills(service_module.ROOT / "skills"), fixture.name: fixture}
+        with patch("agent.service.load_skills", return_value=skills):
+            with self.assertRaises(RuntimeError) as refused:
+                enqueue(self.config, issue_ref=ISSUE, skill="feature", commit="a" * 40)
+        self.assertEqual(str(refused.exception),
+                         "feature is not a skill this instance runs (chat, fix); feature is opt-in, so enabled_skills "
+                         "in the private config must name it (spec §9.11)")
+        self.assertFalse(Paths(self.config).ledger.exists())
+        self.assertFalse((self.stub / "calls.jsonl").exists())
+
     def test_enqueue_stops_on_a_configured_skill_the_checkout_lacks(self):
         """The contract: enqueue stops on a name the checkout lacks, before it creates a ledger."""
         self.config.enabled_skills = ["chat", "fix", "feature"]
         with self.assertRaisesRegex(SkillError, "does not have: feature"):
             enqueue(self.config, issue_ref=ISSUE, skill="fix", commit="a" * 40)
         self.assertFalse(Paths(self.config).ledger.exists())
+
+    def test_enqueue_starts_feature_only_on_a_card_labelled_bot_code_and_fix_on_any(self):
+        """spec §9.11, D18: an operator's enqueue follows the Bot label a delegation follows, except for fix, which
+        reads no label there (Bot label group design §8). A feature job gets no Farm-Client target (P6)."""
+        feature = opt_in_skill(Path(self.tmp.name) / "fixture-skills")
+        skills = {**load_skills(service_module.ROOT / "skills"), feature.name: feature}
+        self.config.enabled_skills = ["chat", "fix", "feature"]  # named, as an opt-in skill must be
+
+        def card(issue_id, labels, groups):
+            (self.stub / "issue.json").write_text(json.dumps(issue(id=issue_id, labels=labels, delegate_id=APP,
+                                                                   label_groups=groups)), encoding="utf-8")
+
+        with patch("agent.service.load_skills", return_value=skills), \
+                patch.dict(service_module.SKILL_AUTHORITY, {feature.name: "Fixture feature grants. "}):
+            for labels, groups, carries in ((["Bug"], [], "no Bot label"), (["Code"], [], "no Bot label"),
+                                            (["修改"], [{"group": "Bot", "label": "修改"}], "Bot/修改"),
+                                            (["UI"], [{"group": "Bot", "label": "UI"}], "Bot/UI")):
+                with self.subTest(labels=labels, groups=groups):
+                    card(ISSUE, labels, groups)
+                    with self.assertRaisesRegex(RuntimeError, f"labelled Bot/Code.*carries {carries}"):
+                        enqueue(self.config, issue_ref=ISSUE, skill="feature")
+            ledger = Ledger(Paths(self.config).ledger)
+            self.addCleanup(ledger.close)
+            self.assertIsNone(ledger.session(f"local-{ISSUE}"))  # refused before any session or item exists
+            self.assertIsNone(ledger.active_item_for_issue(ISSUE))
+            fix = enqueue(self.config, issue_ref=ISSUE, skill="fix", commit="a" * 40)  # the card is still Bot/UI
+            self.assertEqual((fix["skill"], fix["target"]["commit_sha"]), ("fix", "a" * 40))  # fix reads no label
+            card(OTHER, ["Code"], [{"group": "Bot", "label": "Code"}])
+            with self.assertRaisesRegex(RuntimeError, "--commit pins a fix's Farm-Client target"):
+                enqueue(self.config, issue_ref=OTHER, skill="feature", commit="a" * 40)
+            # No commit, and this fixture configures no repository: resolving a client head here would fail.
+            item = enqueue(self.config, issue_ref=OTHER, skill="feature")
+            self.assertEqual((item["state"], item["skill"], item["target"]), ("queued", "feature", None))
+            self.assertIsNone(ledger.session(f"local-{OTHER}")["target"])
 
 
 class LoopGuardTests(unittest.TestCase):

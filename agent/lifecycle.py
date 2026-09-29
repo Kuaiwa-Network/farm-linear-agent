@@ -4,6 +4,13 @@ import time
 from .ledger import TERMINAL_STATUS_TYPES
 from .router import WRITE_SKILLS
 
+# Delegation removal (spec §9.8, D16) cancels a job of a skill with an initial root only while no worker holds it:
+# waiting for a launch, for a person or for a resource. A worker that has claimed it sees the change itself.
+UNDELEGATED_STATES = ('queued', 'awaiting_input', 'awaiting_resource')
+# The one session response such a job gets; {bot} is the instance's configured Linear app name.
+UNDELEGATED = ('这张卡已不再委派给 {bot}，这项工作已取消。已推送的分支和草稿 PR 都保留，接手的人可以在上面继续；'
+               '重新委派给 {bot} 时会从已有进度接着做。')
+
 
 class Lifecycle:
     def __init__(self, ledger, api, scheduler, interval=60, clock=time.time):
@@ -19,11 +26,24 @@ class Lifecycle:
             if current['archived'] or current['status_type'] in TERMINAL_STATUS_TYPES:
                 for item in self.ledger.unfinished_for_issue(issue_id):
                     self.scheduler.stop(item['id'], 'Linear issue closed, cancelled or archived')
+            elif self.api.app_user_id and current.get('delegate_id') != self.api.app_user_id:
+                self._cancel_undelegated(issue_id)
             self.ledger.finish_status_check(issue_id, self.interval)
             return current
         except Exception as exc:
             self.ledger.finish_status_check(issue_id, self.interval, f'{type(exc).__name__}: {exc}'[:500])
             return None
+
+    def _cancel_undelegated(self, issue_id):
+        """The issue is no longer delegated to this app: its queued and waiting jobs of skills with an initial root
+        end here, and their branches and PRs stay for whoever takes the card over (spec §9.8). fix and chat keep
+        today's rule, under which losing the delegation only holds back their launches (preflight)."""
+        notice = UNDELEGATED.format(bot=self.scheduler.bot_name)
+        for item in self.ledger.unfinished_for_issue(issue_id):
+            skill = self.scheduler.skills.get(item['skill'])
+            if skill is None or skill.initial_root is None or item['state'] not in UNDELEGATED_STATES:
+                continue
+            self.scheduler.stop(item['id'], 'Linear delegation removed', states=UNDELEGATED_STATES, notice=notice)
 
     def tick(self):
         issue_id = self.ledger.due_issue()

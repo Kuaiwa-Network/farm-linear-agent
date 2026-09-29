@@ -17,7 +17,9 @@ python3 -m agent --db DATABASE checkpoint --help
 | `memory-list`, `memory-read`, `memory-save`, `memory-forget` | Same claim-token arguments; see `references/memory.md` |
 | `release-resource` | `--item ITEM_ID --token-file RESOURCE_TOKEN_FILE`, using `resource.token_file`, plus `--outcome quiescent` or `--outcome unclean` |
 
-`fetch-issue` refreshes the ledger from Linear; `issue-context` reads the saved context.
+`fetch-issue` refreshes the ledger from Linear and prints `delegated`: `true` while the issue is
+delegated to this FarmBot app, `false` once someone removed the delegation or gave it to another
+app. `issue-context` reads the saved context.
 Neither accepts `--token-file`. Tokens never belong in argv as `--token` values.
 The argument table does not grant additional authority; use only your delegated item.
 
@@ -29,18 +31,22 @@ Codex's, or an unknown one). A person is
 `{"id", "name", "url"}`, never an email. `null` means none or unknown; a missing key means the
 snapshot predates these fields.
 
-`request-repair` refreshes Linear, then atomically retires read-only execution and queues
-the same issue's repair. It requires recorded delegation provenance and current delegation,
-but no prior fix or Bot label. It carries all current messages and the investigation summary
-into `issue-context`. Success retires your token: exit immediately. A newer-message refusal
-means reread the conversation before deciding again. `conversation_history` provides earlier
-answers/findings across execution profiles; only current `session_messages` authorize a request.
+`request-repair` refreshes Linear, then atomically retires read-only execution and queues the same
+issue's work: it continues the delegation's earlier job, `resumable_work` in `issue-context` (a fix,
+or a `feature` job), whatever the card's label now says, or else starts a first job. It requires
+recorded delegation provenance and current delegation, but no prior fix or Bot label. It carries all
+current messages and the investigation summary into `issue-context`. Success retires your token:
+exit immediately. A newer-message refusal means reread the conversation before deciding again.
+`conversation_history` provides earlier answers/findings across execution profiles; only current
+`session_messages` authorize a request.
 
-On a host whose `enabled_skills` leaves out `fix`, `request-repair` and `resume-work` are refused
-before anything changes; tell the human instead of retrying. The card's Bot label decides what a
-request starts: with Bot/修改 or no Bot label it starts or continues `fix`. With Bot/UI or Bot/Code,
-or Bot children that name no workflow, it refuses to start a first job and only continues an
-earlier fix; relay its message, which says why, and do not retry.
+On a host whose `enabled_skills` names neither `fix` nor `feature`, `request-repair` and
+`resume-work` are refused before anything changes; tell the human instead of retrying. The card's
+Bot label decides what a first request starts, on a host that runs it: with Bot/修改 or no Bot label,
+`fix`; with Bot/Code, `feature`. With Bot/UI, Bot children that name no workflow, or a workflow the
+host does not run, it refuses to start a first job. Either command continues `resumable_work` only
+on a host that runs its skill; elsewhere it refuses, and starts nothing else. Relay a refusal's
+message, which says why, and do not retry.
 
 Each `session_messages` entry, like each message in `conversation_history`, is
 `{"id", "body", "author", "created_at"}`, and so is each entry of the launch message's
@@ -267,3 +273,25 @@ handoff. `issue-context.plan` shows your item's plan. A successor of cancelled w
 predecessor's plan from `issue-context.recovery.plan`, and every predecessor's notices from
 `recovery.notices` (item id, request id, kind and remote id; one with a remote id was posted); like the
 rest of `recovery`, verify it first.
+
+An entry of `plan.prs` with `"role": "issue"` names your own branch in that repository, the name
+`git branch --show-current` prints in its worktree, which is always this issue's `farmbot/<key>` or
+`farmbot/<key>-…`; record one per repository. Record any other branch, such as a person's you were
+told to build on, under another role or none. `checkpoint` refuses a plan that breaks this and names
+the entry: correct it and save again. For a skill with an initial root (`fix` has none), these
+entries also decide where a later attempt's worktrees start, so record every write repository's
+issue branch early. A successor of cancelled work, and a later attempt of your item after cleanup
+removed its worktrees, then gets that branch itself, fetched and tracking `origin/<branch>`:
+commits others pushed are on it, and commits of its own that were never pushed stay ahead of the
+remote. Integrate the remote before you push, never force-push.
+
+## Read-only checkouts
+
+When your skill's `skill.json` lists `reads`, the launch message carries `reads`: for each named
+repository, the absolute path of a checkout of its default branch, detached at the commit origin had
+when this attempt launched, with that branch as `origin/<default>`. It is not one of your `worktrees`,
+not a write root and never a publishing source: read it, run read-only git commands in it, and point
+tools that only read a repository at it (for example `FARM_CONTRACT=` a Farm-Contract checkout). LFS
+files in it are pointers, never their content. Each later attempt refreshes it, except a publication
+retry, which keeps it as it was, so record the commit you used (`git rev-parse HEAD` in it) where it
+matters. FarmBot removes it with your job's worktrees.
