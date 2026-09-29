@@ -351,7 +351,11 @@ def _withdrawal_findings(report, config, withdrawal):
     for row in withdrawal["active"]:
         evidence = {key: row[key] for key in ("item_id", "issue_id", "identifier", "skill", "state")}
         authority = _stored_authority(row)
+        # A flagged worker was withdrawn and runs on through its grace; withdrawal_overdue lists it past its deadline.
+        # Flagged work back in the queue is never launched and waits for a read to end it, so it is still listed.
+        flagged_running = row["state"] == "running" and row["withdraw_deadline"] is not None
         if ("undelegated_since" in columns and authority == "delegation" and row["undelegated_since"] is not None
+                and not flagged_running
                 and now - row["undelegated_since"] > UNDELEGATED_INTERVALS * config.reconcile_seconds):
             _finding(report, "undelegated_work",
                      "A status read found the card not delegated to this app, and a second read an interval later "

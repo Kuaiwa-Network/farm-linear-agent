@@ -864,7 +864,7 @@ evidence stay.
 
 | Finding | Condition |
 |---|---|
-| `undelegated_work` | work the delegation authorised is active on an issue a status read marked undelegated more than 3 × `reconcile_seconds` ago |
+| `undelegated_work` | work the delegation authorised is active on an issue a status read marked undelegated more than 3 × `reconcile_seconds` ago, except a flagged worker still running, which `withdrawal_overdue` covers |
 | `withdrawal_overdue` | a flagged worker still runs more than 300 s after its deadline |
 | `long_parked` | a job has waited for an answer (`awaiting_input`) for more than 7 days |
 | `deferred_delegation` | a delegation event has waited for another session's worker for more than 45 minutes |

@@ -276,6 +276,22 @@ class DoctorTests(unittest.TestCase):
         self.assertEqual([(f["item_id"], f["state"], f["undelegated_since"]) for f in found],
                          [(self.item["id"], "queued", 1000)])
 
+    def test_a_flagged_worker_inside_its_grace_is_not_undelegated_work(self):
+        """Design P2: the second read flags a claimed worker rather than cancelling it, and the worker may run until
+        its deadline, 20 minutes on for a fix; withdrawal_overdue lists it if it outlives that. Flagged work that went
+        back to the queue is never launched again and only a read ends it, so it is still listed."""
+        self.running()
+        self.ledger.mark_undelegated(ISSUE, 1000)
+        self.ledger.flag_withdrawal(self.item["id"], "undelegated", 1060 + 1200)
+        with patch("agent.doctor.probe_process", return_value={"state": "alive", "reason": "job_marker_matches"}):
+            report = diagnose(self.config, now=1300)
+        self.assertEqual(self.findings(report, "undelegated_work"), [])
+        self.assertEqual(self.findings(report, "withdrawal_overdue"), [])
+        self.ledger.clock = lambda: 1100
+        self.ledger.recover(self.item["id"], "lease expired")
+        found = self.findings(diagnose(self.config, now=1300), "undelegated_work")
+        self.assertEqual([(f["item_id"], f["state"]) for f in found], [(self.item["id"], "queued")])
+
     def test_a_worker_past_its_withdrawal_deadline_is_overdue(self):
         """Design P2: the controller stops a flagged worker at its deadline; one still running 5 minutes later is
         listed."""
