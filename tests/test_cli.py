@@ -731,6 +731,57 @@ class CliTests(unittest.TestCase):
         self.assertEqual(self.closures(ledger), [])
         self.assertNotIn("分支", QUESTION_WITHDRAWN_CHAT)
 
+    def test_a_question_is_not_withdrawn_over_newer_work_in_its_thread(self):
+        """A6 withdraws the question for the job that ended. When newer work has started in the same thread by then,
+        as when a delegation takes a conversation over in place, that work speaks there: a response saying the
+        conversation ended would show the thread closed while the new job is queued in it. A7 has the same rule."""
+        from agent.ledger import ACTIVE_STATES, Ledger, LedgerError
+        ledger = Ledger(self.db)
+        self.addCleanup(ledger.close)
+        item = self.seeded_item(skill="chat", authority="delegation")
+        token = ledger.claim(item, worker_id="w")["token"]
+        posted = []
+
+        def taken_over_in_place(content):
+            ledger.supersede(item, ACTIVE_STATES, session_id="session-1", skill="fix", authority="delegation",
+                             reason="the delegation took the conversation over in its own thread")
+        api = self.linear(posted, on_post=taken_over_in_place, delegate_id=STUB_APP)
+        with self.assertRaisesRegex(LedgerError, "running claim"):
+            self.in_process(ledger, api, "await-input", "--item", item, "--token", token, "--question", "哪个服？")
+        self.assertEqual(posted, [("session-1", {"type": "elicitation", "body": "哪个服？"})])
+        current = ledger.active_item_for_session("session-1")
+        self.assertEqual((ledger.item(item)["state"], current["skill"], current["state"], current["session_id"]),
+                         ("cancelled", "fix", "queued", "session-1"))
+        self.assertEqual(self.closures(ledger), [])
+
+    def test_a_question_is_withdrawn_when_the_newer_work_is_in_another_thread(self):
+        """A6: work in another thread says nothing in this one. A conversation that handed over to a job in the
+        delegation's thread between its question and the park is `delivered`, and its own thread would keep the
+        question: it is withdrawn there, although the thread's replies now reach the job it handed over to."""
+        from agent.ledger import Ledger, LedgerError
+        from agent.withdrawal import QUESTION_WITHDRAWN_CHAT
+        ledger = Ledger(self.db)
+        self.addCleanup(ledger.close)
+        fix = self.seeded_item()
+        ledger.cancel(fix, "stopped")
+        chat = self.seeded_item(session="mention", skill="chat", delegation=False)
+        ledger.push_inbox(chat, "请接着做")
+        message = ledger.connection.execute("SELECT id FROM inbox WHERE item_id=?", (chat,)).fetchone()[0]
+        token = ledger.claim(chat, worker_id="chat")["token"]
+        posted = []
+
+        def handed_over(content):
+            if content["type"] == "elicitation":
+                ledger.resume_work(chat, token, message, STUB_APP, delegate_id=STUB_APP)
+        api = self.linear(posted, on_post=handed_over, delegate_id=STUB_APP)
+        with self.assertRaisesRegex(LedgerError, "running claim"):
+            self.in_process(ledger, api, "await-input", "--item", chat, "--token", token, "--question", "哪个服？")
+        self.assertEqual(posted, [("mention", {"type": "elicitation", "body": "哪个服？"}),
+                                  ("mention", {"type": "response", "body": QUESTION_WITHDRAWN_CHAT})])
+        current = ledger.active_item_for_session("mention")
+        self.assertEqual((ledger.item(chat)["state"], current["skill"], current["session_id"]),
+                         ("delivered", "fix", "session-1"))
+
     def test_a_question_withdrawal_linear_refuses_is_owed(self):
         """A6, P10: the response that withdraws the question closes the thread, so one Linear refuses is owed."""
         from agent.ledger import Ledger, LedgerError

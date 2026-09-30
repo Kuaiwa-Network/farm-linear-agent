@@ -1032,6 +1032,9 @@ class Ledger:
         self.connection.execute(f"UPDATE work_items SET state=?,updated_at=?{',' + assignments if assignments else ''} WHERE id=?",
                                 (state, self.clock(), *values, item_id))
         self._audit(item_id, state, reason)
+        # A closing activity owed for the job as it stood goes with that state (silent-delegation design P10): the job
+        # speaks in its thread from here on, and a state it comes back to later must not bring the older words back.
+        self.connection.execute("DELETE FROM session_closures WHERE item_id=?", (item_id,))
 
     def claim(self, item_id, *, worker_id):
         _text(worker_id, "worker_id")
@@ -1767,10 +1770,11 @@ class Ledger:
     def owe_closure(self, session_id, *, issue_id=None, item_id=None, kind, body, error=None):
         """Linear refused the `kind` activity, a response or an error, that closes the thread `session_id` with `body`:
         it is owed to the thread, and the progress loop posts it again (SessionProgress.tick). `item_id` is the job
-        it closes the thread for; that job's state is recorded as it stands now, so the row can be dropped once the
-        job, or a newer one in the thread, speaks there itself (closure_superseded). `error` names the refusal. A
-        thread has one last word: the row replaces an older one of the thread, and its tries start anew. An
-        operator's `local-` job has no Linear thread, so nothing is owed for one. Returns the row, or None."""
+        it closes the thread for, as it stands now: the row goes as soon as that job's state changes (_set_state), and
+        is dropped unposted once a newer job in the thread speaks there itself (closure_superseded). `error` names
+        the refusal. A thread has one last word: the row replaces an older one of the thread, and its tries start
+        anew. An operator's `local-` job has no Linear thread, so nothing is owed for one. Returns the row, or
+        None."""
         _text(session_id, "session_id")
         if session_id.startswith("local-"):
             return None
@@ -1803,9 +1807,10 @@ class Ledger:
         return dict(row) if row else None
 
     def closure_superseded(self, row):
-        """Whether the owed closing activity `row` no longer holds: its job's state is not the one recorded, or a job
-        was created in its thread after it was owed. Either speaks in the thread itself, and the older closing words
-        would follow its own."""
+        """Whether the owed closing activity `row` no longer holds: a job was created in its thread after it was owed,
+        or its job's state is not the one recorded. Either speaks in the thread itself, and the older closing words
+        would follow its own. A state change drops the row when it happens (_set_state), so the recorded state only
+        decides for a row the caller still holds, or one left by a revision that does not drop it."""
         if row["item_id"] is not None:
             job = self.connection.execute("SELECT state FROM work_items WHERE id=?", (row["item_id"],)).fetchone()
             if job is None or job["state"] != row["item_state"]:

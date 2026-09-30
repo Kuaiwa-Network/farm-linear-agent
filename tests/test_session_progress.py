@@ -340,20 +340,49 @@ class SessionProgressTests(LedgerBase):
         self.assertTrue(self.progress.tick())
         self.assertEqual((self.sent, self.closures()), ([], []))
 
+    def test_an_owed_closing_activity_is_not_posted_after_its_job_spoke_again(self):
+        """P10: a failed job's error is owed; the job is retried and fails again before the first try is due, and
+        Linear takes the second error. The job is in the recorded state once more, but it has spoken in its thread
+        since: the older error is not posted after the newer one."""
+        item = self.new_item()
+        self.ledger.fail_queued(item["id"], "launch failed")
+        self.ledger.owe_closure(SESSION, item_id=item["id"], kind="error", body="无法启动工作进程。")
+        self.now += 20
+        self.ledger.retry(item["id"], "重试")
+        self.now += 10
+        self.ledger.fail_queued(item["id"], "launch failed again")
+        for _ in range(400):
+            self.now += 10
+            self.progress.tick()
+        self.assertEqual((self.sent, self.closures()), ([], []))
+
     def test_an_owed_closing_activity_is_given_up_after_the_sixth_refusal(self):
-        """P10: the refusal that owed it and five more; then nothing is posted again, and the row stays for doctor."""
+        """P10: the refusal that owed it and five more; then nothing is posted again, and the row stays for doctor.
+        Each try posts the activity as it was owed: an error stays an error."""
         _, owed = self.owed(kind="error", body="无法启动工作进程。")
-        attempts = []
+        attempts, posted = [], []
 
         def unavailable(session, content, activity_id=None):
             attempts.append(self.now)
+            posted.append((session, content))
             raise OSError("temporary outage")
         self.api.create_activity = unavailable
         for _ in range(400):
             self.now += 10
             self.progress.tick()
         self.assertEqual([round(at - owed["created_at"]) for at in attempts], [60, 180, 420, 900, 1860])
+        self.assertEqual(posted, [(SESSION, {"type": "error", "body": "无法启动工作进程。"})] * 5)
         self.assertEqual([(row["attempts"], row["given_up_at"]) for row in self.closures()], [(6, attempts[-1])])
+
+    def test_an_owed_error_is_posted_as_an_error(self):
+        """P10, A4: what Linear takes in the end is the activity that was owed, of its own kind. A failed job's
+        thread is closed by an error, not by a response."""
+        self.owed(kind="error", body="无法启动工作进程。")
+        self.now += 60
+        self.assertTrue(self.progress.tick())
+        self.assertEqual([(session, content) for session, content, _ in self.sent],
+                         [(SESSION, {"type": "error", "body": "无法启动工作进程。"})])
+        self.assertEqual(self.closures(), [])
 
     def question_in_flight(self, skill="chat"):
         """A claimed job in SESSION whose heartbeat is due in 20 seconds: (the job, its token)."""

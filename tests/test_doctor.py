@@ -351,6 +351,27 @@ class DoctorTests(unittest.TestCase):
         self.assertNotEqual(report["status"], "incomplete")
         self.assertEqual(self.findings(report, "unclosed_session"), [])
 
+    def test_unclosed_session_is_not_a_finding_once_its_job_moved_on(self):
+        """P10: a job whose state changed has spoken in its thread since, so nothing there waits on the closing words
+        Linear refused. The ledger drops the row at that change. A row whose job is in another state than the one
+        recorded, which a revision without that drop can leave on a ledger it ran on in between, is not listed."""
+        def unclosed():
+            return [(f["session_id"], f["item_id"])
+                    for f in self.findings(diagnose(self.config, now=2001), "unclosed_session")]
+        self.ledger.fail_queued(self.item["id"], "launch failed")
+        self.ledger.owe_closure(SESSION, item_id=self.item["id"], kind="error", body="private error text")
+        self.ledger.clock = lambda: 2000
+        for _ in range(5):
+            self.ledger.closure_result(SESSION, sent=False, error="LinearError")
+        self.assertEqual(unclosed(), [(SESSION, self.item["id"])])
+        self.ledger.connection.execute("UPDATE work_items SET state='queued' WHERE id=?", (self.item["id"],))
+        self.assertEqual(unclosed(), [])
+        self.ledger.connection.execute("UPDATE work_items SET state='failed' WHERE id=?", (self.item["id"],))
+        self.assertEqual(unclosed(), [(SESSION, self.item["id"])])
+        self.ledger.retry(self.item["id"], "重试")  # this revision: the row goes with the job's state
+        self.assertEqual(unclosed(), [])
+        self.assertIsNone(self.ledger.connection.execute("SELECT 1 FROM session_closures").fetchone())
+
     def test_stored_undelegated_lists_the_delegations_work_only_when_the_app_is_pinned(self):
         """Design §5.3: before deploying, doctor lists the work the stored snapshot shows on a card not delegated to
         the pinned app. A conversation a delegation opened before authorities were recorded is listed too, though the

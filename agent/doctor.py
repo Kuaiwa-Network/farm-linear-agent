@@ -126,7 +126,8 @@ def _snapshot(path):
             "columns": {name for name in present if name in columns} | ({"undelegated_since"} & checks),
         }
         # Closing activities Linear refused to the end (silent-delegation design P10), read only where the ledger has
-        # the table: never the activity's text, and none that its job, or newer work in its thread, has spoken after.
+        # the table: never the activity's text, and none that newer work in its thread has spoken after. The ledger
+        # drops a row when its job's state changes; the state clause skips one a revision without that drop left.
         unclosed = rows("""SELECT c.session_id,c.issue_id,json_extract(i.metadata,'$.identifier') AS identifier,
             c.item_id,c.kind,c.attempts,c.created_at AS owed_at,c.given_up_at,c.last_error
             FROM session_closures c LEFT JOIN issues i ON i.id=c.issue_id

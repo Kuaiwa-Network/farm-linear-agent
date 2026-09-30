@@ -243,13 +243,16 @@ def post_closing_notice(ledger, api_factory, item, reason):
 def withdraw_question(ledger, api, item_id):
     """`await-input` posted its question, and the ledger then refused to park the job: a Stop, a closure or a failure
     ended it in between. The question would stay its thread's last activity, asking for an answer no job reads, so
-    one response withdraws it, owed when Linear refuses it (silent-delegation design A6, P9). A job that goes on,
-    queued again or still claimed, speaks in its thread itself and is told nothing here."""
+    one response withdraws it, owed when Linear refuses it (silent-delegation design A6, P9). Work that goes on in
+    the thread speaks there itself, and nothing is posted over it: the job, queued again or still claimed, or newer
+    work that took its thread meanwhile, as SessionProgress posts no terminal text over a successor (A7). Work the
+    job handed over to in another thread is not in this one, and the question here is withdrawn."""
     try:
         item = ledger.item(item_id)
     except LedgerError:
         return
-    if item["state"] in ACTIVE_STATES:
+    working = ledger.active_item_for_session(item["session_id"])
+    if working is not None and working["session_id"] == item["session_id"]:
         return
     content = {"type": "response", "body": question_withdrawn(item["skill"])}
     try:

@@ -2044,6 +2044,23 @@ class OwnThreadReceiverTests(ReceiverBase):
         self.reply_in("session-1", "公共测试服", activity="act-2")
         self.assertEqual(self.ledger.item(fix["id"])["state"], "queued")
         self.assertTrue(self.ledger.closure_superseded(row))
+        self.assertEqual(self.owed(), [])  # gone at the answer: a job parked again later does not bring it back
+
+    def test_an_owed_already_stopped_reply_names_the_job_the_stop_found_ended(self):
+        """A4: a Stop that finds its job ended before the cancel answers STOP_ALREADY for that job. The reply is owed
+        for that job as it ended, as a Stop's reply is owed for the job it stopped: it goes if the job is retried."""
+        self.real_scheduler()
+        chat = self.conversation_elsewhere("session-1")
+        target = self.receiver.ledger.stop_target
+
+        def finished_first(session_id):
+            found = target(session_id)
+            self.finish(chat)
+            return found
+        self.receiver.ledger.stop_target = finished_first
+        self.refusing("session-1")
+        self.stop_in("session-1")
+        self.assertEqual(self.owed(), [("session-1", chat["id"], "delivered", "response", STOP_ALREADY)])
 
     def test_a_refused_thought_or_card_note_is_not_owed(self):
         """A4: only a response or an error closes a thread. The note that a job was resumed is a thought, and an

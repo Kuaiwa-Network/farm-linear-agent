@@ -2577,6 +2577,69 @@ class OwedClosureTests(WithdrawnWorkBase):
         self.ledger.drop_closure("mention")
         self.assertEqual([row["session_id"] for row in self.closures()], ["session-0"])
 
+    def test_an_owed_closing_activity_goes_with_its_jobs_next_state_change(self):
+        """P10: the activity is dropped as soon as its job's state changes, not at the next try. A job that leaves
+        the recorded state and is back in it by then (failed, retried, failed again; parked, answered, parked again)
+        has spoken in its thread since, and the older closing words would follow its newer ones. One that was given
+        up goes the same way; one owed for another job, or for none, stays."""
+        self.ledger.observe_issue(issue(delegate_id=self.APP))
+        self.ledger.ensure_session("session-0", ISSUE, delegation=True)
+        self.ledger.ensure_session("mention", ISSUE, delegation=False)
+        fix = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-0", skill="fix", target=PIN)
+        self.ledger.fail_queued(fix["id"], "launch failed")
+        self.ledger.owe_closure("session-0", item_id=fix["id"], kind="error", body="无法启动工作进程。")
+        self.ledger.owe_closure("mention", kind="response", body="没有可停止的工作。")
+        self.now += 20
+        self.ledger.retry(fix["id"], "重试")
+        self.assertEqual([row["session_id"] for row in self.closures()], ["mention"])
+        self.now += 10
+        self.ledger.fail_queued(fix["id"], "launch failed again")  # its own error follows, which Linear takes
+        self.assertEqual(self.ledger.due_closure(self.now + 10 ** 6)["session_id"], "mention")
+        self.ledger.drop_closure("mention")
+        # Given up: the row stayed for doctor, and the job it names has moved on since.
+        self.ledger.owe_closure("session-0", item_id=fix["id"], kind="error", body="无法启动工作进程。")
+        for _ in range(5):
+            self.ledger.closure_result("session-0", sent=False, error="LinearError")
+        self.assertEqual([row["given_up_at"] for row in self.closures()], [self.now])
+        self.ledger.retry(fix["id"], "重试")
+        self.assertEqual(self.closures(), [])
+        # Parked, answered and parked again: the error a failed event owed for the parked job is gone at the answer.
+        token = self.ledger.claim(fix["id"], worker_id="w")["token"]
+        self.ledger.await_input(fix["id"], token, "哪个服？")
+        owed = self.ledger.owe_closure("session-0", item_id=fix["id"], kind="error", body="处理这条消息时出错。")
+        self.assertEqual(owed["item_state"], "awaiting_input")
+        # The reply of a Stop elsewhere that ended another thread's job is owed for that job, in the Stop's thread.
+        self.ledger.owe_closure("mention", item_id=fix["id"], kind="response", body="已停止另一个会话中的工作。")
+        self.now += 20
+        self.assertEqual(self.ledger.push_inbox(fix["id"], "公共测试服", resume_waiting=True)["state"], "queued")
+        self.assertEqual(self.closures(), [])
+        token = self.ledger.claim(fix["id"], worker_id="w")["token"]
+        self.ledger.pop_inbox(fix["id"], token)
+        self.ledger.await_input(fix["id"], token, "哪个分支？")
+        self.assertIsNone(self.ledger.due_closure(self.now + 10 ** 6))
+
+    def test_a_later_closing_activity_owed_to_a_thread_starts_its_tries_anew(self):
+        """A thread has one last word. The row that replaces an older one is tried from the start: it keeps neither
+        the older row's count of refusals nor, when that one was given up, its end."""
+        fix = self.stopped_fix()
+        self.ledger.owe_closure("session-0", item_id=fix["id"], kind="response", body="这项工作已取消。")
+        for _ in range(2):
+            self.ledger.closure_result("session-0", sent=False, error="LinearError")
+        self.assertEqual([(row["attempts"], row["due_at"]) for row in self.closures()], [(3, self.now + 240)])
+        self.now += 30
+        self.ledger.owe_closure("session-0", kind="error", body="处理这条消息时出错。", error="OSError")
+        self.assertEqual([(row["kind"], row["attempts"], row["due_at"], row["last_error"], row["given_up_at"])
+                          for row in self.closures()], [("error", 1, self.now + 60, "OSError", None)])
+        for _ in range(5):
+            self.ledger.closure_result("session-0", sent=False, error="LinearError")
+        self.assertEqual([(row["attempts"], row["given_up_at"]) for row in self.closures()], [(6, self.now)])
+        self.assertIsNone(self.ledger.due_closure(self.now + 10 ** 6))
+        self.now += 30
+        self.ledger.owe_closure("session-0", item_id=fix["id"], kind="response", body="这项工作已取消。")
+        self.assertEqual([(row["kind"], row["attempts"], row["due_at"], row["last_error"], row["given_up_at"])
+                          for row in self.closures()], [("response", 1, self.now + 60, None, None)])
+        self.assertEqual(self.ledger.due_closure(self.now + 60)["body"], "这项工作已取消。")
+
     def test_an_older_ledger_gains_the_closure_table(self):
         """§6.2: additive, with no backfill; a ledger that never owed anything has nothing due."""
         self.ledger.connection.execute("DROP TABLE session_closures")
