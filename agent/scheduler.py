@@ -237,15 +237,37 @@ class Scheduler:
 
         `item`, a view of the item the caller already holds, spares a read on the scheduler's own connection, which
         a caller on another thread (the lifecycle loop through `stop`) must not use.
+
+        Returns whether Linear took it. A response or an error closes the job's thread, so one Linear refuses is
+        owed to the thread and posted again by the progress loop (silent-delegation design P10, A4); a thought
+        closes nothing and is not.
         """
         if self.api is None:
-            return
+            return False
         try:
             item = item or self.ledger.item(item_id)
             if str(item["session_id"]).startswith("local-"):
                 self.api.create_comment(item["issue_id"], body)
             else:
                 self.api.create_activity(item["session_id"], {"type": kind, "body": body})
+        except Exception as exc:
+            if item is not None and kind in ("response", "error"):
+                self._owe(item, kind, body, exc)
+            return False
+        return True
+
+    def _owe(self, item, kind, body, exc):
+        """Record the closing activity Linear refused for `item`, best effort as the post was. On a control connection
+        where there is one, as `stop` cancels: `_notify` also runs on the receiver's and the lifecycle's threads,
+        which must not use the scheduler's own."""
+        try:
+            control = self.control_ledger_factory() if self.control_ledger_factory else self.ledger
+            try:
+                control.owe_closure(str(item["session_id"]), issue_id=item["issue_id"], item_id=item["id"], kind=kind,
+                                    body=body, error=type(exc).__name__)
+            finally:
+                if control is not self.ledger:
+                    control.close()
         except Exception:
             pass
 
@@ -284,7 +306,9 @@ class Scheduler:
         notice, in the cancelling transaction, so the notice is its session's last word (withdrawn-work design P7).
         `notice` is the text, or a function of the cancelled item's view that returns it: the cancel follows a
         conversation's handover to the job it continued, which can be another skill's, so a caller that chose by
-        the job it listed would give a fix a conversation's words. Returns the cancelled item, or None.
+        the job it listed would give a fix a conversation's words. A function may return None: nothing is posted
+        then, and the heartbeat still goes, for a caller that answers in the job's own thread itself, as a Linear
+        Stop pressed there does (silent-delegation design A1). Returns the cancelled item, or None.
         """
         if notice is not None and states is None:
             raise ValueError("a stop notice needs states: only then is it known that this stop cancelled the item")
@@ -323,7 +347,9 @@ class Scheduler:
             # Signal both ends if read-only execution handed off during Stop.
             self.launcher.stop(stopped_id)
         if notice is not None and cancelled is not None:
-            self._notify(destination, "response", notice(cancelled) if callable(notice) else notice, item=cancelled)
+            text = notice(cancelled) if callable(notice) else notice
+            if text:
+                self._notify(destination, "response", text, item=cancelled)
         return cancelled
 
     def _reap(self):

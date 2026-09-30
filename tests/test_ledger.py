@@ -105,6 +105,18 @@ class SchemaTests(LedgerBase):
         reopened.ensure_session(SESSION, ISSUE, delegation=True, creator=OWNER)
         self.assertEqual(reopened.session(SESSION)["creator"], OWNER)
 
+    def test_an_episode_table_without_unreachable_since_gains_the_column(self):
+        """A ledger whose episodes were written before a settle recorded a card Linear could not find."""
+        self.ledger.observe_issue(issue())
+        self.ledger.mark_undelegated(ISSUE, 1000.0)
+        self.ledger.clear_undelegated(ISSUE, observed_at=1030.0)
+        self.ledger.connection.execute("ALTER TABLE delegation_episodes DROP COLUMN unreachable_since")
+        self.ledger.close()
+        reopened = self.open_ledger()
+        self.assertIsNone(reopened.episode(ISSUE)["unreachable_since"])
+        self.assertTrue(reopened.retry_episode(ISSUE, 1030.0, 1135.0, error="LinearError", unreachable=True))
+        self.assertEqual(reopened.episode(ISSUE)["unreachable_since"], 1000.0)
+
     def test_k2_migration_reads_null_authority_by_skill(self):
         """Rows written before items recorded their authority read by skill: a write item as the delegation's, a
         chat as a mention's, which no withdrawal touches (withdrawn-work design K2)."""
@@ -2463,6 +2475,751 @@ class StopTargetTests(WithdrawnWorkBase):
         self.ledger.supersede(moved["id"], UNCLAIMED, session_id="session-1", skill="chat", authority="delegation",
                               reason="a new delegation session took the card over")
         self.assertEqual(self.target("mention"), (None, "moved"))
+
+
+class OwedClosureTests(WithdrawnWorkBase):
+    """A closing activity Linear refused is owed to its thread and retried a bounded number of times
+    (silent-delegation design P10, A4, §6.1; tests TO1-TO3)."""
+
+    def closures(self):
+        return [dict(row) for row in self.ledger.connection.execute(
+            "SELECT * FROM session_closures ORDER BY session_id")]
+
+    def stopped_fix(self, session="session-0"):
+        fix = self.parked(session=session)
+        self.ledger.cancel(fix["id"], "Linear stop")
+        return fix
+
+    def test_an_owed_closing_activity_is_kept_once_per_thread_and_never_for_a_local_job(self):
+        fix = self.stopped_fix()
+        owed = self.ledger.owe_closure("session-0", item_id=fix["id"], kind="response", body="这项工作已取消。",
+                                       error="LinearError")
+        self.assertEqual(owed, {"session_id": "session-0", "issue_id": ISSUE, "item_id": fix["id"],
+                                "item_state": "cancelled", "kind": "response", "body": "这项工作已取消。", "attempts": 1,
+                                "due_at": self.now + 60, "created_at": self.now, "last_error": "LinearError",
+                                "given_up_at": None})
+        self.assertEqual(self.closures(), [owed])
+        self.assertIsNone(self.ledger.due_closure(self.now + 59))
+        self.assertEqual(self.ledger.due_closure(self.now + 60), owed)
+        # A thread has one last word: a later closing activity it is owed replaces the earlier one, and starts anew.
+        # An event's error does not take the place of a job's own closing words; that is tested below.
+        self.now += 30
+        self.ledger.owe_closure("session-0", item_id=fix["id"], kind="error", body="工作执行失败。")
+        self.assertEqual([(row["kind"], row["body"], row["issue_id"], row["item_id"], row["item_state"],
+                           row["attempts"], row["due_at"], row["created_at"], row["last_error"])
+                          for row in self.closures()],
+                         [("error", "工作执行失败。", ISSUE, fix["id"], "cancelled", 1, self.now + 60, self.now, None)])
+        # An operator's `local-` job has no Linear thread that could be left waiting.
+        self.ledger.ensure_session("local-farm-1", ISSUE, delegation=True)
+        self.assertIsNone(self.ledger.owe_closure("local-farm-1", kind="response", body="这项工作已取消。"))
+        self.assertEqual([row["session_id"] for row in self.closures()], ["session-0"])
+        # Only an activity that closes a thread is owed, and only one with a body.
+        for kind in ("thought", "action", "elicitation"):
+            with self.subTest(kind=kind), self.assertRaises(LedgerError):
+                self.ledger.owe_closure("session-0", kind=kind, body="工作仍在处理中。")
+        with self.assertRaises(LedgerError):
+            self.ledger.owe_closure("session-0", kind="response", body=" ")
+        self.assertEqual(len(self.closures()), 1)
+        # A thread the ledger never recorded, where a Stop found nothing to stop, is owed its reply all the same.
+        self.assertIsNone(self.ledger.owe_closure("session-unknown", kind="response", body="没有可停止的工作。")["issue_id"])
+
+    def test_an_owed_closing_activity_backs_off_then_is_given_up(self):
+        """P10: five more tries, 60, 120, 240, 480 and 960 seconds apart, about 31 minutes in all; the sixth refusal
+        is the last, and the row stays for doctor."""
+        fix = self.stopped_fix()
+        self.ledger.owe_closure("session-0", item_id=fix["id"], kind="response", body="这项工作已取消。")
+        owed_at = self.now
+        for wait in (60, 120, 240, 480, 960):
+            [row] = self.closures()
+            self.assertEqual((row["due_at"] - self.now, row["given_up_at"]), (wait, None))
+            self.assertIsNone(self.ledger.due_closure(row["due_at"] - 1))
+            self.now = row["due_at"]
+            self.assertEqual(self.ledger.due_closure(self.now)["session_id"], "session-0")
+            self.ledger.closure_result("session-0", sent=False, error="LinearError")
+        [row] = self.closures()
+        self.assertEqual((row["attempts"], row["given_up_at"], row["last_error"]), (6, self.now, "LinearError"))
+        self.assertEqual(self.now - owed_at, 1860)
+        self.assertIsNone(self.ledger.due_closure(self.now + 10 ** 6))
+        self.ledger.closure_result("session-0", sent=False, error="OSError")  # nothing is tried after the last try
+        self.assertEqual(self.closures(), [row])
+
+    def test_an_owed_closing_activity_goes_once_linear_takes_it(self):
+        fix = self.stopped_fix()
+        first = self.ledger.owe_closure("session-0", kind="error", body="处理这条消息时出错。")
+        self.now += 60
+        # The result of a try belongs to the row that was tried: one owed since, in its place, is kept.
+        second = self.ledger.owe_closure("session-0", item_id=fix["id"], kind="response", body="这项工作已取消。")
+        self.ledger.closure_result("session-0", sent=True, owed_at=first["created_at"])
+        self.ledger.closure_result("session-0", sent=False, error="OSError", owed_at=first["created_at"])
+        self.ledger.give_up_closure("session-0", owed_at=first["created_at"])  # a try too late, of the older row
+        self.assertEqual(self.closures(), [second])
+        self.ledger.closure_result("session-0", sent=True, owed_at=second["created_at"])
+        self.assertEqual(self.closures(), [])
+        self.ledger.closure_result("session-0", sent=True)  # nothing owed: nothing to record
+
+    def test_an_owed_closing_activity_is_dropped_when_newer_work_speaks_in_the_thread(self):
+        """P10: the activity closed the thread for the job as it stood. A job whose state changed since, or a job
+        created in the thread since, speaks there itself, and the older closing words would follow its own."""
+        self.ledger.observe_issue(issue(delegate_id=self.APP))
+        self.ledger.ensure_session("session-0", ISSUE, delegation=True)
+        fix = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-0", skill="fix", target=PIN)
+        self.ledger.fail_queued(fix["id"], "launch failed")
+        owed = self.ledger.owe_closure("session-0", item_id=fix["id"], kind="error", body="无法启动工作进程。")
+        self.assertEqual(owed["item_state"], "failed")
+        self.assertFalse(self.ledger.closure_superseded(owed))
+        self.now += 5
+        self.ledger.retry(fix["id"], "重试")  # the same job, queued again
+        self.assertTrue(self.ledger.closure_superseded(owed))
+        # A newer job in the thread: the cancelled job's successor, which its retry creates there.
+        self.ledger.cancel(fix["id"], "Linear stop")
+        owed = self.ledger.owe_closure("session-0", item_id=fix["id"], kind="response", body="这项工作已取消。")
+        self.assertFalse(self.ledger.closure_superseded(owed))  # the job it names is no newer work
+        self.ledger.ensure_session("mention", ISSUE, delegation=False)
+        self.ledger.owe_closure("mention", kind="response", body="没有可停止的工作。")
+        self.now += 5
+        successor = self.ledger.retry(fix["id"], "重试")
+        self.assertEqual((successor["session_id"], successor["predecessor_id"]), ("session-0", fix["id"]))
+        self.assertTrue(self.ledger.closure_superseded(owed))
+        # Work in another thread says nothing in this one, whether or not the row names a job.
+        [mention] = [row for row in self.closures() if row["session_id"] == "mention"]
+        self.assertFalse(self.ledger.closure_superseded(mention))
+        self.ledger.cancel(successor["id"], "Linear stop")
+        self.now += 5
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id="mention", skill="chat")
+        self.assertTrue(self.ledger.closure_superseded(mention))
+        self.assertEqual(chat["session_id"], "mention")
+        self.ledger.drop_closure("mention")
+        self.assertEqual([row["session_id"] for row in self.closures()], ["session-0"])
+
+    def test_an_owed_closing_activity_goes_with_its_jobs_next_state_change(self):
+        """P10: the activity is dropped as soon as its job's state changes, not at the next try. A job that leaves
+        the recorded state and is back in it by then (failed, retried, failed again; parked, answered, parked again)
+        has spoken in its thread since, and the older closing words would follow its newer ones. One that was given
+        up goes the same way; one owed for another job, or for none, stays."""
+        self.ledger.observe_issue(issue(delegate_id=self.APP))
+        self.ledger.ensure_session("session-0", ISSUE, delegation=True)
+        self.ledger.ensure_session("mention", ISSUE, delegation=False)
+        fix = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-0", skill="fix", target=PIN)
+        self.ledger.fail_queued(fix["id"], "launch failed")
+        self.ledger.owe_closure("session-0", item_id=fix["id"], kind="error", body="无法启动工作进程。")
+        self.ledger.owe_closure("mention", kind="response", body="没有可停止的工作。")
+        self.now += 20
+        self.ledger.retry(fix["id"], "重试")
+        self.assertEqual([row["session_id"] for row in self.closures()], ["mention"])
+        self.now += 10
+        self.ledger.fail_queued(fix["id"], "launch failed again")  # its own error follows, which Linear takes
+        self.assertEqual(self.ledger.due_closure(self.now + 10 ** 6)["session_id"], "mention")
+        self.ledger.drop_closure("mention")
+        # Given up: the row stayed for doctor, and the job it names has moved on since.
+        self.ledger.owe_closure("session-0", item_id=fix["id"], kind="error", body="无法启动工作进程。")
+        for _ in range(5):
+            self.ledger.closure_result("session-0", sent=False, error="LinearError")
+        self.assertEqual([row["given_up_at"] for row in self.closures()], [self.now])
+        self.ledger.retry(fix["id"], "重试")
+        self.assertEqual(self.closures(), [])
+        # Parked, answered and parked again: the error a failed event owed for the parked job is gone at the answer.
+        token = self.ledger.claim(fix["id"], worker_id="w")["token"]
+        self.ledger.await_input(fix["id"], token, "哪个服？")
+        owed = self.ledger.owe_closure("session-0", item_id=fix["id"], kind="error", body="处理这条消息时出错。")
+        self.assertEqual(owed["item_state"], "awaiting_input")
+        # The reply of a Stop elsewhere that ended another thread's job is owed for that job, in the Stop's thread.
+        self.ledger.owe_closure("mention", item_id=fix["id"], kind="response", body="已停止另一个会话中的工作。")
+        self.now += 20
+        self.assertEqual(self.ledger.push_inbox(fix["id"], "公共测试服", resume_waiting=True)["state"], "queued")
+        self.assertEqual(self.closures(), [])
+        token = self.ledger.claim(fix["id"], worker_id="w")["token"]
+        self.ledger.pop_inbox(fix["id"], token)
+        self.ledger.await_input(fix["id"], token, "哪个分支？")
+        self.assertIsNone(self.ledger.due_closure(self.now + 10 ** 6))
+
+    def test_a_later_closing_activity_owed_to_a_thread_starts_its_tries_anew(self):
+        """A thread has one last word. The row that replaces an older one is tried from the start: it keeps neither
+        the older row's count of refusals nor, when that one was given up, its end."""
+        fix = self.stopped_fix()
+        self.ledger.owe_closure("session-0", item_id=fix["id"], kind="response", body="这项工作已取消。")
+        for _ in range(2):
+            self.ledger.closure_result("session-0", sent=False, error="LinearError")
+        self.assertEqual([(row["attempts"], row["due_at"]) for row in self.closures()], [(3, self.now + 240)])
+        self.now += 30
+        self.ledger.owe_closure("session-0", item_id=fix["id"], kind="error", body="工作执行失败。", error="OSError")
+        self.assertEqual([(row["kind"], row["attempts"], row["due_at"], row["last_error"], row["given_up_at"])
+                          for row in self.closures()], [("error", 1, self.now + 60, "OSError", None)])
+        for _ in range(5):
+            self.ledger.closure_result("session-0", sent=False, error="LinearError")
+        self.assertEqual([(row["attempts"], row["given_up_at"]) for row in self.closures()], [(6, self.now)])
+        self.assertIsNone(self.ledger.due_closure(self.now + 10 ** 6))
+        self.now += 30
+        self.ledger.owe_closure("session-0", item_id=fix["id"], kind="response", body="这项工作已取消。")
+        self.assertEqual([(row["kind"], row["attempts"], row["due_at"], row["last_error"], row["given_up_at"])
+                          for row in self.closures()], [("response", 1, self.now + 60, None, None)])
+        self.assertEqual(self.ledger.due_closure(self.now + 60)["body"], "这项工作已取消。")
+
+    def test_the_error_owed_for_a_message_goes_once_a_later_event_of_its_thread_is_answered(self):
+        """P10: the error a failed event was answered with is owed for the thread's job as it went on, or for none. A
+        later event of the thread that is answered there drops it, given up or not, whether or not any job changed
+        state. What closes a thread for a job that ended, an error as much as a response, stays, and so does what
+        another thread is owed."""
+        self.ledger.observe_issue(issue(delegate_id=self.APP))
+        for session in ("session-0", "mention", "other"):
+            self.ledger.ensure_session(session, ISSUE, delegation=session == "session-0")
+        fix = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-0", skill="fix", target=PIN)
+        self.ledger.claim(fix["id"], worker_id="w")
+        owed = self.ledger.owe_closure("session-0", item_id=fix["id"], kind="error", body="处理这条消息时出错。")
+        self.assertEqual(owed["item_state"], "running")
+        for session in ("mention", "other"):
+            self.ledger.owe_closure(session, kind="error", body="处理这条消息时出错。")
+        self.ledger.drop_event_error("session-0")  # a message steered into the running job: no state changed
+        self.assertEqual([row["session_id"] for row in self.closures()], ["mention", "other"])
+        for _ in range(5):
+            self.ledger.closure_result("mention", sent=False, error="LinearError")
+        self.assertEqual([row["given_up_at"] for row in self.closures()], [self.now, None])
+        self.ledger.drop_event_error("mention")  # a message forwarded from a thread that has no job of its own
+        self.assertEqual([row["session_id"] for row in self.closures()], ["other"])
+        # A Stop's reply that found nothing to stop names no job either, and is the thread's last word.
+        reply = self.ledger.owe_closure("mention", kind="response", body="没有可停止的工作。")
+        # The job ended, and its own error closes its thread: no later message there takes that away.
+        self.ledger.cancel(fix["id"], "Linear stop")
+        ended = self.ledger.owe_closure("session-0", item_id=fix["id"], kind="error", body="无法启动工作进程。")
+        self.assertEqual(ended["item_state"], "cancelled")
+        self.ledger.drop_event_error("mention")
+        self.ledger.drop_event_error("session-0")
+        self.assertEqual([(row["session_id"], row["kind"]) for row in self.closures()],
+                         [("mention", "response"), ("other", "error"), ("session-0", "error")])
+        self.assertEqual(self.closures()[0], reply)
+        self.ledger.drop_event_error("session-unknown")  # nothing owed: nothing to drop
+
+    def test_what_closes_a_thread_for_ended_work_is_not_replaced_by_what_later_rules_drop_without_it(self):
+        """P10: a thread has one last word, the newer replacing the older. But what closes it for a job that ended
+        stays until that job's state changes or newer work starts in the thread, and two rows go by rules that leave
+        it: the error a failed event was answered with, at the thread's next answered event, and a response owed for
+        no job, once the thread reaches work. Taking its place, either would leave the thread with neither, so it is
+        not owed in its place, given up or not. Closing words for work that ended still replace it, and once newer
+        work has started in the thread, anything owed there does."""
+        fix = self.stopped_fix()
+        closing = self.ledger.owe_closure("session-0", item_id=fix["id"], kind="response", body="这项工作已取消。")
+        self.now += 30
+        self.assertEqual(self.ledger.owe_closure("session-0", kind="error", body="处理这条消息时出错。"), closing)
+        self.assertEqual(self.ledger.owe_closure("session-0", kind="response", body="这个讨论串里没有进行中的工作。"),
+                         closing)
+        self.assertEqual(self.closures(), [closing])
+        for _ in range(5):
+            self.ledger.closure_result("session-0", sent=False, error="LinearError")
+        [given_up] = self.closures()
+        self.assertEqual((given_up["attempts"], given_up["given_up_at"]), (6, self.now))
+        self.ledger.owe_closure("session-0", kind="error", body="处理这条消息时出错。")
+        self.assertEqual(self.closures(), [given_up])
+        self.now += 30
+        ended = self.ledger.owe_closure("session-0", item_id=fix["id"], kind="error", body="工作执行失败。")
+        self.assertEqual((ended["kind"], ended["item_state"], ended["attempts"], ended["created_at"],
+                          ended["given_up_at"]), ("error", "cancelled", 1, self.now, None))
+        self.now += 5
+        successor = self.ledger.retry(fix["id"], "重试")  # newer work in the thread: the job's words no longer hold
+        self.assertEqual(successor["session_id"], "session-0")
+        self.now += 5
+        error = self.ledger.owe_closure("session-0", item_id=successor["id"], kind="error", body="处理这条消息时出错。")
+        self.assertEqual((error["item_id"], error["item_state"], error["kind"], error["created_at"]),
+                         (successor["id"], "queued", "error", self.now))
+        self.assertEqual(self.closures(), [error])
+        # Nor is what a thread is owed for a job that goes on kept from a later row: only a job's own closing words are.
+        self.now += 5
+        note = self.ledger.owe_closure("session-0", kind="response", body="这个讨论串里没有进行中的工作。")
+        self.assertEqual((note["item_id"], note["body"], note["created_at"]), (None, "这个讨论串里没有进行中的工作。", self.now))
+        self.assertEqual(self.closures(), [note])
+
+    def test_a_response_owed_for_no_job_goes_once_its_thread_reaches_work(self):
+        """§3.5, P5, P10: a response owed for no job, a note that the thread holds no work or a Stop's reply that found
+        nothing to stop, no longer holds once the thread reaches active work: its messages are forwarded to the
+        card's job, or its own job is going on again. Closing the thread then would hide Stop where Stop reaches the
+        work. It holds again once that work has ended. The error a failed event was answered with is about that
+        message, and the forward does not drop it. A Stop in the card's latest delegation thread reaches the
+        delegation's work wherever it runs, but that thread is still closed when it holds no work (§3.5), so its note
+        holds."""
+        self.ledger.observe_issue(issue(delegate_id=self.APP))
+        for session, delegation in (("session-0", True), ("mention", False), ("other", False)):
+            self.ledger.ensure_session(session, ISSUE, delegation=delegation)
+        fix = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-0", skill="fix", target=PIN)
+        self.ledger.fail_queued(fix["id"], "launch failed")
+        note = self.ledger.owe_closure("session-0", kind="response", body="这个讨论串里没有进行中的工作。")
+        reply = self.ledger.owe_closure("mention", kind="response", body="没有可停止的工作。")
+        error = self.ledger.owe_closure("other", kind="error", body="处理这条消息时出错。")
+        self.assertEqual([self.ledger.closure_superseded(row) for row in (note, reply, error)], [False] * 3)
+        self.now += 10
+        self.ledger.retry(fix["id"], "重试")  # the same job, queued again in its own thread
+        self.ledger.record_forward("mention", fix["id"])
+        self.ledger.record_forward("other", fix["id"])
+        self.assertEqual([self.ledger.closure_superseded(row) for row in (note, reply, error)], [True, True, False])
+        self.ledger.ensure_session("session-1", ISSUE, delegation=True)
+        latest = self.ledger.owe_closure("session-1", kind="response", body="这个讨论串里没有进行中的工作。")
+        self.assertEqual(self.ledger.stop_target("session-1"), (self.ledger.item(fix["id"]), "latest_delegation"))
+        self.assertFalse(self.ledger.closure_superseded(latest))
+        self.ledger.cancel(fix["id"], "Linear stop")
+        self.assertEqual([self.ledger.closure_superseded(row) for row in (note, reply, error)], [False] * 3)
+
+    def test_the_closing_activity_owed_longest_is_tried_first(self):
+        """P10, after an outage: of the rows due at once, the one that fell due first is tried first, so that no
+        thread waits behind rows that fell due after it."""
+        self.ledger.owe_closure("session-a", kind="response", body="没有可停止的工作。")
+        self.now += 30
+        self.ledger.owe_closure("session-b", kind="response", body="没有可停止的工作。")
+        self.assertEqual(self.ledger.due_closure(self.now + 70)["session_id"], "session-a")
+        self.ledger.closure_result("session-a", sent=False, error="LinearError")  # due 120 s later now
+        self.assertEqual(self.ledger.due_closure(self.now + 10 ** 6)["session_id"], "session-b")
+
+    def test_an_older_ledger_gains_the_closure_table(self):
+        """§6.2: additive, with no backfill; a ledger that never owed anything has nothing due."""
+        self.ledger.connection.execute("DROP TABLE session_closures")
+        self.ledger.close()
+        reopened = self.open_ledger()
+        self.assertIsNotNone(reopened.connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='session_closures'").fetchone())
+        self.assertIsNone(reopened.due_closure(self.now + 10 ** 6))
+
+
+class DelegationEpisodeTests(WithdrawnWorkBase):
+    """A read that finds the card delegated to this app again, after one that found it not delegated, opens an
+    episode: the delegation is back, and Linear may have opened no session for it. The episode is heard once a
+    delegation session followed (silent-delegation design P11, §3.1-§3.3, §6.1; tests TE1-TE6, TE8)."""
+
+    def setUp(self):
+        super().setUp()
+        self.ledger.observe_issue(issue(delegate_id=self.APP))
+
+    def redelegated(self, mark=1000.0, since=1030.0, issue_id=ISSUE):
+        """A read that started at `mark` found the card not delegated here, and one that started at `since` found
+        the delegation."""
+        self.ledger.mark_undelegated(issue_id, mark)
+        return self.ledger.clear_undelegated(issue_id, observed_at=since)
+
+    def episodes(self):
+        return [dict(row) for row in self.ledger.connection.execute("SELECT * FROM delegation_episodes")]
+
+    def mark(self):
+        return self.ledger.status_check(ISSUE)["undelegated_since"]
+
+    def test_a_delegated_read_that_clears_a_mark_opens_an_episode(self):
+        """TE1: the episode waits from the start of the read that found the delegation, for 90 seconds, in which a
+        delegation session Linear opened arrives. The read still clears the mark and the flags its loss set, and
+        returns those jobs as before."""
+        item, _ = self.claimed()
+        self.ledger.mark_undelegated(ISSUE, 1000.0)
+        self.ledger.flag_withdrawal(item["id"], "undelegated", self.now + 1200)
+        self.assertIsNone(self.ledger.episode(ISSUE))  # a card that is not delegated has no episode
+        self.now = 1031.0  # the read that started at 1030 took a second
+        self.assertEqual(self.ledger.clear_undelegated(ISSUE, observed_at=1030.0), [item["id"]])
+        self.assertIsNone(self.mark())
+        self.assertIsNone(self.ledger.item(item["id"])["withdraw_deadline"])
+        episode = {"issue_id": ISSUE, "since": 1030.0, "mark": 1000.0, "due_at": 1120.0, "state": "waiting",
+                   "session_id": None, "settled_at": None, "attempts": 0, "error": None, "updated_at": 1031.0,
+                   "unreachable_since": None}
+        self.assertEqual(self.ledger.episode(ISSUE), episode)
+        self.assertEqual(self.episodes(), [episode])
+        self.assertIsNone(self.ledger.due_episode(1119.0))
+        self.assertEqual(self.ledger.due_episode(1120.0), episode)
+
+    def test_a_read_with_no_start_or_older_than_the_mark_opens_none(self):
+        """TE2: a caller that names no read, or a read that started no later than the one that set the mark, shows no
+        delegation that came back after it. The mark is cleared all the same, as before."""
+        for observed_at in (None, 999.0, 1000.0):
+            with self.subTest(observed_at=observed_at):
+                self.ledger.mark_undelegated(ISSUE, 1000.0)
+                self.assertEqual(self.ledger.clear_undelegated(ISSUE, observed_at=observed_at), [])
+                self.assertIsNone(self.mark())
+                self.assertIsNone(self.ledger.episode(ISSUE))
+        self.ledger.mark_undelegated(ISSUE, 1000.0)
+        self.ledger.clear_undelegated(ISSUE)
+        self.assertEqual((self.mark(), self.episodes()), (None, []))
+        # A card no read found undelegated: finding it delegated is no transition.
+        self.ledger.clear_undelegated(ISSUE, observed_at=2000.0)
+        self.assertEqual(self.episodes(), [])
+        self.assertIsNone(self.ledger.due_episode(10 ** 9))
+        self.ledger.mark_undelegated(ISSUE, 1000.0)
+        for bad in ("1030", True, float("nan"), float("inf")):
+            with self.subTest(bad=bad), self.assertRaises(LedgerError):
+                self.ledger.clear_undelegated(ISSUE, observed_at=bad)
+        self.assertEqual((self.mark(), self.episodes()), (1000.0, []))
+
+    def test_an_undelegated_read_drops_a_waiting_episode_only_if_it_began_later(self):
+        """TE3, S11, P3's fence the other way: a read that found the card not delegated ends the waiting episode only
+        when it started after the read that opened it. An older read, which returned later, knows nothing newer."""
+        self.redelegated(1000.0, 1030.0)
+        waiting = self.ledger.episode(ISSUE)
+        self.now = 1040.0
+        self.assertEqual(self.ledger.mark_undelegated(ISSUE, 1029.0), 1029.0)
+        self.assertEqual(self.ledger.mark_undelegated(ISSUE, 1030.0), 1029.0)
+        self.assertEqual(self.ledger.episode(ISSUE), waiting)
+        self.now = 1061.0
+        self.assertEqual(self.ledger.mark_undelegated(ISSUE, 1060.0), 1029.0)  # the first mark stays, as before
+        dropped = {**waiting, "state": "dropped", "settled_at": 1061.0, "updated_at": 1061.0}
+        self.assertEqual(self.ledger.episode(ISSUE), dropped)
+        self.assertIsNone(self.ledger.due_episode(10 ** 9))
+        self.now = 1121.0
+        self.ledger.mark_undelegated(ISSUE, 1120.0)  # an episode is dropped once
+        self.assertEqual(self.ledger.episode(ISSUE), dropped)
+
+    def test_a_waiting_episode_is_not_reset_and_a_settled_one_is_replaced(self):
+        """TE4, S13: a later read that clears a mark leaves a waiting episode as it is, so its grace is not pushed
+        out. Once the episode is settled or dropped, the next such read starts a new one in the card's one row."""
+        self.redelegated(1000.0, 1030.0)
+        first = self.ledger.episode(ISSUE)
+        self.ledger.mark_undelegated(ISSUE, 1020.0)  # an older read returned late: it drops nothing
+        self.now = 1046.0
+        self.assertEqual(self.ledger.clear_undelegated(ISSUE, observed_at=1045.0), [])
+        self.assertEqual((self.mark(), self.ledger.episode(ISSUE)), (None, first))
+        self.assertTrue(self.ledger.retry_episode(ISSUE, 1030.0, 1135.0, error="LinearError"))
+        self.now = 1136.0
+        self.assertTrue(self.ledger.finish_episode(ISSUE, 1030.0, "served", "session-0"))
+        self.now = 1291.0
+        self.redelegated(1200.0, 1290.0)
+        second = {"issue_id": ISSUE, "since": 1290.0, "mark": 1200.0, "due_at": 1380.0, "state": "waiting",
+                  "session_id": None, "settled_at": None, "attempts": 0, "error": None, "updated_at": 1291.0,
+                  "unreachable_since": None}
+        self.assertEqual(self.episodes(), [second])
+        # Two quick re-delegations: each undelegated read drops the waiting episode, each delegated read after it
+        # opens one, and only the last waits.
+        self.now = 1301.0
+        self.assertEqual(self.ledger.mark_undelegated(ISSUE, 1300.0), 1300.0)
+        self.assertEqual(self.ledger.episode(ISSUE)["state"], "dropped")
+        self.now = 1311.0
+        self.ledger.clear_undelegated(ISSUE, observed_at=1310.0)
+        self.assertEqual(self.episodes(), [{**second, "since": 1310.0, "mark": 1300.0, "due_at": 1400.0,
+                                            "updated_at": 1311.0}])
+
+    def test_an_episode_is_finished_once_by_the_settle_that_saw_it(self):
+        """TE5: a settle names the episode it read by its `since`. One that is no longer waiting, or that a newer
+        episode has replaced, is left alone, and the caller is told so."""
+        self.redelegated(1000.0, 1030.0)
+        waiting = self.ledger.episode(ISSUE)
+        self.now = 1121.0
+        self.assertFalse(self.ledger.finish_episode(ISSUE, 1029.0, "told"))
+        self.assertFalse(self.ledger.retry_episode(ISSUE, 1029.0, 2000.0, error="LinearError"))
+        self.assertFalse(self.ledger.finish_episode(OTHER, 1030.0, "told"))
+        self.assertFalse(self.ledger.retry_episode(OTHER, 1030.0, 2000.0))
+        self.assertEqual(self.episodes(), [waiting])
+        for state in ("waiting", "opened", None):
+            with self.subTest(state=state), self.assertRaises(LedgerError):
+                self.ledger.finish_episode(ISSUE, 1030.0, state)
+        self.assertEqual(self.episodes(), [waiting])
+        self.assertTrue(self.ledger.finish_episode(ISSUE, 1030.0, "served", "session-0"))
+        served = {**waiting, "state": "served", "session_id": "session-0", "settled_at": 1121.0, "updated_at": 1121.0}
+        self.assertEqual(self.episodes(), [served])
+        self.now = 1200.0
+        self.assertFalse(self.ledger.finish_episode(ISSUE, 1030.0, "told"))
+        self.assertFalse(self.ledger.retry_episode(ISSUE, 1030.0, 2000.0))
+        self.assertEqual(self.episodes(), [served])
+        self.assertIsNone(self.ledger.due_episode(10 ** 9))
+
+    def test_an_episode_can_end_in_each_settled_state(self):
+        for number, state in enumerate(("heard", "served", "in_place", "told", "unseen", "dropped")):
+            with self.subTest(state=state):
+                since = 1030.0 + 100 * number
+                self.now = since + 91
+                self.redelegated(since - 30, since)
+                self.assertTrue(self.ledger.finish_episode(ISSUE, since, state))
+                episode = self.ledger.episode(ISSUE)
+                self.assertEqual((episode["state"], episode["session_id"], episode["settled_at"]),
+                                 (state, None, self.now))
+
+    def test_a_retried_episode_is_due_again_later_and_counts_a_failed_read(self):
+        """S20, §3.5: a settle whose read of the card failed is tried again later, and the failure is counted and
+        named. One that found the work changed under it is looked at again, with no failure to count."""
+        self.redelegated(1000.0, 1030.0)
+        self.now = 1120.0
+        self.assertTrue(self.ledger.retry_episode(ISSUE, 1030.0, 1135.0, error="LinearError"))
+        episode = self.ledger.episode(ISSUE)
+        self.assertEqual((episode["state"], episode["due_at"], episode["attempts"], episode["error"],
+                          episode["updated_at"]), ("waiting", 1135.0, 1, "LinearError", 1120.0))
+        self.assertIsNone(self.ledger.due_episode(1134.0))
+        self.assertEqual(self.ledger.due_episode(1135.0), episode)
+        self.now = 1135.0
+        self.assertTrue(self.ledger.retry_episode(ISSUE, 1030.0, 1165.0, error="OSError"))
+        episode = self.ledger.episode(ISSUE)
+        self.assertEqual((episode["due_at"], episode["attempts"], episode["error"]), (1165.0, 2, "OSError"))
+        self.now = 1165.0
+        self.assertTrue(self.ledger.retry_episode(ISSUE, 1030.0, 1170.0))
+        episode = self.ledger.episode(ISSUE)
+        self.assertEqual((episode["state"], episode["since"], episode["due_at"], episode["attempts"], episode["error"]),
+                         ("waiting", 1030.0, 1170.0, 2, None))
+        for bad in (None, "1200", True, float("nan")):
+            with self.subTest(bad=bad), self.assertRaises(LedgerError):
+                self.ledger.retry_episode(ISSUE, 1030.0, bad)
+        self.assertEqual(self.ledger.episode(ISSUE), episode)
+        # The settle that then gets through ends it; how often its read failed stays on record.
+        self.ledger.retry_episode(ISSUE, 1030.0, 1175.0, error="LinearError")
+        self.assertTrue(self.ledger.finish_episode(ISSUE, 1030.0, "unseen"))
+        episode = self.ledger.episode(ISSUE)
+        self.assertEqual((episode["state"], episode["attempts"], episode["error"]), ("unseen", 3, None))
+
+    def test_a_retried_episode_keeps_since_when_linear_found_no_card(self):
+        """S20 with withdrawn-work R8: the first failed read in a row that Linear answered with "not found" is kept
+        in `unreachable_since`, as a status read's is. Any other result clears it: a failure of another kind, a
+        look-again after a read that worked, and the settle that gets through."""
+        self.redelegated(1000.0, 1030.0)
+        self.assertIsNone(self.ledger.episode(ISSUE)["unreachable_since"])
+        self.now = 1120.0
+        self.assertTrue(self.ledger.retry_episode(ISSUE, 1030.0, 1135.0, error="LinearError", unreachable=True))
+        self.now = 1135.0
+        self.assertTrue(self.ledger.retry_episode(ISSUE, 1030.0, 1165.0, error="LinearError", unreachable=True))
+        episode = self.ledger.episode(ISSUE)
+        self.assertEqual((episode["due_at"], episode["attempts"], episode["error"], episode["unreachable_since"]),
+                         (1165.0, 2, "LinearError", 1120.0))
+        self.now = 1165.0
+        self.ledger.retry_episode(ISSUE, 1030.0, 1225.0, error="LinearError")  # rate limited, say
+        self.assertIsNone(self.ledger.episode(ISSUE)["unreachable_since"])
+        self.now = 1225.0
+        self.ledger.retry_episode(ISSUE, 1030.0, 1345.0, error="LinearError", unreachable=True)
+        self.assertEqual(self.ledger.episode(ISSUE)["unreachable_since"], 1225.0)
+        self.now = 1345.0
+        self.ledger.retry_episode(ISSUE, 1030.0, 1350.0)  # the read worked and the work had changed under it
+        self.assertIsNone(self.ledger.episode(ISSUE)["unreachable_since"])
+        self.now = 1350.0
+        self.ledger.retry_episode(ISSUE, 1030.0, 1365.0, error="LinearError", unreachable=True)
+        self.assertFalse(self.ledger.retry_episode(ISSUE, 1029.0, 1365.0, error="OSError"))  # another episode's
+        self.assertEqual(self.ledger.episode(ISSUE)["unreachable_since"], 1350.0)
+        self.now = 1365.0
+        self.assertTrue(self.ledger.finish_episode(ISSUE, 1030.0, "served", "session-0"))
+        episode = self.ledger.episode(ISSUE)
+        self.assertEqual((episode["state"], episode["attempts"], episode["error"], episode["unreachable_since"]),
+                         ("served", 5, None, None))
+
+    def test_an_episode_dropped_as_out_of_reach_keeps_what_its_reads_failed_with(self):
+        """S20 with withdrawn-work R8: no settle got through, so the failure's name and the time of the first read
+        that found no card stay in the row as the record of why. Only the episode the caller read is dropped, once,
+        and the next delegation a read finds back starts a new one with none of it."""
+        self.redelegated(1000.0, 1030.0)
+        self.now = 1120.0
+        self.ledger.retry_episode(ISSUE, 1030.0, 1135.0, error="LinearError", unreachable=True)
+        waiting = self.ledger.episode(ISSUE)
+        self.now = 2200.0
+        self.assertFalse(self.ledger.drop_episode(ISSUE, 1029.0))
+        self.assertFalse(self.ledger.drop_episode(OTHER, 1030.0))
+        self.assertEqual(self.episodes(), [waiting])
+        self.assertTrue(self.ledger.drop_episode(ISSUE, 1030.0))
+        dropped = {**waiting, "state": "dropped", "settled_at": 2200.0, "updated_at": 2200.0}
+        self.assertEqual((dropped["attempts"], dropped["error"], dropped["unreachable_since"]),
+                         (1, "LinearError", 1120.0))
+        self.assertEqual(self.episodes(), [dropped])
+        self.now = 2210.0
+        self.assertFalse(self.ledger.drop_episode(ISSUE, 1030.0))
+        self.assertEqual(self.episodes(), [dropped])
+        self.assertIsNone(self.ledger.due_episode(10 ** 9))
+        self.now = 2301.0
+        self.redelegated(2250.0, 2300.0)
+        episode = self.ledger.episode(ISSUE)
+        self.assertEqual((episode["state"], episode["since"], episode["attempts"], episode["error"],
+                          episode["unreachable_since"]), ("waiting", 2300.0, 0, None, None))
+
+    def test_the_episode_longest_due_is_settled_first(self):
+        self.ledger.observe_issue(issue(id=OTHER, identifier="FARM-2", delegate_id=self.APP))
+        self.redelegated(1000.0, 1030.0)
+        self.redelegated(1000.0, 1010.0, issue_id=OTHER)
+        self.assertIsNone(self.ledger.due_episode(1099.0))
+        self.assertEqual(self.ledger.due_episode(1100.0)["issue_id"], OTHER)
+        self.assertEqual(self.ledger.due_episode(1200.0)["issue_id"], OTHER)
+        self.assertTrue(self.ledger.finish_episode(OTHER, 1010.0, "unseen"))
+        self.assertIsNone(self.ledger.due_episode(1119.0))
+        self.assertEqual(self.ledger.due_episode(1200.0)["issue_id"], ISSUE)
+        self.assertEqual(len(self.episodes()), 2)  # one row per card
+
+    def test_heard_means_a_delegation_session_since_the_mark(self):
+        """TE6, §3.2: a delegation that opened a session is heard. Its session is a delegation's, a Linear thread,
+        on this card, and recorded at or after the read that found the card not delegated."""
+        self.ledger.observe_issue(issue(id=OTHER, identifier="FARM-2", delegate_id=self.APP))
+        self.now = 990.0
+        self.ledger.ensure_session("session-old", ISSUE, delegation=True)
+        self.now = 1010.0
+        self.ledger.ensure_session("mention", ISSUE, delegation=False)  # a mention's thread
+        self.ledger.ensure_session("local-farm-1", ISSUE, delegation=True)  # the operator's enqueue: no Linear thread
+        self.ledger.ensure_session("session-other", OTHER, delegation=True)  # another card's delegation
+        self.ledger.ensure_session("session-old", ISSUE, delegation=True)  # a later event of the older session
+        self.assertFalse(self.ledger.delegation_heard(ISSUE, 1000.0))
+        self.assertTrue(self.ledger.delegation_heard(OTHER, 1000.0))
+        self.assertTrue(self.ledger.delegation_heard(ISSUE, 990.0))
+        self.ledger.ensure_session("session-new", ISSUE, delegation=True)
+        self.assertTrue(self.ledger.delegation_heard(ISSUE, 1000.0))
+        self.assertTrue(self.ledger.delegation_heard(ISSUE, 1010.0))  # recorded at the mark counts
+        self.assertFalse(self.ledger.delegation_heard(ISSUE, 1011.0))
+
+    def test_a_workers_withdraw_read_that_finds_the_delegation_records_it_too(self):
+        """§3.1: a worker's `withdraw` clears the mark when its own read finds the card delegated. Given the start of
+        that read, it opens the episode as the other reads do; a withdraw that ends the work opens none."""
+        item, token = self.claimed()
+        self.ledger.mark_undelegated(ISSUE, 1000.0)
+        with self.assertRaisesRegex(LedgerError, "still delegated"):
+            self.ledger.withdraw(item["id"], token, delegated=True, closed=False)
+        self.assertEqual((self.mark(), self.episodes()), (None, []))
+        self.ledger.mark_undelegated(ISSUE, 1000.0)
+        self.ledger.flag_withdrawal(item["id"], "undelegated", self.now + 1200)
+        self.now = 1031.0
+        with self.assertRaisesRegex(LedgerError, "delegated to this app again"):
+            self.ledger.withdraw(item["id"], token, delegated=True, closed=False, read_at=1030.0)
+        episode = self.ledger.episode(ISSUE)
+        self.assertEqual((self.mark(), episode["state"], episode["since"], episode["mark"], episode["due_at"]),
+                         (None, "waiting", 1030.0, 1000.0, 1120.0))
+        self.assertEqual(self.ledger.item(item["id"])["state"], "running")
+        for bad in ("1030", True, float("inf")):
+            with self.subTest(bad=bad), self.assertRaisesRegex(LedgerError, "read_at must be a finite number"):
+                self.ledger.withdraw(item["id"], token, delegated=True, closed=False, read_at=bad)
+        self.now = 1041.0
+        self.ledger.mark_undelegated(ISSUE, 1040.0)
+        view, reason = self.ledger.withdraw(item["id"], token, delegated=False, closed=False, read_at=1040.5)
+        self.assertEqual((view["state"], reason), ("cancelled", "undelegated"))
+        self.assertEqual((self.mark(), self.ledger.episode(ISSUE)["state"]), (1040.0, "dropped"))
+
+    def test_a_waiting_episode_survives_a_restart_with_its_due_time(self):
+        """S12: the episode is in the ledger file and its due time is absolute, so a controller that comes back
+        during or after the grace finds it, and settles it once."""
+        self.redelegated(1000.0, 1030.0)
+        waiting = self.ledger.episode(ISSUE)
+        self.ledger.close()
+        self.now = 5000.0
+        restarted = self.open_ledger()
+        self.assertEqual(restarted.episode(ISSUE), waiting)
+        self.assertEqual(restarted.due_episode(self.now), waiting)
+        self.assertTrue(restarted.finish_episode(ISSUE, 1030.0, "unseen"))
+        self.assertIsNone(restarted.due_episode(self.now))
+        self.assertFalse(self.open_ledger().finish_episode(ISSUE, 1030.0, "told"))
+
+    def test_an_older_ledger_gains_the_episode_and_closure_tables(self):
+        """TE8, §6.2: both tables are additive, with no backfill. A mark an older revision left is still there, and
+        nothing is due until a read clears it."""
+        self.ledger.mark_undelegated(ISSUE, 1000.0)
+        for table in ("delegation_episodes", "session_closures"):
+            self.ledger.connection.execute(f"DROP TABLE {table}")
+        self.ledger.close()
+        reopened = self.open_ledger()
+        tables = {row["name"] for row in reopened.connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        self.assertLessEqual({"delegation_episodes", "session_closures"}, tables)
+        self.assertIsNone(reopened.episode(ISSUE))
+        self.assertIsNone(reopened.due_episode(self.now + 10 ** 6))
+        self.assertIsNone(reopened.due_closure(self.now + 10 ** 6))
+        self.assertEqual(reopened.status_check(ISSUE)["undelegated_since"], 1000.0)
+        reopened.clear_undelegated(ISSUE, observed_at=1030.0)
+        self.assertEqual(reopened.episode(ISSUE)["state"], "waiting")
+
+    IN_PLACE = "a delegation Linear opened no session for took the work over in its own thread"
+
+    def test_supersede_in_place_takes_the_episode_in_the_same_transaction(self):
+        """TE7, P12: a takeover in the job's own thread settles the episode it answers in the transaction that moves
+        the work: the episode the caller read, still waiting, becomes `in_place` with that thread. One that is no
+        longer that episode refuses the takeover as stale routing does, and nothing changes."""
+        chat = self.parked(skill="chat", session="session-0", messages=(("按钮点了没反应", DESIGNER, 900.0),))
+        self.redelegated(1000.0, 1030.0)
+        waiting = self.ledger.episode(ISSUE)
+        self.now = 1120.0
+        cancelled, created = self.ledger.supersede(chat["id"], ACTIVE_STATES, session_id="session-0", skill="fix",
+                                                   target=PIN, authority="delegation", reason=self.IN_PLACE,
+                                                   episode=1030.0)
+        self.assertEqual((cancelled["id"], cancelled["state"]), (chat["id"], "cancelled"))
+        self.assertEqual((created["session_id"], created["skill"], created["state"], created["authority"],
+                          created["target"]), ("session-0", "fix", "queued", "delegation", PIN))
+        self.assertEqual(self.inbox(created["id"]), [("按钮点了没反应", DESIGNER, 900.0)])
+        taken = {**waiting, "state": "in_place", "session_id": "session-0", "settled_at": 1120.0,
+                 "updated_at": 1120.0}
+        self.assertEqual(self.episodes(), [taken])
+        self.assertIsNone(self.ledger.due_episode(10 ** 9))
+        self.assertEqual(self.ledger.stop_target("session-0"), (created, "own"))  # the thread's own work (P5)
+
+        def unchanged(episode):
+            self.assertEqual(self.episodes(), [episode])
+            self.assertEqual([(item["id"], item["state"]) for item in self.ledger.items_for_session("session-0")],
+                             [(chat["id"], "cancelled"), (created["id"], "queued")])
+
+        def in_place(since):
+            return self.ledger.supersede(created["id"], UNCLAIMED, session_id="session-0", skill="feature",
+                                         authority="delegation", reason=self.IN_PLACE, episode=since)
+        # The episode is settled: a second settle of it takes nothing.
+        with self.assertRaises(StaleRouting):
+            in_place(1030.0)
+        unchanged(taken)
+        # A newer episode waits: the settle that read the older one takes nothing either.
+        self.now = 1231.0
+        self.redelegated(1200.0, 1230.0)
+        newer = self.ledger.episode(ISSUE)
+        self.assertEqual((newer["state"], newer["since"]), ("waiting", 1230.0))
+        with self.assertRaises(StaleRouting):
+            in_place(1030.0)
+        unchanged(newer)
+        # A read that found the delegation gone again dropped it under the settle.
+        self.now = 1241.0
+        self.ledger.mark_undelegated(ISSUE, 1240.0)
+        dropped = self.ledger.episode(ISSUE)
+        self.assertEqual(dropped["state"], "dropped")
+        with self.assertRaises(StaleRouting):
+            in_place(1230.0)
+        unchanged(dropped)
+        for bad in ("1230", True, float("nan")):
+            with self.subTest(bad=bad), self.assertRaisesRegex(LedgerError, "episode must be a finite number"):
+                in_place(bad)
+        unchanged(dropped)
+        # Without an episode a takeover is what it was: a new session's, which no episode gates.
+        self.ledger.ensure_session("session-1", ISSUE, delegation=True)
+        _, moved = self.ledger.supersede(created["id"], UNCLAIMED, session_id="session-1", skill="fix", target=PIN,
+                                         authority="delegation", reason="a new delegation session took the card over")
+        self.assertEqual((moved["session_id"], self.ledger.episode(ISSUE)), ("session-1", dropped))
+
+    def test_supersede_in_place_on_a_card_with_no_episode_is_stale(self):
+        chat = self.parked(skill="chat", session="session-0")
+        with self.assertRaises(StaleRouting):
+            self.ledger.supersede(chat["id"], ACTIVE_STATES, session_id="session-0", skill="fix", target=PIN,
+                                  authority="delegation", reason=self.IN_PLACE, episode=1030.0)
+        self.assertEqual(self.ledger.item(chat["id"])["state"], "awaiting_input")
+        self.assertEqual(self.episodes(), [])
+
+    def test_a_job_that_changed_leaves_its_episode_waiting(self):
+        """The takeover's two fences fail alike: a job that left the expected states rolls the transaction back, and
+        the episode still waits for the settle to look again."""
+        chat = self.parked(skill="chat", session="session-0")
+        self.redelegated(1000.0, 1030.0)
+        waiting = self.ledger.episode(ISSUE)
+        self.ledger.cancel(chat["id"], "Linear stop")
+        with self.assertRaises(StaleRouting):
+            self.ledger.supersede(chat["id"], ACTIVE_STATES, session_id="session-0", skill="fix", target=PIN,
+                                  authority="delegation", reason=self.IN_PLACE, episode=1030.0)
+        self.assertEqual(self.episodes(), [waiting])
+        self.assertEqual(len(self.ledger.items_for_session("session-0")), 1)
+
+    def test_a_cards_linear_threads_are_listed_newest_first(self):
+        """§3.5: the threads a settle may look at are the card's recorded sessions that are Linear threads, newest
+        first, each with whether a delegation opened it and the job its messages were forwarded to."""
+        item = self.new_item(delegate_id=self.APP)  # SESSION, recorded at 1000
+        self.ledger.observe_issue(issue(id=OTHER, identifier="FARM-2"))
+        self.now = 990.0
+        self.ledger.ensure_session("session-a", ISSUE, delegation=True)
+        self.now = 1010.0
+        self.ledger.ensure_session("mention-b", ISSUE, delegation=False)
+        self.ledger.ensure_session(f"local-{ISSUE}", ISSUE, delegation=True)  # the operator's: no Linear thread
+        self.ledger.ensure_session("session-other", OTHER, delegation=True)
+        self.ledger.record_forward("mention-b", item["id"])
+        self.now = 1020.0
+        self.ledger.ensure_session("session-c", ISSUE, delegation=True)
+        self.ledger.ensure_session("session-d", ISSUE, delegation=False)  # recorded in the same instant, after it
+        listed = self.ledger.sessions_for_issue(ISSUE, 10)
+        self.assertEqual(listed, [
+            {"session_id": "session-d", "delegation": False, "created_at": 1020.0, "forwarded_item": None},
+            {"session_id": "session-c", "delegation": True, "created_at": 1020.0, "forwarded_item": None},
+            {"session_id": "mention-b", "delegation": False, "created_at": 1010.0, "forwarded_item": item["id"]},
+            {"session_id": SESSION, "delegation": True, "created_at": 1000.0, "forwarded_item": None},
+            {"session_id": "session-a", "delegation": True, "created_at": 990.0, "forwarded_item": None}])
+        self.assertEqual(self.ledger.sessions_for_issue(ISSUE, 2), listed[:2])
+        self.assertEqual([row["session_id"] for row in self.ledger.sessions_for_issue(OTHER, 10)], ["session-other"])
+        for bad in (0, -1, True, "10", 2.5):
+            with self.subTest(bad=bad), self.assertRaises(LedgerError):
+                self.ledger.sessions_for_issue(ISSUE, bad)
+
+    def test_a_jobs_note_is_found_from_a_given_time_on(self):
+        """§3.3: the line a kept job gets is limited per job and time. The audit trail is its record: a note of that
+        kind on that job, at or after the given time."""
+        item = self.new_item(delegate_id=self.APP)
+        self.assertFalse(self.ledger.noted_since(item["id"], "redelegated", 0))
+        self.now = 1100.0
+        self.ledger.note(item["id"], "redelegated", "kept")
+        self.assertTrue(self.ledger.noted_since(item["id"], "redelegated", 1000.0))
+        self.assertTrue(self.ledger.noted_since(item["id"], "redelegated", 1100.0))
+        self.assertFalse(self.ledger.noted_since(item["id"], "redelegated", 1100.5))
+        self.assertFalse(self.ledger.noted_since(item["id"], "superseded", 1000.0))
+        self.assertTrue(self.ledger.noted_since(item["id"], "create", 1000.0))  # any audit kind of the job
+        self.assertFalse(self.ledger.noted_since("another-job", "redelegated", 1000.0))
 
 
 class ReservationTests(unittest.TestCase):

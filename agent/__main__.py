@@ -12,7 +12,7 @@ from .ledger import ACTIVE_STATES, AWAIT_REASONS, NOTICE_KINDS, TERMINAL_STATUS_
 from .memory import prune_snapshots
 from .router import CONVERSATION_SKILLS, WRITE_SKILLS, continuation_refusal
 from .stages import write_repositories
-from .withdrawal import NOTICE_REASONS, notice as withdrawal_notice
+from .withdrawal import NOTICE_REASONS, notice as withdrawal_notice, question_withdrawn
 
 
 def parser():
@@ -68,7 +68,11 @@ def parser():
     notice.add_argument("--kind", required=True, choices=NOTICE_KINDS)
     cmd("post-notice", "--item", "--request-id", token=True)
     activity = cmd("activity", "--item", "--body-file", token=True)
-    activity.add_argument("--type", required=True, choices=["thought", "action", "response", "error", "elicitation"])
+    # `elicitation` stays a choice only so that `run` can refuse it with the command to use instead (silent-delegation
+    # design A8); help offers the kinds `activity` posts.
+    activity.add_argument("--type", required=True, choices=["thought", "action", "response", "error", "elicitation"],
+                          metavar="{thought,action,response,error}",
+                          help="the activity's kind; ask a question with await-input, which posts it and parks the job")
     pause = cmd("await-input", "--item", "--question", token=True)
     pause.add_argument("--reason", choices=AWAIT_REASONS, default="question",
                        help="question (default) adds needs-more-info; waiting, for a human step elsewhere, does not")
@@ -206,12 +210,24 @@ def refuse_withdrawn(item):
         raise LedgerError(Ledger.WITHDRAWN)
 
 
-def post_closing_notice(api_factory, item, reason):
-    """Best effort, once the ledger is final: the one notice a job cancelled for `reason` gets (design P7), as its
-    session's response, or as an issue comment for an operator's `local-` job, which has no Linear session. A job
-    whose issue is out of reach gets none. Never retried: True when Linear took it."""
+def owe_closing(ledger, item, content, exc):
+    """Linear refused `content`, the response or error that closes `item`'s thread: it is owed to the thread, and the
+    controller's progress loop posts it again (silent-delegation design P10, A4). Best effort, as the post was; an
+    operator's `local-` job, which has no Linear thread, is owed nothing."""
+    try:
+        ledger.owe_closure(str(item["session_id"]), issue_id=item["issue_id"], item_id=item["id"],
+                           kind=content["type"], body=content["body"], error=type(exc).__name__)
+    except Exception:
+        pass
+
+
+def post_closing_notice(ledger, api_factory, item, reason):
+    """Once the ledger is final: the one notice a job cancelled for `reason` gets (design P7), as its session's
+    response, or as an issue comment for an operator's `local-` job, which has no Linear session. A job whose issue is
+    out of reach gets none. True when Linear took it; a response it refused is owed to the session (owe_closing)."""
     if reason not in NOTICE_REASONS:
         return False
+    body = None
     try:
         body = withdrawal_notice(item["skill"], reason, configured_bot_name())
         api = api_factory()
@@ -223,7 +239,32 @@ def post_closing_notice(api_factory, item, reason):
     except Exception as exc:
         print(json.dumps({"warning": "closing notice not posted", "error": type(exc).__name__}), file=sys.stderr,
               flush=True)
+        if body is not None:
+            owe_closing(ledger, item, {"type": "response", "body": body}, exc)
         return False
+
+
+def withdraw_question(ledger, api, item_id):
+    """`await-input` posted its question, and the ledger then refused to park the job: a Stop, a closure or a failure
+    ended it in between. The question would stay its thread's last activity, asking for an answer no job reads, so
+    one response withdraws it, owed when Linear refuses it (silent-delegation design A6, P9). Work that goes on in
+    the thread speaks there itself, and nothing is posted over it: the job, queued again or still claimed, or newer
+    work that took its thread meanwhile, as SessionProgress posts no terminal text over a successor (A7). Work the
+    job handed over to in another thread is not in this one, and the question here is withdrawn."""
+    try:
+        item = ledger.item(item_id)
+    except LedgerError:
+        return
+    working = ledger.active_item_for_session(item["session_id"])
+    if working is not None and working["session_id"] == item["session_id"]:
+        return
+    content = {"type": "response", "body": question_withdrawn(item["skill"])}
+    try:
+        api.create_activity(item["session_id"], content)
+    except Exception as exc:
+        print(json.dumps({"warning": "question not withdrawn", "error": type(exc).__name__}), file=sys.stderr,
+              flush=True)
+        owe_closing(ledger, item, content, exc)
 
 
 def verify_late_prs(ledger, args, token, progress):
@@ -278,8 +319,9 @@ def session_response(skill, outcome, evidence):
     return {"type": "response", "body": body}
 
 
-def complete_session(api_factory, item, outcome, evidence):
-    """Best effort after the ledger is final: Linear keeps a session active until a response or error arrives."""
+def complete_session(ledger, api_factory, item, outcome, evidence):
+    """After the ledger is final: Linear keeps a session active until a response or error arrives, so a response it
+    refuses is owed to the session (owe_closing)."""
     content = session_response(item["skill"], outcome, evidence)
     if content is None:
         return
@@ -287,6 +329,7 @@ def complete_session(api_factory, item, outcome, evidence):
         api_factory().create_activity(item["session_id"], content)
     except Exception as exc:
         print(json.dumps({"warning": "session response not posted", "error": type(exc).__name__}), file=sys.stderr, flush=True)
+        owe_closing(ledger, item, content, exc)
 
 
 def owned_action(ledger, item_id, action_id, token):
@@ -456,12 +499,13 @@ def run(args, ledger, api_factory):
         notice = owned_notice(ledger, args.item, args.request_id, resolve_token(args))
         return post_notice(ledger, api_factory(), notice)
     if c == "activity":
+        if args.type == "elicitation":
+            # A question parks its job, or its thread waits for an answer no job reads (silent-delegation design
+            # A8, P9): refused before anything reaches Linear.
+            raise LedgerError("ask with await-input: it posts the question and parks the job")
         item = ledger.item(args.item)
         ledger.renew(args.item, resolve_token(args))  # proves ownership before speaking for the item
-        api = api_factory()
-        if args.type == "elicitation":
-            api.needs_more_info(item["issue_id"])
-        return api.create_activity(item["session_id"], {"type": args.type, "body": read_text(args.body_file)})
+        return api_factory().create_activity(item["session_id"], {"type": args.type, "body": read_text(args.body_file)})
     if c == "await-input":
         token = resolve_token(args)
         ledger.renew(args.item, token)
@@ -481,7 +525,11 @@ def run(args, ledger, api_factory):
         if args.reason == "question":
             api.needs_more_info(item["issue_id"])
         api.create_activity(item["session_id"], {"type": "elicitation", "body": args.question})
-        return ledger.await_input(args.item, token, args.question, reason=args.reason)
+        try:
+            return ledger.await_input(args.item, token, args.question, reason=args.reason)
+        except LedgerError:
+            withdraw_question(ledger, api, args.item)  # the job ended between the question and the park
+            raise
     if c in ("resume-work", "request-repair"):
         token = resolve_token(args)
         ledger.renew(args.item, token)
@@ -507,16 +555,20 @@ def run(args, ledger, api_factory):
         else:
             resumed = ledger.resume_work(args.item, token, args.message_id, api.app_user_id,
                                          delegate_id=current.get("delegate_id"))
+        # D18: 修改 names the fix workflow; other work is named generically, never promised as a fix.
+        named = "修改" if resumed["skill"] == "fix" else "这项工作"
+        moved = item["session_id"] != resumed["session_id"]
+        content = {"type": "response" if moved else "thought",
+                   "body": (f"已排队开始或继续{named}，会接着你的回复和已有调查结果处理。"
+                            + ("后续进展记录在原委派会话和 issue 下。" if moved else ""))}
         try:
-            # D18: 修改 names the fix workflow; other work is named generically, never promised as a fix.
-            named = "修改" if resumed["skill"] == "fix" else "这项工作"
-            api.create_activity(item["session_id"], {
-                "type": "thought" if item["session_id"] == resumed["session_id"] else "response",
-                "body": (f"已排队开始或继续{named}，会接着你的回复和已有调查结果处理。"
-                         + ("后续进展记录在原委派会话和 issue 下。"
-                            if item["session_id"] != resumed["session_id"] else ""))})
+            api.create_activity(item["session_id"], content)
         except Exception as exc:
             print(json.dumps({"warning": "repair queued; acknowledgment failed", "error": type(exc).__name__}), file=sys.stderr)
+            if moved:
+                # The response closes the conversation's thread, whose job runs in another: it is owed. In the job's
+                # own thread the acknowledgement is a thought, and the job speaks there next.
+                owe_closing(ledger, item, content, exc)
         return resumed
     if c == "download-uploads":
         from .uploads import download_issue_uploads, issue_uploads, output_directory
@@ -640,6 +692,9 @@ def run(args, ledger, api_factory):
         ledger.renew(args.item, token)
         item = ledger.item(args.item)
         api = api_factory()
+        # When this read began: if it finds the delegation, the ledger records from then that the delegation is
+        # back (silent-delegation design §3.1, P11).
+        read_at = ledger.clock()
         try:
             status = api.issue_status(item["issue_id"])
         except Exception:
@@ -651,8 +706,8 @@ def run(args, ledger, api_factory):
         else:
             delegated = bool(api.app_user_id) and status.get("delegate_id") == api.app_user_id
             closed = status["archived"] or status["status_type"] in TERMINAL_STATUS_TYPES
-        view, reason = ledger.withdraw(args.item, token, delegated=delegated, closed=closed)
-        posted = post_closing_notice(lambda: api, view, reason)
+        view, reason = ledger.withdraw(args.item, token, delegated=delegated, closed=closed, read_at=read_at)
+        posted = post_closing_notice(ledger, lambda: api, view, reason)
         return {**view, "reason": reason, "notice_posted": posted,
                 "next_action": "exit; a later delegation continues this job from its checkpoint"}
     if c == "reservations":
@@ -667,7 +722,7 @@ def run(args, ledger, api_factory):
             check_pr_targets(evidence.get("prs"))
         item = ledger.item(args.item)
         view = ledger.finish(args.item, resolve_token(args), args.outcome, evidence)
-        complete_session(api_factory, item, args.outcome, evidence)
+        complete_session(ledger, api_factory, item, args.outcome, evidence)
         return view
     if c == "cancel":
         # An active job the operator stops gets one note, and its pending heartbeat goes in the same transaction, so
@@ -676,7 +731,7 @@ def run(args, ledger, api_factory):
         cancelled = ledger.cancel(args.item, args.reason, states=ACTIVE_STATES, drop_progress=True)
         if cancelled is None:
             return ledger.cancel(args.item, args.reason)
-        post_closing_notice(api_factory, cancelled, "operator")
+        post_closing_notice(ledger, api_factory, cancelled, "operator")
         return cancelled
     if c == "recover":
         return ledger.recover(args.item, args.reason)

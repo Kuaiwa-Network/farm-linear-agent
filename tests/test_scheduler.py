@@ -3,6 +3,7 @@ import dataclasses
 import io
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -16,6 +17,7 @@ from uuid import uuid4
 from agent.launcher import Finished, Handle, Launcher, RUNTIMES
 from agent.ledger import Ledger, LedgerError
 from agent.scheduler import Scheduler
+from agent.session_progress import SessionProgress
 from agent.skills import load_skills
 from agent.slots import SlotPool, slot_entry
 from agent import dispatch, kw_ops, withdrawal
@@ -1208,6 +1210,111 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual((cancelled["id"], self.ledger.item(fix["id"])["state"]), (fix["id"], "cancelled"))
         self.assertEqual(self.api.activities,
                          [(fix["session_id"], "response", withdrawal.CLOSED.format(bot="FarmBot"))])
+
+    def test_a_stop_notice_function_may_decline_and_the_heartbeat_still_goes(self):
+        """Silent-delegation design A1: a Stop pressed in the job's own thread is answered there by the receiver, so
+        its notice function returns None. Nothing is posted for it, not a response with no body, and the job's pending
+        heartbeat still goes with the cancel: the Stop's reply is the thread's last word."""
+        item = self.item()
+        SessionProgress(self.ledger, None)
+        self.ledger.connection.execute(
+            "INSERT INTO session_progress(item_id,due_at,activity_id,content,status_key) VALUES(?,?,?,?,?)",
+            (item["id"], self.now, "activity-1", json.dumps({"type": "thought", "body": "工作仍在排队。"}),
+             f"{item['id']}:queued:0"))
+        cancelled = self.scheduler.stop(item["id"], "Linear stop", states=("queued",), notice=lambda job: None)
+        self.assertEqual((cancelled["id"], cancelled["state"]), (item["id"], "cancelled"))
+        self.assertEqual((self.api.activities, self.api.comments), ([], []))
+        self.assertIsNone(self.ledger.connection.execute("SELECT 1 FROM session_progress WHERE item_id=?",
+                                                         (item["id"],)).fetchone())
+        self.assertEqual(self.launcher.stopped, [item["id"]])
+
+    def closures(self):
+        return [dict(row) for row in self.ledger.connection.execute(
+            "SELECT * FROM session_closures ORDER BY created_at,rowid")]
+
+    def test_a_stop_notice_linear_refuses_is_owed(self):
+        """Silent-delegation design A4, P10: the cancel is done whatever becomes of its notice, and a notice Linear
+        refuses is owed to the job's thread, for the progress loop to post again. One Linear took is not."""
+        self.scheduler.api = FakeAPI(fail=True)
+        item = self.item()
+        cancelled = self.scheduler.stop(item["id"], "Linear delegation removed", states=("queued",),
+                                        notice="这项工作已取消。")
+        self.assertEqual(cancelled["state"], "cancelled")
+        self.assertEqual([(row["session_id"], row["issue_id"], row["item_id"], row["item_state"], row["kind"],
+                           row["body"], row["attempts"], row["due_at"], row["last_error"]) for row in self.closures()],
+                         [(SESSION, ISSUE, item["id"], "cancelled", "response", "这项工作已取消。", 1, self.now + 60,
+                           "RuntimeError")])
+        self.scheduler.api = self.api
+        other = self.item(issue_id=OTHER, session="session-2")
+        self.scheduler.stop(other["id"], "Linear delegation removed", states=("queued",), notice="这项工作已取消。")
+        self.assertEqual(self.api.activities, [("session-2", "response", "这项工作已取消。")])
+        self.assertEqual([row["session_id"] for row in self.closures()], [SESSION])
+
+    def test_a_refused_notice_is_owed_through_the_control_connection(self):
+        """A stop runs on the receiver's and the lifecycle's threads, which must not use the scheduler's own
+        connection: the owed notice is recorded on a control connection, closed again, as the cancel is."""
+        opened = []
+
+        def control():
+            opened.append(Ledger(Path(self.tmp.name) / "ledger.sqlite3", clock=lambda: self.now, lease_seconds=60))
+            return opened[-1]
+        self.scheduler.control_ledger_factory = control
+        self.scheduler.api = FakeAPI(fail=True)
+        item = self.item()
+        self.scheduler.ledger = None  # any use of the scheduler's own connection would fail here
+        self.scheduler.stop(item["id"], "Linear delegation removed", states=("queued",), notice="这项工作已取消。")
+        self.assertEqual([(row["session_id"], row["body"]) for row in self.closures()], [(SESSION, "这项工作已取消。")])
+        self.assertEqual(len(opened), 2)
+        for ledger in opened:
+            with self.assertRaises(sqlite3.ProgrammingError):
+                ledger.connection.execute("SELECT 1")  # closed
+
+    def test_a_refused_error_is_owed_and_a_refused_thought_or_card_comment_is_not(self):
+        """A4: what closes a thread is a response or an error. A thought closes nothing, and an operator's `local-`
+        job has no Linear thread that could be left waiting."""
+        self.scheduler.api = FakeAPI(fail=True)
+        requeued = self.item()
+        self.scheduler.tick()
+        self.ledger.claim(requeued["id"], worker_id="w")
+        self.now += FIX_LEASE + 1
+        self.launcher.finished.append(Finished(requeued["id"], 1, "", False, "exited"))
+        self.scheduler.tick()  # "requeued": a thought
+        self.assertEqual((self.ledger.item(requeued["id"])["state"], self.closures()), ("queued", []))
+        self.scheduler.stop(requeued["id"], "make room")
+        failed = self.item(issue_id=OTHER, session="session-2")
+        self.trees.fail_on = ("Farm-Client", failed["id"])
+        self.scheduler.tick()  # the launch failure: an error
+        self.assertEqual(self.ledger.item(failed["id"])["state"], "failed")
+        [owed] = self.closures()
+        self.assertEqual((owed["session_id"], owed["item_id"], owed["item_state"], owed["kind"]),
+                         ("session-2", failed["id"], "failed", "error"))
+        self.assertIn("无法启动工作进程", owed["body"])
+        third = str(uuid4())
+        local = self.item(issue_id=third, session=f"local-{third}")
+        self.trees.fail_on = ("Farm-Client", local["id"])
+        self.scheduler.tick()
+        self.assertEqual(self.ledger.item(local["id"])["state"], "failed")
+        self.assertEqual([row["session_id"] for row in self.closures()], ["session-2"])
+
+    def test_notify_says_whether_linear_took_the_activity(self):
+        """A4: `_notify` returns whether Linear took the activity, or for an operator's `local-` job the card comment;
+        with no API configured nothing is posted, and nothing was taken."""
+        item = self.item()
+        self.scheduler.api = None
+        self.assertIs(self.scheduler._notify(item["id"], "thought", "工作仍在排队。"), False)
+        for fail, taken in ((False, True), (True, False)):
+            with self.subTest(fail=fail):
+                self.scheduler.api = FakeAPI(fail=fail)
+                self.assertIs(self.scheduler._notify(item["id"], "thought", "工作仍在排队。"), taken)
+                self.assertEqual(self.scheduler.api.activities, [(SESSION, "thought", "工作仍在排队。")] if taken else [])
+        third = str(uuid4())
+        local = self.item(issue_id=third, session=f"local-{third}")
+        for fail, taken in ((False, True), (True, False)):
+            with self.subTest(local=True, fail=fail):
+                self.scheduler.api = FakeAPI(fail=fail)
+                self.assertIs(self.scheduler._notify(local["id"], "response", "工作已停止。"), taken)
+                self.assertEqual(self.scheduler.api.comments, [(third, "工作已停止。")] if taken else [])
+        self.assertEqual(self.closures(), [])  # a thought closes nothing, and a `local-` job has no thread
 
     def test_a_withdrawn_worker_is_stopped_when_its_grace_ends(self):
         """Withdrawn-work design P2: the controller cancels and kills a flagged worker that has not run `withdraw` by

@@ -16,6 +16,7 @@ from .readonly_db import snapshot_connection
 from .router import WRITE_SKILLS
 from .skills import SkillError, enabled_skills, load_skills
 from .stages import current_root, runtime_can_launch
+from .withdrawal import SILENT_GRACE_SECONDS
 from .worktrees import Worktrees
 
 # The words a job's plan may use for its stages and pauses (the Phase B plan's shared interfaces). Doctor copies
@@ -30,6 +31,16 @@ UNDELEGATED_INTERVALS = 3
 WITHDRAWAL_OVERDUE_SECONDS = 300
 DEFERRED_SECONDS = 45 * 60
 LONG_PARKED_SECONDS = 7 * 86400
+# A closing activity FarmBot gave up (silent-delegation design P10: Linear refused it to the end, or its window passed
+# while the controller was down) is listed for 7 days: nothing removes its row once the operator has looked at the
+# thread, and a finding that never clears would hide the next one.
+UNCLOSED_SECONDS = 7 * 86400
+# A delegation Linear opened no session for (silent-delegation design P12, §7) is listed for 7 days when FarmBot found
+# no open thread of its own to answer in, and while it is still unsettled more than 10 minutes after its grace ended.
+# The receiver settles one when its grace ends; a settle whose read fails is tried again, which moves the episode's
+# `due_at` on each time, so what is overdue is counted from the end of the grace and not from `due_at`.
+SILENT_UNSEEN_SECONDS = 7 * 86400
+SILENT_OVERDUE_SECONDS = 600
 
 
 class _SchemaMismatch(ValueError):
@@ -122,8 +133,30 @@ def _snapshot(path):
                 WHERE status='deferred' ORDER BY received_at""") if "webhook_events" in tables else [],
             "columns": {name for name in present if name in columns} | ({"undelegated_since"} & checks),
         }
+        # Closing activities Linear refused to the end (silent-delegation design P10), read only where the ledger has
+        # the table: never the activity's text, and none that newer work in its thread has spoken after. The ledger
+        # drops a row when its job's state changes; the state clause skips one a revision without that drop left.
+        unclosed = rows("""SELECT c.session_id,c.issue_id,json_extract(i.metadata,'$.identifier') AS identifier,
+            c.item_id,c.kind,c.attempts,c.created_at AS owed_at,c.given_up_at,c.last_error
+            FROM session_closures c LEFT JOIN issues i ON i.id=c.issue_id
+            WHERE c.given_up_at IS NOT NULL
+            AND (c.item_id IS NULL OR EXISTS (SELECT 1 FROM work_items w WHERE w.id=c.item_id AND w.state=c.item_state))
+            AND NOT EXISTS (SELECT 1 FROM work_items w WHERE w.session_id=c.session_id AND w.created_at>c.created_at)
+            ORDER BY c.created_at,c.session_id""") if "session_closures" in tables else []
+        # Delegations Linear opened no session for (silent-delegation design P12), read only where the ledger has the
+        # table: one still waiting to be settled, and one that met no open thread, unless a delegation session of the
+        # card, a Linear thread, has been recorded since the read that found the card not delegated.
+        silent = rows("""SELECT e.issue_id,json_extract(i.metadata,'$.identifier') AS identifier,e.state,e.since,
+            e.due_at,e.settled_at,e.attempts,e.error
+            FROM delegation_episodes e LEFT JOIN issues i ON i.id=e.issue_id
+            WHERE e.state='waiting' OR (e.state='unseen' AND NOT EXISTS (
+                SELECT 1 FROM sessions s WHERE s.issue_id=e.issue_id AND s.delegation=1
+                AND s.session_id NOT LIKE 'local-%' AND s.created_at>=e.mark))
+            ORDER BY e.since,e.issue_id""") if "delegation_episodes" in tables else []
         return {
             "_withdrawal": withdrawal,
+            "_unclosed": unclosed,
+            "_silent": silent,
             "counts": {row["state"]: row["count"] for row in rows(
                 "SELECT state,COUNT(*) AS count FROM work_items GROUP BY state")},
             "jobs": rows(f"""SELECT w.id AS item_id,w.issue_id,json_extract(i.metadata,'$.identifier') AS identifier,
@@ -273,7 +306,7 @@ def diagnose(config, *, now=None):
                  incomplete=True, error_type=type(exc).__name__,
                  **({"missing_schema": exc.missing} if isinstance(exc, _SchemaMismatch) else {}))
         return report
-    withdrawal = snapshot.pop("_withdrawal")
+    withdrawal, unclosed, silent = snapshot.pop("_withdrawal"), snapshot.pop("_unclosed"), snapshot.pop("_silent")
     report.update(snapshot)
     report["counts"]["total"] = sum(report["counts"].values())
     rooted = {name: skill for name, skill in loaded.items() if skill.initial_root}
@@ -333,6 +366,24 @@ def diagnose(config, *, now=None):
         if reservation["state"] in ("active", "cancel_requested") and reservation["resource"] not in slots:
             _finding(report, "reservation_slot_missing", "Inspect reservation history; its assigned slot is absent from this ledger.", **reservation)
     _withdrawal_findings(report, config, withdrawal)
+    for closure in unclosed:
+        if report["checked_at"] - closure["given_up_at"] <= UNCLOSED_SECONDS:
+            _finding(report, "unclosed_session",
+                     "FarmBot gave up this thread's closing activity: Linear refused it six times, or it was still "
+                     "owed 40 minutes after the first refusal because the controller was down. The thread may still "
+                     "show FarmBot waiting and block the card's next delegation. Check the session in Linear and "
+                     "archive it if it waits.", **closure)
+    for episode in silent:
+        waiting = episode["state"] == "waiting"
+        overdue = report["checked_at"] - (episode["since"] + SILENT_GRACE_SECONDS)
+        if (overdue > SILENT_OVERDUE_SECONDS if waiting
+                else report["checked_at"] - episode["settled_at"] <= SILENT_UNSEEN_SECONDS):
+            _finding(report, "silent_delegation",
+                     "A read found the card delegated to this app again, no agent session followed within 90 s, and "
+                     "FarmBot found none of its threads on the card open; or the settle has been failing for more "
+                     "than 10 minutes. Most likely a delegation through Linear's API, or a thread FarmBot cannot read "
+                     "still waits. Open the card: answer or archive a waiting thread, or ask the person to choose No "
+                     "agent and delegate again.", **episode, overdue_seconds=int(overdue) if waiting else None)
     return report
 
 
