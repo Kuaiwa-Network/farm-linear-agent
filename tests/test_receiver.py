@@ -1684,6 +1684,7 @@ class OwnThreadReceiverTests(ReceiverBase):
     claimed_fix_elsewhere = BotRoutingReceiverTests.claimed_fix_elsewhere
     reply_in = WithdrawnWorkReceiverTests.reply_in
     stop_in = WithdrawnWorkReceiverTests.stop_in
+    undelegated = WithdrawnWorkReceiverTests.undelegated
     waiting_fix = WithdrawnWorkReceiverTests.waiting_fix
 
     STOPPED_HERE = "已停止 FARM-1 上的工作，worker 已终止，占用的资源在静默检查后释放。"
@@ -1737,6 +1738,14 @@ class OwnThreadReceiverTests(ReceiverBase):
         def create_activity(session_id, content, activity_id=None):
             if session_id == session:
                 raise RuntimeError("linear down")
+            return {"success": True}
+        self.api.create_activity.side_effect = create_activity
+
+    def answered_slowly(self, meanwhile):
+        """Linear takes a while over each activity in session-9, and `meanwhile` happens before it answers."""
+        def create_activity(session_id, content, activity_id=None):
+            if session_id == "session-9":
+                meanwhile()
             return {"success": True}
         self.api.create_activity.side_effect = create_activity
 
@@ -1906,6 +1915,52 @@ class OwnThreadReceiverTests(ReceiverBase):
         self.assertEqual(self.ledger.item(fix["id"])["state"], "queued")
         self.assertEqual(self.sent()[-1], ("session-1", {"type": "thought", "body": "收到回复，继续处理。"}))
         self.assertEqual(self.said_in("session-1", "thought").count(RESUMED_ELSEWHERE), 1)
+
+    def test_a_reply_that_resumes_nothing_adds_no_note_in_the_jobs_thread(self):
+        """A3: a reply in a conversation's thread answers the fix it handed over to, on a card no longer delegated
+        here. The fix stays parked, to be withdrawn, so its thread is not told that the work goes on."""
+        fix = self.hand_over(*self.conversation_about_to_hand_over("session-9"))
+        self.paused(fix, "哪个服？")
+        self.undelegated(["Bug", "修改"], CHANGE)
+        self.reply_in("session-9", "公共测试服")
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "awaiting_input")
+        self.assertEqual(self.sent()[-1], ("session-9", {"type": "thought",
+                                                         "body": RESUME_UNDELEGATED.format(bot="FarmBot")}))
+        self.assertEqual(self.said_in("session-1", "thought").count(RESUMED_ELSEWHERE), 0)
+
+    def test_a_resume_note_is_not_posted_for_work_that_ended_during_the_acknowledgement(self):
+        """A2, P9: while Linear takes the forwarding thread's acknowledgement, the scheduler's next tick launches the
+        resumed fix and the launch fails, which closes the fix's thread with an error. No note that the work goes on
+        follows that error."""
+        self.real_scheduler()
+        fix = self.waiting_fix("session-1")
+
+        def launch_fails():
+            self.scheduler.worktrees.fail_on = ("Farm-Client", fix["id"])
+            self.scheduler.tick()
+        self.answered_slowly(launch_fails)
+        self.mention_in("session-9", "@FarmBot 公共测试服")
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "failed")
+        self.assertEqual(self.sent()[-2:], [
+            ("session-9", {"type": "thought", "body": self.RESUMED}),
+            ("session-1", {"type": "error",
+                           "body": "FarmBot 无法启动工作进程（RuntimeError），工作项已标记失败；可回复「重试」。"})])
+        self.assertEqual(self.receiver.results()[-1]["status"], "done")
+
+    def test_a_resume_note_is_not_posted_for_work_that_asked_again_during_the_acknowledgement(self):
+        """A2: while Linear takes the forwarding thread's acknowledgement, the resumed fix runs, reads the answer and
+        asks again in its own thread. That new question stays its thread's last activity: the note would say the
+        work will read an answer it has already read."""
+        fix = self.waiting_fix("session-1")
+
+        def asks_again():
+            self.paused(fix, "哪个包？")
+            self.api.create_activity("session-1", {"type": "elicitation", "body": "哪个包？"})
+        self.answered_slowly(asks_again)
+        self.mention_in("session-9", "@FarmBot 公共测试服")
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "awaiting_input")
+        self.assertEqual(self.sent()[-2:], [("session-9", {"type": "thought", "body": self.RESUMED}),
+                                            ("session-1", {"type": "elicitation", "body": "哪个包？"})])
 
     def test_the_old_thread_is_told_even_when_the_acknowledgement_fails(self):
         """A5: a new delegation session takes a waiting fix over, and Linear refuses the new session's

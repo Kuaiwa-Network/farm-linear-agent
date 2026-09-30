@@ -491,10 +491,17 @@ class Receiver:
         """Best effort, after the acknowledgement in `session_id`: the parked job a message there resumed is told so
         in its own thread, whose last activity was its question, which nobody will answer there now. Nothing for a
         job of `session_id` itself, which the acknowledgement just told, or for an operator's `local-` job, which
-        has no Linear thread (silent-delegation design A2, A3, P9)."""
+        has no Linear thread (silent-delegation design A2, A3, P9).
+
+        The note says the work goes on and will read that message first. The scheduler may launch the job during the
+        acknowledgement's round trip, so the note is checked against the job as it stands afterwards: a job that has
+        ended meanwhile, its thread closed by an error or a notice, or that has read the message and asked again,
+        gets none."""
         try:
-            own = str(self.ledger.item(item_id)["session_id"])
-            if own != session_id and not own.startswith("local-"):
+            item = self.ledger.item(item_id)
+            own = str(item["session_id"])
+            goes_on = item["state"] in ACTIVE_STATES and item["state"] != "awaiting_input"
+            if goes_on and own != session_id and not own.startswith("local-"):
                 self.api.create_activity(own, {"type": "thought", "body": RESUMED_ELSEWHERE})
         except Exception:
             pass
