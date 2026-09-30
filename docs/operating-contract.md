@@ -75,7 +75,9 @@ with an optional suffix. An unrelated suggested Linear branch becomes the canoni
 branch. Repository identity, private/write permission, protected-branch and exact
 PR verification still apply. The prefix is a publishing rule, not a team admission rule.
 The pinned app/workspace IDs select which app's sessions an instance accepts; within
-the workspace, only UI delegation or an @mention of that app starts work. No team,
+the workspace, only a delegation to that app or an @mention of it starts work: a UI
+delegation, or, on a card the instance already tracks, a delegation Linear opened no
+session for, which may also come from an automation or Linear's API (Triggers). No team,
 project or issue allowlist exists, so a development bot sharing the production
 workspace is scoped by the operator's choice of issues.
 
@@ -129,11 +131,12 @@ once in the same way, and back again on a rollback.
 | Reply to a FarmBot question | the parked work item resumes with your answer. On a card no longer delegated to FarmBot, a conversation the delegation opened resumes as one that needs no delegation, so withdrawing the delegation's work leaves it; a parked write job keeps your reply and says the work will stop, and delegating the card again continues it with the reply |
 | Ask naturally to resume finished work, in its session or an @FarmBot mention | chat interprets intent, checks current delegation, and continues the delegation's earlier job, a fix or, on an instance that runs `feature`, a feature job, with the complete reply (a cancelled job gets a fresh linked job); no keyword is required. Negations and questions about restarting do not restart work |
 | Close an issue (a status of type `completed`, `canceled` or `duplicate`, such as Done, Canceled or Duplicate) or archive it | cancels unfinished/blocked work after a current status read, stops owned processes, preserves source and safely cleans worktrees; keeps logs; and posts one closing response in the session of each job it cancels while active (an issue comment for an operator-enqueued job). A deleted issue reads as archived while Linear still returns it |
-| Remove FarmBot's delegation, delegate the card to another app, or dismiss FarmBot's session | two status reads at least `reconcile_seconds` apart (the first is usually within a second of the change) confirm it; the issue's work that the delegation authorised then stops: a queued or waiting job is cancelled with one response in its session (an issue comment for an operator-enqueued job), and a running worker is told to save its progress and stop, and is stopped after twice its renew interval. Branches, draft PRs and recovery refs stay, and delegating the card again continues from them. Conversations started by an @mention or by an operator are not affected. Nothing is cancelled for work created or continued after the read began, or when the delegation comes back before the second read |
+| Remove FarmBot's delegation, delegate the card to another app, or dismiss FarmBot's session | two status reads at least `reconcile_seconds` apart (the first is usually within a second of the change) confirm it; the issue's work that the delegation authorised then stops: a queued or waiting job is cancelled with one response in its session (an issue comment for an operator-enqueued job), and a running worker is told to save its progress and stop, and is stopped after twice its renew interval. Branches, draft PRs and recovery refs stay, and delegating the card again continues from them. Conversations started by an @mention or by an operator are not affected. Nothing is cancelled for work created or continued after the read began, or when the delegation comes back before the second read. When the delegation comes back before the second read and Linear opens no session, see *Delegate an issue when Linear opens no session for it* |
 | Remove a Bot label from a delegated card | nothing; only removing the delegation or Stop stops work |
 | Reopen an issue | starts nothing; request continuation or delegate explicitly |
-| Press Stop | the worker process is killed promptly, without waiting for the scheduler; the item is cancelled; FarmBot confirms in the session. A Stop in a session that forwarded a message to the work, or in the card's latest delegation session, stops the card's work wherever it runs; in a session whose work moved to another session, or had already stopped, FarmBot says so and stops nothing |
+| Press Stop | the worker process is killed promptly, without waiting for the scheduler; the item is cancelled; FarmBot confirms in the session. A Stop in a session that forwarded a message to the work, or in the card's latest delegation session, stops the card's work wherever it runs; in a session whose work moved to another session, or had already stopped, FarmBot says so and stops nothing. When the stopped work lives in another thread, that thread also gets one closing response |
 | Delegate an issue that already has FarmBot work in another session | the new delegation takes the card over: waiting or queued work and any conversation move to the new session (the old job is cancelled and continued by a linked job with its messages; the old session gets one note); a running write worker is told to save and stop, and the new session starts once it has |
+| Delegate an issue when Linear opens no session for it (one of FarmBot's threads on the card still waits for an answer, or the delegation came through Linear's API or an automation) | on a card FarmBot tracks, about 90 s after a status read first finds the card delegated to FarmBot again with no delegation session recorded since, FarmBot settles it on a fresh read of the card, without opening a session or changing the card. Work of the kind the labels name that the delegation already has is kept, and its thread gets one line (at most one per job in 30 minutes): a waiting job asks its question again, a running one says it goes on. Other queued or waiting work, or a conversation, that lives in a delegation thread Linear shows as not archived is taken over in that same thread with its messages, as a new delegation takes a card over. Otherwise each open FarmBot thread on the card gets one note: a response that ends a waiting thread, keeps its work answerable and says to choose No agent and delegate again; a thought where work runs; a response that closes a thread with no work, unless a Stop there still reaches the card's work or an event of it waits. With no open thread nothing is posted and `doctor` lists `silent_delegation`. A card the fresh read finds closed, archived, trashed or not delegated to FarmBot is left alone, and so is one Linear keeps answering "not found" for 15 minutes while its other calls succeed. A delegation session that arrives later takes the card over as usual |
 | @FarmBot on an issue that already has FarmBot work in another session | a waiting conversation moves to your thread and answers there; otherwise your text is forwarded to that work, and the notice says whether it was resumed, will be read at the next checkpoint, or will not continue because the card is no longer delegated |
 
 The Bot label group (D18) is team-scoped and single-select, so a card carries at most one child:
@@ -396,7 +399,9 @@ its process-teardown fence or stage publishing restriction.
 CLI `cancel` revokes the claim immediately; the next scheduler tick stops owned worker/batch
 processes. For a job it cancels while active it posts one note in the job's session (an issue
 comment for an operator-enqueued job) and drops the job's pending heartbeat, so no "工作已停止。"
-follows the note; a blocked job ends silently. Linear Stop and closure reconciliation revoke the claim before signalling. A pending
+follows the note, unless a heartbeat's question was already on its way and landed after the note:
+the session then gets "工作已停止。" once more. A note Linear refuses is owed (Withdrawn work,
+Notices); a blocked job ends silently. Linear Stop and closure reconciliation revoke the claim before signalling. A pending
 batch launch is fenced. A cancelled job never becomes queued again: explicit authorized `retry`,
 `resume-work` or `request-repair` creates a fresh linked job, and so does delegating the issue again
 when the latest job of the skill it routes to (any write skill) was cancelled. The linked job waits
@@ -418,7 +423,7 @@ to this app, whose identity must be known. Errors defer launch with bounded retr
 preflight on an issue marked undelegated or failing waits for the issue's next due read, so a
 held-back job reads Linear at most once per interval. Losing delegation withdraws the work it
 authorised after a confirming read (Triggers, Withdrawn work). Polling writes only the cancellation
-and closing responses above.
+and closing responses above; the receiver settles a delegation that opened no session (Triggers).
 
 Withdrawing work whose delegation is gone uses additive columns, added when a ledger opens:
 `work_items.authority`, `withdraw_deadline` and `withdraw_reason`, `issue_checks.undelegated_since`
@@ -443,6 +448,24 @@ The change adds no process code: withdrawal kills go through the same launcher s
 closure, now in more situations, so run the Windows suite, including `tests/test_windows_workers.py`,
 on the Windows runner before deploying there. A killed `git` that leaves an `index.lock` shows as
 `cleanup_pending`.
+
+Settling a delegation Linear opened no session for, and owing a closing activity Linear refused
+(Triggers, Withdrawn work), use two tables of the ledger's schema, created when a ledger opens:
+`delegation_episodes`, one row per issue for the latest delegation a read found back, and
+`session_closures`, one row per thread for the closing activity it is owed. The column
+`delegation_episodes.unreachable_since` is also added to a table an earlier build of this change
+created. Nothing is backfilled and no existing row is rewritten: a mark that older code cleared leaves
+no episode, so the deploy itself settles nothing, and a thread left waiting before the deploy is found
+only when a delegation meets it. Older code ignores both tables: a waiting episode is never settled and
+an owed activity never retried, as before this revision; a job taken over in place is an ordinary job
+in its session; and a Stop from another thread again posts no note in the work's thread. Checking out
+older code does not remove the tables. Rolled forward again, an owed activity whose job changed state
+or whose thread has newer work is dropped, and one owed for more than 40 minutes is given up untried
+and listed by `doctor`; a waiting episode is settled on a fresh read of the card. A Linear Stop now
+cancels only a job still in a state a Stop ends, so a job that ended between the lookup and the cancel
+is not signalled; the reaper and cleanup handle its processes. The change adds no process code; run
+the Windows suite, including `tests/test_windows_workers.py`, before deploying there. Run `doctor`
+before and after the deploy: `silent_delegation` and `unclosed_session` must be absent or explained.
 
 Cleanup records the old PID and preserves dirty tracked/non-ignored untracked source as local WIP
 commits. Every repository HEAD, including clean unpublished commits, gets a durable
@@ -740,7 +763,8 @@ a claim ends; memory operations do not renew the lease.
 queued → running → delivered | blocked | failed; running ↔ awaiting_input (human gate);
 running → awaiting_resource (Unity slot); any active state or blocked → cancelled (Stop or issue closure);
 queued, awaiting_input or awaiting_resource → cancelled when the delegation that authorised the job is
-withdrawn, it is superseded by a newer delegation session, or the issue is unreachable; running →
+withdrawn, it is superseded by a newer delegation session or, in its own delegation thread, by a
+delegation Linear opened no session for, or the issue is unreachable; running →
 cancelled by the worker's `withdraw`, or by the controller when the withdrawal grace ends (Withdrawn
 work).
 A waiting item has no process. A repository handoff is queued with its retired worker PID retained;
@@ -761,7 +785,9 @@ code never resets them this way and keeps the counts it finds.
 
 The Linear session follows the item: `finish` posts the final response that completes the session (a chat
 answer is its own response); a worker that dies or never starts leaves an error activity naming 重试 as the
-way back, and a requeue leaves a thought.
+way back, and a requeue leaves a thought. A final response or error Linear refuses is owed to the session
+and posted again (Withdrawn work, Notices). A worker asks a question only with `await-input`, which parks
+its job; `activity` refuses `--type elicitation`.
 
 The host posts session progress every ten minutes for queued, running and resource-waiting
 work. It reports the recorded state and checkpoint age without extending the worker's lease
@@ -773,7 +799,10 @@ regular heartbeat. Timing and pending activity IDs survive restarts; a failed se
 after sixty seconds, and each further failure in a row doubles the wait, up to the ten-minute
 interval, until a send succeeds. A state change while an activity is in flight is followed by a durable
 correction so completed or waiting sessions do not remain active, except after a cancellation that
-posted its own notice, which drops the job's pending send. Reporting uses its own
+posted its own notice, which drops the job's pending send; when that send was the job's question and it
+landed after the notice, the session gets the job's terminal text once more, so the question is not its
+last activity. The same loop posts the closing activities Linear refused (Withdrawn work, Notices), one
+per pass, before any heartbeat. Reporting uses its own
 loop and connection; slow Linear requests do not hold the scheduler lock.
 
 At service startup the progress publisher creates the additive `session_progress` table, and adds
@@ -787,7 +816,10 @@ the host code and worker skill files together after the service has been settled
 ## Withdrawn work
 
 This section states the rules of `docs/superpowers/specs/2026-09-29-withdrawn-work-design.md` as
-implemented; that design's Appendix C lists where the implementation departs from its text.
+implemented; that design's Appendix C lists where the implementation departs from its text. The Stop
+note in another thread, sessions, notices and the `silent_delegation` and `unclosed_session` findings
+follow `docs/superpowers/specs/2026-09-30-silent-delegation-design.md`, whose Appendix E lists its own
+departures.
 
 **Authority.** Each job records, once, when it is created, what authorised it (`work_items.authority`):
 
@@ -839,29 +871,54 @@ in the same way; the old thread is told only that it moved. A job's session neve
 forwarded to; the card's work the delegation authorised, when this is the card's latest delegation
 session. It also cancels a delegation event waiting in that session. Otherwise it answers that the
 work moved to a new delegation session or another thread, that it has already stopped, or that
-nothing runs.
+nothing runs. When the work it stops lives in another thread, the Stop's thread is told that the work
+there was stopped, and the work's own thread gets one closing response that says it was stopped with
+Stop in another thread (an issue comment for an operator-enqueued job); the work's pending heartbeat goes
+with the cancel. A Stop whose work ended between its lookup and the cancel answers that the work has
+already stopped, and signals nothing.
 
 **Unreachable issue.** Three status reads in a row that Linear answers "not found" (a GraphQL error
 whose message says so, or no issue), over at least 15 minutes, while the host's other Linear calls
 succeed, cancel the issue's unclaimed and blocked work silently and flag its running workers. A
 forbidden, rate-limited (HTTP 400 `RATELIMITED`) or unauthenticated answer, or any other error, only
-backs off. A trashed issue reads as archived, which is closure.
+backs off. The receiver ends a delegation it is settling (Triggers) by the same rule, applied to its
+own reads of the card, and posts nothing. A trashed issue reads as archived, in the status reads and
+in the full reads of the card, which is closure.
 
-**Sessions.** FarmBot reads no agent-session state. Removing the delegation, which archiving the
-session in Linear's interface does, and dismissing the session both remove the delegate, which the
-status reads see; delegating again opens a new session whose `created` event takes the card over.
-If Linear lets a session be archived while the card stays delegated, its work is kept: a mention
-reaches it, a Stop in the mention's thread stops it, removing the delegation withdraws it, and
-`doctor` lists it after 7 days of waiting.
+**Sessions.** Linear opens a session for a delegation only while none of FarmBot's threads on the
+card waits for an answer (observed 2026-09-30), and never for a delegation through its API; it then
+sends only Issue updates. So FarmBot does not leave a thread waiting when the work there ends or
+moves: every cancel, Stop (also one pressed in another thread), takeover, move and failure ends with a
+response or error in the work's own thread; a job resumed from another thread gets a note in its own;
+a question posted after its job ended is withdrawn by a response; and a worker asks only through
+`await-input`. A read that finds the card delegated again after one found it not delegated starts an
+episode; if no delegation session of the card is recorded within 90 s, the receiver settles it
+(Triggers). FarmBot reads agent-session state only then, and only for its own recorded sessions on that
+card, at most ten; a thread whose state it cannot read is neither closed nor taken over. Removing the
+delegation, which archiving a session in Linear's interface also does, and dismissing a session both
+remove the delegate, which the status reads see. If Linear lets a session be archived while the card
+stays delegated, its work is kept: a mention reaches it, a Stop in the mention's thread stops it,
+removing the delegation withdraws it, and `doctor` lists it after 7 days of waiting.
 
 **Notices.** A cancellation posts one response, into the job's own session or, for an
-operator-enqueued job, as an issue comment; a conversation's never mentions branches. It is posted
-best effort and never retried, and the job's pending heartbeat is dropped in the same transaction.
+operator-enqueued job, as an issue comment; a conversation's never mentions branches. The job's pending
+heartbeat is dropped in the same transaction. A response or error that closes a thread and that
+Linear refuses (a notice, a Stop's reply, the note a takeover or a move leaves in the old thread, a
+final response, a failure's error, a note that closes a thread for a delegation Linear opened no session
+for, or the error an event was answered with) is owed to the thread: the progress loop posts it again
+1, 2, 4, 8 and 16 minutes apart, about 31 minutes in all, each time under a new activity id, and gives it
+up at the sixth refusal, or untried once it has been owed for more than 40 minutes because the
+controller was down; `doctor` lists one it gave up. An owed activity is dropped unposted once its job's
+state changes or newer work starts in its thread; the error an event was answered with, once Linear
+takes the answer to a later event of the thread; and a response owed for no job, such as a Stop's reply
+that found nothing to stop, once the thread reaches active work. Such an error or response does not
+take the place of what closes the thread for a job that ended there. A thought and an
+operator-enqueued job's comment are not owed.
 FarmBot never closes a PR, deletes a branch, removes a label, delegates to itself or changes status or
 assignee because work was withdrawn; branches, draft PRs, checkpoints, plans, messages and cleanup
 evidence stay.
 
-**Doctor.** These findings are read only from a ledger that has their columns:
+**Doctor.** These findings are read only from a ledger that has their columns or tables:
 
 | Finding | Condition |
 |---|---|
@@ -871,6 +928,8 @@ evidence stay.
 | `deferred_delegation` | a delegation event has waited for another session's worker for more than 45 minutes |
 | `outside_prefix` | an active job's identifier is outside `issue_prefix`, for example after a move to another team, which FarmBot does not detect |
 | `stored_undelegated` | with `expected_app_user_id` pinned, the stored snapshot of an active job's card is not delegated to that app: the delegation's work, and conversations delegation sessions opened before authorities were recorded |
+| `silent_delegation` | a read found the card delegated to this app again, no agent session followed within 90 s, and FarmBot found none of its threads on the card open (listed for 7 days, or until a delegation session of the card is recorded); or the settle has been failing for more than 600 s after the 90 s ended. Most likely a delegation through Linear's API, or a thread FarmBot cannot read still waits: open the card, answer or archive a waiting thread, or ask the person to choose No agent and delegate again |
+| `unclosed_session` | FarmBot gave up a thread's closing activity: Linear refused it six times, or it was still owed 40 minutes after the first refusal. Listed for 7 days, and not once its job's state changed or newer work started in its thread; never the activity's text. The thread may still show FarmBot waiting and block the card's next delegation: check it in Linear and archive it if it waits |
 
 ## People
 
@@ -964,8 +1023,9 @@ any unposted notice unsent.
 - A fix that finds nothing to change (already fixed, duplicate, does not reproduce, or the requested
   change is already on the target branch) delivers with an empty PR list and a `no_change` reason,
   and FarmBot's session response says 无需改动. Blocked stays for work that a human must unblock.
-- Delegation must come from the Linear UI. Setting the delegate through the API creates no agent session,
-  so FarmBot never hears about it.
+- Delegate from the Linear UI. Setting the delegate through the API creates no agent session: on a card
+  FarmBot never observed nothing happens, and on a card it tracks the delegation is settled as one Linear
+  opened no session for (Triggers).
 - Two concurrent workers (`max_concurrent`). At most one of them runs an attempt of an exclusive skill,
   one whose `skill.json` sets `"exclusive": true` (spec §5.8, D16; no skill in this revision sets it):
   while one runs, including an attempt that is being retired for a repository handoff, a queued item of
@@ -974,7 +1034,7 @@ any unposted notice unsent.
   (`max_hours`, `lease_seconds`, `renew_minutes`); the launcher records the lease on the work item and the
   launch message tells the worker its own numbers.
 - Worker runtime: Codex CLI (`codex exec --approve-for-me`, with `sandbox_mode = "workspace-write"` in its isolated home and automatic approval review), one isolated `CODEX_HOME` per work item seeded with `auth.json`; Claude Code remains a chat fallback pending an equivalent fix sandbox and isolated-auth recipe. Details: `docs/superpowers/spikes/2026-09-18-runtime-spike.md`.
-- Receiver: HMAC-SHA256 and 60 s timestamp window. AgentSessionEvent matches client, app user and organization; Issue events match organization. Each delivery the receiver rules on, signed or not, adds one JSON line to the service log with its status, result, `type` and `action`, never the body; `type` and `action` appear only as words of 1 to 40 ASCII letters, anything else as null.
+- Receiver: HMAC-SHA256 and 60 s timestamp window. AgentSessionEvent matches client, app user and organization; Issue events match organization. Each delivery the receiver rules on, signed or not, adds one JSON line to the service log with its status, result, `type` and `action`, never the body; `type` and `action` appear only as words of 1 to 40 ASCII letters, anything else as null. Each settle of a delegation Linear opened no session for adds one `delegation_episode` line: the issue, the outcome (`kept`, `in_place`, `told`, `unseen`, `heard`, `dropped`, `changed`, `retry` or `unreachable`) and, for each thread whose state it read, the session, its status and whether it is archived (null for a read Linear refused); never a body. An event whose routing decision the receiver has no action for fails, and its session gets the error activity.
 
 ## Publication transport recovery
 

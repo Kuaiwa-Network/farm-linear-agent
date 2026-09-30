@@ -52,8 +52,13 @@ What does not separate them:
 
 - There is no team, project or issue allowlist; the rollout plan proposes one.
   `issue_prefix` is a publishing rule, not an admission rule. FarmBot starts work
-  only on UI delegation or an @mention of its own app, so the operator's choices
-  are the test scope.
+  only on a delegation to its own app or an @mention of it, so the operator's
+  choices are the test scope. A delegation Linear opened no session for counts
+  too: on a card the instance already tracks, a status read that finds the card
+  delegated to it again can start the work the labels name about 90 seconds
+  later, in the instance's existing delegation thread on that card, whoever set
+  the delegate, an automation or Linear's API included (operating contract,
+  Triggers).
 - Both bots use `farmbot/<lowercase-key>` branches in the same repositories.
 - The development bot's comments, agent sessions, `needs-more-info` labels,
   branches and draft PRs are real and visible to the team.
@@ -74,7 +79,9 @@ What does not separate them:
 - Start a new build with an @mention on an undelegated issue. That takes the
   read-only conversation path and receives no publishing scope.
 - Delegate from the Linear UI; delegation set through the API creates no agent
-  session. In the @-autocomplete, pick TestBot, not FarmBot.
+  session, although on a card TestBot already tracks it is still settled as a
+  delegation Linear opened no session for. In the @-autocomplete, pick TestBot, not
+  FarmBot.
 - FarmBot never closes PRs or deletes remote branches. Close an unwanted draft PR
   and its branch yourself.
 

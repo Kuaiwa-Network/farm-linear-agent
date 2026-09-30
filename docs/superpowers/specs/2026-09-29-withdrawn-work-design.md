@@ -5,7 +5,9 @@ deployed; the live checks of §8 have not run.** Current behaviour is in
 [`docs/operating-contract.md`](../../operating-contract.md), whose "Withdrawn work" section states it. On
 2026-09-29 the operator settled the five questions of §9 as recommended. Code comments cite this
 document as the "withdrawn-work design", with the IDs it defines. Appendix C records where the
-implementation departs from the text below.
+implementation departs from the text below. The
+[silent-delegation design](2026-09-30-silent-delegation-design.md) of 2026-09-30 builds on this one: it
+settles U6, amends P7 and corrects STOP_ELSEWHERE, and Appendix C lists those changes too.
 
 The scenario inventory (`scenarios.md`), the critique (`critique.md`) and the notes on Linear's
 behaviour (`linear-behaviour.md`) that this design cites were working notes and are not in the
@@ -212,7 +214,7 @@ unknown (critique 2.6).
 | Unknown | Fallback |
 |---|---|
 | U4: whether a delegate change sends an Issue webhook or bumps `updatedAt` | The poll observes within one interval. Decisions use each read's own result and its start time (P3), never the stored snapshot, so equal-version overwrites (`agent/ledger.py:672`) cannot cancel new work. `request-repair` checks the fresh read (J4). |
-| U6: whether a UI re-delegation always opens a new session | If no session opens (API re-delegation), P3's confirming read finds the card delegated, clears the mark, and nothing is cancelled. |
+| U6: whether a UI re-delegation always opens a new session | Settled 2026-09-30: not while one of FarmBot's threads on the card waits for an answer, and never through the API. P3's confirming read then finds the card delegated, clears the mark and cancels nothing; the silent-delegation design records that transition and settles it (P11, P12). |
 | LC10: whether posting into an archived session fails | Best effort, no retry (P7). A cancelled fix has already announced its branches on the card through its started, blocker and delivery comments and PR attachments, so no extra comment is posted. |
 | U7: a deleted issue | `trashed: true` is treated as archived, which is closure. "Not found" counts toward R8. |
 | U11: `webhookTimestamp` on retried deliveries | Unchanged. Listed in §8. |
@@ -239,7 +241,7 @@ status reads, and "supersede" means P4. Tests are named in §6.
 | A3 | Moved to another agent | As A1/A2. A running write worker is flagged, and `verify-publication` refuses to publish meanwhile (`agent/__main__.py:516-518`). |
 | A4 | Moved to the other FarmBot instance | As A3. Rated M (critique 1.2): `verify-publication` and `foreign-work` already guard every push. |
 | A5 | Assignee changed | Nothing: FarmBot reads only the delegate. LC12 checks whether "No assignee" clears it. |
-| A6 | Removed and re-added between two reads, or while FarmBot was down | The new `created` supersedes (C1/C2); no read is needed. With an API re-add, no session opens and nothing is cancelled (§3). |
+| A6 | Removed and re-added between two reads, or while FarmBot was down | The new `created` supersedes (C1/C2), when Linear opens a session; see U6. No read is needed. With an API re-add, no session opens and nothing is cancelled (§3). |
 | A7 | Session dismissed | The delegate is removed [E], so as A1. |
 | A8 | A mention-session chat waits when the delegation goes | Kept: `mention` authority. |
 | A9 | A chat worker is running | Flagged. `await-input` refuses, so the chat answers and finishes. After 10 min the controller cancels and kills it. |
@@ -265,7 +267,7 @@ status reads, and "supersede" means P4. Tests are named in §6.
 | C5 | A mention in M while X is active elsewhere | **X a chat, unclaimed:** supersede into M, keeping X's authority while the card is delegated. **X a chat, running:** steer, as today. **X a write item:** forward, as today, with an honest notice (R10) and `sessions.forwarded_item` recorded. |
 | C6 | A successor waits for its predecessor's cleanup | Rule unchanged. The heartbeat says what it is waiting for, and the doctor lists `cleanup_pending` (it already does). |
 | C7 | A continuation or `retry` after the delegation session ended | `_cancelled_successor` records the latest non-`local-` delegation session, which is the newest open one after a re-delegation. A `local-` predecessor keeps its session. |
-| C8 | Two delegation sessions with no removal between them (U6) | As C1/C2. |
+| C8 | Two delegation sessions with no removal between them (U6) | As C1/C2, when Linear opens a session; see U6. |
 | C9 | Marked Duplicate | Closure, plus one CLOSED notice per active item. |
 
 ### D. Stop
@@ -1020,3 +1022,14 @@ Where the code departs from the text above, and why. The operating contract stat
 | §7.2, fix SKILL | The withdrawal rule also applies when the issue is archived or closed. | The sentence it replaces covered closure, and `withdraw` accepts a closed card. |
 | §5.1 commit 6, `stored_undelegated` | It lists the delegation's work, and conversations that a delegation session opened before authorities were recorded, which K2 reads as a mention's; it does not list a mention's conversation. The delegate ids are compared without case. | §5.3 and the answer to §9's fifth question: stranded conversations are kept and listed. A mention's conversation on an undelegated card is normal and would be listed on every run. |
 | §7.4, contract | The Triggers row for a reply in a delegation session with no work item no longer gives "another session's work declined it" as its example, and the contract also states C7's successor session and J4's fresh delegate. | No delegation is declined any more (P4), and commit 2's behaviour had no contract text. |
+
+Later changes, made by the silent-delegation design (`2026-09-30-silent-delegation-design.md`, "SD"):
+
+| Where | Change | Why |
+|---|---|---|
+| P7, D3, the LC10 row of §3 | A response or error that closes a thread and that Linear refuses, a notice, a Stop's reply and a final response included, is owed to the thread and retried by the progress loop 1, 2, 4, 8 and 16 minutes apart; it is given up at the sixth refusal, or untried once it is 40 minutes old, and `doctor` lists it (SD P10). "One notice per cancellation" stays. | A refused closing activity left the thread showing FarmBot waiting, which keeps Linear from opening a session for the card's next delegation. |
+| §5.1 commit 5 row of this appendix, `SessionProgress.tick` | Still no correction once the item's progress row is gone, except that a heartbeat's question that landed after the notice is followed once more by the job's terminal text (SD A7). | Otherwise the question stays the thread's last activity. |
+| D2, §7.1 STOP_ELSEWHERE | A Stop that stops work living in another thread also posts one response in that work's own thread, and its own reply is "已停止 {identifier} 上在另一个会话中的工作，占用的资源在静默检查后释放。" (SD A1). | The stopped job may have been queued or waiting, with no worker to terminate, and its own thread kept its question. |
+| U6, A6, C8, §3 "Re-delegation" | Settled: Linear opens no session for a delegation while one of FarmBot's threads on the card waits, nor for one through its API. A read that finds the card delegated again after one found it not delegated is recorded, and the receiver settles it about 90 s later on a fresh read (SD P11, P12). | Observed on the test instance on 2026-09-30: such a delegation started nothing and showed nothing. |
+| §3, sessions | FarmBot reads `agentSession(id){status archivedAt}` for its own recorded sessions on a card, at most ten, but only while it settles such a delegation (SD §3.6). | To find a thread that still waits. |
+| E3, U7 | The full read of a card (`fetch_issue`) also reads `trashed`, and a trashed card reads as archived there too; an issue it no longer finds is a `not_found` LinearError, as for the status read. | A settle decides on that read (SD S14, S20). |

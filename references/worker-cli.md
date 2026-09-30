@@ -96,6 +96,10 @@ Linear. The resumed worker finds the pause in `issue-context` as `pending_questi
 checkpoint, and when automatic recovery takes the item over. A reply in the session or a mention resumes
 a `waiting` pause exactly as it resumes a question.
 
+`activity` posts a `thought`, `action`, `response` or `error` in your item's session. It refuses
+`--type elicitation` before anything reaches Linear: ask a question with `await-input`, which posts it
+and parks the item, so that no thread waits on a question no job will read.
+
 Run each mutation separately and inspect its exit status and returned JSON before
 running a dependent command. A nonzero exit means the operation failed. A zero exit
 still requires checking the returned state/status, including publication retry states.
