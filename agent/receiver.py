@@ -17,7 +17,8 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .ledger import ACTIVE_STATES, TERMINAL_STATUS_TYPES, LedgerError, StaleRouting
-from .linear_api import person
+from .lifecycle import UNREACHABLE_READS, UNREACHABLE_SECONDS
+from .linear_api import LinearError, person
 from .router import WRITE_SKILLS, route
 from .withdrawal import (DEFER_ACK, DEFER_STILL, DEFER_UNDELEGATED, FORWARD_PARKED_UNDELEGATED, FORWARD_WITHDRAWING,
                          IN_PLACE_NOTE, MOVED_THREAD, REDELEGATED_RUNNING, REDELEGATED_WAITING, RENOTE_SECONDS,
@@ -52,7 +53,7 @@ REROUTES = 2
 # Settling a delegation Linear opened no session for (silent-delegation design P12, §3.3-§3.6). A settle reads the
 # state of at most SESSION_READS of FarmBot's own threads on the card. One that found the work or the episode changed
 # under it looks again RESETTLE_SECONDS later; one whose read of the card failed is tried again after 15, 30, 60, 120
-# and 240 seconds, then every 300.
+# and 240 seconds, then every 300, until the card is out of reach by the lifecycle's rule (withdrawn-work design R8).
 SESSION_READS = 10
 RESETTLE_SECONDS = 5
 SETTLE_RETRY_SECONDS = 15
@@ -581,9 +582,9 @@ class Receiver:
         `created`, so a settle never interleaves with a new session's takeover, and only when no event is pending.
 
         A settle that found the work or the episode changed under it looks again shortly. One whose read failed has
-        posted nothing; it is tried again later, and the failure is counted and named for doctor. Each settle writes
-        one line to the service log: the outcome and what Linear said of each thread it read, never a body. Returns
-        whether an episode was due."""
+        posted nothing; it is tried again later, and the failure is counted and named for doctor, unless the card
+        is out of reach, which ends the episode (`unreachable`). Each settle writes one line to the service log: the
+        outcome and what Linear said of each thread it read, never a body. Returns whether an episode was due."""
         episode = self.ledger.due_episode(self.clock())
         if episode is None:
             return False
@@ -594,15 +595,30 @@ class Receiver:
             self.ledger.retry_episode(episode["issue_id"], episode["since"], self.clock() + RESETTLE_SECONDS)
             outcome = "changed"
         except Exception as exc:
+            gone = isinstance(exc, LinearError) and exc.kind == "not_found"
             delay = min(SETTLE_RETRY_MAX, SETTLE_RETRY_SECONDS * 2 ** min(episode["attempts"], 8))
             self.ledger.retry_episode(episode["issue_id"], episode["since"], self.clock() + delay,
-                                      error=type(exc).__name__)
-            outcome = "retry"
+                                      error=type(exc).__name__, unreachable=gone)
+            outcome = "unreachable" if gone and self._out_of_reach(episode) else "retry"
         threads = [{"session_id": session_id, "status": state and state["status"],
                     "archived": state and state["archived"]} for session_id, state in reads.items()]
         print(json.dumps({"event": "delegation_episode", "issue_id": episode["issue_id"], "outcome": outcome,
                           "threads": threads}), flush=True)
         return True
+
+    def _out_of_reach(self, episode):
+        """Whether `episode`, whose read Linear just answered with "not found", was dropped because its card is out
+        of reach, by the rule that withdraws such a card's work (withdrawn-work design R8, Lifecycle._unreachable):
+        enough failed reads, "not found" for long enough, and not explained by an outage of Linear itself. The card's
+        sessions went with it, so nothing is posted; without this the settle would read a card that is gone for as
+        long as the ledger lives, and doctor would list it for as long. Only the episode this settle read is dropped:
+        one a read ended or replaced meanwhile is left as it is."""
+        current = self.ledger.episode(episode["issue_id"])
+        first = current["unreachable_since"]
+        return (first is not None and current["attempts"] >= UNREACHABLE_READS
+                and self.clock() - first >= UNREACHABLE_SECONDS
+                and (getattr(self.api, "last_success_at", None) or 0) > first
+                and self.ledger.drop_episode(episode["issue_id"], episode["since"]))
 
     def _settle(self, episode, reads):
         """Settle `episode` where the card's work is, on a fresh read of the card (silent-delegation design P12, §3.5),

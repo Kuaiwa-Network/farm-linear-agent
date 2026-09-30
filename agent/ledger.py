@@ -618,7 +618,8 @@ class Ledger:
                     settled_at REAL,
                     attempts INTEGER NOT NULL DEFAULT 0,
                     error TEXT,
-                    updated_at REAL NOT NULL
+                    updated_at REAL NOT NULL,
+                    unreachable_since REAL      -- first settle read in a row that Linear answered "not found"
                 );
             """)
             self.connection.executescript(RECOVERY_SCHEMA)
@@ -645,7 +646,8 @@ class Ledger:
                                                 ("work_items", "withdraw_reason", "TEXT"),
                                                 ("issue_checks", "undelegated_since", "REAL"),
                                                 ("issue_checks", "unreachable_since", "REAL"),
-                                                ("sessions", "forwarded_item", "TEXT")):
+                                                ("sessions", "forwarded_item", "TEXT"),
+                                                ("delegation_episodes", "unreachable_since", "REAL")):
                 present = {row["name"] for row in self.connection.execute(f"PRAGMA table_info({table})")}
                 if column not in present:
                     self.connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
@@ -895,7 +897,8 @@ class Ledger:
         """End the card's episode as `state`, one of EPISODE_SETTLED, with the thread that kept or took the
         delegation. Only the episode the caller read is ended: the one that still waits with that `since`. Returns
         whether it was, so a settle acts once, and not at all on an episode a read dropped or replaced meanwhile.
-        The count of its failed reads stays; the last failure's name goes, since this settle got through."""
+        The count of its failed reads stays; the last failure's name and `unreachable_since` go, since this settle
+        got through."""
         if state not in EPISODE_SETTLED:
             raise LedgerError(f"an episode ends as one of {', '.join(EPISODE_SETTLED)}")
         if session_id is not None:
@@ -903,22 +906,36 @@ class Ledger:
         with self._transaction():
             now = self.clock()
             return bool(self.connection.execute("""UPDATE delegation_episodes
-                SET state=?,session_id=?,settled_at=?,error=NULL,updated_at=?
+                SET state=?,session_id=?,settled_at=?,error=NULL,unreachable_since=NULL,updated_at=?
                 WHERE issue_id=? AND since=? AND state='waiting'""",
                                                 (state, session_id, now, now, issue_id, since)).rowcount)
 
-    def retry_episode(self, issue_id, since, due_at, error=None):
+    def retry_episode(self, issue_id, since, due_at, error=None, *, unreachable=False):
         """The episode the caller read, still waiting with that `since`, is settled again at `due_at`. `error` names
         a failed read, which is counted in `attempts`; without one the settle found the work changed under it and
-        only looks again. Returns whether the episode was still that one."""
+        only looks again. `unreachable`: Linear said the card does not exist. The first such read in a row is kept
+        in `unreachable_since`; any other result clears it, as for a status read (withdrawn-work design R8).
+        Returns whether the episode was still that one."""
         _seconds(due_at, "due_at")
         error = None if error is None else str(error)[:200]
         with self._transaction():
+            now = self.clock()
             return bool(self.connection.execute("""UPDATE delegation_episodes
-                SET due_at=?,attempts=attempts+?,error=?,updated_at=?
+                SET due_at=?,attempts=attempts+?,error=?,updated_at=?,
+                    unreachable_since=CASE WHEN ? THEN COALESCE(unreachable_since,?) END
                 WHERE issue_id=? AND since=? AND state='waiting'""",
-                                                (due_at, int(error is not None), error, self.clock(), issue_id,
-                                                 since)).rowcount)
+                                                (due_at, int(error is not None), error, now, bool(unreachable), now,
+                                                 issue_id, since)).rowcount)
+
+    def drop_episode(self, issue_id, since):
+        """End the episode the caller read, still waiting with that `since`, as `dropped` because its card is out of
+        reach: no settle got through, so the last failure's name and `unreachable_since` stay as the record of why.
+        Returns whether it was that one."""
+        with self._transaction():
+            now = self.clock()
+            return bool(self.connection.execute("""UPDATE delegation_episodes
+                SET state='dropped',settled_at=?,updated_at=?
+                WHERE issue_id=? AND since=? AND state='waiting'""", (now, now, issue_id, since)).rowcount)
 
     def unfinished_for_issue(self, issue_id):
         return [self._view(r) for r in self.connection.execute("""SELECT * FROM work_items WHERE issue_id=?

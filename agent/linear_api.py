@@ -418,7 +418,8 @@ class LinearAPI:
                 "delegate_id": (issue.get("delegate") or {}).get("id")}
 
     def fetch_issue(self, issue_ref):
-        """Complete detail plus every comment page, shaped for Ledger.observe_issue."""
+        """Complete detail plus every comment page, shaped for Ledger.observe_issue. An issue Linear no longer
+        returns is a `not_found` LinearError, as for `issue_status`."""
         if self.app_user_id is None:
             self.identity()
         comments, after, issue = [], None, None
@@ -435,7 +436,7 @@ class LinearAPI:
                         raise
                     time.sleep(0.25 * (attempt + 1))
             if issue is None:
-                raise RuntimeError("Issue not found")
+                raise LinearError("not_found", "Issue not found")
             for node in issue["comments"]["nodes"]:
                 user = node.get("user") or {}
                 if node.get("botActor") or user.get("app") or (self.app_user_id and user.get("id") == self.app_user_id):

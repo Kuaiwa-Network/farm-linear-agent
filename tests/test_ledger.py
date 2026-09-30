@@ -105,6 +105,18 @@ class SchemaTests(LedgerBase):
         reopened.ensure_session(SESSION, ISSUE, delegation=True, creator=OWNER)
         self.assertEqual(reopened.session(SESSION)["creator"], OWNER)
 
+    def test_an_episode_table_without_unreachable_since_gains_the_column(self):
+        """A ledger whose episodes were written before a settle recorded a card Linear could not find."""
+        self.ledger.observe_issue(issue())
+        self.ledger.mark_undelegated(ISSUE, 1000.0)
+        self.ledger.clear_undelegated(ISSUE, observed_at=1030.0)
+        self.ledger.connection.execute("ALTER TABLE delegation_episodes DROP COLUMN unreachable_since")
+        self.ledger.close()
+        reopened = self.open_ledger()
+        self.assertIsNone(reopened.episode(ISSUE)["unreachable_since"])
+        self.assertTrue(reopened.retry_episode(ISSUE, 1030.0, 1135.0, error="LinearError", unreachable=True))
+        self.assertEqual(reopened.episode(ISSUE)["unreachable_since"], 1000.0)
+
     def test_k2_migration_reads_null_authority_by_skill(self):
         """Rows written before items recorded their authority read by skill: a write item as the delegation's, a
         chat as a mention's, which no withdrawal touches (withdrawn-work design K2)."""
@@ -2718,7 +2730,8 @@ class DelegationEpisodeTests(WithdrawnWorkBase):
         self.assertIsNone(self.mark())
         self.assertIsNone(self.ledger.item(item["id"])["withdraw_deadline"])
         episode = {"issue_id": ISSUE, "since": 1030.0, "mark": 1000.0, "due_at": 1120.0, "state": "waiting",
-                   "session_id": None, "settled_at": None, "attempts": 0, "error": None, "updated_at": 1031.0}
+                   "session_id": None, "settled_at": None, "attempts": 0, "error": None, "updated_at": 1031.0,
+                   "unreachable_since": None}
         self.assertEqual(self.ledger.episode(ISSUE), episode)
         self.assertEqual(self.episodes(), [episode])
         self.assertIsNone(self.ledger.due_episode(1119.0))
@@ -2779,7 +2792,8 @@ class DelegationEpisodeTests(WithdrawnWorkBase):
         self.now = 1291.0
         self.redelegated(1200.0, 1290.0)
         second = {"issue_id": ISSUE, "since": 1290.0, "mark": 1200.0, "due_at": 1380.0, "state": "waiting",
-                  "session_id": None, "settled_at": None, "attempts": 0, "error": None, "updated_at": 1291.0}
+                  "session_id": None, "settled_at": None, "attempts": 0, "error": None, "updated_at": 1291.0,
+                  "unreachable_since": None}
         self.assertEqual(self.episodes(), [second])
         # Two quick re-delegations: each undelegated read drops the waiting episode, each delegated read after it
         # opens one, and only the last waits.
@@ -2855,6 +2869,65 @@ class DelegationEpisodeTests(WithdrawnWorkBase):
         self.assertTrue(self.ledger.finish_episode(ISSUE, 1030.0, "unseen"))
         episode = self.ledger.episode(ISSUE)
         self.assertEqual((episode["state"], episode["attempts"], episode["error"]), ("unseen", 3, None))
+
+    def test_a_retried_episode_keeps_since_when_linear_found_no_card(self):
+        """S20 with withdrawn-work R8: the first failed read in a row that Linear answered with "not found" is kept
+        in `unreachable_since`, as a status read's is. Any other result clears it: a failure of another kind, a
+        look-again after a read that worked, and the settle that gets through."""
+        self.redelegated(1000.0, 1030.0)
+        self.assertIsNone(self.ledger.episode(ISSUE)["unreachable_since"])
+        self.now = 1120.0
+        self.assertTrue(self.ledger.retry_episode(ISSUE, 1030.0, 1135.0, error="LinearError", unreachable=True))
+        self.now = 1135.0
+        self.assertTrue(self.ledger.retry_episode(ISSUE, 1030.0, 1165.0, error="LinearError", unreachable=True))
+        episode = self.ledger.episode(ISSUE)
+        self.assertEqual((episode["due_at"], episode["attempts"], episode["error"], episode["unreachable_since"]),
+                         (1165.0, 2, "LinearError", 1120.0))
+        self.now = 1165.0
+        self.ledger.retry_episode(ISSUE, 1030.0, 1225.0, error="LinearError")  # rate limited, say
+        self.assertIsNone(self.ledger.episode(ISSUE)["unreachable_since"])
+        self.now = 1225.0
+        self.ledger.retry_episode(ISSUE, 1030.0, 1345.0, error="LinearError", unreachable=True)
+        self.assertEqual(self.ledger.episode(ISSUE)["unreachable_since"], 1225.0)
+        self.now = 1345.0
+        self.ledger.retry_episode(ISSUE, 1030.0, 1350.0)  # the read worked and the work had changed under it
+        self.assertIsNone(self.ledger.episode(ISSUE)["unreachable_since"])
+        self.now = 1350.0
+        self.ledger.retry_episode(ISSUE, 1030.0, 1365.0, error="LinearError", unreachable=True)
+        self.assertFalse(self.ledger.retry_episode(ISSUE, 1029.0, 1365.0, error="OSError"))  # another episode's
+        self.assertEqual(self.ledger.episode(ISSUE)["unreachable_since"], 1350.0)
+        self.now = 1365.0
+        self.assertTrue(self.ledger.finish_episode(ISSUE, 1030.0, "served", "session-0"))
+        episode = self.ledger.episode(ISSUE)
+        self.assertEqual((episode["state"], episode["attempts"], episode["error"], episode["unreachable_since"]),
+                         ("served", 5, None, None))
+
+    def test_an_episode_dropped_as_out_of_reach_keeps_what_its_reads_failed_with(self):
+        """S20 with withdrawn-work R8: no settle got through, so the failure's name and the time of the first read
+        that found no card stay in the row as the record of why. Only the episode the caller read is dropped, once,
+        and the next delegation a read finds back starts a new one with none of it."""
+        self.redelegated(1000.0, 1030.0)
+        self.now = 1120.0
+        self.ledger.retry_episode(ISSUE, 1030.0, 1135.0, error="LinearError", unreachable=True)
+        waiting = self.ledger.episode(ISSUE)
+        self.now = 2200.0
+        self.assertFalse(self.ledger.drop_episode(ISSUE, 1029.0))
+        self.assertFalse(self.ledger.drop_episode(OTHER, 1030.0))
+        self.assertEqual(self.episodes(), [waiting])
+        self.assertTrue(self.ledger.drop_episode(ISSUE, 1030.0))
+        dropped = {**waiting, "state": "dropped", "settled_at": 2200.0, "updated_at": 2200.0}
+        self.assertEqual((dropped["attempts"], dropped["error"], dropped["unreachable_since"]),
+                         (1, "LinearError", 1120.0))
+        self.assertEqual(self.episodes(), [dropped])
+        self.now = 2210.0
+        self.assertFalse(self.ledger.drop_episode(ISSUE, 1030.0))
+        self.assertEqual(self.episodes(), [dropped])
+        self.assertIsNone(self.ledger.due_episode(10 ** 9))
+        self.now = 2301.0
+        self.redelegated(2250.0, 2300.0)
+        episode = self.ledger.episode(ISSUE)
+        self.assertEqual((episode["state"], episode["since"], episode["attempts"], episode["error"],
+                          episode["unreachable_since"]), ("waiting", 2300.0, 0, None, None))
 
     def test_the_episode_longest_due_is_settled_first(self):
         self.ledger.observe_issue(issue(id=OTHER, identifier="FARM-2", delegate_id=self.APP))

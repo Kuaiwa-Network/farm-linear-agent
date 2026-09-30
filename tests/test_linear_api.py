@@ -300,6 +300,16 @@ class LinearAPITests(unittest.TestCase):
         self.assertEqual([c["author_kind"] for c in issue["comments"]], ["bot"])
         self.assertEqual([c[0].rsplit("/", 1)[-1] for c in self.http.calls][:2], ["token", "graphql"])
 
+    def test_fetch_issue_says_not_found_for_an_issue_linear_no_longer_returns(self):
+        """Withdrawn-work design E3, as `issue_status`: a read that returns no issue is a `not_found` LinearError, the
+        one kind that counts toward a card out of reach, whichever read met it."""
+        from agent.linear_api import LinearError
+        api = self.api({"FarmBotIssue": [{"data": {"issue": None}}]})
+        api.app_user_id, api.token, api.expires = APP, "tok", float("inf")
+        with self.assertRaises(LinearError) as caught:
+            api.fetch_issue("FARM-1")
+        self.assertEqual((caught.exception.kind, str(caught.exception)), ("not_found", "Issue not found"))
+
     def test_fetch_issue_retries_only_the_timed_out_page(self):
         api = self.api({"FarmBotIssue": [issue_page("next", True, []),
                                            urllib.error.URLError(TimeoutError("read timed out")),

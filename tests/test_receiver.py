@@ -20,6 +20,7 @@ from unittest.mock import Mock, patch
 from agent.heartbeat import OUTCOMES, Heartbeat
 from agent.ledger import Ledger, LedgerError
 from agent.lifecycle import Lifecycle
+from agent.linear_api import LinearError
 from agent.monitor import probe_health
 from agent.receiver import MAX_BODY, Receiver, make_server
 from agent.router import Decision
@@ -3685,6 +3686,157 @@ class SilentDelegationReceiverTests(ReceiverBase):
         episode = self.ledger.episode(ISSUE)
         self.assertEqual((episode["state"], episode["attempts"], episode["error"]), ("served", 7, None))
         self.assertEqual(len(self.sent()), posted + 1)
+
+    def not_found(self, kind="not_found", others_succeed=True):
+        """From now on Linear answers every read of the card with its `kind` of error. With `others_succeed` the
+        host's other calls go through meanwhile, which `LinearAPI.last_success_at` shows."""
+        def fetch_issue(issue_id):
+            if others_succeed:
+                self.api.last_success_at = self.now
+            raise LinearError(kind)
+        self.api.fetch_issue.side_effect = fetch_issue
+
+    def unreachable_since(self):
+        episode = self.ledger.episode(ISSUE)
+        return episode["state"], episode["attempts"], episode["unreachable_since"]
+
+    def test_s20_a_card_out_of_reach_ends_its_episode(self):
+        """S20 with withdrawn-work R8: a card Linear says does not exist, on three settle reads or more over at
+        least 15 minutes while other calls succeed, is out of reach, and its sessions went with it. The episode is
+        dropped and nothing is posted; the receiver reads the card no more, and `doctor` lists nothing. The card's
+        work is the lifecycle's to withdraw, by the same rule."""
+        fix = self.waiting_fix("session-1")
+        self.now = 1100.0
+        self.redelegated()
+        posted, self.now = len(self.sent()), 1220.0
+        self.api.last_success_at = 0.0
+        self.not_found()
+        for attempt, delay in enumerate((15, 30, 60, 120, 240, 300, 300), 1):  # the last of them 765 s after the first
+            with self.subTest(attempt=attempt):
+                self.assertEqual(self.settle(), "retry")
+                episode = self.ledger.episode(ISSUE)
+                self.assertEqual((episode["state"], episode["attempts"], episode["error"],
+                                  episode["unreachable_since"]), ("waiting", attempt, "LinearError", 1220.0))
+                self.assertEqual(episode["due_at"] - self.now, delay)
+                self.now = episode["due_at"]
+        self.assertEqual(self.now, 1220.0 + 1065)
+        self.assertEqual(self.settle(), "unreachable")
+        self.assertEqual(self.settled, {"event": "delegation_episode", "issue_id": ISSUE, "outcome": "unreachable",
+                                        "threads": []})
+        episode = self.ledger.episode(ISSUE)
+        self.assertEqual((episode["state"], episode["session_id"], episode["settled_at"], episode["attempts"],
+                          episode["error"], episode["unreachable_since"]),
+                         ("dropped", None, 2285.0, 8, "LinearError", 1220.0))
+        self.assertEqual((self.sent()[posted:], self.states_read(), self.ledger.item(fix["id"])["state"]),
+                         ([], [], "awaiting_input"))
+        reads, self.now = self.api.fetch_issue.call_count, self.now + 10 ** 6
+        self.assertIsNone(self.settle())
+        self.assertEqual(self.api.fetch_issue.call_count, reads)
+
+    def test_s20_not_found_while_nothing_else_succeeds_ends_nothing(self):
+        """R8: in an outage Linear may find nothing at all. While no other call has succeeded since the first such
+        read, the episode waits, however long, and the first read that works settles it."""
+        self.waiting_fix("session-1")
+        self.now = 1100.0
+        self.redelegated()
+        posted, self.now = len(self.sent()), 1220.0
+        self.api.last_success_at = 1220.0  # nothing has succeeded since the first read that found no card
+        self.not_found(others_succeed=False)
+        for attempt in range(1, 13):
+            self.assertEqual(self.settle(), "retry")
+            self.assertEqual(self.unreachable_since(), ("waiting", attempt, 1220.0))
+            self.now = self.ledger.episode(ISSUE)["due_at"]
+        self.assertGreater(self.now - 1220.0, 2 * 900)
+        self.api.fetch_issue.side_effect = None
+        self.assertEqual(self.settle(), "kept")
+        episode = self.ledger.episode(ISSUE)
+        self.assertEqual((episode["state"], episode["attempts"], episode["error"], episode["unreachable_since"]),
+                         ("served", 12, None, None))
+        self.assertEqual(len(self.sent()), posted + 1)
+
+    def test_s20_only_not_found_counts_and_any_other_failure_starts_the_count_again(self):
+        """R8, E5, E6: a card the app may not read, a rate limit and a refused login are transient and never count.
+        A failure of another kind between two "not found" answers starts the count again, and the card is out of
+        reach at 900 seconds from the first of the row, not before."""
+        self.waiting_fix("session-1")
+        self.now = 1100.0
+        self.redelegated()
+        self.now = 1220.0
+        self.api.last_success_at = 0.0
+        attempts = 0
+        for kind in ("forbidden", "ratelimited", "auth", "rejected"):
+            with self.subTest(kind=kind):
+                self.not_found(kind)
+                for _ in range(3):
+                    attempts += 1
+                    self.assertEqual(self.settle(), "retry")
+                    self.assertEqual(self.unreachable_since(), ("waiting", attempts, None))
+                    self.now = self.ledger.episode(ISSUE)["due_at"]
+        self.assertGreater(self.now - 1220.0, 900)
+        self.not_found()
+        first = self.now
+        for _ in range(2):  # 300 s apart by now
+            attempts += 1
+            self.assertEqual(self.settle(), "retry")
+            self.assertEqual(self.unreachable_since(), ("waiting", attempts, first))
+            self.now = self.ledger.episode(ISSUE)["due_at"]
+        self.now = first + 899
+        self.assertEqual(self.settle(), "retry")  # a third such read, short of fifteen minutes after the first
+        self.assertEqual(self.unreachable_since(), ("waiting", attempts + 1, first))
+        self.now = self.ledger.episode(ISSUE)["due_at"]
+        self.api.fetch_issue.side_effect = RuntimeError("linear down")
+        self.assertEqual(self.settle(), "retry")
+        self.assertEqual(self.unreachable_since(), ("waiting", attempts + 2, None))
+        self.now = self.ledger.episode(ISSUE)["due_at"]
+        self.not_found()
+        again = self.now
+        for _ in range(3):
+            self.assertEqual(self.settle(), "retry")
+            self.assertEqual(self.unreachable_since()[2], again)
+            self.now = self.ledger.episode(ISSUE)["due_at"]
+        self.assertLess(self.ledger.episode(ISSUE)["updated_at"], again + 900)
+        self.now = again + 900
+        self.assertEqual(self.settle(), "unreachable")
+        self.assertEqual(self.unreachable_since(), ("dropped", attempts + 6, again))
+
+    def test_s20_a_card_is_out_of_reach_only_after_three_reads_found_none(self):
+        """R8: two reads an hour apart, with the controller down between them, are not enough."""
+        self.waiting_fix("session-1")
+        self.now = 1100.0
+        self.redelegated()
+        self.now = 1220.0
+        self.api.last_success_at = 0.0
+        self.not_found()
+        self.assertEqual(self.settle(), "retry")
+        self.now += 3600
+        self.assertEqual(self.settle(), "retry")
+        self.assertEqual(self.unreachable_since(), ("waiting", 2, 1220.0))
+        self.now = self.ledger.episode(ISSUE)["due_at"]
+        self.assertEqual(self.settle(), "unreachable")
+        self.assertEqual(self.unreachable_since(), ("dropped", 3, 1220.0))
+
+    def test_s20_an_episode_that_ended_under_a_read_that_found_no_card_is_left_alone(self):
+        """A status read that found the card, not delegated here, dropped the episode while the settle's read was
+        refused for the last time: the settle ends nothing."""
+        self.waiting_fix("session-1")
+        self.now = 1100.0
+        self.redelegated()
+        self.now = 1220.0
+        self.api.last_success_at = 0.0
+        self.not_found()
+        for _ in range(7):
+            self.assertEqual(self.settle(), "retry")
+            self.now = self.ledger.episode(ISSUE)["due_at"]
+
+        def dropped_meanwhile(issue_id):
+            self.api.last_success_at = self.now
+            self.ledger.mark_undelegated(ISSUE, self.now)
+            raise LinearError("not_found")
+        self.api.fetch_issue.side_effect = dropped_meanwhile
+        self.assertEqual(self.settle(), "retry")
+        episode = self.ledger.episode(ISSUE)
+        self.assertEqual((episode["state"], episode["attempts"], episode["error"], episode["unreachable_since"]),
+                         ("dropped", 7, "LinearError", 1220.0))
 
     def test_a_card_read_that_answers_for_another_card_settles_nothing(self):
         """P8: the settle acts only on a read of the episode's own card."""
