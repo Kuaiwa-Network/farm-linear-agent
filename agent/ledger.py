@@ -1771,10 +1771,11 @@ class Ledger:
         """Linear refused the `kind` activity, a response or an error, that closes the thread `session_id` with `body`:
         it is owed to the thread, and the progress loop posts it again (SessionProgress.tick). `item_id` is the job
         it closes the thread for, as it stands now: the row goes as soon as that job's state changes (_set_state), and
-        is dropped unposted once a newer job in the thread speaks there itself (closure_superseded). `error` names
-        the refusal. A thread has one last word: the row replaces an older one of the thread, and its tries start
-        anew. An operator's `local-` job has no Linear thread, so nothing is owed for one. Returns the row, or
-        None."""
+        is dropped unposted once a newer job in the thread speaks there itself (closure_superseded). The error a
+        failed event was answered with also goes once a later event of the thread is answered (drop_event_error).
+        `error` names the refusal. A thread has one last word: the row replaces an older one of the thread, and its
+        tries start anew. An operator's `local-` job has no Linear thread, so nothing is owed for one. Returns the
+        row, or None."""
         _text(session_id, "session_id")
         if session_id.startswith("local-"):
             return None
@@ -1824,6 +1825,18 @@ class Ledger:
         with self._transaction():
             self.connection.execute("DELETE FROM session_closures WHERE session_id=? AND (? IS NULL OR created_at=?)",
                                     (session_id, owed_at, owed_at))
+
+    def drop_event_error(self, session_id):
+        """Linear took the answer to a later event of the thread `session_id`: the error an older event of the thread
+        failed with, still owed or given up, goes (silent-delegation design P10). It would follow that answer and ask
+        for a message again that has been taken since, and the later event need neither change a job's state nor
+        start one: a message steered into the running job, or forwarded from a thread that has no job of its own.
+        That error is the `error` owed for no job, or for a job that was going on. One owed for a job that had ended
+        closes the thread for that job, as a `response` does, and stays until P10's own rules drop it."""
+        with self._transaction():
+            self.connection.execute(f"""DELETE FROM session_closures WHERE session_id=? AND kind='error'
+                AND (item_state IS NULL OR item_state IN ({','.join('?' * len(ACTIVE_STATES))}))""",
+                                    (session_id, *ACTIVE_STATES))
 
     def closure_result(self, session_id, *, sent, error=None, owed_at=None):
         """Record one try of the closing activity owed to `session_id`. `sent`: Linear took it, and the row goes.

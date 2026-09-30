@@ -242,6 +242,7 @@ class Receiver:
                 body = {"moved": STOP_MOVED, "moved_thread": STOP_MOVED_THREAD,
                         "stopped": STOP_ALREADY}.get(where, "当前没有正在进行的工作可停止。")
             self._send(row["session_id"], row["activity_id"], {"type": "response", "body": body})
+            self._answered(row["session_id"])
         except Exception as exc:
             status, error = "uncertain", type(exc).__name__
             if body is not None:
@@ -506,6 +507,17 @@ class Receiver:
         except Exception:
             pass
 
+    def _answered(self, session_id):
+        """Linear took the answer to an event of the thread `session_id`: its acknowledgement, a Stop's reply, or the
+        error it failed with. The error still owed there for an older event would follow that answer, and ask for a
+        message again that has gone through since, so it goes. The event need not have moved any job: a message
+        steered into a running job, or forwarded from a thread that has no job of its own. What the thread is owed
+        for work that ended in it stays (silent-delegation design P10). Best effort, as owing the error was."""
+        try:
+            self.ledger.drop_event_error(str(session_id))
+        except Exception:
+            pass
+
     def _note_resumed(self, item_id, session_id):
         """Best effort, after the acknowledgement in `session_id`: the parked job a message there resumed is told so
         in its own thread, whose last activity was its question, which nobody will answer there now. Nothing for a
@@ -558,6 +570,7 @@ class Receiver:
             self.db.execute("UPDATE webhook_events SET status='processing' WHERE event_key=?", (row["event_key"],))
             self.db.commit()
         status, error = "done", None
+        answered = True  # Linear took this event's answer in its thread: an acknowledgement, or the event's error
         try:
             self._decide_and_act(json.loads(row["payload"]), row["ack_id"], row["received_at"])
         except Deferred as deferred:
@@ -570,13 +583,17 @@ class Receiver:
                 self._send(row["session_id"], row["ack_id"], {"type": "error", "body": body})
             except Exception as refused:
                 # Owed to the thread, for its job as it stands: a later message that moves the job on is acknowledged
-                # there, and this older error must not follow that (silent-delegation design A4, P10).
+                # there, and this older error must not follow that; nor the answer to any later event of the thread
+                # (_answered), which may move no job at all (silent-delegation design A4, P10).
+                answered = False
                 try:
                     job = self.ledger.active_item_for_session(row["session_id"])
                     issue_id = json.loads(row["payload"]).get("issue_id")
                 except Exception:
                     job = issue_id = None
                 self._owe(row["session_id"], "error", body, refused, job=job, issue_id=issue_id)
+        if answered:
+            self._answered(row["session_id"])
         with self.lock, self.db:
             if status == "deferred":
                 self.db.execute("UPDATE webhook_events SET status=?,error=? WHERE event_key=?",

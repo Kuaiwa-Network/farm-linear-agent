@@ -2640,6 +2640,40 @@ class OwedClosureTests(WithdrawnWorkBase):
                           for row in self.closures()], [("response", 1, self.now + 60, None, None)])
         self.assertEqual(self.ledger.due_closure(self.now + 60)["body"], "这项工作已取消。")
 
+    def test_the_error_owed_for_a_message_goes_once_a_later_event_of_its_thread_is_answered(self):
+        """P10: the error a failed event was answered with is owed for the thread's job as it went on, or for none. A
+        later event of the thread that is answered there drops it, given up or not, whether or not any job changed
+        state. What closes a thread for a job that ended, an error as much as a response, stays, and so does what
+        another thread is owed."""
+        self.ledger.observe_issue(issue(delegate_id=self.APP))
+        for session in ("session-0", "mention", "other"):
+            self.ledger.ensure_session(session, ISSUE, delegation=session == "session-0")
+        fix = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-0", skill="fix", target=PIN)
+        self.ledger.claim(fix["id"], worker_id="w")
+        owed = self.ledger.owe_closure("session-0", item_id=fix["id"], kind="error", body="处理这条消息时出错。")
+        self.assertEqual(owed["item_state"], "running")
+        for session in ("mention", "other"):
+            self.ledger.owe_closure(session, kind="error", body="处理这条消息时出错。")
+        self.ledger.drop_event_error("session-0")  # a message steered into the running job: no state changed
+        self.assertEqual([row["session_id"] for row in self.closures()], ["mention", "other"])
+        for _ in range(5):
+            self.ledger.closure_result("mention", sent=False, error="LinearError")
+        self.assertEqual([row["given_up_at"] for row in self.closures()], [self.now, None])
+        self.ledger.drop_event_error("mention")  # a message forwarded from a thread that has no job of its own
+        self.assertEqual([row["session_id"] for row in self.closures()], ["other"])
+        # A Stop's reply that found nothing to stop names no job either, and is the thread's last word.
+        reply = self.ledger.owe_closure("mention", kind="response", body="没有可停止的工作。")
+        # The job ended, and its own error closes its thread: no later message there takes that away.
+        self.ledger.cancel(fix["id"], "Linear stop")
+        ended = self.ledger.owe_closure("session-0", item_id=fix["id"], kind="error", body="无法启动工作进程。")
+        self.assertEqual(ended["item_state"], "cancelled")
+        self.ledger.drop_event_error("mention")
+        self.ledger.drop_event_error("session-0")
+        self.assertEqual([(row["session_id"], row["kind"]) for row in self.closures()],
+                         [("mention", "response"), ("other", "error"), ("session-0", "error")])
+        self.assertEqual(self.closures()[0], reply)
+        self.ledger.drop_event_error("session-unknown")  # nothing owed: nothing to drop
+
     def test_an_older_ledger_gains_the_closure_table(self):
         """§6.2: additive, with no backfill; a ledger that never owed anything has nothing due."""
         self.ledger.connection.execute("DROP TABLE session_closures")

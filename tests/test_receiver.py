@@ -1690,6 +1690,7 @@ class OwnThreadReceiverTests(ReceiverBase):
     STOPPED_HERE = "已停止 FARM-1 上的工作，worker 已终止，占用的资源在静默检查后释放。"
     STOPPED_THERE = STOP_ELSEWHERE.format(identifier="FARM-1")
     RESUMED = "收到回复，原工作项已恢复，worker 会先读取你的回答。"
+    FAILED_MESSAGE = "FarmBot 处理这条消息时出错（RuntimeError），请稍后重试或联系维护者。"
 
     def real_scheduler(self):
         """The receiver stops work through a real scheduler that posts to the receiver's API double, so sent() shows
@@ -2045,6 +2046,114 @@ class OwnThreadReceiverTests(ReceiverBase):
         self.assertEqual(self.ledger.item(fix["id"])["state"], "queued")
         self.assertTrue(self.ledger.closure_superseded(row))
         self.assertEqual(self.owed(), [])  # gone at the answer: a job parked again later does not bring it back
+
+    def failed_message_in(self, session, activity="act-2"):
+        """A person's message in `session` fails while Linear is down, and its error reply is refused with it; Linear
+        is back afterwards. The error is then owed to the thread."""
+        self.refusing(session)
+        self.api.fetch_issue.side_effect = RuntimeError("boom")
+        self.reply_in(session, "版本 1.2", activity=activity)
+        self.assertEqual(self.receiver.results()[-1]["status"], "uncertain")
+        self.api.fetch_issue.side_effect = None
+        self.api.create_activity.side_effect = None
+
+    def test_an_owed_error_reply_goes_once_a_later_message_is_forwarded_from_the_thread(self):
+        """P10: a thread whose messages are forwarded has no job of its own, so the error owed for a message that
+        failed there names none, and neither a state change nor a newer job drops it. A later message there that
+        goes through is acknowledged in the thread; the older error would follow that acknowledgement and ask for
+        a message again that was delivered, so it goes. The progress loop then posts nothing."""
+        fix = self.waiting_fix("session-1")
+        self.mention_in("session-9", "@FarmBot 公共测试服")
+        self.paused(self.ledger.item(fix["id"]), "哪个包？")
+        self.failed_message_in("session-9")
+        self.assertEqual(self.owed(), [("session-9", None, None, "error", self.FAILED_MESSAGE)])
+        self.reply_in("session-9", "版本 1.2", activity="act-3")
+        self.assertEqual(self.receiver.results()[-1]["status"], "done")
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "queued")
+        self.assertEqual(self.owed(), [])
+        posted = len(self.sent())
+        self.ledger.clock = lambda: time.time() + 61
+        self.assertFalse(SessionProgress(self.ledger, self.api).tick())
+        self.assertEqual(self.sent()[posted:], [])
+
+    def test_an_owed_error_reply_goes_once_a_later_message_is_steered_into_the_running_job(self):
+        """P10: the error owed in a thread whose job is claimed names that job as it runs. A later message there is
+        steered into the job and acknowledged, and no state changes: the older error goes with that acknowledgement
+        all the same."""
+        fix = self.waiting_fix("session-1")
+        self.reply_in("session-1", "公共测试服")
+        self.ledger.claim(fix["id"], worker_id="w")
+        self.failed_message_in("session-1")
+        self.assertEqual(self.owed(), [("session-1", fix["id"], "running", "error", self.FAILED_MESSAGE)])
+        self.reply_in("session-1", "版本 1.2", activity="act-3")
+        self.assertEqual(self.sent()[-1], ("session-1", {"type": "thought",
+                                                         "body": "已转给正在处理的 worker，会在下一次检查点读取。"}))
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "running")
+        self.assertEqual(self.owed(), [])
+
+    def test_an_owed_error_reply_goes_once_a_later_delegation_event_is_deferred(self):
+        """P10: an event that waits behind another session's worker was acknowledged in its thread too, so the error
+        owed for an older message of the thread goes as it does when the event is done."""
+        self.claimed_fix_elsewhere("session-0")
+        self.assertEqual(self.delegate("session-1"), [])
+        self.failed_message_in("session-1")
+        self.assertEqual(self.owed(), [("session-1", None, None, "error", self.FAILED_MESSAGE)])
+        self.reply_in("session-1", "现在开始", activity="act-3")
+        self.assertEqual(self.sent()[-1], ("session-1", {"type": "thought", "body": DEFER_ACK.format(
+            bot="FarmBot", skill="fix", minutes=20)}))
+        self.assertEqual(sorted(result["status"] for result in self.receiver.results()),
+                         ["deferred", "deferred", "done", "uncertain"])
+        self.assertEqual(self.owed(), [])
+
+    def test_an_owed_error_reply_goes_once_a_stop_in_the_thread_is_answered(self):
+        """P10: a Stop is an event of its thread, and its reply the thread's newer word. The error owed there for an
+        older message names no job in a forwarding thread, so the cancel does not drop it: the answered Stop does."""
+        self.real_scheduler()
+        fix = self.waiting_fix("session-1")
+        self.mention_in("session-9", "@FarmBot 公共测试服")
+        self.failed_message_in("session-9")
+        self.assertEqual(self.owed(), [("session-9", None, None, "error", self.FAILED_MESSAGE)])
+        self.assertEqual(self.stop_in("session-9"), {"type": "response", "body": self.STOPPED_THERE})
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "cancelled")
+        self.assertEqual(self.owed(), [])
+
+    def test_an_owed_error_reply_goes_once_linear_takes_a_later_error_in_the_thread(self):
+        """P10: a later message of the thread that fails too is answered with its own error. When Linear takes that
+        one, it is the thread's last word, and the older error would only repeat it a minute later; when Linear
+        refuses it as well, the thread is owed the newer one alone."""
+        fix = self.waiting_fix("session-1")
+        self.reply_in("session-1", "公共测试服")
+        self.ledger.claim(fix["id"], worker_id="w")
+        self.failed_message_in("session-1")
+        self.api.fetch_issue.side_effect = OSError("down again")
+        self.reply_in("session-1", "版本 1.2", activity="act-3")
+        self.assertEqual(self.sent()[-1], ("session-1", {
+            "type": "error", "body": "FarmBot 处理这条消息时出错（OSError），请稍后重试或联系维护者。"}))
+        self.assertEqual(self.owed(), [])
+        self.refusing("session-1")
+        self.reply_in("session-1", "版本 1.2", activity="act-4")
+        self.assertEqual(self.owed(), [("session-1", fix["id"], "running", "error",
+                                        "FarmBot 处理这条消息时出错（OSError），请稍后重试或联系维护者。")])
+
+    def test_a_later_message_leaves_what_is_owed_for_work_that_ended_in_the_thread(self):
+        """P10: only the error a failed event was answered with goes at the thread's next answered event. What closes
+        the thread for work that ended there is still owed after a later message in it is forwarded to the card's
+        work in another thread: that starts no work in this thread, which still lacks its last word."""
+        old = self.waiting_fix("session-0")
+        self.refusing("session-0")
+        self.delegate("session-1")
+        self.api.create_activity.side_effect = None
+        closing = [("session-0", old["id"], "cancelled", "response", SUPERSEDED)]
+        self.assertEqual(self.owed(), closing)
+        self.reply_in("session-0", "进展如何？", activity="act-2")
+        self.assertEqual(self.receiver.results()[-1]["status"], "done")
+        self.assertEqual(self.ledger.items_for_session("session-0"), [self.ledger.item(old["id"])])
+        self.assertEqual(self.owed(), closing)
+        # The same for an error that closes the thread for the ended job, as a failed launch's does.
+        self.ledger.owe_closure("session-0", item_id=old["id"], kind="error", body="工作项已标记失败。")
+        self.reply_in("session-0", "还在吗？", activity="act-3")
+        self.assertEqual(self.receiver.results()[-1]["status"], "done")
+        self.assertEqual(self.owed(), [("session-0", old["id"], "cancelled", "error", "工作项已标记失败。")])
 
     def test_an_owed_already_stopped_reply_names_the_job_the_stop_found_ended(self):
         """A4: a Stop that finds its job ended before the cancel answers STOP_ALREADY for that job. The reply is owed
