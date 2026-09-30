@@ -1916,20 +1916,27 @@ class Ledger:
 
     # A closing activity Linear refused is owed to its thread (silent-delegation design P10, which amends the
     # withdrawn-work design's P7): tried again 1, 2, 4, 8 and 16 minutes apart, about 31 minutes in all, and given up
-    # at its sixth refusal.
+    # at its sixth refusal. One still owed CLOSURE_WINDOW_SECONDS after the first refusal, because the controller was
+    # down meanwhile, is given up untried: the 31 minutes of tries, and 9 more for a busy progress loop.
     CLOSURE_KINDS = ("response", "error")
     CLOSURE_RETRY_SECONDS = 60
     CLOSURE_ATTEMPTS = 6
+    CLOSURE_WINDOW_SECONDS = 2400
 
     def owe_closure(self, session_id, *, issue_id=None, item_id=None, kind, body, error=None):
         """Linear refused the `kind` activity, a response or an error, that closes the thread `session_id` with `body`:
         it is owed to the thread, and the progress loop posts it again (SessionProgress.tick). `item_id` is the job
         it closes the thread for, as it stands now: the row goes as soon as that job's state changes (_set_state), and
         is dropped unposted once a newer job in the thread speaks there itself (closure_superseded). The error a
-        failed event was answered with also goes once a later event of the thread is answered (drop_event_error).
-        `error` names the refusal. A thread has one last word: the row replaces an older one of the thread, and its
-        tries start anew. An operator's `local-` job has no Linear thread, so nothing is owed for one. Returns the
-        row, or None."""
+        failed event was answered with also goes once a later event of the thread is answered (drop_event_error),
+        and a response owed for no job once the thread reaches work (closure_superseded). `error` names the refusal.
+
+        A thread has one last word: the row replaces an older one of the thread, and its tries start anew. But what
+        closes the thread for a job that ended there is replaced only by other closing words for ended work, or once
+        it no longer holds: a row owed for no job, or for a job that goes on, can be dropped by the two rules above,
+        which leave those words, and in their place it would leave the thread with neither. Such a row is then not
+        owed (silent-delegation design P10). An operator's `local-` job has no Linear thread, so nothing is owed for
+        one. Returns the row the thread is owed, or None."""
         _text(session_id, "session_id")
         if session_id.startswith("local-"):
             return None
@@ -1945,6 +1952,11 @@ class Ledger:
                 session = self.connection.execute("SELECT issue_id FROM sessions WHERE session_id=?",
                                                   (session_id,)).fetchone()
                 issue_id = session["issue_id"] if session else None
+            held = self.connection.execute("SELECT * FROM session_closures WHERE session_id=?",
+                                           (session_id,)).fetchone()
+            if (held is not None and self._closes_ended_work(held["item_id"], held["item_state"])
+                    and not self._closes_ended_work(item_id, state) and not self.closure_superseded(held)):
+                return dict(held)
             now = self.clock()
             error = None if error is None else str(error)[:200]
             self.connection.execute("""INSERT OR REPLACE INTO session_closures
@@ -1954,6 +1966,12 @@ class Ledger:
                                      now + self.CLOSURE_RETRY_SECONDS, now, error))
             return dict(self.connection.execute("SELECT * FROM session_closures WHERE session_id=?",
                                                 (session_id,)).fetchone())
+
+    @staticmethod
+    def _closes_ended_work(item_id, state):
+        """Whether a closing activity owed for the job `item_id`, recorded in `state`, closes its thread for work that
+        ended there: a job's own closing words, not the error of an event or a note owed for no job."""
+        return item_id is not None and state not in ACTIVE_STATES
 
     def due_closure(self, now):
         """The owed closing activity to try next: the one longest due at `now` among those not given up, or None."""
@@ -1965,11 +1983,18 @@ class Ledger:
         """Whether the owed closing activity `row` no longer holds: a job was created in its thread after it was owed,
         or its job's state is not the one recorded. Either speaks in the thread itself, and the older closing words
         would follow its own. A state change drops the row when it happens (_set_state), so the recorded state only
-        decides for a row the caller still holds, or one left by a revision that does not drop it."""
+        decides for a row the caller still holds, or one left by a revision that does not drop it.
+
+        A response owed for no job, a note that the thread holds no work or a Stop's reply that found nothing to stop,
+        also no longer holds while the thread reaches active work, its own or the job its messages were forwarded to:
+        it would say the thread has none and close it, and a Stop there must keep reaching that work
+        (silent-delegation design §3.5, P5)."""
         if row["item_id"] is not None:
             job = self.connection.execute("SELECT state FROM work_items WHERE id=?", (row["item_id"],)).fetchone()
             if job is None or job["state"] != row["item_state"]:
                 return True
+        elif row["kind"] == "response" and self.stop_target(row["session_id"])[1] in ("own", "forwarded"):
+            return True
         return self.connection.execute("SELECT 1 FROM work_items WHERE session_id=? AND created_at>? LIMIT 1",
                                        (row["session_id"], row["created_at"])).fetchone() is not None
 
@@ -1979,6 +2004,14 @@ class Ledger:
         with self._transaction():
             self.connection.execute("DELETE FROM session_closures WHERE session_id=? AND (? IS NULL OR created_at=?)",
                                     (session_id, owed_at, owed_at))
+
+    def give_up_closure(self, session_id, *, owed_at):
+        """Give up the closing activity owed to `session_id` without trying it again: it is older than
+        CLOSURE_WINDOW_SECONDS, and posted now it would land long after the words it answers. The row stays, as after
+        its sixth refusal, for doctor to list. `owed_at` as for drop_closure."""
+        with self._transaction():
+            self.connection.execute("UPDATE session_closures SET given_up_at=? WHERE session_id=? AND created_at=? "
+                                    "AND given_up_at IS NULL", (self.clock(), session_id, owed_at))
 
     def drop_event_error(self, session_id):
         """Linear took the answer to a later event of the thread `session_id`: the error an older event of the thread

@@ -374,6 +374,28 @@ class SessionProgressTests(LedgerBase):
         self.assertEqual(posted, [(SESSION, {"type": "error", "body": "无法启动工作进程。"})] * 5)
         self.assertEqual([(row["attempts"], row["given_up_at"]) for row in self.closures()], [(6, attempts[-1])])
 
+    def test_an_owed_closing_activity_is_given_up_untried_once_its_window_has_passed(self):
+        """P10, R8: the five retries take 31 minutes, so while the controller runs an owed activity lands at most that
+        late. A row still owed 40 minutes after Linear first refused it, because the controller or its progress loop
+        was down meanwhile (a rollback and a roll forward too), is not posted hours or days after the words it
+        answers: it is given up untried, and stays for doctor as after a sixth refusal. Up to 40 minutes it goes."""
+        _, owed = self.owed()
+        self.now = owed["created_at"] + 2400
+        self.assertTrue(self.progress.tick())
+        self.assertEqual([(session, content) for session, content, _ in self.sent],
+                         [(SESSION, {"type": "response", "body": "这项工作已取消。"})])
+        self.assertEqual(self.closures(), [])
+        late = self.ledger.owe_closure("session-9", kind="error", body="处理这条消息时出错。")
+        self.now = late["created_at"] + 2401
+        self.assertTrue(self.progress.tick())
+        self.assertEqual(len(self.sent), 1)
+        [row] = self.closures()
+        self.assertEqual((row["session_id"], row["attempts"], row["given_up_at"], row["due_at"]),
+                         ("session-9", 1, self.now, late["due_at"]))
+        self.now += 10 ** 6
+        self.assertFalse(self.progress.tick())
+        self.assertEqual((len(self.sent), self.closures()), (1, [row]))
+
     def test_an_owed_error_is_posted_as_an_error(self):
         """P10, A4: what Linear takes in the end is the activity that was owed, of its own kind. A failed job's
         thread is closed by an error, not by a response."""

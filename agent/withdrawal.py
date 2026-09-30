@@ -60,9 +60,10 @@ QUESTION_WITHDRAWN = '上面的问题不用再回答：这项工作已经停止�
 QUESTION_WITHDRAWN_CHAT = '上面的问题不用再回答：这段对话已经结束。'
 
 # A delegation Linear opened no session for (silent-delegation design P12): a status read found the card delegated to
-# this app again, and no delegation session followed within the grace. Each text says what FarmBot saw and what to do
-# next. None claims a cause, so each stays true for a delegation that one of FarmBot's waiting threads blocked, for
-# one made through Linear's API and for one whose delivery was lost.
+# this app again, and no delegation session followed within the grace. Each text says that Linear opened no session
+# for the delegation and what to do next, and names no cause. That holds for a delegation one of FarmBot's waiting
+# threads blocked and for one made through Linear's API. After a delivery that was lost, Linear did open a session,
+# which FarmBot has not heard of (design R6).
 # The first line of the thought in a delegation thread whose work the delegation takes over there; the new job's
 # acknowledgement follows it.
 IN_PLACE_NOTE = '这张卡已重新委派给 {bot}。Linear 没有为这次委派另开会话，{bot} 在这个会话里接着处理。'

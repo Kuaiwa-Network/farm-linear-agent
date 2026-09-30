@@ -1700,6 +1700,7 @@ class OwnThreadReceiverTests(ReceiverBase):
     STOPPED_HERE = "已停止 FARM-1 上的工作，worker 已终止，占用的资源在静默检查后释放。"
     STOPPED_THERE = STOP_ELSEWHERE.format(identifier="FARM-1")
     RESUMED = "收到回复，原工作项已恢复，worker 会先读取你的回答。"
+    FORWARDED = "该 issue 正在处理中，你的消息已转给正在处理的 worker。"
     FAILED_MESSAGE = "FarmBot 处理这条消息时出错（RuntimeError），请稍后重试或联系维护者。"
 
     def real_scheduler(self):
@@ -1996,6 +1997,19 @@ class OwnThreadReceiverTests(ReceiverBase):
         self.assertEqual(self.said_in("session-0"), [MOVED_THREAD])
         self.assertEqual(self.receiver.results()[-1]["status"], "uncertain")
 
+    def test_a_decision_the_receiver_has_no_action_for_fails_the_event(self):
+        """A9, P9: the receiver acts on work, a conversation, steering and a resume, the kinds `route` gives a session
+        event, and a question is asked only through a worker's `await-input`. Any other decision, such as the
+        `elicit` of the branch A9 removed, would post nothing and record the event done, leaving the person's message
+        unanswered: the event fails instead, and its error reply says so."""
+        fix = self.waiting_fix("session-1")
+        posted = len(self.sent())
+        with patch("agent.receiver.route", return_value=Decision("elicit", None, "公共测试服")):
+            self.reply_in("session-1", "公共测试服", activity="act-2")
+        self.assertEqual(self.receiver.results()[-1]["status"], "uncertain")
+        self.assertEqual(self.sent()[posted:], [("session-1", {"type": "error", "body": self.FAILED_MESSAGE})])
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "awaiting_input")
+
     def owed(self):
         """(session, job, the job's state, kind, body) of every closing activity owed to a thread, oldest first."""
         return [(row["session_id"], row["item_id"], row["item_state"], row["kind"], row["body"])
@@ -2164,6 +2178,27 @@ class OwnThreadReceiverTests(ReceiverBase):
         self.reply_in("session-0", "还在吗？", activity="act-3")
         self.assertEqual(self.receiver.results()[-1]["status"], "done")
         self.assertEqual(self.owed(), [("session-0", old["id"], "cancelled", "error", "工作项已标记失败。")])
+
+    def test_an_event_error_leaves_the_closing_words_owed_for_work_that_ended_in_the_thread(self):
+        """P10: a thread is owed one closing activity. The error a failed message there was answered with does not
+        take the place of what closes the thread for its job that ended: a later message that is forwarded to the
+        card's work drops that error, and the thread would then keep neither. The failed message goes unreported, as
+        when nothing was owed, and the thread gets its closing words at the next try."""
+        old = self.waiting_fix("session-0")
+        self.refusing("session-0")
+        self.delegate("session-1")
+        closing = [("session-0", old["id"], "cancelled", "response", SUPERSEDED)]
+        self.assertEqual(self.owed(), closing)
+        self.failed_message_in("session-0")  # while Linear still refuses the thread
+        self.assertEqual(self.owed(), closing)
+        self.reply_in("session-0", "进展如何？", activity="act-3")
+        self.assertEqual(self.sent()[-1], ("session-0", {"type": "thought", "body": self.FORWARDED}))
+        self.assertEqual(self.owed(), closing)
+        posted = len(self.sent())
+        self.ledger.clock = lambda: time.time() + 61
+        self.assertTrue(SessionProgress(self.ledger, self.api).tick())
+        self.assertEqual(self.sent()[posted:], [("session-0", {"type": "response", "body": SUPERSEDED})])
+        self.assertEqual(self.owed(), [])
 
     def test_an_owed_already_stopped_reply_names_the_job_the_stop_found_ended(self):
         """A4: a Stop that finds its job ended before the cancel answers STOP_ALREADY for that job. The reply is owed
@@ -2510,14 +2545,15 @@ class SilentDelegationReceiverTests(ReceiverBase):
         """S1, the incident: a delegation's conversation waits in its thread; "No agent" without archiving; Bot/修改
         added; delegated again within a minute. Linear opens no session. Nothing happens during the grace. Then the
         conversation is superseded, in one transaction, by the fix the labels name, in the same thread, with its
-        messages and the thread's target: P4 with the new session equal to the old one. The thread gets one thought
-        and no SUPERSEDED, and the card has exactly one active job."""
+        messages and the thread's target: P4 with the new session equal to the old one. The settle's read of the card
+        is recorded first, so the fix is queued at the priority that read found. The thread gets one thought and no
+        SUPERSEDED, and the card has exactly one active job."""
         chat = self.waiting_chat("session-0", said="按钮点了没反应")
         self.ledger.set_session_target("session-0", PIN)
         self.linear_says("session-0", "awaitingInput")
         self.now = 1100.0
         self.assertEqual(self.redelegated(), 1130.0)
-        self.labelled(["Bug", "修改"], CHANGE)
+        self.labelled(["Bug", "修改"], CHANGE, priority=1)
         self.api.reset_mock()
         self.now = 1219.0
         self.assertIsNone(self.settle())
@@ -2528,6 +2564,7 @@ class SilentDelegationReceiverTests(ReceiverBase):
         fix = self.ledger.active_item_for_issue(ISSUE)
         self.assertEqual((fix["skill"], fix["state"], fix["session_id"], fix["authority"], fix["target"],
                           fix["predecessor_id"]), ("fix", "queued", "session-0", "delegation", PIN, None))
+        self.assertEqual((fix["priority"], self.ledger.issue(ISSUE)["labels"]), (1, ["Bug", "修改"]))
         self.assertEqual(self.ledger.item(chat["id"])["state"], "cancelled")
         self.assertEqual(self.messages(fix), ["按钮点了没反应"])
         self.assertEqual(self.sent(), [("session-0", {"type": "thought", "body": self.IN_PLACE + "\n" + FIX_ACK})])
@@ -2986,6 +3023,23 @@ class SilentDelegationReceiverTests(ReceiverBase):
         self.now = 1220.0
         self.assertEqual(self.settle(), "kept")
         self.assertEqual(self.owed(), [("session-1", fix["id"], "cancelled", "response", QUESTION_WITHDRAWN)])
+        # A question Linear refused is not in the thread, so nothing is withdrawn, however the job ended during the
+        # refused request: what closes the thread then is the cancel's own notice.
+        self.setUp()
+        fix = self.waiting_fix("session-1")
+        self.now = 1100.0
+        self.redelegated()
+
+        def refused_question(session_id, content, activity_id=None):
+            create_activity(session_id, content, activity_id)
+            if content["type"] == "elicitation":
+                raise RuntimeError("linear down")
+            return {"success": True}
+        self.api.create_activity.side_effect = refused_question
+        posted, self.now = len(self.sent()), 1220.0
+        self.assertEqual(self.settle(), "kept")
+        self.assertEqual(self.sent()[posted:], [("session-1", {"type": "elicitation", "body": self.ASKED_AGAIN})])
+        self.assertEqual((self.ledger.item(fix["id"])["state"], self.owed()), ("cancelled", []))
 
     def test_s18_an_operators_local_job_gets_no_note(self):
         """S18: an operator's `local-` session is no Linear thread. Its delegation work of the labels' kind is kept
@@ -3419,6 +3473,31 @@ class SilentDelegationReceiverTests(ReceiverBase):
         self.now = 1280.0
         self.assertTrue(SessionProgress(self.ledger, self.api).tick())  # the progress loop posts it
         self.assertEqual((self.said_in("session-1")[-1], self.owed()), (self.ENDED, []))
+
+    def test_a_refused_note_for_a_thread_with_no_work_goes_once_the_thread_reaches_work(self):
+        """§3.5, P5, P10: SILENT_ENDED closes a thread that holds no work, and Linear refused it. A person then writes
+        in that thread, and the message is forwarded to the card's running fix: a Stop there now reaches that work,
+        and the note would say the thread has none and close it. It is dropped, not posted after the
+        acknowledgement."""
+        self.idle_thread("session-1")
+        self.linear_says("session-1", "awaitingInput")
+        [fix] = self.delegate("session-2")
+        self.ledger.claim(fix["id"], worker_id="w")
+        self.linear_says("session-2", "active")
+        self.now = 1100.0
+        self.redelegated()
+        self.labelled(["Bug"], [])  # no Bot label: a conversation, so the claimed fix is told
+        self.refusing("session-1")
+        self.now = 1220.0
+        self.assertEqual(self.settle(), "told")
+        self.assertEqual(self.owed(), [("session-1", None, None, "response", self.ENDED)])
+        self.api.create_activity.side_effect = None
+        self.reply_in("session-1", "进展如何？", activity="act-9")
+        self.assertEqual(self.ledger.stop_target("session-1")[1], "forwarded")
+        posted, self.now = len(self.sent()), 1290.0
+        self.assertTrue(SessionProgress(self.ledger, self.api).tick())
+        self.assertEqual((self.sent()[posted:], self.owed()), ([], []))
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "running")
 
     def test_a_refused_line_that_closes_nothing_is_not_owed(self):
         """P10: a thought and a repeated question close no thread, so neither is owed. The takeover in place is done

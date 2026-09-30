@@ -1296,6 +1296,26 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(self.ledger.item(local["id"])["state"], "failed")
         self.assertEqual([row["session_id"] for row in self.closures()], ["session-2"])
 
+    def test_notify_says_whether_linear_took_the_activity(self):
+        """A4: `_notify` returns whether Linear took the activity, or for an operator's `local-` job the card comment;
+        with no API configured nothing is posted, and nothing was taken."""
+        item = self.item()
+        self.scheduler.api = None
+        self.assertIs(self.scheduler._notify(item["id"], "thought", "工作仍在排队。"), False)
+        for fail, taken in ((False, True), (True, False)):
+            with self.subTest(fail=fail):
+                self.scheduler.api = FakeAPI(fail=fail)
+                self.assertIs(self.scheduler._notify(item["id"], "thought", "工作仍在排队。"), taken)
+                self.assertEqual(self.scheduler.api.activities, [(SESSION, "thought", "工作仍在排队。")] if taken else [])
+        third = str(uuid4())
+        local = self.item(issue_id=third, session=f"local-{third}")
+        for fail, taken in ((False, True), (True, False)):
+            with self.subTest(local=True, fail=fail):
+                self.scheduler.api = FakeAPI(fail=fail)
+                self.assertIs(self.scheduler._notify(local["id"], "response", "工作已停止。"), taken)
+                self.assertEqual(self.scheduler.api.comments, [(third, "工作已停止。")] if taken else [])
+        self.assertEqual(self.closures(), [])  # a thought closes nothing, and a `local-` job has no thread
+
     def test_a_withdrawn_worker_is_stopped_when_its_grace_ends(self):
         """Withdrawn-work design P2: the controller cancels and kills a flagged worker that has not run `withdraw` by
         its deadline, with the one response its reason has; an issue out of reach gets none. A claim a worker

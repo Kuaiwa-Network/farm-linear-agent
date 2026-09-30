@@ -31,8 +31,9 @@ UNDELEGATED_INTERVALS = 3
 WITHDRAWAL_OVERDUE_SECONDS = 300
 DEFERRED_SECONDS = 45 * 60
 LONG_PARKED_SECONDS = 7 * 86400
-# A closing activity Linear refused to the end (silent-delegation design P10) is listed for 7 days: nothing removes
-# its row once the operator has looked at the thread, and a finding that never clears would hide the next one.
+# A closing activity FarmBot gave up (silent-delegation design P10: Linear refused it to the end, or its window passed
+# while the controller was down) is listed for 7 days: nothing removes its row once the operator has looked at the
+# thread, and a finding that never clears would hide the next one.
 UNCLOSED_SECONDS = 7 * 86400
 # A delegation Linear opened no session for (silent-delegation design P12, §7) is listed for 7 days when FarmBot found
 # no open thread of its own to answer in, and while it is still unsettled more than 10 minutes after its grace ended.
@@ -368,9 +369,10 @@ def diagnose(config, *, now=None):
     for closure in unclosed:
         if report["checked_at"] - closure["given_up_at"] <= UNCLOSED_SECONDS:
             _finding(report, "unclosed_session",
-                     "Linear refused this thread's closing activity six times. The thread may still show FarmBot "
-                     "waiting and block the card's next delegation. Check the session in Linear and archive it if it "
-                     "waits.", **closure)
+                     "FarmBot gave up this thread's closing activity: Linear refused it six times, or it was still "
+                     "owed 40 minutes after the first refusal because the controller was down. The thread may still "
+                     "show FarmBot waiting and block the card's next delegation. Check the session in Linear and "
+                     "archive it if it waits.", **closure)
     for episode in silent:
         waiting = episode["state"] == "waiting"
         overdue = report["checked_at"] - (episode["since"] + SILENT_GRACE_SECONDS)

@@ -111,15 +111,19 @@ class SessionProgress:
 
     def _post_owed(self, now):
         """Try one closing activity Linear refused earlier and that is due again (silent-delegation design P10): drop
-        it unposted when its job, or newer work in its thread, has spoken there since; else post it under a fresh
-        activity id, since nobody knows whether Linear takes the same id twice (U7), and record the result. Whether
-        one was due."""
+        it unposted when its job, or newer work in its thread, has spoken there since; give it up untried when its
+        tries have outlived their window, the controller having been down meanwhile, so that it never lands hours
+        after the words it answers; else post it under a fresh activity id, since nobody knows whether Linear takes
+        the same id twice (U7), and record the result. Whether one was due."""
         owed = self.ledger.due_closure(now)
         if owed is None:
             return False
         session_id, owed_at = owed["session_id"], owed["created_at"]
         if self.ledger.closure_superseded(owed):
             self.ledger.drop_closure(session_id, owed_at=owed_at)
+            return True
+        if now - owed_at > self.ledger.CLOSURE_WINDOW_SECONDS:
+            self.ledger.give_up_closure(session_id, owed_at=owed_at)
             return True
         try:
             self.api.create_activity(session_id, {"type": owed["kind"], "body": owed["body"]}, activity_id=str(uuid4()))

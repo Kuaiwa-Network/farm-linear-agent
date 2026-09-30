@@ -68,7 +68,11 @@ def parser():
     notice.add_argument("--kind", required=True, choices=NOTICE_KINDS)
     cmd("post-notice", "--item", "--request-id", token=True)
     activity = cmd("activity", "--item", "--body-file", token=True)
-    activity.add_argument("--type", required=True, choices=["thought", "action", "response", "error", "elicitation"])
+    # `elicitation` stays a choice only so that `run` can refuse it with the command to use instead (silent-delegation
+    # design A8); help offers the kinds `activity` posts.
+    activity.add_argument("--type", required=True, choices=["thought", "action", "response", "error", "elicitation"],
+                          metavar="{thought,action,response,error}",
+                          help="the activity's kind; ask a question with await-input, which posts it and parks the job")
     pause = cmd("await-input", "--item", "--question", token=True)
     pause.add_argument("--reason", choices=AWAIT_REASONS, default="question",
                        help="question (default) adds needs-more-info; waiting, for a human step elsewhere, does not")

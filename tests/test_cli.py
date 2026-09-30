@@ -654,6 +654,15 @@ class CliTests(unittest.TestCase):
             posted = self.calls()[-1]
             self.assertEqual((posted["method"], posted["content"]["type"]), ("create_activity", kind))
 
+    def test_activity_help_offers_the_kinds_it_posts_and_await_input_for_a_question(self):
+        """A8: `activity --help`, where references/worker-cli.md sends a worker for a command's arguments, offers only
+        the kinds `activity` posts and says that a question goes through `await-input`. It does not offer the
+        `elicitation` that `activity` refuses."""
+        shown = " ".join(self.run_cli("activity", "--help", process=True).stdout.split()).replace("- ", "-")
+        self.assertIn("--type {thought,action,response,error}", shown)
+        self.assertIn("await-input", shown)
+        self.assertNotIn("elicitation", shown)
+
     def in_process(self, ledger, api, *argv):
         """Run one command in this process against `api`, a Linear double the test controls. No private config is
         read, as in the other fixtures, and the command's warnings stay out of the test output."""

@@ -51,9 +51,10 @@ class NoticeTests(unittest.TestCase):
 
     def test_silent_delegation_texts_format_and_a_conversations_names_no_branch(self):
         """Silent-delegation design §7 (TW1): what a thread is told when a delegation opened no session. Each text
-        names the instance and leaves no placeholder; each note says that no session was opened and what to do next,
-        and claims no cause that holds only for one of a blocked delegation, an API delegation and a lost delivery.
-        A conversation's text never mentions branches or PRs."""
+        names the instance and leaves no placeholder; each note says that Linear opened no session for the delegation
+        and what to do next, and names no cause. That holds for a blocked delegation and for an API delegation; after
+        a lost delivery Linear did open a session, which FarmBot has not heard of (design R6). A conversation's text
+        never mentions branches or PRs."""
         texts = {name: getattr(withdrawal, name) for name in (
             "IN_PLACE_NOTE", "REDELEGATED_WAITING", "REDELEGATED_RUNNING", "SILENT_WAITING", "SILENT_WAITING_CHAT",
             "SILENT_BUSY", "SILENT_ENDED")}

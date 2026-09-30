@@ -411,7 +411,8 @@ class Receiver:
                         acknowledge("thought", self._opening(decision, text) if decision.kind == "chat"
                                     else ACK["chat"].format(bot=self.bot_name))
                     finally:
-                        self._close_moved(elsewhere, MOVED_THREAD)  # as a takeover's old thread (design A5)
+                        # As a takeover's old thread is told (silent-delegation design A5).
+                        self._close_moved(elsewhere, MOVED_THREAD)
                     return
                 # Forwarded to work that stays where it is, and a Stop here now reaches it (design P5). The notice
                 # says what becomes of the message (design R10).
@@ -470,6 +471,11 @@ class Receiver:
                                 else RESUME_UNDELEGATED.format(bot=self.bot_name))
                 if active["state"] == "awaiting_input" and delivered["state"] == "queued":
                     self._note_resumed(delivered["item_id"], session_id)
+            else:
+                # The router gives a session event work, chat, steer or resume. Any other decision would post nothing
+                # and leave the person's message unanswered, so the event fails and its error reply says so; a question
+                # is asked only by a worker, through `await-input` (silent-delegation design A9, P9).
+                raise RuntimeError(f"router decision {decision.kind!r} has no action here")
 
         for attempt in range(REROUTES + 1):
             if routed[3]:
@@ -681,8 +687,8 @@ class Receiver:
     def _thread_state(self, reads, session_id, issue_id):
         """What Linear says of the thread `session_id`, {"status", "archived"}, or None when it is not known. One
         settle asks once per thread and for SESSION_READS threads at most, and its first refused read ends its reads:
-        every thread after that is unknown, and an unknown thread is never closed nor taken in place (design §3.6,
-        P8). `reads` keeps this settle's answers, None for the refused one."""
+        every thread after that is unknown, and an unknown thread is never closed nor taken in place
+        (silent-delegation design §3.6, P8). `reads` keeps this settle's answers, None for the refused one."""
         if session_id not in reads:
             if None in reads.values() or len(reads) >= SESSION_READS:
                 return None
@@ -704,9 +710,9 @@ class Receiver:
         """Post the line of a settle that ends nothing, a thought or a question asked again, in the thread of `job`,
         best effort, and record it in the job's audit trail. Not for an operator's `local-` job, which has no Linear
         thread; not for work that is being withdrawn, of which "it goes on" would be false; not for a job that has
-        left the state the line was written for, which has spoken in its thread since (design P9); and at most once
-        per job in RENOTE_SECONDS, so that an automation that flaps the delegate costs one line (§3.3). Returns
-        whether Linear took it."""
+        left the state the line was written for, which has spoken in its thread since (silent-delegation design P9);
+        and at most once per job in RENOTE_SECONDS, so that an automation that flaps the delegate costs one line
+        (§3.3). Returns whether Linear took it."""
         thread = str(job["session_id"])
         if thread.startswith("local-") or job["withdraw_deadline"] is not None:
             return False
@@ -720,9 +726,9 @@ class Receiver:
         return True
 
     def _keep(self, episode, active):
-        """Kept (design P12, D2): `active` is delegation work of the kind the labels route to, so nothing moves. Its
-        thread gets one line: a waiting job asks its question again, which keeps a waiting thread over waiting work,
-        and any other says that the work goes on."""
+        """Kept (silent-delegation design P12, D2): `active` is delegation work of the kind the labels route to, so
+        nothing moves. Its thread gets one line: a waiting job asks its question again, which keeps a waiting thread
+        over waiting work, and any other says that the work goes on."""
         thread = str(active["session_id"])
         if not self.ledger.finish_episode(episode["issue_id"], episode["since"], "served", thread):
             return "changed"
@@ -733,7 +739,7 @@ class Receiver:
                     bot=self.bot_name, question=active["checkpoint"].get("pending_question") or "")}, "kept"):
                 # The job may have ended while Linear took the question: a closure, an operator's cancel. Its thread
                 # would keep a question nobody reads an answer to, so the question is withdrawn, as `await-input`
-                # withdraws one (design A6, P9).
+                # withdraws one (silent-delegation design A6, P9).
                 ended = self.ledger.item(active["id"])
                 if ended["state"] not in ACTIVE_STATES:
                     body = question_withdrawn(ended["skill"])
@@ -757,10 +763,10 @@ class Receiver:
         return self.ledger.active_item_for_session(session_id) is not None
 
     def _tell(self, episode, active, reads):
-        """Told, or unseen (design P12, D3, §3.5): the delegation can neither be kept nor taken over in place, so each
-        of FarmBot's open threads on the card gets one note, and with no such thread nothing is posted and doctor
-        lists the episode. The threads are that of `active`, the card's active job, and the card's newest ones; an
-        operator's `local-` session is no thread.
+        """Told, or unseen (silent-delegation design P12, D3, §3.5): the delegation can neither be kept nor taken over
+        in place, so each of FarmBot's open threads on the card gets one note, and with no such thread nothing is
+        posted and doctor lists the episode. The threads are that of `active`, the card's active job, and the card's
+        newest ones; an operator's `local-` session is no thread.
 
         - The thread of a waiting job gets a response, which ends the wait that kept Linear from opening a session;
           the job stays parked and answerable. Not when Linear says the thread is closed or archived: it then blocks
@@ -802,9 +808,9 @@ class Receiver:
 
     def _note(self, thread, kind, body, job):
         """Post one note of a told episode in `thread`: for `job`, the card's active job, in its own thread, or for
-        no job in a thread that had none. The note is for the thread as the settle found it (design P9): a job that
-        has left its state since has spoken there itself, and a thread that has work by now is not told it has
-        none."""
+        no job in a thread that had none. The note is for the thread as the settle found it (silent-delegation design
+        P9): a job that has left its state since has spoken there itself, and a thread that has work by now is not
+        told it has none."""
         if kind == "thought":
             self._line(job, {"type": kind, "body": body}, "told")
             return

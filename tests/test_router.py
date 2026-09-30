@@ -45,6 +45,23 @@ class RouterTests(unittest.TestCase):
             self.assertEqual(go(action="prompted", text=text, terminal_exists=True), Decision("chat", "chat", text))
         self.assertEqual(go(action="prompted", text="重试").kind, "chat")
 
+    def test_a_session_event_routes_only_to_what_the_receiver_acts_on(self):
+        """Silent-delegation design A9: for a `created` or `prompted` event the router decides work, chat, steer or
+        resume, the kinds the receiver acts on. It never asks a question itself: only a worker does, through
+        `await-input`, which parks its job."""
+        kinds = set()
+        for action in ("created", "prompted"):
+            for is_delegation in (True, False):
+                for active_state in (None, "queued", "running", "awaiting_input", "awaiting_resource"):
+                    for terminal_exists in (True, False):
+                        for reroute in (True, False):
+                            for groups in ((), CHANGE, UI, CODE, CHANGE + CODE, [{"group": "Bot", "label": "X"}]):
+                                for skills in ({"chat"}, SKILLS, FEATURES):
+                                    kinds.add(go(action=action, is_delegation=is_delegation, text="哪个服？",
+                                                 active_state=active_state, terminal_exists=terminal_exists,
+                                                 reroute=reroute, label_groups=groups, available_skills=skills).kind)
+        self.assertEqual(kinds, {"work", "chat", "steer", "resume"})
+
 
 CHANGE = [{"group": "Bot", "label": "修改"}]
 UI = [{"group": "Bot", "label": "UI"}]
