@@ -7,3 +7,6 @@ __pycache__/
 
 # Local agent reports
 /reports/
+
+# Local investigation artifacts and temporary checkouts
+/.scratch/
