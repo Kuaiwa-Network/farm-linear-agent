@@ -455,20 +455,56 @@ class LifecycleTests(unittest.TestCase):
                          ('running', 'undelegated', self.now + 1200))
         self.assertEqual((self.api.activities, self.launcher.stopped), ([], []))
 
+    def episode(self, job):
+        """(state, since, mark, due_at) of the card's delegation episode, or None (silent-delegation design P11)."""
+        episode = self.ledger.episode(job['issue_id'])
+        return episode and (episode['state'], episode['since'], episode['mark'], episode['due_at'])
+
     def test_a5_a_read_that_finds_the_delegation_clears_the_mark(self):
         fix = self.job('fix', state='awaiting_input')
         lifecycle = self.reads()
         lifecycle.refresh(fix['issue_id'])
+        marked = self.now
+        self.assertIsNone(self.episode(fix))
         self.delegate = APP
         self.now += 30
         lifecycle.refresh(fix['issue_id'])
         self.assertIsNone(self.ledger.status_check(fix['issue_id'])['undelegated_since'])
+        # The delegation is back, and Linear may have opened no session for it: the read records the transition from
+        # its own start, for the receiver to settle 90 seconds on (silent-delegation design P11, TL1). The lifecycle
+        # itself starts and posts nothing.
+        self.assertEqual(self.episode(fix), ('waiting', self.now, marked, self.now + 90))
+        self.assertEqual((self.state(fix), self.api.activities), ('awaiting_input', []))
         self.delegate = None
         self.now += 60
         lifecycle.refresh(fix['issue_id'])
         self.assertEqual(self.state(fix), 'awaiting_input')
         self.assertEqual(self.ledger.status_check(fix['issue_id'])['undelegated_since'], self.now)
+        self.assertEqual(self.episode(fix)[0], 'dropped')
         self.assertEqual(self.api.activities, [])
+
+    def test_a_launch_preflight_records_the_transition_too(self):
+        """Silent-delegation design §3.1, TL3: a launch preflight is a status read like the poll's. When it is the
+        read that finds the delegation back, the episode starts when that read began, not when Linear answered."""
+        fix = self.job('fix')
+        self.now += 1
+        lifecycle = self.reads()
+        self.assertFalse(lifecycle.preflight(fix))
+        marked = self.now
+        self.assertIsNone(self.episode(fix))
+        self.delegate = APP
+        self.now += 60  # the card's next read is due
+        read = self.status_api.issue_status
+
+        def slow(issue_id):
+            self.now += 2
+            return read(issue_id)
+        self.status_api.issue_status = slow
+        started = self.now
+        self.assertTrue(lifecycle.preflight(fix))
+        self.assertEqual(self.now, started + 2)
+        self.assertEqual(self.episode(fix), ('waiting', started, marked, started + 90))
+        self.assertEqual((self.state(fix), self.api.activities), ('queued', []))
 
     def test_a8_mention_chat_is_kept_when_the_delegation_goes(self):
         chat = self.job('chat', 'mention', 'awaiting_input')
@@ -775,8 +811,13 @@ class LifecycleTests(unittest.TestCase):
         self.delegate = APP
         self.now += 30
         lifecycle.refresh(fix['issue_id'])
+        self.assertEqual(self.episode(fix)[0], 'waiting')
         self.delegate = None
         self.now += 31
         lifecycle.refresh(fix['issue_id'])
         self.assertEqual(self.state(fix), 'awaiting_input')
+        # S15, TL2: the flap ended with the card not delegated, so the episode its middle read opened is dropped
+        # by the third; nothing is left for the receiver to settle.
+        self.assertEqual(self.episode(fix)[0], 'dropped')
+        self.assertIsNone(self.ledger.due_episode(self.now + 10 ** 6))
         self.assertEqual(self.api.activities, [])

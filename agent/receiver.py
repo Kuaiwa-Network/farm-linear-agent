@@ -257,15 +257,17 @@ class Receiver:
     def _decide_and_act(self, prepared, ack_id, received_at=None):
         """received_at: when this event reached FarmBot. A pending event may be processed much later (it survives a
         restart), and the messages it adds keep that time, which dates a ruling given in one of them."""
+        fetched_at = self.clock()
         issue = self.api.fetch_issue(prepared["issue_id"])
         self.ledger.observe_issue(issue)
         app = self.identity["appUserId"]
         delegated = bool(app) and issue.get("delegate_id") == app
         # This fresh read of the card is a status read too (withdrawn-work design DT1, P3). Finding the delegation
-        # clears the issue's undelegated mark and the flags its loss set; not finding it while the delegation's work
-        # is active asks the lifecycle to read the card now, not at its next interval.
+        # clears the issue's undelegated mark and the flags its loss set, and records from the read's start that the
+        # delegation is back (silent-delegation design P11); not finding it while the delegation's work is active
+        # asks the lifecycle to read the card now, not at its next interval.
         if delegated:
-            self.ledger.clear_undelegated(issue["id"])
+            self.ledger.clear_undelegated(issue["id"], observed_at=fetched_at)
         else:
             current = self.ledger.active_item_for_issue(issue["id"])
             if current is not None and current["authority"] == "delegation":

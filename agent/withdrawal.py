@@ -66,6 +66,10 @@ HEARTBEAT_WITHDRAWING = '工作正在保存进度并停止。'
 
 # The grace of a worker whose manifest is unknown: twice fix's renew interval.
 DEFAULT_GRACE_SECONDS = 1200
+# How long a delegation that a read found back waits for the session Linear opens for it, counted from the start of
+# that read, before FarmBot settles it without one (silent-delegation design P11, §3.3). Linear's `created` arrives
+# within seconds, and a lost delivery was retried 66 seconds after the first.
+SILENT_GRACE_SECONDS = 90
 
 
 def notice(skill, reason, bot):

@@ -2684,6 +2684,268 @@ class OwedClosureTests(WithdrawnWorkBase):
         self.assertIsNone(reopened.due_closure(self.now + 10 ** 6))
 
 
+class DelegationEpisodeTests(WithdrawnWorkBase):
+    """A read that finds the card delegated to this app again, after one that found it not delegated, opens an
+    episode: the delegation is back, and Linear may have opened no session for it. The episode is heard once a
+    delegation session followed (silent-delegation design P11, §3.1-§3.3, §6.1; tests TE1-TE6, TE8)."""
+
+    def setUp(self):
+        super().setUp()
+        self.ledger.observe_issue(issue(delegate_id=self.APP))
+
+    def redelegated(self, mark=1000.0, since=1030.0, issue_id=ISSUE):
+        """A read that started at `mark` found the card not delegated here, and one that started at `since` found
+        the delegation."""
+        self.ledger.mark_undelegated(issue_id, mark)
+        return self.ledger.clear_undelegated(issue_id, observed_at=since)
+
+    def episodes(self):
+        return [dict(row) for row in self.ledger.connection.execute("SELECT * FROM delegation_episodes")]
+
+    def mark(self):
+        return self.ledger.status_check(ISSUE)["undelegated_since"]
+
+    def test_a_delegated_read_that_clears_a_mark_opens_an_episode(self):
+        """TE1: the episode waits from the start of the read that found the delegation, for 90 seconds, in which a
+        delegation session Linear opened arrives. The read still clears the mark and the flags its loss set, and
+        returns those jobs as before."""
+        item, _ = self.claimed()
+        self.ledger.mark_undelegated(ISSUE, 1000.0)
+        self.ledger.flag_withdrawal(item["id"], "undelegated", self.now + 1200)
+        self.assertIsNone(self.ledger.episode(ISSUE))  # a card that is not delegated has no episode
+        self.now = 1031.0  # the read that started at 1030 took a second
+        self.assertEqual(self.ledger.clear_undelegated(ISSUE, observed_at=1030.0), [item["id"]])
+        self.assertIsNone(self.mark())
+        self.assertIsNone(self.ledger.item(item["id"])["withdraw_deadline"])
+        episode = {"issue_id": ISSUE, "since": 1030.0, "mark": 1000.0, "due_at": 1120.0, "state": "waiting",
+                   "session_id": None, "settled_at": None, "attempts": 0, "error": None, "updated_at": 1031.0}
+        self.assertEqual(self.ledger.episode(ISSUE), episode)
+        self.assertEqual(self.episodes(), [episode])
+        self.assertIsNone(self.ledger.due_episode(1119.0))
+        self.assertEqual(self.ledger.due_episode(1120.0), episode)
+
+    def test_a_read_with_no_start_or_older_than_the_mark_opens_none(self):
+        """TE2: a caller that names no read, or a read that started no later than the one that set the mark, shows no
+        delegation that came back after it. The mark is cleared all the same, as before."""
+        for observed_at in (None, 999.0, 1000.0):
+            with self.subTest(observed_at=observed_at):
+                self.ledger.mark_undelegated(ISSUE, 1000.0)
+                self.assertEqual(self.ledger.clear_undelegated(ISSUE, observed_at=observed_at), [])
+                self.assertIsNone(self.mark())
+                self.assertIsNone(self.ledger.episode(ISSUE))
+        self.ledger.mark_undelegated(ISSUE, 1000.0)
+        self.ledger.clear_undelegated(ISSUE)
+        self.assertEqual((self.mark(), self.episodes()), (None, []))
+        # A card no read found undelegated: finding it delegated is no transition.
+        self.ledger.clear_undelegated(ISSUE, observed_at=2000.0)
+        self.assertEqual(self.episodes(), [])
+        self.assertIsNone(self.ledger.due_episode(10 ** 9))
+        self.ledger.mark_undelegated(ISSUE, 1000.0)
+        for bad in ("1030", True, float("nan"), float("inf")):
+            with self.subTest(bad=bad), self.assertRaises(LedgerError):
+                self.ledger.clear_undelegated(ISSUE, observed_at=bad)
+        self.assertEqual((self.mark(), self.episodes()), (1000.0, []))
+
+    def test_an_undelegated_read_drops_a_waiting_episode_only_if_it_began_later(self):
+        """TE3, S11, P3's fence the other way: a read that found the card not delegated ends the waiting episode only
+        when it started after the read that opened it. An older read, which returned later, knows nothing newer."""
+        self.redelegated(1000.0, 1030.0)
+        waiting = self.ledger.episode(ISSUE)
+        self.now = 1040.0
+        self.assertEqual(self.ledger.mark_undelegated(ISSUE, 1029.0), 1029.0)
+        self.assertEqual(self.ledger.mark_undelegated(ISSUE, 1030.0), 1029.0)
+        self.assertEqual(self.ledger.episode(ISSUE), waiting)
+        self.now = 1061.0
+        self.assertEqual(self.ledger.mark_undelegated(ISSUE, 1060.0), 1029.0)  # the first mark stays, as before
+        dropped = {**waiting, "state": "dropped", "settled_at": 1061.0, "updated_at": 1061.0}
+        self.assertEqual(self.ledger.episode(ISSUE), dropped)
+        self.assertIsNone(self.ledger.due_episode(10 ** 9))
+        self.now = 1121.0
+        self.ledger.mark_undelegated(ISSUE, 1120.0)  # an episode is dropped once
+        self.assertEqual(self.ledger.episode(ISSUE), dropped)
+
+    def test_a_waiting_episode_is_not_reset_and_a_settled_one_is_replaced(self):
+        """TE4, S13: a later read that clears a mark leaves a waiting episode as it is, so its grace is not pushed
+        out. Once the episode is settled or dropped, the next such read starts a new one in the card's one row."""
+        self.redelegated(1000.0, 1030.0)
+        first = self.ledger.episode(ISSUE)
+        self.ledger.mark_undelegated(ISSUE, 1020.0)  # an older read returned late: it drops nothing
+        self.now = 1046.0
+        self.assertEqual(self.ledger.clear_undelegated(ISSUE, observed_at=1045.0), [])
+        self.assertEqual((self.mark(), self.ledger.episode(ISSUE)), (None, first))
+        self.assertTrue(self.ledger.retry_episode(ISSUE, 1030.0, 1135.0, error="LinearError"))
+        self.now = 1136.0
+        self.assertTrue(self.ledger.finish_episode(ISSUE, 1030.0, "served", "session-0"))
+        self.now = 1291.0
+        self.redelegated(1200.0, 1290.0)
+        second = {"issue_id": ISSUE, "since": 1290.0, "mark": 1200.0, "due_at": 1380.0, "state": "waiting",
+                  "session_id": None, "settled_at": None, "attempts": 0, "error": None, "updated_at": 1291.0}
+        self.assertEqual(self.episodes(), [second])
+        # Two quick re-delegations: each undelegated read drops the waiting episode, each delegated read after it
+        # opens one, and only the last waits.
+        self.now = 1301.0
+        self.assertEqual(self.ledger.mark_undelegated(ISSUE, 1300.0), 1300.0)
+        self.assertEqual(self.ledger.episode(ISSUE)["state"], "dropped")
+        self.now = 1311.0
+        self.ledger.clear_undelegated(ISSUE, observed_at=1310.0)
+        self.assertEqual(self.episodes(), [{**second, "since": 1310.0, "mark": 1300.0, "due_at": 1400.0,
+                                            "updated_at": 1311.0}])
+
+    def test_an_episode_is_finished_once_by_the_settle_that_saw_it(self):
+        """TE5: a settle names the episode it read by its `since`. One that is no longer waiting, or that a newer
+        episode has replaced, is left alone, and the caller is told so."""
+        self.redelegated(1000.0, 1030.0)
+        waiting = self.ledger.episode(ISSUE)
+        self.now = 1121.0
+        self.assertFalse(self.ledger.finish_episode(ISSUE, 1029.0, "told"))
+        self.assertFalse(self.ledger.retry_episode(ISSUE, 1029.0, 2000.0, error="LinearError"))
+        self.assertFalse(self.ledger.finish_episode(OTHER, 1030.0, "told"))
+        self.assertFalse(self.ledger.retry_episode(OTHER, 1030.0, 2000.0))
+        self.assertEqual(self.episodes(), [waiting])
+        for state in ("waiting", "opened", None):
+            with self.subTest(state=state), self.assertRaises(LedgerError):
+                self.ledger.finish_episode(ISSUE, 1030.0, state)
+        self.assertEqual(self.episodes(), [waiting])
+        self.assertTrue(self.ledger.finish_episode(ISSUE, 1030.0, "served", "session-0"))
+        served = {**waiting, "state": "served", "session_id": "session-0", "settled_at": 1121.0, "updated_at": 1121.0}
+        self.assertEqual(self.episodes(), [served])
+        self.now = 1200.0
+        self.assertFalse(self.ledger.finish_episode(ISSUE, 1030.0, "told"))
+        self.assertFalse(self.ledger.retry_episode(ISSUE, 1030.0, 2000.0))
+        self.assertEqual(self.episodes(), [served])
+        self.assertIsNone(self.ledger.due_episode(10 ** 9))
+
+    def test_an_episode_can_end_in_each_settled_state(self):
+        for number, state in enumerate(("heard", "served", "in_place", "told", "unseen", "dropped")):
+            with self.subTest(state=state):
+                since = 1030.0 + 100 * number
+                self.now = since + 91
+                self.redelegated(since - 30, since)
+                self.assertTrue(self.ledger.finish_episode(ISSUE, since, state))
+                episode = self.ledger.episode(ISSUE)
+                self.assertEqual((episode["state"], episode["session_id"], episode["settled_at"]),
+                                 (state, None, self.now))
+
+    def test_a_retried_episode_is_due_again_later_and_counts_a_failed_read(self):
+        """S20, §3.5: a settle whose read of the card failed is tried again later, and the failure is counted and
+        named. One that found the work changed under it is looked at again, with no failure to count."""
+        self.redelegated(1000.0, 1030.0)
+        self.now = 1120.0
+        self.assertTrue(self.ledger.retry_episode(ISSUE, 1030.0, 1135.0, error="LinearError"))
+        episode = self.ledger.episode(ISSUE)
+        self.assertEqual((episode["state"], episode["due_at"], episode["attempts"], episode["error"],
+                          episode["updated_at"]), ("waiting", 1135.0, 1, "LinearError", 1120.0))
+        self.assertIsNone(self.ledger.due_episode(1134.0))
+        self.assertEqual(self.ledger.due_episode(1135.0), episode)
+        self.now = 1135.0
+        self.assertTrue(self.ledger.retry_episode(ISSUE, 1030.0, 1165.0, error="OSError"))
+        episode = self.ledger.episode(ISSUE)
+        self.assertEqual((episode["due_at"], episode["attempts"], episode["error"]), (1165.0, 2, "OSError"))
+        self.now = 1165.0
+        self.assertTrue(self.ledger.retry_episode(ISSUE, 1030.0, 1170.0))
+        episode = self.ledger.episode(ISSUE)
+        self.assertEqual((episode["state"], episode["since"], episode["due_at"], episode["attempts"], episode["error"]),
+                         ("waiting", 1030.0, 1170.0, 2, None))
+        for bad in (None, "1200", True, float("nan")):
+            with self.subTest(bad=bad), self.assertRaises(LedgerError):
+                self.ledger.retry_episode(ISSUE, 1030.0, bad)
+        self.assertEqual(self.ledger.episode(ISSUE), episode)
+        # The settle that then gets through ends it; how often its read failed stays on record.
+        self.ledger.retry_episode(ISSUE, 1030.0, 1175.0, error="LinearError")
+        self.assertTrue(self.ledger.finish_episode(ISSUE, 1030.0, "unseen"))
+        episode = self.ledger.episode(ISSUE)
+        self.assertEqual((episode["state"], episode["attempts"], episode["error"]), ("unseen", 3, None))
+
+    def test_the_episode_longest_due_is_settled_first(self):
+        self.ledger.observe_issue(issue(id=OTHER, identifier="FARM-2", delegate_id=self.APP))
+        self.redelegated(1000.0, 1030.0)
+        self.redelegated(1000.0, 1010.0, issue_id=OTHER)
+        self.assertIsNone(self.ledger.due_episode(1099.0))
+        self.assertEqual(self.ledger.due_episode(1100.0)["issue_id"], OTHER)
+        self.assertEqual(self.ledger.due_episode(1200.0)["issue_id"], OTHER)
+        self.assertTrue(self.ledger.finish_episode(OTHER, 1010.0, "unseen"))
+        self.assertIsNone(self.ledger.due_episode(1119.0))
+        self.assertEqual(self.ledger.due_episode(1200.0)["issue_id"], ISSUE)
+        self.assertEqual(len(self.episodes()), 2)  # one row per card
+
+    def test_heard_means_a_delegation_session_since_the_mark(self):
+        """TE6, §3.2: a delegation that opened a session is heard. Its session is a delegation's, a Linear thread,
+        on this card, and recorded at or after the read that found the card not delegated."""
+        self.ledger.observe_issue(issue(id=OTHER, identifier="FARM-2", delegate_id=self.APP))
+        self.now = 990.0
+        self.ledger.ensure_session("session-old", ISSUE, delegation=True)
+        self.now = 1010.0
+        self.ledger.ensure_session("mention", ISSUE, delegation=False)  # a mention's thread
+        self.ledger.ensure_session("local-farm-1", ISSUE, delegation=True)  # the operator's enqueue: no Linear thread
+        self.ledger.ensure_session("session-other", OTHER, delegation=True)  # another card's delegation
+        self.ledger.ensure_session("session-old", ISSUE, delegation=True)  # a later event of the older session
+        self.assertFalse(self.ledger.delegation_heard(ISSUE, 1000.0))
+        self.assertTrue(self.ledger.delegation_heard(OTHER, 1000.0))
+        self.assertTrue(self.ledger.delegation_heard(ISSUE, 990.0))
+        self.ledger.ensure_session("session-new", ISSUE, delegation=True)
+        self.assertTrue(self.ledger.delegation_heard(ISSUE, 1000.0))
+        self.assertTrue(self.ledger.delegation_heard(ISSUE, 1010.0))  # recorded at the mark counts
+        self.assertFalse(self.ledger.delegation_heard(ISSUE, 1011.0))
+
+    def test_a_workers_withdraw_read_that_finds_the_delegation_records_it_too(self):
+        """§3.1: a worker's `withdraw` clears the mark when its own read finds the card delegated. Given the start of
+        that read, it opens the episode as the other reads do; a withdraw that ends the work opens none."""
+        item, token = self.claimed()
+        self.ledger.mark_undelegated(ISSUE, 1000.0)
+        with self.assertRaisesRegex(LedgerError, "still delegated"):
+            self.ledger.withdraw(item["id"], token, delegated=True, closed=False)
+        self.assertEqual((self.mark(), self.episodes()), (None, []))
+        self.ledger.mark_undelegated(ISSUE, 1000.0)
+        self.ledger.flag_withdrawal(item["id"], "undelegated", self.now + 1200)
+        self.now = 1031.0
+        with self.assertRaisesRegex(LedgerError, "delegated to this app again"):
+            self.ledger.withdraw(item["id"], token, delegated=True, closed=False, read_at=1030.0)
+        episode = self.ledger.episode(ISSUE)
+        self.assertEqual((self.mark(), episode["state"], episode["since"], episode["mark"], episode["due_at"]),
+                         (None, "waiting", 1030.0, 1000.0, 1120.0))
+        self.assertEqual(self.ledger.item(item["id"])["state"], "running")
+        for bad in ("1030", True, float("inf")):
+            with self.subTest(bad=bad), self.assertRaisesRegex(LedgerError, "read_at must be a finite number"):
+                self.ledger.withdraw(item["id"], token, delegated=True, closed=False, read_at=bad)
+        self.now = 1041.0
+        self.ledger.mark_undelegated(ISSUE, 1040.0)
+        view, reason = self.ledger.withdraw(item["id"], token, delegated=False, closed=False, read_at=1040.5)
+        self.assertEqual((view["state"], reason), ("cancelled", "undelegated"))
+        self.assertEqual((self.mark(), self.ledger.episode(ISSUE)["state"]), (1040.0, "dropped"))
+
+    def test_a_waiting_episode_survives_a_restart_with_its_due_time(self):
+        """S12: the episode is in the ledger file and its due time is absolute, so a controller that comes back
+        during or after the grace finds it, and settles it once."""
+        self.redelegated(1000.0, 1030.0)
+        waiting = self.ledger.episode(ISSUE)
+        self.ledger.close()
+        self.now = 5000.0
+        restarted = self.open_ledger()
+        self.assertEqual(restarted.episode(ISSUE), waiting)
+        self.assertEqual(restarted.due_episode(self.now), waiting)
+        self.assertTrue(restarted.finish_episode(ISSUE, 1030.0, "unseen"))
+        self.assertIsNone(restarted.due_episode(self.now))
+        self.assertFalse(self.open_ledger().finish_episode(ISSUE, 1030.0, "told"))
+
+    def test_an_older_ledger_gains_the_episode_and_closure_tables(self):
+        """TE8, §6.2: both tables are additive, with no backfill. A mark an older revision left is still there, and
+        nothing is due until a read clears it."""
+        self.ledger.mark_undelegated(ISSUE, 1000.0)
+        for table in ("delegation_episodes", "session_closures"):
+            self.ledger.connection.execute(f"DROP TABLE {table}")
+        self.ledger.close()
+        reopened = self.open_ledger()
+        tables = {row["name"] for row in reopened.connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        self.assertLessEqual({"delegation_episodes", "session_closures"}, tables)
+        self.assertIsNone(reopened.episode(ISSUE))
+        self.assertIsNone(reopened.due_episode(self.now + 10 ** 6))
+        self.assertIsNone(reopened.due_closure(self.now + 10 ** 6))
+        self.assertEqual(reopened.status_check(ISSUE)["undelegated_since"], 1000.0)
+        reopened.clear_undelegated(ISSUE, observed_at=1030.0)
+        self.assertEqual(reopened.episode(ISSUE)["state"], "waiting")
+
+
 class ReservationTests(unittest.TestCase):
     def test_requested_fix_commit_does_not_overwrite_baseline(self):
         item = self.item(ISSUE, "a" * 40)

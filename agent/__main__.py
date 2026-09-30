@@ -688,6 +688,9 @@ def run(args, ledger, api_factory):
         ledger.renew(args.item, token)
         item = ledger.item(args.item)
         api = api_factory()
+        # When this read began: if it finds the delegation, the ledger records from then that the delegation is
+        # back (silent-delegation design §3.1, P11).
+        read_at = ledger.clock()
         try:
             status = api.issue_status(item["issue_id"])
         except Exception:
@@ -699,7 +702,7 @@ def run(args, ledger, api_factory):
         else:
             delegated = bool(api.app_user_id) and status.get("delegate_id") == api.app_user_id
             closed = status["archived"] or status["status_type"] in TERMINAL_STATUS_TYPES
-        view, reason = ledger.withdraw(args.item, token, delegated=delegated, closed=closed)
+        view, reason = ledger.withdraw(args.item, token, delegated=delegated, closed=closed, read_at=read_at)
         posted = post_closing_notice(ledger, lambda: api, view, reason)
         return {**view, "reason": reason, "notice_posted": posted,
                 "next_action": "exit; a later delegation continues this job from its checkpoint"}

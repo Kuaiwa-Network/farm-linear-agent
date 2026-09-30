@@ -51,7 +51,10 @@ class Lifecycle:
                 if app and started - since >= self.interval:
                     self._withdraw(issue_id, started, 'undelegated')
             else:
-                self.ledger.clear_undelegated(issue_id)
+                # Finding the delegation after a read that did not is also where a delegation Linear opened no
+                # session for shows: the ledger records it from this read's start, and the receiver settles it
+                # (silent-delegation design P11). Nothing starts or is posted here.
+                self.ledger.clear_undelegated(issue_id, observed_at=started)
             self.ledger.finish_status_check(issue_id, self.interval)
             return current, delegate
         except Exception as exc:

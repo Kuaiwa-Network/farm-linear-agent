@@ -24,6 +24,7 @@ from .publication import PublicationError, is_issue_branch, issue_branch
 from .resource_recovery import RecoveryStore, SCHEMA as RECOVERY_SCHEMA
 from .router import CONVERSATION_SKILLS, WRITE_SKILLS
 from .stages import current_root
+from .withdrawal import SILENT_GRACE_SECONDS
 from .worktrees import SAFE_BRANCH
 
 MARKER = re.compile(r"\[farmbot:[0-9a-f]{64}\]")
@@ -47,6 +48,10 @@ STAGE_ALLOWANCE_SKILLS = ("feature", "fgui")
 # here, or the operator's `agent.service enqueue` of a chat. Only delegation-authority work is withdrawn when the
 # delegation goes.
 AUTHORITIES = ("delegation", "mention", "operator")
+# How a delegation episode ends (silent-delegation design P11, P12): a delegation session followed (`heard`); the
+# card's work was kept, taken over in its own thread, or its threads were told; no open thread was found (`unseen`);
+# or the card was no longer delegated, or closed (`dropped`). Until then it is `waiting`.
+EPISODE_SETTLED = ("heard", "served", "in_place", "told", "unseen", "dropped")
 
 
 class LedgerError(ValueError):
@@ -90,6 +95,12 @@ def _checked_guards(authority, created_before):
 def _text(value, name, *, empty=False):
     if not isinstance(value, str) or (not empty and not value.strip()):
         raise LedgerError(f"{name} must be {'a string' if empty else 'a nonempty string'}")
+    return value
+
+
+def _seconds(value, name):
+    if type(value) not in (int, float) or not math.isfinite(value):
+        raise LedgerError(f"{name} must be a finite number of seconds")
     return value
 
 
@@ -593,6 +604,22 @@ class Ledger:
                     due_at REAL NOT NULL, created_at REAL NOT NULL,
                     last_error TEXT, given_up_at REAL
                 );
+                -- A delegation that came back: a read found the card delegated to this app again after one that
+                -- found it not delegated (silent-delegation design P11). One row per card; a new episode replaces
+                -- one that is no longer waiting.
+                CREATE TABLE IF NOT EXISTS delegation_episodes (
+                    issue_id TEXT PRIMARY KEY REFERENCES issues(id),
+                    since REAL NOT NULL,        -- start of the read that found the card delegated again
+                    mark REAL NOT NULL,         -- the undelegated mark that read cleared
+                    due_at REAL NOT NULL,       -- when the receiver settles it
+                    state TEXT NOT NULL CHECK(state IN ('waiting','heard','served','in_place','told','unseen',
+                        'dropped')),
+                    session_id TEXT,            -- the thread that kept or took the delegation
+                    settled_at REAL,
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    error TEXT,
+                    updated_at REAL NOT NULL
+                );
             """)
             self.connection.executescript(RECOVERY_SCHEMA)
             # Columns added after the first ledgers were written; CREATE TABLE IF NOT EXISTS leaves those files as they were.
@@ -772,7 +799,8 @@ class Ledger:
     def mark_undelegated(self, issue_id, observed_at):
         """Record `observed_at`, the start of a status read that found the card not delegated to this app, unless an
         earlier one is recorded, and return the recorded one: work is withdrawn only once a later read, at least an
-        interval after it, confirms (design P3)."""
+        interval after it, confirms (design P3). A delegation episode that waits from a read older than this one is
+        dropped: the delegation it stands for went again (silent-delegation design P11)."""
         issue_id = _uuid(issue_id, "issue")
         if type(observed_at) not in (int, float) or not math.isfinite(observed_at):
             raise LedgerError("observed_at must be a finite number of seconds")
@@ -781,19 +809,110 @@ class Ledger:
             self.connection.execute("INSERT OR IGNORE INTO issue_checks(issue_id) VALUES(?)", (issue_id,))
             self.connection.execute("UPDATE issue_checks SET undelegated_since=COALESCE(undelegated_since,?) "
                                     "WHERE issue_id=?", (observed_at, issue_id))
+            # The delegation a waiting episode stands for is gone again, as far as this read is newer than the one
+            # that opened the episode: an older read that returned later ends nothing (silent-delegation design
+            # P11, P3's fence the other way).
+            now = self.clock()
+            self.connection.execute("UPDATE delegation_episodes SET state='dropped',settled_at=?,updated_at=? "
+                                    "WHERE issue_id=? AND state='waiting' AND since<?",
+                                    (now, now, issue_id, observed_at))
             return self.connection.execute("SELECT undelegated_since FROM issue_checks WHERE issue_id=?",
                                            (issue_id,)).fetchone()[0]
 
-    def clear_undelegated(self, issue_id):
-        """A read found the card delegated to this app: the mark goes, and with it the flags it set (design P3)."""
+    def clear_undelegated(self, issue_id, observed_at=None):
+        """A read found the card delegated to this app: the mark goes, and with it the flags it set (design P3).
+        `observed_at` is the start of that read. When it is later than the mark it clears, the delegation came back
+        after a read that found it gone, and Linear may have opened no session for it: that opens a delegation
+        episode, unless one already waits (silent-delegation design P11). The cleared flags are returned either
+        way."""
         issue_id = _uuid(issue_id, "issue")
+        if observed_at is not None:
+            _seconds(observed_at, "observed_at")
         with self._transaction():
-            return self._clear_undelegated(issue_id)
+            return self._clear_undelegated(issue_id, observed_at)
 
-    def _clear_undelegated(self, issue_id):
-        """Caller owns the transaction."""
+    def _clear_undelegated(self, issue_id, observed_at=None):
+        """Caller owns the transaction and has checked `observed_at`."""
+        check = self.connection.execute("SELECT undelegated_since FROM issue_checks WHERE issue_id=?",
+                                        (issue_id,)).fetchone()
+        mark = check["undelegated_since"] if check else None
         self.connection.execute("UPDATE issue_checks SET undelegated_since=NULL WHERE issue_id=?", (issue_id,))
+        if mark is not None and observed_at is not None and observed_at > mark:
+            self._open_episode(issue_id, observed_at, mark)
         return self._clear_withdrawals(issue_id)
+
+    def _open_episode(self, issue_id, since, mark):
+        """Caller owns the transaction. The read that started at `since` found the card delegated again and cleared
+        `mark`: the episode waits SILENT_GRACE_SECONDS from `since` for the delegation's session. An episode that
+        already waits is left as it is, so a later read never pushes its grace out; one that was settled or dropped
+        is replaced, in the card's one row."""
+        if self.connection.execute("SELECT 1 FROM delegation_episodes WHERE issue_id=? AND state='waiting'",
+                                   (issue_id,)).fetchone():
+            return
+        self.connection.execute("""INSERT OR REPLACE INTO delegation_episodes
+            (issue_id,since,mark,due_at,state,session_id,settled_at,attempts,error,updated_at)
+            VALUES(?,?,?,?,'waiting',NULL,NULL,0,NULL,?)""",
+                                (issue_id, since, mark, since + SILENT_GRACE_SECONDS, self.clock()))
+
+    def episode(self, issue_id):
+        """The card's delegation episode, waiting or ended, or None when no read found its delegation back."""
+        row = self.connection.execute("SELECT * FROM delegation_episodes WHERE issue_id=?", (issue_id,)).fetchone()
+        return dict(row) if row else None
+
+    def due_episode(self, now):
+        """The waiting episode to settle next: the one longest due at `now`, or None."""
+        row = self.connection.execute("""SELECT * FROM delegation_episodes WHERE state='waiting' AND due_at<=?
+            ORDER BY due_at,since,issue_id LIMIT 1""", (now,)).fetchone()
+        return dict(row) if row else None
+
+    def delegation_heard(self, issue_id, mark):
+        """Whether Linear opened a session for the delegation a read found back after `mark` (silent-delegation
+        design §3.2). Either a delegation session of this app on the card, a Linear thread and so no `local-` one,
+        was recorded at or after the mark: the receiver records an event's session before it routes the event, so
+        one that failed afterwards counts. Or a `created` for the card still waits behind another session's worker,
+        or a Stop cancelled one at or after the mark: those two keep their payload, which names the card, in the
+        receiver's event table of this file."""
+        if self.connection.execute("""SELECT 1 FROM sessions WHERE issue_id=? AND delegation=1
+                AND session_id NOT LIKE 'local-%' AND created_at>=? LIMIT 1""", (issue_id, mark)).fetchone():
+            return True
+        if not self.connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='webhook_events'").fetchone():
+            return False
+        # CASE, not AND: json_extract raises on text that is no JSON, and only CASE fixes the order of evaluation.
+        return self.connection.execute("""SELECT 1 FROM webhook_events
+            WHERE (status='deferred' OR (status='cancelled' AND completed_at>=?))
+                AND CASE WHEN json_valid(payload) THEN json_extract(payload,'$.action')='created'
+                    AND json_extract(payload,'$.issue_id')=? END
+            LIMIT 1""", (mark, issue_id)).fetchone() is not None
+
+    def finish_episode(self, issue_id, since, state, session_id=None):
+        """End the card's episode as `state`, one of EPISODE_SETTLED, with the thread that kept or took the
+        delegation. Only the episode the caller read is ended: the one that still waits with that `since`. Returns
+        whether it was, so a settle acts once, and not at all on an episode a read dropped or replaced meanwhile.
+        The count of its failed reads stays; the last failure's name goes, since this settle got through."""
+        if state not in EPISODE_SETTLED:
+            raise LedgerError(f"an episode ends as one of {', '.join(EPISODE_SETTLED)}")
+        if session_id is not None:
+            _text(session_id, "session_id")
+        with self._transaction():
+            now = self.clock()
+            return bool(self.connection.execute("""UPDATE delegation_episodes
+                SET state=?,session_id=?,settled_at=?,error=NULL,updated_at=?
+                WHERE issue_id=? AND since=? AND state='waiting'""",
+                                                (state, session_id, now, now, issue_id, since)).rowcount)
+
+    def retry_episode(self, issue_id, since, due_at, error=None):
+        """The episode the caller read, still waiting with that `since`, is settled again at `due_at`. `error` names
+        a failed read, which is counted in `attempts`; without one the settle found the work changed under it and
+        only looks again. Returns whether the episode was still that one."""
+        _seconds(due_at, "due_at")
+        error = None if error is None else str(error)[:200]
+        with self._transaction():
+            return bool(self.connection.execute("""UPDATE delegation_episodes
+                SET due_at=?,attempts=attempts+?,error=?,updated_at=?
+                WHERE issue_id=? AND since=? AND state='waiting'""",
+                                                (due_at, int(error is not None), error, self.clock(), issue_id,
+                                                 since)).rowcount)
 
     def unfinished_for_issue(self, issue_id):
         return [self._view(r) for r in self.connection.execute("""SELECT * FROM work_items WHERE issue_id=?
@@ -1943,16 +2062,21 @@ class Ledger:
         with self._transaction():
             return self._clear_withdrawals(issue_id)
 
-    def withdraw(self, item_id, token, *, delegated, closed):
+    def withdraw(self, item_id, token, *, delegated, closed, read_at=None):
         """A worker ends its own claim as cancelled once its work is withdrawn: flagged, or the card is not delegated
         to this app (`delegated`) or is closed (`closed`), as its CLI has just read. Only work the delegation
         authorised ends with it: a conversation a mention or the operator started continues on an undelegated card
         (design P2, G2). A flag the delegation's loss set does not count once the read finds the card delegated
         again: the flag is cleared and the work continues (design P3). Cancelled, not blocked: a later delegation
         continues the job from its plan (design P2, F14). Returns (view, reason): the flag's reason, else `closed`,
-        else `undelegated`."""
+        else `undelegated`.
+
+        `read_at` is when the CLI's read began. A read that finds the delegation and clears the issue's mark records
+        with it that the delegation is back, as clear_undelegated does (silent-delegation design §3.1)."""
         if type(delegated) is not bool or type(closed) is not bool:
             raise LedgerError("delegated and closed must be booleans")
+        if read_at is not None:
+            _seconds(read_at, "read_at")
         with self._transaction():
             row = self._owned(item_id, token)
             flag = (row["withdraw_reason"] or "undelegated") if row["withdraw_deadline"] is not None else None
@@ -1967,7 +2091,7 @@ class Ledger:
             else:
                 # The caller's read found the card delegated. Like any read that does, it clears the issue's mark and
                 # the flags the delegation's loss set (design P3): the work goes on. This commits before the refusal.
-                self._clear_undelegated(row["issue_id"])
+                self._clear_undelegated(row["issue_id"], read_at)
                 reason = None
             if reason is not None:
                 self._cancel_row(row, f"withdrawn by its worker: {reason}", drop_progress=True)

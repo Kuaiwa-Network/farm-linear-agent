@@ -1316,8 +1316,13 @@ class WithdrawnWorkReceiverTests(ReceiverBase):
         the issue's mark; not finding it, while the delegation's work is active, asks for a status read now."""
         fix = self.waiting_fix()
         self.ledger.mark_undelegated(ISSUE, 1.0)
+        before = time.time()
         self.reply_in("session-1", "公共测试服")
         self.assertIsNone(self.ledger.status_check(ISSUE)["undelegated_since"])
+        # The read also records that the delegation is back, from its own start (silent-delegation design §3.1).
+        episode = self.ledger.episode(ISSUE)
+        self.assertEqual((episode["state"], episode["mark"]), ("waiting", 1.0))
+        self.assertTrue(before <= episode["since"] <= time.time())
         self.ledger.connection.execute("UPDATE issue_checks SET requested=0,due_at=? WHERE issue_id=?",
                                        (time.time() + 60, ISSUE))
         self.undelegated(("Bug", "修改"), CHANGE)
@@ -2189,3 +2194,165 @@ class OwnThreadReceiverTests(ReceiverBase):
         self.assertEqual((self.ledger.item(local["id"])["state"], new["predecessor_id"]), ("cancelled", local["id"]))
         self.api.create_comment.assert_called_once_with(ISSUE, SUPERSEDED)
         self.assertEqual(self.owed(), [])
+
+
+class DelegationEpisodeReceiverTests(ReceiverBase):
+    """Silent-delegation design P11 at the receiver (§3.1, §3.2): its fresh read of the card is one of the reads that
+    can find a delegation back, and a delegation session Linear did open is what makes the episode heard."""
+    labelled = BotRoutingReceiverTests.labelled
+    delegate = BotRoutingReceiverTests.delegate
+    paused = BotRoutingReceiverTests.paused
+    mention_in = BotRoutingReceiverTests.mention_in
+    claimed_fix_elsewhere = BotRoutingReceiverTests.claimed_fix_elsewhere
+    reply_in = WithdrawnWorkReceiverTests.reply_in
+    stop_in = WithdrawnWorkReceiverTests.stop_in
+    undelegated = WithdrawnWorkReceiverTests.undelegated
+    waiting_fix = WithdrawnWorkReceiverTests.waiting_fix
+
+    def setUp(self):
+        super().setUp()
+        # One clock for the receiver, its ledger and the status reads: an episode compares the start of a read with
+        # a mark and with the time a session was recorded.
+        self.now = 1000.0
+        self.receiver = Receiver(self.db, "signing-secret", IDENTITY, self.api,
+                                 lambda: Ledger(self.db, clock=self.clock), skills={"chat", "fix"},
+                                 scheduler=self.scheduler, clock=self.clock)
+        self.addCleanup(self.receiver.close)
+        self.ledger = Ledger(self.db, clock=self.clock)
+        self.addCleanup(self.ledger.close)
+
+    def clock(self):
+        return self.now
+
+    def status_reads(self, delegate=None):
+        """A lifecycle on the same ledger and clock whose status reads find the card open and delegated to
+        `self.read_delegate`, first `delegate`."""
+        self.read_delegate = delegate
+        reads = SimpleNamespace(app_user_id=APP, issue_status=lambda issue_id: {
+            "id": issue_id, "status": "Todo", "status_type": "unstarted", "archived": False,
+            "delegate_id": self.read_delegate, "updated_at": "2026-09-21T00:00:00Z"})
+        return Lifecycle(self.ledger, reads, self.scheduler, clock=self.clock)
+
+    def episode(self):
+        episode = self.ledger.episode(ISSUE)
+        return episode and (episode["state"], episode["since"], episode["mark"], episode["due_at"])
+
+    def test_the_receivers_read_of_the_card_records_a_delegation_that_is_back(self):
+        """DT1, §3.1: whatever the event, the receiver's read of the card clears the undelegated mark when it finds
+        the delegation, and opens the episode from the moment that read began. A read that finds the card not
+        delegated is left to the status read it asks for, which marks the card and ends the episode (S11)."""
+        fix = self.waiting_fix()
+        self.now = 1100.0
+        self.ledger.mark_undelegated(ISSUE, 1100.0)
+        self.now = 1130.0
+        card = self.api.fetch_issue.return_value
+
+        def slow(issue_id):
+            self.now += 3
+            return card
+        self.api.fetch_issue.side_effect = slow
+        self.reply_in("session-1", "公共测试服")
+        self.assertEqual(self.now, 1133.0)
+        self.assertIsNone(self.ledger.status_check(ISSUE)["undelegated_since"])
+        self.assertEqual(self.episode(), ("waiting", 1130.0, 1100.0, 1220.0))
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "queued")
+        self.api.fetch_issue.side_effect = None
+        self.undelegated(("Bug", "修改"), CHANGE)
+        self.now = 1140.0
+        self.reply_in("session-1", "还有一点", activity="act-2")
+        self.assertEqual(self.episode(), ("waiting", 1130.0, 1100.0, 1220.0))
+        self.assertEqual(self.ledger.status_check(ISSUE)["requested"], 1)
+        self.now = 1141.0
+        self.assertEqual(self.status_reads().tick(), {"checked": ISSUE, "ok": True})
+        self.assertEqual(self.episode()[0], "dropped")
+        self.assertEqual(self.ledger.status_check(ISSUE)["undelegated_since"], 1141.0)
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "queued")  # one read only marks (P3)
+
+    def test_a_delegation_session_linear_opened_is_heard_whichever_read_came_first(self):
+        """S9, §3.2: when Linear does open a session, its `created` and the Issue update race. Either read may be
+        the one that clears the mark and opens the episode; the session recorded for the delegation, at or after the
+        mark, is what explains it."""
+        self.ledger.observe_issue(issue())
+        self.now = 1100.0
+        self.ledger.mark_undelegated(ISSUE, 1100.0)
+        self.now = 1102.0
+        [fix] = self.delegate("session-1")  # the session event's own read comes first
+        self.assertEqual(self.episode(), ("waiting", 1102.0, 1100.0, 1192.0))
+        self.assertTrue(self.ledger.delegation_heard(ISSUE, 1100.0))
+        self.assertTrue(self.ledger.finish_episode(ISSUE, 1102.0, "heard"))
+        lifecycle = self.status_reads()
+        self.now = 1200.0
+        lifecycle.refresh(ISSUE)
+        self.assertEqual(self.ledger.status_check(ISSUE)["undelegated_since"], 1200.0)
+        self.read_delegate = APP
+        self.now = 1230.0
+        lifecycle.refresh(ISSUE)  # the status read comes first
+        self.assertEqual(self.episode(), ("waiting", 1230.0, 1200.0, 1320.0))
+        self.assertFalse(self.ledger.delegation_heard(ISSUE, 1200.0))  # session-1 is older than this mark
+        self.now = 1232.0
+        [new] = self.delegate("session-2")
+        self.assertEqual((self.ledger.item(fix["id"])["state"], new["state"]), ("cancelled", "queued"))
+        self.assertTrue(self.ledger.delegation_heard(ISSUE, 1200.0))
+        self.assertEqual(self.episode(), ("waiting", 1230.0, 1200.0, 1320.0))  # the later read restarts nothing
+
+    def test_a_mentions_session_is_not_heard_and_a_delegation_event_that_failed_is(self):
+        """§3.2: a mention opens a session too, and its read finds the delegation, but it is not the delegation's
+        session. A delegation `created` whose handling failed had its session recorded before it was routed, so the
+        delegation was heard: the person got the event's error in that thread."""
+        self.ledger.observe_issue(issue())
+        self.now = 1100.0
+        self.ledger.mark_undelegated(ISSUE, 1100.0)
+        self.now = 1110.0
+        self.mention_in("session-9", "@FarmBot 这是什么问题？")
+        self.assertEqual(self.episode(), ("waiting", 1110.0, 1100.0, 1200.0))
+        self.assertFalse(self.ledger.delegation_heard(ISSUE, 1100.0))
+        self.api.create_activity.side_effect = RuntimeError("linear down")
+        self.now = 1120.0
+        self.delegate("session-1")
+        self.assertEqual(self.receiver.results()[-1]["status"], "uncertain")
+        self.assertTrue(self.ledger.delegation_heard(ISSUE, 1100.0))
+
+    def test_a_created_that_waits_or_that_a_stop_cancelled_counts_as_heard(self):
+        """§3.2: a delegation `created` deferred behind another session's worker has not been handled yet, and one a
+        Stop cancelled never will be, but Linear opened a session for each. Both keep their payload, which names the
+        card. A cancelled reply is no delegation, and a Stop from before the mark explains nothing after it."""
+        self.claimed_fix_elsewhere("session-0")
+        self.now = 1010.0
+        self.assertEqual(self.delegate("session-1"), [])
+        self.assertEqual(self.receiver.results()[-1]["status"], "deferred")
+        # session-1 was recorded at 1010, before these marks: only its waiting event explains the delegation.
+        self.assertTrue(self.ledger.delegation_heard(ISSUE, 1100.0))
+        self.assertFalse(self.ledger.delegation_heard(OTHER, 1100.0))
+        # A row whose payload cannot be read names no card, and does not stop the question being answered.
+        with self.receiver.db:
+            self.receiver.db.execute("INSERT INTO webhook_events VALUES ('org:created:session-x','session-x','ack',"
+                                     "'deferred','{not json',1000.0,NULL,NULL)")
+        self.assertFalse(self.ledger.delegation_heard(OTHER, 1100.0))
+        self.assertTrue(self.ledger.delegation_heard(ISSUE, 1100.0))
+        with self.receiver.db:
+            self.receiver.db.execute("DELETE FROM webhook_events WHERE session_id='session-x'")
+        self.now = 1150.0
+        self.stop_in("session-1")
+        self.assertEqual([row["status"] for row in self.receiver.results() if row["session_id"] == "session-1"],
+                         ["cancelled"])
+        self.assertTrue(self.ledger.delegation_heard(ISSUE, 1100.0))
+        self.assertTrue(self.ledger.delegation_heard(ISSUE, 1150.0))
+        self.assertFalse(self.ledger.delegation_heard(ISSUE, 1151.0))
+        # A `created` a Stop cancelled before it was processed recorded no session at all.
+        self.now = 1200.0
+        self.receive(self.event(agentSession={"id": "session-3",
+                                              "issue": {"id": ISSUE, "identifier": "FARM-1", "url": "u"}}))
+        self.now = 1210.0
+        self.stop_in("session-3", activity="stop-2")
+        self.assertIsNone(self.ledger.session("session-3"))
+        self.assertTrue(self.ledger.delegation_heard(ISSUE, 1205.0))
+        self.assertFalse(self.ledger.delegation_heard(ISSUE, 1211.0))
+        self.now = 1300.0
+        reply = self.event("prompted", body="还要改吗？",
+                           agentSession={"id": "session-0", "issue": {"id": ISSUE, "identifier": "FARM-1", "url": "u"}})
+        reply["agentActivity"].update(id="act-9", agentSessionId="session-0")
+        self.assertEqual(self.receive(reply), (200, "accepted"))
+        self.now = 1310.0
+        self.stop_in("session-0", activity="stop-3")
+        self.assertEqual(self.receiver.results()[-1]["status"], "cancelled")
+        self.assertFalse(self.ledger.delegation_heard(ISSUE, 1305.0))

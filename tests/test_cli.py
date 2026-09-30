@@ -1189,6 +1189,36 @@ class CliTests(unittest.TestCase):
         self.assertEqual(self.run_cli("renew", "--item", item, "--token-file", str(path))["state"], "running")
         self.assertFalse([c for c in self.calls() if c["method"] in ("create_activity", "create_comment")])
 
+    def test_withdraw_passes_the_start_of_its_read(self):
+        """Silent-delegation design §3.1, P11, TE9: `withdraw` reads the card itself. A read that finds the delegation
+        clears the undelegated mark, as any read does, and records that the delegation is back from the moment the
+        read began, not from when Linear answered."""
+        from agent.ledger import Ledger, LedgerError
+        import time
+        item = self.seeded_item()
+        now = [time.time()]
+        ledger = Ledger(self.db, clock=lambda: now[0])
+        self.addCleanup(ledger.close)
+        token = ledger.claim(item, worker_id="w")["token"]
+        marked = now[0] - 30
+        ledger.mark_undelegated(ISSUE, marked)
+        api = self.linear([], delegate_id=STUB_APP)
+        read = api.issue_status
+
+        def slow(issue_id):
+            now[0] += 5
+            return read(issue_id)
+        api.issue_status = slow
+        started = now[0]
+        with self.assertRaisesRegex(LedgerError, "still delegated to this app"):
+            self.in_process(ledger, api, "withdraw", "--item", item, "--token", token)
+        self.assertEqual(now[0], started + 5)
+        self.assertIsNone(ledger.status_check(ISSUE)["undelegated_since"])
+        episode = ledger.episode(ISSUE)
+        self.assertEqual((episode["state"], episode["since"], episode["mark"], episode["due_at"]),
+                         ("waiting", started, marked, started + 90))
+        self.assertEqual(ledger.item(item)["state"], "running")
+
     def test_a_flagged_worker_withdraws_on_its_flag_when_the_card_cannot_be_read(self):
         """A read that fails is no reason to withdraw (design P8), but a flag two confirming reads set is: the worker
         ends on it rather than waiting for the controller to stop it. Unflagged, the failure is the command's."""
