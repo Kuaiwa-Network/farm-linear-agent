@@ -59,30 +59,31 @@ STOP_ALREADY = '这里的工作已经停止。'
 QUESTION_WITHDRAWN = '上面的问题不用再回答：这项工作已经停止。'
 QUESTION_WITHDRAWN_CHAT = '上面的问题不用再回答：这段对话已经结束。'
 
-# A delegation Linear opened no session for (silent-delegation design P12): a status read found the card delegated to
-# this app again, and no delegation session followed within the grace. Each text says that Linear opened no session
-# for the delegation and what to do next, and names no cause. That holds for a delegation one of FarmBot's waiting
-# threads blocked and for one made through Linear's API. After a delivery that was lost, Linear did open a session,
-# which FarmBot has not heard of (design R6).
+# A delegation FarmBot heard of no session for (silent-delegation design P12): a status read found the card delegated
+# to this app again, and no delegation session followed within the grace. IN_PLACE_NOTE and the SILENT_* notes say
+# that FarmBot received no session for the delegation, which is true whether Linear opened none (a waiting thread
+# blocked it, or the delegation was made through Linear's API) or its delivery was lost (design R6); the waiting
+# notes name the usual cause as the usual one. No note promises what the next delegation starts: that depends on the
+# labels and on how soon it comes (withdrawn-work design P3, P4).
 # The first line of the thought in a delegation thread whose work the delegation takes over there; the new job's
 # acknowledgement follows it.
-IN_PLACE_NOTE = '这张卡已重新委派给 {bot}。Linear 没有为这次委派另开会话，{bot} 在这个会话里接着处理。'
+IN_PLACE_NOTE = '这张卡已重新委派给 {bot}。{bot} 没有收到这次委派的新会话，就在这个会话里接着处理。'
 # Delegation work of the kind the labels name is kept: a waiting job asks `{question}` again, as an elicitation, so
 # its thread stays a waiting thread over waiting work; one that goes on says so in a thought.
 REDELEGATED_WAITING = '这张卡已重新委派给 {bot}。这里的工作还在等你的回答：\n{question}'
 REDELEGATED_RUNNING = '这张卡已重新委派给 {bot}，这里的工作正在进行，会继续。'
 # Work the delegation cannot take over where it is: a response ends its thread's wait, which is what kept Linear from
 # opening a session, and the job stays parked and answerable; a thought where the work goes on.
-SILENT_WAITING = ('这张卡已委派给 {bot}，但 Linear 没有为这次委派打开会话（{bot} 的讨论串还在等回复时会这样）。'
+SILENT_WAITING = ('这张卡已委派给 {bot}，但 {bot} 没有收到这次委派的会话（通常是因为 {bot} 还有讨论串在等回复）。'
                   '这里的等待先结束，这项工作仍然保留：在这里回复可以继续；要按卡片现在的标签重新开始，'
-                  '请把代理改为「No agent」，再委派给 {bot}，会从已有进度接着做。')
-SILENT_WAITING_CHAT = ('这张卡已委派给 {bot}，但 Linear 没有为这次委派打开会话（{bot} 的讨论串还在等回复时会这样）。'
+                  '请把代理改为「No agent」，再委派给 {bot}。')
+SILENT_WAITING_CHAT = ('这张卡已委派给 {bot}，但 {bot} 没有收到这次委派的会话（通常是因为 {bot} 还有讨论串在等回复）。'
                        '这里的等待先结束，对话仍然保留：在这里回复可以继续；要让 {bot} 按卡片的标签开始处理，'
-                       '请把代理改为「No agent」，再委派给 {bot}，这段对话会转到新的会话里。')
-SILENT_BUSY = ('这张卡已委派给 {bot}，但 Linear 没有为这次委派打开会话。这里的工作会继续；要按卡片现在的标签重新开始，'
+                       '请把代理改为「No agent」，再委派给 {bot}。')
+SILENT_BUSY = ('这张卡已委派给 {bot}，但 {bot} 没有收到这次委派的会话。这里的工作会继续；要按卡片现在的标签重新开始，'
                '请等这里结束或按 Stop 之后，把代理改为「No agent」，再委派给 {bot}。')
 # A thread that holds no work and that Linear still shows as open: the response closes it.
-SILENT_ENDED = ('这张卡已委派给 {bot}，但 Linear 没有为这次委派打开会话。这个讨论串里已经没有进行中的工作，'
+SILENT_ENDED = ('这张卡已委派给 {bot}，但 {bot} 没有收到这次委派的会话。这个讨论串里已经没有进行中的工作，'
                 '{bot} 现在把它结束，好让新的委派能打开会话。要开始处理，请把代理改为「No agent」，再委派给 {bot}。')
 
 # Session heartbeats for a job that waits or stops for one of these reasons.

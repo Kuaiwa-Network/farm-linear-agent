@@ -1697,7 +1697,7 @@ class OwnThreadReceiverTests(ReceiverBase):
     undelegated = WithdrawnWorkReceiverTests.undelegated
     waiting_fix = WithdrawnWorkReceiverTests.waiting_fix
 
-    STOPPED_HERE = "已停止 FARM-1 上的工作，worker 已终止，占用的资源在静默检查后释放。"
+    STOPPED_HERE = "已停止 FARM-1 上的工作，占用的资源在静默检查后释放。"
     STOPPED_THERE = STOP_ELSEWHERE.format(identifier="FARM-1")
     RESUMED = "收到回复，原工作项已恢复，worker 会先读取你的回答。"
     FORWARDED = "该 issue 正在处理中，你的消息已转给正在处理的 worker。"
@@ -2738,7 +2738,7 @@ class SilentDelegationReceiverTests(ReceiverBase):
         _, fix = self.taken_in_place()
         self.assertEqual(self.ledger.stop_target("session-0"), (fix, "own"))
         self.assertEqual(self.stop_in("session-0"), {
-            "type": "response", "body": "已停止 FARM-1 上的工作，worker 已终止，占用的资源在静默检查后释放。"})
+            "type": "response", "body": "已停止 FARM-1 上的工作，占用的资源在静默检查后释放。"})
         self.assert_stopped(fix)
 
     def test_s16_a_reply_during_the_grace_is_handled_first(self):

@@ -51,10 +51,9 @@ class NoticeTests(unittest.TestCase):
 
     def test_silent_delegation_texts_format_and_a_conversations_names_no_branch(self):
         """Silent-delegation design §7 (TW1): what a thread is told when a delegation opened no session. Each text
-        names the instance and leaves no placeholder; each note says that Linear opened no session for the delegation
-        and what to do next, and names no cause. That holds for a blocked delegation and for an API delegation; after
-        a lost delivery Linear did open a session, which FarmBot has not heard of (design R6). A conversation's text
-        never mentions branches or PRs."""
+        names the instance and leaves no placeholder; each note says that the instance received no session for the
+        delegation, which stays true after a lost delivery (design R6), and what to do next, and promises nothing that
+        holds only for some routes. A conversation's text never mentions branches or PRs."""
         texts = {name: getattr(withdrawal, name) for name in (
             "IN_PLACE_NOTE", "REDELEGATED_WAITING", "REDELEGATED_RUNNING", "SILENT_WAITING", "SILENT_WAITING_CHAT",
             "SILENT_BUSY", "SILENT_ENDED")}
@@ -70,10 +69,13 @@ class NoticeTests(unittest.TestCase):
         self.assertEqual(withdrawal.REDELEGATED_WAITING.format(bot="FarmBot", question="哪个服？"),
                          "这张卡已重新委派给 FarmBot。这里的工作还在等你的回答：\n哪个服？")
         self.assertEqual(withdrawal.IN_PLACE_NOTE.format(bot="FarmBot"),
-                         "这张卡已重新委派给 FarmBot。Linear 没有为这次委派另开会话，FarmBot 在这个会话里接着处理。")
+                         "这张卡已重新委派给 FarmBot。FarmBot 没有收到这次委派的新会话，就在这个会话里接着处理。")
         for name in ("SILENT_WAITING", "SILENT_WAITING_CHAT", "SILENT_BUSY", "SILENT_ENDED"):
             with self.subTest(name=name):
-                self.assertIn("Linear 没有为这次委派打开会话", texts[name])
+                self.assertIn("TestBot 没有收到这次委派的会话", texts[name].format(bot="TestBot"))
+                self.assertNotIn("Linear 没有", texts[name])  # after a lost delivery Linear did open one
+                self.assertNotIn("已有进度", texts[name])  # the next delegation may start other work
+                self.assertNotIn("会转到", texts[name])  # a late one finds the work cancelled first
                 self.assertIn("「No agent」", texts[name])
         for name in ("SILENT_WAITING", "SILENT_WAITING_CHAT"):
             self.assertIn("在这里回复可以继续", texts[name])  # the wait ends, the work stays answerable

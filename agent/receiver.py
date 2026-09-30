@@ -249,7 +249,7 @@ class Receiver:
                 if cancelled is None:
                     body = STOP_ALREADY  # it ended between the lookup and the cancel: nothing was stopped
                 elif cancelled["session_id"] == here:
-                    body = f"已停止 {item['identifier']} 上的工作，worker 已终止，占用的资源在静默检查后释放。"
+                    body = f"已停止 {item['identifier']} 上的工作，占用的资源在静默检查后释放。"
                 else:
                     body = STOP_ELSEWHERE.format(identifier=item["identifier"])
                 stopped = cancelled or item

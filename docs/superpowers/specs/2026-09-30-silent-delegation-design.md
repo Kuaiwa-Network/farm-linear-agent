@@ -381,7 +381,7 @@ Each commit passes the offline suite. `agent/service.py` does not change: the re
       if cancelled is None:
           body = STOP_ALREADY                  # it ended between the lookup and the cancel
       elif cancelled["session_id"] == here:
-          body = f"已停止 {item['identifier']} 上的工作，worker 已终止，占用的资源在静默检查后释放。"
+          body = f"已停止 {item['identifier']} 上的工作，占用的资源在静默检查后释放。"
       else:
           body = STOP_ELSEWHERE.format(identifier=item["identifier"])
   ```
@@ -571,16 +571,18 @@ suite, including `tests/test_windows_workers.py`, in CI.
 | RESUMED_ELSEWHERE | thought | 已在另一个讨论串收到回复，这里的工作已恢复，会先读取那条回复。 |
 | QUESTION_WITHDRAWN | response | 上面的问题不用再回答：这项工作已经停止。 |
 | QUESTION_WITHDRAWN_CHAT | response | 上面的问题不用再回答：这段对话已经结束。 |
-| IN_PLACE_NOTE | first line of a thought | 这张卡已重新委派给 {bot}。Linear 没有为这次委派另开会话，{bot} 在这个会话里接着处理。 |
+| IN_PLACE_NOTE | first line of a thought | 这张卡已重新委派给 {bot}。{bot} 没有收到这次委派的新会话，就在这个会话里接着处理。 |
 | REDELEGATED_WAITING | elicitation | 这张卡已重新委派给 {bot}。这里的工作还在等你的回答：\n{question} |
 | REDELEGATED_RUNNING | thought | 这张卡已重新委派给 {bot}，这里的工作正在进行，会继续。 |
-| SILENT_WAITING | response | 这张卡已委派给 {bot}，但 Linear 没有为这次委派打开会话（{bot} 的讨论串还在等回复时会这样）。这里的等待先结束，这项工作仍然保留：在这里回复可以继续；要按卡片现在的标签重新开始，请把代理改为「No agent」，再委派给 {bot}，会从已有进度接着做。 |
-| SILENT_WAITING_CHAT | response | 这张卡已委派给 {bot}，但 Linear 没有为这次委派打开会话（{bot} 的讨论串还在等回复时会这样）。这里的等待先结束，对话仍然保留：在这里回复可以继续；要让 {bot} 按卡片的标签开始处理，请把代理改为「No agent」，再委派给 {bot}，这段对话会转到新的会话里。 |
-| SILENT_BUSY | thought | 这张卡已委派给 {bot}，但 Linear 没有为这次委派打开会话。这里的工作会继续；要按卡片现在的标签重新开始，请等这里结束或按 Stop 之后，把代理改为「No agent」，再委派给 {bot}。 |
-| SILENT_ENDED | response | 这张卡已委派给 {bot}，但 Linear 没有为这次委派打开会话。这个讨论串里已经没有进行中的工作，{bot} 现在把它结束，好让新的委派能打开会话。要开始处理，请把代理改为「No agent」，再委派给 {bot}。 |
+| SILENT_WAITING | response | 这张卡已委派给 {bot}，但 {bot} 没有收到这次委派的会话（通常是因为 {bot} 还有讨论串在等回复）。这里的等待先结束，这项工作仍然保留：在这里回复可以继续；要按卡片现在的标签重新开始，请把代理改为「No agent」，再委派给 {bot}。 |
+| SILENT_WAITING_CHAT | response | 这张卡已委派给 {bot}，但 {bot} 没有收到这次委派的会话（通常是因为 {bot} 还有讨论串在等回复）。这里的等待先结束，对话仍然保留：在这里回复可以继续；要让 {bot} 按卡片的标签开始处理，请把代理改为「No agent」，再委派给 {bot}。 |
+| SILENT_BUSY | thought | 这张卡已委派给 {bot}，但 {bot} 没有收到这次委派的会话。这里的工作会继续；要按卡片现在的标签重新开始，请等这里结束或按 Stop 之后，把代理改为「No agent」，再委派给 {bot}。 |
+| SILENT_ENDED | response | 这张卡已委派给 {bot}，但 {bot} 没有收到这次委派的会话。这个讨论串里已经没有进行中的工作，{bot} 现在把它结束，好让新的委派能打开会话。要开始处理，请把代理改为「No agent」，再委派给 {bot}。 |
 
-The notes say what FarmBot saw, that no session was opened, and what to do next. They claim no cause, so
-they stay true for a blocked delegation, an API delegation and a lost delivery.
+The notes say what FarmBot saw, that it received no session for the delegation, and what to do next. That
+stays true for a blocked delegation, an API delegation and a lost delivery (R6). The waiting notes name the
+usual cause as the usual one. No note promises what the next delegation starts: that depends on the labels and
+on how soon it comes (WW P3, P4).
 
 Doctor findings:
 
@@ -850,13 +852,12 @@ the five commits of §5, each with the fixes its review asked for, and the fixes
 | §3.5, the log line | It lists each thread the settle read, with its status and whether it is archived, null for a read Linear refused; never a body. | LC-3 reads these lines. |
 | §3.6 | `session_state` also raises for an answer with no status. | The caller then knows nothing of that thread (P8). |
 | §7, `silent_delegation` | "More than 600 s overdue" counts from the end of the grace, `since` + 90 s, not from `due_at`. | A failing settle moves `due_at` on each time, so the finding's own "the settle has been failing for more than 10 minutes" could never fire. |
-| §7, the last paragraph | The notes do not stay true after a lost delivery: Linear did open a session then, which FarmBot has not heard of (R6), and 「Linear 没有为这次委派打开会话」 says it did not. The texts are unchanged; changing them is the operator's decision. | |
-| §7, SILENT_WAITING | Its 「会从已有进度接着做」 holds only when the new delegation's job is of the waiting job's skill, which links it as predecessor. The note is posted when the labels name another skill, whose job gets the messages but not the progress. The text is unchanged; changing it is the operator's decision. | |
+| §7, the notes | They say 「{bot} 没有收到这次委派的会话」 where the design said 「Linear 没有为这次委派打开会话」, and the waiting notes say the usual cause 「通常是因为 {bot} 还有讨论串在等回复」. Changed after the final review, 2026-10-01. | After a lost delivery Linear did open a session, which FarmBot has not heard of (R6). |
+| §7, SILENT_WAITING and SILENT_WAITING_CHAT | They end at 「再委派给 {bot}。」, without 「会从已有进度接着做」 or 「这段对话会转到新的会话里」. Changed after the final review, 2026-10-01. | Progress carries over only to work of the same skill, and a delegation made 60 s or more after "No agent" finds the work cancelled first (WW P3). |
+| §5, commit 1 | The Stop reply in the job's own thread no longer says 「worker 已终止」: 「已停止 {identifier} 上的工作，占用的资源在静默检查后释放。」 Changed after the final review, 2026-10-01. | The stopped job may have been queued or waiting, with no worker. |
 
 Left as the design has it, or as a known limit:
 
-- The Stop reply in the job's own thread still says 「worker 已终止」, as §5 has it, although the stopped job may
-  have been queued or waiting. A change of text is the operator's decision.
 - A2's note follows the forwarding thread's acknowledgement. When Linear refuses that acknowledgement, the resumed
   job's thread gets no note; its worker's next activity or heartbeat follows there.
 - An event error owed in a thread whose job goes on, with no later event there, is posted at its next try, after
