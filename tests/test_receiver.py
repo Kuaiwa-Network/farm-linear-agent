@@ -23,11 +23,15 @@ from agent.lifecycle import Lifecycle
 from agent.monitor import probe_health
 from agent.receiver import MAX_BODY, Receiver, make_server
 from agent.router import Decision
+from agent.scheduler import Scheduler
+from agent.session_progress import SessionProgress
 from agent.withdrawal import (DEFER_ACK, DEFER_STILL, DEFER_UNDELEGATED, FORWARD_PARKED_UNDELEGATED,
-                              FORWARD_WITHDRAWING, MOVED_THREAD, RESUME_UNDELEGATED, STOP_ALREADY, STOP_ELSEWHERE,
-                              STOP_MOVED, STOP_MOVED_THREAD, SUPERSEDE_SUFFIX, SUPERSEDED)
+                              FORWARD_WITHDRAWING, MOVED_THREAD, RESUME_UNDELEGATED, RESUMED_ELSEWHERE, STOP_ALREADY,
+                              STOP_ELSEWHERE, STOP_MOVED, STOP_MOVED_THREAD, STOPPED_ELSEWHERE, STOPPED_ELSEWHERE_CHAT,
+                              SUPERSEDE_SUFFIX, SUPERSEDED)
 from agent.worktrees import WorktreeError
 from test_ledger import DESIGNER, ISSUE, OTHER, OWNER, issue
+from test_scheduler import ROOT, SKILLS, FakeLauncher, FakeWorktrees
 
 APP = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
 IDENTITY = {"oauthClientId": "client", "appUserId": APP, "organizationId": "org"}
@@ -51,11 +55,23 @@ class ReceiverBase(unittest.TestCase):
                                                   label_groups=[{"group": "Bot", "label": "修改"}])
         self.api.create_activity.return_value = {"success": True, "agentActivity": {"id": "act"}}
         self.scheduler = Mock()
+        # A Stop's reply depends on the job its cancel ended, which the scheduler returns: the double answers with
+        # the view of the job it was asked to stop, and cancels nothing.
+        self.scheduler.stop.side_effect = lambda item_id, *args, **kwargs: self.ledger.item(item_id)
         self.receiver = Receiver(self.db, "signing-secret", IDENTITY, self.api, lambda: Ledger(self.db),
                                  skills={"chat", "fix"}, scheduler=self.scheduler)
         self.addCleanup(self.receiver.close)
         self.ledger = Ledger(self.db)
         self.addCleanup(self.ledger.close)
+
+    def assert_stopped(self, item, notice=None):
+        """The scheduler was asked once to stop `item`, as a Linear Stop asks: only while the job is still one a Stop
+        ends, and with `notice` for the job's own thread, None when the Stop was pressed there (silent-delegation
+        design A1)."""
+        [call] = self.scheduler.stop.call_args_list
+        self.assertEqual(call.args, (item["id"], "Linear stop"))
+        self.assertEqual(call.kwargs["states"], ("queued", "running", "awaiting_input", "awaiting_resource", "blocked"))
+        self.assertEqual(call.kwargs["notice"](self.ledger.item(item["id"])), notice)
 
     def event(self, action="created", **changes):
         result = {"type": "AgentSessionEvent", "action": action, "webhookTimestamp": 100_000,
@@ -75,6 +91,15 @@ class ReceiverBase(unittest.TestCase):
 
     def activities(self):
         return [call.args[1] for call in self.api.create_activity.call_args_list]
+
+    def sent(self):
+        """(session, content) of every activity posted through the API double, in order."""
+        return [(call.args[0], call.args[1]) for call in self.api.create_activity.call_args_list]
+
+    def said_in(self, session, kind="response"):
+        """The bodies of the `kind` activities posted in `session`, in order."""
+        return [content["body"] for posted_in, content in self.sent()
+                if posted_in == session and content["type"] == kind]
 
 
 class ReceiverTests(ReceiverBase):
@@ -172,7 +197,7 @@ class ReceiverTests(ReceiverBase):
         stop["agentActivity"]["content"] = {"type": "prompt"}
         self.assertEqual(self.receive(stop), (200, "stop received"))
         self.assertTrue(self.receiver.process_one())
-        self.scheduler.stop.assert_called_once_with(item["id"], "Linear stop")
+        self.assert_stopped(item)
         self.assertEqual(self.activities()[-1]["type"], "response")
         self.assertEqual(self.receive(stop), (200, "duplicate"))
 
@@ -1174,15 +1199,22 @@ class BotRoutingReceiverTests(ReceiverBase):
         [feature] = self.delegate()
         self.paused(feature, "配置发布了吗？", reason="waiting")
         self.mention_in("session-9", "@FarmBot 配置已经发布")
-        self.assertEqual(self.activities()[-1]["body"], "收到回复，原工作项已恢复，worker 会先读取你的回答。")
+        # The mention's acknowledgement, then the note in the resumed job's own thread (silent-delegation design A2).
+        resumed = {"type": "thought", "body": RESUMED_ELSEWHERE}
+        self.assertEqual(self.sent()[-2:], [
+            ("session-9", {"type": "thought", "body": "收到回复，原工作项已恢复，worker 会先读取你的回答。"}),
+            ("session-1", resumed)])
         self.assertEqual((heads, self.ledger.session("session-9")["target"]), ([], None))
         self.ledger.cancel(feature["id"], "next case")
         self.labelled(["修改"], CHANGE)
         [fix] = self.delegate("session-2")
         self.paused(fix, "哪个服？")
         self.mention_in("session-8", "@FarmBot 公共测试服")
-        self.assertEqual(self.activities()[-1]["body"], "收到回复，原工作项已恢复，worker 会先读取你的回答。"
-                                                        "\n目标已锁定：Farm-Client@ccccccc（公共测试服）。")
+        # The target line belongs to the session that was pinned, the mention's: the note carries none.
+        self.assertEqual(self.sent()[-2:], [
+            ("session-8", {"type": "thought", "body": "收到回复，原工作项已恢复，worker 会先读取你的回答。"
+                                                     "\n目标已锁定：Farm-Client@ccccccc（公共测试服）。"}),
+            ("session-2", resumed)])
         self.assertEqual(heads, ["Farm-Client", "Farm-Client"])
 
     def spend(self, item):
@@ -1211,7 +1243,9 @@ class BotRoutingReceiverTests(ReceiverBase):
         self.spend(item)
         self.paused(item, "配置发布了吗？", reason="waiting")
         self.mention_in("session-9", "@FarmBot 配置已经发布")
-        self.assertEqual(self.activities()[-1]["body"], "收到回复，原工作项已恢复，worker 会先读取你的回答。")
+        self.assertEqual(self.sent()[-2:], [
+            ("session-9", {"type": "thought", "body": "收到回复，原工作项已恢复，worker 会先读取你的回答。"}),
+            ("session-1", {"type": "thought", "body": RESUMED_ELSEWHERE})])
         self.assertEqual(self.allowances(item["id"]), ("queued", (0, 0, 0, 0)))
 
     def test_a_reply_that_resumes_a_paused_fix_keeps_its_allowances(self):
@@ -1273,10 +1307,6 @@ class WithdrawnWorkReceiverTests(ReceiverBase):
         [fix] = self.delegate(session)
         self.paused(fix, "哪个服？")
         return self.ledger.item(fix["id"])
-
-    def sent(self):
-        """(session, content) of every activity the receiver posted, in order."""
-        return [(call.args[0], call.args[1]) for call in self.api.create_activity.call_args_list]
 
     def messages(self, item):
         return [message["body"] for message in self.ledger.issue_context(item["id"])["session_messages"]]
@@ -1347,12 +1377,12 @@ class WithdrawnWorkReceiverTests(ReceiverBase):
         fix = self.waiting_fix("session-1")
         self.mention_in("session-9", "@FarmBot 公共测试服")
         self.assertEqual(self.ledger.item(fix["id"])["state"], "queued")
-        self.assertEqual(self.activities()[-1]["body"], "收到回复，原工作项已恢复，worker 会先读取你的回答。")
+        self.assertEqual(self.said_in("session-9", "thought"), ["收到回复，原工作项已恢复，worker 会先读取你的回答。"])
         self.assertEqual(self.ledger.connection.execute("SELECT forwarded_item FROM sessions WHERE session_id=?",
                                                         ("session-9",)).fetchone()[0], fix["id"])
         self.assertEqual(self.stop_in("session-9"),
                          {"type": "response", "body": STOP_ELSEWHERE.format(identifier="FARM-1")})
-        self.scheduler.stop.assert_called_once_with(fix["id"], "Linear stop")
+        self.assert_stopped(fix, notice=STOPPED_ELSEWHERE)
 
     def test_c1_new_delegation_supersedes_a_waiting_item_in_one_transaction(self):
         self.labelled(["修改"], CHANGE)
@@ -1563,7 +1593,7 @@ class WithdrawnWorkReceiverTests(ReceiverBase):
         self.delegate("session-1")  # deferred behind the claimed fix
         self.assertEqual(self.stop_in("session-1"),
                          {"type": "response", "body": STOP_ELSEWHERE.format(identifier="FARM-1")})
-        self.scheduler.stop.assert_called_once_with(fix["id"], "Linear stop")
+        self.assert_stopped(fix, notice=STOPPED_ELSEWHERE)
         self.assertEqual([row["status"] for row in self.receiver.results() if row["session_id"] == "session-1"],
                          ["cancelled"])
         self.assertFalse(self.receiver.process_one())
@@ -1584,7 +1614,7 @@ class WithdrawnWorkReceiverTests(ReceiverBase):
         event["agentActivity"].update(id="stop-1", signal="stop", content={"type": "prompt"})
         self.assertEqual(self.receive(event), (200, "stop received"))
         self.assertTrue(self.receiver.process_one())
-        self.scheduler.stop.assert_called_once_with(fix["id"], "Linear stop")
+        self.assert_stopped(fix)
         with self.receiver.lock:
             recorded = self.receiver.db.execute("SELECT status,error FROM stop_requests").fetchall()
         self.assertEqual([tuple(row) for row in recorded], [("uncertain", "RuntimeError")])
@@ -1639,3 +1669,263 @@ class WithdrawnWorkReceiverTests(ReceiverBase):
         self.assertEqual(self.ledger.item(repaired[0]["id"])["state"], "cancelled")
         self.assertEqual(fix["predecessor_id"], repaired[0]["id"])
         self.assertEqual(self.receiver.results()[-1]["status"], "done")
+
+
+class OwnThreadReceiverTests(ReceiverBase):
+    """Silent-delegation design Part A at the receiver (§4.1; tests TA1-TA9): FarmBot does not leave its own thread
+    waiting. Work a Stop ends, or a message resumes, from another thread gets a last word in its own thread, and the
+    thread a takeover or a move leaves is told even when the new session's acknowledgement fails."""
+    labelled = BotRoutingReceiverTests.labelled
+    delegate = BotRoutingReceiverTests.delegate
+    conversation_elsewhere = BotRoutingReceiverTests.conversation_elsewhere
+    finish = BotRoutingReceiverTests.finish
+    paused = BotRoutingReceiverTests.paused
+    mention_in = BotRoutingReceiverTests.mention_in
+    claimed_fix_elsewhere = BotRoutingReceiverTests.claimed_fix_elsewhere
+    reply_in = WithdrawnWorkReceiverTests.reply_in
+    stop_in = WithdrawnWorkReceiverTests.stop_in
+    waiting_fix = WithdrawnWorkReceiverTests.waiting_fix
+
+    STOPPED_HERE = "已停止 FARM-1 上的工作，worker 已终止，占用的资源在静默检查后释放。"
+    STOPPED_THERE = STOP_ELSEWHERE.format(identifier="FARM-1")
+    RESUMED = "收到回复，原工作项已恢复，worker 会先读取你的回答。"
+
+    def real_scheduler(self):
+        """The receiver stops work through a real scheduler that posts to the receiver's API double, so sent() shows
+        the scheduler's notices among the receiver's replies, in order. Returns its launcher double."""
+        launcher = FakeLauncher(Path(self.tmp.name) / "runs")
+        self.scheduler = Scheduler(self.ledger, launcher, SKILLS, FakeWorktrees(Path(self.tmp.name) / "wt"),
+                                   skill_root=ROOT / "skills", db_path=self.db, runtime_name="fake", host="h",
+                                   api=self.api)
+        self.receiver.scheduler = self.scheduler
+        return launcher
+
+    def pending_heartbeat(self, item):
+        """A session heartbeat reserved for `item` and not sent yet, which a cancel turns into a closing response of
+        its own unless the cancel drops it. Returns the reporter that would send it."""
+        progress = SessionProgress(self.ledger, self.api)
+        item = self.ledger.item(item["id"])
+        self.ledger.connection.execute(
+            "INSERT INTO session_progress(item_id,due_at,activity_id,content,status_key) VALUES(?,0,?,?,?)",
+            (item["id"], "heartbeat-1", json.dumps({"type": "thought", "body": "工作仍在排队。"}),
+             f"{item['id']}:{item['state']}:{item['generation']}"))
+        return progress
+
+    def heartbeat(self, item):
+        return self.ledger.connection.execute("SELECT 1 FROM session_progress WHERE item_id=?",
+                                              (item["id"],)).fetchone()
+
+    def conversation_about_to_hand_over(self, thread="session-9"):
+        """A mention's conversation in `thread`, claimed, on a card whose delegation's fix in session-1 was stopped
+        earlier: (conversation, token, the id of its request). `hand_over` continues that fix from it."""
+        stopped = self.waiting_fix("session-1")
+        self.ledger.cancel(stopped["id"], "an earlier stop")
+        self.mention_in(thread, "@FarmBot 请接着修")
+        [chat] = self.ledger.items_for_session(thread)
+        token = self.ledger.claim(chat["id"], worker_id="chat")["token"]
+        return chat, token, self.ledger.issue_context(chat["id"])["session_messages"][-1]["id"]
+
+    def hand_over(self, chat, token, message):
+        """The conversation hands over to a fix, which runs in the delegation's thread, not the conversation's."""
+        fix = self.ledger.resume_work(chat["id"], token, message, APP)
+        self.assertEqual((fix["skill"], fix["state"], fix["session_id"]), ("fix", "queued", "session-1"))
+        self.assertEqual(self.ledger.active_item_for_session(chat["session_id"])["id"], fix["id"])
+        return fix
+
+    def refusing(self, session):
+        """Linear refuses every activity in `session` from now on, and takes the others."""
+        def create_activity(session_id, content, activity_id=None):
+            if session_id == session:
+                raise RuntimeError("linear down")
+            return {"success": True}
+        self.api.create_activity.side_effect = create_activity
+
+    def test_stop_in_a_forwarding_thread_closes_the_stopped_works_own_thread(self):
+        """A1, S23, the incident replayed: a fix waits in its delegation thread, a mention in another thread answers
+        it, and Stop is pressed in the mention's thread. The fix's own thread is closed by one response, and the
+        heartbeat it had pending is dropped, so nothing follows that response."""
+        self.real_scheduler()
+        fix = self.waiting_fix("session-1")
+        self.mention_in("session-9", "@FarmBot 公共测试服")
+        progress = self.pending_heartbeat(fix)
+        self.assertEqual(self.stop_in("session-9"), {"type": "response", "body": self.STOPPED_THERE})
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "cancelled")
+        self.assertEqual(self.sent()[-2:], [("session-1", {"type": "response", "body": STOPPED_ELSEWHERE}),
+                                            ("session-9", {"type": "response", "body": self.STOPPED_THERE})])
+        self.assertIsNone(self.heartbeat(fix))
+        self.assertFalse(progress.tick())
+        self.assertEqual(self.said_in("session-1"), [STOPPED_ELSEWHERE])
+        self.api.create_comment.assert_not_called()
+
+    def test_stop_in_the_latest_delegation_thread_closes_the_works_own_thread(self):
+        """A1: a Stop in the card's latest delegation thread, whose delegation waits behind a claimed fix of an older
+        thread, stops that fix. Its worker is signalled and its own thread is closed."""
+        launcher = self.real_scheduler()
+        fix, token = self.claimed_fix_elsewhere("session-0")
+        self.assertEqual(self.delegate("session-1"), [])  # deferred behind the claimed fix
+        self.assertEqual(self.stop_in("session-1"), {"type": "response", "body": self.STOPPED_THERE})
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "cancelled")
+        with self.assertRaises(LedgerError):
+            self.ledger.renew(fix["id"], token)
+        self.assertEqual(launcher.stopped, [fix["id"]])
+        self.assertEqual(self.sent()[-2:], [("session-0", {"type": "response", "body": STOPPED_ELSEWHERE}),
+                                            ("session-1", {"type": "response", "body": self.STOPPED_THERE})])
+        self.assertEqual(self.said_in("session-0"), [STOPPED_ELSEWHERE])
+
+    def test_stop_in_the_own_thread_posts_one_reply_and_no_notice(self):
+        """A1: a Stop pressed in the job's own thread is answered there once. The job's pending heartbeat goes with
+        the cancel, so the reply is the thread's last word."""
+        launcher = self.real_scheduler()
+        fix = self.waiting_fix("session-1")
+        progress = self.pending_heartbeat(fix)
+        self.assertEqual(self.stop_in("session-1"), {"type": "response", "body": self.STOPPED_HERE})
+        self.assertEqual((self.ledger.item(fix["id"])["state"], launcher.stopped), ("cancelled", [fix["id"]]))
+        self.assertIsNone(self.heartbeat(fix))
+        self.assertFalse(progress.tick())
+        self.assertEqual(self.said_in("session-1"), [self.STOPPED_HERE])
+        self.api.create_comment.assert_not_called()
+
+    def test_stop_whose_work_ended_meanwhile_says_it_already_stopped(self):
+        """A1: the conversation a Stop found finished before the Stop's cancel. Nothing was stopped, so the reply
+        claims no stop and no process is signalled; the scheduler's own cleanup owns a finished job's processes."""
+        launcher = self.real_scheduler()
+        chat = self.conversation_elsewhere("session-1")
+        target = self.receiver.ledger.stop_target
+
+        def finished_first(session_id):
+            found = target(session_id)
+            self.finish(chat)
+            return found
+        self.receiver.ledger.stop_target = finished_first
+        self.assertEqual(self.stop_in("session-1"), {"type": "response", "body": STOP_ALREADY})
+        self.assertEqual(self.ledger.item(chat["id"])["state"], "delivered")
+        self.assertEqual((launcher.stopped, launcher.unsandboxed_stopped), ([], []))
+        self.assertEqual(self.said_in("session-1"), [STOP_ALREADY])
+
+    def test_stop_that_reaches_a_handed_over_job_closes_the_jobs_thread(self):
+        """A1: a Stop in a conversation's thread reaches the fix the conversation handed over to, which lives in the
+        delegation's thread. The conversation's thread is told the work was elsewhere; the fix's thread is closed."""
+        self.real_scheduler()
+        fix = self.hand_over(*self.conversation_about_to_hand_over("session-9"))
+        self.assertEqual(self.stop_in("session-9"), {"type": "response", "body": self.STOPPED_THERE})
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "cancelled")
+        self.assertEqual(self.sent()[-2:], [("session-1", {"type": "response", "body": STOPPED_ELSEWHERE}),
+                                            ("session-9", {"type": "response", "body": self.STOPPED_THERE})])
+
+    def test_stop_that_meets_a_handover_answers_for_the_job_it_ended(self):
+        """A1: the Stop found the conversation in its own thread, and the conversation handed over before the cancel,
+        which follows the handover. The job the cancel ended decides both texts, not the job that was looked up."""
+        self.real_scheduler()
+        chat, token, message = self.conversation_about_to_hand_over("session-9")
+        target = self.receiver.ledger.stop_target
+        handed = []
+
+        def handed_over_first(session_id):
+            found = target(session_id)
+            handed.append(self.hand_over(chat, token, message))
+            return found
+        self.receiver.ledger.stop_target = handed_over_first
+        self.assertEqual(self.stop_in("session-9"), {"type": "response", "body": self.STOPPED_THERE})
+        self.assertEqual(self.ledger.item(handed[0]["id"])["state"], "cancelled")
+        self.assertEqual(self.said_in("session-1")[-1], STOPPED_ELSEWHERE)
+        self.assertEqual(self.said_in("session-9"), [self.STOPPED_THERE])
+
+    def test_a_stopped_conversation_elsewhere_gets_the_conversations_text(self):
+        """A1: a conversation's closing text names no branch or PR, whichever thread the Stop came from."""
+        self.real_scheduler()
+        self.labelled(["Bug"], [])
+        [chat] = self.delegate("session-1")
+        self.ledger.claim(chat["id"], worker_id="w")
+        self.mention_in("session-9", "@FarmBot 进展如何？")  # forwarded to the running conversation
+        self.assertEqual(self.stop_in("session-9"), {"type": "response", "body": self.STOPPED_THERE})
+        self.assertEqual(self.ledger.item(chat["id"])["state"], "cancelled")
+        self.assertEqual(self.said_in("session-1"), [STOPPED_ELSEWHERE_CHAT])
+
+    def test_stop_that_reaches_an_operators_job_notes_the_card(self):
+        """A1: an operator's `local-` job has no Linear thread. A Stop in the card's latest delegation thread that
+        ends it is noted where such a job reports, on the card, once."""
+        self.real_scheduler()
+        [first] = self.delegate("session-1")
+        self.ledger.cancel(first["id"], "an earlier stop")
+        self.ledger.ensure_session(f"local-{ISSUE}", ISSUE, True)
+        local = self.ledger.create_work_item(issue_id=ISSUE, session_id=f"local-{ISSUE}", skill="fix",
+                                             authority="delegation")
+        self.assertEqual(self.stop_in("session-1"), {"type": "response", "body": self.STOPPED_THERE})
+        self.assertEqual(self.ledger.item(local["id"])["state"], "cancelled")
+        self.api.create_comment.assert_called_once_with(ISSUE, STOPPED_ELSEWHERE)
+        self.assertEqual(self.said_in("session-1"), [self.STOPPED_THERE])
+
+    def test_a_forward_that_resumes_parked_work_notes_its_own_thread(self):
+        """A2: a mention in another thread answers a parked fix. After the mention's acknowledgement, the fix's own
+        thread, whose last activity was the question, is told that the work goes on. A later message that is only
+        forwarded to the work resumes nothing and adds no note."""
+        fix = self.waiting_fix("session-1")
+        self.mention_in("session-9", "@FarmBot 公共测试服")
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "queued")
+        self.assertEqual(self.sent()[-2:], [("session-9", {"type": "thought", "body": self.RESUMED}),
+                                            ("session-1", {"type": "thought", "body": RESUMED_ELSEWHERE})])
+        self.mention_in("session-8", "@FarmBot 还有一点")
+        self.assertEqual(self.sent()[-1], ("session-8", {"type": "thought",
+                                                         "body": "该 issue 正在处理中，你的消息已转给正在处理的 worker。"}))
+        self.assertEqual(self.said_in("session-1", "thought").count(RESUMED_ELSEWHERE), 1)
+
+    def test_a_resume_note_linear_refuses_changes_nothing_else(self):
+        """A2: the note is best effort. The answer is delivered and its event is done whatever becomes of the note."""
+        fix = self.waiting_fix("session-1")
+        self.refusing("session-1")
+        self.mention_in("session-9", "@FarmBot 公共测试服")
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "queued")
+        self.assertEqual(self.sent()[-2:], [("session-9", {"type": "thought", "body": self.RESUMED}),
+                                            ("session-1", {"type": "thought", "body": RESUMED_ELSEWHERE})])
+        self.assertEqual(self.receiver.results()[-1]["status"], "done")
+
+    def test_a_forward_that_resumes_an_operators_job_posts_no_note_for_it(self):
+        """A2: an operator's `local-` job has no Linear thread, so nothing waits there and nothing is posted for it."""
+        self.ledger.observe_issue(issue(labels=["Bug", "修改"], delegate_id=APP, label_groups=CHANGE))
+        self.ledger.ensure_session(f"local-{ISSUE}", ISSUE, True)
+        local = self.ledger.create_work_item(issue_id=ISSUE, session_id=f"local-{ISSUE}", skill="fix",
+                                             authority="delegation")
+        self.paused(local, "哪个服？")
+        self.mention_in("session-9", "@FarmBot 公共测试服")
+        self.assertEqual(self.ledger.item(local["id"])["state"], "queued")
+        self.assertEqual(self.sent(), [("session-9", {"type": "thought", "body": self.RESUMED})])
+        self.api.create_comment.assert_not_called()
+
+    def test_a_reply_that_resumes_a_handed_over_job_notes_the_jobs_thread(self):
+        """A3: a reply in a conversation's thread answers the fix the conversation handed over to, which asked its
+        question in the delegation's thread. That thread is told the work goes on. A reply in the job's own thread
+        needs no note."""
+        fix = self.hand_over(*self.conversation_about_to_hand_over("session-9"))
+        self.paused(fix, "哪个服？")
+        self.reply_in("session-9", "公共测试服")
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "queued")
+        self.assertEqual(self.sent()[-2:], [("session-9", {"type": "thought", "body": "收到回复，继续处理。"}),
+                                            ("session-1", {"type": "thought", "body": RESUMED_ELSEWHERE})])
+        self.paused(fix, "哪个包？")
+        self.reply_in("session-1", "安卓包", activity="act-2")
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "queued")
+        self.assertEqual(self.sent()[-1], ("session-1", {"type": "thought", "body": "收到回复，继续处理。"}))
+        self.assertEqual(self.said_in("session-1", "thought").count(RESUMED_ELSEWHERE), 1)
+
+    def test_the_old_thread_is_told_even_when_the_acknowledgement_fails(self):
+        """A5: a new delegation session takes a waiting fix over, and Linear refuses the new session's
+        acknowledgement. The takeover is done, so the old thread, whose last activity is a question nobody can
+        answer there any more, is still told where its work went."""
+        old = self.waiting_fix("session-0")
+        self.refusing("session-1")
+        [new] = self.delegate("session-1")
+        self.assertEqual((self.ledger.item(old["id"])["state"], new["state"], new["predecessor_id"]),
+                         ("cancelled", "queued", old["id"]))
+        self.assertEqual(self.said_in("session-0"), [SUPERSEDED])
+        self.assertEqual(self.receiver.results()[-1]["status"], "uncertain")
+
+    def test_the_thread_a_conversation_moved_from_is_told_even_when_the_acknowledgement_fails(self):
+        """A5 for a waiting conversation a mention moved to its own thread (withdrawn-work design C5)."""
+        chat = self.conversation_elsewhere("session-0")
+        self.paused(chat, "哪个服？")
+        self.refusing("session-9")
+        self.mention_in("session-9", "@FarmBot 公共测试服")
+        self.assertEqual(self.ledger.item(chat["id"])["state"], "cancelled")
+        self.assertEqual(self.ledger.active_item_for_session("session-9")["skill"], "chat")
+        self.assertEqual(self.said_in("session-0"), [MOVED_THREAD])
+        self.assertEqual(self.receiver.results()[-1]["status"], "uncertain")

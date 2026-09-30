@@ -15,7 +15,9 @@ class NoticeTests(unittest.TestCase):
         expected = {("fix", "undelegated"): withdrawal.UNDELEGATED, ("chat", "undelegated"): withdrawal.UNDELEGATED_CHAT,
                     ("fix", "superseded"): withdrawal.SUPERSEDED, ("chat", "superseded"): withdrawal.SUPERSEDED,
                     ("fix", "closed"): withdrawal.CLOSED, ("chat", "closed"): withdrawal.CLOSED_CHAT,
-                    ("fix", "operator"): withdrawal.OPERATOR, ("chat", "operator"): withdrawal.OPERATOR_CHAT}
+                    ("fix", "operator"): withdrawal.OPERATOR, ("chat", "operator"): withdrawal.OPERATOR_CHAT,
+                    ("fix", "stopped_elsewhere"): withdrawal.STOPPED_ELSEWHERE,
+                    ("chat", "stopped_elsewhere"): withdrawal.STOPPED_ELSEWHERE_CHAT}
         for (skill, reason), text in expected.items():
             with self.subTest(skill=skill, reason=reason):
                 self.assertEqual(withdrawal.notice(skill, reason, "FarmBot"), text.format(bot="FarmBot"))
@@ -29,6 +31,15 @@ class NoticeTests(unittest.TestCase):
                 self.assertNotIn("分支", body)
                 self.assertNotIn("PR", body)
                 self.assertNotIn("{", body)
+
+    def test_a_stop_from_another_thread_has_a_text_for_each_thread(self):
+        """Silent-delegation design A1: the stopped job's own thread is told the work ended, keeping what a write job
+        pushed; the Stop's thread is told what was stopped, without claiming a worker ran: the job may have waited."""
+        self.assertIn("已推送的分支和草稿 PR 都保留", withdrawal.notice("fix", "stopped_elsewhere", "FarmBot"))
+        self.assertIn("Stop", withdrawal.notice("chat", "stopped_elsewhere", "FarmBot"))
+        self.assertEqual(withdrawal.STOP_ELSEWHERE.format(identifier="FARM-1"),
+                         "已停止 FARM-1 上在另一个会话中的工作，占用的资源在静默检查后释放。")
+        self.assertNotIn("worker", withdrawal.STOP_ELSEWHERE)
 
     def test_the_undelegated_write_text_is_the_one_the_lifecycle_already_posts(self):
         self.assertIs(UNDELEGATED, withdrawal.UNDELEGATED)

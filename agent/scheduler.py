@@ -284,7 +284,9 @@ class Scheduler:
         notice, in the cancelling transaction, so the notice is its session's last word (withdrawn-work design P7).
         `notice` is the text, or a function of the cancelled item's view that returns it: the cancel follows a
         conversation's handover to the job it continued, which can be another skill's, so a caller that chose by
-        the job it listed would give a fix a conversation's words. Returns the cancelled item, or None.
+        the job it listed would give a fix a conversation's words. A function may return None: nothing is posted
+        then, and the heartbeat still goes, for a caller that answers in the job's own thread itself, as a Linear
+        Stop pressed there does (silent-delegation design A1). Returns the cancelled item, or None.
         """
         if notice is not None and states is None:
             raise ValueError("a stop notice needs states: only then is it known that this stop cancelled the item")
@@ -323,7 +325,9 @@ class Scheduler:
             # Signal both ends if read-only execution handed off during Stop.
             self.launcher.stop(stopped_id)
         if notice is not None and cancelled is not None:
-            self._notify(destination, "response", notice(cancelled) if callable(notice) else notice, item=cancelled)
+            text = notice(cancelled) if callable(notice) else notice
+            if text:
+                self._notify(destination, "response", text, item=cancelled)
         return cancelled
 
     def _reap(self):

@@ -20,8 +20,8 @@ from .ledger import ACTIVE_STATES, LedgerError, StaleRouting
 from .linear_api import person
 from .router import WRITE_SKILLS, route
 from .withdrawal import (DEFER_ACK, DEFER_STILL, DEFER_UNDELEGATED, FORWARD_PARKED_UNDELEGATED, FORWARD_WITHDRAWING,
-                         MOVED_THREAD, RESUME_UNDELEGATED, STOP_ALREADY, STOP_ELSEWHERE, STOP_MOVED, STOP_MOVED_THREAD,
-                         SUPERSEDE_SUFFIX, SUPERSEDED, grace_seconds)
+                         MOVED_THREAD, RESUME_UNDELEGATED, RESUMED_ELSEWHERE, STOP_ALREADY, STOP_ELSEWHERE, STOP_MOVED,
+                         STOP_MOVED_THREAD, SUPERSEDE_SUFFIX, SUPERSEDED, grace_seconds, notice as withdrawal_notice)
 from .worktrees import WorktreeError
 
 MAX_BODY = 1024 * 1024
@@ -39,6 +39,9 @@ NO_BOT_LABEL = ("{bot} 已收到。这张卡没有 Bot 标签，先以只读对�
                 "以后委派前先加上 Bot/修改 标签，就会直接开始处理。")
 # The states of work no worker holds, which a newer session takes over at once (withdrawn-work design P4).
 UNCLAIMED = ("queued", "awaiting_input", "awaiting_resource")
+# The states of work a Linear Stop ends: every state a cancel accepts. A job that finished or was cancelled between
+# the Stop's lookup and its cancel is not one, and the Stop then says so (silent-delegation design A1).
+STOPPABLE = (*ACTIVE_STATES, "blocked")
 # A delegation deferred behind a withdrawing worker waits this long past the worker's deadline, by which the
 # controller has stopped it, before its event reports that the worker has not stopped (design C2).
 DEFER_SLACK = 300
@@ -217,9 +220,22 @@ class Receiver:
             # delegation session, the delegation's work wherever it runs (design P5).
             item, where = self.ledger.stop_target(row["session_id"])
             if item is not None:
-                self.scheduler.stop(item["id"], "Linear stop")
-                body = (f"已停止 {item['identifier']} 上的工作，worker 已终止，占用的资源在静默检查后释放。" if where == "own"
-                        else STOP_ELSEWHERE.format(identifier=item["identifier"]))
+                here = row["session_id"]
+                # The job the cancel ends decides what is said, not the job that was looked up: the cancel follows a
+                # conversation's handover to a job in another thread. A job that lives in another thread than the
+                # Stop's gets one closing response there, so its thread does not keep a question as its last
+                # activity; this reply is the last word of the Stop's own thread, and the job's pending heartbeat
+                # goes with the cancel either way (silent-delegation design A1, P9).
+                cancelled = self.scheduler.stop(
+                    item["id"], "Linear stop", states=STOPPABLE,
+                    notice=lambda job: None if job["session_id"] == here
+                    else withdrawal_notice(job["skill"], "stopped_elsewhere", self.bot_name))
+                if cancelled is None:
+                    body = STOP_ALREADY  # it ended between the lookup and the cancel: nothing was stopped
+                elif cancelled["session_id"] == here:
+                    body = f"已停止 {item['identifier']} 上的工作，worker 已终止，占用的资源在静默检查后释放。"
+                else:
+                    body = STOP_ELSEWHERE.format(identifier=item["identifier"])
             else:
                 body = {"moved": STOP_MOVED, "moved_thread": STOP_MOVED_THREAD,
                         "stopped": STOP_ALREADY}.get(where, "当前没有正在进行的工作可停止。")
@@ -310,10 +326,10 @@ class Receiver:
 
         def acknowledge(kind, body):
             """One event, one activity — and the pin rides in whichever branch sends it. Echoing only from the
-            work and chat branches would let a session that first elicits or steers store its pin in silence
-            and never announce it, because every later event sees a target that is no longer None (spec §6)."""
-            if kind == "elicitation":
-                self.api.needs_more_info(issue["id"])
+            work and chat branches would let a session that first steers or resumes store its pin in silence
+            and never announce it, because every later event sees a target that is no longer None (spec §6).
+            It is a thought, or a response that starts nothing: a question is asked only by a worker, through
+            `await-input`, which parks its job (silent-delegation design A9, P9)."""
             self._send(session_id, ack_id, {"type": kind, "body": body + pin})
 
         def take_over(decision, elsewhere, feature_work):
@@ -328,8 +344,12 @@ class Receiver:
                                       reason="a new delegation session took the card over",
                                       target=None if feature_work or skill == "chat" else session.get("target"),
                                       authority="delegation", text=text, author=author, received_at=received_at)
-                acknowledge("thought", self._opening(decision, text) + "\n" + SUPERSEDE_SUFFIX)
-                self._close_moved(elsewhere, SUPERSEDED)
+                # The takeover is done whatever becomes of this acknowledgement, so the old thread is told even
+                # when Linear refuses it (silent-delegation design A5).
+                try:
+                    acknowledge("thought", self._opening(decision, text) + "\n" + SUPERSEDE_SUFFIX)
+                finally:
+                    self._close_moved(elsewhere, SUPERSEDED)
                 return
             # A claimed write worker saves its progress and withdraws, or the controller stops it at its deadline;
             # this event waits for that, then runs as the delegation it is (design C2).
@@ -363,9 +383,11 @@ class Receiver:
                                           reason="a person's message moved the conversation to another session",
                                           authority=authority, text=text, author=author, received_at=received_at,
                                           takeover=False)
-                    acknowledge("thought", self._opening(decision, text) if decision.kind == "chat"
-                                else ACK["chat"].format(bot=self.bot_name))
-                    self._close_moved(elsewhere, MOVED_THREAD)
+                    try:
+                        acknowledge("thought", self._opening(decision, text) if decision.kind == "chat"
+                                    else ACK["chat"].format(bot=self.bot_name))
+                    finally:
+                        self._close_moved(elsewhere, MOVED_THREAD)  # as a takeover's old thread (design A5)
                     return
                 # Forwarded to work that stays where it is, and a Stop here now reaches it (design P5). The notice
                 # says what becomes of the message (design R10).
@@ -374,9 +396,10 @@ class Receiver:
                 delivered = self.ledger.push_inbox(elsewhere["id"], text or "（无正文）", resume_waiting=resume,
                                                    author=author, received_at=received_at)
                 self.ledger.record_forward(session_id, delivered["item_id"])
+                resumed = not flagged and elsewhere["state"] == "awaiting_input" and delivered["state"] == "queued"
                 if flagged:
                     notice = FORWARD_WITHDRAWING
-                elif elsewhere["state"] == "awaiting_input" and delivered["state"] == "queued":
+                elif resumed:
                     notice = RESUMED
                 elif not delegated and elsewhere["authority"] == "delegation":
                     notice = FORWARD_PARKED_UNDELEGATED.format(bot=self.bot_name, skill=elsewhere["skill"])
@@ -385,6 +408,8 @@ class Receiver:
                 if decision.text and decision.text != text:
                     notice = decision.text + "\n" + notice
                 acknowledge("thought", notice)
+                if resumed:
+                    self._note_resumed(delivered["item_id"], session_id)
                 return
             if decision.kind == "work":
                 if decision.skill in WRITE_SKILLS and not is_delegation:
@@ -406,18 +431,21 @@ class Receiver:
             elif decision.kind == "steer":
                 self.ledger.push_inbox(active["id"], decision.text, author=author, received_at=received_at)
                 acknowledge("thought", "已转给正在处理的 worker，会在下一次检查点读取。")
-            elif decision.kind == "resume" and active["skill"] == "chat":
-                # An answer on a card no longer delegated here goes on without the delegation (design P1, A2).
-                self.ledger.push_inbox(active["id"], decision.text, resume_waiting=True, author=author,
-                                       received_at=received_at, demote_to_mention=not delegated)
-                acknowledge("thought", "收到回复，继续处理。")
             elif decision.kind == "resume":
-                self.ledger.push_inbox(active["id"], decision.text, resume_waiting=delegated, author=author,
-                                       received_at=received_at)
-                acknowledge("thought", "收到回复，继续处理。" if delegated
-                            else RESUME_UNDELEGATED.format(bot=self.bot_name))
-            elif decision.kind == "elicit":
-                acknowledge("elicitation", decision.text)
+                # `active` is this session's work, or the job its conversation handed over to, which lives and asked
+                # its question in another thread (Ledger.active_item_for_session).
+                if active["skill"] == "chat":
+                    # An answer on a card no longer delegated here goes on without the delegation (design P1, A2).
+                    delivered = self.ledger.push_inbox(active["id"], decision.text, resume_waiting=True, author=author,
+                                                       received_at=received_at, demote_to_mention=not delegated)
+                    acknowledge("thought", "收到回复，继续处理。")
+                else:
+                    delivered = self.ledger.push_inbox(active["id"], decision.text, resume_waiting=delegated,
+                                                       author=author, received_at=received_at)
+                    acknowledge("thought", "收到回复，继续处理。" if delegated
+                                else RESUME_UNDELEGATED.format(bot=self.bot_name))
+                if active["state"] == "awaiting_input" and delivered["state"] == "queued":
+                    self._note_resumed(delivered["item_id"], session_id)
 
         for attempt in range(REROUTES + 1):
             if routed[3]:
@@ -456,6 +484,18 @@ class Receiver:
                 self.api.create_comment(item["issue_id"], body)
             else:
                 self.api.create_activity(item["session_id"], {"type": "response", "body": body})
+        except Exception:
+            pass
+
+    def _note_resumed(self, item_id, session_id):
+        """Best effort, after the acknowledgement in `session_id`: the parked job a message there resumed is told so
+        in its own thread, whose last activity was its question, which nobody will answer there now. Nothing for a
+        job of `session_id` itself, which the acknowledgement just told, or for an operator's `local-` job, which
+        has no Linear thread (silent-delegation design A2, A3, P9)."""
+        try:
+            own = str(self.ledger.item(item_id)["session_id"])
+            if own != session_id and not own.startswith("local-"):
+                self.api.create_activity(own, {"type": "thought", "body": RESUMED_ELSEWHERE})
         except Exception:
             pass
 

@@ -4,6 +4,9 @@ docs/superpowers/specs/2026-09-29-withdrawn-work-design.md).
 Work is withdrawn when the delegation that authorised it is gone, when a newer delegation session takes the card
 over, or when the issue is out of reach. `{bot}` is the instance's configured Linear app name. A conversation's
 text never mentions branches: a chat pushes none.
+
+Also the last word a thread gets when its work is stopped or resumed from another thread (silent-delegation design
+§4.1, §7: docs/superpowers/specs/2026-09-30-silent-delegation-design.md).
 """
 from .router import WRITE_SKILLS
 
@@ -20,9 +23,15 @@ CLOSED = '这张卡已关闭或归档，{bot} 已停止这里的工作。已推�
 CLOSED_CHAT = '这张卡已关闭或归档，这段对话已结束。'
 OPERATOR = '维护者已停止这项工作。已推送的分支和草稿 PR 都保留。'
 OPERATOR_CHAT = '维护者已结束这段对话。'
-NOTICE_REASONS = ('undelegated', 'superseded', 'closed', 'operator')
+# A Stop pressed in another thread ended the job: a thread that forwarded to it, the card's latest delegation thread,
+# or a conversation's thread after its handover. The job's own thread gets this, so that it is not left waiting on a
+# question nobody will answer there (silent-delegation design A1, P9). It is a notice, never a withdrawal reason.
+STOPPED_ELSEWHERE = '这项工作已在另一个讨论串中按 Stop 停止。已推送的分支和草稿 PR 都保留。'
+STOPPED_ELSEWHERE_CHAT = '这段对话已在另一个讨论串中按 Stop 结束。'
+NOTICE_REASONS = ('undelegated', 'superseded', 'closed', 'operator', 'stopped_elsewhere')
 _NOTICES = {'undelegated': (UNDELEGATED, UNDELEGATED_CHAT), 'superseded': (SUPERSEDED, SUPERSEDED),
-            'closed': (CLOSED, CLOSED_CHAT), 'operator': (OPERATOR, OPERATOR_CHAT)}
+            'closed': (CLOSED, CLOSED_CHAT), 'operator': (OPERATOR, OPERATOR_CHAT),
+            'stopped_elsewhere': (STOPPED_ELSEWHERE, STOPPED_ELSEWHERE_CHAT)}
 
 # What the new delegation session is told when it takes the card over, or waits for a claimed worker to stop.
 SUPERSEDE_SUFFIX = '此前在另一个会话中的工作已转到这里继续。'
@@ -35,7 +44,12 @@ DEFER_UNDELEGATED = '这张卡已不再委派给 {bot}，这次委派的工作�
 RESUME_UNDELEGATED = '已保存回复；这张卡已不再委派给 {bot}，这项工作即将停止。重新委派给 {bot} 会从已有进度接着做。'
 FORWARD_PARKED_UNDELEGATED = '已保存你的消息；这张卡已不再委派给 {bot}，{skill} 工作不会继续。重新委派后会读取这条消息。'
 FORWARD_WITHDRAWING = '已保存你的消息；这张卡上的工作正在停止。'
-STOP_ELSEWHERE = '已停止 {identifier} 上在另一个会话中进行的工作，worker 已终止，占用的资源在静默检查后释放。'
+# What a job's own thread is told, as a thought, when a message in another thread resumed it: its last activity there
+# was the question, which has now been answered elsewhere (silent-delegation design A2, A3).
+RESUMED_ELSEWHERE = '已在另一个讨论串收到回复，这里的工作已恢复，会先读取那条回复。'
+# The Stop's own thread, when the work it stopped lives in another. It claims no terminated worker: the job may
+# have been queued or waiting, with none.
+STOP_ELSEWHERE = '已停止 {identifier} 上在另一个会话中的工作，占用的资源在静默检查后释放。'
 STOP_MOVED = '这里的工作已转到新的委派会话；要停止，请在那个会话里按 Stop。'
 STOP_MOVED_THREAD = '这段对话已转到另一个讨论串继续；要停止，请在那个讨论串里按 Stop。'
 STOP_ALREADY = '这里的工作已经停止。'

@@ -16,6 +16,7 @@ from uuid import uuid4
 from agent.launcher import Finished, Handle, Launcher, RUNTIMES
 from agent.ledger import Ledger, LedgerError
 from agent.scheduler import Scheduler
+from agent.session_progress import SessionProgress
 from agent.skills import load_skills
 from agent.slots import SlotPool, slot_entry
 from agent import dispatch, kw_ops, withdrawal
@@ -1208,6 +1209,23 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual((cancelled["id"], self.ledger.item(fix["id"])["state"]), (fix["id"], "cancelled"))
         self.assertEqual(self.api.activities,
                          [(fix["session_id"], "response", withdrawal.CLOSED.format(bot="FarmBot"))])
+
+    def test_a_stop_notice_function_may_decline_and_the_heartbeat_still_goes(self):
+        """Silent-delegation design A1: a Stop pressed in the job's own thread is answered there by the receiver, so
+        its notice function returns None. Nothing is posted for it, not a response with no body, and the job's pending
+        heartbeat still goes with the cancel: the Stop's reply is the thread's last word."""
+        item = self.item()
+        SessionProgress(self.ledger, None)
+        self.ledger.connection.execute(
+            "INSERT INTO session_progress(item_id,due_at,activity_id,content,status_key) VALUES(?,?,?,?,?)",
+            (item["id"], self.now, "activity-1", json.dumps({"type": "thought", "body": "工作仍在排队。"}),
+             f"{item['id']}:queued:0"))
+        cancelled = self.scheduler.stop(item["id"], "Linear stop", states=("queued",), notice=lambda job: None)
+        self.assertEqual((cancelled["id"], cancelled["state"]), (item["id"], "cancelled"))
+        self.assertEqual((self.api.activities, self.api.comments), ([], []))
+        self.assertIsNone(self.ledger.connection.execute("SELECT 1 FROM session_progress WHERE item_id=?",
+                                                         (item["id"],)).fetchone())
+        self.assertEqual(self.launcher.stopped, [item["id"]])
 
     def test_a_withdrawn_worker_is_stopped_when_its_grace_ends(self):
         """Withdrawn-work design P2: the controller cancels and kills a flagged worker that has not run `withdraw` by
