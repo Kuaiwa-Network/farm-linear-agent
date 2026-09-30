@@ -37,7 +37,7 @@ _JOINERS = {"\u200c", "\u200d"}
 _EMAIL = re.compile(r"""[^\s@<>()\[\],;:"']+@[^\s@<>()\[\],;:"']+\.[A-Za-z]{2,}""")
 ISSUE_QUERY = """query FarmBotIssue($id: String!, $after: String) {
   issue(id: $id) {
-    id identifier url branchName title description priority archivedAt updatedAt
+    id identifier url branchName title description priority archivedAt trashed updatedAt
     state { name type } team { id } labels { nodes { name parent { id name } } } attachments { nodes { url } }
     delegate { id } assignee { id name url app } creator { id name url app }
     comments(first: 50, after: $after) {
@@ -418,8 +418,9 @@ class LinearAPI:
                 "delegate_id": (issue.get("delegate") or {}).get("id")}
 
     def fetch_issue(self, issue_ref):
-        """Complete detail plus every comment page, shaped for Ledger.observe_issue. An issue Linear no longer
-        returns is a `not_found` LinearError, as for `issue_status`."""
+        """Complete detail plus every comment page, shaped for Ledger.observe_issue. As for `issue_status`, a trashed
+        issue reads as archived, which closes it, and an issue Linear no longer returns is a `not_found` LinearError
+        (withdrawn-work design E3, U7)."""
         if self.app_user_id is None:
             self.identity()
         comments, after, issue = [], None, None
@@ -467,7 +468,8 @@ class LinearAPI:
                 "status_type": issue["state"]["type"], "labels": [n["name"] for n in issue["labels"]["nodes"]],
                 "label_groups": _label_groups(issue["labels"]["nodes"]),
                 "assignee": people["assignee"], "creator": people["creator"],
-                "priority": int(issue["priority"] or 0), "archived": issue.get("archivedAt") is not None,
+                "priority": int(issue["priority"] or 0),
+                "archived": issue.get("archivedAt") is not None or issue.get("trashed") is True,
                 "delegate_id": (issue.get("delegate") or {}).get("id"),
                 "attachments": sorted({strip_signed(n["url"]) for n in issue["attachments"]["nodes"]}),
                 "comments": comments, "detail_complete": True, "comments_complete": True}

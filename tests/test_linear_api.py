@@ -300,6 +300,16 @@ class LinearAPITests(unittest.TestCase):
         self.assertEqual([c["author_kind"] for c in issue["comments"]], ["bot"])
         self.assertEqual([c[0].rsplit("/", 1)[-1] for c in self.http.calls][:2], ["token", "graphql"])
 
+    def test_fetch_issue_reads_a_trashed_issue_as_archived(self):
+        """Withdrawn-work design E3, U7, as `issue_status`: an issue in the trash is closed like an archived one, in the
+        full read too. A settle decides on that read (silent-delegation design S14), so it drops the episode of a card
+        deleted during the grace instead of keeping or telling its work."""
+        self.assertIn("archivedAt trashed", " ".join(ISSUE_QUERY.split()))
+        for trashed, archived in ((True, True), (None, False), (False, False)):
+            with self.subTest(trashed=trashed):
+                self.assertIs(self.fetched([], trashed=trashed)["archived"], archived)
+        self.assertIs(self.fetched([], archivedAt="2026-09-30T00:00:00Z", trashed=None)["archived"], True)
+
     def test_fetch_issue_says_not_found_for_an_issue_linear_no_longer_returns(self):
         """Withdrawn-work design E3, as `issue_status`: a read that returns no issue is a `not_found` LinearError, the
         one kind that counts toward a card out of reach, whichever read met it."""
