@@ -237,15 +237,37 @@ class Scheduler:
 
         `item`, a view of the item the caller already holds, spares a read on the scheduler's own connection, which
         a caller on another thread (the lifecycle loop through `stop`) must not use.
+
+        Returns whether Linear took it. A response or an error closes the job's thread, so one Linear refuses is
+        owed to the thread and posted again by the progress loop (silent-delegation design P10, A4); a thought
+        closes nothing and is not.
         """
         if self.api is None:
-            return
+            return False
         try:
             item = item or self.ledger.item(item_id)
             if str(item["session_id"]).startswith("local-"):
                 self.api.create_comment(item["issue_id"], body)
             else:
                 self.api.create_activity(item["session_id"], {"type": kind, "body": body})
+        except Exception as exc:
+            if item is not None and kind in ("response", "error"):
+                self._owe(item, kind, body, exc)
+            return False
+        return True
+
+    def _owe(self, item, kind, body, exc):
+        """Record the closing activity Linear refused for `item`, best effort as the post was. On a control connection
+        where there is one, as `stop` cancels: `_notify` also runs on the receiver's and the lifecycle's threads,
+        which must not use the scheduler's own."""
+        try:
+            control = self.control_ledger_factory() if self.control_ledger_factory else self.ledger
+            try:
+                control.owe_closure(str(item["session_id"]), issue_id=item["issue_id"], item_id=item["id"], kind=kind,
+                                    body=body, error=type(exc).__name__)
+            finally:
+                if control is not self.ledger:
+                    control.close()
         except Exception:
             pass
 

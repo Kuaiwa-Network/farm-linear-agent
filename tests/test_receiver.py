@@ -1984,3 +1984,82 @@ class OwnThreadReceiverTests(ReceiverBase):
         self.assertEqual(self.ledger.active_item_for_session("session-9")["skill"], "chat")
         self.assertEqual(self.said_in("session-0"), [MOVED_THREAD])
         self.assertEqual(self.receiver.results()[-1]["status"], "uncertain")
+
+    def owed(self):
+        """(session, job, the job's state, kind, body) of every closing activity owed to a thread, oldest first."""
+        return [(row["session_id"], row["item_id"], row["item_state"], row["kind"], row["body"])
+                for row in self.ledger.connection.execute("SELECT * FROM session_closures ORDER BY created_at,rowid")]
+
+    def test_a_refused_move_note_stop_reply_or_error_reply_is_owed(self):
+        """A4, P10: what closes a thread is owed to it when Linear refuses it: the note a takeover leaves in the old
+        thread, a Stop's reply, and the error an event that failed is answered with. The work itself is done, stopped
+        or failed as before, and the Stop is still recorded as uncertain."""
+        self.real_scheduler()
+        old = self.waiting_fix("session-0")
+        self.refusing("session-0")
+        [new] = self.delegate("session-1")
+        self.assertEqual(self.receiver.results()[-1]["status"], "done")
+        self.assertEqual(self.owed(), [("session-0", old["id"], "cancelled", "response", SUPERSEDED)])
+        self.refusing("session-1")
+        self.stop_in("session-1")
+        with self.receiver.lock:
+            recorded = self.receiver.db.execute("SELECT status,error FROM stop_requests").fetchall()
+        self.assertEqual([tuple(row) for row in recorded], [("uncertain", "RuntimeError")])
+        self.assertEqual(self.owed()[1:], [("session-1", new["id"], "cancelled", "response", self.STOPPED_HERE)])
+        self.refusing("session-7")
+        self.api.fetch_issue.side_effect = RuntimeError("boom")
+        self.mention_in("session-7", "@FarmBot 进展如何？")
+        self.assertEqual(self.receiver.results()[-1]["status"], "uncertain")
+        self.assertEqual(self.owed()[2:], [("session-7", None, None, "error",
+                                            "FarmBot 处理这条消息时出错（RuntimeError），请稍后重试或联系维护者。")])
+        [row] = self.ledger.connection.execute("SELECT * FROM session_closures WHERE session_id='session-7'").fetchall()
+        self.assertEqual((row["issue_id"], row["attempts"], row["last_error"], row["given_up_at"]),
+                         (ISSUE, 1, "RuntimeError", None))
+        self.assertAlmostEqual(row["due_at"] - row["created_at"], 60, places=3)
+
+    def test_an_owed_stop_reply_names_the_job_it_stopped_in_another_thread(self):
+        """A4: a Stop's reply speaks of the job the Stop ended, wherever that job lives. When the job's own thread
+        takes its closing response and the Stop's thread refuses its reply, only the reply is owed."""
+        self.real_scheduler()
+        fix = self.waiting_fix("session-1")
+        self.mention_in("session-9", "@FarmBot 公共测试服")
+        self.refusing("session-9")
+        self.stop_in("session-9")
+        self.assertEqual(self.said_in("session-1"), [STOPPED_ELSEWHERE])
+        self.assertEqual(self.owed(), [("session-9", fix["id"], "cancelled", "response", self.STOPPED_THERE)])
+
+    def test_an_owed_error_reply_goes_once_the_threads_job_moves_on(self):
+        """A4, P10: an error reply is owed for the thread's job as it stood. A later reply that resumes the job is
+        acknowledged in the thread, and the older error would follow that acknowledgement: it is dropped."""
+        fix = self.waiting_fix("session-1")
+        self.refusing("session-1")
+        self.api.fetch_issue.side_effect = RuntimeError("boom")
+        self.reply_in("session-1", "公共测试服")
+        [row] = [dict(row) for row in self.ledger.connection.execute("SELECT * FROM session_closures")]
+        self.assertEqual((row["session_id"], row["item_id"], row["item_state"], row["kind"]),
+                         ("session-1", fix["id"], "awaiting_input", "error"))
+        self.assertFalse(self.ledger.closure_superseded(row))
+        self.api.fetch_issue.side_effect = None
+        self.api.create_activity.side_effect = None
+        self.reply_in("session-1", "公共测试服", activity="act-2")
+        self.assertEqual(self.ledger.item(fix["id"])["state"], "queued")
+        self.assertTrue(self.ledger.closure_superseded(row))
+
+    def test_a_refused_thought_or_card_note_is_not_owed(self):
+        """A4: only a response or an error closes a thread. The note that a job was resumed is a thought, and an
+        operator's `local-` job is told on the card, where no thread waits."""
+        self.waiting_fix("session-1")
+        self.refusing("session-1")
+        self.mention_in("session-9", "@FarmBot 公共测试服")
+        self.assertEqual(self.sent()[-1], ("session-1", {"type": "thought", "body": RESUMED_ELSEWHERE}))
+        self.assertEqual(self.owed(), [])
+        self.api.create_activity.side_effect = None
+        self.ledger.cancel(self.ledger.active_item_for_issue(ISSUE)["id"], "an earlier stop")
+        self.ledger.ensure_session(f"local-{ISSUE}", ISSUE, True)
+        local = self.ledger.create_work_item(issue_id=ISSUE, session_id=f"local-{ISSUE}", skill="fix",
+                                             authority="delegation")
+        self.api.create_comment.side_effect = RuntimeError("linear down")
+        [new] = self.delegate("session-2")
+        self.assertEqual((self.ledger.item(local["id"])["state"], new["predecessor_id"]), ("cancelled", local["id"]))
+        self.api.create_comment.assert_called_once_with(ISSUE, SUPERSEDED)
+        self.assertEqual(self.owed(), [])

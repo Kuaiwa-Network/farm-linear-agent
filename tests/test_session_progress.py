@@ -286,3 +286,155 @@ class SessionProgressTests(LedgerBase):
             self.now += 600
             self.assertFalse(self.progress.tick())
         self.assertEqual(len(self.sent), 1)
+
+    def owed(self, body="这项工作已取消。", kind="response"):
+        """A cancelled fix in SESSION whose closing activity Linear refused: (the fix, the owed row)."""
+        item = self.new_item()
+        self.ledger.cancel(item["id"], "Linear stop", drop_progress=True)
+        return item, self.ledger.owe_closure(SESSION, item_id=item["id"], kind=kind, body=body)
+
+    def closures(self):
+        return [dict(row) for row in self.ledger.connection.execute("SELECT * FROM session_closures")]
+
+    def test_a_refused_closing_response_is_retried_until_linear_takes_it(self):
+        """Silent-delegation design P10, A4: a closing activity Linear refused is posted again when it is due, each
+        time under a new activity id (U7: nobody knows whether Linear accepts the same id twice), and never again once
+        Linear took it."""
+        _, owed = self.owed()
+        attempts = []
+
+        def unavailable(session, content, activity_id=None):
+            attempts.append((self.now, session, content, activity_id))
+            raise OSError("temporary outage")
+        self.api.create_activity = unavailable
+        self.assertFalse(self.progress.tick())  # not due for a minute
+        for wait in (60, 120):
+            self.now += wait - 1
+            self.assertFalse(self.progress.tick())
+            self.now += 1
+            self.assertTrue(self.progress.tick())
+            self.assertFalse(self.progress.tick())  # one post per due time
+        self.assertEqual([(at - owed["created_at"], session, content) for at, session, content, _ in attempts],
+                         [(60, SESSION, {"type": "response", "body": "这项工作已取消。"}),
+                          (180, SESSION, {"type": "response", "body": "这项工作已取消。"})])
+        self.assertEqual([(row["attempts"], row["last_error"]) for row in self.closures()], [(3, "OSError")])
+        self.api.create_activity = self.send
+        self.now += 240
+        self.assertTrue(self.progress.tick())
+        self.assertEqual([(session, content) for session, content, _ in self.sent],
+                         [(SESSION, {"type": "response", "body": "这项工作已取消。"})])
+        ids = [activity_id for *_, activity_id in attempts] + [self.sent[0][2]]
+        self.assertEqual((len(set(ids)), None in ids), (3, False))
+        self.assertEqual(self.closures(), [])
+        self.now += 10 ** 6
+        self.assertFalse(self.progress.tick())
+        self.assertEqual(len(self.sent), 1)
+
+    def test_an_owed_closing_activity_that_newer_work_overtook_is_dropped_unposted(self):
+        """P10: the owed words closed the thread for the job as it stood. Once the job was retried, its successor's
+        activities are the thread's, and the older closing activity is dropped, not posted after them."""
+        item, _ = self.owed()
+        self.now += 30
+        self.ledger.retry(item["id"], "重试")  # a successor in the same thread
+        self.now += 30
+        self.assertTrue(self.progress.tick())
+        self.assertEqual((self.sent, self.closures()), ([], []))
+
+    def test_an_owed_closing_activity_is_given_up_after_the_sixth_refusal(self):
+        """P10: the refusal that owed it and five more; then nothing is posted again, and the row stays for doctor."""
+        _, owed = self.owed(kind="error", body="无法启动工作进程。")
+        attempts = []
+
+        def unavailable(session, content, activity_id=None):
+            attempts.append(self.now)
+            raise OSError("temporary outage")
+        self.api.create_activity = unavailable
+        for _ in range(400):
+            self.now += 10
+            self.progress.tick()
+        self.assertEqual([round(at - owed["created_at"]) for at in attempts], [60, 180, 420, 900, 1860])
+        self.assertEqual([(row["attempts"], row["given_up_at"]) for row in self.closures()], [(6, attempts[-1])])
+
+    def question_in_flight(self, skill="chat"):
+        """A claimed job in SESSION whose heartbeat is due in 20 seconds: (the job, its token)."""
+        item = self.new_item(skill=skill)
+        self.now += 580
+        return item, self.ledger.claim(item["id"], worker_id="w")["token"]
+
+    def test_a_heartbeat_question_that_crosses_a_closing_notice_is_closed_again(self):
+        """Silent-delegation design A7: a heartbeat repeats a parked job's question while a cancel that posts its own
+        closing notice lands. The notice dropped the heartbeat, so no correction is pending, and the question would
+        be the thread's last activity: the job's terminal text closes the thread again, once."""
+        item, token = self.question_in_flight()
+
+        def crossing(session, content, activity_id=None):
+            self.send(session, content, activity_id)
+            if content["type"] == "thought":
+                self.ledger.await_input(item["id"], token, "哪个服？")
+            elif content["type"] == "elicitation":
+                self.ledger.cancel(item["id"], "Linear stop", drop_progress=True)  # and its notice, posted elsewhere
+        self.api.create_activity = crossing
+        self.now += 20
+        self.assertTrue(self.progress.tick())
+        self.assertEqual([content for _, content, _ in self.sent[1:]],
+                         [{"type": "elicitation", "body": "哪个服？"}, {"type": "response", "body": "工作已停止。"}])
+        self.assertEqual({session for session, *_ in self.sent}, {SESSION})
+        self.assertEqual(len({activity_id for *_, activity_id in self.sent}), 3)
+        self.assertEqual(self.closures(), [])
+        self.now += 600
+        self.assertFalse(self.progress.tick())
+        self.assertEqual(len(self.sent), 3)
+
+    def test_a_refused_second_closing_after_a_crossing_question_is_owed(self):
+        """A7, P10: when Linear refuses that closing response, it is owed like any other."""
+        item, token = self.question_in_flight()
+
+        def crossing(session, content, activity_id=None):
+            if content["type"] == "thought":
+                self.ledger.await_input(item["id"], token, "哪个服？")
+            elif content["type"] == "elicitation":
+                self.ledger.cancel(item["id"], "Linear stop", drop_progress=True)
+            else:
+                raise OSError("temporary outage")
+            return {"success": True}
+        self.api.create_activity = crossing
+        self.now += 20
+        self.assertTrue(self.progress.tick())
+        self.assertEqual([(row["session_id"], row["item_id"], row["item_state"], row["kind"], row["body"],
+                           row["last_error"]) for row in self.closures()],
+                         [(SESSION, item["id"], "cancelled", "response", "工作已停止。", "OSError")])
+
+    def test_a_crossing_question_linear_refused_is_not_closed_again(self):
+        """A7 closes the thread only when the question reached it: one Linear refused is not in the thread."""
+        item, token = self.question_in_flight()
+
+        def crossing(session, content, activity_id=None):
+            self.send(session, content, activity_id)
+            if content["type"] == "thought":
+                self.ledger.await_input(item["id"], token, "哪个服？")
+            else:
+                self.ledger.cancel(item["id"], "Linear stop", drop_progress=True)
+                raise OSError("temporary outage")
+        self.api.create_activity = crossing
+        self.now += 20
+        self.assertTrue(self.progress.tick())
+        self.assertEqual([content["type"] for _, content, _ in self.sent], ["thought", "elicitation"])
+        self.assertEqual(self.closures(), [])
+
+    def test_a_crossing_question_in_a_thread_with_newer_work_is_not_closed_again(self):
+        """A7 closes the thread for the job that ended. A thread that has newer work by then is that work's: a
+        "stopped" response would close it over a job that goes on."""
+        item, token = self.question_in_flight()
+
+        def crossing(session, content, activity_id=None):
+            self.send(session, content, activity_id)
+            if content["type"] == "thought":
+                self.ledger.await_input(item["id"], token, "哪个服？")
+            else:
+                self.ledger.cancel(item["id"], "a new delegation took the card over in place", drop_progress=True)
+                self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix")
+        self.api.create_activity = crossing
+        self.now += 20
+        self.assertTrue(self.progress.tick())
+        self.assertEqual([content["type"] for _, content, _ in self.sent], ["thought", "elicitation"])
+        self.assertEqual(self.closures(), [])

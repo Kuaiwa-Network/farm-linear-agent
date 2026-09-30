@@ -5,8 +5,8 @@ Work is withdrawn when the delegation that authorised it is gone, when a newer d
 over, or when the issue is out of reach. `{bot}` is the instance's configured Linear app name. A conversation's
 text never mentions branches: a chat pushes none.
 
-Also the last word a thread gets when its work is stopped or resumed from another thread (silent-delegation design
-§4.1, §7: docs/superpowers/specs/2026-09-30-silent-delegation-design.md).
+Also the last word a thread gets when its work is stopped or resumed from another thread, or ends after it asked
+a question (silent-delegation design §4.1, §7: docs/superpowers/specs/2026-09-30-silent-delegation-design.md).
 """
 from .router import WRITE_SKILLS
 
@@ -53,6 +53,10 @@ STOP_ELSEWHERE = '已停止 {identifier} 上在另一个会话中的工作，占
 STOP_MOVED = '这里的工作已转到新的委派会话；要停止，请在那个会话里按 Stop。'
 STOP_MOVED_THREAD = '这段对话已转到另一个讨论串继续；要停止，请在那个讨论串里按 Stop。'
 STOP_ALREADY = '这里的工作已经停止。'
+# The response that follows a question `await-input` posted for a job that ended before it could park: the question
+# would otherwise be its thread's last activity, asking for an answer no job reads (silent-delegation design A6).
+QUESTION_WITHDRAWN = '上面的问题不用再回答：这项工作已经停止。'
+QUESTION_WITHDRAWN_CHAT = '上面的问题不用再回答：这段对话已经结束。'
 
 # Session heartbeats for a job that waits or stops for one of these reasons.
 HEARTBEAT_PREDECESSOR = '工作已排队，正在等待上一次工作的清理完成。'
@@ -71,6 +75,11 @@ def notice(skill, reason, bot):
         raise ValueError(f'no notice for reason {reason!r}')
     write, chat = _NOTICES[reason]
     return (write if skill in WRITE_SKILLS else chat).format(bot=bot)
+
+
+def question_withdrawn(skill):
+    """The response that withdraws a question a job of `skill` asked and can no longer read an answer to."""
+    return QUESTION_WITHDRAWN if skill in WRITE_SKILLS else QUESTION_WITHDRAWN_CHAT
 
 
 def grace_seconds(manifest):

@@ -215,6 +215,7 @@ class Receiver:
             self.db.execute("UPDATE stop_requests SET status='processing' WHERE stop_key=?", (row["stop_key"],))
             self.db.commit()
         status, error = "done", None
+        body = stopped = None
         try:
             # The session's own work, else the work its messages were forwarded to, else, from the card's latest
             # delegation session, the delegation's work wherever it runs (design P5).
@@ -236,12 +237,17 @@ class Receiver:
                     body = f"已停止 {item['identifier']} 上的工作，worker 已终止，占用的资源在静默检查后释放。"
                 else:
                     body = STOP_ELSEWHERE.format(identifier=item["identifier"])
+                stopped = cancelled or item
             else:
                 body = {"moved": STOP_MOVED, "moved_thread": STOP_MOVED_THREAD,
                         "stopped": STOP_ALREADY}.get(where, "当前没有正在进行的工作可停止。")
             self._send(row["session_id"], row["activity_id"], {"type": "response", "body": body})
         except Exception as exc:
             status, error = "uncertain", type(exc).__name__
+            if body is not None:
+                # The reply is what closes the Stop's thread, so one Linear refused is owed to it, for the job the
+                # Stop ended or found ended (silent-delegation design A4, P10). The Stop itself stays uncertain.
+                self._owe(row["session_id"], "response", body, exc, job=stopped)
         with self.lock, self.db:
             self.db.execute("UPDATE stop_requests SET status=?,completed_at=?,error=? WHERE stop_key=?",
                             (status, self.clock(), error, row["stop_key"]))
@@ -476,14 +482,27 @@ class Receiver:
         return grace_seconds(manifests.get(skill) if isinstance(manifests, dict) else None)
 
     def _close_moved(self, item, body):
-        """Best effort, after the new session's acknowledgement: a superseded item's own session is told where its
-        work went, `body`, SUPERSEDED for a new delegation's takeover or MOVED_THREAD for a conversation a message
-        moved, or the card is, for an operator's `local-` item, which names no Linear session (design P4, P7)."""
+        """After the new session's acknowledgement: a superseded item's own session is told where its work went,
+        `body`, SUPERSEDED for a new delegation's takeover or MOVED_THREAD for a conversation a message moved, or the
+        card is, for an operator's `local-` item, which names no Linear session (design P4, P7). The note closes the
+        old thread, so one Linear refuses is owed to it (silent-delegation design A4)."""
         try:
             if str(item["session_id"]).startswith("local-"):
                 self.api.create_comment(item["issue_id"], body)
             else:
                 self.api.create_activity(item["session_id"], {"type": "response", "body": body})
+        except Exception as exc:
+            self._owe(item["session_id"], "response", body, exc, job=item)
+
+    def _owe(self, session_id, kind, body, exc, *, job=None, issue_id=None):
+        """Linear refused the response or error that closes the thread `session_id`: it is owed to the thread, and the
+        progress loop posts it again, unless `job`, the work it closes the thread for, or newer work in the thread
+        speaks there first (silent-delegation design P10). Best effort, as the post was; an operator's `local-` job
+        is owed nothing."""
+        try:
+            self.ledger.owe_closure(str(session_id), issue_id=job["issue_id"] if job else issue_id,
+                                    item_id=job["id"] if job else None, kind=kind, body=body,
+                                    error=type(exc).__name__)
         except Exception:
             pass
 
@@ -546,10 +565,18 @@ class Receiver:
             status, error = "deferred", deferred.item_id
         except (LedgerError, RuntimeError, ValueError, KeyError, OSError, sqlite3.Error) as exc:
             status, error = "uncertain", type(exc).__name__
+            body = f"{self.bot_name} 处理这条消息时出错（{type(exc).__name__}），请稍后重试或联系维护者。"
             try:
-                self._send(row["session_id"], row["ack_id"], {"type": "error", "body": f"{self.bot_name} 处理这条消息时出错（{type(exc).__name__}），请稍后重试或联系维护者。"})
-            except Exception:
-                pass
+                self._send(row["session_id"], row["ack_id"], {"type": "error", "body": body})
+            except Exception as refused:
+                # Owed to the thread, for its job as it stands: a later message that moves the job on is acknowledged
+                # there, and this older error must not follow that (silent-delegation design A4, P10).
+                try:
+                    job = self.ledger.active_item_for_session(row["session_id"])
+                    issue_id = json.loads(row["payload"]).get("issue_id")
+                except Exception:
+                    job = issue_id = None
+                self._owe(row["session_id"], "error", body, refused, job=job, issue_id=issue_id)
         with self.lock, self.db:
             if status == "deferred":
                 self.db.execute("UPDATE webhook_events SET status=?,error=? WHERE event_key=?",

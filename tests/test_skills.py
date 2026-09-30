@@ -233,6 +233,18 @@ class WithdrawalInstructionTests(unittest.TestCase):
             with self.subTest(reference=phrase):
                 self.assertIn(phrase, reference)
 
+    def test_the_fix_skill_asks_only_through_await_input(self):
+        """Silent-delegation design A8, P9: a question posted with `activity` parks nothing, so its thread waits for
+        an answer no job reads. The skill told workers both not to do that and to do it; now only `await-input` asks,
+        and the CLI refuses the other way. No skill tells a worker to post an elicitation itself."""
+        fix = self.text("skills", "fix", "SKILL.md")
+        self.assertNotIn("`--type elicitation` only for a question", fix)
+        self.assertIn("use `activity --type thought` for progress; a question always goes through `await-input`, "
+                      "which posts it and parks the job", fix)
+        for skill in sorted(path.parent.name for path in (ROOT / "skills").glob("*/SKILL.md")):
+            with self.subTest(skill=skill):
+                self.assertNotIn("--type elicitation", self.text("skills", skill, "SKILL.md"))
+
 
 class SkillRegistryTests(unittest.TestCase):
     def test_repository_skills_load_with_expected_authority(self):

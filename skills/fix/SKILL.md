@@ -373,8 +373,8 @@ snapshots or the database, or use operator-only `memory-admin`. Gameplay rules r
 - Run `fetch-issue` right before `finish`; if the ledger answers `queued`, a human changed the issue while
   you were finishing and a fresh worker will take it, so exit.
 - `finish` itself posts the final `response` that completes the Linear session (已交付／已暂停 plus the
-  summary and PR links). Never post a `response` yourself; use `activity --type thought` for progress and
-  `--type elicitation` only for a question.
+  summary and PR links). Never post a `response` yourself; use `activity --type thought` for progress; a
+  question always goes through `await-input`, which posts it and parks the job.
 
 Write your run report to `STATE_DIR/report.md`, with `STATE_DIR` from your launch message. Retries and
 resumes of this job reuse `STATE_DIR`: if a report is already there when you start yours, an earlier

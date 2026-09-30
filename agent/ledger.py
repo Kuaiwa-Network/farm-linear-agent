@@ -582,6 +582,17 @@ class Ledger:
                     details TEXT NOT NULL,
                     created_at REAL NOT NULL
                 );
+                -- A closing activity Linear refused, owed to its thread (silent-delegation design P10): one per
+                -- thread, with the job it closed the thread for and that job's state then.
+                CREATE TABLE IF NOT EXISTS session_closures (
+                    session_id TEXT PRIMARY KEY,
+                    issue_id TEXT, item_id TEXT, item_state TEXT,
+                    kind TEXT NOT NULL CHECK(kind IN ('response','error')),
+                    body TEXT NOT NULL,
+                    attempts INTEGER NOT NULL DEFAULT 1,
+                    due_at REAL NOT NULL, created_at REAL NOT NULL,
+                    last_error TEXT, given_up_at REAL
+                );
             """)
             self.connection.executescript(RECOVERY_SCHEMA)
             # Columns added after the first ledgers were written; CREATE TABLE IF NOT EXISTS leaves those files as they were.
@@ -1745,6 +1756,92 @@ class Ledger:
         if drop_progress and self.connection.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name='session_progress'").fetchone():
             self.connection.execute("DELETE FROM session_progress WHERE item_id=?", (row["id"],))
+
+    # A closing activity Linear refused is owed to its thread (silent-delegation design P10, which amends the
+    # withdrawn-work design's P7): tried again 1, 2, 4, 8 and 16 minutes apart, about 31 minutes in all, and given up
+    # at its sixth refusal.
+    CLOSURE_KINDS = ("response", "error")
+    CLOSURE_RETRY_SECONDS = 60
+    CLOSURE_ATTEMPTS = 6
+
+    def owe_closure(self, session_id, *, issue_id=None, item_id=None, kind, body, error=None):
+        """Linear refused the `kind` activity, a response or an error, that closes the thread `session_id` with `body`:
+        it is owed to the thread, and the progress loop posts it again (SessionProgress.tick). `item_id` is the job
+        it closes the thread for; that job's state is recorded as it stands now, so the row can be dropped once the
+        job, or a newer one in the thread, speaks there itself (closure_superseded). `error` names the refusal. A
+        thread has one last word: the row replaces an older one of the thread, and its tries start anew. An
+        operator's `local-` job has no Linear thread, so nothing is owed for one. Returns the row, or None."""
+        _text(session_id, "session_id")
+        if session_id.startswith("local-"):
+            return None
+        if kind not in self.CLOSURE_KINDS:
+            raise LedgerError(f"an owed closing activity is one of {', '.join(self.CLOSURE_KINDS)}")
+        _text(body, "body")
+        with self._transaction():
+            state = None
+            if item_id is not None:
+                row = self._row(item_id)
+                issue_id, state = issue_id or row["issue_id"], row["state"]
+            elif issue_id is None:
+                session = self.connection.execute("SELECT issue_id FROM sessions WHERE session_id=?",
+                                                  (session_id,)).fetchone()
+                issue_id = session["issue_id"] if session else None
+            now = self.clock()
+            error = None if error is None else str(error)[:200]
+            self.connection.execute("""INSERT OR REPLACE INTO session_closures
+                (session_id,issue_id,item_id,item_state,kind,body,attempts,due_at,created_at,last_error,given_up_at)
+                VALUES(?,?,?,?,?,?,1,?,?,?,NULL)""",
+                                    (session_id, issue_id, item_id, state, kind, body,
+                                     now + self.CLOSURE_RETRY_SECONDS, now, error))
+            return dict(self.connection.execute("SELECT * FROM session_closures WHERE session_id=?",
+                                                (session_id,)).fetchone())
+
+    def due_closure(self, now):
+        """The owed closing activity to try next: the one longest due at `now` among those not given up, or None."""
+        row = self.connection.execute("""SELECT * FROM session_closures WHERE due_at<=? AND given_up_at IS NULL
+            ORDER BY due_at,created_at,session_id LIMIT 1""", (now,)).fetchone()
+        return dict(row) if row else None
+
+    def closure_superseded(self, row):
+        """Whether the owed closing activity `row` no longer holds: its job's state is not the one recorded, or a job
+        was created in its thread after it was owed. Either speaks in the thread itself, and the older closing words
+        would follow its own."""
+        if row["item_id"] is not None:
+            job = self.connection.execute("SELECT state FROM work_items WHERE id=?", (row["item_id"],)).fetchone()
+            if job is None or job["state"] != row["item_state"]:
+                return True
+        return self.connection.execute("SELECT 1 FROM work_items WHERE session_id=? AND created_at>? LIMIT 1",
+                                       (row["session_id"], row["created_at"])).fetchone() is not None
+
+    def drop_closure(self, session_id, *, owed_at=None):
+        """Forget the closing activity owed to `session_id`: Linear took it, or it no longer holds. `owed_at`, the
+        `created_at` of the row the caller read, leaves alone a newer one that has replaced it since."""
+        with self._transaction():
+            self.connection.execute("DELETE FROM session_closures WHERE session_id=? AND (? IS NULL OR created_at=?)",
+                                    (session_id, owed_at, owed_at))
+
+    def closure_result(self, session_id, *, sent, error=None, owed_at=None):
+        """Record one try of the closing activity owed to `session_id`. `sent`: Linear took it, and the row goes.
+        Otherwise the refusal `error` is counted: with the new count n, the next try is due 60 * 2 ** (n - 1) seconds
+        from now, and the sixth refusal is the last: the row stays, given up, for doctor to list. `owed_at` as for
+        drop_closure."""
+        if sent:
+            return self.drop_closure(session_id, owed_at=owed_at)
+        with self._transaction():
+            row = self.connection.execute("""SELECT attempts FROM session_closures WHERE session_id=?
+                AND given_up_at IS NULL AND (? IS NULL OR created_at=?)""", (session_id, owed_at, owed_at)).fetchone()
+            if row is None:
+                return
+            attempts, now = row["attempts"] + 1, self.clock()
+            error = None if error is None else str(error)[:200]
+            if attempts >= self.CLOSURE_ATTEMPTS:
+                self.connection.execute("UPDATE session_closures SET attempts=?,last_error=?,given_up_at=? "
+                                        "WHERE session_id=?", (attempts, error, now, session_id))
+            else:
+                self.connection.execute("UPDATE session_closures SET attempts=?,last_error=?,due_at=? "
+                                        "WHERE session_id=?",
+                                        (attempts, error, now + self.CLOSURE_RETRY_SECONDS * 2 ** (attempts - 1),
+                                         session_id))
 
     def supersede(self, expected_id, expected_states, *, session_id, skill, reason, target=None, authority=None,
                   text=None, author=None, received_at=None, takeover=True):

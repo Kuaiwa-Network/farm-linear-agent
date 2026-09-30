@@ -637,6 +637,220 @@ class CliTests(unittest.TestCase):
         self.assertEqual(self.calls()[-1]["content"]["type"], "elicitation")
         self.assertTrue(any(c["method"] == "needs_more_info" and c["issue_id"] == ISSUE for c in self.calls()))
 
+    def test_activity_refuses_an_elicitation(self):
+        """Silent-delegation design A8, P9: a question that parks nothing leaves its thread waiting for an answer no
+        job would read. `activity` refuses one before anything reaches Linear; the other kinds still go."""
+        item = self.seeded_item()
+        token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
+        body = self.root / "q.md"
+        body.write_text("需要哪个环境？", encoding="utf-8")
+        refused = self.run_cli("activity", "--item", item, "--token", token, "--type", "elicitation",
+                               "--body-file", str(body), success=False)
+        self.assertIn("ask with await-input: it posts the question and parks the job", refused.stderr)
+        self.assertEqual(self.calls(), [])  # no question posted, no needs-more-info added
+        self.assertEqual(self.run_cli("issue-context", "--item", item)["coordination"]["state"], "running")
+        for kind in ("response", "error"):
+            self.run_cli("activity", "--item", item, "--token", token, "--type", kind, "--body-file", str(body))
+            posted = self.calls()[-1]
+            self.assertEqual((posted["method"], posted["content"]["type"]), ("create_activity", kind))
+
+    def in_process(self, ledger, api, *argv):
+        """Run one command in this process against `api`, a Linear double the test controls. No private config is
+        read, as in the other fixtures, and the command's warnings stay out of the test output."""
+        import contextlib
+        from unittest.mock import patch
+        from agent.__main__ import parser, run
+        args = parser().parse_args(["--db", str(self.db), *argv])
+        with patch("agent.__main__.load_config", side_effect=OSError("no private config")), \
+                contextlib.redirect_stderr(io.StringIO()):
+            return run(args, ledger, lambda: api)
+
+    def linear(self, posted, *, on_post=None, **card):
+        """A Linear double for `in_process` on which every card reads as `card`. It records each activity as (session,
+        content) and each comment as (issue, body) in `posted`, then runs `on_post(content or body)`, which may raise
+        as a refusal by Linear would."""
+        from types import SimpleNamespace
+
+        def read(issue_id):
+            return issue(id=issue_id, labels=["Bug"], **card)
+
+        def create_activity(session_id, content, activity_id=None):
+            posted.append((session_id, content))
+            if on_post is not None:
+                on_post(content)
+            return {"success": True}
+
+        def create_comment(issue_id, body):
+            posted.append((issue_id, body))
+            if on_post is not None:
+                on_post(body)
+            return "comment-1"
+        return SimpleNamespace(app_user_id=STUB_APP, create_activity=create_activity, create_comment=create_comment,
+                               needs_more_info=lambda issue_id: None, fetch_issue=read,
+                               issue_status=lambda issue_id: {**read(issue_id), "updated_at": "2026-09-21T00:00:00Z"})
+
+    @staticmethod
+    def refuse(_content):
+        raise RuntimeError("linear down")
+
+    @staticmethod
+    def closures(ledger):
+        return [(row["session_id"], row["item_id"], row["item_state"], row["kind"], row["body"], row["last_error"])
+                for row in ledger.connection.execute("SELECT * FROM session_closures ORDER BY created_at,rowid")]
+
+    def test_await_input_refused_after_its_question_withdraws_the_question(self):
+        """Silent-delegation design A6: `await-input` posts its question, then parks the job. A Stop, a closure or a
+        failure that lands in between ends the job, the ledger refuses the park, and the question would stay the
+        thread's last activity, asking for an answer no job reads. One response withdraws it, in a conversation's
+        words for a conversation, and the command still fails as before."""
+        from agent.ledger import Ledger, LedgerError
+        from agent.withdrawal import QUESTION_WITHDRAWN, QUESTION_WITHDRAWN_CHAT
+        ledger = Ledger(self.db)
+        self.addCleanup(ledger.close)
+        third = "10000000-0000-4000-8000-000000000003"
+        for issue_id, skill, ends, state, text in (
+                (ISSUE, "fix", lambda item: ledger.cancel(item, "Linear stop"), "cancelled", QUESTION_WITHDRAWN),
+                (OTHER, "chat", lambda item: ledger.cancel(item, "Linear stop"), "cancelled", QUESTION_WITHDRAWN_CHAT),
+                (third, "fix", lambda item: ledger.fail(item, "worker exited"), "failed", QUESTION_WITHDRAWN)):
+            with self.subTest(skill=skill, state=state):
+                session = f"session-{issue_id[-1]}"
+                item = self.seeded_item(issue_id=issue_id, session=session, skill=skill)
+                token = ledger.claim(item, worker_id="w")["token"]
+                posted = []
+
+                def ended_meanwhile(content):
+                    if content["type"] == "elicitation":
+                        ends(item)
+                api = self.linear(posted, on_post=ended_meanwhile, delegate_id=STUB_APP)
+                with self.assertRaisesRegex(LedgerError, "running claim"):
+                    self.in_process(ledger, api, "await-input", "--item", item, "--token", token,
+                                    "--question", "哪个服？")
+                self.assertEqual(posted, [(session, {"type": "elicitation", "body": "哪个服？"}),
+                                          (session, {"type": "response", "body": text})])
+                self.assertEqual(ledger.item(item)["state"], state)
+        self.assertEqual(self.closures(ledger), [])
+        self.assertNotIn("分支", QUESTION_WITHDRAWN_CHAT)
+
+    def test_a_question_withdrawal_linear_refuses_is_owed(self):
+        """A6, P10: the response that withdraws the question closes the thread, so one Linear refuses is owed."""
+        from agent.ledger import Ledger, LedgerError
+        from agent.withdrawal import QUESTION_WITHDRAWN
+        ledger = Ledger(self.db)
+        self.addCleanup(ledger.close)
+        item = self.seeded_item()
+        token = ledger.claim(item, worker_id="w")["token"]
+
+        def stopped_then_down(content):
+            if content["type"] != "elicitation":
+                raise RuntimeError("linear down")
+            ledger.cancel(item, "Linear stop")
+        api = self.linear([], on_post=stopped_then_down, delegate_id=STUB_APP)
+        with self.assertRaisesRegex(LedgerError, "running claim"):
+            self.in_process(ledger, api, "await-input", "--item", item, "--token", token, "--question", "哪个服？")
+        self.assertEqual(self.closures(ledger),
+                         [("session-1", item, "cancelled", "response", QUESTION_WITHDRAWN, "RuntimeError")])
+
+    def test_await_input_refused_for_work_that_goes_on_posts_no_correction(self):
+        """A6: a job that was requeued between the question and the park, or whose worker was told to withdraw, has
+        not ended: its next attempt, or its withdrawal's notice, speaks in the thread. Nothing is withdrawn."""
+        import time
+        from agent.ledger import Ledger, LedgerError
+        now = [time.time()]
+        ledger = Ledger(self.db, clock=lambda: now[0])
+        self.addCleanup(ledger.close)
+
+        def requeued(item):
+            now[0] += 10 ** 6  # its lease ran out, and the scheduler recovered the job
+            ledger.recover(item, "lease expired and worker process is gone")
+
+        def flagged(item):
+            ledger.flag_withdrawal(item, "superseded", 9e9)  # a new delegation waits for this worker to withdraw
+
+        for issue_id, goes_on, refusal, state in ((ISSUE, requeued, "running claim", "queued"),
+                                                  (OTHER, flagged, "delegation withdrawn", "running")):
+            with self.subTest(state=state):
+                session = f"session-{issue_id[-1]}"
+                item = self.seeded_item(issue_id=issue_id, session=session)
+                token = ledger.claim(item, worker_id="w")["token"]
+                posted = []
+
+                def meanwhile(content):
+                    goes_on(item)
+                api = self.linear(posted, on_post=meanwhile, delegate_id=STUB_APP)
+                with self.assertRaisesRegex(LedgerError, refusal):
+                    self.in_process(ledger, api, "await-input", "--item", item, "--token", token,
+                                    "--question", "哪个服？")
+                self.assertEqual(posted, [(session, {"type": "elicitation", "body": "哪个服？"})])
+                self.assertEqual(ledger.item(item)["state"], state)
+        self.assertEqual(self.closures(ledger), [])
+
+    def test_a_refused_closing_notice_or_final_response_is_owed(self):
+        """Silent-delegation design A4, P10: `withdraw`, the operator's `cancel` and `finish` end a job whatever
+        becomes of the activity that closes its thread. One Linear refuses is owed to the thread, for the
+        controller's progress loop to post again; an operator's `local-` job, told on the card, is owed nothing."""
+        from agent.ledger import Ledger
+        from agent.withdrawal import OPERATOR, UNDELEGATED
+        third, fourth = "10000000-0000-4000-8000-000000000003", "10000000-0000-4000-8000-000000000004"
+        withdrawn = self.seeded_item()
+        cancelled = self.seeded_item(issue_id=OTHER, session="session-2")
+        finished = self.seeded_item(issue_id=third, session="session-3", skill="chat")
+        local = self.seeded_item(issue_id=fourth, session="local-enqueue", skill="chat", authority="operator")
+        ledger = Ledger(self.db)
+        self.addCleanup(ledger.close)
+        posted = []
+        api = self.linear(posted, on_post=self.refuse)  # a card delegated to nobody
+        token = ledger.claim(withdrawn, worker_id="w")["token"]
+        result = self.in_process(ledger, api, "withdraw", "--item", withdrawn, "--token", token)
+        self.assertEqual((result["state"], result["reason"], result["notice_posted"]),
+                         ("cancelled", "undelegated", False))
+        result = self.in_process(ledger, api, "cancel", "--item", cancelled, "--reason", "operator stop")
+        self.assertEqual(result["state"], "cancelled")
+        token = ledger.claim(finished, worker_id="w")["token"]
+        result = self.in_process(ledger, api, "finish", "--item", finished, "--token", token, "--outcome", "blocked",
+                                 "--input", self.json_file("blocked.json", {"summary": "需要人工处理"}))
+        self.assertEqual(result["state"], "blocked")
+        self.assertEqual(self.in_process(ledger, api, "cancel", "--item", local, "--reason", "operator stop")["state"],
+                         "cancelled")
+        self.assertEqual(len(posted), 4)  # each was tried once
+        self.assertEqual(self.closures(ledger), [
+            ("session-1", withdrawn, "cancelled", "response", UNDELEGATED.format(bot="FarmBot"), "RuntimeError"),
+            ("session-2", cancelled, "cancelled", "response", OPERATOR, "RuntimeError"),
+            ("session-3", finished, "blocked", "response", "⏸ 已暂停：需要人工处理", "RuntimeError")])
+
+    def test_a_refused_handover_response_is_owed_and_a_refused_thought_is_not(self):
+        """A4: a conversation that hands over to a job in another thread is closed by a response, which is owed when
+        Linear refuses it. In the job's own thread the acknowledgement is a thought, and the job speaks there next."""
+        from agent.ledger import Ledger
+        ledger = Ledger(self.db)
+        self.addCleanup(ledger.close)
+        fix = self.seeded_item()
+        ledger.cancel(fix, "stopped")
+        chat = self.seeded_item(session="mention", skill="chat", delegation=False)
+        ledger.push_inbox(chat, "请接着做")
+        message = ledger.connection.execute("SELECT id FROM inbox WHERE item_id=?", (chat,)).fetchone()[0]
+        token = ledger.claim(chat, worker_id="chat")["token"]
+        posted = []
+        api = self.linear(posted, on_post=self.refuse, delegate_id=STUB_APP)
+        resumed = self.in_process(ledger, api, "resume-work", "--item", chat, "--token", token,
+                                  "--message-id", str(message))
+        self.assertEqual((resumed["session_id"], resumed["predecessor_id"], resumed["state"]),
+                         ("session-1", fix, "queued"))
+        body = "已排队开始或继续修改，会接着你的回复和已有调查结果处理。后续进展记录在原委派会话和 issue 下。"
+        self.assertEqual(posted, [("mention", {"type": "response", "body": body})])
+        self.assertEqual(self.closures(ledger), [("mention", chat, "delivered", "response", body, "RuntimeError")])
+        # A delegation's conversation starts its job in its own thread: a thought, which closes nothing.
+        own = self.seeded_item(issue_id=OTHER, session="session-2", skill="chat", authority="delegation")
+        ledger.push_inbox(own, "修复")
+        message = ledger.connection.execute("SELECT id FROM inbox WHERE item_id=?", (own,)).fetchone()[0]
+        token = ledger.claim(own, worker_id="chat")["token"]
+        summary = self.root / "summary.md"
+        summary.write_text("Confirmed repair.", encoding="utf-8")
+        started = self.in_process(ledger, api, "request-repair", "--item", own, "--token", token,
+                                  "--message-id", str(message), "--summary-file", str(summary))
+        self.assertEqual((started["session_id"], started["skill"]), ("session-2", "fix"))
+        self.assertEqual(posted[-1][1]["type"], "thought")
+        self.assertEqual([row[0] for row in self.closures(ledger)], ["mention"])
+
     def test_resume_work_refreshes_delegation_and_hands_message_to_original_fix(self):
         from agent.ledger import Ledger
         app = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"

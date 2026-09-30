@@ -30,6 +30,9 @@ UNDELEGATED_INTERVALS = 3
 WITHDRAWAL_OVERDUE_SECONDS = 300
 DEFERRED_SECONDS = 45 * 60
 LONG_PARKED_SECONDS = 7 * 86400
+# A closing activity Linear refused to the end (silent-delegation design P10) is listed for 7 days: nothing removes
+# its row once the operator has looked at the thread, and a finding that never clears would hide the next one.
+UNCLOSED_SECONDS = 7 * 86400
 
 
 class _SchemaMismatch(ValueError):
@@ -122,8 +125,18 @@ def _snapshot(path):
                 WHERE status='deferred' ORDER BY received_at""") if "webhook_events" in tables else [],
             "columns": {name for name in present if name in columns} | ({"undelegated_since"} & checks),
         }
+        # Closing activities Linear refused to the end (silent-delegation design P10), read only where the ledger has
+        # the table: never the activity's text, and none that its job, or newer work in its thread, has spoken after.
+        unclosed = rows("""SELECT c.session_id,c.issue_id,json_extract(i.metadata,'$.identifier') AS identifier,
+            c.item_id,c.kind,c.attempts,c.created_at AS owed_at,c.given_up_at,c.last_error
+            FROM session_closures c LEFT JOIN issues i ON i.id=c.issue_id
+            WHERE c.given_up_at IS NOT NULL
+            AND (c.item_id IS NULL OR EXISTS (SELECT 1 FROM work_items w WHERE w.id=c.item_id AND w.state=c.item_state))
+            AND NOT EXISTS (SELECT 1 FROM work_items w WHERE w.session_id=c.session_id AND w.created_at>c.created_at)
+            ORDER BY c.created_at,c.session_id""") if "session_closures" in tables else []
         return {
             "_withdrawal": withdrawal,
+            "_unclosed": unclosed,
             "counts": {row["state"]: row["count"] for row in rows(
                 "SELECT state,COUNT(*) AS count FROM work_items GROUP BY state")},
             "jobs": rows(f"""SELECT w.id AS item_id,w.issue_id,json_extract(i.metadata,'$.identifier') AS identifier,
@@ -273,7 +286,7 @@ def diagnose(config, *, now=None):
                  incomplete=True, error_type=type(exc).__name__,
                  **({"missing_schema": exc.missing} if isinstance(exc, _SchemaMismatch) else {}))
         return report
-    withdrawal = snapshot.pop("_withdrawal")
+    withdrawal, unclosed = snapshot.pop("_withdrawal"), snapshot.pop("_unclosed")
     report.update(snapshot)
     report["counts"]["total"] = sum(report["counts"].values())
     rooted = {name: skill for name, skill in loaded.items() if skill.initial_root}
@@ -333,6 +346,12 @@ def diagnose(config, *, now=None):
         if reservation["state"] in ("active", "cancel_requested") and reservation["resource"] not in slots:
             _finding(report, "reservation_slot_missing", "Inspect reservation history; its assigned slot is absent from this ledger.", **reservation)
     _withdrawal_findings(report, config, withdrawal)
+    for closure in unclosed:
+        if report["checked_at"] - closure["given_up_at"] <= UNCLOSED_SECONDS:
+            _finding(report, "unclosed_session",
+                     "Linear refused this thread's closing activity six times. The thread may still show FarmBot "
+                     "waiting and block the card's next delegation. Check the session in Linear and archive it if it "
+                     "waits.", **closure)
     return report
 
 

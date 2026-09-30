@@ -41,6 +41,14 @@ class NoticeTests(unittest.TestCase):
                          "已停止 FARM-1 上在另一个会话中的工作，占用的资源在静默检查后释放。")
         self.assertNotIn("worker", withdrawal.STOP_ELSEWHERE)
 
+    def test_a_withdrawn_question_has_a_text_for_a_write_job_and_one_for_a_conversation(self):
+        """Silent-delegation design A6, §7: the response that follows a question whose job ended before it could
+        park says nobody needs to answer, in the job's own terms."""
+        self.assertEqual(withdrawal.question_withdrawn("fix"), "上面的问题不用再回答：这项工作已经停止。")
+        self.assertEqual(withdrawal.question_withdrawn("chat"), "上面的问题不用再回答：这段对话已经结束。")
+        for skill in ("feature", "fgui"):
+            self.assertEqual(withdrawal.question_withdrawn(skill), withdrawal.QUESTION_WITHDRAWN)
+
     def test_the_undelegated_write_text_is_the_one_the_lifecycle_already_posts(self):
         self.assertIs(UNDELEGATED, withdrawal.UNDELEGATED)
         self.assertIn("已推送的分支和草稿 PR 都保留", withdrawal.notice("fix", "undelegated", "FarmBot"))

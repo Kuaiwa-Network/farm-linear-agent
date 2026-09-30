@@ -318,6 +318,39 @@ class DoctorTests(unittest.TestCase):
                          [("session-2", self.item["id"], 2701)])
         self.assertNotIn("payload", found[0])
 
+    def test_unclosed_session_is_a_finding(self):
+        """Silent-delegation design P10, A4: a closing activity Linear refused six times is listed, since its thread
+        may still show FarmBot waiting and block the card's next delegation. One still being retried is not listed,
+        nor one given up more than 7 days ago, nor one whose thread newer work has spoken in since. The evidence names
+        the thread and its times, never the activity's text. A ledger older than the table reports nothing."""
+        self.ledger.cancel(self.item["id"], "Linear stop")
+        self.ledger.owe_closure(SESSION, item_id=self.item["id"], kind="response", body="private notice text")
+        self.ledger.owe_closure("session-9", kind="error", body="private error text")  # a thread with no job
+        for _ in range(4):
+            self.ledger.closure_result(SESSION, sent=False, error="LinearError")
+            self.ledger.closure_result("session-9", sent=False, error="LinearError")
+        self.assertEqual(self.findings(self.report(), "unclosed_session"), [])  # five refusals: one more try is due
+        self.ledger.clock = lambda: 2000
+        self.ledger.closure_result(SESSION, sent=False, error="LinearError")
+        self.ledger.closure_result("session-9", sent=False, error="OSError")
+        found = self.findings(diagnose(self.config, now=2001), "unclosed_session")
+        self.assertEqual([(f["session_id"], f["issue_id"], f["identifier"], f["item_id"], f["kind"], f["attempts"],
+                           f["owed_at"], f["given_up_at"], f["last_error"]) for f in found],
+                         [(SESSION, ISSUE, "FARM-1", self.item["id"], "response", 6, 1000, 2000, "LinearError"),
+                          ("session-9", None, None, None, "error", 6, 1000, 2000, "OSError")])
+        self.assertIn("archive it if it waits", found[0]["hint"])
+        self.assertNotIn("private", json.dumps(found))
+        self.assertEqual(len(self.findings(diagnose(self.config, now=2000 + 7 * 86400), "unclosed_session")), 2)
+        self.assertEqual(self.findings(diagnose(self.config, now=2001 + 7 * 86400), "unclosed_session"), [])
+        # The job was retried since: its successor speaks in the thread now, so nothing there waits on the old words.
+        self.ledger.retry(self.item["id"], "重试")
+        self.assertEqual([f["session_id"] for f in self.findings(diagnose(self.config, now=2001), "unclosed_session")],
+                         ["session-9"])
+        self.ledger.connection.execute("DROP TABLE session_closures")
+        report = diagnose(self.config, now=2001)
+        self.assertNotEqual(report["status"], "incomplete")
+        self.assertEqual(self.findings(report, "unclosed_session"), [])
+
     def test_stored_undelegated_lists_the_delegations_work_only_when_the_app_is_pinned(self):
         """Design §5.3: before deploying, doctor lists the work the stored snapshot shows on a card not delegated to
         the pinned app. A conversation a delegation opened before authorities were recorded is listed too, though the

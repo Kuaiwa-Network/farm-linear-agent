@@ -2465,6 +2465,128 @@ class StopTargetTests(WithdrawnWorkBase):
         self.assertEqual(self.target("mention"), (None, "moved"))
 
 
+class OwedClosureTests(WithdrawnWorkBase):
+    """A closing activity Linear refused is owed to its thread and retried a bounded number of times
+    (silent-delegation design P10, A4, §6.1; tests TO1-TO3)."""
+
+    def closures(self):
+        return [dict(row) for row in self.ledger.connection.execute(
+            "SELECT * FROM session_closures ORDER BY session_id")]
+
+    def stopped_fix(self, session="session-0"):
+        fix = self.parked(session=session)
+        self.ledger.cancel(fix["id"], "Linear stop")
+        return fix
+
+    def test_an_owed_closing_activity_is_kept_once_per_thread_and_never_for_a_local_job(self):
+        fix = self.stopped_fix()
+        owed = self.ledger.owe_closure("session-0", item_id=fix["id"], kind="response", body="这项工作已取消。",
+                                       error="LinearError")
+        self.assertEqual(owed, {"session_id": "session-0", "issue_id": ISSUE, "item_id": fix["id"],
+                                "item_state": "cancelled", "kind": "response", "body": "这项工作已取消。", "attempts": 1,
+                                "due_at": self.now + 60, "created_at": self.now, "last_error": "LinearError",
+                                "given_up_at": None})
+        self.assertEqual(self.closures(), [owed])
+        self.assertIsNone(self.ledger.due_closure(self.now + 59))
+        self.assertEqual(self.ledger.due_closure(self.now + 60), owed)
+        # A thread has one last word: a later closing activity it is owed replaces the earlier one, and starts anew.
+        self.now += 30
+        self.ledger.owe_closure("session-0", kind="error", body="处理这条消息时出错。")
+        self.assertEqual([(row["kind"], row["body"], row["issue_id"], row["item_id"], row["item_state"],
+                           row["attempts"], row["due_at"], row["created_at"], row["last_error"])
+                          for row in self.closures()],
+                         [("error", "处理这条消息时出错。", ISSUE, None, None, 1, self.now + 60, self.now, None)])
+        # An operator's `local-` job has no Linear thread that could be left waiting.
+        self.ledger.ensure_session("local-farm-1", ISSUE, delegation=True)
+        self.assertIsNone(self.ledger.owe_closure("local-farm-1", kind="response", body="这项工作已取消。"))
+        self.assertEqual([row["session_id"] for row in self.closures()], ["session-0"])
+        # Only an activity that closes a thread is owed, and only one with a body.
+        for kind in ("thought", "action", "elicitation"):
+            with self.subTest(kind=kind), self.assertRaises(LedgerError):
+                self.ledger.owe_closure("session-0", kind=kind, body="工作仍在处理中。")
+        with self.assertRaises(LedgerError):
+            self.ledger.owe_closure("session-0", kind="response", body=" ")
+        self.assertEqual(len(self.closures()), 1)
+        # A thread the ledger never recorded, where a Stop found nothing to stop, is owed its reply all the same.
+        self.assertIsNone(self.ledger.owe_closure("session-unknown", kind="response", body="没有可停止的工作。")["issue_id"])
+
+    def test_an_owed_closing_activity_backs_off_then_is_given_up(self):
+        """P10: five more tries, 60, 120, 240, 480 and 960 seconds apart, about 31 minutes in all; the sixth refusal
+        is the last, and the row stays for doctor."""
+        fix = self.stopped_fix()
+        self.ledger.owe_closure("session-0", item_id=fix["id"], kind="response", body="这项工作已取消。")
+        owed_at = self.now
+        for wait in (60, 120, 240, 480, 960):
+            [row] = self.closures()
+            self.assertEqual((row["due_at"] - self.now, row["given_up_at"]), (wait, None))
+            self.assertIsNone(self.ledger.due_closure(row["due_at"] - 1))
+            self.now = row["due_at"]
+            self.assertEqual(self.ledger.due_closure(self.now)["session_id"], "session-0")
+            self.ledger.closure_result("session-0", sent=False, error="LinearError")
+        [row] = self.closures()
+        self.assertEqual((row["attempts"], row["given_up_at"], row["last_error"]), (6, self.now, "LinearError"))
+        self.assertEqual(self.now - owed_at, 1860)
+        self.assertIsNone(self.ledger.due_closure(self.now + 10 ** 6))
+        self.ledger.closure_result("session-0", sent=False, error="OSError")  # nothing is tried after the last try
+        self.assertEqual(self.closures(), [row])
+
+    def test_an_owed_closing_activity_goes_once_linear_takes_it(self):
+        fix = self.stopped_fix()
+        first = self.ledger.owe_closure("session-0", item_id=fix["id"], kind="response", body="这项工作已取消。")
+        self.now += 60
+        # The result of a try belongs to the row that was tried: one owed since, in its place, is kept.
+        second = self.ledger.owe_closure("session-0", kind="error", body="处理这条消息时出错。")
+        self.ledger.closure_result("session-0", sent=True, owed_at=first["created_at"])
+        self.ledger.closure_result("session-0", sent=False, error="OSError", owed_at=first["created_at"])
+        self.assertEqual(self.closures(), [second])
+        self.ledger.closure_result("session-0", sent=True, owed_at=second["created_at"])
+        self.assertEqual(self.closures(), [])
+        self.ledger.closure_result("session-0", sent=True)  # nothing owed: nothing to record
+
+    def test_an_owed_closing_activity_is_dropped_when_newer_work_speaks_in_the_thread(self):
+        """P10: the activity closed the thread for the job as it stood. A job whose state changed since, or a job
+        created in the thread since, speaks there itself, and the older closing words would follow its own."""
+        self.ledger.observe_issue(issue(delegate_id=self.APP))
+        self.ledger.ensure_session("session-0", ISSUE, delegation=True)
+        fix = self.ledger.create_work_item(issue_id=ISSUE, session_id="session-0", skill="fix", target=PIN)
+        self.ledger.fail_queued(fix["id"], "launch failed")
+        owed = self.ledger.owe_closure("session-0", item_id=fix["id"], kind="error", body="无法启动工作进程。")
+        self.assertEqual(owed["item_state"], "failed")
+        self.assertFalse(self.ledger.closure_superseded(owed))
+        self.now += 5
+        self.ledger.retry(fix["id"], "重试")  # the same job, queued again
+        self.assertTrue(self.ledger.closure_superseded(owed))
+        # A newer job in the thread: the cancelled job's successor, which its retry creates there.
+        self.ledger.cancel(fix["id"], "Linear stop")
+        owed = self.ledger.owe_closure("session-0", item_id=fix["id"], kind="response", body="这项工作已取消。")
+        self.assertFalse(self.ledger.closure_superseded(owed))  # the job it names is no newer work
+        self.ledger.ensure_session("mention", ISSUE, delegation=False)
+        self.ledger.owe_closure("mention", kind="response", body="没有可停止的工作。")
+        self.now += 5
+        successor = self.ledger.retry(fix["id"], "重试")
+        self.assertEqual((successor["session_id"], successor["predecessor_id"]), ("session-0", fix["id"]))
+        self.assertTrue(self.ledger.closure_superseded(owed))
+        # Work in another thread says nothing in this one, whether or not the row names a job.
+        [mention] = [row for row in self.closures() if row["session_id"] == "mention"]
+        self.assertFalse(self.ledger.closure_superseded(mention))
+        self.ledger.cancel(successor["id"], "Linear stop")
+        self.now += 5
+        chat = self.ledger.create_work_item(issue_id=ISSUE, session_id="mention", skill="chat")
+        self.assertTrue(self.ledger.closure_superseded(mention))
+        self.assertEqual(chat["session_id"], "mention")
+        self.ledger.drop_closure("mention")
+        self.assertEqual([row["session_id"] for row in self.closures()], ["session-0"])
+
+    def test_an_older_ledger_gains_the_closure_table(self):
+        """§6.2: additive, with no backfill; a ledger that never owed anything has nothing due."""
+        self.ledger.connection.execute("DROP TABLE session_closures")
+        self.ledger.close()
+        reopened = self.open_ledger()
+        self.assertIsNotNone(reopened.connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='session_closures'").fetchone())
+        self.assertIsNone(reopened.due_closure(self.now + 10 ** 6))
+
+
 class ReservationTests(unittest.TestCase):
     def test_requested_fix_commit_does_not_overwrite_baseline(self):
         item = self.item(ISSUE, "a" * 40)

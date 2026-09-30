@@ -109,8 +109,41 @@ class SessionProgress:
             self._reserve(item_id, self._content(item), status_key)
             self.db.execute('UPDATE session_progress SET due_at=0 WHERE item_id=?', (item_id,))
 
+    def _post_owed(self, now):
+        """Try one closing activity Linear refused earlier and that is due again (silent-delegation design P10): drop
+        it unposted when its job, or newer work in its thread, has spoken there since; else post it under a fresh
+        activity id, since nobody knows whether Linear takes the same id twice (U7), and record the result. Whether
+        one was due."""
+        owed = self.ledger.due_closure(now)
+        if owed is None:
+            return False
+        session_id, owed_at = owed["session_id"], owed["created_at"]
+        if self.ledger.closure_superseded(owed):
+            self.ledger.drop_closure(session_id, owed_at=owed_at)
+            return True
+        try:
+            self.api.create_activity(session_id, {"type": owed["kind"], "body": owed["body"]}, activity_id=str(uuid4()))
+        except Exception as exc:
+            self.ledger.closure_result(session_id, sent=False, error=type(exc).__name__, owed_at=owed_at)
+        else:
+            self.ledger.closure_result(session_id, sent=True, owed_at=owed_at)
+        return True
+
+    def _close_again(self, item, content):
+        """A heartbeat's question has just landed in the thread of `item`, whose row a cancel dropped meanwhile with
+        a closing notice of its own: the question followed that notice and would be the thread's last activity, with
+        no correction pending. `content`, the ended job's terminal text, closes the thread again, once; owed when
+        Linear refuses it (silent-delegation design A7)."""
+        try:
+            self.api.create_activity(item["session_id"], content, activity_id=str(uuid4()))
+        except Exception as exc:
+            self.ledger.owe_closure(item["session_id"], issue_id=item["issue_id"], item_id=item["id"],
+                                    kind=content["type"], body=content["body"], error=type(exc).__name__)
+
     def tick(self):
         now = self.ledger.clock()
+        if self._post_owed(now):
+            return True
         with self.ledger._transaction():
             self.db.execute("""INSERT OR IGNORE INTO session_progress(item_id,due_at)
                 SELECT id,created_at+? FROM work_items
@@ -139,10 +172,16 @@ class SessionProgress:
             sent = self._send(item_id, item["session_id"], content, activity_id)
             current, current_key = self._current(item_id)
             if current_key != status_key:
+                asked = sent and content["type"] == "elicitation"
                 item, status_key = current, current_key
                 content = self._content(item)
                 activity_id = self._reserve(item_id, content, status_key)
                 if activity_id is None:
+                    # The row is gone: a cancel dropped it with a closing notice of its own, and nothing may follow that
+                    # notice. A question that landed behind it has, though, and the thread is closed again: with the
+                    # ended job's terminal text, never over newer work in its thread, which `item` would then be.
+                    if asked and content["type"] in ("response", "error"):
+                        self._close_again(item, content)
                     break
                 continue
             if sent:
