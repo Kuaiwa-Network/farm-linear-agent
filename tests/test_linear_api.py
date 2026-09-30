@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 from agent import ledger as ledger_module
 from agent import linear_api as linear_api_module
+from agent.config import StubLinear
 from agent.linear_api import UPLOAD_TIMEOUT
 from agent.linear_api import (ISSUE_QUERY, LINEAR_URL, LinearAPI, TooLarge, UploadError, person, strip_signed,
                               upload_opener, upload_urls)
@@ -93,6 +94,45 @@ class LinearAPITests(unittest.TestCase):
                 api = self.api({"FarmBotSessionOrigin": [{"data": {"agentSession": session}}]})
                 with self.assertRaises(RuntimeError):
                     api.session_has_artificial_root("session", "issue", APP)
+
+    def session_state(self, session):
+        return self.api({"FarmBotSessionState": [{"data": {"agentSession": session}}]})
+
+    def test_session_state_reads_status_and_archive_and_accepts_unknown_values(self):
+        """Silent-delegation design §3.6 (TN1): the state of one of FarmBot's own threads, as Linear sends it. Linear
+        adds status values (`stopping` came on 2026-09-24), so any value passes; only the caller decides which ones
+        mean closed. A session of another issue or app, or one with no status, is not answered."""
+        for status, archived_at, archived in (("awaitingInput", None, False), ("complete", None, False),
+                                              ("error", "2026-09-30T01:00:00.000Z", True),
+                                              ("active", "2026-09-30T01:00:00.000Z", True),
+                                              ("stopping", None, False), ("somethingNew", None, False)):
+            with self.subTest(status=status, archived_at=archived_at):
+                api = self.session_state({"status": status, "archivedAt": archived_at, "issue": {"id": "issue"},
+                                          "appUser": {"id": APP}})
+                self.assertEqual(api.session_state("session", "issue", APP), {"status": status, "archived": archived})
+                request = self.http.calls[-1][2]
+                self.assertEqual(request["variables"], {"id": "session"})
+                self.assertIn("agentSession(id: $id)", request["query"])
+                for field in ("status", "archivedAt", "issue { id }", "appUser { id }"):
+                    self.assertIn(field, request["query"])
+        for session in (None, {"status": "complete", "archivedAt": None, "issue": {"id": "other"},
+                               "appUser": {"id": APP}},
+                        {"status": "complete", "archivedAt": None, "issue": {"id": "issue"},
+                         "appUser": {"id": "other"}},
+                        {"status": "complete", "archivedAt": None, "issue": None, "appUser": None}):
+            with self.subTest(session=session), self.assertRaisesRegex(RuntimeError, "context mismatch"):
+                self.session_state(session).session_state("session", "issue", APP)
+        for status in (None, "", 7):
+            with self.subTest(status=status), self.assertRaisesRegex(RuntimeError, "no status"):
+                self.session_state({"status": status, "archivedAt": None, "issue": {"id": "issue"},
+                                    "appUser": {"id": APP}}).session_state("session", "issue", APP)
+        with self.assertRaisesRegex(RuntimeError, "no status"):
+            self.session_state({"archivedAt": None, "issue": {"id": "issue"},
+                                "appUser": {"id": APP}}).session_state("session", "issue", APP)
+
+    def test_the_session_state_read_needs_no_scope_farmbot_does_not_have(self):
+        """§1.4: a scope change would revoke every token of the app, so the read must work with today's."""
+        self.assertEqual(linear_api_module.SCOPES, "read,write,app:mentionable,app:assignable")
 
     def test_needs_more_info_adds_only_matching_label_without_replacing_labels(self):
         api = self.api({
@@ -490,6 +530,25 @@ class LinearAPITests(unittest.TestCase):
                           (as_person(OWNER), "c1", "https://linear.app/example/issue/FARM-1/t#comment-c2")])
         # The ledger keeps its own copy of the Linear URL rule, because connectors stay outside it.
         self.assertEqual(ledger_module.LINEAR_URL.pattern, LINEAR_URL.pattern)
+
+
+class StubLinearTests(unittest.TestCase):
+    def test_the_stub_answers_a_session_state_from_its_directory_or_a_closed_thread(self):
+        """The offline double (FARMBOT_LINEAR_STUB_DIR) reads a thread's state as it reads the issue: from a file of
+        its directory, `session-state.json`, which answers for every thread. Without one a thread reads complete and
+        not archived, as one a response closed, so a service running on the stub closes no thread."""
+        with tempfile.TemporaryDirectory() as directory:
+            stub = StubLinear(directory)
+            self.assertEqual(stub.session_state("session-1", "issue", stub.app_user_id),
+                             {"status": "complete", "archived": False})
+            (Path(directory) / "session-state.json").write_text(
+                json.dumps({"status": "awaitingInput", "archived": True}), encoding="utf-8")
+            self.assertEqual(stub.session_state("session-2", "issue", stub.app_user_id),
+                             {"status": "awaitingInput", "archived": True})
+            calls = [json.loads(line) for line in
+                     (Path(directory) / "calls.jsonl").read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(calls, [{"method": "session_state", "session_id": "session-1", "issue_id": "issue"},
+                                     {"method": "session_state", "session_id": "session-2", "issue_id": "issue"}])
 
 
 class FakeUploadServer(urllib.request.HTTPSHandler):

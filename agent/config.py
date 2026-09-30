@@ -205,6 +205,15 @@ class StubLinear:
         self._record("create_activity", session_id=session_id, content=content, activity_id=activity_id)
         return {"success": True, "agentActivity": {"id": f"stub-activity-{activity_id or 'x'}"}}
 
+    def session_state(self, session_id, issue_id, app_user_id):
+        """`session-state.json` of the stub directory, for every thread; without one a thread reads complete and not
+        archived, as one a response closed (LinearAPI.session_state)."""
+        self._record("session_state", session_id=session_id, issue_id=issue_id)
+        source = self.directory / "session-state.json"
+        if source.is_file():
+            return json.loads(source.read_text(encoding="utf-8"))
+        return {"status": "complete", "archived": False}
+
     def needs_more_info(self, issue_id):
         self._record("needs_more_info", issue_id=issue_id)
 

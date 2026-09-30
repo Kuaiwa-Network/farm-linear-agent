@@ -6,7 +6,8 @@ over, or when the issue is out of reach. `{bot}` is the instance's configured Li
 text never mentions branches: a chat pushes none.
 
 Also the last word a thread gets when its work is stopped or resumed from another thread, or ends after it asked
-a question (silent-delegation design §4.1, §7: docs/superpowers/specs/2026-09-30-silent-delegation-design.md).
+a question, and what a thread is told when a delegation came for which Linear opened no session (silent-delegation
+design §4.1, §4.2, §7: docs/superpowers/specs/2026-09-30-silent-delegation-design.md).
 """
 from .router import WRITE_SKILLS
 
@@ -58,6 +59,31 @@ STOP_ALREADY = '这里的工作已经停止。'
 QUESTION_WITHDRAWN = '上面的问题不用再回答：这项工作已经停止。'
 QUESTION_WITHDRAWN_CHAT = '上面的问题不用再回答：这段对话已经结束。'
 
+# A delegation Linear opened no session for (silent-delegation design P12): a status read found the card delegated to
+# this app again, and no delegation session followed within the grace. Each text says what FarmBot saw and what to do
+# next. None claims a cause, so each stays true for a delegation that one of FarmBot's waiting threads blocked, for
+# one made through Linear's API and for one whose delivery was lost.
+# The first line of the thought in a delegation thread whose work the delegation takes over there; the new job's
+# acknowledgement follows it.
+IN_PLACE_NOTE = '这张卡已重新委派给 {bot}。Linear 没有为这次委派另开会话，{bot} 在这个会话里接着处理。'
+# Delegation work of the kind the labels name is kept: a waiting job asks `{question}` again, as an elicitation, so
+# its thread stays a waiting thread over waiting work; one that goes on says so in a thought.
+REDELEGATED_WAITING = '这张卡已重新委派给 {bot}。这里的工作还在等你的回答：\n{question}'
+REDELEGATED_RUNNING = '这张卡已重新委派给 {bot}，这里的工作正在进行，会继续。'
+# Work the delegation cannot take over where it is: a response ends its thread's wait, which is what kept Linear from
+# opening a session, and the job stays parked and answerable; a thought where the work goes on.
+SILENT_WAITING = ('这张卡已委派给 {bot}，但 Linear 没有为这次委派打开会话（{bot} 的讨论串还在等回复时会这样）。'
+                  '这里的等待先结束，这项工作仍然保留：在这里回复可以继续；要按卡片现在的标签重新开始，'
+                  '请把代理改为「No agent」，再委派给 {bot}，会从已有进度接着做。')
+SILENT_WAITING_CHAT = ('这张卡已委派给 {bot}，但 Linear 没有为这次委派打开会话（{bot} 的讨论串还在等回复时会这样）。'
+                       '这里的等待先结束，对话仍然保留：在这里回复可以继续；要让 {bot} 按卡片的标签开始处理，'
+                       '请把代理改为「No agent」，再委派给 {bot}，这段对话会转到新的会话里。')
+SILENT_BUSY = ('这张卡已委派给 {bot}，但 Linear 没有为这次委派打开会话。这里的工作会继续；要按卡片现在的标签重新开始，'
+               '请等这里结束或按 Stop 之后，把代理改为「No agent」，再委派给 {bot}。')
+# A thread that holds no work and that Linear still shows as open: the response closes it.
+SILENT_ENDED = ('这张卡已委派给 {bot}，但 Linear 没有为这次委派打开会话。这个讨论串里已经没有进行中的工作，'
+                '{bot} 现在把它结束，好让新的委派能打开会话。要开始处理，请把代理改为「No agent」，再委派给 {bot}。')
+
 # Session heartbeats for a job that waits or stops for one of these reasons.
 HEARTBEAT_PREDECESSOR = '工作已排队，正在等待上一次工作的清理完成。'
 HEARTBEAT_STATUS_ERROR = '工作已保留；暂时读不到这张卡的状态，读取恢复后继续。'
@@ -70,6 +96,9 @@ DEFAULT_GRACE_SECONDS = 1200
 # that read, before FarmBot settles it without one (silent-delegation design P11, §3.3). Linear's `created` arrives
 # within seconds, and a lost delivery was retried 66 seconds after the first.
 SILENT_GRACE_SECONDS = 90
+# A job gets at most one line that ends nothing per this many seconds for such delegations: the line kept work gets,
+# or the thought of a busy thread. An automation that flaps the delegate then costs one line, not one per flap (§3.3).
+RENOTE_SECONDS = 1800
 
 
 def notice(skill, reason, bot):

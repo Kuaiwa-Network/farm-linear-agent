@@ -704,6 +704,12 @@ class Ledger:
         with self._transaction():
             self._audit(item_id, kind, reason, details)
 
+    def noted_since(self, item_id, kind, since):
+        """Whether the job has an audit row of `kind` at or after `since`: how a line that a job gets at most once in
+        a while finds its last one (silent-delegation design §3.3)."""
+        return self.connection.execute("SELECT 1 FROM audit WHERE item_id=? AND kind=? AND created_at>=? LIMIT 1",
+                                       (item_id, kind, since)).fetchone() is not None
+
     def _owned(self, item_id, token):
         row = self._row(item_id)
         presented = _hash_token(token) if isinstance(token, str) and token.isascii() and token else ""
@@ -934,6 +940,18 @@ class Ledger:
                 self.connection.execute("UPDATE sessions SET creator_json=? WHERE session_id=? AND creator_json IS NULL",
                                         (creator_json, session_id))
         return self.session(session_id)
+
+    def sessions_for_issue(self, issue_id, limit):
+        """The card's recorded sessions that are Linear threads, newest first, at most `limit`: each with whether a
+        delegation opened it, when it was recorded, and the job its messages were forwarded to, if any. An operator's
+        `local-` session is no thread (silent-delegation design §3.5)."""
+        if type(limit) is not int or limit < 1:
+            raise LedgerError("limit must be a positive integer")
+        rows = self.connection.execute("""SELECT session_id,delegation,created_at,forwarded_item FROM sessions
+            WHERE issue_id=? AND session_id NOT LIKE 'local-%' ORDER BY created_at DESC,rowid DESC LIMIT ?""",
+                                       (issue_id, limit))
+        return [{"session_id": row["session_id"], "delegation": bool(row["delegation"]),
+                 "created_at": row["created_at"], "forwarded_item": row["forwarded_item"]} for row in rows]
 
     def set_session_target(self, session_id, target):
         """The pin for later items in this session. An accepted item keeps the target it snapshotted (spec §6)."""
@@ -1981,7 +1999,7 @@ class Ledger:
                                          session_id))
 
     def supersede(self, expected_id, expected_states, *, session_id, skill, reason, target=None, authority=None,
-                  text=None, author=None, received_at=None, takeover=True):
+                  text=None, author=None, received_at=None, takeover=True, episode=None):
         """A newer session takes the card's work over (design P4), in one transaction: `expected_id`, still in one of
         `expected_states`, is cancelled, and a `skill` item is queued in `session_id` with every message the old one
         had, each with its author and time, then `text`, which `author` wrote and FarmBot received at `received_at`,
@@ -1991,10 +2009,18 @@ class Ledger:
 
         `takeover` False records that a person's message moved a waiting conversation to its own thread (design C5)
         rather than a new delegation session taking the card over, so that nothing tells the old thread of a
-        delegation that does not exist (stop_target)."""
+        delegation that does not exist (stop_target).
+
+        `episode` is the `since` of the card's delegation episode that this takeover settles: a delegation Linear
+        opened no session for continues the card's work in the thread that work is in, so `session_id` is the old
+        item's own (silent-delegation design P12). The episode must still be the waiting one the caller read, and it
+        becomes `in_place` with that thread in this same transaction. Otherwise StaleRouting, and nothing changes: a
+        read that found the delegation gone again, or another settle, got there first."""
         _text(skill, "skill")
         _text(reason, "reason")
         authority = _checked_authority(skill, authority)
+        if episode is not None:
+            _seconds(episode, "episode")
         if text is not None:
             _text(text, "text", empty=True)
         author_json = _person_json(author, "message author")
@@ -2005,6 +2031,14 @@ class Ledger:
             if row["state"] not in expected_states:
                 raise StaleRouting(f"work item {row['id']} is {row['state']} now; route the event again")
             issue = json.loads(self._issue_row(row["issue_id"])["metadata"])
+            if episode is not None:
+                now = self.clock()
+                if not self.connection.execute("""UPDATE delegation_episodes
+                        SET state='in_place',session_id=?,settled_at=?,error=NULL,updated_at=?
+                        WHERE issue_id=? AND since=? AND state='waiting'""",
+                                               (session_id, now, now, row["issue_id"], episode)).rowcount:
+                    raise StaleRouting(f"the delegation episode of issue {row['issue_id']} is no longer the waiting "
+                                       "one this takeover settles; look at the card again")
             self._cancel_row(row, reason, drop_progress=True)
             created = self._insert_item(issue, session_id, skill, target, authority)
             messages = self.connection.execute(

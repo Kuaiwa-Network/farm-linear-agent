@@ -49,6 +49,39 @@ class NoticeTests(unittest.TestCase):
         for skill in ("feature", "fgui"):
             self.assertEqual(withdrawal.question_withdrawn(skill), withdrawal.QUESTION_WITHDRAWN)
 
+    def test_silent_delegation_texts_format_and_a_conversations_names_no_branch(self):
+        """Silent-delegation design §7 (TW1): what a thread is told when a delegation opened no session. Each text
+        names the instance and leaves no placeholder; each note says that no session was opened and what to do next,
+        and claims no cause that holds only for one of a blocked delegation, an API delegation and a lost delivery.
+        A conversation's text never mentions branches or PRs."""
+        texts = {name: getattr(withdrawal, name) for name in (
+            "IN_PLACE_NOTE", "REDELEGATED_WAITING", "REDELEGATED_RUNNING", "SILENT_WAITING", "SILENT_WAITING_CHAT",
+            "SILENT_BUSY", "SILENT_ENDED")}
+        for name, text in texts.items():
+            with self.subTest(name=name):
+                body = text.format(bot="TestBot", question="哪个服？")
+                self.assertIn("TestBot", body)
+                self.assertNotIn("FarmBot", body)
+                self.assertNotIn("{", body)
+                self.assertNotIn("}", body)
+                self.assertNotIn("分支", body)
+                self.assertNotIn("PR", body)
+        self.assertEqual(withdrawal.REDELEGATED_WAITING.format(bot="FarmBot", question="哪个服？"),
+                         "这张卡已重新委派给 FarmBot。这里的工作还在等你的回答：\n哪个服？")
+        self.assertEqual(withdrawal.IN_PLACE_NOTE.format(bot="FarmBot"),
+                         "这张卡已重新委派给 FarmBot。Linear 没有为这次委派另开会话，FarmBot 在这个会话里接着处理。")
+        for name in ("SILENT_WAITING", "SILENT_WAITING_CHAT", "SILENT_BUSY", "SILENT_ENDED"):
+            with self.subTest(name=name):
+                self.assertIn("Linear 没有为这次委派打开会话", texts[name])
+                self.assertIn("「No agent」", texts[name])
+        for name in ("SILENT_WAITING", "SILENT_WAITING_CHAT"):
+            self.assertIn("在这里回复可以继续", texts[name])  # the wait ends, the work stays answerable
+        self.assertIn("这项工作仍然保留", withdrawal.SILENT_WAITING)
+        self.assertIn("对话仍然保留", withdrawal.SILENT_WAITING_CHAT)
+        self.assertIn("Stop", withdrawal.SILENT_BUSY)
+        self.assertEqual(withdrawal.RENOTE_SECONDS, 1800)
+        self.assertEqual(withdrawal.SILENT_GRACE_SECONDS, 90)
+
     def test_the_undelegated_write_text_is_the_one_the_lifecycle_already_posts(self):
         self.assertIs(UNDELEGATED, withdrawal.UNDELEGATED)
         self.assertIn("已推送的分支和草稿 PR 都保留", withdrawal.notice("fix", "undelegated", "FarmBot"))

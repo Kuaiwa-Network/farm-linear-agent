@@ -350,6 +350,25 @@ class LinearAPI:
         return ((session.get("comment") or {}).get("isArtificialAgentSessionRoot") is True
                 and not session.get("sourceComment"))
 
+    def session_state(self, session_id, issue_id, app_user_id):
+        """What Linear shows for one of this app's own threads on the issue: {"status": as sent, "archived": bool}.
+
+        FarmBot asks only while it settles a delegation Linear opened no session for, to find a thread that still
+        waits (silent-delegation design §3.6). Linear adds status values, so none is refused here: the caller treats
+        `complete` and `error` as closed and every other value as open. A session of another issue or app, or an
+        answer with no status, raises, and the caller then knows nothing about that thread.
+        """
+        session = self.graphql("""query FarmBotSessionState($id: String!) {
+            agentSession(id: $id) { status archivedAt issue { id } appUser { id } }
+        }""", {"id": session_id})["agentSession"]
+        if (not session or (session.get("issue") or {}).get("id") != issue_id
+                or (session.get("appUser") or {}).get("id") != app_user_id):
+            raise RuntimeError("Linear session context mismatch")
+        status = session.get("status")
+        if not isinstance(status, str) or not status:
+            raise RuntimeError("Linear sent no status for the session")
+        return {"status": status, "archived": session.get("archivedAt") is not None}
+
     def needs_more_info(self, issue_id):
         """Add the clarification label without replacing any existing labels."""
         after, labels = None, []

@@ -16,12 +16,14 @@ import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from .ledger import ACTIVE_STATES, LedgerError, StaleRouting
+from .ledger import ACTIVE_STATES, TERMINAL_STATUS_TYPES, LedgerError, StaleRouting
 from .linear_api import person
 from .router import WRITE_SKILLS, route
 from .withdrawal import (DEFER_ACK, DEFER_STILL, DEFER_UNDELEGATED, FORWARD_PARKED_UNDELEGATED, FORWARD_WITHDRAWING,
-                         MOVED_THREAD, RESUME_UNDELEGATED, RESUMED_ELSEWHERE, STOP_ALREADY, STOP_ELSEWHERE, STOP_MOVED,
-                         STOP_MOVED_THREAD, SUPERSEDE_SUFFIX, SUPERSEDED, grace_seconds, notice as withdrawal_notice)
+                         IN_PLACE_NOTE, MOVED_THREAD, REDELEGATED_RUNNING, REDELEGATED_WAITING, RENOTE_SECONDS,
+                         RESUME_UNDELEGATED, RESUMED_ELSEWHERE, SILENT_BUSY, SILENT_ENDED, SILENT_WAITING,
+                         SILENT_WAITING_CHAT, STOP_ALREADY, STOP_ELSEWHERE, STOP_MOVED, STOP_MOVED_THREAD,
+                         SUPERSEDE_SUFFIX, SUPERSEDED, grace_seconds, notice as withdrawal_notice, question_withdrawn)
 from .worktrees import WorktreeError
 
 MAX_BODY = 1024 * 1024
@@ -47,6 +49,18 @@ STOPPABLE = (*ACTIVE_STATES, "blocked")
 DEFER_SLACK = 300
 # An event whose routing met work that changed meanwhile is routed again at most this many times (design J5).
 REROUTES = 2
+# Settling a delegation Linear opened no session for (silent-delegation design P12, §3.3-§3.6). A settle reads the
+# state of at most SESSION_READS of FarmBot's own threads on the card. One that found the work or the episode changed
+# under it looks again RESETTLE_SECONDS later; one whose read of the card failed is tried again after 15, 30, 60, 120
+# and 240 seconds, then every 300.
+SESSION_READS = 10
+RESETTLE_SECONDS = 5
+SETTLE_RETRY_SECONDS = 15
+SETTLE_RETRY_MAX = 300
+# What Linear shows for a thread a response or an error closed. Linear adds status values (`stopping` came on
+# 2026-09-24), so every other value, also one nobody knows yet, is an open thread (§3.6).
+CLOSED_STATUSES = ("complete", "error")
+IN_PLACE_REASON = "a delegation Linear opened no session for took the work over in its own thread"
 FORWARDED = "该 issue 正在处理中，你的消息已转给正在处理的 worker。"
 RESUMED = "收到回复，原工作项已恢复，worker 会先读取你的回答。"
 
@@ -561,16 +575,249 @@ class Receiver:
                                 "WHERE event_key=? AND status='deferred'",
                                 (str(uuid.uuid4()), json.dumps(payload), row["event_key"]))
 
+    def _settle_delegation(self):
+        """Settle one delegation Linear opened no session for, once its grace has ended: the waiting episode longest
+        due (silent-delegation design P11, P12, §3.4). It runs in the receiver's loop, the one thread that handles
+        `created`, so a settle never interleaves with a new session's takeover, and only when no event is pending.
+
+        A settle that found the work or the episode changed under it looks again shortly. One whose read failed has
+        posted nothing; it is tried again later, and the failure is counted and named for doctor. Each settle writes
+        one line to the service log: the outcome and what Linear said of each thread it read, never a body. Returns
+        whether an episode was due."""
+        episode = self.ledger.due_episode(self.clock())
+        if episode is None:
+            return False
+        reads = {}
+        try:
+            outcome = self._settle(episode, reads)
+        except StaleRouting:
+            self.ledger.retry_episode(episode["issue_id"], episode["since"], self.clock() + RESETTLE_SECONDS)
+            outcome = "changed"
+        except Exception as exc:
+            delay = min(SETTLE_RETRY_MAX, SETTLE_RETRY_SECONDS * 2 ** min(episode["attempts"], 8))
+            self.ledger.retry_episode(episode["issue_id"], episode["since"], self.clock() + delay,
+                                      error=type(exc).__name__)
+            outcome = "retry"
+        threads = [{"session_id": session_id, "status": state and state["status"],
+                    "archived": state and state["archived"]} for session_id, state in reads.items()]
+        print(json.dumps({"event": "delegation_episode", "issue_id": episode["issue_id"], "outcome": outcome,
+                          "threads": threads}), flush=True)
+        return True
+
+    def _settle(self, episode, reads):
+        """Settle `episode` where the card's work is, on a fresh read of the card (silent-delegation design P12, §3.5),
+        and return what became of it: `dropped`, the card is closed or no longer delegated to this app; `heard`, Linear
+        did open a session; `kept`, `in_place`, `told` or `unseen`, the first of P12's outcomes that applies; or
+        `changed`, another read ended the episode meanwhile. `reads` collects what Linear said of each thread.
+
+        FarmBot opens no session and changes nothing on the card (P6). Nothing is posted before the episode is ended
+        as the one this settle read, so a settle acts once; StaleRouting from the takeover means the job or the
+        episode changed under it. A failed read of the card raises, and nothing was posted (P8)."""
+        issue_id, since = episode["issue_id"], episode["since"]
+        fetched_at = self.clock()
+        issue = self.api.fetch_issue(issue_id)
+        if issue.get("id") != issue_id:
+            raise ValueError("the read of the card answers for a different issue")
+        self.ledger.observe_issue(issue)
+        app = self.identity["appUserId"]
+        delegated = bool(app) and issue.get("delegate_id") == app
+        # This read is a status read too, as each of the receiver's is (withdrawn-work design DT1): finding the
+        # delegation clears the mark, which opens no second episode while this one waits; not finding it while the
+        # delegation's work is active asks the lifecycle to read the card now.
+        if delegated:
+            self.ledger.clear_undelegated(issue_id, observed_at=fetched_at)
+        active = self.ledger.active_item_for_issue(issue_id)
+        if not delegated and active is not None and active["authority"] == "delegation":
+            self.ledger.request_status_check(issue_id)
+        if not delegated or issue["archived"] or issue["status_type"] in TERMINAL_STATUS_TYPES:
+            return "dropped" if self.ledger.finish_episode(issue_id, since, "dropped") else "changed"
+        if self.ledger.delegation_heard(issue_id, episode["mark"]):
+            return "heard" if self.ledger.finish_episode(issue_id, since, "heard") else "changed"
+        # The work a delegation of this card starts now, as a `created` would route it.
+        decision = route(action="created", is_delegation=True, text="", labels=issue["labels"], active_state=None,
+                         terminal_exists=False, available_skills=self.skills,
+                         label_groups=issue.get("label_groups") or ())
+        skill = decision.skill if decision.kind == "work" else "chat"
+        if active is not None and active["authority"] == "delegation" and active["skill"] == skill:
+            return self._keep(episode, active)
+        thread = str(active["session_id"]) if active is not None else None
+        if thread is not None and not thread.startswith("local-"):
+            # In place: P4 with the new session equal to the job's own. Only unclaimed work or a conversation, as a
+            # new session takes over at once; only a job older than the read that found the delegation (P3); only in
+            # a delegation thread, which alone may hold the delegation's work (P1); and only in a thread Linear says
+            # is not archived, so that the work never moves where nobody sees it, nor on a state nobody read (P8).
+            conversation = active["skill"] == "chat"
+            session = self.ledger.session(thread)
+            if ((conversation or active["state"] in UNCLAIMED) and active["created_at"] < since
+                    and session is not None and session["delegation"]):
+                state = self._thread_state(reads, thread, issue_id)
+                if state is not None and not state["archived"]:
+                    # The thread's stored target, as a conversation's first repair takes it: nothing is pinned anew.
+                    self.ledger.supersede(active["id"], ACTIVE_STATES if conversation else UNCLAIMED,
+                                          session_id=thread, skill=skill, reason=IN_PLACE_REASON,
+                                          target=None if skill in ("chat", "feature") else session["target"],
+                                          authority="delegation", episode=since)
+                    self._say(thread, {"type": "thought", "body": IN_PLACE_NOTE.format(bot=self.bot_name) + "\n"
+                                       + self._opening(decision, "")})
+                    return "in_place"
+        return self._tell(episode, active, reads)
+
+    def _thread_state(self, reads, session_id, issue_id):
+        """What Linear says of the thread `session_id`, {"status", "archived"}, or None when it is not known. One
+        settle asks once per thread and for SESSION_READS threads at most, and its first refused read ends its reads:
+        every thread after that is unknown, and an unknown thread is never closed nor taken in place (design §3.6,
+        P8). `reads` keeps this settle's answers, None for the refused one."""
+        if session_id not in reads:
+            if None in reads.values() or len(reads) >= SESSION_READS:
+                return None
+            try:
+                reads[session_id] = self.api.session_state(session_id, issue_id, self.identity["appUserId"])
+            except Exception:
+                reads[session_id] = None
+        return reads[session_id]
+
+    def _say(self, session_id, content):
+        """Post `content` in the thread `session_id`, best effort: the refusal, or None when Linear took it."""
+        try:
+            self.api.create_activity(session_id, content)
+        except Exception as exc:
+            return exc
+        return None
+
+    def _line(self, job, content, outcome):
+        """Post the line of a settle that ends nothing, a thought or a question asked again, in the thread of `job`,
+        best effort, and record it in the job's audit trail. Not for an operator's `local-` job, which has no Linear
+        thread; not for work that is being withdrawn, of which "it goes on" would be false; not for a job that has
+        left the state the line was written for, which has spoken in its thread since (design P9); and at most once
+        per job in RENOTE_SECONDS, so that an automation that flaps the delegate costs one line (§3.3). Returns
+        whether Linear took it."""
+        thread = str(job["session_id"])
+        if thread.startswith("local-") or job["withdraw_deadline"] is not None:
+            return False
+        if self.ledger.item(job["id"])["state"] != job["state"]:
+            return False
+        if self.ledger.noted_since(job["id"], "redelegated", self.clock() - RENOTE_SECONDS):
+            return False
+        if self._say(thread, content) is not None:
+            return False
+        self.ledger.note(job["id"], "redelegated", outcome, {"type": content["type"]})
+        return True
+
+    def _keep(self, episode, active):
+        """Kept (design P12, D2): `active` is delegation work of the kind the labels route to, so nothing moves. Its
+        thread gets one line: a waiting job asks its question again, which keeps a waiting thread over waiting work,
+        and any other says that the work goes on."""
+        thread = str(active["session_id"])
+        if not self.ledger.finish_episode(episode["issue_id"], episode["since"], "served", thread):
+            return "changed"
+        try:
+            if active["state"] != "awaiting_input":
+                self._line(active, {"type": "thought", "body": REDELEGATED_RUNNING.format(bot=self.bot_name)}, "kept")
+            elif self._line(active, {"type": "elicitation", "body": REDELEGATED_WAITING.format(
+                    bot=self.bot_name, question=active["checkpoint"].get("pending_question") or "")}, "kept"):
+                # The job may have ended while Linear took the question: a closure, an operator's cancel. Its thread
+                # would keep a question nobody reads an answer to, so the question is withdrawn, as `await-input`
+                # withdraws one (design A6, P9).
+                ended = self.ledger.item(active["id"])
+                if ended["state"] not in ACTIVE_STATES:
+                    body = question_withdrawn(ended["skill"])
+                    refused = self._say(thread, {"type": "response", "body": body})
+                    if refused is not None:
+                        self._owe(thread, "response", body, refused, job=ended)
+        except Exception:
+            pass  # the line is best effort, and the episode is settled
+        return "kept"
+
+    def _event_waits(self, session_id):
+        """Whether an event of the thread `session_id` is still to be handled: pending, or deferred behind another
+        session's worker."""
+        with self.lock:
+            return self.db.execute("SELECT 1 FROM webhook_events WHERE session_id=? "
+                                   "AND status IN ('pending','deferred') LIMIT 1", (session_id,)).fetchone() is not None
+
+    def _reaches_work(self, session_id):
+        """Whether the thread `session_id` has active work a Stop or a reply there reaches as its own: a job that
+        lives in it, or the job its conversation handed over to, which lives in another thread."""
+        return self.ledger.active_item_for_session(session_id) is not None
+
+    def _tell(self, episode, active, reads):
+        """Told, or unseen (design P12, D3, §3.5): the delegation can neither be kept nor taken over in place, so each
+        of FarmBot's open threads on the card gets one note, and with no such thread nothing is posted and doctor
+        lists the episode. The threads are that of `active`, the card's active job, and the card's newest ones; an
+        operator's `local-` session is no thread.
+
+        - The thread of a waiting job gets a response, which ends the wait that kept Linear from opening a session;
+          the job stays parked and answerable. Not when Linear says the thread is closed or archived: it then blocks
+          nothing, or nobody sees it.
+        - The thread of a job that goes on gets a thought, unless it is archived.
+        - A thread with no job of its own that Linear shows as open is closed by a response. Not while its messages
+          are forwarded to the active job, nor while its conversation has handed over to a job that is still active,
+          nor while an event of it is still to be handled: a Stop there must keep reaching the work (P5). Not when
+          its state could not be read (P8).
+        A refused response is owed to its thread (P10)."""
+        issue_id = episode["issue_id"]
+        own = str(active["session_id"]) if active is not None else None
+        notes = []
+        if own is not None and not own.startswith("local-") and active["withdraw_deadline"] is None:
+            state = self._thread_state(reads, own, issue_id)
+            if active["state"] == "awaiting_input":
+                if state is None or not (state["archived"] or state["status"] in CLOSED_STATUSES):
+                    text = SILENT_WAITING if active["skill"] in WRITE_SKILLS else SILENT_WAITING_CHAT
+                    notes.append((own, "response", text.format(bot=self.bot_name)))
+            elif state is None or not state["archived"]:
+                notes.append((own, "thought", SILENT_BUSY.format(bot=self.bot_name)))
+        for row in self.ledger.sessions_for_issue(issue_id, SESSION_READS):
+            thread = row["session_id"]
+            if (self._reaches_work(thread) or (active is not None and row["forwarded_item"] == active["id"])
+                    or self._event_waits(thread)):
+                continue  # the job's own thread, seen above, or a thread that still reaches the work or has an event
+            state = self._thread_state(reads, thread, issue_id)
+            if state is not None and not state["archived"] and state["status"] not in CLOSED_STATUSES:
+                notes.append((thread, "response", SILENT_ENDED.format(bot=self.bot_name)))
+        outcome = "told" if notes else "unseen"
+        if not self.ledger.finish_episode(issue_id, episode["since"], outcome):
+            return "changed"
+        for thread, kind, body in notes:
+            try:
+                self._note(thread, kind, body, active if thread == own else None)
+            except Exception:
+                pass  # each note is best effort, and the episode is settled
+        return outcome
+
+    def _note(self, thread, kind, body, job):
+        """Post one note of a told episode in `thread`: for `job`, the card's active job, in its own thread, or for
+        no job in a thread that had none. The note is for the thread as the settle found it (design P9): a job that
+        has left its state since has spoken there itself, and a thread that has work by now is not told it has
+        none."""
+        if kind == "thought":
+            self._line(job, {"type": kind, "body": body}, "told")
+            return
+        if job is not None:
+            if self.ledger.item(job["id"])["state"] != job["state"]:
+                return
+        elif self._reaches_work(thread):
+            return
+        refused = self._say(thread, {"type": kind, "body": body})
+        if refused is not None:
+            self._owe(thread, kind, body, refused, job=job)  # a thread with no job is owed for its card
+        if job is not None:
+            self.ledger.note(job["id"], "redelegated", "told", {"type": kind})
+
     def process_one(self):
+        """One step of the receiver's loop: a Stop, else one pending event, else, with no event pending, one
+        delegation whose grace has ended with no session (silent-delegation design §3.4). Returns whether it did
+        any of them."""
         if self._process_stop():
             return True
         self._release_deferred()
         with self.lock:
             row = self.db.execute("SELECT * FROM webhook_events WHERE status='pending' ORDER BY received_at LIMIT 1").fetchone()
-            if row is None:
-                return False
-            self.db.execute("UPDATE webhook_events SET status='processing' WHERE event_key=?", (row["event_key"],))
-            self.db.commit()
+            if row is not None:
+                self.db.execute("UPDATE webhook_events SET status='processing' WHERE event_key=?", (row["event_key"],))
+                self.db.commit()
+        if row is None:
+            # Outside the lock: a settle reads Linear, and `receive` needs the lock to accept a webhook meanwhile.
+            return self._settle_delegation()
         status, error = "done", None
         answered = True  # Linear took this event's answer in its thread: an acknowledgement, or the event's error
         try:

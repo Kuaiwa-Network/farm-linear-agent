@@ -16,6 +16,7 @@ from .readonly_db import snapshot_connection
 from .router import WRITE_SKILLS
 from .skills import SkillError, enabled_skills, load_skills
 from .stages import current_root, runtime_can_launch
+from .withdrawal import SILENT_GRACE_SECONDS
 from .worktrees import Worktrees
 
 # The words a job's plan may use for its stages and pauses (the Phase B plan's shared interfaces). Doctor copies
@@ -33,6 +34,12 @@ LONG_PARKED_SECONDS = 7 * 86400
 # A closing activity Linear refused to the end (silent-delegation design P10) is listed for 7 days: nothing removes
 # its row once the operator has looked at the thread, and a finding that never clears would hide the next one.
 UNCLOSED_SECONDS = 7 * 86400
+# A delegation Linear opened no session for (silent-delegation design P12, §7) is listed for 7 days when FarmBot found
+# no open thread of its own to answer in, and while it is still unsettled more than 10 minutes after its grace ended.
+# The receiver settles one when its grace ends; a settle whose read fails is tried again, which moves the episode's
+# `due_at` on each time, so what is overdue is counted from the end of the grace and not from `due_at`.
+SILENT_UNSEEN_SECONDS = 7 * 86400
+SILENT_OVERDUE_SECONDS = 600
 
 
 class _SchemaMismatch(ValueError):
@@ -135,9 +142,20 @@ def _snapshot(path):
             AND (c.item_id IS NULL OR EXISTS (SELECT 1 FROM work_items w WHERE w.id=c.item_id AND w.state=c.item_state))
             AND NOT EXISTS (SELECT 1 FROM work_items w WHERE w.session_id=c.session_id AND w.created_at>c.created_at)
             ORDER BY c.created_at,c.session_id""") if "session_closures" in tables else []
+        # Delegations Linear opened no session for (silent-delegation design P12), read only where the ledger has the
+        # table: one still waiting to be settled, and one that met no open thread, unless a delegation session of the
+        # card, a Linear thread, has been recorded since the read that found the card not delegated.
+        silent = rows("""SELECT e.issue_id,json_extract(i.metadata,'$.identifier') AS identifier,e.state,e.since,
+            e.due_at,e.settled_at,e.attempts,e.error
+            FROM delegation_episodes e LEFT JOIN issues i ON i.id=e.issue_id
+            WHERE e.state='waiting' OR (e.state='unseen' AND NOT EXISTS (
+                SELECT 1 FROM sessions s WHERE s.issue_id=e.issue_id AND s.delegation=1
+                AND s.session_id NOT LIKE 'local-%' AND s.created_at>=e.mark))
+            ORDER BY e.since,e.issue_id""") if "delegation_episodes" in tables else []
         return {
             "_withdrawal": withdrawal,
             "_unclosed": unclosed,
+            "_silent": silent,
             "counts": {row["state"]: row["count"] for row in rows(
                 "SELECT state,COUNT(*) AS count FROM work_items GROUP BY state")},
             "jobs": rows(f"""SELECT w.id AS item_id,w.issue_id,json_extract(i.metadata,'$.identifier') AS identifier,
@@ -287,7 +305,7 @@ def diagnose(config, *, now=None):
                  incomplete=True, error_type=type(exc).__name__,
                  **({"missing_schema": exc.missing} if isinstance(exc, _SchemaMismatch) else {}))
         return report
-    withdrawal, unclosed = snapshot.pop("_withdrawal"), snapshot.pop("_unclosed")
+    withdrawal, unclosed, silent = snapshot.pop("_withdrawal"), snapshot.pop("_unclosed"), snapshot.pop("_silent")
     report.update(snapshot)
     report["counts"]["total"] = sum(report["counts"].values())
     rooted = {name: skill for name, skill in loaded.items() if skill.initial_root}
@@ -353,6 +371,17 @@ def diagnose(config, *, now=None):
                      "Linear refused this thread's closing activity six times. The thread may still show FarmBot "
                      "waiting and block the card's next delegation. Check the session in Linear and archive it if it "
                      "waits.", **closure)
+    for episode in silent:
+        waiting = episode["state"] == "waiting"
+        overdue = report["checked_at"] - (episode["since"] + SILENT_GRACE_SECONDS)
+        if (overdue > SILENT_OVERDUE_SECONDS if waiting
+                else report["checked_at"] - episode["settled_at"] <= SILENT_UNSEEN_SECONDS):
+            _finding(report, "silent_delegation",
+                     "A read found the card delegated to this app again, no agent session followed within 90 s, and "
+                     "FarmBot found none of its threads on the card open; or the settle has been failing for more "
+                     "than 10 minutes. Most likely a delegation through Linear's API, or a thread FarmBot cannot read "
+                     "still waits. Open the card: answer or archive a waiting thread, or ask the person to choose No "
+                     "agent and delegate again.", **episode, overdue_seconds=int(overdue) if waiting else None)
     return report
 
 

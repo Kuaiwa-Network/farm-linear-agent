@@ -372,6 +372,62 @@ class DoctorTests(unittest.TestCase):
         self.assertEqual(unclosed(), [])
         self.assertIsNone(self.ledger.connection.execute("SELECT 1 FROM session_closures").fetchone())
 
+    def silent(self, now):
+        return [{key: value for key, value in finding.items() if key not in ("code", "severity", "hint")}
+                for finding in self.findings(diagnose(self.config, now=now), "silent_delegation")]
+
+    def test_silent_delegation_is_a_finding(self):
+        """Silent-delegation design P12, §7 (TD1; S7, S10, S20): a delegation that Linear opened no session for is
+        listed when FarmBot found no open thread of its own to answer in, for 7 days or until a delegation session
+        follows on the card, and when it is still unsettled more than 10 minutes after its grace ended. One that was
+        heard, kept, taken in place, told or dropped is not. A ledger older than the table reports nothing."""
+        self.ledger.mark_undelegated(ISSUE, 1100.0)
+        self.ledger.clear_undelegated(ISSUE, observed_at=1130.0)  # its grace ends at 1220
+        self.assertEqual(self.silent(1220 + 600), [])
+        waiting = {"issue_id": ISSUE, "identifier": "FARM-1", "state": "waiting", "since": 1130.0, "due_at": 1220.0,
+                   "settled_at": None, "attempts": 0, "error": None, "overdue_seconds": 601}
+        self.assertEqual(self.silent(1220 + 601), [waiting])
+        # A settle whose read of the card keeps failing is tried again, and each try moves `due_at` on, at most five
+        # minutes ahead. The episode is as overdue as before, counted from the end of its grace, and the failure is
+        # named.
+        self.ledger.retry_episode(ISSUE, 1130.0, 2000.0, error="LinearError")
+        self.assertEqual(self.silent(1220 + 600), [])
+        self.assertEqual(self.silent(1900), [{**waiting, "due_at": 2000.0, "attempts": 1, "error": "LinearError",
+                                              "overdue_seconds": 680}])
+        report = diagnose(self.config, now=1900)
+        self.assertEqual(report["status"], "attention")
+        self.assertIn("choose No agent and delegate again", self.findings(report, "silent_delegation")[0]["hint"])
+        for state in ("heard", "served", "in_place", "told", "dropped"):
+            with self.subTest(state=state):
+                self.ledger.connection.execute("UPDATE delegation_episodes SET state=?,settled_at=3000", (state,))
+                self.assertEqual(self.silent(3001), [])
+        self.ledger.connection.execute("UPDATE delegation_episodes SET state='waiting',settled_at=NULL")
+        self.ledger.clock = lambda: 3000
+        self.assertTrue(self.ledger.finish_episode(ISSUE, 1130.0, "unseen"))
+        unseen = {**waiting, "state": "unseen", "due_at": 2000.0, "settled_at": 3000, "attempts": 1,
+                  "overdue_seconds": None}
+        self.assertEqual(self.silent(3001), [unseen])
+        self.assertEqual(self.silent(3000 + 7 * 86400), [unseen])
+        self.assertEqual(self.silent(3001 + 7 * 86400), [])
+        # The delegation's own thread from before the mark, a later mention and the operator's enqueue are no
+        # delegation session that followed; one Linear opened for the card at or after the mark is.
+        self.ledger.ensure_session("mention", ISSUE, delegation=False)
+        self.ledger.ensure_session(f"local-{ISSUE}", ISSUE, delegation=True)
+        self.ledger.observe_issue(issue(id=OTHER, identifier="FARM-2"))
+        self.ledger.ensure_session("session-other", OTHER, delegation=True)
+        self.assertEqual(self.silent(3001), [unseen])
+        self.ledger.ensure_session("session-2", ISSUE, delegation=True)
+        self.assertEqual(self.silent(3001), [])
+        self.ledger.connection.execute("UPDATE sessions SET created_at=1099 WHERE session_id='session-2'")
+        self.assertEqual(self.silent(3001), [unseen])
+        self.ledger.connection.execute("UPDATE sessions SET created_at=1100 WHERE session_id='session-2'")
+        self.assertEqual(self.silent(3001), [])
+        self.ledger.connection.execute("DELETE FROM sessions WHERE session_id='session-2'")
+        self.ledger.connection.execute("DROP TABLE delegation_episodes")
+        report = diagnose(self.config, now=3001)
+        self.assertNotEqual(report["status"], "incomplete")
+        self.assertEqual(self.findings(report, "silent_delegation"), [])
+
     def test_stored_undelegated_lists_the_delegations_work_only_when_the_app_is_pinned(self):
         """Design §5.3: before deploying, doctor lists the work the stored snapshot shows on a card not delegated to
         the pinned app. A conversation a delegation opened before authorities were recorded is listed too, though the

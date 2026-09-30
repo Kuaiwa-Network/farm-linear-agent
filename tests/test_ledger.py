@@ -2945,6 +2945,130 @@ class DelegationEpisodeTests(WithdrawnWorkBase):
         reopened.clear_undelegated(ISSUE, observed_at=1030.0)
         self.assertEqual(reopened.episode(ISSUE)["state"], "waiting")
 
+    IN_PLACE = "a delegation Linear opened no session for took the work over in its own thread"
+
+    def test_supersede_in_place_takes_the_episode_in_the_same_transaction(self):
+        """TE7, P12: a takeover in the job's own thread settles the episode it answers in the transaction that moves
+        the work: the episode the caller read, still waiting, becomes `in_place` with that thread. One that is no
+        longer that episode refuses the takeover as stale routing does, and nothing changes."""
+        chat = self.parked(skill="chat", session="session-0", messages=(("按钮点了没反应", DESIGNER, 900.0),))
+        self.redelegated(1000.0, 1030.0)
+        waiting = self.ledger.episode(ISSUE)
+        self.now = 1120.0
+        cancelled, created = self.ledger.supersede(chat["id"], ACTIVE_STATES, session_id="session-0", skill="fix",
+                                                   target=PIN, authority="delegation", reason=self.IN_PLACE,
+                                                   episode=1030.0)
+        self.assertEqual((cancelled["id"], cancelled["state"]), (chat["id"], "cancelled"))
+        self.assertEqual((created["session_id"], created["skill"], created["state"], created["authority"],
+                          created["target"]), ("session-0", "fix", "queued", "delegation", PIN))
+        self.assertEqual(self.inbox(created["id"]), [("按钮点了没反应", DESIGNER, 900.0)])
+        taken = {**waiting, "state": "in_place", "session_id": "session-0", "settled_at": 1120.0,
+                 "updated_at": 1120.0}
+        self.assertEqual(self.episodes(), [taken])
+        self.assertIsNone(self.ledger.due_episode(10 ** 9))
+        self.assertEqual(self.ledger.stop_target("session-0"), (created, "own"))  # the thread's own work (P5)
+
+        def unchanged(episode):
+            self.assertEqual(self.episodes(), [episode])
+            self.assertEqual([(item["id"], item["state"]) for item in self.ledger.items_for_session("session-0")],
+                             [(chat["id"], "cancelled"), (created["id"], "queued")])
+
+        def in_place(since):
+            return self.ledger.supersede(created["id"], UNCLAIMED, session_id="session-0", skill="feature",
+                                         authority="delegation", reason=self.IN_PLACE, episode=since)
+        # The episode is settled: a second settle of it takes nothing.
+        with self.assertRaises(StaleRouting):
+            in_place(1030.0)
+        unchanged(taken)
+        # A newer episode waits: the settle that read the older one takes nothing either.
+        self.now = 1231.0
+        self.redelegated(1200.0, 1230.0)
+        newer = self.ledger.episode(ISSUE)
+        self.assertEqual((newer["state"], newer["since"]), ("waiting", 1230.0))
+        with self.assertRaises(StaleRouting):
+            in_place(1030.0)
+        unchanged(newer)
+        # A read that found the delegation gone again dropped it under the settle.
+        self.now = 1241.0
+        self.ledger.mark_undelegated(ISSUE, 1240.0)
+        dropped = self.ledger.episode(ISSUE)
+        self.assertEqual(dropped["state"], "dropped")
+        with self.assertRaises(StaleRouting):
+            in_place(1230.0)
+        unchanged(dropped)
+        for bad in ("1230", True, float("nan")):
+            with self.subTest(bad=bad), self.assertRaisesRegex(LedgerError, "episode must be a finite number"):
+                in_place(bad)
+        unchanged(dropped)
+        # Without an episode a takeover is what it was: a new session's, which no episode gates.
+        self.ledger.ensure_session("session-1", ISSUE, delegation=True)
+        _, moved = self.ledger.supersede(created["id"], UNCLAIMED, session_id="session-1", skill="fix", target=PIN,
+                                         authority="delegation", reason="a new delegation session took the card over")
+        self.assertEqual((moved["session_id"], self.ledger.episode(ISSUE)), ("session-1", dropped))
+
+    def test_supersede_in_place_on_a_card_with_no_episode_is_stale(self):
+        chat = self.parked(skill="chat", session="session-0")
+        with self.assertRaises(StaleRouting):
+            self.ledger.supersede(chat["id"], ACTIVE_STATES, session_id="session-0", skill="fix", target=PIN,
+                                  authority="delegation", reason=self.IN_PLACE, episode=1030.0)
+        self.assertEqual(self.ledger.item(chat["id"])["state"], "awaiting_input")
+        self.assertEqual(self.episodes(), [])
+
+    def test_a_job_that_changed_leaves_its_episode_waiting(self):
+        """The takeover's two fences fail alike: a job that left the expected states rolls the transaction back, and
+        the episode still waits for the settle to look again."""
+        chat = self.parked(skill="chat", session="session-0")
+        self.redelegated(1000.0, 1030.0)
+        waiting = self.ledger.episode(ISSUE)
+        self.ledger.cancel(chat["id"], "Linear stop")
+        with self.assertRaises(StaleRouting):
+            self.ledger.supersede(chat["id"], ACTIVE_STATES, session_id="session-0", skill="fix", target=PIN,
+                                  authority="delegation", reason=self.IN_PLACE, episode=1030.0)
+        self.assertEqual(self.episodes(), [waiting])
+        self.assertEqual(len(self.ledger.items_for_session("session-0")), 1)
+
+    def test_a_cards_linear_threads_are_listed_newest_first(self):
+        """§3.5: the threads a settle may look at are the card's recorded sessions that are Linear threads, newest
+        first, each with whether a delegation opened it and the job its messages were forwarded to."""
+        item = self.new_item(delegate_id=self.APP)  # SESSION, recorded at 1000
+        self.ledger.observe_issue(issue(id=OTHER, identifier="FARM-2"))
+        self.now = 990.0
+        self.ledger.ensure_session("session-a", ISSUE, delegation=True)
+        self.now = 1010.0
+        self.ledger.ensure_session("mention-b", ISSUE, delegation=False)
+        self.ledger.ensure_session(f"local-{ISSUE}", ISSUE, delegation=True)  # the operator's: no Linear thread
+        self.ledger.ensure_session("session-other", OTHER, delegation=True)
+        self.ledger.record_forward("mention-b", item["id"])
+        self.now = 1020.0
+        self.ledger.ensure_session("session-c", ISSUE, delegation=True)
+        self.ledger.ensure_session("session-d", ISSUE, delegation=False)  # recorded in the same instant, after it
+        listed = self.ledger.sessions_for_issue(ISSUE, 10)
+        self.assertEqual(listed, [
+            {"session_id": "session-d", "delegation": False, "created_at": 1020.0, "forwarded_item": None},
+            {"session_id": "session-c", "delegation": True, "created_at": 1020.0, "forwarded_item": None},
+            {"session_id": "mention-b", "delegation": False, "created_at": 1010.0, "forwarded_item": item["id"]},
+            {"session_id": SESSION, "delegation": True, "created_at": 1000.0, "forwarded_item": None},
+            {"session_id": "session-a", "delegation": True, "created_at": 990.0, "forwarded_item": None}])
+        self.assertEqual(self.ledger.sessions_for_issue(ISSUE, 2), listed[:2])
+        self.assertEqual([row["session_id"] for row in self.ledger.sessions_for_issue(OTHER, 10)], ["session-other"])
+        for bad in (0, -1, True, "10", 2.5):
+            with self.subTest(bad=bad), self.assertRaises(LedgerError):
+                self.ledger.sessions_for_issue(ISSUE, bad)
+
+    def test_a_jobs_note_is_found_from_a_given_time_on(self):
+        """§3.3: the line a kept job gets is limited per job and time. The audit trail is its record: a note of that
+        kind on that job, at or after the given time."""
+        item = self.new_item(delegate_id=self.APP)
+        self.assertFalse(self.ledger.noted_since(item["id"], "redelegated", 0))
+        self.now = 1100.0
+        self.ledger.note(item["id"], "redelegated", "kept")
+        self.assertTrue(self.ledger.noted_since(item["id"], "redelegated", 1000.0))
+        self.assertTrue(self.ledger.noted_since(item["id"], "redelegated", 1100.0))
+        self.assertFalse(self.ledger.noted_since(item["id"], "redelegated", 1100.5))
+        self.assertFalse(self.ledger.noted_since(item["id"], "superseded", 1000.0))
+        self.assertTrue(self.ledger.noted_since(item["id"], "create", 1000.0))  # any audit kind of the job
+        self.assertFalse(self.ledger.noted_since("another-job", "redelegated", 1000.0))
+
 
 class ReservationTests(unittest.TestCase):
     def test_requested_fix_commit_does_not_overwrite_baseline(self):
