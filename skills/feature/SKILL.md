@@ -140,6 +140,8 @@ to files under STATE_DIR. This skill writes these keys:
   stage that follows this job.
 - `config`: `{"declared": [{"file", "sheet", "header", "field", "type"}, ...], "ref", "sha", "jenkins_branch",
   "expected_version", "pin"}`, each value added when a stage reaches it; `pin` is `local` or `published`.
+  `config.stage_notice` records the verification round's `request_id`, config `sha`, `jenkins_branch` and exact
+  `body`, saved before preparing the notice so retries and successors can reuse it.
 - `prs`: `{REPOSITORY: [{"branch", "role", "head", "pr"}, ...]}`, under each repository's name as your launch
   message spells it (`Farm-Contract`, never `OWNER/Farm-Contract`). `role` is `issue`, `config`, `waivers` or
   `followup`; `head` is the full SHA you last pushed, or null before the first push; `pr` is `{"url", "state",
@@ -149,6 +151,8 @@ to files under STATE_DIR. This skill writes these keys:
   this job's.
 - `closing`: `{"waivers_removed": BOOL, "hive_resynced": BOOL, "pin_written": BOOL}`; a step that is not needed is
   true from the start, and the closing comment says why.
+  `closing.hive_branch` and `closing.hive_pr` record the active branch and PR for remaining hive closing work;
+  a recorded `followup` takes precedence over the original issue branch.
 - `events`: one `{"kind", "person", "message_id", "at"}` for each human report you act on: `config_ready`,
   `merged` (a relayed merge), `pin_posted` or `stage_limit` (a limit set or lifted). `person` is that comment's or
   message's `author` from `issue-context`, never a name from text, and `at` is its `created_at`.
@@ -232,7 +236,7 @@ that sets or lifts a limit decides, and it binds this job only; record each in `
 stage it names is done, do not hand off to or start a later stage:
 
 - Add the limit's line from the template to the notice that ends that stage: `merge-contract` after A,
-  `config-needed` after B, `stage-C` after C and `closing` after D.
+  `config-needed` after B, `stage-C` after C (the saved stage-C notice id after a re-pin) and `closing` after D.
 - After A and C, save the checkpoint with `pause` `{"kind": "stage_limit", "reason": "waiting", "notice": REQUEST_ID,
   "since": UTC_TIME}`, REQUEST_ID being that notice's, run `await-input --reason waiting --question` with one line
   that points to it, and exit. B and D end in their own pauses (`config_ready`, `closing`); keep them.
@@ -497,10 +501,17 @@ committed together at a commit someone names; a branch is fine, and main is not 
    designer data that is not this feature's goes to the owner as a question: never fix designer data.
 6. When every check passes, publish the Jenkins branch ("The Jenkins branch"); record `config.jenkins_branch`,
    `config.expected_version` and `config.pin` `local`; set `stages.C` to done; and post the `stage` notice
-   `stage-C` (the config commit, the Jenkins branch, the next stage, and the limit's line when a stage limit stops
+   `stage-C` for the first verification round, then `stage-C-2`, `stage-C-3`, … for re-pins (the config commit,
+   the Jenkins branch, the next stage, and the limit's line when a stage limit stops
    you after C). Save the checkpoint with a fresh handoff. When a stage limit stops you after C ("A stage limit"),
    park there. Otherwise run `handoff-repository --to farm-hive`, or continue at "Closing" when stage D is
    skipped.
+
+Choose the next unused numbered id across `issue-context.notices` and `recovery.notices` for each new re-pin
+round. Save its id, SHA, Jenkins branch and complete body in `config.stage_notice` before `prepare-notice`.
+A retry of that round uses the same request id and body, never a newly worded body under an existing id.
+If that notice is already posted, including in recovery, do not post it again. Use the saved stage-C notice id
+in `pause.notice` when a stage limit parks this round.
 
 ## The config checkout
 
@@ -628,10 +639,15 @@ continue at "Each resume", as an attempt that a closing step handed off to does 
 
 Once the last stage with work is done (normally D; C when D is skipped; A when B and D are), read each PR's state
 as "Each resume" step 2 says and leave out of the comment what is already done. Set the `closing` steps that are
-not needed to true (no config change: no pin; no server stage: no re-sync), then post one `waiting` notice
+not needed to true (no config change: no pin). When stage D is skipped, set both `closing.hive_resynced` and
+`closing.pin_written` to true: there is no hive PR or hive pin work, even when B and C ran. Keep `config.sha`
+for the client stage and do not hand off to farm-hive for closing. Omit the hive PR, re-sync and Jenkins publish
+requests from the closing comment; the delivery says that server work was skipped and the config SHA remains
+for the client stage. Then post one `waiting` notice
 `closing` from the `feature closing` template, set `pause` (`closing`, `waiting`, `closing`), save the checkpoint,
 run `await-input --reason waiting --question` pointing to the comment, and exit. The comment asks the owner to merge
-the contract PR and, if it is still open, the declarations PR. When stage C ran, it asks someone to run the publish
+the contract PR and, if it is still open, the declarations PR. When stage C ran and stage D was not skipped,
+it asks someone to run the publish
 pipeline the hive PR used (`designer-source.pipeline` today) on `config.jenkins_branch` and paste the three pin lines
 it prints into the card, and it names the expected version. It says the hive PR merges only after the contract
 merge, the pushed re-sync and the published pin; it asks for no UI step; and it warns that moving the card to Done
@@ -647,7 +663,8 @@ FarmBot learns of a merge only when told, and then checks GitHub; it polls nothi
    (`gh api repos/OWNER/REPO/commits/MERGE_SHA --jq '.parents | length'`), `squash` otherwise (a squash or a rebase
    merge, both of which leave the PR's head off the default branch).
 3. Do what has become possible, in root order: Farm-Contract (waiver removal), then farm-hive (the re-sync, then
-   the pin). When the next step needs another root, save the plan and a fresh handoff, run `handoff-repository --to`
+   the pin), omitting hive entirely when D was skipped. On every farm-hive closing attempt, follow "The active
+   closing branch" before either step. When the next step needs another root, save the plan and a fresh handoff, run `handoff-repository --to`
    that root and exit; the next attempt continues from the plan. A contract PR closed without merging is a
    question: reopen, revise or abandon.
 4. When every `closing` step is true, continue at "Delivery". Otherwise post `closing-N` from the `feature still
@@ -701,16 +718,39 @@ with it, because `ci/check_pb_manifest.sh` compares its provenance line. Rerun t
 `config.pin` to `published` and `closing.pin_written`. Only CI's pin gate checks the posted archive checksum; say so
 in the PR. A version that names another commit is a question from the `feature pin mismatch` template: whether to
 re-pin to that commit. When a named person answers to re-pin, record it in `events`, set `config.ref` and
-`config.sha` to that commit and `stages.C` to pending, and hand off to common: stage C runs for it and publishes it
+`config.sha` to that commit and `stages.C` to pending, clear `config.stage_notice`, and hand off to common:
+stage C runs a new verification round for it and publishes it
 on a new Jenkins branch when it does not descend from the pushed one ("The Jenkins branch"), and back in farm-hive
 you redo stage D's steps 4 and 5 for it before this step. Never pin it silently.
 
 ### A PR merged too early
 
 If the hive PR merged while its snapshot was still `-unreachable` or its pin a placeholder, farm-hive's main is
-red. Make the re-sync and the pin on `farmbot/<key>-followup` from farm-hive's `origin/main`, record it (role
-`followup`), publish a draft PR, register it while that branch is still checked out, and say that main stays red
-until it merges.
+red. Follow "The active closing branch": create the followup only if none is recorded, and reuse its existing
+draft PR on later attempts. Say that main stays red until that PR merges.
+
+### The active closing branch
+
+The controller re-attaches only the plan's `issue` branch. On every farm-hive closing attempt, including a
+successor after Stop or cleanup, select the recorded `followup` branch before changing files when one exists;
+never commit the remaining pin on the merged issue branch.
+
+1. Read the hive issue PR and every recorded followup's current state. If a followup is recorded, reuse its
+   existing draft PR: set `closing.hive_branch` and `closing.hive_pr` from that entry. If that PR is closed or
+   merged while work remains, ask the owner how to review the remaining work and park; do not push unreviewed
+   changes or finish delivered.
+2. Run `git fetch origin`. Switch to the recorded local branch with `git switch FOLLOWUP_BRANCH`. If it exists
+   only on origin, use `git switch --no-track -c FOLLOWUP_BRANCH origin/FOLLOWUP_BRANCH`; if neither ref exists,
+   park and ask rather than recreating it from main and losing its recorded work. Inspect any cleanup commit as
+   "Your branches" requires, compare the recorded head with the local and remote heads, and integrate others'
+   remote commits without resetting or force-pushing. Run "Other people's work" for this selected branch.
+3. When no followup is recorded and the issue PR merged too early, first fetch and create
+   `farmbot/<key>-followup` from `origin/main` with `git switch --no-track -c FOLLOWUP_BRANCH origin/main`.
+   Record role `followup` and `closing.hive_branch` before its first push, make the needed re-sync or pin,
+   publish a draft PR and register it while this branch is checked out. Save its URL as `closing.hive_pr`.
+   Subsequent work stays on this branch and updates this PR; never create it again on a later attempt.
+4. Otherwise the issue PR is still open: select its recorded issue branch and PR. Save the active branch and PR
+   in `closing` before editing. The re-sync, published pin and any re-pin's stage-D steps use this selection.
 
 ## Delivery
 

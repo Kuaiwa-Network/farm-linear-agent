@@ -95,6 +95,7 @@ stage (the skill's "A stage limit"); leave it out otherwise.
 
 ## feature closing
 （`waiting` 通知，request id `closing`。不需要的步骤整条删掉。流水线名写服务端 PR 采用的发布方式；今天是 designer-source.pipeline。）
+（服务端阶段跳过时，标题改为「契约和配表声明草稿已提交」；删掉服务端 PR、协议同步和 Jenkins 发布要求，保留配置 commit 供客户端阶段使用。）
 <bot_name> 服务端草稿已提交，还需要这些人工步骤（本卡不含 UI 步骤；客户端部分见之后的交付评论）：
 1. 请 <owner.person.url> 合并契约 PR：<链接>。合并后我会移除它带来的 BREAKING_WAIVERS 记账（如有），并把服务端的协议快照同步到合并后的 commit。
 2. 请合并配表声明 PR：<链接>。
@@ -110,6 +111,7 @@ stage (the skill's "A stage limit"); leave it out otherwise.
 请 <owner.person.url> 决定：改用这个 commit 重新核对配置再 pin（若它不在 <Jenkins 分支> 之后，我会另推一个 Jenkins 分支），还是从 <Jenkins 分支> 重新发布？我不会自行改用别的 commit。
 
 ## feature delivery
+（服务端阶段跳过时，标题和条目不写服务端已完成；删掉服务端、发布 pin 的描述，配表条目保留配置 commit，说明客户端阶段仍需使用它。）
 <bot_name> 已完成这张功能卡的契约、配表声明和服务端（草稿 PR 与合并状态见下）：
 - 契约：<PR 链接>（<状态>）；change <名称> 尚未归档，回账等客户端完成后再做
 - 配表声明：<PR 链接>（<状态>）；配置 commit <短 SHA>，Jenkins 分支 <分支>，pin <版本>

@@ -102,6 +102,27 @@ state from Git history and the saved Claude session. Phase A's shared plumbing a
   withdrawal behavior and B2's credential filtering; B2/B3 remain draft implementation, with native
   Windows desktop readiness and live Code acceptance pending. All 70 document-reading tests passed;
   links and whitespace are clean. Independent B3 review and hosted verification follow.
+- **B2 hosted verification completed:** draft [#76](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/76)
+  at `66a0967` passed both Python 3.13 jobs in [CI run 36847857567](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/36847857567).
+  Both discovered 1,661 tests; macOS skipped 18 platform checks and Windows skipped 69. The Windows
+  Job Object checks ran. Earlier Windows failures needed only fixture corrections for deleting a
+  read-only loose object and preserving arguments with spaces in a Git wrapper. This is hosted CI,
+  not verification of the operator's Windows desktop or its product generators.
+- **B3 review fixes:** the independent review found three important instruction gaps. Config-only
+  B/C work with skipped D now satisfies both hive closing steps and retains the config SHA for the
+  later client stage. Every hive closing attempt selects the recorded followup branch and reuses its
+  PR, including after Stop and successor recovery. Config re-pins use a new numbered stage-C notice,
+  with its id and exact body saved before preparation and reused on retries. Three new regressions
+  failed before these fixes; all 73 instruction/reference checks then passed. Two additional real
+  offline journeys verify config-only delivery and followup selection after cleanup and recovery.
+  The one review fix pass is complete. The final macOS offline suite passed **1,725 tests in
+  319.017 seconds, 18 Windows-only skips**, including all thirteen journeys. Hosted verification
+  follows the B3 draft PR; no second review was dispatched.
+- **Task 17 inspection only:** read-only `doctor` with the existing TestBot profile found feature
+  loaded but disabled; it therefore did not probe feature tools. Four existing failed/blocked/cleanup
+  findings were left untouched. No profile change, live feature run, service restart or deployment
+  occurred. Native Windows host checks, live Feishu permissions and an operator-selected Code card
+  remain pending.
 
 ## Scope
 
@@ -12288,7 +12309,7 @@ Open Questions.
 - Produces: recorded results. A skipped check is recorded as skipped with its reason, never as passed; a failed check
   stops the task, and fixing it is a new task.
 
-- [ ] **Step 1: Full offline suite on macOS.**
+- [x] **Step 1: Full offline suite on macOS.**
 
 ```sh
 python3 -c "import shutil; shutil.rmtree('agent/__pycache__', ignore_errors=True)"

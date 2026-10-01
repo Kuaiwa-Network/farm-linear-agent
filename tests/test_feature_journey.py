@@ -56,6 +56,8 @@ CONFIG_REF = "designer/farm-1-config-data"
 PRS = {"Farm-Contract": ORG + "Farm-Contract/pull/12", "common": ORG + "common/pull/34",
        "farm-hive": ORG + "farm-hive/pull/56"}
 WAIVERS_PR = ORG + "Farm-Contract/pull/13"
+FOLLOWUP_BRANCH = f"{BRANCH}-followup"
+FOLLOWUP_PR = ORG + "farm-hive/pull/57"
 ALL_PRS = sorted([*PRS.values(), WAIVERS_PR])
 PROFILE = "farmbot-journey"
 SECRET = "journey-client-secret"
@@ -420,7 +422,7 @@ class CodeJobJourneyTests(unittest.TestCase):
         self.reply(f"配置好了：{CONFIG_REF}", author=DESIGNER)
         return data
 
-    def run_config_check(self, item_id):
+    def run_config_check(self, item_id, *, server=True):
         """Stage C in the resumed common-rooted attempt: the named ref, then the Jenkins branch at its commit, adding
         no commits and recorded before its push; back on the issue branch, the `stage` notice for C's pass and the
         handoff to farm-hive (§6.4; Task 14; P15)."""
@@ -438,10 +440,22 @@ class CodeJobJourneyTests(unittest.TestCase):
                  ["git", "common", "switch", "-q", "-"]]
         self.plan["stages"]["C"] = "done"
         self.plan["config"].update(jenkins_branch=CONFIG_BRANCH, expected_version="2026-09-28.abcdef0", pin="local")
-        steps += [*self.notice("stage", "stage-C", f"阶段 C 完成：{CONFIG_REF} 的表头和生成结果已核对，"
-                                                   f"Jenkins 分支 {CONFIG_BRANCH} 已推送。"),
-                  *self.save("c2", stage="config", next_action="在 farm-hive 同步未合并的合约并实现服务端"),
-                  *self.handoff("farm-hive")]
+        body = f"阶段 C 完成：{CONFIG_REF} 的表头和生成结果已核对，Jenkins 分支 {CONFIG_BRANCH} 已推送。"
+        self.plan["config"]["stage_notice"] = {"request_id": "stage-C", "sha": self.plan["config"]["sha"],
+                                               "jenkins_branch": CONFIG_BRANCH, "body": body}
+        steps += [*self.save("c-notice", stage="config", next_action="发布保存的阶段 C 核对结果"),
+                  *self.notice("stage", "stage-C", body)]
+        if server:
+            steps += [*self.save("c2", stage="config", next_action="在 farm-hive 同步未合并的合约并实现服务端"),
+                      *self.handoff("farm-hive")]
+        else:
+            self.plan["stages"]["D"] = "skipped: 只有客户端需要新配置，服务端无需变更"
+            self.plan["closing"] = {"waivers_removed": False, "hive_resynced": True, "pin_written": True}
+            self.plan["pause"] = {"kind": "closing", "reason": "waiting", "notice": "closing", "since": NOW}
+            steps += [*self.save("c2", stage="closing", next_action="合约合并后移除豁免，再交付客户端待办"),
+                      *self.notice("waiting", "closing", f"请 {OWNER['url']} 合并合约和声明 PR 后回复。"
+                                   "服务端已跳过；配置 SHA 留给后续客户端阶段。"),
+                      *self.pause("waiting", "请合并合约和声明 PR 后回复。")]
         return self.settled(item_id, self.attempt(item_id, steps, "stage C"))
 
     def run_server(self, item_id):
@@ -893,6 +907,116 @@ class CodeJobJourneyTests(unittest.TestCase):
                                     "the successor at common")
         self.assert_stage(successor, run, payload, "common")
         self.assertEqual(self.head(self.tree(successor, "common")), wip)
+
+    def test_config_only_work_closes_without_a_hive_branch_or_published_pin(self):
+        """B/C can supply the future client without D: only waiver work remains after the contract merge."""
+        item = self.delegate()
+        self.run_contract(item, first=True)
+        self.run_declarations(item)
+        data = self.name_config_ref()
+        self.run_config_check(item, server=False)
+        self.assertEqual(self.plan["closing"],
+                         {"waivers_removed": False, "hive_resynced": True, "pin_written": True})
+        self.assertEqual(self.plan["config"]["sha"], data)
+        self.assertNotIn("farm-hive", self.plan["prs"])
+        self.merge_contract("merge")
+        self.plan.pop("pause")
+        self.plan["prs"]["Farm-Contract"][0]["pr"].update(state="merged", merge="merge")
+        self.settled(item, self.attempt(item, [
+            *self.intake(), *self.save("client-closing", stage="closing", next_action="移除合约豁免"),
+            *self.handoff("Farm-Contract")], "config-only closing"))
+        self.plan["prs"]["Farm-Contract"].append(self.entry("Farm-Contract", "waivers", WAIVERS_PR,
+                                                            branch=WAIVERS_BRANCH, head=WAIVERS_BRANCH))
+        steps = [*self.intake(), ["git", "Farm-Contract", "fetch", "-q", "origin"],
+                 ["git", "Farm-Contract", "switch", "-q", "--no-track", "-c", WAIVERS_BRANCH, "origin/main"],
+                 *self.commit_and_push("Farm-Contract", "移除配置合约的豁免", branch=WAIVERS_BRANCH),
+                 *self.save("client-waivers", stage="closing", next_action="交付客户端待办", published=[WAIVERS_PR]),
+                 *self.notice("merge_request", "merge-waivers", MERGE_WAIVERS)]
+        self.plan["closing"]["waivers_removed"] = True
+        self.plan["stages"]["G"] = "done"
+        prs = sorted([PRS["Farm-Contract"], PRS["common"], WAIVERS_PR])
+        body = "合约和配置声明草稿已交付；服务端跳过。配置 SHA 留给客户端配置导出和实现：" + data
+        delivery, outcome = self.work / "client-delivery.md", self.work / "client-outcome.json"
+        delivery.write_text(body, encoding="utf-8")
+        steps += [*self.save("client-delivered", stage="closing", next_action="后续客户端导出与实现"),
+                  ["prepare-comment", "--item", "{item}", "--token", "{token}", "--kind", "delivery",
+                   "--body-file", str(delivery)],
+                  ["post-comment", "--item", "{item}", "--token", "{token}", "--action-id", "{action_id}"],
+                  ["file", str(outcome), json.dumps({"summary": body, "comment_action_id": "{action_id}",
+                                                     "prs": prs, "verification": "离线控制器旅程；未运行产品生成器"})],
+                  ["finish", "--item", "{item}", "--token", "{token}", "--outcome", "delivered",
+                   "--input", str(outcome)]]
+        run, payload = self.settled(item, self.attempt(item, steps, "config-only delivery"))
+        self.assert_stage(item, run, payload, "Farm-Contract")
+        self.assertEqual(self.c.ledger.item(item)["state"], "delivered")
+        self.assertEqual(self.plan["config"]["pin"], "local")
+        self.assertEqual(self.context(item)["published_prs"], prs)
+        self.assertEqual(self.origin_branches("farm-hive"), {"main"})
+        self.assertNotIn("farm-hive", [to for _, to in self.handoffs(item)])
+        self.assert_no_secrets()
+
+    def test_a_successor_selects_the_recorded_followup_before_writing_the_remaining_pin(self):
+        """Stop between re-sync and pin: the controller restores the issue branch, then the worker selects followup."""
+        item = self.delegate()
+        self.run_contract(item, first=True)
+        self.run_declarations(item)
+        self.name_config_ref()
+        self.run_config_check(item)
+        self.run_server(item)
+        hive_origin = self.origins / "farm-hive.git"
+        git("merge", "--no-ff", "-q", "-m", "Hive PR merged before closing", BRANCH, cwd=hive_origin)
+        self.merge_contract("merge")
+        self.run_closing_start(item, "merge")
+        self.run_waivers(item)
+        self.plan["prs"]["farm-hive"][0]["pr"].update(state="merged", merge="merge")
+        self.plan["prs"]["farm-hive"].append(self.entry("farm-hive", "followup", FOLLOWUP_PR,
+                                                        branch=FOLLOWUP_BRANCH))
+        self.plan["closing"].update(hive_resynced=True, hive_branch=FOLLOWUP_BRANCH, hive_pr=FOLLOWUP_PR)
+        self.plan["pause"] = {"kind": "closing", "reason": "waiting", "notice": "closing-2", "since": NOW}
+        self.settled(item, self.attempt(item, [
+            *self.intake(), ["git", "farm-hive", "fetch", "-q", "origin"],
+            ["git", "farm-hive", "switch", "-q", "--no-track", "-c", FOLLOWUP_BRANCH, "origin/main"],
+            *self.commit_and_push("farm-hive", "Followup: contract re-sync", branch=FOLLOWUP_BRANCH),
+            *self.save("followup-resynced", stage="closing", next_action="在现有 followup 写入 pin",
+                       published=[FOLLOWUP_PR]),
+            *self.notice("waiting", "closing-2", "Followup 已重新同步合约；等 Jenkins pin。"),
+            *self.pause("waiting", "等 Jenkins pin。")], "followup re-sync"))
+        followup_head, issue_head = (self.origin_head("farm-hive", b) for b in (FOLLOWUP_BRANCH, BRANCH))
+        self.stop()
+        self.tick_until(lambda: self.cleaned(item), "followup cleanup after Stop")
+        self.reply("继续，pin 已提供。")
+        (chat,) = [row["id"] for row in self.c.ledger.items_for_session(SESSION) if row["skill"] == "chat"]
+        message = self.context(chat)["session_messages"][-1]["id"]
+        summary = self.work / "followup-summary.md"
+        summary.write_text("继续已记录 followup 的剩余 pin 工作。", encoding="utf-8")
+        self.attempt(chat, [["claim", "--item", "{item}", "--worker-id", "fake-chat"],
+                            ["request-repair", "--item", "{item}", "--token", "{token}",
+                             "--message-id", str(message), "--summary-file", str(summary)]], "followup continuation")
+        (successor,) = [row["id"] for row in self.c.ledger.items_for_session(SESSION)
+                        if row["skill"] == "feature" and row["id"] != item]
+        self.plan = self.context(successor)["recovery"]["plan"]
+        self.assertEqual(self.plan["closing"]["hive_branch"], FOLLOWUP_BRANCH)
+        self.plan.pop("pause")
+        self.settled(successor, self.attempt(successor, [
+            *self.intake(), *self.save("followup-successor", stage="closing", next_action="选择 followup 再写 pin"),
+            *self.handoff("farm-hive")], "followup successor's initial root"))
+        self.assert_reattached(successor, "farm-hive", head=issue_head)
+        self.plan["closing"]["pin_written"] = True
+        self.plan["config"]["pin"] = "published"
+        run, payload = self.settled(successor, self.attempt(successor, [
+            *self.intake(), ["git", "farm-hive", "fetch", "-q", "origin"],
+            ["git", "farm-hive", "switch", "-q", FOLLOWUP_BRANCH],
+            *self.commit_and_push("farm-hive", "Followup: published pin", branch=FOLLOWUP_BRANCH),
+            *self.save("followup-pin", stage="closing", next_action="在同一 followup PR 交付"),
+            *self.pause("waiting", "请 review 同一 followup PR。")], "pin on recovered followup"))
+        self.assert_stage(successor, run, payload, "farm-hive")
+        self.assertEqual(self.branch(self.tree(successor, "farm-hive")), FOLLOWUP_BRANCH)
+        self.assertEqual(self.origin_head("farm-hive", BRANCH), issue_head)
+        self.assertEqual(self.head(hive_origin, f"{FOLLOWUP_BRANCH}^"), followup_head)
+        self.assertEqual(self.plan["closing"]["hive_pr"], FOLLOWUP_PR)
+        self.assertEqual([pr["branch"] for pr in self.plan["prs"]["farm-hive"]], [BRANCH, FOLLOWUP_BRANCH])
+        self.assertEqual(self.origin_branches("farm-hive"), {"main", BRANCH, FOLLOWUP_BRANCH})
+        self.assert_no_secrets()
 
     def test_a_budget_kill_fails_the_job_and_retry_restarts_it_at_the_initial_root(self):
         item = self.delegate()

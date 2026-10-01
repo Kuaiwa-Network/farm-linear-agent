@@ -830,21 +830,27 @@ AUTHORITY states its grants (see Authority).
   cells, that every new header is declared and that both profiles generate there, then publishes
   `farmbot/<key>-config` at that commit, adding no commits, for the Jenkins designer-data publish. A re-pin to a
   commit that does not descend from it gets `farmbot/<key>-config-2` (then `-3`, …), never a force push. A failed
-  check is reported and asked again.
+  check is reported and asked again. Each new verification round has its own stage notice (`stage-C`, then
+  `stage-C-2`, `-3`, …); the plan saves its id and exact body before preparing it, so a retry reuses them and
+  an already-posted predecessor notice is not duplicated.
 - Stage D syncs farm-hive's protocol snapshots from the item's unmerged Farm-Contract worktree (marked
   `-unreachable`), registers new messages, pins the designer data to the config commit with a locally computed
   digest and a placeholder archive checksum, generates `config/pb`, implements the server change, runs the build
   job's local gates and opens the hive draft PR. It follows farm-hive's own instructions for the designer-data
   mechanism (the three `DESIGNER_SOURCE_*` values on 2026-09-28) and says in the PR which one it used. That PR's CI
   stays red or incomplete until the contract merges, the re-sync is pushed and the published pin is written.
-- The closing comment asks the owner to merge the contract PR, and the declarations PR if it is still open, and
-  someone to run the Jenkins publish on the `-config` branch and paste its three pin lines; it asks for no UI step
+- The closing comment asks the owner to merge the contract PR, and the declarations PR if it is still open, and,
+  when D ran with config work, someone to run the Jenkins publish on the `-config` branch and paste its three pin lines; it asks for no UI step
   and warns that Done or Canceled cancels the job. FarmBot polls nothing: each reply or mention makes it check
   GitHub and do what became possible, in this order: remove the change's stale BREAKING_WAIVERS lines on
   `farmbot/<key>-waivers`, re-sync farm-hive (from the item's worktree after a merge commit, otherwise from the
   read-only checkout of Farm-Contract's default branch, and only once that checkout holds the merge commit; a launch
   that finds it missing parks and asks again, so that the next launch refreshes it), and write the published pin
-  values. A hive PR merged too early gets a `farmbot/<key>-followup` draft PR.
+  values. When D was skipped, both hive closing steps are already satisfied, even if B/C ran: the worker keeps
+  the config SHA for the later client stage and asks for no hive PR, re-sync or Jenkins publish.
+  A hive PR merged too early gets a `farmbot/<key>-followup` draft PR. Every later hive closing attempt,
+  including a successor, selects that recorded followup before editing and reuses its PR; the plan records the
+  active branch and PR. A closed or merged followup with work still remaining needs the owner's decision.
 - The delivery names every PR and its state, the merges still to do and the client work that remains (protocol and
   config export, client code and UI wiring). The OpenSpec change stays unarchived until the client stage's
   write-back.

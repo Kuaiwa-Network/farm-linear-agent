@@ -283,6 +283,8 @@ python3 -m agent --db DATABASE post-notice --item ITEM_ID --token-file STATE_DIR
 notice, and a different body under that id is refused. `post-notice` reconciles the marker against live
 comments before creating one, so rerunning it after an interruption never posts twice.
 `issue-context.notices` lists your item's notices; `remote_id` is set once a notice is on the issue.
+For a Code config re-pin, save the new round's `stage-C-2` (then `-3`, …) id and exact body in the plan;
+retry that saved pair. Check current and recovery notices before choosing an unused id or posting again.
 
 ## Issue changes during an attempt
 

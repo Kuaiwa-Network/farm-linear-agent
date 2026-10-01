@@ -694,6 +694,25 @@ class FeatureClosingInstructionTests(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, text)
 
+    def test_client_only_config_closes_without_a_hive_pin_or_hive_pr(self):
+        self.assert_phrases((
+            "When stage D is skipped, set both `closing.hive_resynced` and `closing.pin_written` to true",
+            "do not hand off to farm-hive for closing", "Keep `config.sha` for the client stage",
+            "When stage C ran and stage D was not skipped"))
+        template = (ROOT / "references" / "comment-templates.md").read_text(encoding="utf-8")
+        self.assertIn("服务端阶段跳过时", template)
+
+    def test_every_hive_closing_attempt_selects_and_reuses_its_recorded_followup(self):
+        self.assert_phrases((
+            "On every farm-hive closing attempt", "select the recorded `followup` branch before changing files",
+            "reuse its existing draft PR", "never commit the remaining pin on the merged issue branch",
+            "git switch --no-track -c FOLLOWUP_BRANCH origin/FOLLOWUP_BRANCH"))
+
+    def test_a_re_pin_gets_a_new_stage_c_notice_and_retries_keep_the_saved_body(self):
+        self.assert_phrases((
+            "`stage-C-2`, `stage-C-3`", "`config.stage_notice`", "same request id and body",
+            "clear `config.stage_notice`", "the saved stage-C notice id"))
+
     def test_every_stage_of_the_job_is_in_this_revision(self):
         raw = self.raw()
         self.assertNotIn("\n## After stage B\n", raw)
