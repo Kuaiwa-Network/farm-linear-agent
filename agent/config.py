@@ -7,6 +7,7 @@ import math
 import os
 import re
 from pathlib import Path
+from uuid import uuid4
 
 from .linear_api import LinearAPI, UploadError, save_stream
 from .kw_ops import validate_config as validate_kw_ops_config
@@ -213,6 +214,35 @@ class StubLinear:
         if source.is_file():
             return json.loads(source.read_text(encoding="utf-8"))
         return {"status": "complete", "archived": False}
+
+    def create_session_on_issue(self, issue_id, app_user_id, marker):
+        self._record("create_session_on_issue", issue_id=issue_id, marker=marker)
+        session = {"id": str(uuid4()), "issue": {"id": issue_id}, "appUser": {"id": self.app_user_id},
+                   "sourceComment": None, "creator": None, "archivedAt": None,
+                   "externalLinks": [{"label": "Issue", "url": marker}]}
+        LinearAPI._recovery_session(session, issue_id, app_user_id, marker)
+        source = self.directory / "opened-sessions.json"
+        sessions = json.loads(source.read_text(encoding="utf-8")) if source.is_file() else []
+        source.write_text(json.dumps([*sessions, session]), encoding="utf-8")
+        return session
+
+    def find_recovery_session(self, issue_id, app_user_id, marker):
+        self._record("find_recovery_session", issue_id=issue_id, marker=marker)
+        source = self.directory / "opened-sessions.json"
+        sessions = json.loads(source.read_text(encoding="utf-8")) if source.is_file() else []
+        matches = [session for session in sessions if session["issue"]["id"] == issue_id
+                   and session["appUser"]["id"] == app_user_id
+                   and any(link["url"] == marker for link in session["externalLinks"])]
+        if len(matches) > 1:
+            raise RuntimeError("stub recovery session is ambiguous")
+        return matches[0] if matches else None
+
+    def recovery_session_candidate(self, session_id, issue_id, app_user_id):
+        self._record("recovery_session_candidate", session_id=session_id, issue_id=issue_id)
+        source = self.directory / "opened-sessions.json"
+        sessions = json.loads(source.read_text(encoding="utf-8")) if source.is_file() else []
+        return next((session for session in sessions if session["id"] == session_id
+                     and session["issue"]["id"] == issue_id and session["appUser"]["id"] == app_user_id), None)
 
     def needs_more_info(self, issue_id):
         self._record("needs_more_info", issue_id=issue_id)

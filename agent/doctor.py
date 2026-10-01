@@ -383,7 +383,12 @@ def diagnose(config, *, now=None):
                      "FarmBot found none of its threads on the card open; or the settle has been failing for more "
                      "than 10 minutes. Most likely a delegation through Linear's API, or a thread FarmBot cannot read "
                      "still waits. Open the card: answer or archive a waiting thread, or ask the person to choose No "
-                     "agent and delegate again.", **episode, overdue_seconds=int(overdue) if waiting else None)
+                     "agent and delegate again. If UI re-delegation still opens no session, archive this bot's "
+                     "completed sessions on the card before trying again. FarmBot now attempts automatic session "
+                     "creation when no thread can take the delegation. An uncertain creation is recovered by its "
+                     "issue-link marker and is never blindly repeated; after a request that never reached Linear, "
+                     "let the controller observe No agent before delegating again.", **episode,
+                     overdue_seconds=int(overdue) if waiting else None)
     return report
 
 

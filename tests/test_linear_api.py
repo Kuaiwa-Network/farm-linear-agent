@@ -74,6 +74,59 @@ def comment_node(id, user=None, *, bot=False, parent=None, **fields):
 
 
 class LinearAPITests(unittest.TestCase):
+    def test_recovery_webhook_candidate_requires_its_exact_issue_app_and_id(self):
+        session = {"id": "session", "issue": {"id": "issue"}, "appUser": {"id": APP}}
+        api = self.api({"FarmBotRecoveryCandidate": [{"data": {"agentSession": session}}]})
+        self.assertEqual(api.recovery_session_candidate("session", "issue", APP), session)
+        for changed in ({"id": "other"}, {"issue": {"id": "other"}}, {"appUser": {"id": "other"}}):
+            api = self.api({"FarmBotRecoveryCandidate": [{"data": {"agentSession": {**session, **changed}}}]})
+            with self.assertRaises(RuntimeError):
+                api.recovery_session_candidate("session", "issue", APP)
+
+    def test_stub_session_creation_can_be_recovered_after_client_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            api = StubLinear(directory)
+            session = api.create_session_on_issue("issue", APP, "https://linear.app/example#recovery")
+            restarted = StubLinear(directory)
+            self.assertEqual(restarted.find_recovery_session("issue", APP, "https://linear.app/example#recovery"), session)
+            self.assertIsNone(restarted.find_recovery_session("other", APP, "https://linear.app/example#recovery"))
+
+    def test_session_creation_checks_issue_app_and_recovery_marker(self):
+        marker = "https://linear.app/example/issue/FARM-1#farmbot-recovery-test"
+        session = {"id": "new-session", "issue": {"id": "issue"}, "appUser": {"id": APP},
+                   "sourceComment": None, "creator": None, "archivedAt": None,
+                   "externalLinks": [{"label": "Issue", "url": marker}]}
+        api = self.api({"FarmBotOpenSession": [{"data": {"agentSessionCreateOnIssue": {
+            "success": True, "agentSession": session}}}]})
+        self.assertEqual(api.create_session_on_issue("issue", APP, marker), session)
+        self.assertEqual(self.http.calls[-1][2]["variables"], {"input": {
+            "issueId": "issue", "externalUrls": [{"label": "Issue", "url": marker}]}})
+        for changes in ({"issue": {"id": "other"}}, {"appUser": {"id": "other"}},
+                        {"sourceComment": {"id": "mention"}}, {"externalLinks": []},
+                        {"archivedAt": "2026-10-01T00:00:00Z"}, {"id": None}):
+            with self.subTest(changes=changes):
+                api = self.api({"FarmBotOpenSession": [{"data": {"agentSessionCreateOnIssue": {
+                    "success": True, "agentSession": {**session, **changes}}}}]})
+                with self.assertRaises(RuntimeError):
+                    api.create_session_on_issue("issue", APP, marker)
+
+    def test_recover_session_paginates_and_requires_one_matching_own_session(self):
+        marker = "https://linear.app/example/issue/FARM-1#farmbot-recovery-test"
+        session = {"id": "new-session", "issue": {"id": "issue"}, "appUser": {"id": APP},
+                   "sourceComment": None, "archivedAt": None, "externalLinks": [{"url": marker}]}
+        def page(nodes, next_page=False):
+            return {"data": {"issue": {"id": "issue", "agentSessions": {
+                "nodes": nodes, "pageInfo": {"hasNextPage": next_page, "endCursor": "next"}}}}}
+        api = self.api({"FarmBotRecoverSession": [page([], True), page([session])]})
+        self.assertEqual(api.find_recovery_session("issue", APP, marker), session)
+        self.assertEqual(self.http.calls[-1][2]["variables"], {"id": "issue", "after": "next"})
+        for nodes in ([], [{**session, "appUser": {"id": "other"}}]):
+            api = self.api({"FarmBotRecoverSession": [page(nodes)]})
+            self.assertIsNone(api.find_recovery_session("issue", APP, marker))
+        api = self.api({"FarmBotRecoverSession": [page([session, {**session, "id": "second"}])]})
+        with self.assertRaises(RuntimeError):
+            api.find_recovery_session("issue", APP, marker)
+
     def test_artificial_session_root_requires_matching_context_and_no_source_comment(self):
         for root, source, expected in ((True, None, True), (False, None, False),
                                        (True, {"id": "human"}, False), (None, None, False)):
