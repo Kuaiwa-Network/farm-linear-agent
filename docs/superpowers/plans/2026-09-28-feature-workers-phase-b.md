@@ -75,8 +75,13 @@ state from Git history and the saved Claude session. Phase A's shared plumbing a
   14 kw_ops, 55 worktrees; three platform skips). The final full offline suite passed **1,661 tests
   in 244.802 seconds, 18 Windows-only skips**. This closes the review's one fix pass; hosted CI
   follows the draft PR, and native Windows desktop readiness remains a separate check.
-- **Next:** B3 (Tasks 12–15) and the documentation/verification rounds remain unfinished. The
-  `feature` skill itself still does not exist.
+- **Task 12 implemented:** B3 adds the opt-in manifest, its pinned authority and Code monitor label.
+  Resource requests now require the item's own manifest and resolve its current root; the feature
+  manifest lists no resources. Withdrawal fencing and current fix/chat authority bytes are preserved.
+  The 17 new regressions reproduced the missing behavior first; all eleven focused modules passed
+  (978 tests). The full offline suite passed **1,678 tests in 243.028 seconds, 18 Windows-only skips**.
+- **Next:** Tasks 13–15 fill the feature skill's stage instructions and journey tests, followed by
+  the documentation and verification rounds. The current feature skill is a guarded stub.
 
 ## Scope
 
@@ -7659,7 +7664,7 @@ P1, P2, P5, P6, P8, P11, P12, P13, P16.
     commit_sha=None)`, `skill` being the item's loaded manifest
   - The monitor's `SKILL.feature == "Code"`, the Bot label people use, as `fix` reads `修改`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `tests/test_dispatch.py`, directly after the `FGUI_EXPORT_AT_D18 = (…)` constant (`:82-88`) and before
 `def payload_of(message):` (`:91`), add the frozen copy. Its SHA-256 was computed from exactly this text; Step 6
@@ -8009,7 +8014,7 @@ add:
         self.assertEqual((ledger.item(item)["state"], ledger.reservations()), ("running", []))
 ```
 
-- [ ] **Step 2: Update the existing tests**
+- [x] **Step 2: Update the existing tests**
 
 Each change keeps the test's purpose. The first three groups change setup only; the last changes assertions that
 state the checkout's skill set or the AUTHORITY's skill set, which this task changes on purpose. Line numbers are
@@ -8136,7 +8141,7 @@ turns red until Step 4 labels `feature` in `monitor.js`. Tests that Tasks 1–11
 real manifest in those tests, so they need no edit; a test that runs this checkout's skills unpatched and expects
 exactly `chat` and `fix` loaded fails in Step 6 and gets the edit above.
 
-- [ ] **Step 3: Run the tests and confirm they fail**
+- [x] **Step 3: Run the tests and confirm they fail**
 
 Run: `python3 -m unittest discover -s tests -p 'test_dispatch.py' -v`
 Expected: `test_feature_receives_the_common_part_its_own_part_and_the_reference` errors with
@@ -8190,7 +8195,7 @@ Run: `python3 -m unittest discover -s tests -p 'test_monitor.py' -v`
 Expected: `test_feature_reads_as_its_bot_label` fails. `test_every_skill_has_a_label` still passes, because the
 checkout has no `feature` yet; Step 4 adds the manifest and the label together.
 
-- [ ] **Step 4: Add the skill, its AUTHORITY and its monitor label**
+- [x] **Step 4: Add the skill, its AUTHORITY and its monitor label**
 
 Create `skills/feature/skill.json`, the Shared Interfaces manifest:
 
@@ -8312,7 +8317,7 @@ In `agent/monitor_static/monitor.js`, replace `const SKILL = {fix: "修改", cha
 
 `Code` is the Bot label people use for this workflow, as `fix` reads `修改` (D18; `tests/test_monitor.py:141-142`).
 
-- [ ] **Step 5: Make `await-resource` follow the manifest (P11)**
+- [x] **Step 5: Make `await-resource` follow the manifest (P11)**
 
 In `agent/ledger.py`, directly after `checked_target` (`:78-89`, ending `return {key: raw[key] for key in
 TARGET_KEYS}`), add:
@@ -8408,7 +8413,7 @@ The renewal now runs for every request, not only one with `--commit`: it authent
 manifest is read (the CLI test's wrong-token check pins that order), and a refused request leaves the item running
 with its claim, as before.
 
-- [ ] **Step 6: Check the frozen copy and run the tests**
+- [x] **Step 6: Check the frozen copy and run the tests**
 
 Run from the repository root:
 `python3 -c "import hashlib; from agent.dispatch import FEATURE_AUTHORITY; print(hashlib.sha256(FEATURE_AUTHORITY.encode('utf-8')).hexdigest())"`
@@ -8442,7 +8447,7 @@ asserts no findings (`test_a_runtime_that_can_launch_every_enabled_skill_is_not_
 for a `feature` that is loaded but not enabled; that is Task 11's rule to fix (its findings belong to hosts that
 enable `feature`), not this task's to suppress.
 
-- [ ] **Step 7: Update the operating contract and the worker CLI reference**
+- [x] **Step 7: Update the operating contract and the worker CLI reference**
 
 In `docs/operating-contract.md`, in the Triggers row that begins `| Delegate an issue labelled Bot/UI or Bot/Code |`
 (`:117`; Task 3 inserted a sentence about the `feature` session's target after its first semicolon, which stays),
@@ -8530,7 +8535,7 @@ Expected: no whitespace errors.
 Run: `python3 -m unittest discover -s tests -p 'test_skills.py' -k Reference -v`
 Expected: pass; the new paragraph has no code block.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add skills/feature/skill.json skills/feature/SKILL.md agent/dispatch.py agent/ledger.py agent/__main__.py agent/monitor_static/monitor.js tests docs/operating-contract.md references/worker-cli.md

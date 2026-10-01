@@ -256,7 +256,7 @@ class WithdrawalInstructionTests(unittest.TestCase):
 class SkillRegistryTests(unittest.TestCase):
     def test_repository_skills_load_with_expected_authority(self):
         skills = load_skills(ROOT / "skills")
-        self.assertEqual(set(skills), {"chat", "fix"})
+        self.assertEqual(set(skills), {"chat", "feature", "fix"})
         self.assertEqual(skills["fix"].trigger, ("delegation",))
         self.assertIn("Farm-Client", skills["fix"].writes)
         self.assertEqual(skills["fix"].resources, ("unity_slot",))
@@ -405,8 +405,8 @@ class EnabledSkillsTests(unittest.TestCase):
             self.assertIsNone(load_config(path).enabled_skills)
 
     def test_an_unknown_name_or_a_missing_chat_is_a_configuration_error(self):
-        with self.assertRaisesRegex(SkillError, "does not have: feature"):
-            enabled_skills(self.skills, ["chat", "feature"], authority=self.authority)
+        with self.assertRaisesRegex(SkillError, "does not have: fgui"):
+            enabled_skills(self.skills, ["chat", "fgui"], authority=self.authority)
         for names in (["fix"], []):
             with self.subTest(names=names), self.assertRaisesRegex(SkillError, "must include chat"):
                 enabled_skills(self.skills, names, authority=self.authority)
@@ -460,3 +460,51 @@ class EnabledSkillsTests(unittest.TestCase):
             with self.assertRaisesRegex(SkillError, "chat cannot be opt-in"):
                 enabled_skills(skills, None, authority={"chat": "the chat part"})
             self.assertEqual(set(enabled_skills(skills, ["chat"], authority={"chat": "the chat part"})), {"chat"})
+
+
+
+class FeatureManifestTests(unittest.TestCase):
+    """Phase B, Task 12: the feature manifest is exactly the plan's Shared Interfaces, and it is opt-in (P1)."""
+
+    SHARED_INTERFACE = {
+        "name": "feature",
+        "trigger": ["delegation"],
+        "intents": ["label:Bot/Code"],
+        "writes": ["Farm-Contract", "common", "farm-hive"],
+        "initial_root": "Farm-Contract",
+        "staged": True,
+        "reads": ["Farm-Contract", "Farm-Client", "farmgui"],
+        "resources": [],
+        "gates": ["answers", "config_ready", "closing", "pr_review"],
+        "mcp": [],
+        "budget": {"lease_seconds": 2700, "max_hours": 10, "renew_minutes": 10},
+        "opt_in": True,
+        "exclusive": True,
+    }
+
+    def test_the_manifest_file_is_the_shared_interface_and_task_1s_fixture(self):
+        raw = json.loads((ROOT / "skills" / "feature" / "skill.json").read_text(encoding="utf-8"))
+        self.assertEqual(raw, self.SHARED_INTERFACE)
+        # Tasks 2-11 tested against FEATURE_SHAPE; the real manifest must be that shape, or their tests prove
+        # nothing about it.
+        self.assertEqual(raw, {"name": "feature", **FEATURE_SHAPE})
+
+    def test_the_manifest_loads_as_a_staged_opt_in_exclusive_skill_without_tools(self):
+        feature = load_skills(ROOT / "skills")["feature"]
+        self.assertEqual((feature.trigger, feature.intents, feature.writes, feature.initial_root, feature.staged,
+                          feature.reads, feature.resources, feature.gates, feature.mcp, feature.budget),
+                         (("delegation",), ("label:Bot/Code",), ("Farm-Contract", "common", "farm-hive"),
+                          "Farm-Contract", True, ("Farm-Contract", "Farm-Client", "farmgui"), (),
+                          ("answers", "config_ready", "closing", "pr_review"), (),
+                          {"lease_seconds": 2700, "max_hours": 10, "renew_minutes": 10}))
+        self.assertEqual((feature.opt_in, feature.exclusive), (True, True))
+        self.assertTrue(feature.skill_md.is_file())
+
+    def test_feature_runs_only_where_enabled_skills_names_it(self):
+        from agent.dispatch import SKILL_AUTHORITY
+        skills = load_skills(ROOT / "skills")
+        self.assertIn("feature", skills)  # loaded on every host that has this checkout
+        self.assertEqual(set(enabled_skills(skills, None, authority=SKILL_AUTHORITY)), {"chat", "fix"})
+        for names in (["chat", "fix", "feature"], ["chat", "feature"]):
+            with self.subTest(names=names):
+                self.assertEqual(set(enabled_skills(skills, names, authority=SKILL_AUTHORITY)), set(names))

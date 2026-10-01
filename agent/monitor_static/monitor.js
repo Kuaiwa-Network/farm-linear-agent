@@ -15,7 +15,7 @@
     ok: ["正常", "ok"], attention: ["需要关注", "warn"], starting: ["正在启动", "info"],
     unresponsive: ["无响应", "bad"], stopped: ["已停止", "bad"], unknown: ["未知", "neutral"],
   };
-  const SKILL = {fix: "修改", chat: "对话"};
+  const SKILL = {fix: "修改", feature: "Code", chat: "对话"};
   const STATE = {
     queued: ["排队中", "neutral"], launching: ["正在启动", "info"], switching_repo: ["切换仓库", "info"],
     retry_wait: ["等待重试", "neutral"], running: ["处理中", "info"], awaiting_input: ["等待回复", "warn"],

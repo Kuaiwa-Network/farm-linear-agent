@@ -388,7 +388,7 @@ class SchedulerTests(unittest.TestCase):
         """An item whose slot request is still queued: nothing has been acquired, so no slot is held."""
         item = self.item(issue_id=issue_id, session=session)
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
-        self.ledger.await_resource(item["id"], token, "unity_slot", mode)
+        self.ledger.await_resource(item["id"], token, "unity_slot", mode, skill=SKILLS["fix"])
         return item["id"]
 
     def granted_item(self, mode="batch", issue_id=ISSUE, session=SESSION):
@@ -533,7 +533,7 @@ class SchedulerTests(unittest.TestCase):
         return staged
 
     def test_a_skill_without_dispatch_authority_fails_at_launch_and_spawns_nothing(self):
-        staged = staged_skill(Path(self.tmp.name) / "fixture-skills")
+        staged = staged_skill(Path(self.tmp.name) / "fixture-skills", name="unbriefed")
         self.scheduler.skills = {**SKILLS, staged.name: staged}
         self.scheduler.enabled_skills.add(staged.name)  # enabled, but with no AUTHORITY entry
         item = self.item(skill=staged.name)
@@ -592,7 +592,7 @@ class SchedulerTests(unittest.TestCase):
         self.scheduler.skills = {**SKILLS, staged.name: dataclasses.replace(staged, writes=("Farm-Contract",))}
         self.launcher.finished.append(Finished(item["id"], 0, "", True, "stopped", None, 101))
         self.assertEqual(self.scheduler.tick()["launched"], 0)
-        self.scheduler.skills = SKILLS
+        self.scheduler.skills = {name: skill for name, skill in SKILLS.items() if name != staged.name}
         self.assertEqual(self.scheduler.tick()["launched"], 0)
         self.assertEqual(self.ledger.item(item["id"])["next_root_repo"], "common")
         self.scheduler.skills = {**SKILLS, staged.name: staged}
@@ -1003,7 +1003,7 @@ class SchedulerTests(unittest.TestCase):
         item = self.item()
         self.scheduler.tick()
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
-        self.ledger.await_resource(item["id"], token, "unity_slot", "batch")
+        self.ledger.await_resource(item["id"], token, "unity_slot", "batch", skill=SKILLS["fix"])
         self.launcher.finished.append(Finished(item["id"], 0, "", False, "exited"))
         self.scheduler.tick()
         self.assertEqual(self.ledger.item(item["id"])["state"], "awaiting_resource")

@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from agent.ledger import Ledger
-from test_ledger import ISSUE, PIN, issue
+from test_ledger import ISSUE, PIN, issue, SKILLS
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -49,7 +49,7 @@ class RehearsalTests(unittest.TestCase):
         self.ledger.ensure_session(session, issue_id, delegation=True)
         item = self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill="fix", target=PIN)["id"]
         token = self.ledger.claim(item, worker_id="fixture")["token"]
-        self.ledger.await_resource(item, token, "unity_slot", mode)
+        self.ledger.await_resource(item, token, "unity_slot", mode, skill=SKILLS["fix"])
         self.now += 1
         res = self.ledger.acquire("unity_slot", owner="pool", host="test")
         self.now += 1

@@ -260,6 +260,9 @@ The controller handles editor recovery and job continuation. Do not follow it wi
 or ask for host intervention. A fresh worker receives the exact retried commit and can read
 `issue-context.resource_recovery` for prior attempts and retained diagnostics.
 
+`await-resource` refuses a resource your skill's `skill.json` does not list under `resources`, and a
+Unity request from any root but a neutral start or Farm-Client.
+
 ## Notices
 
 A notice is an issue comment a job may need more than once: `--kind question` for a grouped question

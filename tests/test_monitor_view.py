@@ -17,7 +17,7 @@ from agent.ledger import Ledger
 from agent.monitor_view import CLEANUP_GRACE, LOOP_LIMITS, RECENT_LIMIT, build_status
 from agent.resource_recovery import MAX_REPAIR_ATTEMPTS, RecoveryStore
 from agent.service import Components, serve
-from test_ledger import PIN, comment, issue
+from test_ledger import PIN, comment, issue, SKILLS
 
 NOW = 1_000_000.0
 HEALTHY = {"ok": True, "status": 200, "latency_ms": 3, "error_type": None, "checked_at": NOW}
@@ -117,7 +117,7 @@ class ActiveWorkTests(ViewBase):
     def test_unity_waits_show_their_reservation_queue_position_and_recovery(self):
         jobs = [self.job() for _ in range(3)]
         for job in jobs:
-            self.ledger.await_resource(job["id"], self.claim(job)["token"], "unity_slot", "batch")
+            self.ledger.await_resource(job["id"], self.claim(job)["token"], "unity_slot", "batch", skill=SKILLS["fix"])
         self.sql("UPDATE work_items SET stage='waiting_for_recovery' WHERE id=?", jobs[2]["id"])
         document = self.status()
         states = {job["identifier"]: (job["display_state"], job["queue_position"]) for job in document["active"]}
@@ -266,7 +266,7 @@ class SlotTests(ViewBase):
         self.slot("unity_slot:1")
         self.slot("unity_slot:2")
         holder = self.job()
-        self.ledger.await_resource(holder["id"], self.claim(holder)["token"], "unity_slot", "interactive")
+        self.ledger.await_resource(holder["id"], self.claim(holder)["token"], "unity_slot", "interactive", skill=SKILLS["fix"])
         granted = self.ledger.acquire("unity_slot", owner="pool", host="test-host")
         self.ledger.set_slot_state(granted["resource"], "interactive_busy", parked_commit="9f2e1c0" + "0" * 33)
         self.ledger.set_slot_state("unity_slot:2", "held")
@@ -422,7 +422,7 @@ class AttentionTests(ViewBase):
                                     folder=str(Path(self.tmp.name) / slot.replace(":", "-")))
         self.ledger.set_slot_state("unity_slot:1", "batch_busy")
         item = self.job()
-        self.ledger.await_resource(item["id"], self.claim(item)["token"], "unity_slot", "batch")
+        self.ledger.await_resource(item["id"], self.claim(item)["token"], "unity_slot", "batch", skill=SKILLS["fix"])
         self.ledger.acquire("unity_slot", owner="pool", host="test-host")  # slot 1 is busy, so slot 2
         self.clock = NOW - 400
         self.ledger.cancel(item["id"], "Linear stop")  # the active reservation becomes cancel_requested
@@ -435,7 +435,7 @@ class AttentionTests(ViewBase):
         self.ledger.ensure_slot("unity_slot:1", kind="unity_slot", host="test-host",
                                 folder=str(Path(self.tmp.name) / "unity_slot-1"))
         item = self.job()
-        self.ledger.await_resource(item["id"], self.claim(item)["token"], "unity_slot", "batch")
+        self.ledger.await_resource(item["id"], self.claim(item)["token"], "unity_slot", "batch", skill=SKILLS["fix"])
         self.ledger.acquire("unity_slot", owner="pool", host="test-host")
         self.clock = NOW
         self.ledger.cancel(item["id"], "Linear stop")  # the active reservation becomes cancel_requested

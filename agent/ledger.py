@@ -155,6 +155,12 @@ def checked_target(raw):
 LINEAR_URL = re.compile(r"https://linear\.app/\S+")
 
 
+def require_listed_resource(skill, resource):
+    """Resources follow the manifest (Phase B plan, P11): an item waits only for a kind its skill lists."""
+    if resource not in skill.resources:
+        raise LedgerError(f"{resource} is not a resource of {skill.name}; its manifest lists "
+                          f"{', '.join(skill.resources) or 'none'}")
+
 def _person(value, name):
     """None, or exactly {"id": UUID, "name": text, "url": Linear profile URL}: never an email or other field."""
     if value is None:
@@ -1557,7 +1563,15 @@ class Ledger:
                                           "resource", "host", "commit_sha", "state", "attempts", "created_at",
                                           "acquired_at", "released_at", "release_reason")}
 
-    def await_resource(self, item_id, token, resource, mode, *, commit_sha=None):
+    def await_resource(self, item_id, token, resource, mode, *, skill, commit_sha=None):
+        """Park the claimed item until the pool grants `resource`.
+
+        The ledger reads no manifests: `skill` is the item's loaded skill, which the worker CLI passes, as for
+        handoff_repository. Resources follow the manifest (Phase B plan, P11): the item waits only for a kind its
+        skill lists, and the Unity rules read the attempt's root through stages.current_root, so a skill with an
+        initial root is never neutral and asks only from a Farm-Client root (spec §9.4). For fix, whose current
+        root is its stored root, the rules are the ones it always had.
+        """
         _text(resource, "resource")
         if mode not in ("interactive", "batch"):
             raise LedgerError("mode must be interactive or batch")
@@ -1565,7 +1579,11 @@ class Ledger:
             row = self._owned(item_id, token)
             self._refuse_withdrawn(row)
             self.require_valid_checkpoint(item_id, token)
-            if row["skill"] == "fix" and row["root_repo"] not in (None, "Farm-Client"):
+            if skill.name != row["skill"]:
+                raise LedgerError("a resource request requires the work item's own skill manifest")
+            require_listed_resource(skill, resource)
+            root = current_root(row["root_repo"], skill)
+            if root not in (None, "Farm-Client"):
                 raise LedgerError("Unity verification requires the neutral or Farm-Client stage")
             target = json.loads(row["target_json"]) if row["target_json"] else None
             if not target or not COMMIT_SHA.match(target.get("commit_sha") or ""):
@@ -1574,8 +1592,7 @@ class Ledger:
                 if not isinstance(commit_sha, str) or not COMMIT_SHA.fullmatch(commit_sha):
                     raise LedgerError("verification commit must be a full lowercase commit SHA")
                 if (row["skill"] not in ("fix", "fgui", "feature") or resource != "unity_slot"
-                        or target["repository"] != "Farm-Client"
-                        or (row["skill"] == "fix" and row["root_repo"] != "Farm-Client")):
+                        or target["repository"] != "Farm-Client" or root != "Farm-Client"):
                     raise LedgerError("only a write worker may select a Farm-Client Unity verification commit")
             selected_commit = target["commit_sha"] if commit_sha is None else commit_sha
             open_row = self.connection.execute(

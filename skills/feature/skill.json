@@ -1,0 +1,15 @@
+{
+  "name": "feature",
+  "trigger": ["delegation"],
+  "intents": ["label:Bot/Code"],
+  "writes": ["Farm-Contract", "common", "farm-hive"],
+  "initial_root": "Farm-Contract",
+  "staged": true,
+  "reads": ["Farm-Contract", "Farm-Client", "farmgui"],
+  "resources": [],
+  "gates": ["answers", "config_ready", "closing", "pr_review"],
+  "mcp": [],
+  "budget": {"lease_seconds": 2700, "max_hours": 10, "renew_minutes": 10},
+  "opt_in": true,
+  "exclusive": true
+}

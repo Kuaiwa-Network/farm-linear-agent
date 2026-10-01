@@ -215,3 +215,37 @@ class StartRequestTests(unittest.TestCase):
             with self.subTest(children=children):
                 self.assertEqual(start_refusal(children, {"chat", "feature"}),
                                  "repair execution is not available on this host")
+
+
+
+class FeatureEnablementRoutingTests(unittest.TestCase):
+    """Phase B, Task 12: with the checkout's real manifests, a Bot/Code delegation starts feature exactly where the
+    host's enabled_skills names it (P1, D18)."""
+
+    def running(self, names):
+        from pathlib import Path
+        from agent.dispatch import SKILL_AUTHORITY
+        from agent.skills import enabled_skills, load_skills
+        root = Path(__file__).resolve().parents[1]
+        return set(enabled_skills(load_skills(root / "skills"), names, authority=SKILL_AUTHORITY))
+
+    def test_a_host_that_names_feature_routes_every_bot_code_delegation_to_it(self):
+        running = self.running(["chat", "fix", "feature"])
+        for labels, text in ((["Code"], ""), (["Bug", "Code"], ""), (["Code"], "先只做服务端")):
+            with self.subTest(labels=labels, text=text):
+                self.assertEqual(go(is_delegation=True, labels=labels, label_groups=CODE, text=text,
+                                    available_skills=running), Decision("work", "feature"))
+        reply = dict(action="prompted", is_delegation=True, reroute=True, available_skills=running)
+        self.assertEqual(go(labels=["Code"], label_groups=CODE, text="现在开始", **reply), Decision("work", "feature"))
+
+    def test_without_enabled_skills_feature_stays_off_and_the_card_opens_the_explaining_conversation(self):
+        running = self.running(None)
+        self.assertEqual(running, {"chat", "fix"})
+        decision = go(is_delegation=True, labels=["Code"], label_groups=CODE, available_skills=running)
+        self.assertEqual((decision.kind, decision.skill), ("chat", "chat"))
+        self.assertIn("Bot/Code，由 feature 处理，但本实例没有启用 feature（本实例运行：chat、fix）", decision.text)
+
+    def test_a_mention_never_starts_feature_even_where_it_runs(self):
+        running = self.running(["chat", "fix", "feature"])
+        self.assertEqual(go(labels=["Code"], label_groups=CODE, text="@FarmBot 做一下", available_skills=running),
+                         Decision("chat", "chat", "@FarmBot 做一下"))

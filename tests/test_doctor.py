@@ -21,7 +21,7 @@ from agent.doctor import _go_directive, diagnose, probe_process
 from agent.ledger import Ledger
 from agent.service import main
 from agent.skills import load_skills
-from test_ledger import ISSUE, OTHER, SESSION, PIN, issue
+from test_ledger import ISSUE, OTHER, SESSION, PIN, issue, SKILLS
 from test_skills import opt_in_skill, staged_skill
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -155,10 +155,10 @@ class DoctorTests(unittest.TestCase):
     def test_released_slot_waiting_to_be_parked_is_not_an_orphan(self):
         self.ledger.connection.execute(
             "INSERT INTO slots(slot_id,kind,host,folder,state,updated_at) VALUES(?,?,?,?,?,?)",
-            ("unity-1", "unity", "test-host", "/tmp/editor", "idle_closed", 1000))
+            ("unity-1", "unity_slot", "test-host", "/tmp/editor", "idle_closed", 1000))
         claim = self.ledger.claim(self.item["id"], worker_id="test")
-        self.ledger.await_resource(self.item["id"], claim["token"], "unity", "batch")
-        granted = self.ledger.acquire(kind="unity", host="test-host", owner="pool")
+        self.ledger.await_resource(self.item["id"], claim["token"], "unity_slot", "batch", skill=SKILLS["fix"])
+        granted = self.ledger.acquire(kind="unity_slot", host="test-host", owner="pool")
         self.ledger.release(granted["reservation_id"], granted["token"], "finished")
         report = self.report()
         self.assertEqual(report["slots"][0]["state"], "switching")
@@ -490,19 +490,22 @@ class DoctorTests(unittest.TestCase):
         self.assertEqual(self.report()["tools"], {"kw_ops": {"configured": False}})
 
     def test_the_enabled_skills_are_reported(self):
-        self.assertEqual(self.report()["skills"], {"loaded": ["chat", "fix"], "enabled": ["chat", "fix"],
-                                                   "configured": False})
+        # feature is loaded from the checkout but opt-in (P1): enabled only where enabled_skills names it.
+        skills = self.report()["skills"]
+        self.assertEqual((skills["loaded"], skills["enabled"], skills["configured"]),
+                         (["chat", "feature", "fix"], ["chat", "fix"], False))
         self.config.enabled_skills = ["chat"]
         report = self.report()
-        self.assertEqual(report["skills"], {"loaded": ["chat", "fix"], "enabled": ["chat"], "configured": True})
+        self.assertEqual((report["skills"]["loaded"], report["skills"]["enabled"], report["skills"]["configured"]),
+                         (["chat", "feature", "fix"], ["chat"], True))
         self.assertEqual(report["status"], "ok")
 
     def test_an_enabled_skill_the_checkout_lacks_is_the_finding_serve_would_refuse(self):
-        self.config.enabled_skills = ["chat", "feature"]
+        self.config.enabled_skills = ["chat", "fgui"]
         report = self.report()
         self.assertIsNone(report["skills"]["enabled"])
         finding = next(f for f in report["findings"] if f["code"] == "enabled_skills_invalid")
-        self.assertEqual((finding["unknown"], finding["unbriefed"]), (["feature"], []))
+        self.assertEqual((finding["unknown"], finding["unbriefed"]), (["fgui"], []))
         self.assertEqual(report["status"], "attention")
 
     def test_an_enabled_skill_the_dispatch_cannot_brief_is_the_finding_serve_would_refuse(self):

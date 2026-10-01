@@ -138,6 +138,10 @@ class PageTests(unittest.TestCase):
     def test_every_skill_has_a_label(self):
         self.assert_labelled("SKILL", load_skills(Path(__file__).resolve().parents[1] / "skills"))
 
+    def test_feature_reads_as_its_bot_label(self):
+        """Phase B, Task 12: a feature job is labelled with the Bot label its card carries, Code (D18)."""
+        self.assertIn('feature: "Code"', self.block("const SKILL = {"))
+
     def test_fix_reads_as_the_bot_label_people_use(self):
         self.assertIn('fix: "修改"', self.block("const SKILL = {"))
 

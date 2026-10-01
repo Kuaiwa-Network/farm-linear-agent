@@ -2,7 +2,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-from test_ledger import ISSUE, LedgerBase, SESSION
+from test_ledger import ISSUE, LedgerBase, SESSION, SKILLS
 from test_scheduler import FakeLauncher, FakeWorktrees, ROOT, SKILLS
 from agent.scheduler import Scheduler
 from agent.session_progress import SessionProgress
@@ -66,7 +66,7 @@ class SessionProgressTests(LedgerBase):
     def test_waiting_for_resource_is_reported(self):
         item = self.new_item()
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
-        self.ledger.await_resource(item["id"], token, "unity_slot", "batch")
+        self.ledger.await_resource(item["id"], token, "unity_slot", "batch", skill=SKILLS["fix"])
         self.now += 600
         self.assertTrue(self.progress.tick())
         self.assertIn("等待", self.sent[0][1]["body"])
