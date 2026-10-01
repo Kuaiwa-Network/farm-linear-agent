@@ -89,3 +89,16 @@ allowed the handover check to finish. The UI display and native cross-thread Sto
 in this run; the earlier live run checked cross-thread Stop, and this change adds offline coverage for
 Stop arriving during creation, webhook duplication, lost responses/restarts, stale episodes, closed cards,
 claimed-worker withdrawal and normal replies after creation.
+
+
+## Hosted CI time budget
+
+The final application tree's first hosted run passed 1,621 tests on macOS (17 platform skips,
+380.642 seconds). Windows reached the final read-only Git fixtures when the existing 20-minute job
+limit cancelled the runner. Its partial artifact recorded all 23 recovery tests and all seven native
+Windows containment checks as `ok`, with no test failure before cancellation; it supplied no full-suite
+summary, so that run is not a Windows full pass. This also follows the earlier main-branch timeout
+recorded in the original acceptance report.
+
+The workflow now allows 30 minutes for the full suite. No test, native check or fixture was removed,
+skipped or weakened. The pull request checks and their uploaded records give the result of the rerun.

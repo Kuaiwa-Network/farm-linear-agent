@@ -17,7 +17,9 @@ jobs:
   offline:
     name: Offline / ${{ matrix.os }} / Python 3.13
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    # Windows' full suite reached the final Git fixtures at the previous 20-minute limit.
+    # Keep every check, including native containment; allow slower hosted runners to finish.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
