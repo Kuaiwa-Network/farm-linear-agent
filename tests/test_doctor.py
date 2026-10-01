@@ -917,9 +917,9 @@ class FeatureToolchainTests(unittest.TestCase):
         record = Path(self.tmp.name) / "git-env-names.jsonl"
         wrapper = self.stubs / "git-probe.py"
         wrapper.write_text(
-            "import json,os\nwith open(" + repr(str(record)) +
+            "import json,os,subprocess,sys\nwith open(" + repr(str(record)) +
             ", 'a', encoding='utf-8') as f: f.write(json.dumps(sorted(os.environ)) + '\\n')\n"
-            "os.execv(" + repr(actual_git) + ", [" + repr(actual_git) + ", *__import__('sys').argv[1:]])\n",
+            "sys.exit(subprocess.run([" + repr(actual_git) + ", *sys.argv[1:]]).returncode)\n",
             encoding="utf-8")
         run = subprocess.run
 
