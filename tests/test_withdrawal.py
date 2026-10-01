@@ -77,6 +77,9 @@ class NoticeTests(unittest.TestCase):
                 self.assertNotIn("已有进度", texts[name])  # the next delegation may start other work
                 self.assertNotIn("会转到", texts[name])  # a late one finds the work cancelled first
                 self.assertIn("「No agent」", texts[name])
+                # Live AC-2: a response can end the wait without making UI re-delegation open a session.
+                # The fallback names only this bot's completed sessions, preserving active work.
+                self.assertIn("归档这张卡上 TestBot 已结束的会话", texts[name].format(bot="TestBot"))
         for name in ("SILENT_WAITING", "SILENT_WAITING_CHAT"):
             self.assertIn("在这里回复可以继续", texts[name])  # the wait ends, the work stays answerable
         self.assertIn("这项工作仍然保留", withdrawal.SILENT_WAITING)

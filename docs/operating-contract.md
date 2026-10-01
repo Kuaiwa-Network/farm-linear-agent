@@ -895,10 +895,17 @@ a question posted after its job ended is withdrawn by a response; and a worker a
 episode; if no delegation session of the card is recorded within 90 s, the receiver settles it
 (Triggers). FarmBot reads agent-session state only then, and only for its own recorded sessions on that
 card, at most ten; a thread whose state it cannot read is neither closed nor taken over. Removing the
-delegation, which archiving a session in Linear's interface also does, and dismissing a session both
-remove the delegate, which the status reads see. If Linear lets a session be archived while the card
-stays delegated, its work is kept: a mention reaches it, a Stop in the mention's thread stops it,
+delegation, or archiving or dismissing a session when Linear also removes the delegate, is seen by the
+status reads. If Linear lets a session be archived while the card stays delegated, its work is kept:
+a mention reaches it, a Stop in the mention's thread stops it,
 removing the delegation withdraws it, and `doctor` lists it after 7 days of waiting.
+
+Ending a thread with a response does not guarantee that the next UI delegation opens a new session.
+The October 1 live checks observed no fresh session after No agent and re-delegation while completed
+sessions remained unarchived; archiving them allowed a fresh session. The notes and doctor include a fallback:
+if re-delegation still opens no session, archive this bot's completed sessions on the card and try
+again. Keep sessions Linear shows working or needing input intact. FarmBot does not archive sessions or create one
+itself. See the [measured record](superpowers/spikes/2026-10-01-silent-delegation-live-checks.md).
 
 **Notices.** A cancellation posts one response, into the job's own session or, for an
 operator-enqueued job, as an issue comment; a conversation's never mentions branches. The job's pending

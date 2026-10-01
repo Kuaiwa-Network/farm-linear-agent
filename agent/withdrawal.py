@@ -74,17 +74,20 @@ REDELEGATED_WAITING = '这张卡已重新委派给 {bot}。这里的工作还在
 REDELEGATED_RUNNING = '这张卡已重新委派给 {bot}，这里的工作正在进行，会继续。'
 # Work the delegation cannot take over where it is: a response ends its thread's wait, which is what kept Linear from
 # opening a session, and the job stays parked and answerable; a thought where the work goes on.
+# Live AC-2 (2026-10-01): ending the wait did not always make UI re-delegation open a new session. Archiving this
+# bot's completed sessions allowed it; never suggest archiving a session Linear still shows working or needing input.
+_SILENT_ARCHIVE_RETRY = '若仍未出现新会话，请归档这张卡上 {bot} 已结束的会话，再重新委派。'
 SILENT_WAITING = ('这张卡已委派给 {bot}，但 {bot} 没有收到这次委派的会话（通常是因为 {bot} 还有讨论串在等回复）。'
                   '这里的等待先结束，这项工作仍然保留：在这里回复可以继续；要按卡片现在的标签重新开始，'
-                  '请把代理改为「No agent」，再委派给 {bot}。')
+                  '请把代理改为「No agent」，再委派给 {bot}。' + _SILENT_ARCHIVE_RETRY)
 SILENT_WAITING_CHAT = ('这张卡已委派给 {bot}，但 {bot} 没有收到这次委派的会话（通常是因为 {bot} 还有讨论串在等回复）。'
                        '这里的等待先结束，对话仍然保留：在这里回复可以继续；要让 {bot} 按卡片的标签开始处理，'
-                       '请把代理改为「No agent」，再委派给 {bot}。')
+                       '请把代理改为「No agent」，再委派给 {bot}。' + _SILENT_ARCHIVE_RETRY)
 SILENT_BUSY = ('这张卡已委派给 {bot}，但 {bot} 没有收到这次委派的会话。这里的工作会继续；要按卡片现在的标签重新开始，'
-               '请等这里结束或按 Stop 之后，把代理改为「No agent」，再委派给 {bot}。')
+               '请等这里结束或按 Stop 之后，把代理改为「No agent」，再委派给 {bot}。' + _SILENT_ARCHIVE_RETRY)
 # A thread that holds no work and that Linear still shows as open: the response closes it.
 SILENT_ENDED = ('这张卡已委派给 {bot}，但 {bot} 没有收到这次委派的会话。这个讨论串里已经没有进行中的工作，'
-                '{bot} 现在把它结束，好让新的委派能打开会话。要开始处理，请把代理改为「No agent」，再委派给 {bot}。')
+                '{bot} 现在把它结束。要开始处理，请把代理改为「No agent」，再委派给 {bot}。' + _SILENT_ARCHIVE_RETRY)
 
 # Session heartbeats for a job that waits or stops for one of these reasons.
 HEARTBEAT_PREDECESSOR = '工作已排队，正在等待上一次工作的清理完成。'
