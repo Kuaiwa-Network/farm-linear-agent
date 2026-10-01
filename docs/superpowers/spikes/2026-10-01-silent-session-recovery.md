@@ -47,4 +47,42 @@ Sources: [Linear agent interaction](https://linear.app/developers/agent-interact
 
 ## Validation
 
-Validation results and the complete receiver acceptance round are recorded below after execution.
+The final Mac command was:
+
+```sh
+env -u FARMBOT_CONFIG -u FARMBOT_LINEAR_STUB_DIR python3 -B -m unittest discover -s tests -v
+```
+
+It passed **1,618 tests in 228.561 seconds**, with **17 Windows-only skips**. Focused coverage includes
+20 own-session recovery scenarios, 58 API tests and 196 receiver tests. The initial API tests failed before
+the methods existed; two later regression tests reproduced the late-webhook and intercepted-reply bugs
+before their corrections. `git diff --check` passed. The full suite needs localhost listeners and process
+inspection; it ran with the host access required by those offline fixtures.
+
+Windows was not executed on this Mac. Hosted Windows CI follows the recovery branch's pull request;
+its result is separate from Windows desktop service/Unity acceptance. The original release's previous
+Windows result does not establish compatibility for this change.
+
+## Integrated TestBot acceptance
+
+TestBot temporarily served clean implementation commit `fbf4bc5`. Its existing development profile,
+state root, app identity, endpoint, skills and publishing destinations were preserved. Only the chosen
+disposable silent-delegation card was exercised. The original clean `3525b93` release was restored after
+cleanup; production was not changed.
+
+| Check | Measured result (UTC) |
+|---|---|
+| Completed threads, no active work | API delegation was observed at 06:43:36.701. After the grace, the receiver recorded one opening at 06:45:07.553, confirmed its session at 06:45:10.417, and queued one delegation fix at 06:45:16.410. No completed thread was archived. |
+| Waiting mention handover | A real `@TestBot` comment was posted through the Linear connector at 06:47:27.768 while undelegated. Its mention chat reached `awaiting_input` with a pending question at 06:49:57.470. API delegation was observed at 06:50:55.310. One new opening at 06:52:26.171 superseded the chat and queued one delegation fix at 06:52:31.901. The exact test prompt was present in the new inbox; the mention session remained `delegation=0`. |
+| Duplicate-session watch | The final fix was operator-cancelled by 06:54:46; the card stayed delegated through 06:58:48, more than four minutes. There were still exactly two opening attempts, nine historical jobs and nine sessions: no extra job/session, active work or owed closure. |
+| Cleanup | The card returned to Canceled with no delegate. All nine test jobs were cancelled, no test PR was published, and no active test worker/resource or owed closure remained. The original four unrelated diagnostic findings were preserved. |
+
+Linear delivered the real `created` webhooks as duplicates of the queued creation keys; each was handled
+once. Both new sessions had no human creator. This verifies LC-4's no-open-thread and waiting-thread
+cases, and the recovery behavior missing from the previous AC-2 and post-cancellation check.
+
+The Mac locked during the run. The Linear connector's real rich mention and read-only runtime evidence
+allowed the handover check to finish. The UI display and native cross-thread Stop were not re-exercised
+in this run; the earlier live run checked cross-thread Stop, and this change adds offline coverage for
+Stop arriving during creation, webhook duplication, lost responses/restarts, stale episodes, closed cards,
+claimed-worker withdrawal and normal replies after creation.
