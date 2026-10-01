@@ -80,8 +80,14 @@ state from Git history and the saved Claude session. Phase A's shared plumbing a
   manifest lists no resources. Withdrawal fencing and current fix/chat authority bytes are preserved.
   The 17 new regressions reproduced the missing behavior first; all eleven focused modules passed
   (978 tests). The full offline suite passed **1,678 tests in 243.028 seconds, 18 Windows-only skips**.
-- **Next:** Tasks 13–15 fill the feature skill's stage instructions and journey tests, followed by
-  the documentation and verification rounds. The current feature skill is a guarded stub.
+- **Task 13 implemented:** the feature skill now covers intake, its durable plan, named-author
+  questions, stage limits, contract drafts and definition-only farm-common changes through the
+  config-ready pause. Current farm-common definition filenames match the map. The pre-#73 withdrawal
+  wording was replaced with checkpoint-and-`withdraw` behavior, matching today's dispatch contract.
+  The 19 new instruction/template tests failed against the stub, then all 58 skill/reference tests
+  passed. The full offline suite passed **1,697 tests in 245.013 seconds, 18 Windows-only skips**.
+- **Next:** Task 14 completes the config/server/closing instructions, Task 15 adds journey tests,
+  followed by the documentation and verification rounds.
 
 ## Scope
 
@@ -8651,7 +8657,7 @@ it as it is, though: Task 8's `_plan_summary` copies only the Shared Interfaces 
 "reason": "waiting", …}`. Settled: `stage_limit` is in Shared Interfaces ("The plan as `feature` writes it",
 `pause.kind`), in Task 8's `PAUSE_KINDS` and in its doctor test, so doctor shows this pause by name.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/test_skills.py`, after Task 12's `FeatureManifestTests` (`json`, `re`, `shlex`, `tempfile`,
 `unittest` and `ROOT` are already imported there):
@@ -8832,7 +8838,7 @@ test runs every `python3 -m agent` line of the skill's `bash` blocks through the
 plan-example test saves every `json` block as a checkpoint plan of a claimed `feature` item, so the ledger's own
 plan validation judges it, P9's rule included.
 
-- [ ] **Step 2: Run the tests and confirm they fail**
+- [x] **Step 2: Run the tests and confirm they fail**
 
 Run: `python3 -m unittest discover -s tests -p 'test_skills.py' -v`
 Expected: the nineteen new tests fail. Each `FeatureInstructionTests` phrase test fails with
@@ -8841,7 +8847,7 @@ Expected: the nineteen new tests fail. Each `FeatureInstructionTests` phrase tes
 `AssertionError: [] is not true`; five `FeatureCommentTemplateTests` error with `IndexError: list index out of range`
 (no such section yet) and `test_the_feature_start_comment_names_the_instance` fails. Task 12's tests still pass.
 
-- [ ] **Step 3: Write the skill's stage A and B instructions**
+- [x] **Step 3: Write the skill's stage A and B instructions**
 
 In `skills/feature/SKILL.md`, replace the stub's last paragraph (the two lines beginning `The stage instructions of
 this skill are added by Tasks 13 and 14 of the Phase B plan.`) with the following; the front matter and the
@@ -9346,7 +9352,7 @@ farm-common's rules (`designer/CLAUDE.md`: the source-digest test, column positi
 `designer/tools/check-config-artifact.sh:268-293`: the count sites, three for a client-only table;
 `designer/configgen/cmd/configgen/main.go`: `inventory --out` writes relative to the launcher's directory).
 
-- [ ] **Step 4: Add the templates**
+- [x] **Step 4: Add the templates**
 
 Append to `references/comment-templates.md`, after the `delivery (no change)` section:
 
@@ -9406,7 +9412,7 @@ stage (the skill's "A stage limit"); leave it out otherwise.
 The existing template tests keep passing: no new section is named `started`, `blocker` or `delivery`, and no
 `FarmBot` literal is added (`tests/test_skills.py` `CommentTemplateTests`).
 
-- [ ] **Step 5: Add the repository map sections**
+- [x] **Step 5: Add the repository map sections**
 
 In `references/repo-map.md`, in the Access matrix, replace
 ``| Farm-Contract | Read/write for `fix` in its own worktree |`` (`:33`) with
@@ -9477,7 +9483,7 @@ names are persistent player-data field names), `README.md` (generate and verify)
   and a profile change moves all eight count sites.
 ````
 
-- [ ] **Step 6: Update the worker CLI reference and the operating contract**
+- [x] **Step 6: Update the worker CLI reference and the operating contract**
 
 In `references/worker-cli.md`, replace ``A staged skill (today `fix`) switches repositories between attempts.``
 (`:173`) with ``A staged skill (today `fix` and `feature`) switches repositories between attempts.``, and add at
@@ -9541,7 +9547,7 @@ dispatch AUTHORITY states its grants (see Authority).
 Run: `git diff --check`
 Expected: no whitespace errors.
 
-- [ ] **Step 7: Run the tests and confirm they pass**
+- [x] **Step 7: Run the tests and confirm they pass**
 
 Run: `python3 -m unittest discover -s tests -p 'test_skills.py' -v`
 Expected: all pass, the nineteen new tests included.
@@ -9549,7 +9555,7 @@ Expected: all pass, the nineteen new tests included.
 Run: `python3 -m unittest discover -s tests -v`
 Expected: 0 failures; nineteen more tests than after Task 12, and the same platform skips.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add skills/feature/SKILL.md references/comment-templates.md references/repo-map.md references/worker-cli.md docs/operating-contract.md tests/test_skills.py

@@ -240,7 +240,7 @@ the claim. The CLI blocks those transitions after a rejected handoff until a val
 handoff is saved; do not remove `handoff` to bypass the repair. If saving cannot
 succeed, retain the local JSON, report the exact error, and do not claim it was saved.
 
-A staged skill (today `fix`) switches repositories between attempts. Save a fresh `handoff`
+A staged skill (today `fix` and `feature`) switches repositories between attempts. Save a fresh `handoff`
 with facts, checks, repository heads, published PRs and next actions, then run:
 
 ```bash
@@ -353,6 +353,9 @@ issue branch early. A successor of cancelled work, and a later attempt of your i
 removed its worktrees, then gets that branch itself, fetched and tracking `origin/<branch>`:
 commits others pushed are on it, and commits of its own that were never pushed stay ahead of the
 remote. Integrate the remote before you push, never force-push.
+
+The `feature` skill's plan keys and their entry shapes are in `skills/feature/SKILL.md` ("The plan"); where they
+differ from the example above, a `feature` worker follows the skill.
 
 ## Read-only checkouts
 

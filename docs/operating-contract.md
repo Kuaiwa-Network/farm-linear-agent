@@ -784,6 +784,46 @@ against stale outputs. Missing or failed export tooling calls for diagnosis, not
 for a structural defect or change. If the intended UI is unclear, ask in Linear using
 `await-input --reason question` (which adds `needs-more-info`).
 
+## The Code worker (`feature`)
+
+`feature` runs only on an instance whose `enabled_skills` names it. One work item and one Linear session carry a
+delegated Bot/Code card through repository stages, one fresh Codex worker per root: the Farm-Contract change
+(stage A, the initial root), then farm-common declarations (stage B). A job that reaches a later stage finishes
+blocked. The worker follows each repository's own rules and `skills/feature/SKILL.md`; the `feature` part of the
+dispatch AUTHORITY states its grants (see Authority).
+
+- It reads the 策划案 itself with lark-cli as FarmBot's read-only Feishu app (`lark-cli --profile PROFILE docs
+  +fetch --as bot`, the host's configured profile), only from links in the card, its human comments and the
+  session, and never with a `LARKSUITE_CLI_` variable set.
+- At its first attempt it records each write repository's issue branch in its plan, after checking that no other
+  instance's or person's work is on it; later attempts and successors re-attach to those branches. A cleanup commit
+  (`wip(…): preserve ended work`) that the controller left on a branch is inspected and replaced before anything is
+  pushed, and others' commits are merged, never overwritten.
+- It posts one start comment per job (the plan records it); grouped question rounds (`question` notices
+  `questions-1`, `questions-2`, …) that mention the owner and, when they ask 策划, the card's creator; `stage`
+  notices only when a stage is skipped or stage C passes; and `merge_request` notices that ask the owner to merge a
+  named PR. It merges nothing. A notice asked again takes the next number (`config-needed-2`).
+- It records a ruling only from a named person's comment or session message, under that person's Linear name, and
+  applies no default: Farm-Contract's rules that let high-confidence gaps stand once posted and medium ones after
+  three working days of silence do not apply to FarmBot.
+- A person may ask, in the delegation text or a session message, that the job stop after a stage. The worker then
+  finishes that stage, says so in the stage's last notice, and parks (`await-input --reason waiting`) until a later
+  message asks it to go on.
+- Stage A writes the OpenSpec change, proto and their bookkeeping, reading Farm-Client and farmgui only in
+  read-only checkouts of their default branches for the client half of the gap list; runs Farm-Contract's twelve
+  gates with CI's pinned tool versions; opens the contract draft PR; asks the owner to merge it; and hands off
+  without waiting for the merge. FarmBot's `handoff-repository` is the handoff (交棒) Farm-Contract's rules
+  describe; it creates no other task or issue.
+- Stage B declares the change's tables, columns, fields and enums in farm-common's definition layer, regenerates
+  its inventory and updates its count constants, never data rows or global-key values, and opens the declarations
+  draft PR. It then posts the config-needed comment, which mentions the owner and the creator, and parks with
+  `await-input --reason waiting` until someone names the farm-common commit or branch that holds 策划's data.
+- The plan records the stages, the pending pause, the change, the declared columns, every branch and PR by role,
+  the closing steps and who reported each human step.
+- A worker that sees `delegated: false`, `withdrawn: true`, a closed card, or `delegation withdrawn`
+  publishes and asks nothing, saves its plan, runs `withdraw` and exits. The command cancels the job and
+  posts its notice, preserving the plan for a later delegation; it does not finish blocked.
+
 ## Shared memory
 
 Workers share bounded recall notes in the ledger, with an immutable Markdown index and topic files
