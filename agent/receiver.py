@@ -18,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from .ledger import ACTIVE_STATES, TERMINAL_STATUS_TYPES, LedgerError, StaleRouting
 from .lifecycle import UNREACHABLE_READS, UNREACHABLE_SECONDS
-from .linear_api import LinearError, person
+from .linear_api import LinearAPI, LinearError, SessionCreationRefused, person
 from .router import WRITE_SKILLS, route
 from .withdrawal import (DEFER_ACK, DEFER_STILL, DEFER_UNDELEGATED, FORWARD_PARKED_UNDELEGATED, FORWARD_WITHDRAWING,
                          IN_PLACE_NOTE, MOVED_THREAD, REDELEGATED_RUNNING, REDELEGATED_WAITING, RENOTE_SECONDS,
@@ -58,6 +58,7 @@ SESSION_READS = 10
 RESETTLE_SECONDS = 5
 SETTLE_RETRY_SECONDS = 15
 SETTLE_RETRY_MAX = 300
+OPEN_WEBHOOK_GRACE = 5
 # What Linear shows for a thread a response or an error closed. Linear adds status values (`stopping` came on
 # 2026-09-24), so every other value, also one nobody knows yet, is an open thread (§3.6).
 CLOSED_STATUSES = ("complete", "error")
@@ -72,6 +73,10 @@ class Deferred(Exception):
     def __init__(self, item_id):
         super().__init__(item_id)
         self.item_id = item_id
+
+
+class SessionOpeningError(RuntimeError):
+    """Session creation/recovery failed, not the preceding successful read of the issue."""
 
 
 class Receiver:
@@ -96,6 +101,10 @@ class Receiver:
         self.db.execute("""CREATE TABLE IF NOT EXISTS stop_requests (
             stop_key TEXT PRIMARY KEY, session_id TEXT NOT NULL, activity_id TEXT NOT NULL, status TEXT NOT NULL,
             received_at REAL NOT NULL, completed_at REAL, error TEXT)""")
+        self.db.execute("""CREATE TABLE IF NOT EXISTS session_openings (
+            issue_id TEXT NOT NULL, since REAL NOT NULL, marker TEXT NOT NULL UNIQUE,
+            attempted_at REAL NOT NULL, session_id TEXT, error TEXT,
+            PRIMARY KEY(issue_id,since))""")
         self.db.execute("UPDATE webhook_events SET status='uncertain', error='InterruptedProcessing' WHERE status='processing'")
         self.db.commit()
         if str(db_path) != ":memory:" and os.name != "nt":
@@ -179,6 +188,20 @@ class Receiver:
         with self.lock, self.db:
             inserted = self.db.execute("INSERT OR IGNORE INTO webhook_events VALUES (?,?,?,'pending',?,?,NULL,NULL)",
                                        (key, session_id, str(uuid.uuid4()), json.dumps(prepared), self.clock())).rowcount
+            if not inserted and action == "created" and self.db.execute(
+                    "SELECT 1 FROM session_openings WHERE session_id=? AND issue_id=?",
+                    (session_id, prepared["issue_id"])).fetchone():
+                # Prefer the signed webhook's guidance and people to the synthetic event. A webhook delivered
+                # after routing can enrich its own session, but never route the creation a second time.
+                self.db.execute("UPDATE webhook_events SET payload=?,received_at=? WHERE event_key=? "
+                                "AND status='pending'", (json.dumps(prepared), self.clock(), key))
+                if prepared["guidance"].strip():
+                    self.db.execute("UPDATE sessions SET guidance=? WHERE session_id=? AND issue_id=?",
+                                    (prepared["guidance"], session_id, prepared["issue_id"]))
+                if prepared.get("creator"):
+                    self.db.execute("UPDATE sessions SET creator_json=? WHERE session_id=? AND issue_id=? "
+                                    "AND creator_json IS NULL",
+                                    (json.dumps(prepared["creator"]), session_id, prepared["issue_id"]))
         return 200, "accepted" if inserted else "duplicate"
 
     def _prepare(self, event):
@@ -287,6 +310,40 @@ class Receiver:
             current = self.ledger.active_item_for_issue(issue["id"])
             if current is not None and current["authority"] == "delegation":
                 self.ledger.request_status_check(issue["id"])
+        opening = self.db.execute("SELECT * FROM session_openings WHERE session_id=? AND issue_id=?",
+                                  (prepared["session_id"], issue["id"])).fetchone()
+        if (opening is None and prepared["action"] == "created" and self.db.execute(
+                "SELECT 1 FROM session_openings WHERE issue_id=? AND session_id IS NULL "
+                "AND (error IS NULL OR error!='SessionCreationRefused')",
+                (issue["id"],)).fetchone()):
+            # A lost mutation response can be followed by the real webhook before the settle retries. Match its
+            # verified remote link to any outstanding attempt, including one from an older episode; otherwise a
+            # withdrawn automatic creation would be mistaken for a new human-created conversation.
+            candidate = self.api.recovery_session_candidate(prepared["session_id"], issue["id"], app)
+            if candidate is not None and not isinstance(candidate, dict):
+                raise RuntimeError("Linear recovery session context mismatch")
+            matches = []
+            for link in (candidate or {}).get("externalLinks") or ():
+                marker = link.get("url") if isinstance(link, dict) else None
+                row = self.db.execute("SELECT * FROM session_openings WHERE issue_id=? AND marker=?",
+                                      (issue["id"], marker)).fetchone()
+                if row is not None:
+                    matches.append(row)
+            if len(matches) > 1:
+                raise RuntimeError("Linear recovery session is ambiguous")
+            if matches:
+                opening = matches[0]
+                LinearAPI._recovery_session(candidate, issue["id"], app, opening["marker"])
+                with self.lock, self.db:
+                    self.db.execute("UPDATE session_openings SET session_id=?,error=NULL WHERE issue_id=? AND since=?",
+                                    (prepared["session_id"], issue["id"], opening["since"]))
+        if opening is not None and prepared["action"] == "created":
+            episode = self.ledger.episode(issue["id"])
+            if (not delegated or issue["archived"] or issue["status_type"] in TERMINAL_STATUS_TYPES
+                    or episode is None or episode["since"] != opening["since"] or episode["state"] == "dropped"):
+                self._send(prepared["session_id"], ack_id, {"type": "response",
+                    "body": f"{self.bot_name} 创建会话后，这次委派已失效，未开始新的工作。"})
+                return
         session = self.ledger.session(prepared["session_id"])
         if session is None and prepared["action"] == "created" and prepared.get("is_mention") and delegated:
             # Delegations may include Linear's synthetic thread comment. Verify
@@ -632,7 +689,8 @@ class Receiver:
         did open a session; `kept`, `in_place`, `told` or `unseen`, the first of P12's outcomes that applies; or
         `changed`, another read ended the episode meanwhile. `reads` collects what Linear said of each thread.
 
-        FarmBot opens no session and changes nothing on the card (P6). Nothing is posted before the episode is ended
+        FarmBot may open its own session when no thread can take the delegation (D4); it changes no card field.
+        Nothing is posted before the episode is ended
         as the one this settle read, so a settle acts once; StaleRouting from the takeover means the job or the
         episode changed under it. A failed read of the card raises, and nothing was posted (P8)."""
         issue_id, since = episode["issue_id"], episode["since"]
@@ -655,6 +713,9 @@ class Receiver:
             return "dropped" if self.ledger.finish_episode(issue_id, since, "dropped") else "changed"
         if self.ledger.delegation_heard(issue_id, episode["mark"]):
             return "heard" if self.ledger.finish_episode(issue_id, since, "heard") else "changed"
+        if self.db.execute("SELECT 1 FROM session_openings WHERE issue_id=? AND since=?",
+                           (issue_id, since)).fetchone():
+            return self._open_session(episode, issue, active, reads)
         # The work a delegation of this card starts now, as a `created` would route it.
         decision = route(action="created", is_delegation=True, text="", labels=issue["labels"], active_state=None,
                          terminal_exists=False, available_skills=self.skills,
@@ -682,7 +743,75 @@ class Receiver:
                     self._say(thread, {"type": "thought", "body": IN_PLACE_NOTE.format(bot=self.bot_name) + "\n"
                                        + self._opening(decision, "")})
                     return "in_place"
-        return self._tell(episode, active, reads)
+        return self._open_session(episode, issue, active, reads)
+
+    def _created_waits(self, issue_id):
+        return self.db.execute("""SELECT 1 FROM webhook_events WHERE status IN ('pending','deferred')
+            AND CASE WHEN json_valid(payload) THEN json_extract(payload,'$.action')='created'
+                AND json_extract(payload,'$.issue_id')=? END LIMIT 1""", (issue_id,)).fetchone() is not None
+
+    def _open_session(self, episode, issue, active, reads):
+        """One mutation per episode, recorded before the request. Recover an uncertain result by its unique issue
+        link; never repeat a mutation whose response might have been lost. Queue a normal created event under
+        Linear's key, giving the signed webhook a short chance to supply guidance first. Normal routing still
+        checks fresh delegation, preserves messages and fences any claimed worker."""
+        issue_id, since = episode["issue_id"], episode["since"]
+        with self.lock, self.db:
+            opening = self.db.execute("SELECT * FROM session_openings WHERE issue_id=? AND since=?",
+                                      (issue_id, since)).fetchone()
+            if opening is None:
+                current = self.db.execute("SELECT state,since FROM delegation_episodes WHERE issue_id=?",
+                                          (issue_id,)).fetchone()
+                if current is None or current["state"] != "waiting" or current["since"] != since:
+                    return "changed"
+                if self._created_waits(issue_id):
+                    raise StaleRouting("a created event arrived during the settle")
+                # The link goes back to the card, with a non-secret recovery identifier. Linear's public
+                # mutation accepts no caller-provided session id or idempotency key.
+                marker = str(issue["url"]).split("#", 1)[0] + "#farmbot-recovery-" + str(uuid.uuid4())
+                self.db.execute("INSERT INTO session_openings VALUES (?,?,?,?,NULL,NULL)",
+                                (issue_id, since, marker, self.clock()))
+                new = True
+            else:
+                marker, new = opening["marker"], False
+        if not new and opening["error"] == "SessionCreationRefused":
+            return self._tell(episode, active, reads)
+        try:
+            if new:
+                session = self.api.create_session_on_issue(issue_id, self.identity["appUserId"], marker)
+            else:
+                session = self.api.find_recovery_session(issue_id, self.identity["appUserId"], marker)
+            if session is None:
+                raise RuntimeError("session creation remains uncertain")
+            # Verify again here, including in tests and alternate API implementations, before creating an event.
+            LinearAPI._recovery_session(session, issue_id, self.identity["appUserId"], marker)
+        except Exception as exc:
+            with self.lock, self.db:
+                self.db.execute("UPDATE session_openings SET error=? WHERE issue_id=? AND since=?",
+                                (type(exc).__name__, issue_id, since))
+            if isinstance(exc, SessionCreationRefused):
+                return self._tell(episode, active, reads)
+            # A missing session or a refused mutation does not mean the freshly-read issue disappeared.
+            # In particular, do not feed its not_found into the card's unreachable-issue withdrawal rule.
+            raise SessionOpeningError() from None
+        session_id = session["id"]
+        prepared = {"action": "created", "session_id": session_id, "issue_id": issue_id,
+                    "text": "", "is_mention": False, "guidance": "", "creator": person(session.get("creator")),
+                    "author": None}
+        key = f"{self.identity['organizationId']}:created:{session_id}"
+        with self.lock, self.db:
+            self.db.execute("UPDATE session_openings SET session_id=?,error=NULL WHERE issue_id=? AND since=?",
+                            (session_id, issue_id, since))
+            stopped = self.db.execute("SELECT 1 FROM stop_requests WHERE session_id=? AND received_at>=?",
+                                      (session_id, episode["since"])).fetchone() is not None
+            self.db.execute("INSERT OR IGNORE INTO webhook_events VALUES (?,?,?,?,?,?,?,NULL)",
+                            (key, session_id, str(uuid.uuid4()), "cancelled" if stopped else "pending",
+                             json.dumps(prepared), self.clock() + OPEN_WEBHOOK_GRACE,
+                             self.clock() if stopped else None))
+            ended = self.db.execute("""UPDATE delegation_episodes SET state='heard',session_id=?,settled_at=?,
+                error=NULL,unreachable_since=NULL,updated_at=? WHERE issue_id=? AND since=? AND state='waiting'""",
+                (session_id, self.clock(), self.clock(), issue_id, since)).rowcount
+        return "opened" if ended else "changed"
 
     def _thread_state(self, reads, session_id, issue_id):
         """What Linear says of the thread `session_id`, {"status", "archived"}, or None when it is not known. One
@@ -833,7 +962,8 @@ class Receiver:
             return True
         self._release_deferred()
         with self.lock:
-            row = self.db.execute("SELECT * FROM webhook_events WHERE status='pending' ORDER BY received_at LIMIT 1").fetchone()
+            row = self.db.execute("SELECT * FROM webhook_events WHERE status='pending' AND received_at<=? "
+                                  "ORDER BY received_at LIMIT 1", (self.clock(),)).fetchone()
             if row is not None:
                 self.db.execute("UPDATE webhook_events SET status='processing' WHERE event_key=?", (row["event_key"],))
                 self.db.commit()

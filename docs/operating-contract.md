@@ -136,7 +136,7 @@ once in the same way, and back again on a rollback.
 | Reopen an issue | starts nothing; request continuation or delegate explicitly |
 | Press Stop | the worker process is killed promptly, without waiting for the scheduler; the item is cancelled; FarmBot confirms in the session. A Stop in a session that forwarded a message to the work, or in the card's latest delegation session, stops the card's work wherever it runs; in a session whose work moved to another session, or had already stopped, FarmBot says so and stops nothing. When the stopped work lives in another thread, that thread also gets one closing response |
 | Delegate an issue that already has FarmBot work in another session | the new delegation takes the card over: waiting or queued work and any conversation move to the new session (the old job is cancelled and continued by a linked job with its messages; the old session gets one note); a running write worker is told to save and stop, and the new session starts once it has |
-| Delegate an issue when Linear opens no session for it (one of FarmBot's threads on the card still waits for an answer, or the delegation came through Linear's API or an automation) | on a card FarmBot tracks, about 90 s after a status read first finds the card delegated to FarmBot again with no delegation session recorded since, FarmBot settles it on a fresh read of the card, without opening a session or changing the card. Work of the kind the labels name that the delegation already has is kept, and its thread gets one line (at most one per job in 30 minutes): a waiting job asks its question again, a running one says it goes on. Other queued or waiting work, or a conversation, that lives in a delegation thread Linear shows as not archived is taken over in that same thread with its messages, as a new delegation takes a card over. Otherwise each open FarmBot thread on the card gets one note: a response that ends a waiting thread, keeps its work answerable and says to choose No agent and delegate again; a thought where work runs; a response that closes a thread with no work, unless a Stop there still reaches the card's work or an event of it waits. With no open thread nothing is posted and `doctor` lists `silent_delegation`. A card the fresh read finds closed, archived, trashed or not delegated to FarmBot is left alone, and so is one Linear keeps answering "not found" for 15 minutes while its other calls succeed. A delegation session that arrives later takes the card over as usual |
+| Delegate an issue when Linear opens no session for it (one of FarmBot's threads on the card still waits for an answer, or the delegation came through Linear's API or an automation) | on a card FarmBot tracks, about 90 s after a status read first finds the card delegated to FarmBot again with no delegation session recorded since, FarmBot settles it on a fresh read of the card, without opening a session or changing the card. Work of the kind the labels name that the delegation already has is kept, and its thread gets one line (at most one per job in 30 minutes): a waiting job asks its question again, a running one says it goes on. Other queued or waiting work, or a conversation, that lives in a delegation thread Linear shows as not archived is taken over in that same thread with its messages, as a new delegation takes a card over. Otherwise FarmBot records a creation attempt and opens its own session through `agentSessionCreateOnIssue`. Its normal `created` routing checks the card again, carries messages and compatible progress, and defers behind a claimed write worker. An explicit refusal falls back to one note in each open FarmBot thread: a response that ends a waiting thread, keeps its work answerable and says to choose No agent and delegate again; a thought where work runs; a response that closes a thread with no work, unless a Stop there still reaches the card's work or an event of it waits. On an explicit refusal with no open thread, nothing is posted and `doctor` lists `silent_delegation`. An uncertain response is recovered by its unique issue link, without another creation request. A card the fresh read finds closed, archived, trashed or not delegated to FarmBot is left alone, and so is one Linear keeps answering "not found" for 15 minutes while its other calls succeed. A delegation session that arrives later takes the card over as usual |
 | @FarmBot on an issue that already has FarmBot work in another session | a waiting conversation moves to your thread and answers there; otherwise your text is forwarded to that work, and the notice says whether it was resumed, will be read at the next checkpoint, or will not continue because the card is no longer delegated |
 
 The Bot label group (D18) is team-scoped and single-select, so a card carries at most one child:
@@ -904,8 +904,29 @@ Ending a thread with a response does not guarantee that the next UI delegation o
 The October 1 live checks observed no fresh session after No agent and re-delegation while completed
 sessions remained unarchived; archiving them allowed a fresh session. The notes and doctor include a fallback:
 if re-delegation still opens no session, archive this bot's completed sessions on the card and try
-again. Keep sessions Linear shows working or needing input intact. FarmBot does not archive sessions or create one
-itself. See the [measured record](superpowers/spikes/2026-10-01-silent-delegation-live-checks.md).
+again. Keep sessions Linear shows working or needing input intact. FarmBot now opens a session when the
+90-second episode has no thread that can take the delegation; it does not archive sessions. See the
+[original measured record](superpowers/spikes/2026-10-01-silent-delegation-live-checks.md) and the
+[recovery validation](superpowers/spikes/2026-10-01-silent-session-recovery.md).
+
+The receiver records `session_openings` before sending the mutation, one attempt per issue and episode.
+A unique non-secret link back to the issue identifies the resulting session. On restart or a lost response,
+FarmBot searches the issue's sessions (including archived ones), verifies the app and issue, and accepts
+only one matching unarchived session without a source comment. Missing, unreadable or ambiguous results
+leave the episode waiting and eventually appear in `doctor`; they never cause a blind creation retry.
+If a crash happened before the request reached Linear, an operator must remove and re-add the delegation,
+allowing the controller to observe the removal, to start a new episode. Do not delete the attempt record.
+
+The confirmed session queues a synthetic `created` under the same key as Linear's webhook. It waits
+five seconds for the signed webhook to supply guidance and people. A duplicate can enrich guidance,
+including after routing, but starts no second job. Without a webhook the synthetic event has no human
+creator and no guidance. Routing reads the card again: a closed card, removed delegation or replaced
+episode starts no work. Stop received during creation cancels the pending event. Late independent Linear
+sessions still use the normal takeover and claim-fencing rules.
+
+`session_openings` is an additive receiver table; existing episodes and jobs are not changed at upgrade.
+Older code ignores this table and does not remove it. Rolling back does not undo an already-created
+Linear session or cancel its job; settle those through the normal cancellation path before rollback.
 
 **Notices.** A cancellation posts one response, into the job's own session or, for an
 operator-enqueued job, as an issue comment; a conversation's never mentions branches. The job's pending
@@ -1032,7 +1053,7 @@ any unposted notice unsent.
   and FarmBot's session response says 无需改动. Blocked stays for work that a human must unblock.
 - Delegate from the Linear UI. Setting the delegate through the API creates no agent session: on a card
   FarmBot never observed nothing happens, and on a card it tracks the delegation is settled as one Linear
-  opened no session for (Triggers).
+  opened no session for (Triggers), including automatic session creation when no thread can take it.
 - Two concurrent workers (`max_concurrent`). At most one of them runs an attempt of an exclusive skill,
   one whose `skill.json` sets `"exclusive": true` (spec §5.8, D16; no skill in this revision sets it):
   while one runs, including an attempt that is being retired for a repository handoff, a queued item of

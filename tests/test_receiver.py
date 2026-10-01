@@ -20,7 +20,7 @@ from unittest.mock import Mock, patch
 from agent.heartbeat import OUTCOMES, Heartbeat
 from agent.ledger import Ledger, LedgerError
 from agent.lifecycle import Lifecycle
-from agent.linear_api import LinearError
+from agent.linear_api import LinearError, SessionCreationRefused
 from agent.monitor import probe_health
 from agent.receiver import MAX_BODY, Receiver, make_server
 from agent.router import Decision
@@ -55,6 +55,8 @@ class ReceiverBase(unittest.TestCase):
         self.api.session_has_artificial_root.return_value = False
         # What Linear says of a thread's state when a settle asks (silent-delegation design §3.6): a response closed it.
         self.api.session_state.return_value = {"status": "complete", "archived": False}
+        # Legacy settle scenarios exercise the manual fallback when Linear explicitly refuses to open a session.
+        self.api.create_session_on_issue.side_effect = SessionCreationRefused()
         # Bot/修改 is what makes a bare delegation here a fix item (D18); Bug alone no longer routes.
         self.api.fetch_issue.return_value = issue(labels=["Bug", "修改"], delegate_id=APP,
                                                   label_groups=[{"group": "Bot", "label": "修改"}])
@@ -3094,7 +3096,8 @@ class SilentDelegationReceiverTests(ReceiverBase):
                          ("awaiting_input", "mention", [chat["id"]]))
         self.assertEqual((self.episode(), self.owed()), (("told", None), []))
         self.assertEqual(self.states_read(), ["session-0", "session-8"])
-        self.assertEqual({call[0] for call in self.api.method_calls}, self.READS_AND_ACTIVITIES)
+        self.assertEqual({call[0] for call in self.api.method_calls},
+                         self.READS_AND_ACTIVITIES | {"create_session_on_issue"})
         self.assertEqual(self.settled["threads"], [
             {"session_id": "session-0", "status": "awaitingInput", "archived": False},
             {"session_id": "session-8", "status": "complete", "archived": False}])
@@ -3625,7 +3628,7 @@ class SilentDelegationReceiverTests(ReceiverBase):
         self.now = 1220.0
         self.assertEqual(self.settle(), "unseen")
         self.assertEqual((self.episode(), self.active_jobs()), (("unseen", None), []))
-        self.assertEqual([call[0] for call in self.api.method_calls], ["fetch_issue"])
+        self.assertEqual([call[0] for call in self.api.method_calls], ["fetch_issue", "create_session_on_issue"])
         self.assertEqual(self.settled, {"event": "delegation_episode", "issue_id": ISSUE, "outcome": "unseen",
                                         "threads": []})
         self.assertIsNone(self.settle())

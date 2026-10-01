@@ -47,6 +47,8 @@ ISSUE_QUERY = """query FarmBotIssue($id: String!, $after: String) {
   }
 }"""
 ISSUE_READ_ATTEMPTS = 3
+RECOVERY_SESSION_FIELDS = """id archivedAt issue { id } appUser { id } sourceComment { id }
+    creator { id name url app } externalLinks { label url }"""
 
 # Upload downloads (spec §5.5): this origin only, with a plain path; no query, fragment, userinfo or port.
 UPLOADS_ORIGIN = "https://uploads.linear.app"
@@ -129,6 +131,13 @@ class LinearError(RuntimeError):
             raise ValueError(f"unknown Linear error kind: {kind!r}")
         super().__init__(message)
         self.kind = kind
+
+
+class SessionCreationRefused(LinearError):
+    """A session mutation explicitly returned success=false. No session was confirmed."""
+
+    def __init__(self):
+        super().__init__("rejected", "Linear refused session creation")
 
 
 # GraphQL `errors[].extensions.code` values whose meaning is known (design §5.1; the live check LC-7 records the
@@ -318,6 +327,68 @@ class LinearAPI:
         if result.get("success") is not True or not result.get("agentActivity", {}).get("id"):
             raise RuntimeError("Linear did not confirm activity creation")
         return result
+
+    @staticmethod
+    def _recovery_session(session, issue_id, app_user_id, marker):
+        if (not isinstance(session, dict) or not isinstance(session.get("id"), str) or not session["id"]
+                or len(session["id"]) > 128 or (session.get("issue") or {}).get("id") != issue_id
+                or (session.get("appUser") or {}).get("id") != app_user_id
+                or session.get("sourceComment") or session.get("archivedAt")
+                or not any(isinstance(link, dict) and link.get("url") == marker
+                           for link in session.get("externalLinks") or ())):
+            raise RuntimeError("Linear recovery session context mismatch")
+        return session
+
+    def create_session_on_issue(self, issue_id, app_user_id, marker):
+        """Open one own issue session. The caller durably records the attempt first: this mutation has no
+        idempotency key, so an uncertain response must be recovered by marker, never retried blindly."""
+        result = self.graphql("""mutation FarmBotOpenSession($input: AgentSessionCreateOnIssue!) {
+            agentSessionCreateOnIssue(input: $input) { success agentSession { """
+            + RECOVERY_SESSION_FIELDS + " } } }", {"input": {
+                "issueId": issue_id, "externalUrls": [{"label": "Issue", "url": marker}]}})["agentSessionCreateOnIssue"]
+        if result.get("success") is not True:
+            raise SessionCreationRefused()
+        return self._recovery_session(result.get("agentSession"), issue_id, app_user_id, marker)
+
+    def find_recovery_session(self, issue_id, app_user_id, marker):
+        """Find the session created by an interrupted attempt, including archived threads. A missing or ambiguous
+        result never authorizes another mutation. Bound pagination and reject incomplete/malformed reads."""
+        after, seen, matches = None, set(), []
+        for _ in range(100):
+            issue = self.graphql("""query FarmBotRecoverSession($id: String!, $after: String) {
+                issue(id: $id) { id agentSessions(first: 100, after: $after, includeArchived: true) {
+                    nodes { """ + RECOVERY_SESSION_FIELDS + """ }
+                    pageInfo { hasNextPage endCursor } } }
+                }""", {"id": issue_id, "after": after})["issue"]
+            if not issue or issue.get("id") != issue_id:
+                raise RuntimeError("Linear recovery issue context mismatch")
+            connection = issue["agentSessions"]
+            for session in connection["nodes"]:
+                if ((session.get("appUser") or {}).get("id") == app_user_id
+                        and any(isinstance(link, dict) and link.get("url") == marker
+                                for link in session.get("externalLinks") or ())):
+                    matches.append(self._recovery_session(session, issue_id, app_user_id, marker))
+            page = connection["pageInfo"]
+            if page.get("hasNextPage") is False:
+                if len(matches) > 1:
+                    raise RuntimeError("Linear recovery session is ambiguous")
+                return matches[0] if matches else None
+            after = page.get("endCursor")
+            if page.get("hasNextPage") is not True or not after or after in seen:
+                break
+            seen.add(after)
+        raise RuntimeError("Linear recovery session read was incomplete")
+
+    def recovery_session_candidate(self, session_id, issue_id, app_user_id):
+        """Resolve a signed creation received after an uncertain mutation, with one session read rather than
+        searching once for every historical attempt. The caller matches its stored marker before adopting it."""
+        session = self.graphql("query FarmBotRecoveryCandidate($id: String!) { agentSession(id: $id) { "
+                               + RECOVERY_SESSION_FIELDS + " } }", {"id": session_id})["agentSession"]
+        if (not isinstance(session, dict) or session.get("id") != session_id
+                or (session.get("issue") or {}).get("id") != issue_id
+                or (session.get("appUser") or {}).get("id") != app_user_id):
+            raise RuntimeError("Linear recovery session context mismatch")
+        return session
 
     def create_comment(self, issue_id, body):
         result = self.graphql("""mutation FarmBotComment($input: CommentCreateInput!) {
