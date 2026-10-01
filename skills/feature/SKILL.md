@@ -293,6 +293,7 @@ home (LARK_HOME below). These are the only forms: `--profile` goes before the su
 
 ```bash
 HOME=LARK_HOME lark-cli --profile PROFILE docs +fetch --as bot --doc DOC_URL --doc-format markdown > STATE_DIR/design/DOC_NAME.json
+HOME=LARK_HOME lark-cli --profile PROFILE wiki +node-get --as bot --node-token WIKI_URL > STATE_DIR/design/NODE_NAME.json
 cd STATE_DIR/design && HOME=LARK_HOME lark-cli --profile PROFILE drive +download --as bot --file-token FILE_TOKEN --output FILE_NAME
 ```
 
@@ -302,9 +303,13 @@ cd STATE_DIR/design && HOME=LARK_HOME lark-cli --profile PROFILE drive +download
 - Make `STATE_DIR/design` first. `docs +fetch` prints its result as JSON; redirect it to a file there. lark-cli
   takes only a relative path under the current directory for a path flag such as `--output` and refuses an absolute
   one (`unsafe file path`), so run `drive +download` from `STATE_DIR/design` with a bare file name, as above.
-- Fetch only links found in the card's description, its human comments and this job's session messages. Use
-  `docs +fetch` for docx and wiki pages; when it answers that the document's type is `file` (an attachment), use
-  `drive +download` with that file's token. Convert a downloaded `.docx` with `textutil -convert txt` on macOS;
+- Fetch only links found in the card's description, its human comments and this job's session messages. For a
+  wiki link, run `wiki +node-get` with that link first and read `data.obj_type` and `data.obj_token`. When
+  `obj_type` is `file` (an attachment), use `drive +download` with `obj_token` as `FILE_TOKEN`; never use the wiki
+  node token as the file token. For `docx`, use `docs +fetch` with the original link; a direct docx link needs no
+  wiki lookup. `docs +fetch` rejects a wiki file with an unsupported-type error and returns no file token, so
+  never rely on that error to resolve the attachment. For other object types, ask for a supported design link.
+  Convert a downloaded `.docx` with `textutil -convert txt` on macOS;
   elsewhere read its `word/document.xml` with Python's `zipfile`.
 - Never `--as user`, never another profile or lark-cli home, never `profile use`, `auth` or `config`, and never a
   command that writes, sends, uploads or deletes. lark-cli's embedded guide (`lark-cli skills read lark-doc

@@ -112,7 +112,8 @@ FEATURE_AUTHORITY_AT_B = (
     "configuration or workflow files in any repository, never create Linear issues or labels, and never send "
     "Feishu messages or change Feishu documents. Use FarmBot's Linear credentials only through FarmBot's worker "
     "CLI commands for this claimed item, and fetch Linear uploads only with download-uploads. Run lark-cli only "
-    "as lark-cli --profile PROFILE docs +fetch --as bot or lark-cli --profile PROFILE drive +download --as bot, "
+    "as lark-cli --profile PROFILE docs +fetch --as bot, lark-cli --profile PROFILE wiki +node-get --as bot "
+    "to resolve a linked wiki URL's obj_type and obj_token, or lark-cli --profile PROFILE drive +download --as bot, "
     "with those commands' own read flags, PROFILE being tools.lark_cli.profile and, when tools.lark_cli.home "
     "gives a directory, the command prefixed with HOME set to it for that command alone; use them only to read "
     "the design documents (策划案) linked from this issue's description, its human comments or this job's "
@@ -147,7 +148,7 @@ FEATURE_AUTHORITY_AT_B = (
     "reads checkouts or any clone other than the current root's. This skill holds no Unity resource and no MCP "
     "tool: never call await-resource. "
 )
-FEATURE_AUTHORITY_AT_B_SHA256 = "e0a6d1af28f9259a6b7d39ccdd4c7fec110e1b627539a32a2d7b8b17df5bae68"
+FEATURE_AUTHORITY_AT_B_SHA256 = "6b68a4bc9b53ad132c3b088d4252425959b0472069c3cbf06a26bf20cfc15de6"
 
 def payload_of(message):
     return json.loads(message.split("\n\n", 1)[1])
@@ -341,6 +342,8 @@ class SkillAuthorityTests(unittest.TestCase):
         for phrase in ("Never merge any pull request", "never run a Jenkins job", "never change CI",
                        "only through FarmBot's worker CLI commands for this claimed item",
                        "lark-cli --profile PROFILE docs +fetch --as bot",
+                       "lark-cli --profile PROFILE wiki +node-get --as bot",
+                       "to resolve a linked wiki URL's obj_type and obj_token",
                        "lark-cli --profile PROFILE drive +download --as bot", "PROFILE being tools.lark_cli.profile",
                        "HOME set to it for that command alone", "Never use --as user",
                        "never set or export a LARKSUITE_CLI_ environment variable",
