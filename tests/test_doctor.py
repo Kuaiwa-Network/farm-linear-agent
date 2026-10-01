@@ -5,7 +5,10 @@ import io
 import json
 import os
 from pathlib import Path
+import shlex
+import shutil
 import sqlite3
+import stat
 import subprocess
 import sys
 import tempfile
@@ -14,7 +17,7 @@ from unittest.mock import patch
 
 from agent.config import Config, Paths
 from agent.dispatch import SKILL_AUTHORITY
-from agent.doctor import diagnose, probe_process
+from agent.doctor import _go_directive, diagnose, probe_process
 from agent.ledger import Ledger
 from agent.service import main
 from agent.skills import load_skills
@@ -41,6 +44,10 @@ class DoctorTests(unittest.TestCase):
         self.config_path.write_text(json.dumps({"client_id": "client-secret", "client_secret": "oauth-secret",
                                                "webhook_secret": "webhook-secret", "host": "test-host",
                                                "local_root": str(self.config.local_root)}))
+        if not getattr(self, "probe_toolchain", False):
+            # A test that enables a skill named feature must not run this host's real toolchain; FeatureToolchainTests
+            # sets probe_toolchain and probes stubs instead.
+            self.enterContext(patch("agent.doctor.feature_toolchain", return_value=READY_TOOLCHAIN))
 
     def report(self, **kwargs):
         return diagnose(self.config, now=1001, **kwargs)
@@ -674,6 +681,304 @@ class DoctorTests(unittest.TestCase):
         self.paths.ledger.unlink()
         self.assertEqual(doctor(), (2, {"ledger_unreadable", "skill_runtime_unsupported"}))
         self.assertFalse(self.paths.ledger.exists())
+
+
+# What a ready macOS feature host prints for each probe (spec §8.5). Stubs replay these on a private PATH.
+HEALTHY = {"go": "go version go1.26.6 darwin/arm64", "protoc": "libprotoc 35.1", "buf": "1.72.0", "node": "v22.12.0",
+           "openspec": "1.7.0", "python3": "Python 3.13.1", "git-lfs": "git-lfs/3.7.1 (GitHub; darwin arm64; go 1.25.3)",
+           "dotnet": "8.0.423 [/usr/local/share/dotnet/sdk]", "bash": "GNU bash, version 5.2.37(1)-release",
+           "sha256sum": "sha256sum (GNU coreutils) 8.32", "mktemp": "mktemp (GNU coreutils) 8.32", "awk": "GNU Awk 5.3.1"}
+# DoctorTests' stand-in for the probes (see its setUp): no tool missing, so that a DoctorTests test that enables a skill
+# named feature never runs the developer's real toolchain. FeatureToolchainTests probes stubs instead.
+READY_TOOLCHAIN = {"entries": {"lark_cli": {"found": True, "version": "1.0.82", "required": None, "ok": True,
+                                            "profile": {"name": "farmbot", "home": None, "exists": True,
+                                                        "other_profiles": 0, "user_logins": 0,
+                                                        "master_key_file": False}}},
+                   "missing": [], "optional_missing": []}
+# `lark-cli profile list` as lark-cli 1.0.82 prints it: names, app IDs and a user's name. Doctor keeps names only.
+PROFILES = [{"name": "farmbot", "appId": "cli_0000decoy000000", "brand": "feishu", "active": False},
+            {"name": "personal-decoy", "appId": "cli_1111decoy111111", "brand": "feishu", "active": True,
+             "user": "Designer One", "tokenStatus": "valid"}]
+# One POSIX script serves every tool name through symlinks, so macOS checks one new executable per test rather than
+# one per tool. It prints `<name>.out` (lark-cli: one file per subcommand), exits with `<name>.code` and records its
+# environment in `<name>.env`. Builtins only: the private PATH holds nothing but stubs.
+POSIX_STUB = r'''#!/bin/sh
+d="${0%/*}"
+name="${0##*/}"
+printf 'GOTOOLCHAIN=%s\nOPENSPEC_TELEMETRY=%s\nDO_NOT_TRACK=%s\nLARKSUITE_CLI_NO_UPDATE_NOTIFIER=%s\nLARKSUITE_CLI_REMOTE_META=%s\nHOME=%s\n' \
+  "$GOTOOLCHAIN" "$OPENSPEC_TELEMETRY" "$DO_NOT_TRACK" "$LARKSUITE_CLI_NO_UPDATE_NOTIFIER" "$LARKSUITE_CLI_REMOTE_META" "$HOME" \
+  > "$d/$name.env"
+for key in LARKSUITE_CLI_APP_SECRET larksuite_cli_user_access_token KW_OPS_TOKEN LARKSUITE_CLI_CONFIG_DIR; do
+  eval 'present=${'"$key"'+set}'
+  if [ "$present" = set ]; then printf '%s=set\n' "$key" >> "$d/$name.env"; fi
+done
+file="$d/$name.out"
+if [ "$name" = lark-cli ]; then
+  case "$1" in
+    --version) file="$d/lark-cli.version" ;;
+    profile) file="${LARKSUITE_CLI_CONFIG_DIR:-$d}/lark-cli.profiles" ;;
+    *) exit 2 ;;
+  esac
+fi
+while IFS= read -r line || [ -n "$line" ]; do printf '%s\n' "$line"; done < "$file"
+code=0
+if [ -f "$d/$name.code" ]; then read -r code < "$d/$name.code"; fi
+exit "$code"
+'''
+
+
+class FeatureToolchainTests(unittest.TestCase):
+    """tools.feature (spec §8.5, §9.11): stub executables on a private PATH stand in for a host's toolchain."""
+    report = DoctorTests.report
+    codes = DoctorTests.codes
+    probe_toolchain = True  # DoctorTests.setUp then leaves the real probes in place
+
+    def setUp(self):
+        DoctorTests.setUp(self)
+        self.stubs = Path(self.tmp.name) / "工具 目录"
+        self.stubs.mkdir()
+        if os.name != "nt":
+            (self.stubs / "stub.sh").write_text(POSIX_STUB, encoding="utf-8")
+            (self.stubs / "stub.sh").chmod(0o755)
+        self.original_path = os.environ["PATH"]
+        skills = {**load_skills(ROOT / "skills"), "feature": staged_skill(Path(self.tmp.name) / "fixture-skills")}
+        self.enterContext(patch("agent.doctor.load_skills", return_value=skills))
+        self.enterContext(patch.dict(SKILL_AUTHORITY, {"feature": "Fixture feature grants. "}))
+        self.enterContext(patch.dict(os.environ, {"PATH": str(self.stubs)}))
+        self.config.enabled_skills = ["chat", "fix", "feature"]
+        self.lark_home = Path(self.tmp.name) / "lark cli 家"
+        # lark_cli.home is refused on Windows, where lark-cli keeps every secret per user. Set on the built Config,
+        # this temporary home never meets validate_lark_cli, which would refuse it; doctor reads the block as given.
+        self.config.lark_cli = {"profile": "farmbot", **({"home": str(self.lark_home)} if os.name != "nt" else {})}
+        for name, output in HEALTHY.items():
+            self.stub(name, output)
+        self.stub("lark-cli", "")
+        self.lark_profiles(PROFILES)
+
+    def stub(self, name, output, *, code=0):
+        """An executable `name` on the private PATH that prints `output` and exits with `code`."""
+        (self.stubs / f"{name}.out").write_text(output + "\n", encoding="utf-8")
+        (self.stubs / f"{name}.code").write_text(f"{code}\n", encoding="utf-8")
+        if os.name != "nt":
+            if not (self.stubs / name).is_symlink():
+                (self.stubs / name).symlink_to("stub.sh")
+        elif name == "lark-cli":
+            (self.stubs / "lark-cli.cmd").write_text(
+                '@echo off\r\nset > "%~dp0lark-cli.env"\r\n'
+                'if "%~1"=="--version" (type "%~dp0lark-cli.version" & exit /b 0)\r\n'
+                'if "%~1"=="profile" if defined LARKSUITE_CLI_CONFIG_DIR (type "%LARKSUITE_CLI_CONFIG_DIR%\\lark-cli.profiles" & exit /b 0)\r\n'
+                'if "%~1"=="profile" (type "%~dp0lark-cli.profiles" & exit /b 0)\r\nexit /b 2\r\n', encoding="utf-8")
+        else:
+            (self.stubs / f"{name}.cmd").write_text(
+                f'@set > "%~dp0{name}.env"\r\n@type "%~dp0{name}.out"\r\n@exit /b {code}\r\n', encoding="utf-8")
+
+    def lark_profiles(self, profiles):
+        (self.stubs / "lark-cli.version").write_text("lark-cli version 1.0.82\n", encoding="utf-8")
+        (self.stubs / "lark-cli.profiles").write_text(json.dumps(profiles, ensure_ascii=False) + "\n",
+                                                     encoding="utf-8")
+
+    def seen(self, name):
+        """The environment a stub last ran with, or None when it never ran."""
+        path = self.stubs / f"{name}.env"
+        if not path.exists():
+            return None
+        return dict(line.split("=", 1) for line in path.read_text(encoding="utf-8", errors="replace").splitlines()
+                    if "=" in line)
+
+    def test_a_host_that_does_not_enable_feature_probes_nothing(self):
+        self.config.enabled_skills = ["chat", "fix"]
+        report = self.report()
+        self.assertEqual(report["tools"], {"kw_ops": {"configured": False}})
+        self.assertEqual((report["status"], report["findings"]), ("ok", []))
+        self.assertEqual([self.seen(name) for name in ("go", "protoc", "lark-cli")], [None, None, None])
+
+    def test_a_ready_host_reports_each_entry_with_no_finding_and_names_only(self):
+        report = self.report()
+        feature = report["tools"]["feature"]
+        self.assertEqual((report["status"], report["findings"]), ("ok", []))
+        self.assertEqual((feature["missing"], feature["optional_missing"]), ([], []))
+        self.assertEqual(feature["entries"]["go"],
+                         {"found": True, "version": "1.26.6", "required": ">=1.25.1", "ok": True, "source": "default"})
+        self.assertEqual(feature["entries"]["protoc"], {"found": True, "version": "35.1", "required": "35.1", "ok": True})
+        self.assertEqual(feature["entries"]["dotnet_sdk"],
+                         {"found": True, "version": "8.0.423", "required": "8.0.423", "ok": True})
+        expected = {"go", "protoc", "buf", "node", "openspec", "python3", "git_lfs", "dotnet_sdk", "lark_cli"}
+        if os.name == "nt":
+            expected |= {"bash", "sha256sum", "mktemp", "awk"}
+        self.assertEqual(set(feature["entries"]), expected)
+        lark = feature["entries"]["lark_cli"]
+        self.assertEqual((lark["found"], lark["version"], lark["required"], lark["ok"]), (True, "1.0.82", None, True))
+        self.assertEqual({key: lark["profile"][key] for key in ("name", "exists", "other_profiles", "user_logins")},
+                         {"name": "farmbot", "exists": True, "other_profiles": 1, "user_logins": 1})
+        text = json.dumps(report, ensure_ascii=False)
+        for decoy in ("cli_0000decoy000000", "cli_1111decoy111111", "personal-decoy", "Designer One"):
+            self.assertNotIn(decoy, text)
+        # Offline and writing nothing: no Go toolchain download, no telemetry, no update check or metadata fetch.
+        self.assertEqual(self.seen("go")["GOTOOLCHAIN"], "local")
+        self.assertEqual((self.seen("openspec")["OPENSPEC_TELEMETRY"], self.seen("openspec")["DO_NOT_TRACK"]), ("0", "1"))
+        self.assertEqual((self.seen("lark-cli")["LARKSUITE_CLI_NO_UPDATE_NOTIFIER"],
+                          self.seen("lark-cli")["LARKSUITE_CLI_REMOTE_META"]), ("1", "off"))
+        if os.name != "nt":
+            self.assertEqual(self.seen("lark-cli")["HOME"], str(self.lark_home))  # the FarmBot-only store
+
+    def test_missing_wrong_and_broken_tools_are_a_finding_and_an_optional_one_is_not(self):
+        for path in self.stubs.glob("protoc*"):
+            path.unlink()
+        self.stub("buf", "1.71.0")
+        self.stub("node", "v20.11.1")
+        self.stub("python3", "", code=9)  # like a Windows Store alias, which exits without a version
+        self.stub("dotnet", "10.0.203 [/usr/local/share/dotnet/sdk]")
+        report = self.report()
+        feature = report["tools"]["feature"]
+        self.assertEqual(feature["entries"]["protoc"], {"found": False, "version": None, "required": "35.1", "ok": False})
+        self.assertEqual(feature["entries"]["python3"], {"found": True, "version": None, "required": None, "ok": False})
+        self.assertEqual(feature["entries"]["dotnet_sdk"]["version"], "10.0.203")
+        self.assertEqual((feature["missing"], feature["optional_missing"]),
+                         (["buf", "node", "protoc", "python3"], ["dotnet_sdk"]))
+        finding = next(f for f in report["findings"] if f["code"] == "feature_toolchain_incomplete")
+        self.assertEqual(finding["tools"], ["buf", "node", "protoc", "python3"])
+        self.assertEqual((report["status"], self.codes(report)), ("attention", {"feature_toolchain_incomplete"}))
+
+    def test_go_must_satisfy_the_directives_in_farm_hives_go_mod(self):
+        with patch.dict(os.environ, {"PATH": str(self.stubs) + os.pathsep + self.original_path}):
+            self.hive_clone()
+            report = self.report()
+        self.assertEqual(report["tools"]["feature"]["entries"]["go"],
+                         {"found": True, "version": "1.26.6", "required": ">=1.27.2", "ok": False,
+                          "source": "farm-hive go.mod"})
+        self.assertIn("go", report["tools"]["feature"]["missing"])
+
+    def hive_clone(self):
+        """A complete local clone with FarmBot's allowed config; never contacts its advertised GitHub origin."""
+        from test_worktrees import git
+        self.config.repos = {"farm-hive": "https://github.com/example-org/farm-hive.git"}
+        with patch.dict(os.environ, {"PATH": self.original_path}):
+            work = Path(self.tmp.name) / "farm-hive 工作"
+            work.mkdir()
+            git("init", "-q", "-b", "main", ".", cwd=work)
+            (work / "go.mod").write_text("module example.com/farm-hive\n\ngo 1.25.1\n\ntoolchain go1.27.2\n",
+                                         encoding="utf-8")
+            git("add", ".", cwd=work)
+            git("commit", "-qm", "go.mod", cwd=work)
+            clone = self.paths.repos / "farm-hive.git"
+            clone.parent.mkdir(parents=True, exist_ok=True)
+            git("init", "-q", "--bare", str(clone), cwd=clone.parent)
+            git("fetch", "-q", str(work), "+refs/heads/*:refs/remotes/origin/*", cwd=clone)
+            git("remote", "add", "origin", "git@github.com:example-org/farm-hive.git", cwd=clone)
+        return clone
+
+    def test_go_probe_neither_uses_an_unsafe_clone_nor_lazy_fetches_from_host_config(self):
+        from test_worktrees import git
+        from agent.worktrees import Worktrees
+        clone = self.hive_clone()
+        marker = Path(self.tmp.name) / "ssh-ran"
+        script = Path(self.tmp.name) / "dummy ssh.py"
+        script.write_text("from pathlib import Path\nPath(" + repr(str(marker)) +
+                          ").write_text('ran')\nraise SystemExit(1)\n", encoding="utf-8")
+        command = shlex.quote(Path(sys.executable).as_posix()) + " " + shlex.quote(script.as_posix())
+        global_config = Path(self.tmp.name) / "global git config"
+        initial_config = (clone / "config").read_bytes()
+        with patch.dict(os.environ, {"PATH": self.original_path, "GIT_CONFIG_GLOBAL": str(global_config),
+                                     "GIT_CONFIG_NOSYSTEM": "1"}):
+            blob = git("rev-parse", "refs/remotes/origin/main:go.mod", cwd=clone)
+            object_file = clone / "objects" / blob[:2] / blob[2:]
+            self.assertTrue(object_file.is_file(), "fixture needs a loose blob")
+            object_file.chmod(object_file.stat().st_mode | stat.S_IWRITE)
+            object_file.unlink()
+            for location in (clone / "config", global_config):
+                with self.subTest(config=location.name):
+                    git("config", "--file", str(location), "remote.origin.promisor", "true", cwd=clone)
+                    git("config", "--file", str(location), "core.sshCommand", command, cwd=clone)
+                    problems = Worktrees(self.paths.repos, self.paths.worktrees, self.config.repos).clone_problems("farm-hive")
+                    self.assertEqual(bool(problems), location == clone / "config", problems)
+                    directive = _go_directive(self.config, self.paths)
+                    ran = marker.exists()
+                    marker.unlink(missing_ok=True)
+                    git("config", "--file", str(location), "--unset", "remote.origin.promisor", cwd=clone)
+                    git("config", "--file", str(location), "--unset", "core.sshCommand", cwd=clone)
+                    (clone / "config").write_bytes(initial_config)
+                    self.assertIsNone(directive)
+                    self.assertFalse(ran, "offline go.mod lookup invoked SSH to fetch a missing blob")
+
+    def test_diagnostic_tools_receive_no_credentials(self):
+        self.config.kw_ops = {"url": "https://gm.example.test", "token_env": "KW_OPS_TOKEN"}
+        denied = {"LARKSUITE_CLI_APP_SECRET": "dummy", "larksuite_cli_user_access_token": "dummy",
+                  "KW_OPS_TOKEN": "dummy"}
+        with patch.dict(os.environ, denied):
+            self.report()
+        names = [name for name in HEALTHY if os.name == "nt" or name not in ("bash", "sha256sum", "mktemp", "awk")]
+        for name in (*names, "lark-cli"):
+            with self.subTest(tool=name):
+                self.assertFalse(set(denied) & self.seen(name).keys())
+
+    def test_go_probe_and_its_clone_check_receive_no_credentials(self):
+        clone = self.hive_clone()
+        actual_git = shutil.which("git", path=self.original_path)
+        record = Path(self.tmp.name) / "git-env-names.jsonl"
+        wrapper = self.stubs / "git-probe.py"
+        wrapper.write_text(
+            "import json,os,subprocess,sys\nwith open(" + repr(str(record)) +
+            ", 'a', encoding='utf-8') as f: f.write(json.dumps(sorted(os.environ)) + '\\n')\n"
+            "sys.exit(subprocess.run([" + repr(actual_git) + ", *sys.argv[1:]]).returncode)\n",
+            encoding="utf-8")
+        run = subprocess.run
+
+        def recording_git(argv, *args, **kwargs):
+            # Windows CreateProcess does not resolve `git` to a .cmd shim on PATH.
+            # Route only its executable through Python; the real child still receives
+            # exactly the environment selected by doctor and clone validation.
+            if argv[0] == "git":
+                argv = [sys.executable, str(wrapper), *argv[1:]]
+            return run(argv, *args, **kwargs)
+        self.config.kw_ops = {"url": "https://gm.example.test", "token_env": "KW_OPS_TOKEN"}
+        denied = {"LARKSUITE_CLI_APP_SECRET": "dummy", "larksuite_cli_user_access_token": "dummy",
+                  "KW_OPS_TOKEN": "dummy"}
+        with patch.dict(os.environ, {**denied, "PATH": str(self.stubs) + os.pathsep + self.original_path}), \
+                patch("agent.doctor.subprocess.run", side_effect=recording_git):
+            self.assertEqual(_go_directive(self.config, self.paths), "1.27.2")
+            self.report()
+        invocations = [json.loads(line) for line in record.read_text(encoding="utf-8").splitlines()]
+        self.assertTrue(invocations)
+        for names in invocations:
+            self.assertFalse(set(denied) & set(names), "a diagnostic Git child inherited credentials")
+
+    def test_inherited_config_directory_cannot_select_another_lark_store(self):
+        self.lark_profiles([PROFILES[0]])
+        alternate = Path(self.tmp.name) / "alternate store"
+        alternate.mkdir()
+        (alternate / "lark-cli.profiles").write_text(json.dumps([PROFILES[0], PROFILES[1]]), encoding="utf-8")
+        with patch.dict(os.environ, {"LARKSUITE_CLI_CONFIG_DIR": str(alternate)}):
+            profile = self.report()["tools"]["feature"]["entries"]["lark_cli"]["profile"]
+        self.assertEqual((profile["exists"], profile["other_profiles"], profile["user_logins"]), (True, 0, 0))
+        self.assertNotIn("LARKSUITE_CLI_CONFIG_DIR", self.seen("lark-cli"))
+
+    def test_the_configured_profile_must_exist(self):
+        self.lark_profiles([profile for profile in PROFILES if profile["name"] != "farmbot"])
+        report = self.report()
+        lark = report["tools"]["feature"]["entries"]["lark_cli"]
+        self.assertEqual((lark["ok"], lark["profile"]["exists"], lark["profile"]["other_profiles"]), (False, False, 1))
+        self.assertIn("lark_cli", report["tools"]["feature"]["missing"])
+        self.assertNotIn("personal-decoy", json.dumps(report, ensure_ascii=False))
+
+    def test_a_feature_host_without_lark_cli_is_the_finding_serve_would_refuse(self):
+        self.config.lark_cli = {}
+        report = self.report()
+        self.assertEqual(self.codes(report), {"lark_cli_unconfigured", "feature_toolchain_incomplete"})
+        self.assertEqual(report["tools"]["feature"]["missing"], ["lark_cli"])
+        self.assertIsNone(report["tools"]["feature"]["entries"]["lark_cli"]["profile"]["name"])
+
+    @unittest.skipUnless(sys.platform == "darwin", "the macOS store's master key file")
+    def test_a_store_whose_key_is_a_file_and_that_holds_a_login_is_exposed(self):
+        store = self.lark_home / "Library" / "Application Support" / "lark-cli"
+        report = self.report()
+        self.assertNotIn("lark_cli_store_exposed", self.codes(report))
+        self.assertIs(report["tools"]["feature"]["entries"]["lark_cli"]["profile"]["master_key_file"], False)
+        store.mkdir(parents=True)
+        (store / "master.key.file").write_bytes(bytes(32))
+        finding = next(f for f in self.report()["findings"] if f["code"] == "lark_cli_store_exposed")
+        self.assertEqual(finding["user_logins"], 1)
+        self.lark_profiles([PROFILES[0]])  # the FarmBot profile alone, as a FarmBot-only store holds
+        self.assertNotIn("lark_cli_store_exposed", self.codes(self.report()))
 
 
 @unittest.skipIf(os.name == "nt", "POSIX process inspection")

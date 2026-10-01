@@ -5,6 +5,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from urllib.parse import unquote
 from unittest.mock import patch
 
 from agent import publication
@@ -252,3 +253,195 @@ class PublicationTests(unittest.TestCase):
                                     paths={'farmgui': self.path}, delegated=True)
         self.assertEqual(scope['repositories']['farmgui']['status'], 'unverified')
         self.assertNotIn('url', scope['repositories']['farmgui'])
+
+
+class SuffixBranchTests(unittest.TestCase):
+    """The named suffix branches of a job with an initial root (spec §6.1, §6.4, §6.8, §11; P4), on local remotes.
+
+    Each passes the issue-branch policy under today's rules. -config, the branch a human runs designer-source.pipeline
+    on, also adds no commits: for such a job it verifies only at a commit already on another branch of origin."""
+
+    ORG = 'https://github.com/Kuaiwa-Network/'
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory(prefix='后缀 分支 ')
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        self.origins = {}
+        for repo in ('common', 'Farm-Contract', 'farm-hive'):
+            origin = root / 'origins' / repo
+            origin.mkdir(parents=True)
+            git('init', '-q', '-b', 'main', '.', cwd=origin)
+            (origin / 'README.md').write_text(repo, encoding='utf-8')
+            git('add', '.', cwd=origin)
+            git('commit', '-qm', 'init', cwd=origin)
+            self.origins[repo] = origin
+        self.trees = Worktrees(root / 'repos', root / 'worktrees', {repo: str(path) for repo, path in self.origins.items()})
+        self.paths = {repo: self.trees.add(repo, 'job', 'farmbot/farm-1') for repo in self.origins}
+        host = root / 'host.gitconfig'
+        rewrites = []
+        for repo, path in self.paths.items():
+            # P10: the clone's origin is the configured repository. A host-level rewrite keeps fetches local;
+            # its HTTPS push URL stays GitHub, so publication checks the real destination spelling.
+            remote = f'git@github.com:Kuaiwa-Network/{repo}.git'
+            git('remote', 'set-url', 'origin', remote, cwd=path)
+            git('remote', 'set-url', '--push', 'origin', f'{self.ORG}{repo}.git', cwd=path)
+            self.trees.remotes[repo] = remote
+            base = str(self.origins[repo]).replace('\\', '\\\\').replace('"', '\\"')
+            rewrites.append(f'[url "{base}"]\n\tinsteadOf = {remote}\n')
+        host.write_text(''.join(rewrites), encoding='utf-8')
+        self.enterContext(patch.dict(os.environ, {'GIT_CONFIG_GLOBAL': str(host)}))
+        self.github_branches = {}
+
+        def api(endpoint, *, missing_ok=False):
+            parts = endpoint.split('/')  # repos/Kuaiwa-Network/<repo>[/branches/<quoted branch>]
+            if len(parts) > 3 and parts[3] == 'branches':
+                return copy.deepcopy(self.github_branches.get(unquote(parts[4])))
+            return {'full_name': f'Kuaiwa-Network/{parts[2]}', 'private': True, 'owner': {'login': 'Kuaiwa-Network'},
+                    'permissions': {'push': True}, 'html_url': f'https://github.com/Kuaiwa-Network/{parts[2]}',
+                    'default_branch': 'main'}
+        self.verifier = publication.PublicationVerifier(self.trees, api=api)
+
+    def commit(self, repo, name, text, message, *, cwd=None, author=None):
+        path = cwd or self.paths[repo]
+        (path / name).write_text(text, encoding='utf-8')
+        git('add', name, cwd=path)
+        git(*(('-c', f'user.name={author}') if author else ()), 'commit', '-qm', message, cwd=path)
+        return git('rev-parse', 'HEAD', cwd=path)
+
+    def push(self, repo, branch):
+        """A worker's push, here to the local origin, then the fetch every launch makes."""
+        git('push', '-q', str(self.origins[repo]), branch, cwd=self.paths[repo])
+        self.trees.fetch(repo)
+
+    def merge(self, repo, *, squash):
+        """The owner merges the issue branch's PR and GitHub deletes the branch."""
+        origin = self.origins[repo]
+        if squash:
+            git('merge', '-q', '--squash', 'farmbot/farm-1', cwd=origin)
+            git('commit', '-qm', 'The issue branch (#2)', cwd=origin)
+        else:
+            git('merge', '-q', '--no-ff', '-m', 'Merge pull request #3 from farmbot/farm-1', 'farmbot/farm-1', cwd=origin)
+        git('branch', '-q', '-D', 'farmbot/farm-1', cwd=origin)
+
+    def verify(self, repo, *, suffix_roles=True):
+        return self.verifier.verify(repo, 'job', 'FARM-1', git('branch', '--show-current', cwd=self.paths[repo]),
+                                    suffix_roles=suffix_roles)
+
+    def test_a_config_branch_at_a_commit_someone_else_pushed_verifies(self):
+        self.commit('common', '_table.xml', '<declared/>', 'Declare the columns')
+        self.push('common', 'farmbot/farm-1')
+        origin = self.origins['common']
+        git('switch', '-q', '-c', 'designer-one/farm-1-data', 'farmbot/farm-1', cwd=origin)
+        data = self.commit('common', 'animal.xml', '<data/>', '策划填表', cwd=origin, author='Designer One')
+        git('switch', '-q', 'main', cwd=origin)
+        self.trees.fetch('common')
+        git('switch', '-q', '-c', 'farmbot/farm-1-config', data, cwd=self.paths['common'])
+        result = self.verify('common')
+        self.assertEqual((result['status'], result['branch'], result['head']), ('verified', 'farmbot/farm-1-config', data))
+
+    def test_a_config_branch_that_adds_a_commit_is_refused_for_a_job_with_an_initial_root(self):
+        path = self.paths['common']
+        git('switch', '-q', '-c', 'farmbot/farm-1-config', 'origin/main', cwd=path)
+        own = self.commit('common', 'animal.xml', '<data/>', 'A value FarmBot must never publish')
+        with self.assertRaisesRegex(publication.PublicationError, 'adds no commits'):
+            self.verify('common')
+        # Pushed once, the commit is on origin only under the branch's own name, which proves nothing.
+        git('update-ref', 'refs/remotes/origin/farmbot/farm-1-config', own, cwd=path)
+        with self.assertRaisesRegex(publication.PublicationError, 'adds no commits'):
+            self.verify('common')
+        # A fix never has the role, and its branch may carry any suffix Linear suggests: today's rules only.
+        self.assertEqual(self.verify('common', suffix_roles=False)['head'], own)
+
+    def test_a_repin_takes_the_next_numbered_config_branch_under_the_same_rule(self):
+        """P12: a re-pin to a farm-common commit that does not descend from the pushed -config tip takes
+        farmbot/<key>-config-<n>, n from 2, never a force push. No -config branch of the issue vouches for a commit."""
+        origin = self.origins['common']
+        git('switch', '-q', '-c', 'designer-one/farm-1-data', 'main', cwd=origin)
+        first = self.commit('common', 'animal.xml', '<data/>', '策划填表', cwd=origin, author='Designer One')
+        git('switch', '-q', '-c', 'designer-one/farm-1-redo', 'main', cwd=origin)
+        second = self.commit('common', 'animal.xml', '<data v="2"/>', '策划重填', cwd=origin, author='Designer One')
+        git('switch', '-q', 'main', cwd=origin)
+        git('branch', '-q', 'farmbot/farm-1-config', first, cwd=origin)  # the first Jenkins branch, pushed earlier
+        self.trees.fetch('common')
+        path = self.paths['common']
+        git('switch', '-q', '-c', 'farmbot/farm-1-config-2', second, cwd=path)
+        result = self.verify('common')
+        self.assertEqual((result['status'], result['branch'], result['head']),
+                         ('verified', 'farmbot/farm-1-config-2', second))
+        own = self.commit('common', 'animal.xml', '<data v="3"/>', 'A value FarmBot must never publish')
+        with self.assertRaisesRegex(publication.PublicationError, 'adds no commits'):
+            self.verify('common')
+        # On origin only under this issue's -config branches, the first one or another re-pin, a commit proves nothing.
+        for ref in ('farmbot/farm-1-config', 'farmbot/farm-1-config-3'):
+            with self.subTest(ref=ref):
+                git('update-ref', f'refs/remotes/origin/{ref}', own, cwd=path)
+                with self.assertRaisesRegex(publication.PublicationError, 'adds no commits'):
+                    self.verify('common')
+                git('update-ref', '-d', f'refs/remotes/origin/{ref}', cwd=path)
+        self.assertEqual(self.verify('common', suffix_roles=False)['head'], own)  # a fix: today's rules only
+
+    def test_suffix_of_names_the_reserved_suffixes_and_numbers_repins_from_two(self):
+        self.assertEqual(publication.SUFFIXES, ('-config', '-config-<n>', '-waivers', '-followup'))
+        for branch, suffix in (('farmbot/farm-1-config', '-config'), ('farmbot/farm-1-config-2', '-config-<n>'),
+                               ('farmbot/farm-1-config-10', '-config-<n>'), ('farmbot/farm-1-waivers', '-waivers'),
+                               ('farmbot/farm-1-followup', '-followup'), ('farmbot/farm-1', None),
+                               ('farmbot/farm-1-config-1', None), ('farmbot/farm-1-config-02', None),
+                               ('farmbot/farm-1-config-<n>', None), ('farmbot/farm-1-config-2-data', None),
+                               ('farmbot/farm-1-configs', None), ('farmbot/farm-1-config-٢', None),
+                               ('farmbot/farm-1-config-2x', None),
+                               ('farmbot/farm-12-config', None), ('designer-one/farm-1-config', None), (None, None)):
+            with self.subTest(branch=branch):
+                self.assertEqual(publication.suffix_of(branch, 'farmbot/farm-1'), suffix)
+
+    def test_a_config_branch_verifies_after_the_declarations_pr_merged_and_its_branch_was_deleted(self):
+        self.commit('common', '_table.xml', '<declared/>', 'Declare the columns')
+        self.push('common', 'farmbot/farm-1')
+        self.merge('common', squash=False)
+        data = self.commit('common', 'animal.xml', '<data/>', '策划填表', cwd=self.origins['common'], author='Designer One')
+        self.trees.fetch('common')  # --prune: the merged branch is gone from origin
+        path = self.paths['common']
+        self.assertNotIn('origin/farmbot/farm-1', git('branch', '-r', cwd=path).split())
+        git('switch', '-q', '-c', 'farmbot/farm-1-config', 'origin/main', cwd=path)
+        self.assertEqual(self.verify('common')['head'], data)
+
+    def test_waivers_and_followup_branches_publish_from_main_after_the_issue_branch_merged(self):
+        for repo, suffix, squash in (('Farm-Contract', 'waivers', True), ('farm-hive', 'followup', False)):
+            with self.subTest(repo=repo):
+                self.commit(repo, 'change.txt', 'feature', 'The issue branch')
+                self.push(repo, 'farmbot/farm-1')
+                self.merge(repo, squash=squash)
+                self.trees.fetch(repo)
+                path, branch = self.paths[repo], f'farmbot/farm-1-{suffix}'
+                git('switch', '-q', '-c', branch, 'origin/main', cwd=path)
+                head = self.commit(repo, f'{suffix}.txt', suffix, f'The {suffix} change')
+                result = self.verify(repo)
+                self.assertEqual((result['status'], result['branch'], result['head']), ('verified', branch, head))
+                self.github_branches[branch] = {'name': branch, 'protected': False}  # after its first push
+                self.assertEqual(self.verify(repo)['status'], 'verified')
+                self.github_branches[branch] = {'name': branch, 'protected': True}
+                with self.assertRaisesRegex(publication.PublicationError, 'protected'):
+                    self.verify(repo)
+
+    def test_a_suffix_prs_late_registration_needs_its_branch_checked_out(self):
+        path, branch = self.paths['Farm-Contract'], 'farmbot/farm-1-waivers'
+        git('switch', '-q', '-c', branch, 'origin/main', cwd=path)
+        head = self.commit('Farm-Contract', 'BREAKING_WAIVERS', '', 'Remove the stale waivers')
+        url = 'https://github.com/Kuaiwa-Network/Farm-Contract/pull/31'
+        repo = {'full_name': 'Kuaiwa-Network/Farm-Contract'}
+        pr = {'html_url': url, 'state': 'open', 'draft': True, 'head': {'ref': branch, 'sha': head, 'repo': repo},
+              'base': {'ref': 'main', 'repo': repo}}
+        api = self.verifier.api
+        self.verifier.api = lambda endpoint, **kwargs: pr if endpoint.endswith('/pulls/31') else api(endpoint, **kwargs)
+        self.assertEqual(self.verifier.verify_pr('Farm-Contract', 'job', 'FARM-1', url), url)
+        git('switch', '-q', 'farmbot/farm-1', cwd=path)
+        with self.assertRaisesRegex(publication.PublicationError, 'exact repository, branch and HEAD'):
+            self.verifier.verify_pr('Farm-Contract', 'job', 'FARM-1', url)
+
+    def test_only_this_issues_suffixes_pass_the_policy(self):
+        path = self.paths['common']
+        for branch in ('farmbot/farm-12-config', 'farmbot/farm-1config', 'designer-one/farm-1-config'):
+            with self.subTest(branch=branch):
+                git('switch', '-q', '-c', branch, 'origin/main', cwd=path)
+                with self.assertRaisesRegex(publication.PublicationError, "issue's FarmBot feature branch"):
+                    self.verify('common')

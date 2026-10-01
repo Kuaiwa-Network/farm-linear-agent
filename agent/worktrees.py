@@ -123,7 +123,7 @@ class Worktrees:
             raise WorktreeError(f"unknown repository: {repo}")
         return self.repos_root / f"{repo}.git"
 
-    def clone_problems(self, repo):
+    def clone_problems(self, repo, *, environ=None):
         """What FarmBot's clone of `repo` holds that FarmBot did not write there (plan P10), or an empty list: config
         keys other than CLONE_CONFIG's, an origin or fetch refspec other than the configured ones, files in info/
         other than CLONE_INFO, and legacy remote definitions. Names keys and files, never values. Reads files only:
@@ -133,8 +133,9 @@ class Worktrees:
         config = clone / "config"
         if _is_link(config) or not config.is_file():
             return ["config is not a regular file"]
+        source = os.environ if environ is None else environ
         listed = subprocess.run(["git", "config", "--file", str(config), "--null", "--list"], capture_output=True,
-                                timeout=60, env={**os.environ, **GIT_ENV})
+                                timeout=60, env={**source, **GIT_ENV})
         if listed.returncode:
             return ["config is unreadable"]
         problems, urls, configured = [], [], self.remotes[repo]

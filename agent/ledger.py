@@ -20,7 +20,7 @@ import time
 from uuid import UUID, uuid4
 
 from . import memory
-from .publication import PublicationError, is_issue_branch, issue_branch
+from .publication import SUFFIXES, PublicationError, is_issue_branch, issue_branch, suffix_of
 from .resource_recovery import RecoveryStore, SCHEMA as RECOVERY_SCHEMA
 from .router import CONVERSATION_SKILLS, WRITE_SKILLS
 from .stages import current_root
@@ -34,8 +34,9 @@ ACTIVE_STATES = ("queued", "running", "awaiting_input", "awaiting_resource")
 # Linear's closed workflow-state types. Duplicate reports its own type, not "canceled".
 TERMINAL_STATUS_TYPES = ("completed", "canceled", "duplicate")
 # Notice kinds (spec §9.4). Later phases add theirs: `notices.kind` has no CHECK constraint, so a new kind needs no
-# table rebuild, which is what the outbox's CHECK and UNIQUE key would demand.
-NOTICE_KINDS = ("question", "waiting", "foreign_work")
+# table rebuild, which is what the outbox's CHECK and UNIQUE key would demand. Phase B (P7) adds stage progress
+# and a request to merge a named PR.
+NOTICE_KINDS = ("question", "waiting", "foreign_work", "stage", "merge_request")
 REQUEST_ID = re.compile(r"[A-Za-z0-9._-]{1,64}")
 # Why a pause waits (spec §5.2): a question needs an answer and adds needs-more-info; waiting is a human step elsewhere.
 AWAIT_REASONS = ("question", "waiting")
@@ -352,12 +353,15 @@ def _git_accepts(branch):
         part and not part.startswith(".") and not part.endswith(".lock") for part in branch.split("/"))
 
 
-def plan_issue_branches(plan, identifier, issue_prefix):
+def plan_issue_branches(plan, identifier, issue_prefix, *, reserved=False):
     """{repository: branch}: the issue branches a plan records, one entry of `plan.prs` with "role": "issue" per
     repository (spec §5.7 "Re-attachment"; plan P9). Each names this issue's FarmBot branch under the issue-branch
     policy publication enforces (`publication.is_issue_branch`), spelt as FarmBot's worktrees and git accept it, or
     no later launch could check it out. Entries of other roles, and values of other shapes, are the worker's own
-    record and decide nothing. LedgerError names the first entry that breaks a rule."""
+    record and decide nothing. With reserved, for a skill in STAGE_ALLOWANCE_SKILLS, an issue branch is never one of
+    publication.SUFFIXES: those are the job's Jenkins, waiver and follow-up branches (P9, P12). A successor on a
+    Jenkins branch could publish none of its own commits. A fix may keep Linear's suffix suggestion as today.
+    LedgerError names the first entry that breaks a rule."""
     recorded = plan.get("prs") if isinstance(plan, dict) else None
     found = {}
     for repo, entries in (recorded.items() if isinstance(recorded, dict) else ()):
@@ -376,6 +380,9 @@ def plan_issue_branches(plan, identifier, issue_prefix):
                     and _git_accepts(branch)):
                 raise LedgerError(f"plan.prs.{repo}: an issue entry names this issue's own branch, {canonical} or "
                                   f"{canonical}-<suffix>, as git spells it; {branch!r} is not one")
+            if reserved and suffix_of(branch, canonical) is not None:
+                raise LedgerError(f"plan.prs.{repo}: {branch} is one of this job's suffix branches "
+                                  f"({', '.join(SUFFIXES)}); record it under its own role, never as the issue branch")
             found[repo] = branch
     return found
 
@@ -1361,7 +1368,8 @@ class Ledger:
             if "plan" in progress:
                 # P9: a recorded issue branch decides where later attempts' worktrees start (spec §5.7). Refused
                 # outright, like any invalid plan, before anything of this checkpoint is written.
-                plan_issue_branches(progress["plan"], issue["identifier"], issue_prefix)
+                plan_issue_branches(progress["plan"], issue["identifier"], issue_prefix,
+                                    reserved=row["skill"] in STAGE_ALLOWANCE_SKILLS)
             existing_input = set(issue["attachments"])
             new_prs = set(published) - known
             late_prs = new_prs & existing_input
@@ -2492,7 +2500,8 @@ class Ledger:
         the scheduler checks out what this returns and the ledger file is in a directory every worker can write."""
         row = self._row(item_id)
         identifier = json.loads(self._issue_row(row["issue_id"])["metadata"])["identifier"]
-        return plan_issue_branches(self._predecessor_plan(row), identifier, issue_prefix)
+        return plan_issue_branches(self._predecessor_plan(row), identifier, issue_prefix,
+                                   reserved=row["skill"] in STAGE_ALLOWANCE_SKILLS)
 
     def prepare_comment(self, item_id, token, kind, body):
         """Claim the one outbox row for this issue, claimed input, generation and kind, and say plainly

@@ -179,7 +179,8 @@ class ServeTests(unittest.TestCase):
         def built(name, enabled=None):
             config = Config(client_id="client", client_secret="s", webhook_secret="signing-secret", host="test",
                             runtime="fake", repos=self.c.config.repos, port=0,
-                            local_root=Path(self.tmp.name) / name, enabled_skills=enabled)
+                            local_root=Path(self.tmp.name) / name, enabled_skills=enabled,
+                            lark_cli={"profile": "farmbot"})  # P5: a feature host names its profile
             service = build(config)
             self.close_later(service)
             return service
@@ -220,6 +221,28 @@ class ServeTests(unittest.TestCase):
             service = build(chat_only)
             self.close_later(service)
         self.assertEqual(service.receiver.skills, {"chat"})
+
+    def test_build_refuses_a_feature_host_without_a_lark_cli_profile_before_opening_any_state(self):
+        """P5: a host that enables feature names the lark-cli profile its workers read the 策划案 with."""
+        from agent.dispatch import SKILL_AUTHORITY
+        from agent.skills import load_skills
+        from test_skills import staged_skill
+        skills = {**load_skills(service_module.ROOT / "skills"),
+                  "feature": staged_skill(Path(self.tmp.name) / "fixture-skills")}
+        root = Path(self.tmp.name) / "feature-host"
+        values = dict(client_id="client", client_secret="s", webhook_secret="signing-secret", host="test",
+                      runtime="fake", repos=self.c.config.repos, port=0, local_root=root,
+                      enabled_skills=["chat", "fix", "feature"])
+        with patch("agent.service.load_skills", return_value=skills), \
+                patch.dict(SKILL_AUTHORITY, {"feature": "Fixture feature grants. "}):
+            with self.assertRaisesRegex(ValueError, "feature reads the 策划案 with lark-cli"):
+                self.close_later(build(Config(**values)))  # closed if built, as before this task
+            self.assertFalse((root / "agent" / "ledger.sqlite3").exists())
+            service = build(Config(**values, lark_cli={"profile": "farmbot"}))
+            self.close_later(service)
+        self.assertEqual(service.scheduler.lark_cli, {"profile": "farmbot"})
+        self.assertIn("feature", service.receiver.skills)
+
 
     def test_build_gives_the_pool_its_own_connection_and_never_the_schedulers(self):
         """The rule this whole task exists for, asserted on the production wiring rather than on a SlotPool
@@ -726,6 +749,7 @@ class EnqueueTests(unittest.TestCase):
         feature = opt_in_skill(Path(self.tmp.name) / "fixture-skills")
         skills = {**load_skills(service_module.ROOT / "skills"), feature.name: feature}
         self.config.enabled_skills = ["chat", "fix", "feature"]  # named, as an opt-in skill must be
+        self.config.lark_cli = {"profile": "farmbot"}  # P5: enqueue refuses a feature host without one
 
         def card(issue_id, labels, groups):
             (self.stub / "issue.json").write_text(json.dumps(issue(id=issue_id, labels=labels, delegate_id=APP,
@@ -754,6 +778,20 @@ class EnqueueTests(unittest.TestCase):
             self.assertEqual((item["state"], item["skill"], item["target"]), ("queued", "feature", None))
             self.assertIsNone(ledger.session(f"local-{OTHER}")["target"])
 
+
+    def test_enqueue_stops_on_a_feature_host_without_a_lark_cli_profile(self):
+        from agent.dispatch import SKILL_AUTHORITY
+        from agent.skills import load_skills
+        from test_skills import staged_skill
+        skills = {**load_skills(service_module.ROOT / "skills"),
+                  "feature": staged_skill(Path(self.tmp.name) / "fixture-skills")}
+        self.config.enabled_skills = ["chat", "fix", "feature"]
+        with patch("agent.service.load_skills", return_value=skills), \
+                patch.dict(SKILL_AUTHORITY, {"feature": "Fixture feature grants. "}):
+            with self.assertRaisesRegex(ValueError, "lark_cli.profile"):
+                enqueue(self.config, issue_ref=ISSUE, skill="fix", commit="a" * 40)
+        self.assertFalse(Paths(self.config).ledger.exists())
+        self.assertFalse((self.stub / "calls.jsonl").exists())  # refused before Linear was asked anything
 
 class LoopGuardTests(unittest.TestCase):
     def test_a_raising_loop_body_is_logged_and_the_loop_keeps_running(self):

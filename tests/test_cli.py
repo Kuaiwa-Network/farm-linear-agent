@@ -59,6 +59,30 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result['branch'], 'farmbot/farm-1')
         self.assertEqual(ledger.item(args.item)['state'], 'running')
 
+    def test_verify_publication_applies_the_config_rule_only_to_a_job_with_an_initial_root(self):
+        """A job with an initial root publishes -config only at a commit already on origin (spec §6.4); a fix keeps
+        today's rules whatever suffix its branch carries."""
+        from unittest.mock import patch
+        from agent.__main__ import run
+        from agent.publication import PublicationError
+        from agent.skills import load_skills
+        from test_skills import staged_skill
+        from test_worktrees import git
+        args, ledger, config, api, github = self.publication_fixture()
+        path = Path(config.local_root) / "worktrees" / args.item / "Farm-Client"
+        git("switch", "-q", "-c", "farmbot/farm-1-config", cwd=path)  # at the fixture's commit, on no origin branch
+        with patch("agent.__main__.load_config", return_value=config), \
+                patch("agent.publication.github_api", side_effect=github):
+            self.assertEqual(run(args, ledger, lambda: api)["branch"], "farmbot/farm-1-config")
+            ledger.connection.execute("UPDATE work_items SET skill='feature', root_repo='Farm-Client' WHERE id=?",
+                                      (args.item,))
+            skills = {**load_skills(ROOT / "skills"), "feature": staged_skill(self.root / "fixture-skills")}
+            with patch("agent.skills.load_skills", return_value=skills):
+                with self.assertRaisesRegex(PublicationError, "adds no commits"):
+                    run(args, ledger, lambda: api)
+                git("switch", "-q", "-C", "farmbot/farm-1-config", "origin/main", cwd=path)
+                self.assertEqual(run(args, ledger, lambda: api)["status"], "verified")
+
     def test_repository_handoff_keeps_the_item_and_revokes_the_old_claim(self):
         from unittest.mock import patch
         from agent.__main__ import parser, run
@@ -590,6 +614,20 @@ class CliTests(unittest.TestCase):
         wrong = self.run_cli("post-notice", "--item", mine, "--token", other_token, "--request-id", "q-1", success=False)
         self.assertIn("running claim", wrong.stderr)
         self.assertNotIn("create_comment", [c["method"] for c in self.calls()])
+
+    def test_prepare_notice_accepts_the_stage_and_merge_request_kinds(self):
+        item = self.seeded_item()
+        token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
+        body = self.root / "stage.md"
+        body.write_text("阶段 B 跳过：这个需求没有新配置。", encoding="utf-8")
+        for kind, request_id in (("stage", "stage-B"), ("merge_request", "merge-contract")):  # P15's request ids
+            with self.subTest(kind=kind):
+                notice = self.run_cli("prepare-notice", "--item", item, "--token", token, "--kind", kind,
+                                      "--request-id", request_id, "--body-file", str(body))
+                self.assertEqual((notice["kind"], notice["request_id"]), (kind, request_id))
+        refused = self.run_cli("prepare-notice", "--item", item, "--token", token, "--kind", "greeting",
+                               "--request-id", "greeting-1", "--body-file", str(body), success=False)
+        self.assertIn("invalid choice", refused.stderr)
 
     def test_only_a_question_pause_adds_needs_more_info(self):
         self.stub_card(delegate_id=STUB_APP)  # a fix pauses only on a card still delegated here (design J1)

@@ -6,12 +6,13 @@ import sqlite3
 import threading
 from pathlib import Path
 
+from .config import LARK_CLI_SKILLS
 from .dispatch import dispatch_message
 from .launcher import _read_worker_text
 from .ledger import LedgerError
 from .kw_ops import SERVER as KW_OPS_SERVER, resolve as resolve_kw_ops
 from .memory import publish_snapshot
-from .publication import issue_branch
+from .publication import SUFFIXES, issue_branch, suffix_of
 from .stages import current_root, runtime_can_launch, write_repositories
 from .withdrawal import NOTICE_REASONS, notice as withdrawal_notice
 
@@ -25,7 +26,8 @@ class Scheduler:
     def __init__(self, ledger, launcher, skills, worktrees, *, skill_root, db_path, runtime_name, host,
                  max_concurrent=2, guidance_for=lambda item: "", claim_timeout=600, api=None,
                  slot_entries=None, preflight=None, control_ledger_factory=None, publication=None, codex_workers=None,
-                 config_path=None, issue_prefix='FARM', bot_name='FarmBot', kw_ops=None, enabled_skills=None):
+                 config_path=None, issue_prefix='FARM', bot_name='FarmBot', kw_ops=None, enabled_skills=None,
+                 lark_cli=None):
         self.publication = publication
         self.preflight = preflight
         self.control_ledger_factory = control_ledger_factory
@@ -44,6 +46,7 @@ class Scheduler:
         self.issue_prefix = issue_prefix
         self.bot_name = bot_name
         self.kw_ops_config = dict(kw_ops or {})
+        self.lark_cli = dict(lark_cli or {})
         # The loaded skills this host runs (spec §9.11); tick() refuses a queued item of any other loaded skill.
         # Without a set, every loaded skill but the opt-in ones, as skills.enabled_skills decides (P1).
         self.enabled_skills = ({name for name, skill in (skills or {}).items() if not skill.opt_in}
@@ -56,16 +59,18 @@ class Scheduler:
         self.active = {}
         self.lock = threading.RLock()
 
-    def _branch(self, issue):
+    def _branch(self, issue, *, suffixes=()):
         canonical = issue_branch(issue.get('identifier'), self.issue_prefix)
         name = issue.get("branch_name") or canonical
         name = re.sub(r"[^A-Za-z0-9._/一-鿿-]+", "-", name).strip("-/")
+        if suffix_of(name, canonical) in suffixes:
+            return canonical  # a job with an initial root keeps these names for its suffix branches (P12)
         return name if name == canonical or name.startswith(canonical + '-') else canonical
 
     def _worktrees_for(self, skill, item, issue):
         paths = {}
         if skill.writes:
-            branch = self._branch(issue)
+            branch = self._branch(issue, suffixes=SUFFIXES if skill.initial_root else ())
             # P4: a job with an initial root goes back to the issue branch its plan, or its nearest predecessor's,
             # records for a repository (spec §5.7). fix has no initial root and keeps today's branches.
             recorded = self._recorded_branches(item) if skill.initial_root else {}
@@ -161,6 +166,11 @@ class Scheduler:
         if kw_ops_grant.server is not None:
             servers[KW_OPS_SERVER] = kw_ops_grant.server
         tools = {KW_OPS_SERVER: kw_ops_grant.tools} if kw_ops_grant.tools is not None else {}
+        if skill.name in LARK_CLI_SKILLS:
+            # Where lark-cli finds FarmBot's own Feishu app (P5): exactly the host's block, a profile name and, when
+            # configured, the FarmBot-only HOME of its store. Never a credential: those stay in the lark-cli profile.
+            tools["lark_cli"] = (dict(self.lark_cli) if self.lark_cli
+                                 else {"status": "unavailable", "reason": "lark_cli is not configured on this host"})
         try:
             memory = publish_snapshot(Path(self.db_path).resolve().parent / "memory", self.ledger.memory_rows())
         except (OSError, ValueError, sqlite3.Error) as exc:
@@ -168,7 +178,8 @@ class Scheduler:
         session = self.ledger.session(item['session_id']) or {}
         publication = (self.publication.scope(item=item, issue=issue,
                                              paths={repo: paths[repo] for repo in write_repos},
-                                             delegated=bool(session.get('delegation')))
+                                             delegated=bool(session.get('delegation')),
+                                             suffix_roles=skill.initial_root is not None)
                        if self.publication is not None else {'repositories': {}})
         # Carry one bounded, structured predecessor summary into the fresh prompt. The full
         # history stays in issue-context; a neutral staged attempt (a chat-to-fix restart) uses the

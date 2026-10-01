@@ -28,6 +28,56 @@ The tasks below were drafted, reviewed and rehearsed before any implementation, 
 - **Controller-git fix.** P10's Known Risk was fixed after B1 (operating contract, Authority), in code that Tasks 9, 11, 12 and 16 also edit. Rehearsed on top of it, Tasks 9–17 need five changes, and with them the full suite passes (1391 tests, 18 skipped): Task 9's `-config` check in `_verify` runs through `_verify`'s own `git(...)` helper, not `_git(..., cwd=path, config=HOOKS_OFF)`, and `agent/publication.py` keeps main's imports; Task 9's `SuffixBranchTests` give each clone the configured remote as its origin, spelled `git@github.com:Kuaiwa-Network/<repo>.git`, with a `url.<local origin>.insteadOf` rule for that spelling in a `GIT_CONFIG_GLOBAL` file (the path's backslashes doubled, since git drops a single one in a quoted section name, as on Windows), because the fix refuses a clone whose origin is another repository; Task 11 imports `HOOKS_OFF, Worktrees` from `.worktrees` in `agent/doctor.py` and puts its block after the clone check; Task 12's `reads` paragraph says a worker can write the clone's objects, refs and worktree entries; Task 16 keeps the write-boundary paragraph after its Authority sentences.
 - **Not verified.** Nothing ran on Windows. No live check ran (Task 17). The Farm-Contract, farm-common and farm-hive rules that Tasks 13–14 cite were spot-checked in the review round, not in the full rehearsal. Task 10's lark-cli spike needs the operator at the Mac; it makes no Feishu call, so the FarmBot app need not exist yet.
 
+## As executed (2026-10-01, Task 9 continuation)
+
+The feature implementation resumed from `main` at `3525b93`, after reconstructing the development
+state from Git history and the saved Claude session. Phase A's shared plumbing and B1 (Tasks 1–8,
+#71) are merged; the controller-git protection (#72), withdrawal (#73), and silent-delegation fix
+(#74) landed afterwards. B2 and B3 were not implemented in that checkout.
+
+- **Task 9 implemented** on `codex/feature-workers-phase-b2`: named suffix branches, the config
+  branch's no-new-commits check, reserved issue-branch names, and the two notice kinds. The check
+  uses the hardened `git(...)` helper and the new tests use the configured origin with a host-level
+  local rewrite, preserving #72. The worker reference clarifies that Jenkins config branches pin
+  an existing commit and need no PR; other suffix PRs are registered before switching branches.
+- **Validation:** the 16 new regression tests reproduced the missing behavior before the code
+  changes. The six focused modules (`test_publication`, `test_cli`, `test_ledger`, `test_scheduler`,
+  `test_foreign_work`, `test_skills`) passed, 478 tests. The full offline command,
+  `env -u FARMBOT_CONFIG -u FARMBOT_LINEAR_STUB_DIR python3 -B -m unittest discover -s tests -v`,
+  passed on macOS with Python 3.13.14: 1,610 tests in 236.332 seconds, 17 Windows-only skips,
+  no failures or errors. `git diff --check` passed. This is not Windows verification.
+- **Task 10 continued** after the recovery fix merged as #75, with Task 9 replayed on `480af38`.
+  The prior credential spike passed with the operator present, lark-cli 1.0.82 and codex-cli 0.156.1;
+  its saved record selects B, a FarmBot-only home with its own file key. No credential spike was
+  repeated. Private config now names only the profile and optional home, feature startup requires
+  it before state/API access, and every worker and controller Unity child withholds credential
+  overrides. The five focused modules passed 252 tests with two platform skips; worker-reference
+  checks passed 36. The full offline command above passed **1,650 tests in 237.217 seconds**, with
+  **18 Windows-only skips**, on macOS. Windows verification follows B2's CI. Host profiles were not
+  edited and no live feature run or production deployment took place.
+- **Recovery check completed separately:** #75 implements and tests fresh-session recovery, with
+  macOS and hosted Windows CI passing and the chosen TestBot card cleaned up. TestBot returned to
+  its original release; see the [measured recovery record](../spikes/2026-10-01-silent-session-recovery.md).
+- **Task 11 implemented:** `doctor` checks the feature toolchain only when the host enables it,
+  using offline commands and sanitized profile counts. The seven new scenarios reproduced the
+  absent report/findings first; all 53 diagnostic tests then passed, plus 36 worker-reference checks.
+  The full offline command above passed **1,657 tests in 240.071 seconds**, with **18 Windows-only
+  skips**. The development Mac's read-only probe excluded lark-cli: Go 1.26.6 meets farm-hive's
+  `>=1.25.1`, protoc 35.1, Node 24.15.0, openspec 1.7.0, Python 3.13.14 and git-lfs 3.7.1 passed;
+  `buf` is absent from that shell's PATH and dotnet SDK 8.0.423 is an optional gap (10.0.203 installed).
+  No tool was installed, host profile edited or live feature run started.
+- **B2 review fixes:** the independent review found three issues, each reproduced before fixing:
+  the Go lookup bypassed clone validation and could lazy-fetch through clone or host Git config;
+  diagnostic children inherited credentials; and an inherited `LARKSUITE_CLI_CONFIG_DIR` could
+  redirect the selected lark store. The lookup now validates the clone and prohibits lazy fetching;
+  diagnostic children withhold lark and configured kw_ops credentials, and every worker/Unity/
+  diagnostic child removes the store override. Focused checks passed (57 doctor, 91 launcher,
+  14 kw_ops, 55 worktrees; three platform skips). The final full offline suite passed **1,661 tests
+  in 244.802 seconds, 18 Windows-only skips**. This closes the review's one fix pass; hosted CI
+  follows the draft PR, and native Windows desktop readiness remains a separate check.
+- **Next:** B3 (Tasks 12–15) and the documentation/verification rounds remain unfinished. The
+  `feature` skill itself still does not exist.
+
 ## Scope
 
 In Phase B (spec §13, item 2):
@@ -5103,7 +5153,7 @@ older revision lists `stage` and `merge_request` notices (in `issue-context.noti
 `recovery.notices`) but its `prepare-notice` refuses the kinds; only a `feature` worker uses them, and
 an older revision has no `feature`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `tests/test_publication.py`, add `from urllib.parse import unquote` directly after
 `from pathlib import Path` (`:5`), and append this class at the end of the file, after two blank lines:
@@ -5484,7 +5534,7 @@ In `tests/test_foreign_work.py`, inside `ForeignWorkTests`, add this test direct
 
 ```
 
-- [ ] **Step 2: Run the tests and confirm they fail**
+- [x] **Step 2: Run the tests and confirm they fail**
 
 Run each of:
 - `python3 -m unittest discover -s tests -p 'test_publication.py' -v`
@@ -5515,7 +5565,7 @@ Expected (rehearsed on an export of `33a28d3`, and again after Tasks 1–8 with 
 - `test_foreign_work.py` and `test_skills.py` pass. The foreign-work test pins what `plan_work` already
   does; the reference test passes until Step 3 adds kinds and fails until Step 5 documents them.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `agent/ledger.py`, replace (`:29-31`):
 
@@ -5745,13 +5795,13 @@ with:
 
 (the continuation line `if self.publication is not None else {'repositories': {}})` is unchanged).
 
-- [ ] **Step 4: Run the tests and confirm they pass**
+- [x] **Step 4: Run the tests and confirm they pass**
 
 Run the six commands of Step 2.
 Expected: all pass except `test_skills.WorkerCliReferenceTests.test_the_notices_section_names_every_notice_kind`,
 which now fails for `stage` and `merge_request` until Step 5.
 
-- [ ] **Step 5: Document suffix branches and the notice kinds**
+- [x] **Step 5: Document suffix branches and the notice kinds**
 
 In `references/worker-cli.md`, replace the Notices section's first paragraph (`:195-200`):
 
@@ -5862,7 +5912,7 @@ Run: `git diff --check`, then `python3 -m unittest discover -s tests -p 'test_sk
 Expected: no whitespace errors; all pass, the reference's commands still parse and its checkpoint
 examples are still accepted.
 
-- [ ] **Step 6: Run the full suite**
+- [x] **Step 6: Run the full suite**
 
 Run: `python3 -m unittest discover -s tests -v`
 Expected: 0 failures, 16 more tests than before this task and no new skip (rehearsed on `33a28d3`
@@ -5871,7 +5921,7 @@ after Tasks 1–8: 1293 tests, 15 skipped, in about 230 s; the reserved-name tes
 rehearsal and checked on the full rehearsal tree, where it fails without the `reserved` check and passes
 with it, so the count after this task is 1295 with Task 8's added doctor test).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add agent/ledger.py agent/publication.py agent/__main__.py agent/scheduler.py tests/test_publication.py tests/test_cli.py tests/test_ledger.py tests/test_skills.py tests/test_scheduler.py tests/test_foreign_work.py references/worker-cli.md docs/operating-contract.md
@@ -6029,7 +6079,7 @@ again, which matters only where the operator exported them. The FarmBot-only hom
 outside every checkout, `local_root`, the user's home and the temporary directories; nothing in FarmBot
 creates, changes or removes it.
 
-- [ ] **Step 1: Spike: how a sandboxed worker reads the FarmBot profile (implementer and operator, on
+- [x] **Step 1: Spike: how a sandboxed worker reads the FarmBot profile (implementer and operator, on
   TestBot's Mac)**
 
 Nothing in this step is committed, and it makes no Feishu call: the FarmBot app need not exist yet. It
@@ -6173,7 +6223,7 @@ question Task 17 settles before `feature` is enabled in production.
 1h. Keep the record for Step 6: the versions, 1b's two lines, the check lines of 1c and 1d, the write
 probe's result, the four dry-run exit statuses, the date and the decision.
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 Create `tests/test_config.py`:
 
@@ -6416,7 +6466,7 @@ In `tests/test_kw_ops.py`, in `KwOpsConfigTests`, directly before
         self.assertIs(kw_ops.child_environment(None, kept), kept)  # nothing to withhold: unchanged
 ```
 
-- [ ] **Step 3: Run the tests and confirm they fail**
+- [x] **Step 3: Run the tests and confirm they fail**
 
 Run each of:
 - `python3 -m unittest discover -s tests -p 'test_kw_ops.py' -v`
@@ -6437,7 +6487,7 @@ payload tests fail with `{} != {'lark_cli': {...}}`, and all three subtests of
 `test_no_worker_inherits_lark_cli_credentials_whatever_its_skill` fail with `Lists differ`, each worker
 having seen the five credential names.
 
-- [ ] **Step 4: Implement**
+- [x] **Step 4: Implement**
 
 In `agent/config.py`, directly after the `_HOSTNAME = re.compile(...)` line (`:22`) and before
 `@dataclass`, add:
@@ -6670,14 +6720,14 @@ add:
         self.config.lark_cli = {"profile": "farmbot"}  # P5: enqueue refuses a feature host without one
 ```
 
-- [ ] **Step 5: Run the tests and confirm they pass**
+- [x] **Step 5: Run the tests and confirm they pass**
 
 Run the five commands of Step 3, then `test_dispatch.py`, `test_doctor.py` and `test_skills.py` the same
 way.
 Expected: all pass; `test_config.py` runs 6 tests and skips 1, the Windows-only one on macOS and
 `test_a_home_lies_outside_local_root_the_users_home_and_every_temporary_directory` on Windows.
 
-- [ ] **Step 6: Document the setup and record the spike**
+- [x] **Step 6: Document the setup and record the spike**
 
 In `docs/operating-contract.md`, Host configuration, add this paragraph after a blank line, directly
 after the `enabled_skills` paragraph (`:31-41` at `33a28d3`, ending "after changing the list; an older
@@ -6856,14 +6906,14 @@ Run: `git diff --check`, then `python3 -m unittest discover -s tests -p 'test_sk
 Expected: no whitespace errors; all pass (the reference's `python3 -m agent` examples still parse; the
 new `text` block holds no such line).
 
-- [ ] **Step 7: Run the full suite**
+- [x] **Step 7: Run the full suite**
 
 Run: `python3 -m unittest discover -s tests -v`
 Expected: 0 failures, 13 more tests than after Task 9 and one more skip, the Windows-only config test
 (rehearsed on `33a28d3` plus Task 9: 1223 tests, 16 skipped on macOS; after Tasks 1–9, with Step 4's
 setup change: 1305 tests, 16 skipped).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add agent/config.py agent/kw_ops.py agent/launcher.py agent/service.py agent/scheduler.py agent/dispatch.py tests/test_config.py tests/test_kw_ops.py tests/test_launcher.py tests/test_service.py tests/test_scheduler.py docs/operating-contract.md README.md references/worker-cli.md docs/development-workflow.md
@@ -6988,7 +7038,7 @@ report and exit status are unchanged and it runs no new command.
 
 Storage: none. Rollback: an older `doctor` omits `tools.feature`; nothing is stored.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `tests/test_doctor.py`, add `import sys` directly after `import subprocess` (`:8`). Then, after
 `class DoctorTests` (its last test, `test_the_runtime_finding_needs_no_ledger_and_changes_none`, ends at
@@ -7201,7 +7251,7 @@ class FeatureToolchainTests(unittest.TestCase):
 `Paths(self.config)`. The checkout has no `feature` until Task 12, so the class serves the fixture staged
 skill under that name, as `test_each_enabled_staged_skill_is_named_and_only_those` does.
 
-- [ ] **Step 2: Run the tests and confirm they fail**
+- [x] **Step 2: Run the tests and confirm they fail**
 
 Run: `python3 -m unittest discover -s tests -p 'test_doctor.py' -v`
 Expected (rehearsed on `33a28d3` plus Tasks 9 and 10, and after Tasks 1–10 with the same results): five
@@ -7211,7 +7261,7 @@ Expected (rehearsed on `33a28d3` plus Tasks 9 and 10, and after Tasks 1–10 wit
 empty; `test_a_host_that_does_not_enable_feature_probes_nothing` already passes (it pins that such a
 host runs nothing).
 
-- [ ] **Step 3: Implement** in `agent/doctor.py`, then stand in for the probes in `DoctorTests`.
+- [x] **Step 3: Implement** in `agent/doctor.py`, then stand in for the probes in `DoctorTests`.
 
 Replace the standard-library imports as Task 8 leaves them (its Step 8 puts `import json` first; at
 `33a28d3` they are `:2-7`, from `import os`), keeping `import json` once:
@@ -7419,7 +7469,7 @@ developer's real toolchain. In `tests/test_doctor.py`, end `DoctorTests.setUp`, 
             self.enterContext(patch("agent.doctor.feature_toolchain", return_value=READY_TOOLCHAIN))
 ```
 
-- [ ] **Step 4: Run the tests and confirm they pass**
+- [x] **Step 4: Run the tests and confirm they pass**
 
 Run: `python3 -m unittest discover -s tests -p 'test_doctor.py' -v`
 Expected: all pass, `FeatureToolchainTests` in about 3 s on macOS.
@@ -7437,7 +7487,7 @@ Measured on 2026-09-28 (0.2 to 1 s): go 1.26.6 against `>=1.25.1` from farm-hive
 ok; `missing` held only the `lark_cli` entry the command leaves out, and the dotnet SDK was 10.0.203
 only, so `optional_missing: ["dotnet_sdk"]`.
 
-- [ ] **Step 5: Document the report**
+- [x] **Step 5: Document the report**
 
 In `README.md`, "AI/operator diagnostics", add this paragraph after a blank line, following the one that
 ends "set an absolute `local_root` when inspecting from another checkout." (`:147`):
@@ -7497,14 +7547,14 @@ with:
 Run: `git diff --check`, then `python3 -m unittest discover -s tests -p 'test_skills.py' -v`.
 Expected: no whitespace errors; all pass.
 
-- [ ] **Step 6: Run the full suite**
+- [x] **Step 6: Run the full suite**
 
 Run: `python3 -m unittest discover -s tests -v`
 Expected: 0 failures, 7 more tests than after Task 10; on macOS no new skip, elsewhere one more (the
 master-key-file test) (rehearsed on `33a28d3` plus Tasks 9 and 10: 1230 tests, 16 skipped on macOS;
 after Tasks 1–10: 1312 tests, 16 skipped).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add agent/doctor.py tests/test_doctor.py README.md docs/operating-contract.md docs/development-workflow.md

@@ -2,10 +2,14 @@
 import json
 import os
 import re
+import shutil
 import sqlite3
 import stat
 import subprocess
+import sys
+import tempfile
 import time
+from pathlib import Path
 from uuid import UUID
 
 from .config import Paths, ROOT, load_config
@@ -17,7 +21,7 @@ from .router import WRITE_SKILLS
 from .skills import SkillError, enabled_skills, load_skills
 from .stages import current_root, runtime_can_launch
 from .withdrawal import SILENT_GRACE_SECONDS
-from .worktrees import Worktrees
+from .worktrees import HOOKS_OFF, Worktrees
 
 # The words a job's plan may use for its stages and pauses (the Phase B plan's shared interfaces). Doctor copies
 # only these out of a worker-written plan, never its prose, question text or branch names.
@@ -242,6 +246,152 @@ def _logs(paths, item_id):
     return {"directory": str(directory), "files": files}
 
 
+# The toolchain a feature worker runs (spec §8.5, §9.11). Pins are the repositories' own: protoc in farm-hive's
+# config/pb/toolchain.env, buf, Node and openspec in Farm-Contract's CI, the SDK in farm-common's global.json. Go comes
+# from farm-hive's go.mod in FarmBot's clone, else GO_MINIMUM, its go directive on 2026-09-28.
+PROBE_TIMEOUT = 15
+GO_MINIMUM = "1.25.1"
+DOTNET_SDK = "8.0.423"  # optional: only farm-common's acceptance script needs it, on macOS or Linux
+# Each probe stays offline and writes nothing: no Go toolchain download, telemetry or update check.
+PROBE_ENV = {"GOTOOLCHAIN": "local", "DOTNET_CLI_TELEMETRY_OPTOUT": "1", "DOTNET_NOLOGO": "1",
+             "OPENSPEC_TELEMETRY": "0", "DO_NOT_TRACK": "1", "OPENSPEC_NO_UPDATE_CHECK": "1",
+             # lark-cli would otherwise create <home>/.lark-cli/cache and fetch API metadata from Feishu at startup.
+             "LARKSUITE_CLI_NO_UPDATE_NOTIFIER": "1", "LARKSUITE_CLI_REMOTE_META": "off"}
+_VERSION = re.compile(r"\d+(?:\.\d+)+")
+_GO_DIRECTIVE = re.compile(r"^(?:go\s+|toolchain\s+go)(\d+\.\d+(?:\.\d+)?)\s*$", re.MULTILINE)
+
+
+def _run(argv, env):
+    """(found, completed) for one read-only command found on PATH; completed is None when it could not run."""
+    path = shutil.which(argv[0])
+    if path is None:
+        return False, None
+    try:
+        return True, subprocess.run([path, *argv[1:]], capture_output=True, text=True, encoding="utf-8",
+                                    errors="replace", timeout=PROBE_TIMEOUT, env=env, cwd=tempfile.gettempdir(),
+                                    stdin=subprocess.DEVNULL, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return True, None
+
+
+def _version(completed):
+    if completed is None or completed.returncode:
+        return None
+    match = _VERSION.search(completed.stdout + "\n" + completed.stderr)
+    return match[0] if match else None
+
+
+def _numbers(version):
+    return tuple(int(part) for part in version.split("."))
+
+
+def _satisfies(version, required):
+    """An exact version, `>=` a minimum, or any readable version when nothing is required."""
+    if version is None:
+        return False
+    if required is None:
+        return True
+    if not required.startswith(">="):
+        return version == required
+    found, minimum = _numbers(version), _numbers(required[2:])
+    width = max(len(found), len(minimum))
+    return found + (0,) * (width - len(found)) >= minimum + (0,) * (width - len(minimum))
+
+
+def _probe_environment(config):
+    from .kw_ops import child_environment
+    filtered = child_environment(config.kw_ops.get("token_env"))
+    source = os.environ if filtered is None else filtered
+    return {**source, **PROBE_ENV}
+
+
+def _go_directive(config, paths):
+    """The newest Go version farm-hive's go.mod names (its go and toolchain lines), read from FarmBot's own clone
+    without a fetch; None when there is no clone or no readable go.mod."""
+    if "farm-hive" not in config.repos:
+        return None
+    env = {**_probe_environment(config), "GIT_TERMINAL_PROMPT": "0", "GIT_NO_LAZY_FETCH": "1"}
+    trees = Worktrees(paths.repos, paths.worktrees, config.repos)
+    try:
+        if trees.clone_problems("farm-hive", environ=env):
+            return None
+    except (OSError, subprocess.SubprocessError):
+        return None
+    for ref in ("refs/remotes/origin/HEAD", "refs/remotes/origin/main"):
+        try:
+            # A missing blob in a promisor clone can fetch through host config even when the clone is safe.
+            # The CLI option also fails closed on a Git too old to support it.
+            result = subprocess.run(["git", "--no-lazy-fetch", "--git-dir", str(paths.repos / "farm-hive.git"), *HOOKS_OFF,
+                                     "cat-file", "blob", f"{ref}:go.mod"], capture_output=True, text=True,
+                                    encoding="utf-8", errors="replace", timeout=PROBE_TIMEOUT, stdin=subprocess.DEVNULL,
+                                    env=env, check=False)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        versions = _GO_DIRECTIVE.findall(result.stdout) if not result.returncode else []
+        if versions:
+            return max(versions, key=_numbers)
+    return None
+
+
+def _lark_cli(config, env):
+    """lark-cli's presence and whether the configured profile exists in the store workers read. Of `profile list` only
+    names and counts are kept: never an app ID or a user's name."""
+    block = config.lark_cli
+    home = block.get("home")
+    env = {**env, "HOME": home} if home else env
+    found, completed = _run(["lark-cli", "--version"], env)
+    profile = {"name": block.get("profile"), "home": home, "exists": False, "other_profiles": None,
+               "user_logins": None, "master_key_file": None}
+    entry = {"found": found, "version": _version(completed), "required": None, "ok": False, "profile": profile}
+    if entry["version"] is None or not block:
+        return entry
+    _, listed = _run(["lark-cli", "profile", "list"], env)
+    try:
+        profiles = json.loads(listed.stdout) if listed is not None and not listed.returncode else None
+    except ValueError:
+        profiles = None
+    if not isinstance(profiles, list):
+        return entry
+    profiles = [item for item in profiles if isinstance(item, dict)]
+    names = [item.get("name") for item in profiles]
+    profile.update(exists=block["profile"] in names, other_profiles=sum(name != block["profile"] for name in names),
+                   user_logins=sum(bool(item.get("user")) for item in profiles))
+    if sys.platform == "darwin":  # lark-cli's file fallback for the Keychain master key (keychain-downgrade)
+        store = Path(home) if home else Path.home()
+        profile["master_key_file"] = (store / "Library" / "Application Support" / "lark-cli" / "master.key.file").is_file()
+    entry["ok"] = profile["exists"]
+    return entry
+
+
+def feature_toolchain(config, paths):
+    """tools.feature: one {"found", "version", "required", "ok"} entry per tool a feature worker runs, the names of
+    required entries that are not ok, and of optional ones. Doctor never runs lark-cli against Feishu."""
+    env = _probe_environment(config)
+    directive = _go_directive(config, paths)
+    probes = {"go": (["go", "version"], f">={directive or GO_MINIMUM}"), "protoc": (["protoc", "--version"], "35.1"),
+              "buf": (["buf", "--version"], "1.72.0"), "node": (["node", "--version"], ">=22"),
+              "openspec": (["openspec", "--version"], "1.7.0"), "python3": (["python3", "--version"], None),
+              "git_lfs": (["git-lfs", "version"], None)}
+    if os.name == "nt":  # the repositories' bash gates on the Windows worker (Git for Windows)
+        probes.update({name: ([name, "--version"], None) for name in ("bash", "sha256sum", "mktemp", "awk")})
+    entries = {}
+    for name, (argv, required) in probes.items():
+        found, completed = _run(argv, env)
+        version = _version(completed)
+        entries[name] = {"found": found, "version": version, "required": required,
+                         "ok": found and _satisfies(version, required)}
+    entries["go"]["source"] = "farm-hive go.mod" if directive else "default"
+    found, completed = _run(["dotnet", "--list-sdks"], env)
+    sdks = re.findall(r"^(\d+\.\d+\.\d+)", completed.stdout, re.MULTILINE) if completed and not completed.returncode else []
+    entries["dotnet_sdk"] = {"found": found, "version": DOTNET_SDK if DOTNET_SDK in sdks else (", ".join(sdks) or None),
+                             "required": DOTNET_SDK, "ok": DOTNET_SDK in sdks}
+    entries["lark_cli"] = _lark_cli(config, env)
+    optional = ("dotnet_sdk",)
+    return {"entries": entries,
+            "missing": sorted(name for name, entry in entries.items() if not entry["ok"] and name not in optional),
+            "optional_missing": [name for name in optional if not entries[name]["ok"]]}
+
+
 def diagnose(config, *, now=None):
     report = _report(time.time() if now is None else now)
     paths = Paths(config)
@@ -289,7 +439,7 @@ def diagnose(config, *, now=None):
     for repo in sorted(config.repos):
         if trees.clone_path(repo).exists():
             try:
-                problems = trees.clone_problems(repo)
+                problems = trees.clone_problems(repo, environ=_probe_environment(config))
             except (OSError, subprocess.SubprocessError) as exc:
                 problems = [f"unreadable ({type(exc).__name__})"]
             if problems:
@@ -299,6 +449,20 @@ def diagnose(config, *, now=None):
                  "FarmBot refuses to use these clones: each holds config keys, info/ files or remote definitions "
                  "that FarmBot does not write, which could make its git run a program outside the sandbox. Find "
                  "out who wrote them, remove them, and the next job uses the clone again.", clones=unexpected)
+    # spec §8.5, §9.11: probed only where this host enables feature, so other hosts run nothing more.
+    if "feature" in (report["skills"]["enabled"] or []):
+        feature = report["tools"]["feature"] = feature_toolchain(config, paths)
+        if not config.lark_cli:
+            _finding(report, "lark_cli_unconfigured", "serve refuses to start: set lark_cli.profile to the lark-cli "
+                     "profile that holds FarmBot's Feishu app (docs/development-workflow.md).")
+        if feature["missing"]:
+            _finding(report, "feature_toolchain_incomplete", "Install or fix these before this host runs feature; its "
+                     "workers stop where a tool is missing.", tools=feature["missing"])
+        profile = feature["entries"]["lark_cli"]["profile"]
+        if profile["master_key_file"] and profile["user_logins"]:
+            _finding(report, "lark_cli_store_exposed", "The lark-cli store feature workers read keeps its master key in "
+                     "a file and holds a user login, which every sandboxed worker can read; use a FarmBot-only "
+                     "lark-cli home (docs/development-workflow.md).", user_logins=profile["user_logins"])
     try:
         snapshot = _snapshot(paths.ledger)
     except (OSError, sqlite3.Error, ValueError) as exc:

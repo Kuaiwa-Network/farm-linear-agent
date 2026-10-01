@@ -6,6 +6,7 @@ import json
 import math
 import os
 import re
+import tempfile
 from pathlib import Path
 from uuid import uuid4
 
@@ -21,6 +22,54 @@ REQUIRED = ("client_id", "client_secret", "webhook_secret")
 MONITOR_DEFAULTS = {"bind": "127.0.0.1", "port": 8780, "hostnames": ()}
 # One DNS name: dot-separated labels of lowercase letters, digits and inner hyphens.
 _HOSTNAME = re.compile(r"(?=.{1,253}\Z)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*")
+
+
+# lark-cli as FarmBot's own read-only Feishu app (spec §5.4, D12; P5). A lark-cli profile holds the app's ID and secret
+# in lark-cli's own store; FarmBot knows only the profile's name and, optionally, the FarmBot-only HOME of that store.
+LARK_CLI_SKILLS = ("feature",)  # skills whose workers read the 策划案; fgui joins them in Phase D
+# A subset of lark-cli's own profile names that stays one plain argv word: no leading "-", no space or shell syntax.
+_LARK_CLI_PROFILE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+
+
+def validate_lark_cli(block, local_root):
+    """The host profile's optional block: {} or {"profile": NAME} with an optional absolute "home", never on Windows.
+
+    No message repeats a value, so that an app secret put here by mistake reaches no log or traceback."""
+    if block == {}:
+        return
+    if not isinstance(block, dict) or "profile" not in block or set(block) - {"profile", "home"}:
+        raise ValueError("lark_cli accepts profile and an optional home only; the app ID and secret stay in the "
+                         "lark-cli profile")
+    if not isinstance(block["profile"], str) or not _LARK_CLI_PROFILE.fullmatch(block["profile"]):
+        raise ValueError("lark_cli profile must be 1-64 ASCII letters, digits, '.', '_' or '-', starting with a letter "
+                         "or digit")
+    if "home" not in block:
+        return
+    if os.name == "nt":
+        raise ValueError("lark_cli home is for macOS and Linux: on Windows lark-cli keeps every profile's secret in "
+                         "the user's registry, whatever HOME says")
+    home = block["home"]
+    rule = "lark_cli home must be an absolute directory outside local_root, your home and every temporary directory"
+    if not isinstance(home, str) or not home.isprintable() or not Path(home).is_absolute():
+        raise ValueError(rule)
+    # A worker may write under local_root (Scheduler.launch's writable roots) and, in Codex's workspace-write sandbox,
+    # the temporary directories: it must not be able to change the store it reads. The user's own home holds the
+    # user's own lark-cli store, which a FarmBot-only home exists to keep apart (P5).
+    forbidden = (local_root, Path.home(), tempfile.gettempdir(), "/tmp", "/var/tmp",
+                 *(os.environ[name] for name in ("TMPDIR", "TEMP", "TMP") if os.environ.get(name)))
+    resolved = Path(home).resolve()
+    if any(resolved.is_relative_to(Path(root).resolve()) for root in forbidden):
+        raise ValueError(rule)
+
+
+def require_lark_cli(config, enabled):
+    """serve and enqueue refuse a host that enables a skill whose workers read the 策划案 but names no lark-cli
+    profile: each of that skill's jobs would otherwise meet the gap in the middle of a stage. Config only: no
+    lark-cli runs."""
+    needing = sorted(set(enabled) & set(LARK_CLI_SKILLS))
+    if needing and not config.lark_cli:
+        raise ValueError(f"enabled skill {', '.join(needing)} reads the 策划案 with lark-cli: set lark_cli.profile in the "
+                         "private config (docs/development-workflow.md)")
 
 
 @dataclass
@@ -41,6 +90,9 @@ class Config:
     codex_workers: dict = field(default_factory=dict)
     # {"url": ..., "token_env": NAME}; the token itself lives in the controller's environment, never here.
     kw_ops: dict = field(default_factory=dict)
+    # {"profile": NAME, "home": optional absolute directory}: where feature workers' lark-cli finds FarmBot's own
+    # Feishu app (P5). Never its app ID or secret, which stay in that lark-cli profile.
+    lark_cli: dict = field(default_factory=dict)
     # Names of the skills this instance runs (spec §9.11); None runs every skill in the checkout's skills/ but the
     # opt-in ones (Phase B plan, P1).
     enabled_skills: list | None = None
@@ -87,6 +139,7 @@ class Config:
                     "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"):
                 raise ValueError("invalid codex worker reasoning_effort")
         validate_kw_ops_config(self.kw_ops)
+        validate_lark_cli(self.lark_cli, self.local_root)
         if self.enabled_skills is not None and (
                 not isinstance(self.enabled_skills, list)
                 or any(not isinstance(name, str) or not name.strip() for name in self.enabled_skills)

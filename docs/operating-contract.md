@@ -46,6 +46,29 @@ list; an older revision ignores the key and runs every skill. An older revision 
 manifest with `opt_in` or `exclusive`, keys it does not know, so a rollback deploys the older code
 and skill files together, as always.
 
+Private `lark_cli` says how `feature` workers read the 策划案 as FarmBot's own read-only Feishu app
+(spec §5.4): `{"profile": NAME}`, the lark-cli profile that holds the app's ID and secret, and on
+macOS and Linux an optional `"home"`, the absolute directory of a FarmBot-only lark-cli home that
+holds only that profile (`docs/development-workflow.md`). FarmBot never stores the app ID or secret
+and refuses any other key; `home` must lie outside `local_root`, the service user's home and every
+temporary directory, and is refused on Windows. `serve` and `enqueue` stop when an enabled skill
+reads the 策划案, today `feature`, and the block is missing; the check reads the config only. Every
+worker, whatever its skill, starts without `LARKSUITE_CLI_APP_ID`, `LARKSUITE_CLI_APP_SECRET`,
+`LARKSUITE_CLI_PROXY_KEY` and any `LARKSUITE_CLI_*ACCESS_TOKEN`, removed after every per-worker
+override. `LARKSUITE_CLI_CONFIG_DIR` is removed too, so it cannot redirect the selected store.
+These removals also cover Unity children and diagnostic tools, which additionally withhold the
+configured kw_ops token. lark-cli prefers credentials from the environment to `--profile`; as with the
+kw_ops token, the removal covers only the environment a worker inherits, so these never belong in a
+shell startup file. Each `feature` launch carries the block as `tools.lark_cli`; other skills get
+none. An older revision ignores the key and passes those variables on. On a host that enables
+`feature`, `doctor` adds `tools.feature`, the version of each tool its workers run against the
+repositories' pins and whether the configured lark-cli profile exists, with
+`feature_toolchain_incomplete` for a required tool that is missing or wrong (README, diagnostics). It
+runs each tool's version command offline, with lark-cli's update check and metadata fetch off, and
+never calls Feishu; a host that does not enable `feature` runs none of it. The Go directive lookup
+refuses an unsafe clone and disables lazy fetching explicitly; an incomplete clone uses the default
+minimum instead of fetching a missing object.
+
 Explicit profiles select `environment` (`development`, `production`, or `offline`)
 and a lowercase `instance_id`. Existing configs default to `legacy` for compatibility.
 Live profiles require `expected_bot_name`, pinned `expected_app_user_id` and
@@ -357,8 +380,10 @@ until its next checkpoint that omits it, and never validates one.
 
 An entry of `plan.prs` with `"role": "issue"` records a repository's issue branch, and must name
 this issue's `farmbot/<key>` or `farmbot/<key>-…` (in the host's `issue_prefix`), spelt as git
-accepts it; a repository has at most one. A checkpoint whose plan breaks either rule is refused
-whole, for every skill, with a message naming the entry. Any other branch, a person's included,
+accepts it; a repository has at most one. A `feature` or `fgui` plan never records a named suffix
+branch (`-config`, its numbered re-pins, `-waivers` or `-followup`) under the `issue` role: those
+branches have their own roles, and a successor must return to its issue branch. A checkpoint whose
+plan breaks a rule is refused whole, with a message naming the entry. Any other branch, a person's included,
 may be recorded under another role or none. For a skill with an initial root, the plan also decides
 where a later attempt's worktrees start (spec §5.7). At each launch the controller reads the issue
 branch the job's plan records for each repository it writes, from the item's own plan or else the
@@ -602,6 +627,24 @@ It rejects outgoing `reports/` changes even when the files are tracked or force-
 `.gitignore`; unchanged reports already on the base branch do not block publication.
 Existing protected branches are rejected. Public repositories need a separately designed publishing
 policy; they are not authorized by this private-repository workflow.
+
+A job whose skill has an initial root keeps named suffix branches beside its issue branch, each
+verified under these rules: `farmbot/<key>-config` in common, the branch a human runs
+`designer-source.pipeline` on, `farmbot/<key>-waivers` in Farm-Contract and `farmbot/<key>-followup`
+in farm-hive; the last two start from the default branch and verify as the issue branch does, also
+after the issue branch's PR merged and its branch was deleted. A Jenkins branch is never
+force-pushed: a re-pin to a farm-common commit that does not descend from the pushed `-config` tip
+takes the next unused `farmbot/<key>-config-<n>`, n from 2. Such a job never takes one of these
+names as its issue branch: when Linear suggests one, the controller uses `farmbot/<key>`. Nobody
+reviews what the pipeline publishes, so for such a job a `-config` branch, numbered or not, verifies
+only when its HEAD is already on an origin branch other than the issue's `-config` branches: its
+push then adds a farm-common commit someone named and no commit of FarmBot's own. The check reads
+the host clone's remote-tracking refs, as the report check reads its base. A fix never has these
+roles: its branch may carry any suffix Linear suggests, these included, and its branches and
+verification are unchanged. `verify-publication`, and the registration of a PR that Linear attached
+first, check the branch and HEAD checked out in the worker's root worktree, so a worker registers a
+suffix branch's PR before switching back to the issue branch. `foreign-work` counts every `farmbot/`
+branch a plan records as own, suffix branches included.
 
 Workers run claim-scoped `verify-publication --repo REPO_NAME` immediately before publishing.
 It additionally refreshes Linear delegation/status, checks the configured ledger and skill allowlist,
@@ -1020,13 +1063,16 @@ instance's `expected_bot_name`, passed to workers as `bot_name`, and `<owner.per
 owner's profile URL from `issue-context` (see People).
 
 Notices are a second family, for comments a job may repeat: `question` (a grouped question round),
-`waiting` (a pause on a human step elsewhere) and `foreign_work` (other people's branches or PRs).
+`waiting` (a pause on a human step elsewhere), `foreign_work` (other people's branches or PRs),
+`stage` (a stage that started, was skipped or finished, with its reason) and `merge_request` (asking
+the owner to merge a named PR).
 The ledger keeps one per work item and worker-chosen request id rather than per claimed input, so a
 retried attempt of the same item reuses it and a new round needs a new request id; a successor of
 cancelled work starts with none and reads its predecessors' under `recovery.notices`. `post-notice`
 reconciles the marker against live comments before creating one, and creates none on an issue that
 has left scope. The bodies of FarmBot's own comments and notices never count as issue input. Notices live in the additive `notices` table; a rollback leaves it unused and
-any unposted notice unsent.
+any unposted notice unsent. An older revision still lists `stage` and `merge_request` notices but
+refuses to prepare new ones.
 
 ## Resource execution limits
 

@@ -137,6 +137,27 @@ repository-staged skill such as `fix` runs only on the `codex` runtime: with `cl
 still starts with it enabled and queues its jobs, each job fails at launch, and `doctor` reports
 `skill_runtime_unsupported`.
 
+To let `feature` workers read the 策划案, name the lark-cli profile that holds FarmBot's own read-only
+Feishu app and, on macOS, the FarmBot-only lark-cli home it lives in, then restart the drained
+receiver:
+
+```json
+"lark_cli": {"profile": "farmbot", "home": "/absolute/private/lark-cli-home"}
+```
+
+FarmBot stores neither the app ID nor its secret; they stay in that lark-cli profile. `home` must lie
+outside `local_root`, your home directory and every temporary directory. `serve` and `enqueue` refuse
+a host that enables `feature` without the block. Create the home and the profile as the
+[development workflow](docs/development-workflow.md) describes. Every worker starts without
+`LARKSUITE_CLI_APP_ID`, `LARKSUITE_CLI_APP_SECRET`, `LARKSUITE_CLI_PROXY_KEY` and any
+`LARKSUITE_CLI_*ACCESS_TOKEN`, because lark-cli prefers credentials from the environment to
+`--profile`. FarmBot also removes `LARKSUITE_CLI_CONFIG_DIR` after worker overrides, preserving
+the configured store selection. Diagnostic and Unity children get the same removals. They cover
+only the inherited environment, so never export these variables, or
+`LARKSUITE_CLI_CONFIG_DIR`, in a shell startup file on a FarmBot host, and never run
+`lark-cli config keychain-downgrade` for your own lark-cli store there: every sandboxed worker could
+then read every profile in it, a personal login included.
+
 ## AI/operator diagnostics
 
 Run `python3 -m agent.service doctor --config /absolute/path/to/config.json` on the
@@ -151,6 +172,24 @@ what FarmBot does not write there, by key and file name, never value (operating
 contract, Authority).
 `local_root` defaults to the checkout running the command, even when `--config`
 points elsewhere; set an absolute `local_root` when inspecting from another checkout.
+
+On a host whose config enables `feature`, the report also carries `tools.feature`: an entry per tool
+its workers run, each `{"found", "version", "required", "ok"}`, for Go (at least what farm-hive's
+`go.mod` in FarmBot's clone asks for, else 1.25.1), protoc 35.1, buf 1.72.0, Node 22 or later,
+openspec 1.7.0, `python3`, git-lfs, the dotnet SDK 8.0.423 (optional: only farm-common's acceptance
+script needs it), lark-cli with the configured profile, and on Windows bash, `sha256sum`, `mktemp`
+and `awk`; then the names under `missing` and `optional_missing`. A missing or wrong required tool is
+the finding `feature_toolchain_incomplete`, `lark_cli_unconfigured` means `serve` would refuse the
+config, and `lark_cli_store_exposed` means that the lark-cli store the workers read keeps its master
+key in a file and holds a user login, which every sandboxed worker could then read. Each probe runs a
+version command offline (no Go toolchain download, telemetry, update check or lark-cli metadata
+fetch: lark-cli runs with `LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1` and `LARKSUITE_CLI_REMOTE_META=off`),
+and `lark-cli profile list`, of which the report keeps the configured profile's name and counts,
+never an app ID, another profile's name or a user's name. Doctor never calls Feishu, and hosts that
+do not enable `feature` run none of this. It probes the tools on its own `PATH`, so run it from the
+environment `serve` starts in, whose `PATH` the workers inherit. Diagnostic children also withhold
+the configured kw_ops token. The Go directive lookup refuses unsafe clones and prohibits lazy
+fetching; a missing object falls back to the default minimum.
 
 Exit codes are **0** (`ok`: no problems detected by these checks), **1** (`attention`:
 findings need inspection), and **2** (`incomplete`: a config, skills, ledger, log or process

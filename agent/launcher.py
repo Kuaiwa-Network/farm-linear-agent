@@ -260,9 +260,10 @@ class Launcher:
         env.update(extra_env or {})
         if self.runtime.name == "claude":
             env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
-        # Apply withholding last: per-worker overrides must not put a denied secret back.
+        # Apply withholding last: overrides must not restore a secret or select a different lark-cli store.
         for name in withheld_env:
             env.pop(name, None)
+        env = child_environment(None, env)
         stdout = open(run_dir / "stdout.log", "w", encoding="utf-8")
         stderr = open(run_dir / "stderr.log", "w", encoding="utf-8")
         kwargs = {"start_new_session": True} if os.name != "nt" else {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}

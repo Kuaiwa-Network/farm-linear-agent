@@ -339,6 +339,40 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(payload['user_requests'][0]['body'], 'Create the draft PR.')
         self.assertTrue(scopes[0]['delegated'])
 
+    def test_the_launch_scope_applies_the_suffix_rules_only_to_a_job_with_an_initial_root(self):
+        scopes = []
+
+        class Verifier:
+            def scope(inner, **kwargs):
+                scopes.append((kwargs["item"]["skill"], kwargs.get("suffix_roles")))
+                return {"repositories": {}}
+        self.scheduler.publication = Verifier()
+        staged = self.use_staged_skill()
+        self.scheduler.max_concurrent = 2
+        self.item()
+        self.item(issue_id=OTHER, session="session-2", skill=staged.name)
+        self.assertEqual(self.scheduler.tick()["launched"], 2)
+        self.assertEqual(sorted(scopes), [("feature", True), ("fix", False)])
+
+    def test_a_job_with_an_initial_root_never_takes_a_suffix_name_as_its_issue_branch(self):
+        """A card titled "config" can have Linear's suggestion farmbot/<key>-config, and one titled "config 3"
+        farmbot/<key>-config-3. A job with an initial root keeps those names for its Jenkins branches (spec §6.4; P12)
+        and works on farmbot/<key>; a fix keeps the suggestion."""
+        staged = self.use_staged_skill()
+        self.scheduler.max_concurrent = 4
+        third, fourth = "10000000-0000-4000-8000-000000000003", "10000000-0000-4000-8000-000000000004"
+        expected = {"farmbot/farm-1-config": self.item(branch_name="farmbot/farm-1-config"),
+                    "farmbot/farm-2": self.item(issue_id=OTHER, session="session-2", skill=staged.name,
+                                                identifier="FARM-2", branch_name="farmbot/farm-2-config"),
+                    "farmbot/farm-3-config-3": self.item(issue_id=third, session="session-3", identifier="FARM-3",
+                                                         branch_name="farmbot/farm-3-config-3"),
+                    "farmbot/farm-4": self.item(issue_id=fourth, session="session-4", skill=staged.name,
+                                                identifier="FARM-4", branch_name="farmbot/farm-4-config-3")}
+        self.assertEqual(self.scheduler.tick()["launched"], 4)
+        branches = {item["id"]: {branch for _, owner, branch in self.trees.added if owner == item["id"]}
+                    for item in expected.values()}
+        self.assertEqual(branches, {item["id"]: {branch} for branch, item in expected.items()})
+
     def test_a_resumed_worker_is_told_who_wrote_each_reply_and_when(self):
         item = self.item()
         token = self.ledger.claim(item['id'], worker_id='old')['token']
@@ -1156,6 +1190,57 @@ class SchedulerTests(unittest.TestCase):
             config, payload, _ = self.launched(launcher, self.item())
         self.assertNotIn("kw_ops", config.get("mcp_servers", {}))
         self.assertIn("not configured", payload["tools"]["kw_ops"]["reason"])
+
+    def test_only_a_skill_that_reads_the_design_doc_is_told_the_lark_cli_profile(self):
+        """P5: tools.lark_cli is exactly the host's block, the profile and the FarmBot-only lark-cli home; fix and chat
+        get none."""
+        staged = self.use_staged_skill()
+        self.scheduler.max_concurrent = 3
+        self.scheduler.lark_cli = {"profile": "farmbot", "home": "/srv/farmbot/lark-cli"}
+        fix = self.item()
+        feature = self.item(issue_id=OTHER, session="session-2", skill=staged.name)
+        chat = self.item(issue_id="10000000-0000-4000-8000-000000000003", session="session-3", skill="chat")
+        self.assertEqual(self.scheduler.tick()["launched"], 3)
+        payloads = {launch[0]: json.loads(launch[1].split("\n\n", 1)[1]) for launch in self.launcher.spawned}
+        self.assertEqual(payloads[feature["id"]]["tools"],
+                         {"lark_cli": {"profile": "farmbot", "home": "/srv/farmbot/lark-cli"}})
+        self.assertNotIn("lark_cli", payloads[fix["id"]]["tools"])
+        self.assertNotIn("lark_cli", payloads[chat["id"]]["tools"])
+
+    def test_a_host_without_lark_cli_tells_a_feature_worker_why(self):
+        staged = self.use_staged_skill()
+        self.item(skill=staged.name)
+        self.scheduler.tick()
+        self.assertEqual(self.payload()["tools"],
+                         {"lark_cli": {"status": "unavailable", "reason": "lark_cli is not configured on this host"}})
+
+    def test_no_worker_inherits_lark_cli_credentials_whatever_its_skill(self):
+        """P13: credentials exported where serve starts would override --profile, so fix, chat and feature workers
+        alike start without them; the feature worker still learns its profile from tools.lark_cli."""
+        # Braces are doubled: spawn formats every command part. Only the names are recorded.
+        script = ("import json,os,pathlib,sys;sys.stdin.read();"
+                  "pathlib.Path(sys.argv[1]).write_text(json.dumps(sorted(k for k in os.environ "
+                  "if k.upper().startswith('LARKSUITE_CLI_'))))")
+        runtime = RUNTIMES["codex"]._replace(command=[sys.executable, "-c", script, "{last_message}"], seed_files={})
+        launcher = Launcher(Path(self.tmp.name) / "real-runs", runtime, "h")
+        self.scheduler.launcher = launcher
+        self.scheduler.runtime_name = "codex"
+        staged = self.use_staged_skill()
+        self.scheduler.lark_cli = {"profile": "farmbot"}
+        items = [self.item(), self.item(issue_id=OTHER, session="session-2", skill="chat"),
+                 self.item(issue_id="10000000-0000-4000-8000-000000000003", session="session-3", skill=staged.name)]
+        credentials = {name: "dummy-lark-value" for name in (
+            "LARKSUITE_CLI_APP_ID", "LARKSUITE_CLI_APP_SECRET", "LARKSUITE_CLI_PROXY_KEY",
+            "LARKSUITE_CLI_USER_ACCESS_TOKEN", "LARKSUITE_CLI_TENANT_ACCESS_TOKEN")}
+        with patch.dict(os.environ, {**credentials, "LARKSUITE_CLI_REMOTE_META": "off"}):
+            launched = {item["skill"]: self.launched(launcher, item) for item in items}
+        for skill, (_, payload, handle) in launched.items():
+            with self.subTest(skill=skill):
+                self.assertEqual(json.loads((handle.run_dir / "last_message.txt").read_text(encoding="utf-8")),
+                                 ["LARKSUITE_CLI_REMOTE_META"])
+                self.assertEqual(payload["tools"].get("lark_cli"),
+                                 {"profile": "farmbot"} if skill == staged.name else None)
+
 
     def test_an_item_with_no_reservation_is_launched_with_no_tools_and_no_resource_block(self):
         """Enforcement is tool injection (spec §7): a fix worker that holds no slot must not reach the Unity
