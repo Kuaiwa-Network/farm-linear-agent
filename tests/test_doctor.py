@@ -8,6 +8,7 @@ from pathlib import Path
 import shlex
 import shutil
 import sqlite3
+import stat
 import subprocess
 import sys
 import tempfile
@@ -882,6 +883,7 @@ class FeatureToolchainTests(unittest.TestCase):
             blob = git("rev-parse", "refs/remotes/origin/main:go.mod", cwd=clone)
             object_file = clone / "objects" / blob[:2] / blob[2:]
             self.assertTrue(object_file.is_file(), "fixture needs a loose blob")
+            object_file.chmod(object_file.stat().st_mode | stat.S_IWRITE)
             object_file.unlink()
             for location in (clone / "config", global_config):
                 with self.subTest(config=location.name):
@@ -919,17 +921,20 @@ class FeatureToolchainTests(unittest.TestCase):
             ", 'a', encoding='utf-8') as f: f.write(json.dumps(sorted(os.environ)) + '\\n')\n"
             "os.execv(" + repr(actual_git) + ", [" + repr(actual_git) + ", *__import__('sys').argv[1:]])\n",
             encoding="utf-8")
-        if os.name == "nt":
-            (self.stubs / "git.cmd").write_text('@"' + sys.executable + '" "%~dp0git-probe.py" %*\r\n',
-                                                encoding="utf-8")
-        else:
-            executable = self.stubs / "git"
-            executable.write_text("#!" + sys.executable + "\n" + wrapper.read_text(encoding="utf-8"), encoding="utf-8")
-            executable.chmod(0o755)
+        run = subprocess.run
+
+        def recording_git(argv, *args, **kwargs):
+            # Windows CreateProcess does not resolve `git` to a .cmd shim on PATH.
+            # Route only its executable through Python; the real child still receives
+            # exactly the environment selected by doctor and clone validation.
+            if argv[0] == "git":
+                argv = [sys.executable, str(wrapper), *argv[1:]]
+            return run(argv, *args, **kwargs)
         self.config.kw_ops = {"url": "https://gm.example.test", "token_env": "KW_OPS_TOKEN"}
         denied = {"LARKSUITE_CLI_APP_SECRET": "dummy", "larksuite_cli_user_access_token": "dummy",
                   "KW_OPS_TOKEN": "dummy"}
-        with patch.dict(os.environ, {**denied, "PATH": str(self.stubs) + os.pathsep + self.original_path}):
+        with patch.dict(os.environ, {**denied, "PATH": str(self.stubs) + os.pathsep + self.original_path}), \
+                patch("agent.doctor.subprocess.run", side_effect=recording_git):
             self.assertEqual(_go_directive(self.config, self.paths), "1.27.2")
             self.report()
         invocations = [json.loads(line) for line in record.read_text(encoding="utf-8").splitlines()]
