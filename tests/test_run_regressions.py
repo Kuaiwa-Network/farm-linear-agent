@@ -1,5 +1,5 @@
 """Regressions reproduced from the September 21-22 worker attempts."""
-from test_ledger import LedgerBase, ISSUE, issue, comment
+from test_ledger import LedgerBase, ISSUE, issue, comment, SKILLS
 from agent.ledger import LedgerError
 
 
@@ -26,7 +26,7 @@ class RejectedCheckpointTests(LedgerBase):
     def test_rejected_handoff_cannot_be_followed_by_resource_or_finish(self):
         item, token = self.rejected()
         with self.assertRaisesRegex(LedgerError, "checkpoint"):
-            self.ledger.await_resource(item, token, "unity_slot", "batch")
+            self.ledger.await_resource(item, token, "unity_slot", "batch", skill=SKILLS["fix"])
         action = self.ledger.prepare_comment(item, token, "blocker", "Decision needed")
         self.ledger.confirm_comment(action["action_id"], "comment")
         with self.assertRaisesRegex(LedgerError, "checkpoint"):

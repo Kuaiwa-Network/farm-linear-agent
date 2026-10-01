@@ -75,8 +75,54 @@ state from Git history and the saved Claude session. Phase A's shared plumbing a
   14 kw_ops, 55 worktrees; three platform skips). The final full offline suite passed **1,661 tests
   in 244.802 seconds, 18 Windows-only skips**. This closes the review's one fix pass; hosted CI
   follows the draft PR, and native Windows desktop readiness remains a separate check.
-- **Next:** B3 (Tasks 12–15) and the documentation/verification rounds remain unfinished. The
-  `feature` skill itself still does not exist.
+- **Task 12 implemented:** B3 adds the opt-in manifest, its pinned authority and Code monitor label.
+  Resource requests now require the item's own manifest and resolve its current root; the feature
+  manifest lists no resources. Withdrawal fencing and current fix/chat authority bytes are preserved.
+  The 17 new regressions reproduced the missing behavior first; all eleven focused modules passed
+  (978 tests). The full offline suite passed **1,678 tests in 243.028 seconds, 18 Windows-only skips**.
+- **Task 13 implemented:** the feature skill now covers intake, its durable plan, named-author
+  questions, stage limits, contract drafts and definition-only farm-common changes through the
+  config-ready pause. Current farm-common definition filenames match the map. The pre-#73 withdrawal
+  wording was replaced with checkpoint-and-`withdraw` behavior, matching today's dispatch contract.
+  The 19 new instruction/template tests failed against the stub, then all 58 skill/reference tests
+  passed. The full offline suite passed **1,697 tests in 245.013 seconds, 18 Windows-only skips**.
+- **Task 14 implemented:** the skill covers config verification, server work and closing through
+  waiver removal, the merged-contract re-sync, the published pin and Phase B delivery. Twelve new
+  instruction/template checks failed first; all 70 focused checks passed, and the full offline suite
+  passed **1,709 tests in 245.472 seconds, 18 Windows-only skips**. Native Windows product generation
+  and live feature acceptance remain unverified.
+- **Task 15 implemented:** eleven offline journeys drive real controller, CLI, local Git and fake
+  worker processes through stages, restart, retry, withdrawal and delivery. Withdrawal follows #73's
+  two-read confirmation and checkpoint-before-`withdraw` behavior. The 557 existing fake-worker tests
+  passed with one platform skip; eleven deliberate regressions were caught by exactly their expected
+  journeys, and every temporary edit was restored. The final macOS offline suite passed **1,720 tests
+  in 301.730 seconds, 18 Windows-only skips**. Hosted Windows CI remains a separate requirement.
+- **Task 16 completed:** the documentation names the opt-in Code worker, its plan/pause shapes,
+  notices, controller behavior and rollback procedure. It preserves #72's Git boundary, #73's
+  withdrawal behavior and B2's credential filtering; B2/B3 remain draft implementation, with native
+  Windows desktop readiness and live Code acceptance pending. All 70 document-reading tests passed;
+  links and whitespace are clean. Independent B3 review and hosted verification follow.
+- **B2 hosted verification completed:** draft [#76](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/76)
+  at `66a0967` passed both Python 3.13 jobs in [CI run 36847857567](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/36847857567).
+  Both discovered 1,661 tests; macOS skipped 18 platform checks and Windows skipped 69. The Windows
+  Job Object checks ran. Earlier Windows failures needed only fixture corrections for deleting a
+  read-only loose object and preserving arguments with spaces in a Git wrapper. This is hosted CI,
+  not verification of the operator's Windows desktop or its product generators.
+- **B3 review fixes:** the independent review found three important instruction gaps. Config-only
+  B/C work with skipped D now satisfies both hive closing steps and retains the config SHA for the
+  later client stage. Every hive closing attempt selects the recorded followup branch and reuses its
+  PR, including after Stop and successor recovery. Config re-pins use a new numbered stage-C notice,
+  with its id and exact body saved before preparation and reused on retries. Three new regressions
+  failed before these fixes; all 73 instruction/reference checks then passed. Two additional real
+  offline journeys verify config-only delivery and followup selection after cleanup and recovery.
+  The one review fix pass is complete. The final macOS offline suite passed **1,725 tests in
+  319.017 seconds, 18 Windows-only skips**, including all thirteen journeys. Hosted verification
+  follows the B3 draft PR; no second review was dispatched.
+- **Task 17 inspection only:** read-only `doctor` with the existing TestBot profile found feature
+  loaded but disabled; it therefore did not probe feature tools. Four existing failed/blocked/cleanup
+  findings were left untouched. No profile change, live feature run, service restart or deployment
+  occurred. Native Windows host checks, live Feishu permissions and an operator-selected Code card
+  remain pending.
 
 ## Scope
 
@@ -7659,7 +7705,7 @@ P1, P2, P5, P6, P8, P11, P12, P13, P16.
     commit_sha=None)`, `skill` being the item's loaded manifest
   - The monitor's `SKILL.feature == "Code"`, the Bot label people use, as `fix` reads `修改`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `tests/test_dispatch.py`, directly after the `FGUI_EXPORT_AT_D18 = (…)` constant (`:82-88`) and before
 `def payload_of(message):` (`:91`), add the frozen copy. Its SHA-256 was computed from exactly this text; Step 6
@@ -8009,7 +8055,7 @@ add:
         self.assertEqual((ledger.item(item)["state"], ledger.reservations()), ("running", []))
 ```
 
-- [ ] **Step 2: Update the existing tests**
+- [x] **Step 2: Update the existing tests**
 
 Each change keeps the test's purpose. The first three groups change setup only; the last changes assertions that
 state the checkout's skill set or the AUTHORITY's skill set, which this task changes on purpose. Line numbers are
@@ -8136,7 +8182,7 @@ turns red until Step 4 labels `feature` in `monitor.js`. Tests that Tasks 1–11
 real manifest in those tests, so they need no edit; a test that runs this checkout's skills unpatched and expects
 exactly `chat` and `fix` loaded fails in Step 6 and gets the edit above.
 
-- [ ] **Step 3: Run the tests and confirm they fail**
+- [x] **Step 3: Run the tests and confirm they fail**
 
 Run: `python3 -m unittest discover -s tests -p 'test_dispatch.py' -v`
 Expected: `test_feature_receives_the_common_part_its_own_part_and_the_reference` errors with
@@ -8190,7 +8236,7 @@ Run: `python3 -m unittest discover -s tests -p 'test_monitor.py' -v`
 Expected: `test_feature_reads_as_its_bot_label` fails. `test_every_skill_has_a_label` still passes, because the
 checkout has no `feature` yet; Step 4 adds the manifest and the label together.
 
-- [ ] **Step 4: Add the skill, its AUTHORITY and its monitor label**
+- [x] **Step 4: Add the skill, its AUTHORITY and its monitor label**
 
 Create `skills/feature/skill.json`, the Shared Interfaces manifest:
 
@@ -8312,7 +8358,7 @@ In `agent/monitor_static/monitor.js`, replace `const SKILL = {fix: "修改", cha
 
 `Code` is the Bot label people use for this workflow, as `fix` reads `修改` (D18; `tests/test_monitor.py:141-142`).
 
-- [ ] **Step 5: Make `await-resource` follow the manifest (P11)**
+- [x] **Step 5: Make `await-resource` follow the manifest (P11)**
 
 In `agent/ledger.py`, directly after `checked_target` (`:78-89`, ending `return {key: raw[key] for key in
 TARGET_KEYS}`), add:
@@ -8408,7 +8454,7 @@ The renewal now runs for every request, not only one with `--commit`: it authent
 manifest is read (the CLI test's wrong-token check pins that order), and a refused request leaves the item running
 with its claim, as before.
 
-- [ ] **Step 6: Check the frozen copy and run the tests**
+- [x] **Step 6: Check the frozen copy and run the tests**
 
 Run from the repository root:
 `python3 -c "import hashlib; from agent.dispatch import FEATURE_AUTHORITY; print(hashlib.sha256(FEATURE_AUTHORITY.encode('utf-8')).hexdigest())"`
@@ -8442,7 +8488,7 @@ asserts no findings (`test_a_runtime_that_can_launch_every_enabled_skill_is_not_
 for a `feature` that is loaded but not enabled; that is Task 11's rule to fix (its findings belong to hosts that
 enable `feature`), not this task's to suppress.
 
-- [ ] **Step 7: Update the operating contract and the worker CLI reference**
+- [x] **Step 7: Update the operating contract and the worker CLI reference**
 
 In `docs/operating-contract.md`, in the Triggers row that begins `| Delegate an issue labelled Bot/UI or Bot/Code |`
 (`:117`; Task 3 inserted a sentence about the `feature` session's target after its first semicolon, which stays),
@@ -8530,7 +8576,7 @@ Expected: no whitespace errors.
 Run: `python3 -m unittest discover -s tests -p 'test_skills.py' -k Reference -v`
 Expected: pass; the new paragraph has no code block.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add skills/feature/skill.json skills/feature/SKILL.md agent/dispatch.py agent/ledger.py agent/__main__.py agent/monitor_static/monitor.js tests docs/operating-contract.md references/worker-cli.md
@@ -8646,7 +8692,7 @@ it as it is, though: Task 8's `_plan_summary` copies only the Shared Interfaces 
 "reason": "waiting", …}`. Settled: `stage_limit` is in Shared Interfaces ("The plan as `feature` writes it",
 `pause.kind`), in Task 8's `PAUSE_KINDS` and in its doctor test, so doctor shows this pause by name.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/test_skills.py`, after Task 12's `FeatureManifestTests` (`json`, `re`, `shlex`, `tempfile`,
 `unittest` and `ROOT` are already imported there):
@@ -8827,7 +8873,7 @@ test runs every `python3 -m agent` line of the skill's `bash` blocks through the
 plan-example test saves every `json` block as a checkpoint plan of a claimed `feature` item, so the ledger's own
 plan validation judges it, P9's rule included.
 
-- [ ] **Step 2: Run the tests and confirm they fail**
+- [x] **Step 2: Run the tests and confirm they fail**
 
 Run: `python3 -m unittest discover -s tests -p 'test_skills.py' -v`
 Expected: the nineteen new tests fail. Each `FeatureInstructionTests` phrase test fails with
@@ -8836,7 +8882,7 @@ Expected: the nineteen new tests fail. Each `FeatureInstructionTests` phrase tes
 `AssertionError: [] is not true`; five `FeatureCommentTemplateTests` error with `IndexError: list index out of range`
 (no such section yet) and `test_the_feature_start_comment_names_the_instance` fails. Task 12's tests still pass.
 
-- [ ] **Step 3: Write the skill's stage A and B instructions**
+- [x] **Step 3: Write the skill's stage A and B instructions**
 
 In `skills/feature/SKILL.md`, replace the stub's last paragraph (the two lines beginning `The stage instructions of
 this skill are added by Tasks 13 and 14 of the Phase B plan.`) with the following; the front matter and the
@@ -9341,7 +9387,7 @@ farm-common's rules (`designer/CLAUDE.md`: the source-digest test, column positi
 `designer/tools/check-config-artifact.sh:268-293`: the count sites, three for a client-only table;
 `designer/configgen/cmd/configgen/main.go`: `inventory --out` writes relative to the launcher's directory).
 
-- [ ] **Step 4: Add the templates**
+- [x] **Step 4: Add the templates**
 
 Append to `references/comment-templates.md`, after the `delivery (no change)` section:
 
@@ -9401,7 +9447,7 @@ stage (the skill's "A stage limit"); leave it out otherwise.
 The existing template tests keep passing: no new section is named `started`, `blocker` or `delivery`, and no
 `FarmBot` literal is added (`tests/test_skills.py` `CommentTemplateTests`).
 
-- [ ] **Step 5: Add the repository map sections**
+- [x] **Step 5: Add the repository map sections**
 
 In `references/repo-map.md`, in the Access matrix, replace
 ``| Farm-Contract | Read/write for `fix` in its own worktree |`` (`:33`) with
@@ -9472,7 +9518,7 @@ names are persistent player-data field names), `README.md` (generate and verify)
   and a profile change moves all eight count sites.
 ````
 
-- [ ] **Step 6: Update the worker CLI reference and the operating contract**
+- [x] **Step 6: Update the worker CLI reference and the operating contract**
 
 In `references/worker-cli.md`, replace ``A staged skill (today `fix`) switches repositories between attempts.``
 (`:173`) with ``A staged skill (today `fix` and `feature`) switches repositories between attempts.``, and add at
@@ -9536,7 +9582,7 @@ dispatch AUTHORITY states its grants (see Authority).
 Run: `git diff --check`
 Expected: no whitespace errors.
 
-- [ ] **Step 7: Run the tests and confirm they pass**
+- [x] **Step 7: Run the tests and confirm they pass**
 
 Run: `python3 -m unittest discover -s tests -p 'test_skills.py' -v`
 Expected: all pass, the nineteen new tests included.
@@ -9544,7 +9590,7 @@ Expected: all pass, the nineteen new tests included.
 Run: `python3 -m unittest discover -s tests -v`
 Expected: 0 failures; nineteen more tests than after Task 12, and the same platform skips.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add skills/feature/SKILL.md references/comment-templates.md references/repo-map.md references/worker-cli.md docs/operating-contract.md tests/test_skills.py
@@ -9652,7 +9698,7 @@ plan P6, P12, P14, P15, P16.
   - `references/repo-map.md` sections "Code worker (`feature`): farm-hive sync, registry and designer pin" and
     "Code worker (`feature`): expected CI on its PRs"
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/test_skills.py`, after Task 13's `FeatureCommentTemplateTests`:
 
@@ -9748,7 +9794,7 @@ class FeatureClosingTemplateTests(unittest.TestCase):
             "还需合并", "不会合并", "客户端还要做", "尚未归档", "<owner.person.url>"))
 ````
 
-- [ ] **Step 2: Run the tests and confirm they fail**
+- [x] **Step 2: Run the tests and confirm they fail**
 
 Run: `python3 -m unittest discover -s tests -p 'test_skills.py' -v`
 Expected: the twelve new tests fail. The `FeatureClosingInstructionTests` phrase tests fail with
@@ -9756,7 +9802,7 @@ Expected: the twelve new tests fail. The `FeatureClosingInstructionTests` phrase
 `## After stage B`; the four `FeatureClosingTemplateTests` error with `IndexError: list index out of range`. Tasks 12
 and 13's tests still pass.
 
-- [ ] **Step 3: Complete the skill**
+- [x] **Step 3: Complete the skill**
 
 In `skills/feature/SKILL.md`, in the "Where to continue" table, replace the last row
 `| anything later | any | "After stage B" |` with:
@@ -10053,7 +10099,7 @@ farm-hive, with the re-sync's check of the `reads` checkout from Task 6's refres
 a closed contract PR are §11; the delivery is §6.8's last bullet and the plan's Scope ("the client work Phase C will
 do", the change left unarchived).
 
-- [ ] **Step 4: Add the templates**
+- [x] **Step 4: Add the templates**
 
 Append to `references/comment-templates.md`, after Task 13's `feature config needed` section:
 
@@ -10093,7 +10139,7 @@ Append to `references/comment-templates.md`, after Task 13's `feature config nee
 - 客户端还要做：<按契约 tasks.md 的 Farm-Client 交棒条目：协议导出、配置 commit <短 SHA> 的配置导出、客户端代码与 UI 接入>；本卡这次不做
 ````
 
-- [ ] **Step 5: Add the repository map sections**
+- [x] **Step 5: Add the repository map sections**
 
 In `references/repo-map.md`, insert directly before `## Environment bindings (Claude Code)`, after Task 13's
 farm-common section:
@@ -10157,7 +10203,7 @@ From the feature-workers design §6.9. A PR body carries FarmBot's local results
 | common | config artifact acceptance | green only when `designer/tools/check-config-artifact.sh` passed locally; otherwise the PR says it was not verified | beyond generation the job runs gofmt, vet, `go test` with the production acceptance test, an inventory comparison, two generations, exact artifact counts, a visibility check and a C# compile |
 ````
 
-- [ ] **Step 6: Complete the operating contract's Code-worker section**
+- [x] **Step 6: Complete the operating contract's Code-worker section**
 
 In `docs/operating-contract.md`, in "The Code worker (`feature`)" (Task 13), replace
 `(stage A, the initial root), then farm-common declarations (stage B). A job that reaches a later stage finishes
@@ -10194,7 +10240,7 @@ list, after the bullet that ends `and finishes blocked.`:
 Run: `git diff --check`
 Expected: no whitespace errors.
 
-- [ ] **Step 7: Run the tests and confirm they pass**
+- [x] **Step 7: Run the tests and confirm they pass**
 
 Run: `python3 -m unittest discover -s tests -p 'test_skills.py' -v`
 Expected: all pass.
@@ -10202,7 +10248,7 @@ Expected: all pass.
 Run: `python3 -m unittest discover -s tests -v`
 Expected: 0 failures; twelve more tests than after Task 13, and the same platform skips.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add skills/feature/SKILL.md references/comment-templates.md references/repo-map.md docs/operating-contract.md tests/test_skills.py
@@ -10375,7 +10421,7 @@ Windows (Task 17).
   last result that has one) and `{rev:REPO:REF}`, for later tests; and a fake that reads its prompt and writes its
   output as UTF-8 on every host.
 
-- [ ] **Step 1: Write the journey test**
+- [x] **Step 1: Write the journey test**
 
 Create `tests/test_feature_journey.py`:
 
@@ -11480,7 +11526,7 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: Run it and confirm it fails for the missing verbs**
+- [x] **Step 2: Run it and confirm it fails for the missing verbs**
 
 Run: `python3 -B -m unittest discover -s tests -p 'test_feature_journey.py' -v`
 
@@ -11495,7 +11541,7 @@ Tasks 1–14 or a disagreement with the interfaces listed above: fix it in that 
 there, or raise the interface disagreement, and never weaken the journey to pass. Under an older macOS Python every
 test is skipped with the reason in the decorator; run the journey with CPython 3.13.
 
-- [ ] **Step 3: Give the fake worker the verbs** in `tests/fake_cli.py`. Five edits; nothing else in the file changes.
+- [x] **Step 3: Give the fake worker the verbs** in `tests/fake_cli.py`. Five edits; nothing else in the file changes.
 Line numbers are those of the unedited file.
 
 In the imports (`:2-6`), add `import re` after `import os`, and `from pathlib import Path` after `import time`:
@@ -11611,14 +11657,14 @@ fingerprint of the snapshot the worker read, which is the one `revalidate` accep
 `PYTHONIOENCODING` so that the refusal text it keeps is UTF-8 on every host. The first element of a step is no longer
 expanded; no step uses a placeholder there.
 
-- [ ] **Step 4: Run it and confirm it passes**
+- [x] **Step 4: Run it and confirm it passes**
 
 Run: `python3 -B -m unittest discover -s tests -p 'test_feature_journey.py' -v`
 Expected: `Ran 11 tests`, `OK`, in about a minute on the development Mac. A failed attempt's assertion message is the
 fake's last message, which quotes the failing CLI step's stderr (or `expected delegated=…, got …`); a timeout names
 what the test waited for (`timed out waiting for stage B to launch`).
 
-- [ ] **Step 5: Check that the fake's existing users are unchanged**
+- [x] **Step 5: Check that the fake's existing users are unchanged**
 
 Run `python3 -B -m unittest discover -s tests -p '<file>' -v` for each file that runs the fake runtime:
 `test_end_to_end.py`, `test_launcher.py`, `test_service.py`, `test_capacity_retry.py`, `test_config_propagation.py`,
@@ -11628,7 +11674,7 @@ minutes, most of it `test_slots.py`; rehearsed on 2026-09-28). Tasks 1–14 add 
 424 tests, 1 skipped); any failure there is this task's to explain. `test_windows_workers.py`, the fake's
 Windows-only user, runs on Windows in Task 17.
 
-- [ ] **Step 6: Check that the journey catches the regressions it exists for**
+- [x] **Step 6: Check that the journey catches the regressions it exists for**
 
 Each mutant is a temporary edit to one earlier task's code; revert it with `git restore <file>` before the next. Clear
 compiled files first and run with `-B` (a same-size mutant can otherwise import a stale `.pyc`):
@@ -11657,7 +11703,7 @@ Expected: the failures in the table and no others (rehearsed on 2026-09-28 again
 mutants failed exactly its row's tests). A mutant the journey does not catch is a gap to close here, in the journey,
 before the commit. Revert every mutant, then `git status` shows only this task's two files.
 
-- [ ] **Step 7: Run the full suite**
+- [x] **Step 7: Run the full suite**
 
 Run: `python3 -B -m unittest discover -s tests -v`
 Expected: 0 failures, with eleven more tests than after Task 14 and the platform skips noted. On CI's `windows-latest`
@@ -11668,11 +11714,11 @@ journey's empty commits and local remotes should not need), a drive-letter path 
 `url.<base>.insteadOf` base, and the three read-only checkouts fetched through it. A Windows failure is a finding for
 Task 17, not a reason to skip the class on Windows.
 
-- [ ] **Step 8: Documents.** None change: the task adds tests and changes no behaviour. Task 16 names the journey in
+- [x] **Step 8: Documents.** None change: the task adds tests and changes no behaviour. Task 16 names the journey in
 `docs/development-workflow.md` ("What is available now") and in AGENTS.md's project map. Storage: none; rollback:
 none.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add tests/test_feature_journey.py tests/fake_cli.py
@@ -11740,7 +11786,7 @@ Risks and Open Questions.
   Task 17 later replaces the one sentence this task marks unverified live (the session response after a removed
   delegation) with what its check 4 found.
 
-- [ ] **Step 1: Search for statements Phase B made stale.** From the repository root:
+- [x] **Step 1: Search for statements Phase B made stale.** From the repository root:
 
 ```sh
 grep -n -E 'neither exists yet|do not exist yet|neither runs nor starts|refuses a first job, even when a `feature`|today `fix`\)|such as `fix` runs|`chat` and `fix` remain|cannot run `fix`:|Two concurrent workers\.|from launching\. Polling makes no Linear writes|and `foreign_work` \(other people|PRs on the issue\. Name each|"kind": "waiting", "request_id"|For a fix, this selection requires a Farm-Client-rooted worker|(none|no skill|No skill) in this revision|in this revision of the skill|"After stage B", in this revision|reaches a later stage finishes blocked|lists Farm-Contract\)|detached checkout of Farm-Contract.s default branch|reads no (Farm-Client or farmgui|farmgui or Farm-Client) source|not among this job.s worktrees|passes without another comment' \
@@ -11817,7 +11863,7 @@ Rehearsed in order on 2026-09-28, after Tasks 1–15 as drafted: the search prin
 (`:166`), the contract's execution-profile sentence (`:177`) and the worker-cli Plan example's `pause` (`:307`);
 every other pattern had been rewritten by its task. After Steps 1 and 5 it printed nothing.
 
-- [ ] **Step 2: Check that each topic has one home and that every mention agrees with it and with the code.**
+- [x] **Step 2: Check that each topic has one home and that every mention agrees with it and with the code.**
 
 | Topic | Its one full description | Elsewhere, a pointer or one line |
 |---|---|---|
@@ -11861,7 +11907,7 @@ that lark-cli credentials must stay out of the controller's environment, which F
 README said nothing of Windows. The contract's `doctor` paragraph lists the pause kinds Task 8's `PAUSE_KINDS`
 reports, `stage_limit` (Task 13, P14) included, so it needs no change here.
 
-- [ ] **Step 3: Complete the operating contract's Code-worker section.**
+- [x] **Step 3: Complete the operating contract's Code-worker section.**
 
 Tasks 13 and 14 add ``## The Code worker (`feature`)`` directly before `## Shared memory` (`:580` at `33a28d3`): the
 worker's stages, its notices and rulings, the closing steps and the delivery. It does not yet say what the controller
@@ -11950,7 +11996,7 @@ and for the Triggers table, after the row that begins `| Close an issue (a statu
 
 If Task 8's row lacks the parenthesis, add it: Task 17's check 4 replaces it with what Linear did.
 
-- [ ] **Step 3b: Give the other decisions their homes in the contract.** Each sentence below belongs where its task
+- [x] **Step 3b: Give the other decisions their homes in the contract.** Each sentence below belongs where its task
 should have put it. Check the merged text first; add a sentence only where its fact is missing, and where the task
 worded it otherwise, keep the task's words if they say the same.
 
@@ -12012,7 +12058,7 @@ worded it otherwise, keep the task's words if they say the same.
   As drafted, Task 5 writes this rule in its own paragraph directly after the plan paragraph (``An entry of
   `plan.prs` with `"role": "issue"` …``), so it is not added again.
 
-- [ ] **Step 4: Record Phase B in the design.** In `docs/superpowers/specs/2026-09-24-feature-workers-design.md`,
+- [x] **Step 4: Record Phase B in the design.** In `docs/superpowers/specs/2026-09-24-feature-workers-design.md`,
 replace the status sentence and the one after it (`:3-5`), from `**Status: proposed, 2026-09-24. Not implemented.**`
 through `changes only when a phase of this design lands.`, with:
 
@@ -12064,7 +12110,7 @@ by Phase B (its plan's Open Questions) and still open when it landed:
   longer delegated (§9.8), and whether that response completes the session.
 ```
 
-- [ ] **Step 5: Name the Code worker where readers start.**
+- [x] **Step 5: Name the Code worker where readers start.**
 
 In `README.md`, replace the opening paragraph (`:3-9`). Its second sentence changes and two new sentences follow
 it; the rest stays:
@@ -12175,7 +12221,7 @@ personal `--as user` login with this setup, do not enable `feature` on that Mac 
 operator has accepted that exposure knowingly and recorded it.`` Rehearsed after Task 10 as drafted, whose table
 records the exposure but says nothing about enabling, the sentence was added.
 
-- [ ] **Step 6: Check links and whitespace.**
+- [x] **Step 6: Check links and whitespace.**
 
 ```sh
 python3 - <<'EOF'
@@ -12205,7 +12251,7 @@ Expected: no output. The spec's link to this plan resolves because the plan is o
 the spike's record is missing, which is Task 10's to finish before Task 17 relies on it. Rehearsed offline, where
 the spike could not run, it printed the section's five placeholder lines and nothing else.
 
-- [ ] **Step 7: Run the tests that read these documents**
+- [x] **Step 7: Run the tests that read these documents**
 
 Run: `python3 -B -m unittest discover -s tests -p 'test_skills.py' -v`
 Expected: all pass. `WorkerCliReferenceTests` parses every documented command and saves every JSON example in
@@ -12216,7 +12262,7 @@ before this task. The new Plan example is checked for real: with a second `issue
 `test_documented_checkpoint_is_accepted_and_available_to_the_next_worker` errors on the checkpoint's refusal, and
 the Notices section without `` `stage` `` fails `test_the_notices_section_names_every_notice_kind`.
 
-- [ ] **Step 8: Commit.**
+- [x] **Step 8: Commit.**
 
 ```bash
 git add docs/operating-contract.md README.md AGENTS.md docs/development-workflow.md references/ skills/ docs/superpowers/specs/2026-09-24-feature-workers-design.md
@@ -12263,7 +12309,7 @@ Open Questions.
 - Produces: recorded results. A skipped check is recorded as skipped with its reason, never as passed; a failed check
   stops the task, and fixing it is a new task.
 
-- [ ] **Step 1: Full offline suite on macOS.**
+- [x] **Step 1: Full offline suite on macOS.**
 
 ```sh
 python3 -c "import shutil; shutil.rmtree('agent/__pycache__', ignore_errors=True)"

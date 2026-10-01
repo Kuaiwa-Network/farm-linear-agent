@@ -357,8 +357,8 @@ class RepairWorkTests(LedgerBase):
     def test_a_configured_skill_the_checkout_lacks_stops_the_cli(self):
         chat, token = self.conversation()
         api = self.stub_api(issue(delegate_id=APP))
-        with patch("agent.__main__.load_config", return_value=Config("c", "s", "w", enabled_skills=["chat", "fix", "feature"])):
-            with self.assertRaisesRegex(SkillError, "does not have: feature"):
+        with patch("agent.__main__.load_config", return_value=Config("c", "s", "w", enabled_skills=["chat", "fix", "fgui"])):
+            with self.assertRaisesRegex(SkillError, "does not have: fgui"):
                 run(self.cli_request(chat, token), self.ledger, lambda: api)
         self.assertEqual((self.ledger.item(chat["id"])["state"], self.ledger.queue()), ("running", []))
 

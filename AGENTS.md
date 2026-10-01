@@ -32,16 +32,17 @@ keep runtime authority and behavior changes in those sources and their tests.
 - `agent/slots.py`, `agent/unity.py`, `agent/unity_mcp.py`, `agent/identity.py`: Unity
   resource ownership, Editor discovery, MCP and verification evidence.
 - `agent/__main__.py`, `agent/dispatch.py`, `skills/`, `references/`: worker-facing
-  CLI, launch context and instructions.
+  CLI, launch context and instructions; `skills/feature` is the opt-in Code worker.
 - `agent/skills.py`, `agent/stages.py`, `agent/uploads.py`, `agent/foreign_work.py`: skill
-  manifests and per-host enablement, repository stages, Linear upload downloads and
-  the foreign-work report.
+  manifests (opt-in and exclusive skills included) and per-host enablement, repository
+  stages, Linear upload downloads and the foreign-work report.
 - `agent/deploy.py`, `agent/doctor.py`: installation and diagnostics.
 - `agent/monitor.py`, `agent/monitor_view.py`, `agent/monitor_static/`,
   `agent/heartbeat.py`, `agent/readonly_db.py`: read-only office status monitor,
   the heartbeat `serve` writes for it, and the read-only ledger snapshots it
   shares with `doctor`.
-- `tests/`: unittest suite, fake CLI, local Git fixtures and mocked integrations.
+- `tests/`: unittest suite, fake CLI, local Git fixtures and mocked integrations;
+  `tests/test_feature_journey.py` drives Code jobs through the whole controller offline.
 
 ## Development and production
 
@@ -68,7 +69,8 @@ keep runtime authority and behavior changes in those sources and their tests.
   unmarked production state to make a test profile start.
 - The two bots share one workspace and the same repositories. Mention or delegate
   only issues the operator chooses, never one issue to both bots (both use
-  `farmbot/<key>` branches), and remember that test comments, labels, branches and
+  `farmbot/<key>` branches, with `-config`, `-waivers` and `-followup` suffixes for Code jobs),
+  and remember that test comments, labels, branches and
   draft PRs are real. The real repositories' default branches are unprotected, so
   FarmBot's publication checks are the only guard; test changes to them offline first.
   Both bots also read the same labels: a label or label-group change in Linear reaches
@@ -138,3 +140,8 @@ python -m unittest discover -s tests -p 'test_windows_workers.py' -v
   reports and measured results distinct from current operational guarantees.
 - For schema or release changes, document migration and recovery implications.
   Never assume checking out older code reverses a database migration.
+- Preserve the controller Git trust boundary: validate owned clones and their config
+  allowlist before use, keep worker write roots off clone config, hooks and attributes,
+  and run controller Git with hooks and fsmonitor off (`HOOKS_OFF` in
+  `agent/worktrees.py`). The operating contract's Authority section describes these
+  checks; do not restore the pre-#72 clone-write grants from historical plans.

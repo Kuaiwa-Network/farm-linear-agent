@@ -358,6 +358,29 @@ class CliTests(unittest.TestCase):
                      "--resource", "unity_slot", "--mode", "batch", "--commit", fixed, success=False)
         self.assertEqual(self.run_cli("reservations"), [])
 
+    def test_a_feature_worker_is_refused_unity_before_any_checkout_is_read(self):
+        """P11: the item's own manifest decides, even for a feature item with a Farm-Client pin, and it is read only
+        for the claim's holder."""
+        from unittest.mock import patch
+        from agent.__main__ import parser, run
+        from agent.ledger import Ledger, LedgerError
+        item, token, baseline, fixed, path = self.verification_fixture(skill="feature")
+        ledger = Ledger(self.db)
+        self.addCleanup(ledger.close)
+        stranger = ["--db", str(self.db), "await-resource", "--item", item, "--token", "not-a-claim",
+                    "--resource", "unity_slot", "--mode", "batch"]
+        with self.assertRaisesRegex(LedgerError, "^running claim and matching token required$"):
+            run(parser().parse_args(stranger), ledger, lambda: None)  # the claim first, then the manifest
+        with patch("agent.worktrees.Worktrees.verification_commit") as read_checkout:
+            for extra in ([], ["--commit", fixed]):
+                args = parser().parse_args(["--db", str(self.db), "await-resource", "--item", item, "--token", token,
+                                            "--resource", "unity_slot", "--mode", "batch", *extra])
+                with self.subTest(extra=extra), self.assertRaisesRegex(
+                        LedgerError, "unity_slot is not a resource of feature; its manifest lists none"):
+                    run(args, ledger, lambda: None)
+        read_checkout.assert_not_called()
+        self.assertEqual((ledger.item(item)["state"], ledger.reservations()), ("running", []))
+
     def test_neutral_fix_cannot_select_a_fix_commit(self):
         item, token, baseline, fixed, path = self.verification_fixture()
         self.root_item(item, None)

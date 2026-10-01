@@ -16,7 +16,7 @@ from agent.ledger import Ledger
 from agent.slots import SlotError, SlotPool, UnityIdentity, slot_entry
 from agent.worktrees import WorktreeError, Worktrees
 from test_launcher import unblocked
-from test_ledger import ISSUE, OTHER, SELECTED_AT, issue
+from test_ledger import ISSUE, OTHER, SELECTED_AT, issue, SKILLS
 
 
 def git(*args, cwd):
@@ -644,7 +644,7 @@ class PoolTests(SlotFixture):
                   "server_environment": "公共测试服", "selected_at": SELECTED_AT}
         item = self.ledger.create_work_item(issue_id=issue_id, session_id=session, skill="fix", target=target)
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
-        self.ledger.await_resource(item["id"], token, "unity_slot", mode)
+        self.ledger.await_resource(item["id"], token, "unity_slot", mode, skill=SKILLS["fix"])
         return item["id"]
 
     def finish_worker(self, item_id, reason="worker finished"):
@@ -722,7 +722,7 @@ class PoolTests(SlotFixture):
         git("commit", "-qam", "fix", cwd=path)
         fixed = self.trees.head(path)
         self.trees.verification_commit("Farm-Client", item_id, fixed)
-        self.ledger.await_resource(item_id, token, "unity_slot", "batch", commit_sha=fixed)
+        self.ledger.await_resource(item_id, token, "unity_slot", "batch", commit_sha=fixed, skill=SKILLS["fix"])
         pool = self.pool(mcp=FakeMcp())
         self.assertEqual(pool.tick()["granted"], 1)
         reservation = self.ledger.active_reservation(item_id)

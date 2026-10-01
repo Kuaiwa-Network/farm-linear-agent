@@ -368,14 +368,14 @@ class RepositoryStageTests(LedgerBase):
         self.ledger.connection.execute("UPDATE work_items SET root_repo='Farm-Contract' WHERE id=?", (item["id"],))
         token = self.ledger.claim(item["id"], worker_id="worker")['token']
         with self.assertRaisesRegex(LedgerError, "neutral or Farm-Client"):
-            self.ledger.await_resource(item["id"], token, "unity_slot", "batch")
+            self.ledger.await_resource(item["id"], token, "unity_slot", "batch", skill=SKILLS["fix"])
 
     def test_neutral_stage_requests_only_the_baseline_for_unity(self):
         item = self.new_item()
         token = self.ledger.claim(item["id"], worker_id="worker")["token"]
         with self.assertRaisesRegex(LedgerError, "only a write worker"):
-            self.ledger.await_resource(item["id"], token, "unity_slot", "batch", commit_sha="b" * 40)
-        waiting = self.ledger.await_resource(item["id"], token, "unity_slot", "batch")
+            self.ledger.await_resource(item["id"], token, "unity_slot", "batch", commit_sha="b" * 40, skill=SKILLS["fix"])
+        waiting = self.ledger.await_resource(item["id"], token, "unity_slot", "batch", skill=SKILLS["fix"])
         self.assertEqual(waiting["state"], "awaiting_resource")
         self.assertEqual([r["commit_sha"] for r in self.ledger.reservations()], [PIN["commit_sha"]])
 
@@ -405,6 +405,58 @@ class RepositoryStageTests(LedgerBase):
         self.assertIn("Confirmed symptom; source repository still unknown.",
                       [entry["summary"] for entry in context["conversation_history"]])
 
+
+class ManifestResourceTests(LedgerBase):
+    """Phase B plan, P11: an item waits only for a resource its skill's manifest lists, and the Unity rules read the
+    attempt's root through stages.current_root instead of rules written for fix alone."""
+
+    def claimed(self, skill):
+        item = self.new_item(skill=skill)  # a Farm-Client pin, which no Phase B feature item has: only P11 refuses
+        return item["id"], self.ledger.claim(item["id"], worker_id="worker")["token"]
+
+    def rooted(self, item_id, root):
+        self.ledger.connection.execute("UPDATE work_items SET root_repo=? WHERE id=?", (root, item_id))
+
+    def test_feature_lists_no_resource_so_its_worker_never_waits_for_unity(self):
+        item, token = self.claimed("feature")
+        for root, commit_sha in ((None, None), ("common", None), ("Farm-Client", "b" * 40)):
+            self.rooted(item, root)
+            with self.subTest(root=root), self.assertRaisesRegex(
+                    LedgerError, "^unity_slot is not a resource of feature; its manifest lists none$"):
+                self.ledger.await_resource(item, token, "unity_slot", "batch", skill=SKILLS["feature"],
+                                           commit_sha=commit_sha)
+        self.assertEqual((self.ledger.item(item)["state"], self.ledger.reservations()), ("running", []))
+
+    def test_fix_waits_only_for_the_kind_its_manifest_lists(self):
+        item, token = self.claimed("fix")
+        with self.assertRaisesRegex(LedgerError, "^unity is not a resource of fix; its manifest lists unity_slot$"):
+            self.ledger.await_resource(item, token, "unity", "batch", skill=SKILLS["fix"])
+        waiting = self.ledger.await_resource(item, token, "unity_slot", "batch", skill=SKILLS["fix"])
+        self.assertEqual(waiting["state"], "awaiting_resource")
+
+    def test_the_request_must_carry_the_items_own_manifest(self):
+        item, token = self.claimed("fix")
+        with self.assertRaisesRegex(LedgerError, "the work item's own skill manifest"):
+            self.ledger.await_resource(item, token, "unity_slot", "batch", skill=SKILLS["chat"])
+        self.assertEqual(self.ledger.reservations(), [])
+
+    def test_a_skill_with_an_initial_root_asks_for_unity_only_from_its_farm_client_root(self):
+        """current_root, not fix's rules: the NULL root of a skill with an initial root is that root, never a
+        neutral start. The fixture is feature with a Unity slot and a Farm-Client write, as Phase C may make it."""
+        unity = dataclasses.replace(SKILLS["feature"], resources=("unity_slot",),
+                                    writes=(*SKILLS["feature"].writes, "Farm-Client"))
+        item, token = self.claimed("feature")
+        for root in (None, "common"):
+            self.rooted(item, root)
+            for commit_sha in (None, "b" * 40):
+                with self.subTest(root=root, commit_sha=commit_sha), self.assertRaisesRegex(
+                        LedgerError, "neutral or Farm-Client"):
+                    self.ledger.await_resource(item, token, "unity_slot", "batch", skill=unity, commit_sha=commit_sha)
+        self.assertEqual(self.ledger.reservations(), [])
+        self.rooted(item, "Farm-Client")
+        waiting = self.ledger.await_resource(item, token, "unity_slot", "batch", skill=unity, commit_sha="b" * 40)
+        self.assertEqual((waiting["state"], [r["commit_sha"] for r in self.ledger.reservations()]),
+                         ("awaiting_resource", ["b" * 40]))
 
 class StagedHandoffTests(LedgerBase):
     """Stages come from the item's skill manifest, which the caller hands the ledger (spec §9.4, §9.5)."""
@@ -772,7 +824,7 @@ class LeaseTests(LedgerBase):
     def test_await_resource_records_the_request(self):
         item = self.new_item()
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
-        view = self.ledger.await_resource(item["id"], token, "unity_slot", "batch")
+        view = self.ledger.await_resource(item["id"], token, "unity_slot", "batch", skill=SKILLS["fix"])
         self.assertEqual((view["state"], view["needs_resource"]), ("awaiting_resource", "unity_slot:batch"))
 
     def test_cancel_from_any_active_state_and_fail_from_running(self):
@@ -1120,7 +1172,7 @@ class PauseTests(LedgerBase):
 
     def running_with_slot(self):
         item_id, token = self.running()
-        self.ledger.await_resource(item_id, token, "unity_slot", "interactive")
+        self.ledger.await_resource(item_id, token, "unity_slot", "interactive", skill=SKILLS["fix"])
         self.ledger.ensure_slot("unity_slot:1", kind="unity_slot", host="h", folder=str(self.path.parent / "slot-1"))
         granted = self.ledger.acquire("unity_slot", owner="pool", host="h")
         self.ledger.resume(item_id, "the pool granted the slot")
@@ -2221,7 +2273,7 @@ class WithdrawalTests(WithdrawnWorkBase):
         self.ledger.flag_withdrawal(item["id"], "undelegated", self.now + 1200)
         calls = {"question": lambda: self.ledger.await_input(item["id"], token, "要继续吗？"),
                  "waiting": lambda: self.ledger.await_input(item["id"], token, "等策划确认", reason="waiting"),
-                 "resource": lambda: self.ledger.await_resource(item["id"], token, "unity_slot", "batch"),
+                 "resource": lambda: self.ledger.await_resource(item["id"], token, "unity_slot", "batch", skill=SKILLS["fix"]),
                  "handoff": lambda: self.ledger.handoff_repository(item["id"], token, "Farm-Contract",
                                                                    skill=SKILLS["fix"])}
         for name, call in calls.items():
@@ -3267,7 +3319,7 @@ class ReservationTests(unittest.TestCase):
         item = self.item(ISSUE, "a" * 40)
         self.ledger.connection.execute("UPDATE work_items SET root_repo='Farm-Client' WHERE id=?", (item["id"],))
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
-        self.ledger.await_resource(item["id"], token, "unity_slot", "batch", commit_sha="b" * 40)
+        self.ledger.await_resource(item["id"], token, "unity_slot", "batch", commit_sha="b" * 40, skill=SKILLS["fix"])
         self.assertEqual(self.ledger.item(item["id"])["target"]["commit_sha"], "a" * 40)
         reservation = self.ledger.acquire("unity_slot", owner="pool", host="mac")
         self.assertEqual(reservation["commit_sha"], "b" * 40)
@@ -3277,7 +3329,7 @@ class ReservationTests(unittest.TestCase):
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
         for sha in ("HEAD", "", "b" * 39, 123):
             with self.subTest(sha=sha), self.assertRaises(LedgerError):
-                self.ledger.await_resource(item["id"], token, "unity_slot", "batch", commit_sha=sha)
+                self.ledger.await_resource(item["id"], token, "unity_slot", "batch", commit_sha=sha, skill=SKILLS["fix"])
         self.assertEqual(self.ledger.item(item["id"])["state"], "running")
         self.assertEqual(self.ledger.reservations(), [])
 
@@ -3303,7 +3355,7 @@ class ReservationTests(unittest.TestCase):
     def waiting(self, issue_id, commit, mode, priority=2):
         item = self.item(issue_id, commit, priority=priority)
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
-        self.ledger.await_resource(item["id"], token, "unity_slot", mode)
+        self.ledger.await_resource(item["id"], token, "unity_slot", mode, skill=SKILLS["fix"])
         return item["id"]
 
     def park(self, slot_id="unity_slot:1"):
@@ -3341,11 +3393,11 @@ class ReservationTests(unittest.TestCase):
     def test_a_worker_may_not_stack_a_second_request_while_it_holds_one(self):
         item = self.item(ISSUE, "a" * 40)
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
-        self.ledger.await_resource(item["id"], token, "unity_slot", "batch")
+        self.ledger.await_resource(item["id"], token, "unity_slot", "batch", skill=SKILLS["fix"])
         self.ledger.resume(item["id"], "granted")
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
         with self.assertRaises(LedgerError):
-            self.ledger.await_resource(item["id"], token, "unity_slot", "interactive")
+            self.ledger.await_resource(item["id"], token, "unity_slot", "interactive", skill=SKILLS["fix"])
 
     def test_an_item_without_a_pinned_commit_cannot_request_a_slot(self):
         self.ledger.observe_issue(issue())
@@ -3353,7 +3405,7 @@ class ReservationTests(unittest.TestCase):
         item = self.ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fix")
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
         with self.assertRaises(LedgerError):
-            self.ledger.await_resource(item["id"], token, "unity_slot", "batch")
+            self.ledger.await_resource(item["id"], token, "unity_slot", "batch", skill=SKILLS["fix"])
 
     def test_a_wrong_token_can_neither_read_nor_release_a_reservation(self):
         self.waiting(ISSUE, "a" * 40, "batch")

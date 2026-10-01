@@ -167,8 +167,8 @@ class ServeTests(unittest.TestCase):
         self.assertEqual(service.scheduler.enabled_skills, {"chat"})
         self.assertEqual(service.skills, {"chat"})  # what the ready line reports
         # Still loaded, so the scheduler can refuse a queued fix instead of leaving it waiting.
-        self.assertEqual(set(service.scheduler.skills), {"chat", "fix"})
-        # A config without the key runs every skill in the checkout.
+        self.assertEqual(set(service.scheduler.skills), {"chat", "feature", "fix"})
+        # A config without the key runs every skill in the checkout but the opt-in ones.
         self.assertEqual((self.c.receiver.skills, self.c.scheduler.enabled_skills), ({"chat", "fix"}, {"chat", "fix"}))
 
     def test_an_opt_in_skill_is_loaded_but_routed_and_scheduled_only_where_the_config_names_it(self):
@@ -196,13 +196,28 @@ class ServeTests(unittest.TestCase):
         self.assertEqual((named.receiver.skills, named.scheduler.enabled_skills, named.skills),
                          ({"chat", "fix", "feature"},) * 3)
 
+    def test_build_routes_bot_code_to_feature_only_where_the_config_names_it(self):
+        """Phase B, Task 12: feature is loaded from the checkout but opt-in (P1), so only a config that names it, with
+        its lark-cli profile (Task 10), routes Bot/Code delegations to it."""
+        config = Config(client_id="client", client_secret="s", webhook_secret="signing-secret", host="test",
+                        runtime="fake", repos=self.c.config.repos, port=0,
+                        local_root=Path(self.tmp.name) / "feature-host", enabled_skills=["chat", "fix", "feature"],
+                        lark_cli={"profile": "farmbot-reader"})
+        service = build(config)
+        self.close_later(service)
+        self.assertEqual(service.receiver.skills, {"chat", "fix", "feature"})
+        self.assertEqual(service.scheduler.enabled_skills, {"chat", "fix", "feature"})
+        self.assertEqual(service.skills, {"chat", "fix", "feature"})  # what the ready line reports
+        self.assertNotIn("feature", self.c.receiver.skills)  # a config without the key leaves it off
+
+
     def test_build_refuses_an_unknown_enabled_skill_before_opening_any_state(self):
         from agent.skills import SkillError
         root = Path(self.tmp.name) / "unknown-skill"
         config = Config(client_id="client", client_secret="s", webhook_secret="signing-secret", host="test",
                         runtime="fake", repos=self.c.config.repos, port=0, local_root=root,
-                        enabled_skills=["chat", "feature"])
-        with self.assertRaisesRegex(SkillError, "does not have: feature"):
+                        enabled_skills=["chat", "fgui"])
+        with self.assertRaisesRegex(SkillError, "does not have: fgui"):
             build(config)
         self.assertFalse((root / "agent" / "ledger.sqlite3").exists())
 
@@ -738,8 +753,8 @@ class EnqueueTests(unittest.TestCase):
 
     def test_enqueue_stops_on_a_configured_skill_the_checkout_lacks(self):
         """The contract: enqueue stops on a name the checkout lacks, before it creates a ledger."""
-        self.config.enabled_skills = ["chat", "fix", "feature"]
-        with self.assertRaisesRegex(SkillError, "does not have: feature"):
+        self.config.enabled_skills = ["chat", "fix", "fgui"]
+        with self.assertRaisesRegex(SkillError, "does not have: fgui"):
             enqueue(self.config, issue_ref=ISSUE, skill="fix", commit="a" * 40)
         self.assertFalse(Paths(self.config).ledger.exists())
 

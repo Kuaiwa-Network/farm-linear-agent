@@ -59,7 +59,8 @@ What does not separate them:
   later, in the instance's existing delegation thread on that card, whoever set
   the delegate, an automation or Linear's API included (operating contract,
   Triggers).
-- Both bots use `farmbot/<lowercase-key>` branches in the same repositories.
+- Both bots use `farmbot/<lowercase-key>` branches, with `-config`, `-waivers` and
+  `-followup` suffixes for Code jobs, in the same repositories.
 - The development bot's comments, agent sessions, `needs-more-info` labels,
   branches and draft PRs are real and visible to the team.
 - Both bots read the same labels. A label or label-group change in Linear, such
@@ -84,6 +85,12 @@ What does not separate them:
   FarmBot.
 - FarmBot never closes PRs or deletes remote branches. Close an unwanted draft PR
   and its branch yourself.
+- A Code job on a real card reaches three repositories and waits for days between
+  stages. Keep it to the stages you mean to test by saying so in the delegation text,
+  for example 「只做阶段 A（合约）：开出合约草稿 PR 后停下等我，不要交接到 common。」: the
+  worker finishes that stage and pauses instead of handing off. Press Stop or remove
+  the delegation when the test ends; its branches and PRs stay, the suffix branches
+  (`-config`, `-waivers`, `-followup`) included, until you close or delete them.
 
 ## What is available now
 
@@ -95,6 +102,14 @@ What does not separate them:
   controller lock and reject fake/stub integrations for live operation.
 - `issue_prefix` selects the team key accepted for publishing; it defaults to
   `FARM`, the key of the real 农场 issues a development profile tests.
+- The Code worker (`feature`) is opt-in: TestBot runs it only when its profile's
+  `enabled_skills` names it and `lark_cli.profile` names the lark-cli profile of the
+  FarmBot Feishu app (Setting up TestBot). A Code job runs for days and publishes real
+  draft PRs in Farm-Contract, common and farm-hive, and branches such as
+  `farmbot/<key>-config` in common.
+- `tests/test_feature_journey.py` drives Code jobs through the whole controller
+  offline, with the fake worker, the stub Linear and local Git remotes for all five
+  repositories.
 - [Mac/Windows CI](ci.md) runs the offline suite with Python 3.13 and records evidence.
 - A development Unity slot and Windows desktop acceptance remain operational setup
   in the [rollout plan](superpowers/plans/2026-09-22-cross-platform-development-and-release.md).
@@ -170,10 +185,10 @@ existing production data or copy its marker.
      can wrap across terminal lines, and a one-line paste saves only part of it;
      test it with an empty `CLAUDE_CONFIG_DIR` before use. Copying Keychain
      credentials or `~/.claude.json` does not work.
-   - `claude` cannot run `fix`: the scheduler refuses repository-staged skills under
+   - `claude` cannot run `fix` or `feature`: the scheduler refuses repository-staged skills under
      it (the operating contract's Authority section). A `claude` instance still
      accepts and acknowledges a `fix` delegation, and the item then fails at launch;
-     a live `fix` run needs `codex`.
+     a live write-worker run needs `codex`.
    - kw_ops reaches Codex workers only. Export the profile's `token_env` variable in the wrapper
      that starts `serve`, never in the profile itself.
    - `feature` workers read the 策划案 with lark-cli as FarmBot's own Feishu app; set it up as
@@ -303,6 +318,10 @@ worker:
 4. Put `"lark_cli": {"profile": "farmbot", "home": "/Users/Shared/farmbot-lark-cli"}` in the private
    profile. Enabling `feature` is a separate, operator-approved step.
 
+If a sandboxed worker could reach a personal `--as user` login with this setup, do not enable
+`feature` on that Mac until the setup is fixed or the operator has accepted and recorded that
+exposure.
+
 Never run `lark-cli config keychain-downgrade` for your own store on a FarmBot host, and never export
 lark-cli credentials, or `LARKSUITE_CLI_CONFIG_DIR`, in a shell startup file: FarmBot removes the
 credential variables and the config-directory override after per-worker overrides, preserving the
@@ -311,7 +330,7 @@ the same removals, plus the configured kw_ops token. On Windows, lark-cli keeps 
 user, so a separate home isolates nothing there and FarmBot refuses one; before `feature` is enabled
 on the Windows production host, the operator chooses between a host account whose lark-cli store
 holds only the FarmBot profile and environment credentials in the `feature` worker's shell (the Phase
-B plan's open question, settled in its verification task).
+B plan's open question, still awaiting native-host verification).
 
 ## Keeping production untouched
 

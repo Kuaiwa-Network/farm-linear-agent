@@ -3950,3 +3950,40 @@ class SilentDelegationReceiverTests(ReceiverBase):
         self.assertEqual(settled, [OTHER, ISSUE])
         self.assertIsNone(self.settle())
         self.assertEqual(self.sent(), [])
+
+
+
+class FeatureEnabledReceiverTests(ReceiverBase):
+    """Phase B, Task 12: with the checkout's real manifests, the host's enabled_skills decides whether a Bot/Code
+    delegation starts feature (P1: feature is opt-in)."""
+
+    def receiver_for(self, names):
+        from agent.dispatch import SKILL_AUTHORITY
+        from agent.skills import enabled_skills, load_skills
+        skills = set(enabled_skills(load_skills(Path(__file__).resolve().parents[1] / "skills"), names,
+                                    authority=SKILL_AUTHORITY))
+        self.receiver = Receiver(self.db, "signing-secret", IDENTITY, self.api, lambda: Ledger(self.db),
+                                 skills=skills, scheduler=self.scheduler)
+        self.addCleanup(self.receiver.close)
+        return skills
+
+    def delegate_code_card(self):
+        self.api.fetch_issue.return_value = issue(labels=["Bug", "Code"], delegate_id=APP, label_groups=CODE)
+        self.receive(self.event(agentSession={"id": "session-1", "issue": {"id": ISSUE, "identifier": "FARM-1",
+                                                                            "url": "u"}}))
+        self.receiver.process_one()
+        return self.ledger.items_for_session("session-1")
+
+    def test_a_host_whose_enabled_skills_names_feature_queues_it_for_a_bot_code_delegation(self):
+        self.assertEqual(self.receiver_for(["chat", "fix", "feature"]), {"chat", "fix", "feature"})
+        [item] = self.delegate_code_card()
+        self.assertEqual((item["skill"], item["state"]), ("feature", "queued"))
+        self.assertNotIn("没有启用 feature", self.activities()[-1]["body"])
+        self.api.needs_more_info.assert_not_called()
+
+    def test_a_host_without_enabled_skills_keeps_feature_off_and_says_so(self):
+        self.assertEqual(self.receiver_for(None), {"chat", "fix"})
+        [item] = self.delegate_code_card()
+        self.assertEqual(item["skill"], "chat")
+        self.assertIn("Bot/Code，由 feature 处理，但本实例没有启用 feature（本实例运行：chat、fix）",
+                      self.activities()[-1]["body"])

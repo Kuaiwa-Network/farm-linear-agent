@@ -12,7 +12,7 @@ from agent.session_progress import SessionProgress
 from agent.skills import load_skills
 from agent.withdrawal import CLOSED, CLOSED_CHAT, UNDELEGATED, UNDELEGATED_CHAT
 import test_scheduler
-from test_ledger import ISSUE, OTHER, PIN, SESSION, issue
+from test_ledger import ISSUE, OTHER, PIN, SESSION, issue, SKILLS
 from test_receiver import APP
 from test_skills import opt_in_skill, write_skill
 
@@ -47,7 +47,7 @@ class LifecycleTests(unittest.TestCase):
                     if state == 'awaiting_input':
                         self.ledger.await_input(job['id'], token, 'question?')
                     elif state == 'awaiting_resource':
-                        self.ledger.await_resource(job['id'], token, 'unity_slot', 'batch')
+                        self.ledger.await_resource(job['id'], token, 'unity_slot', 'batch', skill=SKILLS["fix"])
                     lifecycle = self.lifecycle({**status(iid), **change})
                     lifecycle.refresh(iid)
                     self.assertEqual(self.ledger.item(job['id'])['state'], 'cancelled')
@@ -129,7 +129,7 @@ class LifecycleTests(unittest.TestCase):
         if state == 'awaiting_input':
             self.ledger.await_input(job['id'], self.tokens[job['id']], '哪个服？')
         elif state == 'awaiting_resource':
-            self.ledger.await_resource(job['id'], self.tokens[job['id']], 'unity_slot', 'batch')
+            self.ledger.await_resource(job['id'], self.tokens[job['id']], 'unity_slot', 'batch', skill=SKILLS["fix"])
         elif state == 'blocked':
             self.ledger.connection.execute("UPDATE work_items SET state='blocked' WHERE id=?", (job['id'],))
         return self.ledger.item(job['id'])

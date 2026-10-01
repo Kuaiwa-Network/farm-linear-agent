@@ -240,7 +240,7 @@ the claim. The CLI blocks those transitions after a rejected handoff until a val
 handoff is saved; do not remove `handoff` to bypass the repair. If saving cannot
 succeed, retain the local JSON, report the exact error, and do not claim it was saved.
 
-A staged skill (today `fix`) switches repositories between attempts. Save a fresh `handoff`
+A staged skill (today `fix` and `feature`) switches repositories between attempts. Save a fresh `handoff`
 with facts, checks, repository heads, published PRs and next actions, then run:
 
 ```bash
@@ -260,11 +260,14 @@ The controller handles editor recovery and job continuation. Do not follow it wi
 or ask for host intervention. A fresh worker receives the exact retried commit and can read
 `issue-context.resource_recovery` for prior attempts and retained diagnostics.
 
+`await-resource` refuses a resource your skill's `skill.json` does not list under `resources`, and a
+Unity request from any root but a neutral start or Farm-Client.
+
 ## Notices
 
 A notice is an issue comment a job may need more than once: `--kind question` for a grouped question
 round, `waiting` for a pause on a human step elsewhere, `foreign_work` for other people's branches or
-PRs on the issue, `stage` for a stage that started, was skipped or finished, with its reason, and
+PRs on the issue, `stage` for a stage that was skipped or passed, with its reason, when your skill asks for one, and
 `merge_request` for asking the owner to merge a named PR. Name each with `--request-id`: 1–64 ASCII
 letters, digits, `.`, `_` or `-`, unique within your item, such as `questions-2`. A new round needs a
 new id. A question notice carries the owner's profile URL, and the creator's when it asks 策划
@@ -280,6 +283,8 @@ python3 -m agent --db DATABASE post-notice --item ITEM_ID --token-file STATE_DIR
 notice, and a different body under that id is refused. `post-notice` reconciles the marker against live
 comments before creating one, so rerunning it after an interruption never posts twice.
 `issue-context.notices` lists your item's notices; `remote_id` is set once a notice is on the issue.
+For a Code config re-pin, save the new round's `stage-C-2` (then `-3`, …) id and exact body in the plan;
+retry that saved pair. Check current and recovery notices before choosing an unused id or posting again.
 
 ## Issue changes during an attempt
 
@@ -323,13 +328,18 @@ directory of its own, so such notes stay with the item that wrote them. For exam
     ]
   },
   "plan": {
+    "stages": {"A": "done", "B": "pending", "C": "pending", "D": "pending", "G": "pending"},
     "prs": {"Farm-Contract": [{"branch": "ISSUE_BRANCH", "role": "issue", "head": "FULL_HEAD_SHA",
-                               "url": "https://github.com/Kuaiwa-Network/Farm-Contract/pull/12"}]},
-    "pause": {"kind": "waiting", "request_id": "config-ready"}
+                               "pr": {"url": "https://github.com/Kuaiwa-Network/Farm-Contract/pull/12",
+                                      "state": "draft", "merge": null}}]}
   },
   "published_prs": ["https://github.com/Kuaiwa-Network/Farm-Contract/pull/12"]
 }
 ```
+
+A pending pause is recorded as `{"kind": "config_ready", "reason": "waiting", "notice": "config-needed",
+"since": "<ISO 8601 UTC>"}`. The controller reads `prs` to re-attach a successor's worktrees and
+identify own work, and `stages`, `pause` and `prs` for `doctor`; the other keys are the worker's record.
 
 A checkpoint that omits `plan` keeps the saved one, and one that includes it replaces it whole; `{}`
 clears it. `null` or a plan outside these bounds refuses the whole checkpoint, its `handoff` and
@@ -350,6 +360,9 @@ issue branch early. A successor of cancelled work, and a later attempt of your i
 removed its worktrees, then gets that branch itself, fetched and tracking `origin/<branch>`:
 commits others pushed are on it, and commits of its own that were never pushed stay ahead of the
 remote. Integrate the remote before you push, never force-push.
+
+The `feature` skill's plan keys and their entry shapes are in `skills/feature/SKILL.md` ("The plan"); where they
+differ from the example above, a `feature` worker follows the skill.
 
 ## Read-only checkouts
 

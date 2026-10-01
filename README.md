@@ -2,8 +2,10 @@
 
 One Linear agent for the 农场 team. Delegate an issue to it for work, @mention it to
 talk. The issue's label from the Bot group says what work: Bot/修改 for a bug fix or a
-small change to existing code or UI, Bot/UI and Bot/Code for new UI and new features, whose
-workers do not exist yet.
+small change to existing code or UI, Bot/Code for a new feature's code and Bot/UI for its
+new UI. The Code worker runs only on a host that enables it; in this revision it takes a
+feature from its Farm-Contract change through farm-common declarations to the farm-hive
+server and names the client work still to do. The UI worker does not exist yet.
 Without a Bot label a delegation opens a conversation. Capabilities are added as skills on
 a shared identity, ledger, worker runtime and desktop-resource locks: chat, QA, bug fixes
 and small changes, FGUI, then whole features.
@@ -133,7 +135,7 @@ not cover, stops `serve` and `enqueue`, and `doctor` reports `enabled_skills_inv
 routes only to enabled skills, `enqueue`, `request-repair` and `resume-work` refuse the others, and
 a queued job of a disabled skill fails with an error in its session. `doctor` reports the loaded
 and enabled skills, so an opt-in skill no list names is loaded and not enabled. A
-repository-staged skill such as `fix` runs only on the `codex` runtime: with `claude`, `serve`
+repository-staged skill such as `fix` or `feature` runs only on the `codex` runtime: with `claude`, `serve`
 still starts with it enabled and queues its jobs, each job fails at launch, and `doctor` reports
 `skill_runtime_unsupported`.
 
@@ -157,6 +159,14 @@ only the inherited environment, so never export these variables, or
 `LARKSUITE_CLI_CONFIG_DIR`, in a shell startup file on a FarmBot host, and never run
 `lark-cli config keychain-downgrade` for your own lark-cli store there: every sandboxed worker could
 then read every profile in it, a personal login included.
+
+On a Mac where someone also uses lark-cli with a personal login, the setup must keep that login
+out of the workers' reach, as the development workflow's lark-cli section describes for TestBot;
+otherwise the operator must accept and record that exposure before enabling `feature`. Diagnostic
+and Unity children also withhold the credential variables and configured kw_ops token. On Windows,
+lark-cli protects secrets per Windows user, so a separate home isolates nothing; the production
+host's account/store setup remains undecided ([feature-workers design](docs/superpowers/specs/2026-09-24-feature-workers-design.md)
+§14.2), and `feature` stays disabled there until it is settled and verified.
 
 ## AI/operator diagnostics
 

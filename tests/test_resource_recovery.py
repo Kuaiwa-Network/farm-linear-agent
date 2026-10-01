@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from agent.ledger import LedgerError
-from test_ledger import LedgerBase, PIN
+from test_ledger import LedgerBase, PIN, SKILLS
 
 
 class RecoveryTests(LedgerBase):
@@ -24,7 +24,7 @@ class RecoveryTests(LedgerBase):
     def failed_job(self):
         item = self.new_item()
         token = self.ledger.claim(item['id'], worker_id='worker')['token']
-        self.ledger.await_resource(item['id'], token, 'unity_slot', 'interactive')
+        self.ledger.await_resource(item['id'], token, 'unity_slot', 'interactive', skill=SKILLS["fix"])
         with self.ledger._transaction():
             self.store()._fail_job(item['id'], 'Unity infrastructure recovery exhausted')
         return item['id']
@@ -85,7 +85,7 @@ class RecoveryTests(LedgerBase):
         # Only a Farm-Client-rooted fix worker may select its own commit for Unity verification.
         self.ledger.connection.execute("UPDATE work_items SET root_repo='Farm-Client' WHERE id=?", (item['id'],))
         claim = self.ledger.claim(item['id'], worker_id='before-resource')
-        self.ledger.await_resource(item['id'], claim['token'], 'unity_slot', 'interactive', commit_sha='b' * 40)
+        self.ledger.await_resource(item['id'], claim['token'], 'unity_slot', 'interactive', commit_sha='b' * 40, skill=SKILLS["fix"])
         self.ledger.ensure_slot('unity_slot:1', kind='unity_slot', host='test', folder=str(self.path.parent / 'slot-1'))
         reservation = self.ledger.acquire('unity_slot', owner='pool', host='test')
         self.ledger.set_slot_state('unity_slot:1', 'interactive_busy')

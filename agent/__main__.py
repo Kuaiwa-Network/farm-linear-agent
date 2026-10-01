@@ -8,10 +8,10 @@ import sys
 from pathlib import Path
 
 from .config import Config, Paths, linear_api, load_config
-from .ledger import ACTIVE_STATES, AWAIT_REASONS, NOTICE_KINDS, TERMINAL_STATUS_TYPES, Ledger, LedgerError
+from .ledger import ACTIVE_STATES, AWAIT_REASONS, NOTICE_KINDS, TERMINAL_STATUS_TYPES, Ledger, LedgerError, require_listed_resource
 from .memory import prune_snapshots
 from .router import CONVERSATION_SKILLS, WRITE_SKILLS, continuation_refusal
-from .stages import write_repositories
+from .stages import current_root, write_repositories
 from .withdrawal import NOTICE_REASONS, notice as withdrawal_notice, question_withdrawn
 
 
@@ -652,14 +652,21 @@ def run(args, ledger, api_factory):
         refuse_withdrawn(ledger.item(args.item))
         return result
     if c == "await-resource":
+        from .config import ROOT
+        from .skills import load_skills
         token = resolve_token(args)
+        ledger.renew(args.item, token)  # authenticate before reading a manifest or any checkout
+        item = ledger.item(args.item)
+        # The item's own manifest decides what it may wait for (P11), as it decides handoff-repository's stages.
+        skill = load_skills(ROOT / "skills").get(item["skill"])
+        if skill is None:
+            raise LedgerError(f"a resource request requires the item's skill; {item['skill']} is not loaded here")
+        require_listed_resource(skill, args.resource)
         if args.commit is not None:
             from .worktrees import Worktrees
-            ledger.renew(args.item, token)  # authenticate before reading any checkout
-            item = ledger.item(args.item)
             if (item["skill"] not in WRITE_SKILLS or args.resource != "unity_slot"
                     or (item.get("target") or {}).get("repository") != "Farm-Client"
-                    or (item["skill"] == "fix" and item["root_repo"] != "Farm-Client")):
+                    or current_root(item["root_repo"], skill) != "Farm-Client"):
                 raise LedgerError("only a write worker may select a Farm-Client Unity verification commit")
             config = load_config(secure_permissions=False)
             paths = Paths(config)
@@ -668,7 +675,8 @@ def run(args, ledger, api_factory):
             Worktrees(paths.repos, paths.worktrees, config.repos).verification_commit(
                 "Farm-Client", args.item, args.commit)
         # Ownership is checked again after Git validation, fencing a concurrent stop/closure.
-        return ledger.await_resource(args.item, token, args.resource, args.mode, commit_sha=args.commit)
+        return ledger.await_resource(args.item, token, args.resource, args.mode, skill=skill,
+                                     commit_sha=args.commit)
     if c == "release-resource":
         # The worker's own verdict, not the pool's: the pool re-checks quiescence before acting on a slot
         # this worker may have wedged (spec §7). Both outcomes are verified against the reservation's own

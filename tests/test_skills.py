@@ -256,7 +256,7 @@ class WithdrawalInstructionTests(unittest.TestCase):
 class SkillRegistryTests(unittest.TestCase):
     def test_repository_skills_load_with_expected_authority(self):
         skills = load_skills(ROOT / "skills")
-        self.assertEqual(set(skills), {"chat", "fix"})
+        self.assertEqual(set(skills), {"chat", "feature", "fix"})
         self.assertEqual(skills["fix"].trigger, ("delegation",))
         self.assertIn("Farm-Client", skills["fix"].writes)
         self.assertEqual(skills["fix"].resources, ("unity_slot",))
@@ -405,8 +405,8 @@ class EnabledSkillsTests(unittest.TestCase):
             self.assertIsNone(load_config(path).enabled_skills)
 
     def test_an_unknown_name_or_a_missing_chat_is_a_configuration_error(self):
-        with self.assertRaisesRegex(SkillError, "does not have: feature"):
-            enabled_skills(self.skills, ["chat", "feature"], authority=self.authority)
+        with self.assertRaisesRegex(SkillError, "does not have: fgui"):
+            enabled_skills(self.skills, ["chat", "fgui"], authority=self.authority)
         for names in (["fix"], []):
             with self.subTest(names=names), self.assertRaisesRegex(SkillError, "must include chat"):
                 enabled_skills(self.skills, names, authority=self.authority)
@@ -460,3 +460,331 @@ class EnabledSkillsTests(unittest.TestCase):
             with self.assertRaisesRegex(SkillError, "chat cannot be opt-in"):
                 enabled_skills(skills, None, authority={"chat": "the chat part"})
             self.assertEqual(set(enabled_skills(skills, ["chat"], authority={"chat": "the chat part"})), {"chat"})
+
+
+
+class FeatureManifestTests(unittest.TestCase):
+    """Phase B, Task 12: the feature manifest is exactly the plan's Shared Interfaces, and it is opt-in (P1)."""
+
+    SHARED_INTERFACE = {
+        "name": "feature",
+        "trigger": ["delegation"],
+        "intents": ["label:Bot/Code"],
+        "writes": ["Farm-Contract", "common", "farm-hive"],
+        "initial_root": "Farm-Contract",
+        "staged": True,
+        "reads": ["Farm-Contract", "Farm-Client", "farmgui"],
+        "resources": [],
+        "gates": ["answers", "config_ready", "closing", "pr_review"],
+        "mcp": [],
+        "budget": {"lease_seconds": 2700, "max_hours": 10, "renew_minutes": 10},
+        "opt_in": True,
+        "exclusive": True,
+    }
+
+    def test_the_manifest_file_is_the_shared_interface_and_task_1s_fixture(self):
+        raw = json.loads((ROOT / "skills" / "feature" / "skill.json").read_text(encoding="utf-8"))
+        self.assertEqual(raw, self.SHARED_INTERFACE)
+        # Tasks 2-11 tested against FEATURE_SHAPE; the real manifest must be that shape, or their tests prove
+        # nothing about it.
+        self.assertEqual(raw, {"name": "feature", **FEATURE_SHAPE})
+
+    def test_the_manifest_loads_as_a_staged_opt_in_exclusive_skill_without_tools(self):
+        feature = load_skills(ROOT / "skills")["feature"]
+        self.assertEqual((feature.trigger, feature.intents, feature.writes, feature.initial_root, feature.staged,
+                          feature.reads, feature.resources, feature.gates, feature.mcp, feature.budget),
+                         (("delegation",), ("label:Bot/Code",), ("Farm-Contract", "common", "farm-hive"),
+                          "Farm-Contract", True, ("Farm-Contract", "Farm-Client", "farmgui"), (),
+                          ("answers", "config_ready", "closing", "pr_review"), (),
+                          {"lease_seconds": 2700, "max_hours": 10, "renew_minutes": 10}))
+        self.assertEqual((feature.opt_in, feature.exclusive), (True, True))
+        self.assertTrue(feature.skill_md.is_file())
+
+    def test_feature_runs_only_where_enabled_skills_names_it(self):
+        from agent.dispatch import SKILL_AUTHORITY
+        skills = load_skills(ROOT / "skills")
+        self.assertIn("feature", skills)  # loaded on every host that has this checkout
+        self.assertEqual(set(enabled_skills(skills, None, authority=SKILL_AUTHORITY)), {"chat", "fix"})
+        for names in (["chat", "fix", "feature"], ["chat", "feature"]):
+            with self.subTest(names=names):
+                self.assertEqual(set(enabled_skills(skills, names, authority=SKILL_AUTHORITY)), set(names))
+
+
+
+class FeatureInstructionTests(unittest.TestCase):
+    """Phase B, Task 13: the feature skill's safety sentences, pinned so that dropping one is a visible change.
+    Whitespace is normalized, so rewrapping a paragraph changes nothing here."""
+
+    def raw(self):
+        return (ROOT / "skills" / "feature" / "SKILL.md").read_text(encoding="utf-8")
+
+    def text(self):
+        return " ".join(self.raw().split())
+
+    def assert_phrases(self, phrases):
+        text = self.text()
+        for phrase in phrases:
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, text)
+
+    def test_the_design_document_is_read_only_and_only_as_farmbots_app(self):
+        self.assert_phrases((
+            "lark-cli --profile PROFILE docs +fetch --as bot", "lark-cli --profile PROFILE drive +download --as bot",
+            "`tools.lark_cli.profile`", "Never `--as user`, never another profile",
+            "Never set or export a `LARKSUITE_CLI_` variable", "only a relative path under the current directory",
+            "Fetch only links found in the card's description, its human comments and this job's session messages",
+            "never draft from a paraphrase", "Never guess what the document says"))
+
+    def test_rulings_come_only_from_named_authors_and_never_by_default(self):
+        self.assert_phrases((
+            "`[DECIDED:<Linear user name>@<date>]`", "`author.name`", "not the `displayName` handle",
+            "Never invent a name, a date or a ruling", "An item stands only when a named person answers it",
+            "Write no `默认·3 个工作日未异议` marker",
+            "Ask for a one-line answer to the high-confidence section too, never 不用答",
+            "The comment carries `owner.person.url` always, and `creator.url` when the round has a 主策 section",
+            "ends with a `[farmbot:…]` marker line"))
+        # A comment and a session reply are both dated in UTC+8; neither falls back to the UTC date.
+        self.assertEqual(self.text().count("calendar date of its `created_at` in UTC+8"), 2)
+
+    def test_farmbot_names_the_config_and_never_writes_designer_data(self):
+        self.assert_phrases((
+            "yours to define, never as questions", "Declare, never populate",
+            "Never write data rows, data values or global-key values", "declare only type-neutral ones",
+            "never through a spreadsheet tool", "A field the client reads is never `server`",
+            "per column the exact header text"))
+
+    def test_stage_a_follows_farm_contract_and_reads_the_client_in_its_checkouts(self):
+        self.assert_phrases((
+            "is that 交棒: create no Codex task, chip or issue", "`[UNREVIEWED]` never backs a proto field",
+            "never install or upgrade a tool", "the next stage starts without waiting for the merge",
+            "read Farm-Client and farmgui in their default-branch checkouts under `reads`",
+            "with the commit you read"))
+        self.assertNotIn("not read in this job", self.text())
+
+    def test_the_job_publishes_drafts_and_never_merges(self):
+        self.assert_phrases((
+            "They do not let you merge, deploy, run Jenkins or any CI job, change CI",
+            "Never force-push and never rewrite a published branch", "Only `status: verified` authorizes the push",
+            "--draft"))
+
+    def test_every_issue_branch_is_recorded_at_intake_after_the_foreign_work_check(self):
+        self.assert_phrases((
+            "record every write repository's issue branch", "after \"Other people's work\" has found nothing foreign",
+            "the name `git -C WORKTREE branch --show-current` prints", "never change a recorded name"))
+
+    def test_a_cleanup_commit_is_inspected_and_the_remote_is_merged_never_forced(self):
+        self.assert_phrases((
+            "`wip(<eight characters>): preserve ended work`", "Never push it as it is",
+            "`git reset --soft HEAD~1`", "`git merge origin/BRANCH`", "Never rebase a published commit"))
+
+    def test_a_stage_limit_stops_the_job_after_that_stage(self):
+        self.assert_phrases((
+            "the latest message that sets or lifts a limit decides", "do not hand off to or start a later stage",
+            "`{\"kind\": \"stage_limit\", \"reason\": \"waiting\"", "a message after the limit asks you to go on"))
+
+    def test_notices_follow_the_request_ids_of_the_plan(self):
+        self.assert_phrases((
+            "numbered from 1 (`questions-1`, `foreign-work-1`)",
+            "each re-ask takes the next number from 2 (`config-needed-2`",
+            "a `stage` notice only for a stage that is skipped", "stage A ends with the `merge_request` notice"))
+
+    def test_a_removed_delegation_or_a_closed_card_ends_the_attempt(self):
+        self.assert_phrases((
+            "when `fetch-issue` returns `delegated: false`", "`withdrawn: true`",
+            "`delegation withdrawn`", "publish nothing and ask nothing",
+            "save a checkpoint", "run `withdraw` and exit", "Never ask to be delegated again",
+            "`in_scope: false`"))
+        section = self.raw().split("## Delegation, closure and the label", 1)[1].split("\n## ", 1)[0]
+        self.assertNotIn("post a blocker that names", section)
+        self.assertNotIn("and finish blocked", section)
+
+    def test_nothing_resumes_the_job_but_a_person(self):
+        self.assert_phrases(("Nothing times out, and comments alone never resume you",
+                             "never treat silence, a timer, or a comment nobody wrote as an answer"))
+
+    def test_every_documented_worker_command_parses(self):
+        from agent.__main__ import parser
+        commands = [line.strip() for block in re.findall(r"```bash\n(.*?)```", self.raw(), re.DOTALL)
+                    for line in block.splitlines() if line.strip().startswith("python3 -m agent ")]
+        self.assertTrue(commands)
+        for command in commands:
+            with self.subTest(command=command):
+                self.assertEqual(parser().parse_args(shlex.split(command)[3:]).item, "ITEM_ID")
+
+    def test_every_plan_example_is_a_plan_the_ledger_saves(self):
+        """Each json block is saved as a checkpoint plan of a claimed feature item on card FARM-1, so the ledger's
+        own validation, P9's issue-branch rule included once it lands, judges it."""
+        from agent.ledger import Ledger
+        from test_ledger import ISSUE, SESSION, issue
+        examples = re.findall(r"```json\n(.*?)```", self.raw(), re.DOTALL)
+        self.assertTrue(examples)
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = Ledger(Path(tmp) / "ledger.sqlite3")
+            try:
+                ledger.observe_issue(issue())
+                ledger.ensure_session(SESSION, ISSUE, delegation=True)
+                item = ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="feature")["id"]
+                token = ledger.claim(item, worker_id="w")["token"]
+                for example in examples:
+                    with self.subTest(example=example[:60]):
+                        plan = json.loads(example)
+                        ledger.checkpoint(item, token, {"plan": plan})
+                        self.assertEqual(ledger.issue_context(item)["plan"], plan)
+            finally:
+                ledger.close()
+
+
+class FeatureCommentTemplateTests(unittest.TestCase):
+    """Phase B, Task 13: the feature worker's comment templates, rendered for an instance."""
+
+    def rendered(self, name="FarmBot"):
+        return (ROOT / "references" / "comment-templates.md").read_text(encoding="utf-8").replace("<bot_name>", name)
+
+    def section(self, name):
+        return self.rendered().split(f"\n## {name}\n", 1)[1].split("\n## ", 1)[0]
+
+    def test_the_feature_start_comment_names_the_instance(self):
+        self.assertIn("\n## feature started\n👀 TestBot 已开始处理这张功能卡：", self.rendered("TestBot"))
+
+    def test_the_notices_that_ask_people_to_act_mention_the_owner(self):
+        for name in ("feature questions", "feature merge request", "feature config needed"):
+            with self.subTest(name=name):
+                self.assertIn("<owner.person.url>", self.section(name))
+        for name in ("feature questions", "feature config needed"):
+            with self.subTest(name=name):
+                self.assertIn("<creator.url>", self.section(name))
+
+    def test_the_question_round_asks_every_recipient_and_records_only_real_answers(self):
+        section = self.section("feature questions")
+        for phrase in ("### 主策", "### 服务端", "### 客户端", "高置信度的也请回一句", "没人回答的不会默认成立",
+                       "其他（请说）"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, section)
+
+    def test_the_merge_request_never_merges(self):
+        section = self.section("feature merge request")
+        for phrase in ("不会合并", "我会去 GitHub 核对"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, section)
+
+    def test_the_config_needed_comment_asks_for_exact_headers_and_defines_ready(self):
+        section = self.section("feature config needed")
+        for phrase in ("表头文字必须完全一致", "会被静默丢弃", "「配置就绪」指", "不必是 main",
+                       "合并即确认这些表名、列名和字段名", "Done 或 Canceled"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, section)
+
+    def test_a_stage_limit_is_said_in_the_notice_that_ends_the_stage(self):
+        for name in ("feature stage", "feature merge request", "feature config needed"):
+            with self.subTest(name=name):
+                self.assertIn("按本卡要求，FarmBot 在阶段 <字母> 后停下；要继续请回复本会话或 @FarmBot。",
+                              self.section(name))
+
+
+
+class FeatureClosingInstructionTests(unittest.TestCase):
+    """Phase B, Task 14: stages C and D, the closing steps and the delivery, pinned like Task 13's sentences."""
+
+    def raw(self):
+        return (ROOT / "skills" / "feature" / "SKILL.md").read_text(encoding="utf-8")
+
+    def assert_phrases(self, phrases):
+        text = " ".join(self.raw().split())
+        for phrase in phrases:
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, text)
+
+    def test_client_only_config_closes_without_a_hive_pin_or_hive_pr(self):
+        self.assert_phrases((
+            "When stage D is skipped, set both `closing.hive_resynced` and `closing.pin_written` to true",
+            "do not hand off to farm-hive for closing", "Keep `config.sha` for the client stage",
+            "When stage C ran and stage D was not skipped"))
+        template = (ROOT / "references" / "comment-templates.md").read_text(encoding="utf-8")
+        self.assertIn("服务端阶段跳过时", template)
+
+    def test_every_hive_closing_attempt_selects_and_reuses_its_recorded_followup(self):
+        self.assert_phrases((
+            "On every farm-hive closing attempt", "select the recorded `followup` branch before changing files",
+            "reuse its existing draft PR", "never commit the remaining pin on the merged issue branch",
+            "git switch --no-track -c FOLLOWUP_BRANCH origin/FOLLOWUP_BRANCH"))
+
+    def test_a_re_pin_gets_a_new_stage_c_notice_and_retries_keep_the_saved_body(self):
+        self.assert_phrases((
+            "`stage-C-2`, `stage-C-3`", "`config.stage_notice`", "same request id and body",
+            "clear `config.stage_notice`", "the saved stage-C notice id"))
+
+    def test_every_stage_of_the_job_is_in_this_revision(self):
+        raw = self.raw()
+        self.assertNotIn("\n## After stage B\n", raw)
+        for heading in ("## Config ready and stage C", "## The config checkout", "## The Jenkins branch",
+                        "## Stage D: farm-hive", "## Closing", "## Delivery"):
+            with self.subTest(heading=heading):
+                self.assertIn(f"\n{heading}\n", raw)
+
+    def test_stage_c_reads_cells_at_the_named_commit_and_never_fixes_designer_data(self):
+        self.assert_phrases((
+            "git clone --shared --no-checkout COMMON_CLONE STATE_DIR/common-FULL_SHA",
+            "git -C STATE_DIR/common-FULL_SHA checkout --detach FULL_SHA", "`designer/tools/ssml_reader.py`",
+            "never from line diffs or row counts", "never fix designer data", "never commit in it"))
+
+    def test_the_jenkins_branch_adds_no_commits_and_a_re_pin_takes_a_new_one(self):
+        self.assert_phrases((
+            "Publish a branch at the config SHA that adds no commits",
+            "git switch -c JENKINS_BRANCH FULL_SHA", "`farmbot/<key>-config-<n>`, n the lowest number from 2",
+            "never force-push and never delete a branch", "so the worktree is back on the issue branch"))
+
+    def test_stage_d_syncs_the_unmerged_contract_and_pins_locally(self):
+        self.assert_phrases((
+            "is marked `-unreachable`", "`ds_content_digest`", "a placeholder of 64 zeros",
+            "never the whole directory", "never become expected values",
+            "fail on `-unreachable`, as expected"))
+
+    def test_the_designer_data_mechanism_is_farm_hives_to_name(self):
+        self.assert_phrases((
+            "follow them instead of those steps", "says which mechanism it used",
+            "farm-hive's own files decide, not that header"))
+
+    def test_the_re_sync_never_uses_a_checkout_that_lacks_the_merge(self):
+        self.assert_phrases((
+            "git -C READS_CONTRACT merge-base --is-ancestor MERGE_SHA HEAD",
+            "never sync from a checkout that lacks the merge", "The next launch refreshes it"))
+
+    def test_closing_polls_nothing_and_follows_the_root_order(self):
+        self.assert_phrases((
+            "it polls nothing", "Farm-Contract (waiver removal), then farm-hive (the re-sync, then the pin)",
+            "with `FARM_CONTRACT` set to READS_CONTRACT", "it asks for no UI step",
+            "Never pin it silently", "remove exactly those lines", "When a stage limit stops you after C"))
+
+    def test_the_delivery_names_the_client_work_and_leaves_the_change_unarchived(self):
+        self.assert_phrases((
+            "the merges still to do in order, the client work that remains", "the OpenSpec change is not archived yet",
+            "finish delivered (\"Outcomes\") with every PR this job opened in `prs`"))
+
+
+class FeatureClosingTemplateTests(unittest.TestCase):
+    """Phase B, Task 14: the closing, re-ask, pin-mismatch and delivery templates."""
+
+    def section(self, name):
+        text = (ROOT / "references" / "comment-templates.md").read_text(encoding="utf-8")
+        return text.split(f"\n## {name}\n", 1)[1].split("\n## ", 1)[0]
+
+    def assert_in_section(self, name, phrases):
+        section = self.section(name)
+        for phrase in phrases:
+            with self.subTest(section=name, phrase=phrase):
+                self.assertIn(phrase, section)
+
+    def test_the_closing_comment_asks_for_no_ui_step_and_warns_about_done(self):
+        self.assert_in_section("feature closing", (
+            "本卡不含 UI 步骤", "designer-source.pipeline", "三行原样贴到本 issue", "我不会轮询 GitHub",
+            "Done 或 Canceled", "<owner.person.url>", "按本卡要求，<bot_name> 在阶段 <字母> 后停下"))
+
+    def test_a_re_ask_says_what_was_looked_for(self):
+        self.assert_in_section("feature still waiting", ("我核对了", "没有找到", "<owner.person.url>"))
+
+    def test_a_pin_for_another_commit_is_a_question_for_the_owner(self):
+        self.assert_in_section("feature pin mismatch", ("我不会自行改用别的 commit", "<owner.person.url>"))
+
+    def test_the_delivery_lists_the_merges_the_client_work_and_the_unarchived_change(self):
+        self.assert_in_section("feature delivery", (
+            "还需合并", "不会合并", "客户端还要做", "尚未归档", "<owner.person.url>"))
