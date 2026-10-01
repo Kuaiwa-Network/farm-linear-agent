@@ -84,3 +84,37 @@ stage (the skill's "A stage limit"); leave it out otherwise.
 「配置就绪」指：策划的数据和这些声明都已提交到 farm-common 的同一个 commit 或分支（不必是 main）。就绪后请在本 issue 写出那个 commit 或分支名，再回复本会话或 @<bot_name>；我会按表头逐列核对、重新导表，然后开始服务端。
 提醒：交付评论出现前请不要把卡片移到 Done 或 Canceled，那会取消这项工作。
 按本卡要求，<bot_name> 在阶段 <字母> 后停下；要继续请回复本会话或 @<bot_name>。
+
+## feature still waiting
+（`waiting` 通知，request id `config-needed-N` 或 `closing-N`，N 从 2 起：恢复后核对没通过、或还有步骤没完成时用。<creator.url> 只在 `config-needed-N` 里写，配置由策划准备。）
+<bot_name> 已完成：<这次做了什么，带链接；没有就删掉这一行>
+还在等：<逐条列出仍需的人工步骤>
+我核对了：<查了什么>；没有找到：<缺什么，或核对失败的原文>
+请处理：<owner.person.url> <creator.url>
+完成后请回复本会话或 @<bot_name>。
+
+## feature closing
+（`waiting` 通知，request id `closing`。不需要的步骤整条删掉。流水线名写服务端 PR 采用的发布方式；今天是 designer-source.pipeline。）
+<bot_name> 服务端草稿已提交，还需要这些人工步骤（本卡不含 UI 步骤；客户端部分见之后的交付评论）：
+1. 请 <owner.person.url> 合并契约 PR：<链接>。合并后我会移除它带来的 BREAKING_WAIVERS 记账（如有），并把服务端的协议快照同步到合并后的 commit。
+2. 请合并配表声明 PR：<链接>。
+3. 请有权限的同学在 Jenkins 运行 designer-source.pipeline，分支选 <Jenkins 分支>（它指向配置 commit <短 SHA>，不含别的提交），把流水线末尾打印的三行原样贴到本 issue：DESIGNER_SOURCE_VERSION、DESIGNER_SOURCE_ARCHIVE_SHA256、DESIGNER_SOURCE_DIGEST。预期版本：<日期>.<短 hash>（短 hash 的位数以流水线打印的为准）。
+服务端 PR 要等契约合并、我推送协议同步、并写入发布后的三个 pin 值之后再合并：<服务端 PR 链接>
+每完成一步请回复本会话或 @<bot_name>；我不会轮询 GitHub。
+提醒：交付评论出现前请不要把卡片移到 Done 或 Canceled，那会取消这项工作。
+按本卡要求，<bot_name> 在阶段 <字母> 后停下；要继续请回复本会话或 @<bot_name>。
+
+## feature pin mismatch
+（`question` 通知，request id `questions-N`。）
+<bot_name> 核对了贴出的 pin：版本指向 <版本里的 commit>，不是配置 commit <短 SHA>：<差异说明>。
+请 <owner.person.url> 决定：改用这个 commit 重新核对配置再 pin（若它不在 <Jenkins 分支> 之后，我会另推一个 Jenkins 分支），还是从 <Jenkins 分支> 重新发布？我不会自行改用别的 commit。
+
+## feature delivery
+<bot_name> 已完成这张功能卡的契约、配表声明和服务端（草稿 PR 与合并状态见下）：
+- 契约：<PR 链接>（<状态>）；change <名称> 尚未归档，回账等客户端完成后再做
+- 配表声明：<PR 链接>（<状态>）；配置 commit <短 SHA>，Jenkins 分支 <分支>，pin <版本>
+- 服务端：<PR 链接>（<状态>；协议已同步到契约 commit <短 SHA>；设计数据按 <发布方式> 固定）
+- 其他：<waivers 或 followup PR 链接；没有就删掉这一行>
+- 验证：<跑过的门和测试，以及没跑的和原因>
+- 还需合并：请 <owner.person.url> 按顺序合并 <PR 列表>；<bot_name> 不会合并
+- 客户端还要做：<按契约 tasks.md 的 Farm-Client 交棒条目：协议导出、配置 commit <短 SHA> 的配置导出、客户端代码与 UI 接入>；本卡这次不做

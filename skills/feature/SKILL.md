@@ -120,7 +120,9 @@ save a checkpoint with the plan and a fresh handoff, run `handoff-repository --t
 |---|---|---|
 | A | Farm-Contract | "Stage A: the Farm-Contract change" |
 | B | common | "Stage B: farm-common declarations" |
-| anything later | any | "After stage B" |
+| C | common | "Config ready and stage C" |
+| D | farm-hive | "Stage D: farm-hive" |
+| G | any root for the closing comment; each later closing step names its own | "Closing" |
 
 ## The plan
 
@@ -196,7 +198,8 @@ python3 -m agent --db DATABASE await-input --item ITEM_ID --token-file STATE_DIR
 |---|---|---|---|---|
 | `answers` | `question`, `questions-N` | `question` | a session reply, or a mention of `bot_name` while the card is delegated | which items have answers, and from whom |
 | `foreign_work` | `foreign_work`, `foreign-work-N` | `question` | the same | the answer (continue, stop, or build on theirs) and who gave it |
-| `config_ready` | `waiting`, `config-needed`, then `config-needed-N` | `waiting` | the same, once someone names a farm-common commit or branch on the card | "After stage B", in this revision |
+| `config_ready` | `waiting`, `config-needed`, then `config-needed-N` | `waiting` | the same, once someone names a farm-common commit or branch on the card | "Config ready and stage C" |
+| `closing` | `waiting`, `closing`, then `closing-N` | `waiting` | the same, after any human step the closing comment lists | "Closing", "Each resume" |
 | `stage_limit` | the notice that ended the stage ("A stage limit") | `waiting` | the same | "A stage limit" |
 
 Question and foreign-work rounds are numbered from 1 (`questions-1`, `foreign-work-1`): `issue-context.notices`
@@ -463,11 +466,260 @@ Root common. Follow farm-common's own rules: `designer/CLAUDE.md`, `README.md`,
    limit's line. Set `stages.B` to done and `pause` (`config_ready`, `waiting`, `config-needed`), save the
    checkpoint, run `await-input --reason waiting --question` with one line pointing to the comment, and exit.
 
-## After stage B
+## Config ready and stage C
 
-The config-ready check (stage C), the server stage (D) and the closing steps are not in this revision of the skill.
-When "Where to continue" leads here, save the checkpoint, post a blocker that says the job reached a stage this
-revision does not run and names its PRs, and finish blocked.
+Root common, when the `config_ready` pause resumes. Stage C checks that 策划's data and your declarations are
+committed together at a commit someone names; a branch is fine, and main is not required.
+
+1. Find the named ref in the session messages and the human comments created after the latest config-needed notice:
+   a farm-common commit SHA or branch name that a named person gave (for a re-pin, the commit the owner agreed to,
+   "The published pin"). If there is none, or two that disagree, post `config-needed-N` from the `feature still
+   waiting` template, saying what you found, and park again.
+2. Record the report in `events` (`config_ready`, the message's `author`, its id and its `created_at`). Run
+   `git fetch origin` in the common worktree and resolve the ref to a full SHA: a SHA with
+   `git rev-parse --verify SHA^{commit}`, a branch with `git rev-parse --verify origin/BRANCH^{commit}`. Record
+   `config.ref` and `config.sha`.
+3. Make the config checkout ("The config checkout").
+4. Verify at that commit. Read headers from the SpreadsheetML cells, never from line diffs or row counts, because
+   WPS resaves rewrite whole files: use farm-common's read-only reader `designer/tools/ssml_reader.py` from the
+   config checkout, which resolves columns by `ss:Index` as the production readers do. It has no command line:
+   import it (`designer/tools` of the config checkout on `sys.path`) and read each sheet's header row with
+   `read_text`, `worksheet_body` and `header_columns`.
+   - Every column in `config.declared` exists with that exact header in its data sheet.
+   - Every header that is new in the feature's sheets is declared.
+   - In the config checkout, `bash designer/tools/gen-config.sh generate --profile unity-client --out OUT` and
+     `bash designer/tools/gen-config.sh generate --profile farm-hive --profile unity-client --out OUT2` exit 0,
+     each output an absolute path under STATE_DIR that does not exist yet, and the client output's schema
+     (`client/schema`) has every declared client field. Server fields are checked in stage D, where farm-hive
+     consumes them: farm-common's `farm-hive` profile lists fewer tables than farm-hive generates.
+   - The declarations PR's checks (`gh pr checks PR_URL`), read as the repository map's expected CI says.
+5. Report a failure with its exact finding in `config-needed-N` and park again. A generator failure caused by
+   designer data that is not this feature's goes to the owner as a question: never fix designer data.
+6. When every check passes, publish the Jenkins branch ("The Jenkins branch"); record `config.jenkins_branch`,
+   `config.expected_version` and `config.pin` `local`; set `stages.C` to done; and post the `stage` notice
+   `stage-C` (the config commit, the Jenkins branch, the next stage, and the limit's line when a stage limit stops
+   you after C). Save the checkpoint with a fresh handoff. When a stage limit stops you after C ("A stage limit"),
+   park there. Otherwise run `handoff-repository --to farm-hive`, or continue at "Closing" when stage D is
+   skipped.
+
+## The config checkout
+
+The generator exports its checkout's HEAD and records it as the artifact manifest's `common.commit`, so every
+generation for this feature runs in a checkout at the config SHA, never in a worktree. Make it in STATE_DIR from
+FarmBot's clone of common, which this only reads; the first command prints that clone's path (COMMON_CLONE):
+
+```bash
+git -C COMMON_WORKTREE rev-parse --path-format=absolute --git-common-dir
+git clone --shared --no-checkout COMMON_CLONE STATE_DIR/common-FULL_SHA
+git -C STATE_DIR/common-FULL_SHA checkout --detach FULL_SHA
+```
+
+A later attempt that does not find the checkout (a successor's STATE_DIR is new) makes it again. Check that its
+HEAD is `config.sha` before each use, and never commit in it.
+
+## The Jenkins branch
+
+Jenkins's `designer-source.pipeline` publishes the tip of the branch a person selects (its `BRANCH_NAME`
+parameter), never a commit, and farm-common main moves several times a day. Publish a branch at the config SHA that
+adds no commits:
+
+1. Choose its name, JENKINS_BRANCH: `farmbot/<key>-config` when origin has no such branch or has it at an ancestor
+   of FULL_SHA (`git merge-base --is-ancestor origin/farmbot/<key>-config FULL_SHA`), so that the push is a
+   fast-forward; otherwise, as after a re-pin ("The published pin"), the next unused `farmbot/<key>-config-<n>`,
+   n the lowest number from 2 for which origin has no branch (`git ls-remote --heads origin
+   'farmbot/<key>-config-*'` lists those it has). Never move a branch backwards: never force-push and never delete
+   a branch.
+2. In the common worktree, clean and on its issue branch, after the `git fetch origin` of stage C, run
+   `git switch -c JENKINS_BRANCH FULL_SHA` (`git switch -C` when an earlier round left that local branch elsewhere;
+   it is local only).
+3. Record it in `plan.prs.common` (role `config`, `head` FULL_SHA, `pr` null), run "Other people's work", run
+   `verify-publication --repo common`, which refuses such a branch whose HEAD is on no other origin branch, and push
+   with the returned branch: `git push --no-follow-tags origin HEAD:refs/heads/BRANCH`.
+4. Run `git switch -`, so the worktree is back on the issue branch.
+5. The expected version is what the pipeline computes for that tip, the committer date and the short hash joined by
+   a dot: `git log -1 --format=%cd --date=format:%Y-%m-%d FULL_SHA` and `git rev-parse --short FULL_SHA`. The
+   pipeline's short hash can be longer than yours, and the closing comment says so.
+
+If the branch cannot be published, the closing comment names a branch whose tip is the config SHA, or asks the owner
+to create one; a publish from a tip that has moved leads to the re-pin question ("The published pin").
+
+## Stage D: farm-hive
+
+Root farm-hive. Follow farm-hive's own rules: `CLAUDE.md` (iron rules 4, 5 and 10), `README.md` (生成链 and
+新配表的落点清单), `gen-msg-protos.sh`, `gen-registry.sh`, `config/pb/gen.sh`, `config/pb/lib-designer-source.sh`,
+`config/pb/toolchain.env`, the `ci/` scripts, `.github/workflows/ci.yaml` and the repository map's farm-hive
+section. A contract change enters farm-hive at its plan: its behaviour is settled in Farm-Contract. FarmBot adds:
+
+1. Fresh base; "Other people's work". Fetch the 策划案 again, and read the change's farm-hive 交棒 entry and the
+   scenarios it cites.
+2. Sync the protocol with `bash gen-msg-protos.sh` and no `FARM_CONTRACT`: its default `../Farm-Contract` is this
+   item's Farm-Contract worktree on its issue branch, and the manifest's contract commit is marked `-unreachable`
+   because that commit is not on Farm-Contract's main yet. Keep everything the full sync brings, unrelated contract
+   changes merged since farm-hive's last sync included (a partial sync fails `ci/check_contract_sync.sh`), and list
+   them in the PR body.
+3. Register what the sync brought (iron rule 4): a new contract `.proto` gets a `TARGETS` line in
+   `gen-msg-protos.sh`, a blank import and a `targets` entry in `cmd/protoreggen/main.go`, and wider gate pathspecs
+   when its directory level is new; then run `bash gen-registry.sh`; and give each new client message a handler and
+   a `config/cs_handler_census.txt` row. A message that is not registered compiles and passes unit tests, and
+   sending it drops the connection.
+4. When stage C passed, pin the designer data to the config SHA the way "The designer-data mechanism" says; today,
+   in `config/pb/toolchain.env`: `DESIGNER_SOURCE_VERSION` is `config.expected_version`; `DESIGNER_SOURCE_DIGEST` is
+   what farm-hive's `ds_content_digest` (`config/pb/lib-designer-source.sh`) prints for a directory whose `source/`
+   holds `designer/china/source` as committed at the config SHA, taken with `git archive` as that library's own
+   `--common` path takes it (never from checkout files, which line-ending settings can change);
+   `DESIGNER_SOURCE_ARCHIVE_SHA256` is a placeholder of 64 zeros, because only a publish produces the archive. Name
+   the placeholder in the PR as pending. When stages B and C were skipped, keep main's pin and skip this step. From
+   the farm-hive worktree, with DIGEST_DIR a new directory under STATE_DIR:
+
+   ```bash
+   mkdir DIGEST_DIR
+   git -C STATE_DIR/common-FULL_SHA archive FULL_SHA designer/china/source | tar -x -C DIGEST_DIR
+   mv DIGEST_DIR/designer/china/source DIGEST_DIR/source
+   bash -c '. config/pb/lib-designer-source.sh && ds_content_digest "$1"' digest DIGEST_DIR
+   ```
+5. Generate with one cache directory for the whole stage: add each new table to `TABLES` in `config/pb/gen.sh` and
+   follow the README's new-table checklist, then run `bash config/pb/gen.sh --common STATE_DIR/common-FULL_SHA
+   --cache STATE_DIR/designer-cache`, and check that the generated `config/pb` schema has the declared server
+   fields (stage C's server half). gen.sh deletes its outputs first: after a failure restore only the generated
+   patterns (`config/pb/*.proto`, `*.pb`, `*.pb.txt`, `*.pb.go` and `config/pb/artifacts.sha256`), never the whole
+   directory, which would revert `toolchain.env` too, and report the error. Bump the configgen dependency only when
+   new columns need it, and say so in the PR. When stages B and C were skipped there is no config checkout: generate
+   only if the server change needs `config/pb` regenerated, and then pass the item's common worktree, read-only in
+   this attempt, as `--common`, since `--common` reads only the pinned commit from its repository and never its
+   files.
+6. Implement the server change the 交棒 entry and its scenarios describe, by farm-hive's rules. Then run locally,
+   with CI's commands, every build-job step of `ci.yaml` that needs neither the file server nor a GitHub token (the
+   repository map lists them), with `DESIGNER_SOURCE_CACHE` set for the tests. `ci/check_msg_proto.sh` and
+   `FARM_CONTRACT=../Farm-Contract bash ci/check_contract_sync.sh` run as diagnostics and fail on `-unreachable`,
+   as expected (each checks the manifest's provenance line first). CI's tests also use live
+   MongoDB, Redis and cluster services: the PR body lists every step and service-backed variant not run. A step that
+   cannot run in your sandbox (a module download refused, a tool missing or at another version) is named there as
+   not run, with its error; never skip one silently.
+7. When the new pin turns unrelated tests red, adjust only failures shown to be plain data moves. Suspected designer
+   defects (lost defaults, deleted events, empty tables) are listed for the owner, in the style of farm-hive's
+   designer-asks documents, and never become expected values.
+8. Commit, run "Other people's work" again, publish, and open the hive draft PR. Its body names the contract PR, the
+   declarations PR and the config commit; the designer-data mechanism it used; its merge preconditions (after the
+   contract PR merges and FarmBot pushes the re-sync, and after the published pin is written); the CI it expects;
+   and the local results, every check not run included.
+9. Set `stages.D` to done, save the checkpoint, and continue at "Closing" in this attempt.
+
+### The designer-data mechanism
+
+farm-hive pins designer data with three `DESIGNER_SOURCE_*` values in `config/pb/toolchain.env`, which common's
+`designer-source.pipeline` publishes, and steps 4 and 5, "The Jenkins branch", the closing comment and "The
+published pin" follow that. The header of common's `designer-source.pipeline` says farm-hive consumes only
+`config-artifact.pipeline`'s archive; farm-hive's own files decide, not that header. Before step 4, read farm-hive's
+own instructions at your fresh base (`CLAUDE.md`, `README.md` 生成链, the header of `config/pb/gen.sh` and
+`config/pb/toolchain.env`). When they now name another mechanism, follow them instead of those steps, keeping this
+skill's rules: a value you compute locally for the config SHA, a placeholder for any value only a publish produces,
+a Jenkins branch at the config SHA that adds no commits, and published values only as a human posts them; name each
+step you could not match as a gap. Either way the hive PR body says which mechanism it used.
+
+## Closing
+
+Stage G finishes the contract and hive work of this job: the stale waivers, the re-sync to the merged contract and
+the published pin. The client stage and the contract write-back come later and are not asked for.
+
+### The closing comment
+
+When `issue-context.notices` (or `recovery.notices`) already lists the `closing` notice, the comment is out:
+continue at "Each resume", as an attempt that a closing step handed off to does (a handoff carries no pause).
+
+Once the last stage with work is done (normally D; C when D is skipped; A when B and D are), read each PR's state
+as "Each resume" step 2 says and leave out of the comment what is already done. Set the `closing` steps that are
+not needed to true (no config change: no pin; no server stage: no re-sync), then post one `waiting` notice
+`closing` from the `feature closing` template, set `pause` (`closing`, `waiting`, `closing`), save the checkpoint,
+run `await-input --reason waiting --question` pointing to the comment, and exit. The comment asks the owner to merge
+the contract PR and, if it is still open, the declarations PR. When stage C ran, it asks someone to run the publish
+pipeline the hive PR used (`designer-source.pipeline` today) on `config.jenkins_branch` and paste the three pin lines
+it prints into the card, and it names the expected version. It says the hive PR merges only after the contract
+merge, the pushed re-sync and the published pin; it asks for no UI step; and it warns that moving the card to Done
+or Canceled first cancels the job. When a stage limit stops you after D, it carries the limit's line.
+
+### Each resume
+
+FarmBot learns of a merge only when told, and then checks GitHub; it polls nothing.
+
+1. Record each human report you act on in `events` (`merged`, `pin_posted`).
+2. For each PR in `plan.prs`, read `gh pr view PR_URL --json state,mergedAt,mergeCommit,headRefOid` and update
+   its `state` and `merge`: `merge` when its merge commit has two parents
+   (`gh api repos/OWNER/REPO/commits/MERGE_SHA --jq '.parents | length'`), `squash` otherwise (a squash or a rebase
+   merge, both of which leave the PR's head off the default branch).
+3. Do what has become possible, in root order: Farm-Contract (waiver removal), then farm-hive (the re-sync, then
+   the pin). When the next step needs another root, save the plan and a fresh handoff, run `handoff-repository --to`
+   that root and exit; the next attempt continues from the plan. A contract PR closed without merging is a
+   question: reopen, revise or abandon.
+4. When every `closing` step is true, continue at "Delivery". Otherwise post `closing-N` from the `feature still
+   waiting` template (what you did, what is still missing and what you looked for), set `pause` again and park.
+
+### Waivers
+
+Root Farm-Contract, once the contract PR merged. The BREAKING_WAIVERS lines it added go stale at the merge, and gate
+③ then fails on every Farm-Contract PR (`tools/check-breaking-waiver.sh`). Run `git fetch origin`. If
+`origin/main:BREAKING_WAIVERS` still carries lines the contract PR's own diff added, make `farmbot/<key>-waivers`
+from `origin/main` in the Farm-Contract worktree (`git switch -c farmbot/<key>-waivers origin/main`), remove exactly
+those lines, run the twelve gates, record the branch (role `waivers`), publish, open a draft PR, register it (a
+checkpoint with the PR in `published_prs`) while this branch is still checked out, and post the `merge_request`
+notice `merge-waivers`. Then run `git switch -`, because the farm-hive attempt reads this worktree on its issue
+branch. If no such line is left, there is nothing to remove. Set `closing.waivers_removed`, save the
+plan, and continue with the next closing step, usually a handoff to farm-hive.
+
+### Re-sync
+
+Root farm-hive, once the contract PR merged. Replace the `-unreachable` snapshot; READS_CONTRACT below is
+`reads["Farm-Contract"]`, the read-only checkout of Farm-Contract's default branch:
+
+1. Read the merge: `gh pr view CONTRACT_PR_URL --json state,mergeCommit,headRefOid`, MERGE_SHA being
+   `mergeCommit.oid`.
+2. Check that the checkout has it: `git -C READS_CONTRACT merge-base --is-ancestor MERGE_SHA HEAD`. The controller
+   refreshes that checkout at every launch except a publication retry, so a launch after a retry, or one that raced
+   the merge, can predate it. When the command fails, never sync from a checkout that lacks the merge: save the
+   checkpoint with the plan, post `closing-N` from the `feature still waiting` template saying that the merge is not
+   yet in this launch's checkout of Farm-Contract main and asking for a reply, park, and exit. The next launch
+   refreshes it, since a resumed launch is never a publication retry.
+3. If the contract PR merged with a merge commit and its head (`headRefOid`, the `head` recorded for Farm-Contract's
+   `issue` entry) is the HEAD of `../Farm-Contract`, this item's worktree, rerun `bash gen-msg-protos.sh`: the
+   contract commit becomes the bare SHA and only the manifest header changes. If that still leaves the manifest's
+   contract commit `-unreachable` (the item's Farm-Contract clone predates the merge), sync as in step 4.
+4. Otherwise (a squash or rebase merge, or others' commits on the branch), run it with `FARM_CONTRACT` set to
+   READS_CONTRACT. That diff carries the new pin and any drift, so also run `bash gen-registry.sh` and
+   `bash ci/check_proto_registry.sh`, and register what the drift brought.
+5. Prove the result with `FARM_CONTRACT=CHECKOUT bash ci/check_contract_sync.sh`, CHECKOUT being the checkout you
+   synced from, and `bash ci/check_msg_proto.sh` before the push. Push to the hive PR's branch and set
+   `closing.hive_resynced`.
+
+### The published pin
+
+Root farm-hive, once a named person posted the three pin lines (`DESIGNER_SOURCE_VERSION=`,
+`DESIGNER_SOURCE_ARCHIVE_SHA256=` and `DESIGNER_SOURCE_DIGEST=`), or the values farm-hive's current mechanism names.
+Check that the version's hash part is a prefix of `config.sha` and its date is that commit's committer date, and that
+the digest equals the one you computed. Then write all three into `config/pb/toolchain.env`. When the posted version
+string differs from the one you committed (a longer short hash), rerun `bash config/pb/gen.sh --common
+STATE_DIR/common-FULL_SHA --cache STATE_DIR/designer-cache` and commit the regenerated `config/pb/artifacts.sha256`
+with it, because `ci/check_pb_manifest.sh` compares its provenance line. Rerun the local gates, push, and set
+`config.pin` to `published` and `closing.pin_written`. Only CI's pin gate checks the posted archive checksum; say so
+in the PR. A version that names another commit is a question from the `feature pin mismatch` template: whether to
+re-pin to that commit. When a named person answers to re-pin, record it in `events`, set `config.ref` and
+`config.sha` to that commit and `stages.C` to pending, and hand off to common: stage C runs for it and publishes it
+on a new Jenkins branch when it does not descend from the pushed one ("The Jenkins branch"), and back in farm-hive
+you redo stage D's steps 4 and 5 for it before this step. Never pin it silently.
+
+### A PR merged too early
+
+If the hive PR merged while its snapshot was still `-unreachable` or its pin a placeholder, farm-hive's main is
+red. Make the re-sync and the pin on `farmbot/<key>-followup` from farm-hive's `origin/main`, record it (role
+`followup`), publish a draft PR, register it while that branch is still checked out, and say that main stays red
+until it merges.
+
+## Delivery
+
+When every `closing` step is true, post the delivery comment from the `feature delivery` template
+(`prepare-comment --kind delivery`, `post-comment`). It names every PR with its state, the merges still to do in
+order, the client work that remains (the change's Farm-Client 交棒 entry: the protocol re-export, the config export
+at the config commit, client code and UI wiring), that the OpenSpec change is not archived yet because its
+write-back waits for the client stage, and what was verified. Set `stages.G` to done, then finish delivered
+("Outcomes") with every PR this job opened in `prs`.
 
 ## Outcomes
 
@@ -476,6 +728,10 @@ Before retiring your claim, save a useful lesson through the item-authenticated 
 
 - Blocked: write the body from the `blocker` template, `prepare-comment --kind blocker`, `post-comment`, then
   `finish --outcome blocked --input OUTCOME.json` with `{"summary", "comment_action_id"}`.
+- Delivered: write the body from the `feature delivery` template, `prepare-comment --kind delivery`,
+  `post-comment`, then `finish --outcome delivered --input OUTCOME.json` with
+  `{"summary", "comment_action_id", "verification", "prs": [...]}`, where `prs` lists every PR this job
+  opened and `verification` names the gates and tests that ran.
 - Run `fetch-issue` right before `finish`; if the ledger answers `queued`, a human changed the card while you were
   finishing and a fresh worker will take it, so exit.
 - `finish` posts the session's final response itself: use `activity --type thought` for progress and never post a

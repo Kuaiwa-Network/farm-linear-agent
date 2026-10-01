@@ -142,6 +142,63 @@ names are persistent player-data field names), `README.md` (generate and verify)
 - Leave `designer/configgen/profiles/farm-hive.json` alone: farm-hive generates the tables its own `TABLES` lists,
   and a profile change moves all eight count sites.
 
+## Code worker (`feature`): farm-hive sync, registry and designer pin
+
+Stage D's root, and the closing steps' re-sync and pin. Follow the repository's own rules by path: `CLAUDE.md` (iron
+rules 4, 5 and 10), `README.md` (生成链, 新配表的落点清单 and its gates list), `gen-msg-protos.sh` (its header: the
+three provenance marks and why both protocol gates refuse them), `gen-registry.sh`, `cmd/protoreggen/main.go`,
+`config/pb/gen.sh` (its header: modes and exit codes), `config/pb/lib-designer-source.sh`,
+`config/pb/toolchain.env`, `ci/*.sh` and `.github/workflows/ci.yaml`.
+
+- Protocol sync: `bash gen-msg-protos.sh` copies every `TARGETS` proto from `FARM_CONTRACT` (default
+  `../Farm-Contract`, which in a FarmBot job is the item's own Farm-Contract worktree) and rewrites
+  `ci/msg-proto-manifest.sha256` with the contract commit. A commit that is not on Farm-Contract's default branch is
+  marked `-unreachable`, a checkout with uncommitted proto changes `-dirty`; `ci/check_msg_proto.sh` and
+  `ci/check_contract_sync.sh` refuse both, so they stay red until the re-sync after the contract merges. The
+  re-sync reads the merged contract from FarmBot's read-only checkout of Farm-Contract's default branch, only once
+  that checkout contains the merge commit.
+- Registration: a new contract `.proto` needs a `TARGETS` line, a blank import and a `targets` entry in
+  `cmd/protoreggen/main.go`, and wider gate pathspecs when its directory level is new; `bash gen-registry.sh`
+  regenerates the registries; each new client message needs a handler and a `config/cs_handler_census.txt` row.
+- The designer pin, as farm-hive main has it on 2026-09-28 (follow farm-hive's own instructions if they have
+  changed, and say in the PR which mechanism was used): `config/pb/toolchain.env` holds `DESIGNER_SOURCE_VERSION`
+  (`<committer date>.<short hash>` of the branch tip common's `designer-source.pipeline` publishes),
+  `DESIGNER_SOURCE_ARCHIVE_SHA256` (only a publish produces it) and `DESIGNER_SOURCE_DIGEST` (`ds_content_digest` in
+  `config/pb/lib-designer-source.sh`, over a directory whose `source/` holds `designer/china/source`).
+  `bash config/pb/gen.sh --common CHECKOUT --cache DIR` materializes the pinned commit from a local farm-common
+  checkout and checks the digest without the archive checksum or the file server. Copy the published values from the
+  pipeline's output, never from a guess. The header of common's `designer-source.pipeline` says farm-hive consumes
+  only `config-artifact.pipeline`'s archive; farm-hive main does not use that archive, and its own files decide.
+- Generation deletes its outputs first. After a failure restore only the generated files, `git checkout --
+  'config/pb/*.proto' 'config/pb/*.pb' 'config/pb/*.pb.txt' 'config/pb/*.pb.go' config/pb/artifacts.sha256`,
+  never the whole directory, which also reverts `toolchain.env` and the scripts. A new table also needs its `TABLES`
+  entry and the README's new-table checklist.
+- Local gates, in `ci.yaml`'s build-job order, that need neither the file server nor a GitHub token:
+  `bash ci/check_designer_pin.sh --gate --common CHECKOUT --cache DIR` (CI's first gate, which there downloads the
+  archive), `go vet ./...`, `go build ./...`, `go test -race -timeout 300s ./...` with `DESIGNER_SOURCE_CACHE` set
+  (a narrow-type test needs it), `bash ci/check_pb_manifest.sh`, `bash ci/check_config_pb.sh` with
+  `FARM_COMMON_DIR` and `DESIGNER_SOURCE_CACHE` once `config/pb` is committed (it needs a clean status), then, after
+  the two protocol gates, `bash ci/check_proto_registry.sh` and the later `ci/check_*.sh` steps. CI's
+  service-backed variants (a MongoDB replica set, Redis, etcd and NATS) are not available to a worker.
+- The published pin: the pipeline prints the three values at the end of its run. Its short hash can be longer than a
+  local `git rev-parse --short`; then `gen.sh` runs again, so that the provenance line of
+  `config/pb/artifacts.sha256` matches (`ci/check_pb_manifest.sh`).
+- Jenkins branches in common: `farmbot/<key>-config` at the config commit, and `farmbot/<key>-config-<n>` (n from 2)
+  when a re-pin names a commit that does not descend from the one already pushed; neither ever carries a commit of
+  FarmBot's own, and neither is ever force-pushed.
+
+## Code worker (`feature`): expected CI on its PRs
+
+From the feature-workers design §6.9. A PR body carries FarmBot's local results; FarmBot never changes CI.
+
+| Repository | Check | Expected | Why |
+|---|---|---|---|
+| farm-hive | designer pin gate (`ci/check_designer_pin.sh --gate`) | red until a human runs the publish and FarmBot writes the published values | the gate downloads the archive; an unpublished version fails, and the steps after it do not run, build and tests included |
+| farm-hive | `ci/check_msg_proto.sh`, `ci/check_contract_sync.sh` | red until the contract merges and FarmBot pushes the re-sync | both refuse an `-unreachable` pin |
+| farm-hive | every later gate | not run, rather than red, until the re-sync is pushed | CI stops at the first failing step |
+| Farm-Contract | the twelve gates | green when FarmBot ran all twelve locally with CI's pinned buf and openspec; otherwise the PR names those not run | the same scripts as CI; a gate ③ failure caused by another change's stale waivers on main is reported to that change's owner |
+| common | config artifact acceptance | green only when `designer/tools/check-config-artifact.sh` passed locally; otherwise the PR says it was not verified | beyond generation the job runs gofmt, vet, `go test` with the production acceptance test, an inventory comparison, two generations, exact artifact counts, a visibility check and a C# compile |
+
 ## Environment bindings (Claude Code)
 
 - Linear access: the Linear MCP server tools (`list_issues`, `get_issue`,

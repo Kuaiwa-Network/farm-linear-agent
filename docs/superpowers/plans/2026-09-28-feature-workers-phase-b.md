@@ -86,8 +86,12 @@ state from Git history and the saved Claude session. Phase A's shared plumbing a
   wording was replaced with checkpoint-and-`withdraw` behavior, matching today's dispatch contract.
   The 19 new instruction/template tests failed against the stub, then all 58 skill/reference tests
   passed. The full offline suite passed **1,697 tests in 245.013 seconds, 18 Windows-only skips**.
-- **Next:** Task 14 completes the config/server/closing instructions, Task 15 adds journey tests,
-  followed by the documentation and verification rounds.
+- **Task 14 implemented:** the skill covers config verification, server work and closing through
+  waiver removal, the merged-contract re-sync, the published pin and Phase B delivery. Twelve new
+  instruction/template checks failed first; all 70 focused checks passed, and the full offline suite
+  passed **1,709 tests in 245.472 seconds, 18 Windows-only skips**. Native Windows product generation
+  and live feature acceptance remain unverified.
+- **Next:** Task 15 adds journey tests, followed by documentation and verification rounds.
 
 ## Scope
 
@@ -9663,7 +9667,7 @@ plan P6, P12, P14, P15, P16.
   - `references/repo-map.md` sections "Code worker (`feature`): farm-hive sync, registry and designer pin" and
     "Code worker (`feature`): expected CI on its PRs"
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/test_skills.py`, after Task 13's `FeatureCommentTemplateTests`:
 
@@ -9759,7 +9763,7 @@ class FeatureClosingTemplateTests(unittest.TestCase):
             "还需合并", "不会合并", "客户端还要做", "尚未归档", "<owner.person.url>"))
 ````
 
-- [ ] **Step 2: Run the tests and confirm they fail**
+- [x] **Step 2: Run the tests and confirm they fail**
 
 Run: `python3 -m unittest discover -s tests -p 'test_skills.py' -v`
 Expected: the twelve new tests fail. The `FeatureClosingInstructionTests` phrase tests fail with
@@ -9767,7 +9771,7 @@ Expected: the twelve new tests fail. The `FeatureClosingInstructionTests` phrase
 `## After stage B`; the four `FeatureClosingTemplateTests` error with `IndexError: list index out of range`. Tasks 12
 and 13's tests still pass.
 
-- [ ] **Step 3: Complete the skill**
+- [x] **Step 3: Complete the skill**
 
 In `skills/feature/SKILL.md`, in the "Where to continue" table, replace the last row
 `| anything later | any | "After stage B" |` with:
@@ -10064,7 +10068,7 @@ farm-hive, with the re-sync's check of the `reads` checkout from Task 6's refres
 a closed contract PR are §11; the delivery is §6.8's last bullet and the plan's Scope ("the client work Phase C will
 do", the change left unarchived).
 
-- [ ] **Step 4: Add the templates**
+- [x] **Step 4: Add the templates**
 
 Append to `references/comment-templates.md`, after Task 13's `feature config needed` section:
 
@@ -10104,7 +10108,7 @@ Append to `references/comment-templates.md`, after Task 13's `feature config nee
 - 客户端还要做：<按契约 tasks.md 的 Farm-Client 交棒条目：协议导出、配置 commit <短 SHA> 的配置导出、客户端代码与 UI 接入>；本卡这次不做
 ````
 
-- [ ] **Step 5: Add the repository map sections**
+- [x] **Step 5: Add the repository map sections**
 
 In `references/repo-map.md`, insert directly before `## Environment bindings (Claude Code)`, after Task 13's
 farm-common section:
@@ -10168,7 +10172,7 @@ From the feature-workers design §6.9. A PR body carries FarmBot's local results
 | common | config artifact acceptance | green only when `designer/tools/check-config-artifact.sh` passed locally; otherwise the PR says it was not verified | beyond generation the job runs gofmt, vet, `go test` with the production acceptance test, an inventory comparison, two generations, exact artifact counts, a visibility check and a C# compile |
 ````
 
-- [ ] **Step 6: Complete the operating contract's Code-worker section**
+- [x] **Step 6: Complete the operating contract's Code-worker section**
 
 In `docs/operating-contract.md`, in "The Code worker (`feature`)" (Task 13), replace
 `(stage A, the initial root), then farm-common declarations (stage B). A job that reaches a later stage finishes
@@ -10205,7 +10209,7 @@ list, after the bullet that ends `and finishes blocked.`:
 Run: `git diff --check`
 Expected: no whitespace errors.
 
-- [ ] **Step 7: Run the tests and confirm they pass**
+- [x] **Step 7: Run the tests and confirm they pass**
 
 Run: `python3 -m unittest discover -s tests -p 'test_skills.py' -v`
 Expected: all pass.
@@ -10213,7 +10217,7 @@ Expected: all pass.
 Run: `python3 -m unittest discover -s tests -v`
 Expected: 0 failures; twelve more tests than after Task 13, and the same platform skips.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add skills/feature/SKILL.md references/comment-templates.md references/repo-map.md docs/operating-contract.md tests/test_skills.py

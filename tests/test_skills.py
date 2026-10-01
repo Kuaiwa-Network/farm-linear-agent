@@ -679,3 +679,93 @@ class FeatureCommentTemplateTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertIn("按本卡要求，FarmBot 在阶段 <字母> 后停下；要继续请回复本会话或 @FarmBot。",
                               self.section(name))
+
+
+
+class FeatureClosingInstructionTests(unittest.TestCase):
+    """Phase B, Task 14: stages C and D, the closing steps and the delivery, pinned like Task 13's sentences."""
+
+    def raw(self):
+        return (ROOT / "skills" / "feature" / "SKILL.md").read_text(encoding="utf-8")
+
+    def assert_phrases(self, phrases):
+        text = " ".join(self.raw().split())
+        for phrase in phrases:
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, text)
+
+    def test_every_stage_of_the_job_is_in_this_revision(self):
+        raw = self.raw()
+        self.assertNotIn("\n## After stage B\n", raw)
+        for heading in ("## Config ready and stage C", "## The config checkout", "## The Jenkins branch",
+                        "## Stage D: farm-hive", "## Closing", "## Delivery"):
+            with self.subTest(heading=heading):
+                self.assertIn(f"\n{heading}\n", raw)
+
+    def test_stage_c_reads_cells_at_the_named_commit_and_never_fixes_designer_data(self):
+        self.assert_phrases((
+            "git clone --shared --no-checkout COMMON_CLONE STATE_DIR/common-FULL_SHA",
+            "git -C STATE_DIR/common-FULL_SHA checkout --detach FULL_SHA", "`designer/tools/ssml_reader.py`",
+            "never from line diffs or row counts", "never fix designer data", "never commit in it"))
+
+    def test_the_jenkins_branch_adds_no_commits_and_a_re_pin_takes_a_new_one(self):
+        self.assert_phrases((
+            "Publish a branch at the config SHA that adds no commits",
+            "git switch -c JENKINS_BRANCH FULL_SHA", "`farmbot/<key>-config-<n>`, n the lowest number from 2",
+            "never force-push and never delete a branch", "so the worktree is back on the issue branch"))
+
+    def test_stage_d_syncs_the_unmerged_contract_and_pins_locally(self):
+        self.assert_phrases((
+            "is marked `-unreachable`", "`ds_content_digest`", "a placeholder of 64 zeros",
+            "never the whole directory", "never become expected values",
+            "fail on `-unreachable`, as expected"))
+
+    def test_the_designer_data_mechanism_is_farm_hives_to_name(self):
+        self.assert_phrases((
+            "follow them instead of those steps", "says which mechanism it used",
+            "farm-hive's own files decide, not that header"))
+
+    def test_the_re_sync_never_uses_a_checkout_that_lacks_the_merge(self):
+        self.assert_phrases((
+            "git -C READS_CONTRACT merge-base --is-ancestor MERGE_SHA HEAD",
+            "never sync from a checkout that lacks the merge", "The next launch refreshes it"))
+
+    def test_closing_polls_nothing_and_follows_the_root_order(self):
+        self.assert_phrases((
+            "it polls nothing", "Farm-Contract (waiver removal), then farm-hive (the re-sync, then the pin)",
+            "with `FARM_CONTRACT` set to READS_CONTRACT", "it asks for no UI step",
+            "Never pin it silently", "remove exactly those lines", "When a stage limit stops you after C"))
+
+    def test_the_delivery_names_the_client_work_and_leaves_the_change_unarchived(self):
+        self.assert_phrases((
+            "the merges still to do in order, the client work that remains", "the OpenSpec change is not archived yet",
+            "finish delivered (\"Outcomes\") with every PR this job opened in `prs`"))
+
+
+class FeatureClosingTemplateTests(unittest.TestCase):
+    """Phase B, Task 14: the closing, re-ask, pin-mismatch and delivery templates."""
+
+    def section(self, name):
+        text = (ROOT / "references" / "comment-templates.md").read_text(encoding="utf-8")
+        return text.split(f"\n## {name}\n", 1)[1].split("\n## ", 1)[0]
+
+    def assert_in_section(self, name, phrases):
+        section = self.section(name)
+        for phrase in phrases:
+            with self.subTest(section=name, phrase=phrase):
+                self.assertIn(phrase, section)
+
+    def test_the_closing_comment_asks_for_no_ui_step_and_warns_about_done(self):
+        self.assert_in_section("feature closing", (
+            "本卡不含 UI 步骤", "designer-source.pipeline", "三行原样贴到本 issue", "我不会轮询 GitHub",
+            "Done 或 Canceled", "<owner.person.url>", "按本卡要求，<bot_name> 在阶段 <字母> 后停下"))
+
+    def test_a_re_ask_says_what_was_looked_for(self):
+        self.assert_in_section("feature still waiting", ("我核对了", "没有找到", "<owner.person.url>"))
+
+    def test_a_pin_for_another_commit_is_a_question_for_the_owner(self):
+        self.assert_in_section("feature pin mismatch", ("我不会自行改用别的 commit", "<owner.person.url>"))
+
+    def test_the_delivery_lists_the_merges_the_client_work_and_the_unarchived_change(self):
+        self.assert_in_section("feature delivery", (
+            "还需合并", "不会合并", "客户端还要做", "尚未归档", "<owner.person.url>"))

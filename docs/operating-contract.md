@@ -786,11 +786,12 @@ for a structural defect or change. If the intended UI is unclear, ask in Linear 
 
 ## The Code worker (`feature`)
 
-`feature` runs only on an instance whose `enabled_skills` names it. One work item and one Linear session carry a
-delegated Bot/Code card through repository stages, one fresh Codex worker per root: the Farm-Contract change
-(stage A, the initial root), then farm-common declarations (stage B). A job that reaches a later stage finishes
-blocked. The worker follows each repository's own rules and `skills/feature/SKILL.md`; the `feature` part of the
-dispatch AUTHORITY states its grants (see Authority).
+`feature` runs only on an instance whose `enabled_skills` names it. One work item and one Linear
+session carry a delegated Bot/Code card through repository stages, one fresh Codex worker per root:
+the Farm-Contract change (stage A, the initial root), farm-common declarations (stage B), config
+verification (stage C), the farm-hive server (stage D) and the closing steps. The worker follows
+each repository's own rules and `skills/feature/SKILL.md`; the `feature` part of the dispatch
+AUTHORITY states its grants (see Authority).
 
 - It reads the 策划案 itself with lark-cli as FarmBot's read-only Feishu app (`lark-cli --profile PROFILE docs
   +fetch --as bot`, the host's configured profile), only from links in the card, its human comments and the
@@ -823,6 +824,29 @@ dispatch AUTHORITY states its grants (see Authority).
 - A worker that sees `delegated: false`, `withdrawn: true`, a closed card, or `delegation withdrawn`
   publishes and asks nothing, saves its plan, runs `withdraw` and exits. The command cancels the job and
   posts its notice, preserving the plan for a later delegation; it does not finish blocked.
+- Stage C runs when the resumed common-rooted worker finds a named commit or branch: it resolves it to a full SHA,
+  makes a detached checkout of that commit in its state directory, checks each declared header in the SpreadsheetML
+  cells, that every new header is declared and that both profiles generate there, then publishes
+  `farmbot/<key>-config` at that commit, adding no commits, for the Jenkins designer-data publish. A re-pin to a
+  commit that does not descend from it gets `farmbot/<key>-config-2` (then `-3`, …), never a force push. A failed
+  check is reported and asked again.
+- Stage D syncs farm-hive's protocol snapshots from the item's unmerged Farm-Contract worktree (marked
+  `-unreachable`), registers new messages, pins the designer data to the config commit with a locally computed
+  digest and a placeholder archive checksum, generates `config/pb`, implements the server change, runs the build
+  job's local gates and opens the hive draft PR. It follows farm-hive's own instructions for the designer-data
+  mechanism (the three `DESIGNER_SOURCE_*` values on 2026-09-28) and says in the PR which one it used. That PR's CI
+  stays red or incomplete until the contract merges, the re-sync is pushed and the published pin is written.
+- The closing comment asks the owner to merge the contract PR, and the declarations PR if it is still open, and
+  someone to run the Jenkins publish on the `-config` branch and paste its three pin lines; it asks for no UI step
+  and warns that Done or Canceled cancels the job. FarmBot polls nothing: each reply or mention makes it check
+  GitHub and do what became possible, in this order: remove the change's stale BREAKING_WAIVERS lines on
+  `farmbot/<key>-waivers`, re-sync farm-hive (from the item's worktree after a merge commit, otherwise from the
+  read-only checkout of Farm-Contract's default branch, and only once that checkout holds the merge commit; a launch
+  that finds it missing parks and asks again, so that the next launch refreshes it), and write the published pin
+  values. A hive PR merged too early gets a `farmbot/<key>-followup` draft PR.
+- The delivery names every PR and its state, the merges still to do and the client work that remains (protocol and
+  config export, client code and UI wiring). The OpenSpec change stays unarchived until the client stage's
+  write-back.
 
 ## Shared memory
 
