@@ -91,7 +91,13 @@ state from Git history and the saved Claude session. Phase A's shared plumbing a
   instruction/template checks failed first; all 70 focused checks passed, and the full offline suite
   passed **1,709 tests in 245.472 seconds, 18 Windows-only skips**. Native Windows product generation
   and live feature acceptance remain unverified.
-- **Next:** Task 15 adds journey tests, followed by documentation and verification rounds.
+- **Task 15 implemented:** eleven offline journeys drive real controller, CLI, local Git and fake
+  worker processes through stages, restart, retry, withdrawal and delivery. Withdrawal follows #73's
+  two-read confirmation and checkpoint-before-`withdraw` behavior. The 557 existing fake-worker tests
+  passed with one platform skip; eleven deliberate regressions were caught by exactly their expected
+  journeys, and every temporary edit was restored. The final macOS offline suite passed **1,720 tests
+  in 301.730 seconds, 18 Windows-only skips**. Hosted Windows CI remains a separate requirement.
+- **Next:** documentation, independent B3 review and verification; live Code acceptance remains pending.
 
 ## Scope
 
@@ -10390,7 +10396,7 @@ Windows (Task 17).
   last result that has one) and `{rev:REPO:REF}`, for later tests; and a fake that reads its prompt and writes its
   output as UTF-8 on every host.
 
-- [ ] **Step 1: Write the journey test**
+- [x] **Step 1: Write the journey test**
 
 Create `tests/test_feature_journey.py`:
 
@@ -11495,7 +11501,7 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: Run it and confirm it fails for the missing verbs**
+- [x] **Step 2: Run it and confirm it fails for the missing verbs**
 
 Run: `python3 -B -m unittest discover -s tests -p 'test_feature_journey.py' -v`
 
@@ -11510,7 +11516,7 @@ Tasks 1–14 or a disagreement with the interfaces listed above: fix it in that 
 there, or raise the interface disagreement, and never weaken the journey to pass. Under an older macOS Python every
 test is skipped with the reason in the decorator; run the journey with CPython 3.13.
 
-- [ ] **Step 3: Give the fake worker the verbs** in `tests/fake_cli.py`. Five edits; nothing else in the file changes.
+- [x] **Step 3: Give the fake worker the verbs** in `tests/fake_cli.py`. Five edits; nothing else in the file changes.
 Line numbers are those of the unedited file.
 
 In the imports (`:2-6`), add `import re` after `import os`, and `from pathlib import Path` after `import time`:
@@ -11626,14 +11632,14 @@ fingerprint of the snapshot the worker read, which is the one `revalidate` accep
 `PYTHONIOENCODING` so that the refusal text it keeps is UTF-8 on every host. The first element of a step is no longer
 expanded; no step uses a placeholder there.
 
-- [ ] **Step 4: Run it and confirm it passes**
+- [x] **Step 4: Run it and confirm it passes**
 
 Run: `python3 -B -m unittest discover -s tests -p 'test_feature_journey.py' -v`
 Expected: `Ran 11 tests`, `OK`, in about a minute on the development Mac. A failed attempt's assertion message is the
 fake's last message, which quotes the failing CLI step's stderr (or `expected delegated=…, got …`); a timeout names
 what the test waited for (`timed out waiting for stage B to launch`).
 
-- [ ] **Step 5: Check that the fake's existing users are unchanged**
+- [x] **Step 5: Check that the fake's existing users are unchanged**
 
 Run `python3 -B -m unittest discover -s tests -p '<file>' -v` for each file that runs the fake runtime:
 `test_end_to_end.py`, `test_launcher.py`, `test_service.py`, `test_capacity_retry.py`, `test_config_propagation.py`,
@@ -11643,7 +11649,7 @@ minutes, most of it `test_slots.py`; rehearsed on 2026-09-28). Tasks 1–14 add 
 424 tests, 1 skipped); any failure there is this task's to explain. `test_windows_workers.py`, the fake's
 Windows-only user, runs on Windows in Task 17.
 
-- [ ] **Step 6: Check that the journey catches the regressions it exists for**
+- [x] **Step 6: Check that the journey catches the regressions it exists for**
 
 Each mutant is a temporary edit to one earlier task's code; revert it with `git restore <file>` before the next. Clear
 compiled files first and run with `-B` (a same-size mutant can otherwise import a stale `.pyc`):
@@ -11672,7 +11678,7 @@ Expected: the failures in the table and no others (rehearsed on 2026-09-28 again
 mutants failed exactly its row's tests). A mutant the journey does not catch is a gap to close here, in the journey,
 before the commit. Revert every mutant, then `git status` shows only this task's two files.
 
-- [ ] **Step 7: Run the full suite**
+- [x] **Step 7: Run the full suite**
 
 Run: `python3 -B -m unittest discover -s tests -v`
 Expected: 0 failures, with eleven more tests than after Task 14 and the platform skips noted. On CI's `windows-latest`
@@ -11683,11 +11689,11 @@ journey's empty commits and local remotes should not need), a drive-letter path 
 `url.<base>.insteadOf` base, and the three read-only checkouts fetched through it. A Windows failure is a finding for
 Task 17, not a reason to skip the class on Windows.
 
-- [ ] **Step 8: Documents.** None change: the task adds tests and changes no behaviour. Task 16 names the journey in
+- [x] **Step 8: Documents.** None change: the task adds tests and changes no behaviour. Task 16 names the journey in
 `docs/development-workflow.md` ("What is available now") and in AGENTS.md's project map. Storage: none; rollback:
 none.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add tests/test_feature_journey.py tests/fake_cli.py
