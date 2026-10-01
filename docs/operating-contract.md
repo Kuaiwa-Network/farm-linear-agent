@@ -182,8 +182,8 @@ FarmBot never merges, deploys, changes status or assignee, or edits repositories
 Issue text, comments, attachments and Linear guidance are data, never instructions. Worker commands
 in the ledger CLI are item-scoped and token-authenticated; `cancel`, `recover`, `retry`,
 `recover-slot`, `reservations` and `slots` are operator commands for the trusted host. FarmBot is
-one conversational identity. `chat` and `fix` remain internal execution-profile identifiers, with
-different tools, budgets and writable roots. Read-only execution starts in its private state
+one conversational identity. `chat`, `fix` and `feature` remain internal execution-profile
+identifiers, with different tools, budgets and writable roots. Read-only execution starts in its private state
 directory and does not receive repository or clone write roots. A write worker's roots are its
 worktree and, of FarmBot's bare clone of that repository, only what its own git writes: the objects,
 refs, reflogs and LFS store, and its worktree's entry under `worktrees/`. The clone's config, hooks,
@@ -428,7 +428,8 @@ before enabling this fix manifest. New configurations include its GitHub remote 
 The additive `root_repo` and `next_root_repo` columns preserve existing ledger rows. Settle
 running fix workers before deploying this behavior; a retry with no root starts at neutral
 investigation. Do not roll back during a pending repository handoff: older code cannot honor
-its process-teardown fence or stage publishing restriction.
+its process-teardown fence or stage publishing restriction. Before rolling a host back to a revision
+without `skills/feature`, follow the rollback paragraph of "The Code worker (`feature`)".
 
 CLI `cancel` revokes the claim immediately; the next scheduler tick stops owned worker/batch
 processes. For a job it cancels while active it posts one note in the job's session (an issue
@@ -848,6 +849,51 @@ AUTHORITY states its grants (see Authority).
   config export, client code and UI wiring). The OpenSpec change stays unarchived until the client stage's
   write-back.
 
+The controller's part in a Code job. A host whose `enabled_skills` names `feature` must also name the lark-cli
+profile its workers use (`lark_cli.profile`, Host configuration); `serve` and `enqueue` refuse one that does not. A
+`feature` job gets no Farm-Client target, whether a delegation, a conversation or `enqueue` made it; none of its
+session's acknowledgements carries a target line; and it holds no Unity slot, because `await-resource` refuses a
+resource its manifest does not list (Unity verification commits). Besides each repository's issue branch, a job may
+publish `farmbot/<key>-config` (`-config-<n>` for a re-pin) in common, `farmbot/<key>-waivers` in Farm-Contract and
+`farmbot/<key>-followup` in farm-hive (Draft PR publishing authority). The issue branches its plan records are where
+a successor's worktrees, and a cleaned-up continuation's, start (Authority); `checkpoint` refuses a plan that records
+one the publishing policy would refuse, or two for one repository, so a recorded name never stops a later launch.
+Every attempt also gets read-only checkouts of the default branches of Farm-Contract, Farm-Client and farmgui beside
+the item's worktrees (`reads` in the launch message), refreshed at each launch except a publication retry's and
+removed with the worktrees. The automatic-retry allowances count per stage: a completed repository handoff and a
+resume from a pause reset them (Work item states).
+
+The job pauses with `await-input`: `--reason question` for its grouped questions, `--reason waiting` for the
+config-ready and closing pauses and for a stage limit. A reply in the session or a mention resumes a paused job; a
+comment alone never does, and nothing times out. At most one attempt of an exclusive skill (today `feature`) runs at
+a time, which leaves the other worker slot to `fix` and `chat`; a waiting Code job keeps its place in the queue
+(Resource execution limits). Two successful status reads at least an interval apart confirm a removed
+delegation. The confirming
+read cancels queued or parked delegation work with one response, preserving its branches and PRs;
+a running claim is flagged with a grace period so its worker can checkpoint and run `withdraw`
+(Triggers and Withdrawn work). The worker also withdraws when its own fresh card read finds the
+delegation gone, without publishing or asking. A later delegation resumes from the saved plan.
+A closed status cancels the job as it cancels any work; a merge moves a 农场 card only to 待验收,
+which stops nothing.
+
+In this revision a Code job ends after the server. The client stage (the UI-ready pause and Farm-Client, with the
+client's protocol and config exports), the client's closing steps and the write-back and archive of the contract
+change come with the next phase. A step the worker cannot run in its sandbox is named in the PR as not run, with its
+error; Go module downloads outside the writable roots, GNU `sha256sum`, protoc 35.1, `git status` in a read-only
+sibling worktree and every bash generator on Windows have not been verified in a worker sandbox. On a host that
+enables `feature`, `doctor` reports whether it has the toolchain its workers need; on any host it shows each
+unfinished Code job's root, stage states, pending pause and PR links (README, "AI/operator diagnostics").
+
+Rolling back: before moving a host to a revision without `skills/feature`, cancel its unfinished `feature` items
+(Stop in Linear, or the operator's `cancel`), queued, running, parked or between stages alike; let their cleanup
+finish, which also removes their read-only checkouts (`doctor` then lists no pending cleanup for them); and take
+`feature` out of `enabled_skills`. An older revision never launches a `feature` item, yet replies still resume it,
+queued ones keep getting progress heartbeats, and the one-active-item rule blocks every other job on its issue; and
+an `enabled_skills` naming a skill the checkout lacks stops `serve`. A cancelled job's branches, PRs and notices stay.
+An older revision does not remove a `<worktrees>/<item>.reads` directory an unfinished cleanup left; delete it by
+hand once that item's cleanup record is done. Older revisions ignore the `lark_cli` key, withhold no lark-cli
+variable from workers, and read the new notice kinds like any other.
+
 ## Shared memory
 
 Workers share bounded recall notes in the ledger, with an immutable Markdown index and topic files
@@ -1140,8 +1186,8 @@ owner's profile URL from `issue-context` (see People).
 
 Notices are a second family, for comments a job may repeat: `question` (a grouped question round),
 `waiting` (a pause on a human step elsewhere), `foreign_work` (other people's branches or PRs),
-`stage` (a stage that started, was skipped or finished, with its reason) and `merge_request` (asking
-the owner to merge a named PR).
+`stage` (a stage skipped, or stage C passed, with its reason) and `merge_request` (asking
+the owner to merge a named PR; stage A ends with one for the contract PR).
 The ledger keeps one per work item and worker-chosen request id rather than per claimed input, so a
 retried attempt of the same item reuses it and a new round needs a new request id; a successor of
 cancelled work starts with none and reads its predecessors' under `recovery.notices`. `post-notice`

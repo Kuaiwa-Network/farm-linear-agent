@@ -1,8 +1,9 @@
 # Feature workers: UI (`fgui`) and Code (`feature`)
 
-**Status: proposed, 2026-09-24. Not implemented.** Nothing here describes current FarmBot
-behaviour; that lives in [`docs/operating-contract.md`](../../operating-contract.md) and changes
-only when a phase of this design lands. Approving the design does not authorize running its phases
+**Status: proposed 2026-09-24; Phase A and Phase B's offline implementation are available on
+this branch; Phases C to E are not implemented.** Deployment and live Code-worker acceptance remain
+pending. Current checkout behavior lives in [`docs/operating-contract.md`](../../operating-contract.md),
+which changes with the implementation. Approving the design does not authorize running its phases
 (§13), each of which is authorized separately. It follows the operator decisions of 2026-09-24 and
 2026-09-25 (D1–D18, below) and supersedes the Phase 4 and 5 plans of the
 [2026-09-17 design](2026-09-17-farm-linear-agent-design.md) (§1 ladder rungs 3–4, §6 stage rows, §17):
@@ -1109,6 +1110,26 @@ Each phase is useful alone and separately authorized.
 5. **Phase E, UI export.** Windows CLI export and the Farm-Client export PR, after farmgui's
    `AGENTS.md` export-grant change and, as for Phases C and D, the D10 LFS push check.
 
+Progress: Phase A landed on 2026-09-26 and 2026-09-27 (#52, #53 and #55 to #58). Phase B's
+controller work landed as #71; B2 is draft [#76](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/76),
+and B3 implements Tasks 12–16 on this branch. The [plan](../plans/2026-09-28-feature-workers-phase-b.md)
+records the offline results in "As executed"; its separate live checks remain pending. Phase B settles what this design left to its
+implementation in the decisions P1 to P16 of [its
+plan](../plans/2026-09-28-feature-workers-phase-b.md). `feature` is opt-in (P1) and exclusive (P8).
+Until Phase C its manifest writes Farm-Contract, common and farm-hive and reads the default branches
+of Farm-Contract, Farm-Client and farmgui, with no Unity slot (P2, which differs from §9.5's
+proposed manifest: the Farm-Client write, the Unity slot and the `ui_ready` gate wait for Phase C,
+and Farm-Client is read for stage A's gap list), and a job takes only the resources its manifest
+lists (P11). The write-back waits for Phase C (P3). Only skills with an initial root re-attach to
+recorded branches (P4), and a plan cannot record a bad issue branch (P9). lark-cli credentials stay
+in lark-cli, which workers run with the host's profile as the FarmBot app (P5), and lark-cli's
+credential variables are withheld from every worker (P13). A `feature` session has no pinned target
+(P6). `stage` and `merge_request` are the two new notice kinds (P7), posted as P15 says. A re-pin
+gets a new `-config-<n>` branch (P12). A stage limit in the delegation text is honoured (P14). Stage
+D follows farm-hive's designer-source pin (P16). Controller Git preserves the current clone-validation and write-root boundaries added after P10
+(#72); its calls disable hooks and fsmonitor, and the Go diagnostic also disables lazy fetching. The
+operating contract's "The Code worker (`feature`)" section describes the result and its rollback.
+
 ## 14. To verify during implementation, and open questions
 
 ### 14.1 To verify (D10 and implementation checks)
@@ -1151,5 +1172,13 @@ Found while writing this design:
 
 ### 14.2 Open questions
 
-None at the moment. Answered on 2026-09-25 and folded in above: D11 to D17, and how merges move the
-card (§9.8).
+Answered on 2026-09-25 and folded in above: D11 to D17, and how merges move the card (§9.8). Raised
+by Phase B (its plan's Open Questions) and still pending live verification:
+
+- For the operator, before `feature` runs on the Windows host: lark-cli keeps secrets per Windows
+  user (DPAPI), so a separate lark-cli home isolates nothing there. Either a host account whose
+  lark-cli store holds only the FarmBot profile, or environment credentials in the `feature`
+  worker's shell, which would require a separately reviewed authority change: the current code
+  withholds these variables from every worker.
+- To check live: whether Linear shows the response FarmBot posts to a session whose issue is no
+  longer delegated (§9.8), and whether that response completes the session.

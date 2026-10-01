@@ -97,7 +97,11 @@ state from Git history and the saved Claude session. Phase A's shared plumbing a
   passed with one platform skip; eleven deliberate regressions were caught by exactly their expected
   journeys, and every temporary edit was restored. The final macOS offline suite passed **1,720 tests
   in 301.730 seconds, 18 Windows-only skips**. Hosted Windows CI remains a separate requirement.
-- **Next:** documentation, independent B3 review and verification; live Code acceptance remains pending.
+- **Task 16 completed:** the documentation names the opt-in Code worker, its plan/pause shapes,
+  notices, controller behavior and rollback procedure. It preserves #72's Git boundary, #73's
+  withdrawal behavior and B2's credential filtering; B2/B3 remain draft implementation, with native
+  Windows desktop readiness and live Code acceptance pending. All 70 document-reading tests passed;
+  links and whitespace are clean. Independent B3 review and hosted verification follow.
 
 ## Scope
 
@@ -11761,7 +11765,7 @@ Risks and Open Questions.
   Task 17 later replaces the one sentence this task marks unverified live (the session response after a removed
   delegation) with what its check 4 found.
 
-- [ ] **Step 1: Search for statements Phase B made stale.** From the repository root:
+- [x] **Step 1: Search for statements Phase B made stale.** From the repository root:
 
 ```sh
 grep -n -E 'neither exists yet|do not exist yet|neither runs nor starts|refuses a first job, even when a `feature`|today `fix`\)|such as `fix` runs|`chat` and `fix` remain|cannot run `fix`:|Two concurrent workers\.|from launching\. Polling makes no Linear writes|and `foreign_work` \(other people|PRs on the issue\. Name each|"kind": "waiting", "request_id"|For a fix, this selection requires a Farm-Client-rooted worker|(none|no skill|No skill) in this revision|in this revision of the skill|"After stage B", in this revision|reaches a later stage finishes blocked|lists Farm-Contract\)|detached checkout of Farm-Contract.s default branch|reads no (Farm-Client or farmgui|farmgui or Farm-Client) source|not among this job.s worktrees|passes without another comment' \
@@ -11838,7 +11842,7 @@ Rehearsed in order on 2026-09-28, after Tasks 1–15 as drafted: the search prin
 (`:166`), the contract's execution-profile sentence (`:177`) and the worker-cli Plan example's `pause` (`:307`);
 every other pattern had been rewritten by its task. After Steps 1 and 5 it printed nothing.
 
-- [ ] **Step 2: Check that each topic has one home and that every mention agrees with it and with the code.**
+- [x] **Step 2: Check that each topic has one home and that every mention agrees with it and with the code.**
 
 | Topic | Its one full description | Elsewhere, a pointer or one line |
 |---|---|---|
@@ -11882,7 +11886,7 @@ that lark-cli credentials must stay out of the controller's environment, which F
 README said nothing of Windows. The contract's `doctor` paragraph lists the pause kinds Task 8's `PAUSE_KINDS`
 reports, `stage_limit` (Task 13, P14) included, so it needs no change here.
 
-- [ ] **Step 3: Complete the operating contract's Code-worker section.**
+- [x] **Step 3: Complete the operating contract's Code-worker section.**
 
 Tasks 13 and 14 add ``## The Code worker (`feature`)`` directly before `## Shared memory` (`:580` at `33a28d3`): the
 worker's stages, its notices and rulings, the closing steps and the delivery. It does not yet say what the controller
@@ -11971,7 +11975,7 @@ and for the Triggers table, after the row that begins `| Close an issue (a statu
 
 If Task 8's row lacks the parenthesis, add it: Task 17's check 4 replaces it with what Linear did.
 
-- [ ] **Step 3b: Give the other decisions their homes in the contract.** Each sentence below belongs where its task
+- [x] **Step 3b: Give the other decisions their homes in the contract.** Each sentence below belongs where its task
 should have put it. Check the merged text first; add a sentence only where its fact is missing, and where the task
 worded it otherwise, keep the task's words if they say the same.
 
@@ -12033,7 +12037,7 @@ worded it otherwise, keep the task's words if they say the same.
   As drafted, Task 5 writes this rule in its own paragraph directly after the plan paragraph (``An entry of
   `plan.prs` with `"role": "issue"` …``), so it is not added again.
 
-- [ ] **Step 4: Record Phase B in the design.** In `docs/superpowers/specs/2026-09-24-feature-workers-design.md`,
+- [x] **Step 4: Record Phase B in the design.** In `docs/superpowers/specs/2026-09-24-feature-workers-design.md`,
 replace the status sentence and the one after it (`:3-5`), from `**Status: proposed, 2026-09-24. Not implemented.**`
 through `changes only when a phase of this design lands.`, with:
 
@@ -12085,7 +12089,7 @@ by Phase B (its plan's Open Questions) and still open when it landed:
   longer delegated (§9.8), and whether that response completes the session.
 ```
 
-- [ ] **Step 5: Name the Code worker where readers start.**
+- [x] **Step 5: Name the Code worker where readers start.**
 
 In `README.md`, replace the opening paragraph (`:3-9`). Its second sentence changes and two new sentences follow
 it; the rest stays:
@@ -12196,7 +12200,7 @@ personal `--as user` login with this setup, do not enable `feature` on that Mac 
 operator has accepted that exposure knowingly and recorded it.`` Rehearsed after Task 10 as drafted, whose table
 records the exposure but says nothing about enabling, the sentence was added.
 
-- [ ] **Step 6: Check links and whitespace.**
+- [x] **Step 6: Check links and whitespace.**
 
 ```sh
 python3 - <<'EOF'
@@ -12226,7 +12230,7 @@ Expected: no output. The spec's link to this plan resolves because the plan is o
 the spike's record is missing, which is Task 10's to finish before Task 17 relies on it. Rehearsed offline, where
 the spike could not run, it printed the section's five placeholder lines and nothing else.
 
-- [ ] **Step 7: Run the tests that read these documents**
+- [x] **Step 7: Run the tests that read these documents**
 
 Run: `python3 -B -m unittest discover -s tests -p 'test_skills.py' -v`
 Expected: all pass. `WorkerCliReferenceTests` parses every documented command and saves every JSON example in
@@ -12237,7 +12241,7 @@ before this task. The new Plan example is checked for real: with a second `issue
 `test_documented_checkpoint_is_accepted_and_available_to_the_next_worker` errors on the checkpoint's refusal, and
 the Notices section without `` `stage` `` fails `test_the_notices_section_names_every_notice_kind`.
 
-- [ ] **Step 8: Commit.**
+- [x] **Step 8: Commit.**
 
 ```bash
 git add docs/operating-contract.md README.md AGENTS.md docs/development-workflow.md references/ skills/ docs/superpowers/specs/2026-09-24-feature-workers-design.md

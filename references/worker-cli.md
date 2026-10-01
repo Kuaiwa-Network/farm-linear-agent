@@ -267,7 +267,7 @@ Unity request from any root but a neutral start or Farm-Client.
 
 A notice is an issue comment a job may need more than once: `--kind question` for a grouped question
 round, `waiting` for a pause on a human step elsewhere, `foreign_work` for other people's branches or
-PRs on the issue, `stage` for a stage that started, was skipped or finished, with its reason, and
+PRs on the issue, `stage` for a stage that was skipped or passed, with its reason, when your skill asks for one, and
 `merge_request` for asking the owner to merge a named PR. Name each with `--request-id`: 1–64 ASCII
 letters, digits, `.`, `_` or `-`, unique within your item, such as `questions-2`. A new round needs a
 new id. A question notice carries the owner's profile URL, and the creator's when it asks 策划
@@ -326,13 +326,18 @@ directory of its own, so such notes stay with the item that wrote them. For exam
     ]
   },
   "plan": {
+    "stages": {"A": "done", "B": "pending", "C": "pending", "D": "pending", "G": "pending"},
     "prs": {"Farm-Contract": [{"branch": "ISSUE_BRANCH", "role": "issue", "head": "FULL_HEAD_SHA",
-                               "url": "https://github.com/Kuaiwa-Network/Farm-Contract/pull/12"}]},
-    "pause": {"kind": "waiting", "request_id": "config-ready"}
+                               "pr": {"url": "https://github.com/Kuaiwa-Network/Farm-Contract/pull/12",
+                                      "state": "draft", "merge": null}}]}
   },
   "published_prs": ["https://github.com/Kuaiwa-Network/Farm-Contract/pull/12"]
 }
 ```
+
+A pending pause is recorded as `{"kind": "config_ready", "reason": "waiting", "notice": "config-needed",
+"since": "<ISO 8601 UTC>"}`. The controller reads `prs` to re-attach a successor's worktrees and
+identify own work, and `stages`, `pause` and `prs` for `doctor`; the other keys are the worker's record.
 
 A checkpoint that omits `plan` keeps the saved one, and one that includes it replaces it whole; `{}`
 clears it. `null` or a plan outside these bounds refuses the whole checkpoint, its `handoff` and
