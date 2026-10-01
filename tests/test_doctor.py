@@ -5,6 +5,8 @@ import io
 import json
 import os
 from pathlib import Path
+import shlex
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -14,7 +16,7 @@ from unittest.mock import patch
 
 from agent.config import Config, Paths
 from agent.dispatch import SKILL_AUTHORITY
-from agent.doctor import diagnose, probe_process
+from agent.doctor import _go_directive, diagnose, probe_process
 from agent.ledger import Ledger
 from agent.service import main
 from agent.skills import load_skills
@@ -705,11 +707,15 @@ name="${0##*/}"
 printf 'GOTOOLCHAIN=%s\nOPENSPEC_TELEMETRY=%s\nDO_NOT_TRACK=%s\nLARKSUITE_CLI_NO_UPDATE_NOTIFIER=%s\nLARKSUITE_CLI_REMOTE_META=%s\nHOME=%s\n' \
   "$GOTOOLCHAIN" "$OPENSPEC_TELEMETRY" "$DO_NOT_TRACK" "$LARKSUITE_CLI_NO_UPDATE_NOTIFIER" "$LARKSUITE_CLI_REMOTE_META" "$HOME" \
   > "$d/$name.env"
+for key in LARKSUITE_CLI_APP_SECRET larksuite_cli_user_access_token KW_OPS_TOKEN LARKSUITE_CLI_CONFIG_DIR; do
+  eval 'present=${'"$key"'+set}'
+  if [ "$present" = set ]; then printf '%s=set\n' "$key" >> "$d/$name.env"; fi
+done
 file="$d/$name.out"
 if [ "$name" = lark-cli ]; then
   case "$1" in
     --version) file="$d/lark-cli.version" ;;
-    profile) file="$d/lark-cli.profiles" ;;
+    profile) file="${LARKSUITE_CLI_CONFIG_DIR:-$d}/lark-cli.profiles" ;;
     *) exit 2 ;;
   esac
 fi
@@ -759,6 +765,7 @@ class FeatureToolchainTests(unittest.TestCase):
             (self.stubs / "lark-cli.cmd").write_text(
                 '@echo off\r\nset > "%~dp0lark-cli.env"\r\n'
                 'if "%~1"=="--version" (type "%~dp0lark-cli.version" & exit /b 0)\r\n'
+                'if "%~1"=="profile" if defined LARKSUITE_CLI_CONFIG_DIR (type "%LARKSUITE_CLI_CONFIG_DIR%\\lark-cli.profiles" & exit /b 0)\r\n'
                 'if "%~1"=="profile" (type "%~dp0lark-cli.profiles" & exit /b 0)\r\nexit /b 2\r\n', encoding="utf-8")
         else:
             (self.stubs / f"{name}.cmd").write_text(
@@ -832,9 +839,19 @@ class FeatureToolchainTests(unittest.TestCase):
         self.assertEqual((report["status"], self.codes(report)), ("attention", {"feature_toolchain_incomplete"}))
 
     def test_go_must_satisfy_the_directives_in_farm_hives_go_mod(self):
+        with patch.dict(os.environ, {"PATH": str(self.stubs) + os.pathsep + self.original_path}):
+            self.hive_clone()
+            report = self.report()
+        self.assertEqual(report["tools"]["feature"]["entries"]["go"],
+                         {"found": True, "version": "1.26.6", "required": ">=1.27.2", "ok": False,
+                          "source": "farm-hive go.mod"})
+        self.assertIn("go", report["tools"]["feature"]["missing"])
+
+    def hive_clone(self):
+        """A complete local clone with FarmBot's allowed config; never contacts its advertised GitHub origin."""
         from test_worktrees import git
         self.config.repos = {"farm-hive": "https://github.com/example-org/farm-hive.git"}
-        with patch.dict(os.environ, {"PATH": str(self.stubs) + os.pathsep + self.original_path}):
+        with patch.dict(os.environ, {"PATH": self.original_path}):
             work = Path(self.tmp.name) / "farm-hive 工作"
             work.mkdir()
             git("init", "-q", "-b", "main", ".", cwd=work)
@@ -846,11 +863,89 @@ class FeatureToolchainTests(unittest.TestCase):
             clone.parent.mkdir(parents=True, exist_ok=True)
             git("init", "-q", "--bare", str(clone), cwd=clone.parent)
             git("fetch", "-q", str(work), "+refs/heads/*:refs/remotes/origin/*", cwd=clone)
-            report = self.report()
-        self.assertEqual(report["tools"]["feature"]["entries"]["go"],
-                         {"found": True, "version": "1.26.6", "required": ">=1.27.2", "ok": False,
-                          "source": "farm-hive go.mod"})
-        self.assertIn("go", report["tools"]["feature"]["missing"])
+            git("remote", "add", "origin", "git@github.com:example-org/farm-hive.git", cwd=clone)
+        return clone
+
+    def test_go_probe_neither_uses_an_unsafe_clone_nor_lazy_fetches_from_host_config(self):
+        from test_worktrees import git
+        from agent.worktrees import Worktrees
+        clone = self.hive_clone()
+        marker = Path(self.tmp.name) / "ssh-ran"
+        script = Path(self.tmp.name) / "dummy ssh.py"
+        script.write_text("from pathlib import Path\nPath(" + repr(str(marker)) +
+                          ").write_text('ran')\nraise SystemExit(1)\n", encoding="utf-8")
+        command = shlex.quote(Path(sys.executable).as_posix()) + " " + shlex.quote(script.as_posix())
+        global_config = Path(self.tmp.name) / "global git config"
+        initial_config = (clone / "config").read_bytes()
+        with patch.dict(os.environ, {"PATH": self.original_path, "GIT_CONFIG_GLOBAL": str(global_config),
+                                     "GIT_CONFIG_NOSYSTEM": "1"}):
+            blob = git("rev-parse", "refs/remotes/origin/main:go.mod", cwd=clone)
+            object_file = clone / "objects" / blob[:2] / blob[2:]
+            self.assertTrue(object_file.is_file(), "fixture needs a loose blob")
+            object_file.unlink()
+            for location in (clone / "config", global_config):
+                with self.subTest(config=location.name):
+                    git("config", "--file", str(location), "remote.origin.promisor", "true", cwd=clone)
+                    git("config", "--file", str(location), "core.sshCommand", command, cwd=clone)
+                    problems = Worktrees(self.paths.repos, self.paths.worktrees, self.config.repos).clone_problems("farm-hive")
+                    self.assertEqual(bool(problems), location == clone / "config", problems)
+                    directive = _go_directive(self.config, self.paths)
+                    ran = marker.exists()
+                    marker.unlink(missing_ok=True)
+                    git("config", "--file", str(location), "--unset", "remote.origin.promisor", cwd=clone)
+                    git("config", "--file", str(location), "--unset", "core.sshCommand", cwd=clone)
+                    (clone / "config").write_bytes(initial_config)
+                    self.assertIsNone(directive)
+                    self.assertFalse(ran, "offline go.mod lookup invoked SSH to fetch a missing blob")
+
+    def test_diagnostic_tools_receive_no_credentials(self):
+        self.config.kw_ops = {"url": "https://gm.example.test", "token_env": "KW_OPS_TOKEN"}
+        denied = {"LARKSUITE_CLI_APP_SECRET": "dummy", "larksuite_cli_user_access_token": "dummy",
+                  "KW_OPS_TOKEN": "dummy"}
+        with patch.dict(os.environ, denied):
+            self.report()
+        names = [name for name in HEALTHY if os.name == "nt" or name not in ("bash", "sha256sum", "mktemp", "awk")]
+        for name in (*names, "lark-cli"):
+            with self.subTest(tool=name):
+                self.assertFalse(set(denied) & self.seen(name).keys())
+
+    def test_go_probe_and_its_clone_check_receive_no_credentials(self):
+        clone = self.hive_clone()
+        actual_git = shutil.which("git", path=self.original_path)
+        record = Path(self.tmp.name) / "git-env-names.jsonl"
+        wrapper = self.stubs / "git-probe.py"
+        wrapper.write_text(
+            "import json,os\nwith open(" + repr(str(record)) +
+            ", 'a', encoding='utf-8') as f: f.write(json.dumps(sorted(os.environ)) + '\\n')\n"
+            "os.execv(" + repr(actual_git) + ", [" + repr(actual_git) + ", *__import__('sys').argv[1:]])\n",
+            encoding="utf-8")
+        if os.name == "nt":
+            (self.stubs / "git.cmd").write_text('@"' + sys.executable + '" "%~dp0git-probe.py" %*\r\n',
+                                                encoding="utf-8")
+        else:
+            executable = self.stubs / "git"
+            executable.write_text("#!" + sys.executable + "\n" + wrapper.read_text(encoding="utf-8"), encoding="utf-8")
+            executable.chmod(0o755)
+        self.config.kw_ops = {"url": "https://gm.example.test", "token_env": "KW_OPS_TOKEN"}
+        denied = {"LARKSUITE_CLI_APP_SECRET": "dummy", "larksuite_cli_user_access_token": "dummy",
+                  "KW_OPS_TOKEN": "dummy"}
+        with patch.dict(os.environ, {**denied, "PATH": str(self.stubs) + os.pathsep + self.original_path}):
+            self.assertEqual(_go_directive(self.config, self.paths), "1.27.2")
+            self.report()
+        invocations = [json.loads(line) for line in record.read_text(encoding="utf-8").splitlines()]
+        self.assertTrue(invocations)
+        for names in invocations:
+            self.assertFalse(set(denied) & set(names), "a diagnostic Git child inherited credentials")
+
+    def test_inherited_config_directory_cannot_select_another_lark_store(self):
+        self.lark_profiles([PROFILES[0]])
+        alternate = Path(self.tmp.name) / "alternate store"
+        alternate.mkdir()
+        (alternate / "lark-cli.profiles").write_text(json.dumps([PROFILES[0], PROFILES[1]]), encoding="utf-8")
+        with patch.dict(os.environ, {"LARKSUITE_CLI_CONFIG_DIR": str(alternate)}):
+            profile = self.report()["tools"]["feature"]["entries"]["lark_cli"]["profile"]
+        self.assertEqual((profile["exists"], profile["other_profiles"], profile["user_logins"]), (True, 0, 0))
+        self.assertNotIn("LARKSUITE_CLI_CONFIG_DIR", self.seen("lark-cli"))
 
     def test_the_configured_profile_must_exist(self):
         self.lark_profiles([profile for profile in PROFILES if profile["name"] != "farmbot"])

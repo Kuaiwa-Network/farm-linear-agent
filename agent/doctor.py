@@ -298,17 +298,33 @@ def _satisfies(version, required):
     return found + (0,) * (width - len(found)) >= minimum + (0,) * (width - len(minimum))
 
 
+def _probe_environment(config):
+    from .kw_ops import child_environment
+    filtered = child_environment(config.kw_ops.get("token_env"))
+    source = os.environ if filtered is None else filtered
+    return {**source, **PROBE_ENV}
+
+
 def _go_directive(config, paths):
     """The newest Go version farm-hive's go.mod names (its go and toolchain lines), read from FarmBot's own clone
     without a fetch; None when there is no clone or no readable go.mod."""
     if "farm-hive" not in config.repos:
         return None
+    env = {**_probe_environment(config), "GIT_TERMINAL_PROMPT": "0", "GIT_NO_LAZY_FETCH": "1"}
+    trees = Worktrees(paths.repos, paths.worktrees, config.repos)
+    try:
+        if trees.clone_problems("farm-hive", environ=env):
+            return None
+    except (OSError, subprocess.SubprocessError):
+        return None
     for ref in ("refs/remotes/origin/HEAD", "refs/remotes/origin/main"):
         try:
-            result = subprocess.run(["git", "--git-dir", str(paths.repos / "farm-hive.git"), *HOOKS_OFF,
+            # A missing blob in a promisor clone can fetch through host config even when the clone is safe.
+            # The CLI option also fails closed on a Git too old to support it.
+            result = subprocess.run(["git", "--no-lazy-fetch", "--git-dir", str(paths.repos / "farm-hive.git"), *HOOKS_OFF,
                                      "cat-file", "blob", f"{ref}:go.mod"], capture_output=True, text=True,
                                     encoding="utf-8", errors="replace", timeout=PROBE_TIMEOUT, stdin=subprocess.DEVNULL,
-                                    env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}, check=False)
+                                    env=env, check=False)
         except (OSError, subprocess.TimeoutExpired):
             return None
         versions = _GO_DIRECTIVE.findall(result.stdout) if not result.returncode else []
@@ -350,7 +366,7 @@ def _lark_cli(config, env):
 def feature_toolchain(config, paths):
     """tools.feature: one {"found", "version", "required", "ok"} entry per tool a feature worker runs, the names of
     required entries that are not ok, and of optional ones. Doctor never runs lark-cli against Feishu."""
-    env = {**os.environ, **PROBE_ENV}
+    env = _probe_environment(config)
     directive = _go_directive(config, paths)
     probes = {"go": (["go", "version"], f">={directive or GO_MINIMUM}"), "protoc": (["protoc", "--version"], "35.1"),
               "buf": (["buf", "--version"], "1.72.0"), "node": (["node", "--version"], ">=22"),
@@ -423,7 +439,7 @@ def diagnose(config, *, now=None):
     for repo in sorted(config.repos):
         if trees.clone_path(repo).exists():
             try:
-                problems = trees.clone_problems(repo)
+                problems = trees.clone_problems(repo, environ=_probe_environment(config))
             except (OSError, subprocess.SubprocessError) as exc:
                 problems = [f"unreadable ({type(exc).__name__})"]
             if problems:

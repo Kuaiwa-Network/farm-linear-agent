@@ -65,8 +65,16 @@ state from Git history and the saved Claude session. Phase A's shared plumbing a
   skips**. The development Mac's read-only probe excluded lark-cli: Go 1.26.6 meets farm-hive's
   `>=1.25.1`, protoc 35.1, Node 24.15.0, openspec 1.7.0, Python 3.13.14 and git-lfs 3.7.1 passed;
   `buf` is absent from that shell's PATH and dotnet SDK 8.0.423 is an optional gap (10.0.203 installed).
-  No tool was installed, host profile edited or live feature run started. B2 now awaits whole-branch
-  review and CI; these Mac results do not verify the Windows desktop host.
+  No tool was installed, host profile edited or live feature run started.
+- **B2 review fixes:** the independent review found three issues, each reproduced before fixing:
+  the Go lookup bypassed clone validation and could lazy-fetch through clone or host Git config;
+  diagnostic children inherited credentials; and an inherited `LARKSUITE_CLI_CONFIG_DIR` could
+  redirect the selected lark store. The lookup now validates the clone and prohibits lazy fetching;
+  diagnostic children withhold lark and configured kw_ops credentials, and every worker/Unity/
+  diagnostic child removes the store override. Focused checks passed (57 doctor, 91 launcher,
+  14 kw_ops, 55 worktrees; three platform skips). The final full offline suite passed **1,661 tests
+  in 244.802 seconds, 18 Windows-only skips**. This closes the review's one fix pass; hosted CI
+  follows the draft PR, and native Windows desktop readiness remains a separate check.
 - **Next:** B3 (Tasks 12–15) and the documentation/verification rounds remain unfinished. The
   `feature` skill itself still does not exist.
 

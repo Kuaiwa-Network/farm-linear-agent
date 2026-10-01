@@ -151,7 +151,9 @@ a host that enables `feature` without the block. Create the home and the profile
 [development workflow](docs/development-workflow.md) describes. Every worker starts without
 `LARKSUITE_CLI_APP_ID`, `LARKSUITE_CLI_APP_SECRET`, `LARKSUITE_CLI_PROXY_KEY` and any
 `LARKSUITE_CLI_*ACCESS_TOKEN`, because lark-cli prefers credentials from the environment to
-`--profile`. That removal covers only the environment a worker inherits, so never export them, or
+`--profile`. FarmBot also removes `LARKSUITE_CLI_CONFIG_DIR` after worker overrides, preserving
+the configured store selection. Diagnostic and Unity children get the same removals. They cover
+only the inherited environment, so never export these variables, or
 `LARKSUITE_CLI_CONFIG_DIR`, in a shell startup file on a FarmBot host, and never run
 `lark-cli config keychain-downgrade` for your own lark-cli store there: every sandboxed worker could
 then read every profile in it, a personal login included.
@@ -185,7 +187,9 @@ fetch: lark-cli runs with `LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1` and `LARKSUITE_CL
 and `lark-cli profile list`, of which the report keeps the configured profile's name and counts,
 never an app ID, another profile's name or a user's name. Doctor never calls Feishu, and hosts that
 do not enable `feature` run none of this. It probes the tools on its own `PATH`, so run it from the
-environment `serve` starts in, whose `PATH` the workers inherit.
+environment `serve` starts in, whose `PATH` the workers inherit. Diagnostic children also withhold
+the configured kw_ops token. The Go directive lookup refuses unsafe clones and prohibits lazy
+fetching; a missing object falls back to the default minimum.
 
 Exit codes are **0** (`ok`: no problems detected by these checks), **1** (`attention`:
 findings need inspection), and **2** (`incomplete`: a config, skills, ledger, log or process

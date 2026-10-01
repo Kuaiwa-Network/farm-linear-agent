@@ -305,8 +305,9 @@ worker:
 
 Never run `lark-cli config keychain-downgrade` for your own store on a FarmBot host, and never export
 lark-cli credentials, or `LARKSUITE_CLI_CONFIG_DIR`, in a shell startup file: FarmBot removes the
-credential variables from the environment each worker inherits, not from what a worker's shell
-sources. On Windows, lark-cli keeps every profile's secret in the user's registry, protected per
+credential variables and the config-directory override after per-worker overrides, preserving the
+selected store; it cannot remove what a worker's shell sources. Diagnostic and Unity children get
+the same removals, plus the configured kw_ops token. On Windows, lark-cli keeps every profile's secret in the user's registry, protected per
 user, so a separate home isolates nothing there and FarmBot refuses one; before `feature` is enabled
 on the Windows production host, the operator chooses between a host account whose lark-cli store
 holds only the FarmBot profile and environment credentials in the `feature` worker's shell (the Phase

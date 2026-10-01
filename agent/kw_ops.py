@@ -73,14 +73,16 @@ LARK_CLI_CREDENTIALS = re.compile(r"LARKSUITE_CLI_(?:APP_ID|APP_SECRET|PROXY_KEY
 
 def child_environment(token_env, environ=None):
     """The host environment for a child the controller starts outside a worker's sandbox (a Unity run, an Editor
-    launch), without the configured kw_ops token or lark-cli's credential variables. None, which inherits the
+    launch or diagnostic), without the configured kw_ops token, lark-cli credentials or its config-directory
+    override (which would defeat the profile/home FarmBot selects). None, which inherits the
     environment as it is, when there is nothing to withhold."""
     source = os.environ if environ is None else environ
     # Windows environment names are case-insensitive, including when an explicit env dict is supplied.
     fold = str.upper if os.name == "nt" else str
     denied = fold(token_env) if token_env else None
     kept = {name: value for name, value in source.items()
-            if fold(name) != denied and not LARK_CLI_CREDENTIALS.fullmatch(name)}
+            if fold(name) != denied and not LARK_CLI_CREDENTIALS.fullmatch(name)
+            and name.upper() != "LARKSUITE_CLI_CONFIG_DIR"}
     return environ if len(kept) == len(source) else kept
 
 

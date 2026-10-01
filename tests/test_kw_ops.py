@@ -64,6 +64,7 @@ class KwOpsConfigTests(unittest.TestCase):
         """Plan P13: a child the controller starts outside a sandbox never inherits a lark-cli credential either."""
         environ = {"LARKSUITE_CLI_APP_ID": "cli_example", "LARKSUITE_CLI_APP_SECRET": "not-a-secret",
                    "larksuite_cli_user_access_token": "not-a-token", "LARKSUITE_CLI_NO_UPDATE_NOTIFIER": "1",
+                   "LARKSUITE_CLI_CONFIG_DIR": "alternate-store", "larksuite_cli_config_dir": "another-store",
                    "OTHER": "yes"}
         kept = {"LARKSUITE_CLI_NO_UPDATE_NOTIFIER": "1", "OTHER": "yes"}
         self.assertEqual(kw_ops.child_environment(None, environ), kept)

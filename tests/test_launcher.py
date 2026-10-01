@@ -344,13 +344,14 @@ class LauncherTests(unittest.TestCase):
         launcher = Launcher(self.runs, runtime, host="h")
         withheld = ["LARKSUITE_CLI_APP_ID", "LARKSUITE_CLI_APP_SECRET", "LARKSUITE_CLI_PROXY_KEY",
                     "LARKSUITE_CLI_USER_ACCESS_TOKEN", "LARKSUITE_CLI_TENANT_ACCESS_TOKEN",
-                    "LARKSUITE_CLI_FUTURE_ACCESS_TOKEN"]
+                    "LARKSUITE_CLI_FUTURE_ACCESS_TOKEN", "LARKSUITE_CLI_CONFIG_DIR"]
         kept = ["LARKSUITE_CLI_AUTH_PROXY", "LARKSUITE_CLI_REMOTE_META", "LARKSUITE_CLI_STRICT_MODE"]
         with patch.dict(os.environ, {name: "dummy-lark-value" for name in withheld + kept}):
             # Windows reads environment names case-insensitively, so a lower-case spelling is withheld too.
             launcher.spawn("item-lark", self.message, {}, 30, self.tmp.name,
                            extra_env={"LARKSUITE_CLI_APP_SECRET": "reintroduced-secret",
-                                      "larksuite_cli_user_access_token": "lower-case-token"})
+                                      "larksuite_cli_user_access_token": "lower-case-token",
+                                      "larksuite_cli_config_dir": "alternate-store"})
         self.addCleanup(launcher.stop, "item-lark")
         finished = self.finished_by(launcher)
         self.assertEqual(json.loads(finished[0].last_message), sorted(kept))

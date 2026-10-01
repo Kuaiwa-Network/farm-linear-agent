@@ -174,7 +174,8 @@ HOME=<tools.lark_cli.home> lark-cli --profile <tools.lark_cli.profile> docs +fet
 Set `HOME` for that command alone; your shell keeps its own. The profile holds FarmBot's app ID and
 secret: never read, print or copy them, never use another profile, `--as user`, `auth` or `config`,
 and never set `LARKSUITE_CLI_*` variables yourself. FarmBot starts you without lark-cli's credential
-variables, which would override the profile.
+variables, which would override the profile, and `LARKSUITE_CLI_CONFIG_DIR`, which would select
+another store.
 
 ## Suffix branches
 
