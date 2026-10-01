@@ -137,6 +137,25 @@ repository-staged skill such as `fix` runs only on the `codex` runtime: with `cl
 still starts with it enabled and queues its jobs, each job fails at launch, and `doctor` reports
 `skill_runtime_unsupported`.
 
+To let `feature` workers read the 策划案, name the lark-cli profile that holds FarmBot's own read-only
+Feishu app and, on macOS, the FarmBot-only lark-cli home it lives in, then restart the drained
+receiver:
+
+```json
+"lark_cli": {"profile": "farmbot", "home": "/absolute/private/lark-cli-home"}
+```
+
+FarmBot stores neither the app ID nor its secret; they stay in that lark-cli profile. `home` must lie
+outside `local_root`, your home directory and every temporary directory. `serve` and `enqueue` refuse
+a host that enables `feature` without the block. Create the home and the profile as the
+[development workflow](docs/development-workflow.md) describes. Every worker starts without
+`LARKSUITE_CLI_APP_ID`, `LARKSUITE_CLI_APP_SECRET`, `LARKSUITE_CLI_PROXY_KEY` and any
+`LARKSUITE_CLI_*ACCESS_TOKEN`, because lark-cli prefers credentials from the environment to
+`--profile`. That removal covers only the environment a worker inherits, so never export them, or
+`LARKSUITE_CLI_CONFIG_DIR`, in a shell startup file on a FarmBot host, and never run
+`lark-cli config keychain-downgrade` for your own lark-cli store there: every sandboxed worker could
+then read every profile in it, a personal login included.
+
 ## AI/operator diagnostics
 
 Run `python3 -m agent.service doctor --config /absolute/path/to/config.json` on the

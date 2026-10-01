@@ -46,6 +46,20 @@ list; an older revision ignores the key and runs every skill. An older revision 
 manifest with `opt_in` or `exclusive`, keys it does not know, so a rollback deploys the older code
 and skill files together, as always.
 
+Private `lark_cli` says how `feature` workers read the 策划案 as FarmBot's own read-only Feishu app
+(spec §5.4): `{"profile": NAME}`, the lark-cli profile that holds the app's ID and secret, and on
+macOS and Linux an optional `"home"`, the absolute directory of a FarmBot-only lark-cli home that
+holds only that profile (`docs/development-workflow.md`). FarmBot never stores the app ID or secret
+and refuses any other key; `home` must lie outside `local_root`, the service user's home and every
+temporary directory, and is refused on Windows. `serve` and `enqueue` stop when an enabled skill
+reads the 策划案, today `feature`, and the block is missing; the check reads the config only. Every
+worker, whatever its skill, starts without `LARKSUITE_CLI_APP_ID`, `LARKSUITE_CLI_APP_SECRET`,
+`LARKSUITE_CLI_PROXY_KEY` and any `LARKSUITE_CLI_*ACCESS_TOKEN`, removed after every per-worker
+override, because lark-cli prefers credentials from the environment to `--profile`; as with the
+kw_ops token, the removal covers only the environment a worker inherits, so these never belong in a
+shell startup file. Each `feature` launch carries the block as `tools.lark_cli`; other skills get
+none. An older revision ignores the key and passes those variables on.
+
 Explicit profiles select `environment` (`development`, `production`, or `offline`)
 and a lowercase `instance_id`. Existing configs default to `legacy` for compatibility.
 Live profiles require `expected_bot_name`, pinned `expected_app_user_id` and

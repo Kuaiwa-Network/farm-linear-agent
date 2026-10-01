@@ -60,6 +60,18 @@ class KwOpsConfigTests(unittest.TestCase):
                 self.assertEqual(str(caught.exception), "kw_ops url must use https, or http on loopback")
                 self.assertNotIn("dummy-secret", "".join(traceback.format_exception(caught.exception)))
 
+    def test_unity_child_environment_also_withholds_lark_cli_credentials(self):
+        """Plan P13: a child the controller starts outside a sandbox never inherits a lark-cli credential either."""
+        environ = {"LARKSUITE_CLI_APP_ID": "cli_example", "LARKSUITE_CLI_APP_SECRET": "not-a-secret",
+                   "larksuite_cli_user_access_token": "not-a-token", "LARKSUITE_CLI_NO_UPDATE_NOTIFIER": "1",
+                   "OTHER": "yes"}
+        kept = {"LARKSUITE_CLI_NO_UPDATE_NOTIFIER": "1", "OTHER": "yes"}
+        self.assertEqual(kw_ops.child_environment(None, environ), kept)
+        self.assertEqual(kw_ops.child_environment("KW_OPS_TOKEN", {**environ, "KW_OPS_TOKEN": TOKEN}), kept)
+        with patch.dict(os.environ, {"LARKSUITE_CLI_APP_SECRET": "not-a-secret"}):
+            self.assertNotIn("LARKSUITE_CLI_APP_SECRET", kw_ops.child_environment(None))
+        self.assertIs(kw_ops.child_environment(None, kept), kept)  # nothing to withhold: unchanged
+
     def test_unity_child_environment_keeps_host_settings_but_removes_the_token(self):
         with patch.dict(os.environ, {"KW_OPS_TOKEN": TOKEN, "UNITY_LICENSE_MARKER": "kept"}):
             child = kw_ops.child_environment("KW_OPS_TOKEN")

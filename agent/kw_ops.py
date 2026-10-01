@@ -64,15 +64,24 @@ def validate_config(block):
         raise ValueError("kw_ops token_env conflicts with a worker environment variable")
 
 
+# lark-cli reads credentials from these variables before any --profile (P13; lark-cli 1.0.82's environment provider
+# comes first), so no child FarmBot starts inherits one: no worker, whatever its skill (Launcher.spawn), and none of
+# the controller's own runs outside a sandbox (child_environment). A feature worker reads the 策划案 only as the
+# profile its launch names, and nothing else reads Feishu. Case-insensitive, as Windows environment names are.
+LARK_CLI_CREDENTIALS = re.compile(r"LARKSUITE_CLI_(?:APP_ID|APP_SECRET|PROXY_KEY|\w*ACCESS_TOKEN)", re.IGNORECASE)
+
+
 def child_environment(token_env, environ=None):
-    """Preserve the host environment for Unity while withholding the configured kw_ops token."""
-    if not token_env:
-        return environ
+    """The host environment for a child the controller starts outside a worker's sandbox (a Unity run, an Editor
+    launch), without the configured kw_ops token or lark-cli's credential variables. None, which inherits the
+    environment as it is, when there is nothing to withhold."""
     source = os.environ if environ is None else environ
     # Windows environment names are case-insensitive, including when an explicit env dict is supplied.
-    denied = token_env.upper() if os.name == "nt" else token_env
-    return {name: value for name, value in source.items()
-            if (name.upper() if os.name == "nt" else name) != denied}
+    fold = str.upper if os.name == "nt" else str
+    denied = fold(token_env) if token_env else None
+    kept = {name: value for name, value in source.items()
+            if fold(name) != denied and not LARK_CLI_CREDENTIALS.fullmatch(name)}
+    return environ if len(kept) == len(source) else kept
 
 
 def access(grants):

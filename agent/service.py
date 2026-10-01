@@ -9,7 +9,7 @@ import threading
 import time
 from pathlib import Path
 
-from .config import Paths, configure, linear_api, load_config, ROOT
+from .config import Paths, configure, linear_api, load_config, require_lark_cli, ROOT
 from .deploy import install, missing_tools
 from .dispatch import SKILL_AUTHORITY
 from .environment import ControllerGuard, check_ownership, validate_runtime
@@ -40,6 +40,7 @@ def build(config, runtime_override=None):
     # spec §9.11, before any client or state exists: a name the checkout lacks, or a skill the dispatch cannot
     # brief, stops startup.
     enabled = enabled_skills(skills, config.enabled_skills, authority=SKILL_AUTHORITY)
+    require_lark_cli(config, enabled)  # P5: a skill that reads the 策划案 needs the host's lark-cli profile
     paths = Paths(config)
     api = linear_api(config)
     identity = api.identity()
@@ -59,6 +60,7 @@ def build(config, runtime_override=None):
                           issue_prefix=config.issue_prefix,
                           bot_name=config.expected_bot_name,
                           kw_ops=config.kw_ops,
+                          lark_cli=config.lark_cli,
                           enabled_skills=set(enabled),
                           slot_entries={entry["id"]: entry for entry in entries},
                           guidance_for=lambda item: (ledger.session(item["session_id"]) or {}).get("guidance") or "",
@@ -145,6 +147,7 @@ def enqueue(config, *, issue_ref, skill, commit=None, session=None):
     check_ownership(config, require_initialized=True)
     loaded = load_skills(ROOT / "skills")
     enabled = enabled_skills(loaded, config.enabled_skills, authority=SKILL_AUTHORITY)
+    require_lark_cli(config, enabled)
     if skill not in enabled:
         # An opt-in skill is loaded but runs only where the list names it (P1); say so, as the list alone does not.
         rule = (f"{skill} is opt-in, so enabled_skills in the private config must name it"

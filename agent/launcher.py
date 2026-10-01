@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
-from .kw_ops import child_environment
+from .kw_ops import LARK_CLI_CREDENTIALS, child_environment
 
 RuntimeConfig = namedtuple("RuntimeConfig", "name command home_env mcp_format seed_files writable_flag",
                            defaults=(None,))
@@ -261,7 +261,7 @@ class Launcher:
         if self.runtime.name == "claude":
             env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
         # Apply withholding last: per-worker overrides must not put a denied secret back.
-        for name in withheld_env:
+        for name in [*withheld_env, *(name for name in env if LARK_CLI_CREDENTIALS.fullmatch(name))]:
             env.pop(name, None)
         stdout = open(run_dir / "stdout.log", "w", encoding="utf-8")
         stderr = open(run_dir / "stderr.log", "w", encoding="utf-8")

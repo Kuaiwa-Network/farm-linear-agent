@@ -176,6 +176,9 @@ existing production data or copy its marker.
      a live `fix` run needs `codex`.
    - kw_ops reaches Codex workers only. Export the profile's `token_env` variable in the wrapper
      that starts `serve`, never in the profile itself.
+   - `feature` workers read the 策划案 with lark-cli as FarmBot's own Feishu app; set it up as
+     [lark-cli for feature workers](#lark-cli-for-feature-workers) describes before enabling
+     `feature`.
 5. **Endpoint.** Run
    `cloudflared tunnel --url http://127.0.0.1:<port> --no-autoupdate --protocol http2`.
    A quick tunnel's hostname changes on every restart and FarmBot never learns it,
@@ -216,6 +219,96 @@ existing production data or copy its marker.
 
 Keep the game/server test environment in mind as well. The config's
 `default_server_environment` is descriptive; it does not enforce server isolation.
+
+## lark-cli for feature workers
+
+A `feature` worker reads the 策划案 with lark-cli as FarmBot's own read-only Feishu app, never with a
+personal login (spec §5.4, D12). The host config names the lark-cli profile that holds the app, and
+FarmBot never stores the app ID or secret.
+
+How lark-cli 1.0.82 keeps a profile on macOS, from its source: the profile list is
+`$HOME/.lark-cli/config.json`, and each secret is a file under
+`$HOME/Library/Application Support/lark-cli/`, encrypted with one master key. lark-cli reads that key
+from `master.key.file` beside the secrets first and otherwise from the login Keychain, where one item
+serves every lark-cli store of the macOS user whatever `HOME` says. The Codex worker sandbox blocks
+the Keychain. `lark-cli config keychain-downgrade`, lark-cli's own fix, copies the Keychain key into
+`master.key.file`: every secret in that store, a personal `--as user` login included, then becomes
+readable by every sandboxed worker on the host, `fix` and chat workers included. A fetch as bot keeps
+its token in memory and skips its auth log when it cannot write it, so a worker only reads the store.
+A lark-cli command that can write its config directory, as any command run outside a sandbox can,
+also fetches API metadata from Feishu at startup unless `LARKSUITE_CLI_REMOTE_META=off` is set; the
+commands below set it. lark-cli also takes credentials from `LARKSUITE_CLI_APP_ID`,
+`LARKSUITE_CLI_APP_SECRET` and its access-token variables before any profile; FarmBot withholds
+those, and `LARKSUITE_CLI_PROXY_KEY`, from every worker.
+
+Measured on TestBot's Mac on 2026-10-01, lark-cli 1.0.82 and codex-cli 0.156.1, with a dummy profile,
+inside `codex sandbox -P :workspace` and with no Feishu call:
+
+- the operator's own store: cli_version pass; config_file pass; app_resolved fail;
+- a FarmBot-only lark-cli home with its own `master.key.file`, which the sandboxed command could not
+  write (exit 1): cli_version pass; config_file pass; app_resolved pass; bot_identity pass; user_identity warn; identity_ready pass; endpoint_open skip; endpoint_mcp skip; a dry-run fetch as bot exited 0, and the same fetch
+  with `--as user` under strict mode exited 2;
+- environment credentials (`LARKSUITE_CLI_APP_ID`, `LARKSUITE_CLI_APP_SECRET`) with no store: a dry-run
+  fetch as bot exited 0, and with no credentials 3.
+
+The operator's profile and user-login counts, and absence of a file master key in the personal store,
+were unchanged afterwards. The temporary dummy store was removed. This measured credential access,
+not a real Feishu fetch or Windows setup.
+
+| Option | What a sandboxed worker can read | Decision |
+|---|---|---|
+| A FarmBot-only lark-cli home with its own key (`lark_cli.home`) | the FarmBot app's secret only, readable by any worker on the host; only `feature`'s AUTHORITY grants its use | chosen for TestBot |
+| A host account whose lark-cli store holds only the FarmBot profile (no `home`) | that account's whole store, which must never hold a personal login | for a host that runs FarmBot as an account of its own; a Windows option |
+| Downgrading a store that holds a personal login | every profile in it, the personal login included | rejected, unless the operator accepts it knowingly |
+| Environment credentials in the `feature` worker's shell | the FarmBot app's secret, in every command's environment | only if the home fails; FarmBot would first have to exempt that worker from the withholding; a Windows option |
+| lark-cli's sidecar auth proxy | a signing key, not the secret | not needed; a host service to supervise |
+| A tenant token the controller mints | a token for about two hours | rejected: shorter than a 10-hour attempt |
+
+Set the home up once the FarmBot app exists (spec §10), from an interactive shell, never inside a
+worker:
+
+1. Choose an absolute directory outside every checkout, `local_root`, your home directory and every
+   temporary directory (FarmBot validates `local_root`, the service home and temporary directories), such as
+   `/Users/Shared/farmbot-lark-cli` on macOS; `mkdir -m 700` fails if someone created it first. Give it
+   its own key before any secret: lark-cli encrypts with the file key only when it finds one, and
+   otherwise with the Keychain key that every store of this macOS user shares.
+
+   ```bash
+   LARK_HOME=/Users/Shared/farmbot-lark-cli
+   mkdir -m 700 "$LARK_HOME"
+   STORE="$LARK_HOME/Library/Application Support/lark-cli"
+   mkdir -p "$STORE"
+   chmod 700 "$LARK_HOME/Library" "$LARK_HOME/Library/Application Support" "$STORE"
+   (umask 077 && python3 -c 'import os, sys; sys.stdout.buffer.write(os.urandom(32))' > "$STORE/master.key.file")
+   ```
+
+2. Add the profile with the app's ID, typing the secret at the hidden prompt so that it reaches no
+   argument list, history or log, and allow only the bot identity:
+
+   ```bash
+   read -rs SECRET && printf '%s\n' "$SECRET" | HOME="$LARK_HOME" LARKSUITE_CLI_REMOTE_META=off LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1 lark-cli profile add --name farmbot --app-id APP_ID --app-secret-stdin; unset SECRET
+   HOME="$LARK_HOME" LARKSUITE_CLI_REMOTE_META=off LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1 lark-cli --profile farmbot config strict-mode bot
+   ```
+
+3. Check it offline from inside the worker sandbox, from a working directory outside the home.
+   `app_resolved` and `bot_identity` must pass; the output shows the app ID, so keep it out of chat
+   and commits.
+
+   ```bash
+   codex sandbox -P :workspace -C "${TMPDIR:-/tmp}" -- env HOME="$LARK_HOME" LARKSUITE_CLI_REMOTE_META=off LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1 lark-cli --profile farmbot doctor --offline
+   ```
+
+4. Put `"lark_cli": {"profile": "farmbot", "home": "/Users/Shared/farmbot-lark-cli"}` in the private
+   profile. Enabling `feature` is a separate, operator-approved step.
+
+Never run `lark-cli config keychain-downgrade` for your own store on a FarmBot host, and never export
+lark-cli credentials, or `LARKSUITE_CLI_CONFIG_DIR`, in a shell startup file: FarmBot removes the
+credential variables from the environment each worker inherits, not from what a worker's shell
+sources. On Windows, lark-cli keeps every profile's secret in the user's registry, protected per
+user, so a separate home isolates nothing there and FarmBot refuses one; before `feature` is enabled
+on the Windows production host, the operator chooses between a host account whose lark-cli store
+holds only the FarmBot profile and environment credentials in the `feature` worker's shell (the Phase
+B plan's open question, settled in its verification task).
 
 ## Keeping production untouched
 

@@ -46,12 +46,20 @@ state from Git history and the saved Claude session. Phase A's shared plumbing a
   `env -u FARMBOT_CONFIG -u FARMBOT_LINEAR_STUB_DIR python3 -B -m unittest discover -s tests -v`,
   passed on macOS with Python 3.13.14: 1,610 tests in 236.332 seconds, 17 Windows-only skips,
   no failures or errors. `git diff --check` passed. This is not Windows verification.
-- **Next:** Task 10 starts with its offline lark-cli credential-isolation spike, with the operator
-  present for a possible Keychain prompt; it needs no Feishu app. Tasks 10–11, B3 (Tasks 12–15),
-  and the later verification remain unfinished. The `feature` skill itself still does not exist.
-- **Separate unfinished live check:** the Claude session ended during #74's TestBot check on
-  FARM-1438 after its login was revoked; no completed result was recorded. This continuation ran
-  no live test, changed no host profile, and deployed nothing.
+- **Task 10 continued** after the recovery fix merged as #75, with Task 9 replayed on `480af38`.
+  The prior credential spike passed with the operator present, lark-cli 1.0.82 and codex-cli 0.156.1;
+  its saved record selects B, a FarmBot-only home with its own file key. No credential spike was
+  repeated. Private config now names only the profile and optional home, feature startup requires
+  it before state/API access, and every worker and controller Unity child withholds credential
+  overrides. The five focused modules passed 252 tests with two platform skips; worker-reference
+  checks passed 36. The full offline command above passed **1,650 tests in 237.217 seconds**, with
+  **18 Windows-only skips**, on macOS. Windows verification follows B2's CI. Host profiles were not
+  edited and no live feature run or production deployment took place.
+- **Recovery check completed separately:** #75 implements and tests fresh-session recovery, with
+  macOS and hosted Windows CI passing and the chosen TestBot card cleaned up. TestBot returned to
+  its original release; see the [measured recovery record](../spikes/2026-10-01-silent-session-recovery.md).
+- **Next:** Task 11's toolchain diagnostics, B3 (Tasks 12–15), and the documentation/verification
+  rounds remain unfinished. The `feature` skill itself still does not exist.
 
 ## Scope
 
@@ -6054,7 +6062,7 @@ again, which matters only where the operator exported them. The FarmBot-only hom
 outside every checkout, `local_root`, the user's home and the temporary directories; nothing in FarmBot
 creates, changes or removes it.
 
-- [ ] **Step 1: Spike: how a sandboxed worker reads the FarmBot profile (implementer and operator, on
+- [x] **Step 1: Spike: how a sandboxed worker reads the FarmBot profile (implementer and operator, on
   TestBot's Mac)**
 
 Nothing in this step is committed, and it makes no Feishu call: the FarmBot app need not exist yet. It
@@ -6198,7 +6206,7 @@ question Task 17 settles before `feature` is enabled in production.
 1h. Keep the record for Step 6: the versions, 1b's two lines, the check lines of 1c and 1d, the write
 probe's result, the four dry-run exit statuses, the date and the decision.
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 Create `tests/test_config.py`:
 
@@ -6441,7 +6449,7 @@ In `tests/test_kw_ops.py`, in `KwOpsConfigTests`, directly before
         self.assertIs(kw_ops.child_environment(None, kept), kept)  # nothing to withhold: unchanged
 ```
 
-- [ ] **Step 3: Run the tests and confirm they fail**
+- [x] **Step 3: Run the tests and confirm they fail**
 
 Run each of:
 - `python3 -m unittest discover -s tests -p 'test_kw_ops.py' -v`
@@ -6462,7 +6470,7 @@ payload tests fail with `{} != {'lark_cli': {...}}`, and all three subtests of
 `test_no_worker_inherits_lark_cli_credentials_whatever_its_skill` fail with `Lists differ`, each worker
 having seen the five credential names.
 
-- [ ] **Step 4: Implement**
+- [x] **Step 4: Implement**
 
 In `agent/config.py`, directly after the `_HOSTNAME = re.compile(...)` line (`:22`) and before
 `@dataclass`, add:
@@ -6695,14 +6703,14 @@ add:
         self.config.lark_cli = {"profile": "farmbot"}  # P5: enqueue refuses a feature host without one
 ```
 
-- [ ] **Step 5: Run the tests and confirm they pass**
+- [x] **Step 5: Run the tests and confirm they pass**
 
 Run the five commands of Step 3, then `test_dispatch.py`, `test_doctor.py` and `test_skills.py` the same
 way.
 Expected: all pass; `test_config.py` runs 6 tests and skips 1, the Windows-only one on macOS and
 `test_a_home_lies_outside_local_root_the_users_home_and_every_temporary_directory` on Windows.
 
-- [ ] **Step 6: Document the setup and record the spike**
+- [x] **Step 6: Document the setup and record the spike**
 
 In `docs/operating-contract.md`, Host configuration, add this paragraph after a blank line, directly
 after the `enabled_skills` paragraph (`:31-41` at `33a28d3`, ending "after changing the list; an older
@@ -6881,14 +6889,14 @@ Run: `git diff --check`, then `python3 -m unittest discover -s tests -p 'test_sk
 Expected: no whitespace errors; all pass (the reference's `python3 -m agent` examples still parse; the
 new `text` block holds no such line).
 
-- [ ] **Step 7: Run the full suite**
+- [x] **Step 7: Run the full suite**
 
 Run: `python3 -m unittest discover -s tests -v`
 Expected: 0 failures, 13 more tests than after Task 9 and one more skip, the Windows-only config test
 (rehearsed on `33a28d3` plus Task 9: 1223 tests, 16 skipped on macOS; after Tasks 1–9, with Step 4's
 setup change: 1305 tests, 16 skipped).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add agent/config.py agent/kw_ops.py agent/launcher.py agent/service.py agent/scheduler.py agent/dispatch.py tests/test_config.py tests/test_kw_ops.py tests/test_launcher.py tests/test_service.py tests/test_scheduler.py docs/operating-contract.md README.md references/worker-cli.md docs/development-workflow.md

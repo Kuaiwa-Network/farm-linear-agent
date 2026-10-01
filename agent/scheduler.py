@@ -6,6 +6,7 @@ import sqlite3
 import threading
 from pathlib import Path
 
+from .config import LARK_CLI_SKILLS
 from .dispatch import dispatch_message
 from .launcher import _read_worker_text
 from .ledger import LedgerError
@@ -25,7 +26,8 @@ class Scheduler:
     def __init__(self, ledger, launcher, skills, worktrees, *, skill_root, db_path, runtime_name, host,
                  max_concurrent=2, guidance_for=lambda item: "", claim_timeout=600, api=None,
                  slot_entries=None, preflight=None, control_ledger_factory=None, publication=None, codex_workers=None,
-                 config_path=None, issue_prefix='FARM', bot_name='FarmBot', kw_ops=None, enabled_skills=None):
+                 config_path=None, issue_prefix='FARM', bot_name='FarmBot', kw_ops=None, enabled_skills=None,
+                 lark_cli=None):
         self.publication = publication
         self.preflight = preflight
         self.control_ledger_factory = control_ledger_factory
@@ -44,6 +46,7 @@ class Scheduler:
         self.issue_prefix = issue_prefix
         self.bot_name = bot_name
         self.kw_ops_config = dict(kw_ops or {})
+        self.lark_cli = dict(lark_cli or {})
         # The loaded skills this host runs (spec §9.11); tick() refuses a queued item of any other loaded skill.
         # Without a set, every loaded skill but the opt-in ones, as skills.enabled_skills decides (P1).
         self.enabled_skills = ({name for name, skill in (skills or {}).items() if not skill.opt_in}
@@ -163,6 +166,11 @@ class Scheduler:
         if kw_ops_grant.server is not None:
             servers[KW_OPS_SERVER] = kw_ops_grant.server
         tools = {KW_OPS_SERVER: kw_ops_grant.tools} if kw_ops_grant.tools is not None else {}
+        if skill.name in LARK_CLI_SKILLS:
+            # Where lark-cli finds FarmBot's own Feishu app (P5): exactly the host's block, a profile name and, when
+            # configured, the FarmBot-only HOME of its store. Never a credential: those stay in the lark-cli profile.
+            tools["lark_cli"] = (dict(self.lark_cli) if self.lark_cli
+                                 else {"status": "unavailable", "reason": "lark_cli is not configured on this host"})
         try:
             memory = publish_snapshot(Path(self.db_path).resolve().parent / "memory", self.ledger.memory_rows())
         except (OSError, ValueError, sqlite3.Error) as exc:

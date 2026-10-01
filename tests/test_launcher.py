@@ -333,6 +333,29 @@ class LauncherTests(unittest.TestCase):
         finished = self.finished_by(launcher)
         self.assertEqual(json.loads(finished[0].last_message), {"KW_OPS_TOKEN": None, "KEPT_MARKER": "kept"})
 
+    def test_lark_cli_credentials_never_reach_any_worker(self):
+        """P13: lark-cli prefers credentials from the environment to --profile, so no worker inherits them, whatever
+        its skill, and no per-worker override puts one back. lark-cli's other variables stay."""
+        # Braces are doubled: spawn formats every command part. Only the names are recorded, upper-cased.
+        script = ("import json,os,pathlib,sys;sys.stdin.read();"
+                  "pathlib.Path(sys.argv[1]).write_text(json.dumps(sorted(k.upper() for k in os.environ "
+                  "if k.upper().startswith('LARKSUITE_CLI_'))))")
+        runtime = RUNTIMES["codex"]._replace(command=[sys.executable, "-c", script, "{last_message}"], seed_files={})
+        launcher = Launcher(self.runs, runtime, host="h")
+        withheld = ["LARKSUITE_CLI_APP_ID", "LARKSUITE_CLI_APP_SECRET", "LARKSUITE_CLI_PROXY_KEY",
+                    "LARKSUITE_CLI_USER_ACCESS_TOKEN", "LARKSUITE_CLI_TENANT_ACCESS_TOKEN",
+                    "LARKSUITE_CLI_FUTURE_ACCESS_TOKEN"]
+        kept = ["LARKSUITE_CLI_AUTH_PROXY", "LARKSUITE_CLI_REMOTE_META", "LARKSUITE_CLI_STRICT_MODE"]
+        with patch.dict(os.environ, {name: "dummy-lark-value" for name in withheld + kept}):
+            # Windows reads environment names case-insensitively, so a lower-case spelling is withheld too.
+            launcher.spawn("item-lark", self.message, {}, 30, self.tmp.name,
+                           extra_env={"LARKSUITE_CLI_APP_SECRET": "reintroduced-secret",
+                                      "larksuite_cli_user_access_token": "lower-case-token"})
+        self.addCleanup(launcher.stop, "item-lark")
+        finished = self.finished_by(launcher)
+        self.assertEqual(json.loads(finished[0].last_message), sorted(kept))
+
+
     def test_a_codex_worker_with_a_token_server_hides_the_token_from_its_shell(self):
         import tomllib
         runtime = RUNTIMES["codex"]._replace(command=RUNTIMES["fake"].command, seed_files={})

@@ -131,7 +131,8 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
         # in neither mode does it carry an argv or the Editor's own path: a worker never starts Unity.
         "resource": resource,
         # Standing tool grants beside the reservation: tools.kw_ops is {"access": ...} or {"status": "unavailable",
-        # "reason": ...}. A token is never here; the worker's CLI reads it from the environment by name.
+        # "reason": ...}. A token is never here; the worker's CLI reads it from the environment by name. For a skill
+        # that reads the 策划案, tools.lark_cli is {"profile", optional "home"} or unavailable, never an app ID or secret.
         "tools": tools or {},
         "memory": memory if memory is not None else {"status": "unavailable", "index": None, "reason": "not supplied"},
         "runtime": runtime,
