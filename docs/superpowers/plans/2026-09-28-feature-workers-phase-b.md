@@ -28,6 +28,31 @@ The tasks below were drafted, reviewed and rehearsed before any implementation, 
 - **Controller-git fix.** P10's Known Risk was fixed after B1 (operating contract, Authority), in code that Tasks 9, 11, 12 and 16 also edit. Rehearsed on top of it, Tasks 9–17 need five changes, and with them the full suite passes (1391 tests, 18 skipped): Task 9's `-config` check in `_verify` runs through `_verify`'s own `git(...)` helper, not `_git(..., cwd=path, config=HOOKS_OFF)`, and `agent/publication.py` keeps main's imports; Task 9's `SuffixBranchTests` give each clone the configured remote as its origin, spelled `git@github.com:Kuaiwa-Network/<repo>.git`, with a `url.<local origin>.insteadOf` rule for that spelling in a `GIT_CONFIG_GLOBAL` file (the path's backslashes doubled, since git drops a single one in a quoted section name, as on Windows), because the fix refuses a clone whose origin is another repository; Task 11 imports `HOOKS_OFF, Worktrees` from `.worktrees` in `agent/doctor.py` and puts its block after the clone check; Task 12's `reads` paragraph says a worker can write the clone's objects, refs and worktree entries; Task 16 keeps the write-boundary paragraph after its Authority sentences.
 - **Not verified.** Nothing ran on Windows. No live check ran (Task 17). The Farm-Contract, farm-common and farm-hive rules that Tasks 13–14 cite were spot-checked in the review round, not in the full rehearsal. Task 10's lark-cli spike needs the operator at the Mac; it makes no Feishu call, so the FarmBot app need not exist yet.
 
+## As executed (2026-10-01, Task 9 continuation)
+
+The feature implementation resumed from `main` at `3525b93`, after reconstructing the development
+state from Git history and the saved Claude session. Phase A's shared plumbing and B1 (Tasks 1–8,
+#71) are merged; the controller-git protection (#72), withdrawal (#73), and silent-delegation fix
+(#74) landed afterwards. B2 and B3 were not implemented in that checkout.
+
+- **Task 9 implemented** on `codex/feature-workers-phase-b2`: named suffix branches, the config
+  branch's no-new-commits check, reserved issue-branch names, and the two notice kinds. The check
+  uses the hardened `git(...)` helper and the new tests use the configured origin with a host-level
+  local rewrite, preserving #72. The worker reference clarifies that Jenkins config branches pin
+  an existing commit and need no PR; other suffix PRs are registered before switching branches.
+- **Validation:** the 16 new regression tests reproduced the missing behavior before the code
+  changes. The six focused modules (`test_publication`, `test_cli`, `test_ledger`, `test_scheduler`,
+  `test_foreign_work`, `test_skills`) passed, 478 tests. The full offline command,
+  `env -u FARMBOT_CONFIG -u FARMBOT_LINEAR_STUB_DIR python3 -B -m unittest discover -s tests -v`,
+  passed on macOS with Python 3.13.14: 1,610 tests in 236.332 seconds, 17 Windows-only skips,
+  no failures or errors. `git diff --check` passed. This is not Windows verification.
+- **Next:** Task 10 starts with its offline lark-cli credential-isolation spike, with the operator
+  present for a possible Keychain prompt; it needs no Feishu app. Tasks 10–11, B3 (Tasks 12–15),
+  and the later verification remain unfinished. The `feature` skill itself still does not exist.
+- **Separate unfinished live check:** the Claude session ended during #74's TestBot check on
+  FARM-1438 after its login was revoked; no completed result was recorded. This continuation ran
+  no live test, changed no host profile, and deployed nothing.
+
 ## Scope
 
 In Phase B (spec §13, item 2):
@@ -5103,7 +5128,7 @@ older revision lists `stage` and `merge_request` notices (in `issue-context.noti
 `recovery.notices`) but its `prepare-notice` refuses the kinds; only a `feature` worker uses them, and
 an older revision has no `feature`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `tests/test_publication.py`, add `from urllib.parse import unquote` directly after
 `from pathlib import Path` (`:5`), and append this class at the end of the file, after two blank lines:
@@ -5484,7 +5509,7 @@ In `tests/test_foreign_work.py`, inside `ForeignWorkTests`, add this test direct
 
 ```
 
-- [ ] **Step 2: Run the tests and confirm they fail**
+- [x] **Step 2: Run the tests and confirm they fail**
 
 Run each of:
 - `python3 -m unittest discover -s tests -p 'test_publication.py' -v`
@@ -5515,7 +5540,7 @@ Expected (rehearsed on an export of `33a28d3`, and again after Tasks 1–8 with 
 - `test_foreign_work.py` and `test_skills.py` pass. The foreign-work test pins what `plan_work` already
   does; the reference test passes until Step 3 adds kinds and fails until Step 5 documents them.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `agent/ledger.py`, replace (`:29-31`):
 
@@ -5745,13 +5770,13 @@ with:
 
 (the continuation line `if self.publication is not None else {'repositories': {}})` is unchanged).
 
-- [ ] **Step 4: Run the tests and confirm they pass**
+- [x] **Step 4: Run the tests and confirm they pass**
 
 Run the six commands of Step 2.
 Expected: all pass except `test_skills.WorkerCliReferenceTests.test_the_notices_section_names_every_notice_kind`,
 which now fails for `stage` and `merge_request` until Step 5.
 
-- [ ] **Step 5: Document suffix branches and the notice kinds**
+- [x] **Step 5: Document suffix branches and the notice kinds**
 
 In `references/worker-cli.md`, replace the Notices section's first paragraph (`:195-200`):
 
@@ -5862,7 +5887,7 @@ Run: `git diff --check`, then `python3 -m unittest discover -s tests -p 'test_sk
 Expected: no whitespace errors; all pass, the reference's commands still parse and its checkpoint
 examples are still accepted.
 
-- [ ] **Step 6: Run the full suite**
+- [x] **Step 6: Run the full suite**
 
 Run: `python3 -m unittest discover -s tests -v`
 Expected: 0 failures, 16 more tests than before this task and no new skip (rehearsed on `33a28d3`
@@ -5871,7 +5896,7 @@ after Tasks 1–8: 1293 tests, 15 skipped, in about 230 s; the reserved-name tes
 rehearsal and checked on the full rehearsal tree, where it fails without the `reserved` check and passes
 with it, so the count after this task is 1295 with Task 8's added doctor test).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add agent/ledger.py agent/publication.py agent/__main__.py agent/scheduler.py tests/test_publication.py tests/test_cli.py tests/test_ledger.py tests/test_skills.py tests/test_scheduler.py tests/test_foreign_work.py references/worker-cli.md docs/operating-contract.md

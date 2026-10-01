@@ -1548,6 +1548,32 @@ class PlanTests(LedgerBase):
         self.assertEqual(self.ledger.recorded_branches(item["id"]),
                          dict.fromkeys(("Farm-Contract", "common", "farm-hive"), "farmbot/farm-1"))
 
+    def test_a_job_with_an_initial_root_never_records_a_suffix_branch_as_its_issue_branch(self):
+        """Plan P9 with SUFFIXES (P12): a successor re-attached to its -config branch could publish none of its own
+        commits there, so every later launch would stall. A fix may carry such a name, from Linear's suggestion."""
+        item = self.new_item(skill="feature", target=None)
+        self.ledger.set_worker(item["id"], 4321, "test")
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        for branch in ("farmbot/farm-1-config", "farmbot/farm-1-config-2", "farmbot/farm-1-waivers",
+                       "farmbot/farm-1-followup"):
+            with self.subTest(branch=branch), self.assertRaisesRegex(
+                    LedgerError, r"plan\.prs\.common: .* never as the issue branch"):
+                self.ledger.checkpoint(item["id"], token, {"plan": {"prs": {"common": [
+                    {"branch": branch, "role": "issue"}]}}})
+        for branch in ("farmbot/farm-1", "farmbot/farm-1-config-1", "farmbot/farm-1-configs"):
+            with self.subTest(branch=branch):
+                self.ledger.checkpoint(item["id"], token, {"plan": {"prs": {"common": [
+                    {"branch": branch, "role": "issue"}]}}})
+        self.ledger.connection.execute("UPDATE work_items SET checkpoint=? WHERE id=?", (json.dumps({"plan": {
+            "prs": {"common": [{"branch": "farmbot/farm-1-config", "role": "issue"}]}}}), item["id"]))
+        with self.assertRaisesRegex(LedgerError, "never as the issue branch"):
+            self.ledger.recorded_branches(item["id"])
+        self.ledger.cancel(item["id"], "Stop")
+        fix_id, fix_token = self.running()
+        plan = {"prs": {"common": [{"branch": "farmbot/farm-1-config", "role": "issue"}]}}
+        self.assertEqual(self.ledger.checkpoint(fix_id, fix_token, {"plan": plan})["checkpoint"]["plan"], plan)
+        self.assertEqual(self.ledger.recorded_branches(fix_id), {"common": "farmbot/farm-1-config"})
+
     def test_recorded_branches_are_the_issue_entries_of_the_nearest_plan(self):
         """Spec §5.7 "Re-attachment": the scheduler reads only these; any other plan content is the worker's own."""
         item_id, token = self.running()
@@ -1671,6 +1697,20 @@ class NoticeTests(LedgerBase):
             self.ledger.confirm_notice(item_id, "ui-ready", "r2")
         self.assertEqual([(n["request_id"], n["kind"], n["remote_id"]) for n in self.ledger.issue_context(item_id)["notices"]],
                          [("ui-ready", "waiting", "r1")])
+
+    def test_stage_and_merge_request_notices_are_recorded_like_the_others(self):
+        """P7: a stage started, skipped or finished, and a request to merge a named PR, are notices of their own."""
+        from agent.ledger import NOTICE_KINDS
+        self.assertEqual(NOTICE_KINDS, ("question", "waiting", "foreign_work", "stage", "merge_request"))
+        item_id, token = self.running()
+        for kind, request_id, body in (("stage", "stage-B", "阶段 B 跳过：这个需求没有新配置。"),  # P15's request ids
+                                       ("merge_request", "merge-contract", "请合并契约 PR。")):
+            with self.subTest(kind=kind):
+                self.now += 1
+                notice = self.ledger.prepare_notice(item_id, token, kind, request_id, body)
+                self.assertEqual((notice["kind"], notice["request_id"]), (kind, request_id))
+                self.assertEqual(self.ledger.prepare_notice(item_id, token, kind, request_id, body), notice)
+        self.assertEqual([n["kind"] for n in self.ledger.issue_context(item_id)["notices"]], ["stage", "merge_request"])
 
 
 class NoticeReconciliationTests(LedgerBase):

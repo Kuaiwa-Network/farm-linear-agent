@@ -632,7 +632,7 @@ def run(args, ledger, api_factory):
             trees = Worktrees(paths.repos, paths.worktrees, config.repos)
             branch = _git('branch', '--show-current', cwd=paths.worktrees / args.item / args.repo)
             result = PublicationVerifier(trees, issue_prefix=config.issue_prefix).verify(
-                args.repo, args.item, issue['identifier'], branch)
+                args.repo, args.item, issue['identifier'], branch, suffix_roles=skill.initial_root is not None)
             ledger.renew(args.item, token)  # fence cancellation while network checks were in progress
             refuse_withdrawn(ledger.item(args.item))  # and a withdrawal flagged meanwhile
             return result

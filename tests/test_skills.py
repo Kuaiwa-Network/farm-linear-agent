@@ -104,6 +104,13 @@ class WorkerCliReferenceTests(unittest.TestCase):
             finally:
                 ledger.close()
 
+    def test_the_notices_section_names_every_notice_kind(self):
+        from agent.ledger import NOTICE_KINDS
+        section = self.reference().split("\n## Notices\n", 1)[1].split("\n## ", 1)[0]
+        for kind in NOTICE_KINDS:
+            with self.subTest(kind=kind):
+                self.assertRegex(section, rf"`(--kind )?{kind}`")
+
 
 class CommentTemplateTests(unittest.TestCase):
     """Workers fill <bot_name> from their launch message. Rendered for FarmBot, the templates must read

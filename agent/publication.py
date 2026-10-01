@@ -36,6 +36,26 @@ def is_issue_branch(branch, identifier, issue_prefix='FARM'):
     return isinstance(branch, str) and (branch == prefix or branch.startswith(prefix + '-'))
 
 
+# Named branches beside the issue branch of a job whose skill has an initial root (spec §6.1; P4).
+# A human publishes a config branch's tip with designer-source.pipeline, so it adds no commits of FarmBot's own.
+# A re-pin that does not descend from the pushed tip takes the next unused number, never a force push (P12).
+CONFIG_SUFFIX = '-config'
+CONFIG_REPIN_SUFFIX = CONFIG_SUFFIX + '-<n>'
+SUFFIXES = (CONFIG_SUFFIX, CONFIG_REPIN_SUFFIX, '-waivers', '-followup')
+_REPIN_NUMBER = re.compile(r'[2-9]|[1-9][0-9]+')
+
+
+def suffix_of(branch, canonical):
+    """The entry of SUFFIXES for this issue branch, else None. Re-pin numbers start at 2 without leading zeros."""
+    if not isinstance(branch, str) or not branch.startswith(canonical + '-'):
+        return None
+    suffix = branch[len(canonical):]
+    if suffix in SUFFIXES and suffix != CONFIG_REPIN_SUFFIX:
+        return suffix
+    stem, _, number = suffix.rpartition('-')
+    return CONFIG_REPIN_SUFFIX if stem == CONFIG_SUFFIX and _REPIN_NUMBER.fullmatch(number) else None
+
+
 def github_repository(url):
     match = GITHUB_REMOTE.fullmatch(str(url))
     if not match or any(part in ('.', '..') for part in match.groups()):
@@ -80,9 +100,10 @@ class PublicationVerifier:
         self.api = api or github_api
         self.issue_prefix = issue_prefix
 
-    def verify(self, repo, item_id, identifier, branch=None):
+    def verify(self, repo, item_id, identifier, branch=None, *, suffix_roles=False):
+        """Apply suffix roles for a skill with an initial root; fix keeps any suffix Linear suggests."""
         try:
-            return self._verify(repo, item_id, identifier, branch)
+            return self._verify(repo, item_id, identifier, branch, suffix_roles)
         except (WorktreeError, OSError, subprocess.TimeoutExpired) as exc:
             raise PublicationError('cannot verify the configured worktree and push destination') from exc
 
@@ -106,7 +127,7 @@ class PublicationVerifier:
             raise PublicationError("PR must be an open draft for this job's exact repository, branch and HEAD")
         return url
 
-    def _verify(self, repo, item_id, identifier, branch):
+    def _verify(self, repo, item_id, identifier, branch, suffix_roles=False):
         prefix = issue_branch(identifier, self.issue_prefix)
         configured = self.worktrees.remotes.get(repo)
         expected = github_repository(configured)
@@ -127,6 +148,13 @@ class PublicationVerifier:
         branch = actual_branch if branch is None else branch
         if not is_issue_branch(branch, identifier, self.issue_prefix) or actual_branch != branch:
             raise PublicationError("publication requires this issue's FarmBot feature branch")
+        # The worker fetched before checking out the named commit. None of this issue's Jenkins branches can
+        # vouch for a commit only they carry, even after an earlier push. Use the same hardened git as every check.
+        if suffix_roles and suffix_of(branch, prefix) in (CONFIG_SUFFIX, CONFIG_REPIN_SUFFIX) and git(
+                'rev-list', '--max-count=1', 'HEAD', '--not', f'--exclude=origin/{prefix}{CONFIG_SUFFIX}',
+                f'--exclude=origin/{prefix}{CONFIG_SUFFIX}-*', '--remotes=origin'):
+            raise PublicationError('a -config branch adds no commits: its HEAD must already be on another branch of '
+                                   'origin; fetch, then check out the farm-common commit that was named')
         push_urls = git('remote', 'get-url', '--push', '--all', 'origin').splitlines()
         if len(push_urls) != 1 or github_repository(push_urls[0]).casefold() != expected.casefold():
             raise PublicationError('effective origin push destination differs from the configured repository')
@@ -162,13 +190,14 @@ class PublicationVerifier:
                 'base_branch': metadata['default_branch'], 'private': True, 'write_access': True,
                 'verified_at': datetime.now(timezone.utc).isoformat()}
 
-    def scope(self, *, item, issue, paths, delegated):
+    def scope(self, *, item, issue, paths, delegated, suffix_roles=False):
         scope = {'repositories': {}}
         if not delegated or item['skill'] not in WRITE_SKILLS:
             return scope
         for repo in paths:
             try:
-                scope['repositories'][repo] = self.verify(repo, item['id'], issue['identifier'])
+                scope['repositories'][repo] = self.verify(repo, item['id'], issue['identifier'],
+                                                          suffix_roles=suffix_roles)
             except PublicationError as exc:
                 scope['repositories'][repo] = {'status': 'unverified', 'reason': str(exc)}
         return scope

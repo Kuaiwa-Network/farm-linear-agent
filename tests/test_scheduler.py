@@ -339,6 +339,40 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(payload['user_requests'][0]['body'], 'Create the draft PR.')
         self.assertTrue(scopes[0]['delegated'])
 
+    def test_the_launch_scope_applies_the_suffix_rules_only_to_a_job_with_an_initial_root(self):
+        scopes = []
+
+        class Verifier:
+            def scope(inner, **kwargs):
+                scopes.append((kwargs["item"]["skill"], kwargs.get("suffix_roles")))
+                return {"repositories": {}}
+        self.scheduler.publication = Verifier()
+        staged = self.use_staged_skill()
+        self.scheduler.max_concurrent = 2
+        self.item()
+        self.item(issue_id=OTHER, session="session-2", skill=staged.name)
+        self.assertEqual(self.scheduler.tick()["launched"], 2)
+        self.assertEqual(sorted(scopes), [("feature", True), ("fix", False)])
+
+    def test_a_job_with_an_initial_root_never_takes_a_suffix_name_as_its_issue_branch(self):
+        """A card titled "config" can have Linear's suggestion farmbot/<key>-config, and one titled "config 3"
+        farmbot/<key>-config-3. A job with an initial root keeps those names for its Jenkins branches (spec §6.4; P12)
+        and works on farmbot/<key>; a fix keeps the suggestion."""
+        staged = self.use_staged_skill()
+        self.scheduler.max_concurrent = 4
+        third, fourth = "10000000-0000-4000-8000-000000000003", "10000000-0000-4000-8000-000000000004"
+        expected = {"farmbot/farm-1-config": self.item(branch_name="farmbot/farm-1-config"),
+                    "farmbot/farm-2": self.item(issue_id=OTHER, session="session-2", skill=staged.name,
+                                                identifier="FARM-2", branch_name="farmbot/farm-2-config"),
+                    "farmbot/farm-3-config-3": self.item(issue_id=third, session="session-3", identifier="FARM-3",
+                                                         branch_name="farmbot/farm-3-config-3"),
+                    "farmbot/farm-4": self.item(issue_id=fourth, session="session-4", skill=staged.name,
+                                                identifier="FARM-4", branch_name="farmbot/farm-4-config-3")}
+        self.assertEqual(self.scheduler.tick()["launched"], 4)
+        branches = {item["id"]: {branch for _, owner, branch in self.trees.added if owner == item["id"]}
+                    for item in expected.values()}
+        self.assertEqual(branches, {item["id"]: {branch} for branch, item in expected.items()})
+
     def test_a_resumed_worker_is_told_who_wrote_each_reply_and_when(self):
         item = self.item()
         token = self.ledger.claim(item['id'], worker_id='old')['token']

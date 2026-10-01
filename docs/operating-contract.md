@@ -357,8 +357,10 @@ until its next checkpoint that omits it, and never validates one.
 
 An entry of `plan.prs` with `"role": "issue"` records a repository's issue branch, and must name
 this issue's `farmbot/<key>` or `farmbot/<key>-…` (in the host's `issue_prefix`), spelt as git
-accepts it; a repository has at most one. A checkpoint whose plan breaks either rule is refused
-whole, for every skill, with a message naming the entry. Any other branch, a person's included,
+accepts it; a repository has at most one. A `feature` or `fgui` plan never records a named suffix
+branch (`-config`, its numbered re-pins, `-waivers` or `-followup`) under the `issue` role: those
+branches have their own roles, and a successor must return to its issue branch. A checkpoint whose
+plan breaks a rule is refused whole, with a message naming the entry. Any other branch, a person's included,
 may be recorded under another role or none. For a skill with an initial root, the plan also decides
 where a later attempt's worktrees start (spec §5.7). At each launch the controller reads the issue
 branch the job's plan records for each repository it writes, from the item's own plan or else the
@@ -602,6 +604,24 @@ It rejects outgoing `reports/` changes even when the files are tracked or force-
 `.gitignore`; unchanged reports already on the base branch do not block publication.
 Existing protected branches are rejected. Public repositories need a separately designed publishing
 policy; they are not authorized by this private-repository workflow.
+
+A job whose skill has an initial root keeps named suffix branches beside its issue branch, each
+verified under these rules: `farmbot/<key>-config` in common, the branch a human runs
+`designer-source.pipeline` on, `farmbot/<key>-waivers` in Farm-Contract and `farmbot/<key>-followup`
+in farm-hive; the last two start from the default branch and verify as the issue branch does, also
+after the issue branch's PR merged and its branch was deleted. A Jenkins branch is never
+force-pushed: a re-pin to a farm-common commit that does not descend from the pushed `-config` tip
+takes the next unused `farmbot/<key>-config-<n>`, n from 2. Such a job never takes one of these
+names as its issue branch: when Linear suggests one, the controller uses `farmbot/<key>`. Nobody
+reviews what the pipeline publishes, so for such a job a `-config` branch, numbered or not, verifies
+only when its HEAD is already on an origin branch other than the issue's `-config` branches: its
+push then adds a farm-common commit someone named and no commit of FarmBot's own. The check reads
+the host clone's remote-tracking refs, as the report check reads its base. A fix never has these
+roles: its branch may carry any suffix Linear suggests, these included, and its branches and
+verification are unchanged. `verify-publication`, and the registration of a PR that Linear attached
+first, check the branch and HEAD checked out in the worker's root worktree, so a worker registers a
+suffix branch's PR before switching back to the issue branch. `foreign-work` counts every `farmbot/`
+branch a plan records as own, suffix branches included.
 
 Workers run claim-scoped `verify-publication --repo REPO_NAME` immediately before publishing.
 It additionally refreshes Linear delegation/status, checks the configured ledger and skill allowlist,
@@ -1020,13 +1040,16 @@ instance's `expected_bot_name`, passed to workers as `bot_name`, and `<owner.per
 owner's profile URL from `issue-context` (see People).
 
 Notices are a second family, for comments a job may repeat: `question` (a grouped question round),
-`waiting` (a pause on a human step elsewhere) and `foreign_work` (other people's branches or PRs).
+`waiting` (a pause on a human step elsewhere), `foreign_work` (other people's branches or PRs),
+`stage` (a stage that started, was skipped or finished, with its reason) and `merge_request` (asking
+the owner to merge a named PR).
 The ledger keeps one per work item and worker-chosen request id rather than per claimed input, so a
 retried attempt of the same item reuses it and a new round needs a new request id; a successor of
 cancelled work starts with none and reads its predecessors' under `recovery.notices`. `post-notice`
 reconciles the marker against live comments before creating one, and creates none on an issue that
 has left scope. The bodies of FarmBot's own comments and notices never count as issue input. Notices live in the additive `notices` table; a rollback leaves it unused and
-any unposted notice unsent.
+any unposted notice unsent. An older revision still lists `stage` and `merge_request` notices but
+refuses to prepare new ones.
 
 ## Resource execution limits
 

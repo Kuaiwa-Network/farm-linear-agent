@@ -260,6 +260,34 @@ class ForeignWorkTests(unittest.TestCase):
         self.assertIn({"repository": "Farm-Client", "source": "github_search", "error": "not a github.com repository"},
                       report["errors"])
 
+    def test_the_suffix_branches_a_plan_records_are_own_and_the_same_names_elsewhere_are_not(self):
+        """The named suffix branches of spec §6.1: -config and its re-pins -config-<n> (P12) in common, -waivers in
+        Farm-Contract, -followup in farm-hive. Recorded with their roles, they are this job's; a suffix branch the
+        plan does not record for that repository, as TestBot's would be, stays foreign."""
+        waivers_pr = ORG + "Farm-Contract/pull/31"
+        self.ledger.observe_issue(issue(attachments=[OWN, waivers_pr]))
+        self.plan(self.item["id"], {"prs": {
+            "common": [{"branch": "farmbot/farm-1", "role": "issue", "head": "c" * 40, "pr": None},
+                       {"branch": "farmbot/farm-1-config", "role": "config", "head": "d" * 40, "pr": None},
+                       {"branch": "farmbot/farm-1-config-2", "role": "config", "head": "b" * 40, "pr": None}],
+            "Farm-Contract": [{"branch": "farmbot/farm-1-waivers", "role": "waivers", "head": "e" * 40,
+                               "pr": {"url": waivers_pr, "state": "OPEN", "merge": None}}],
+            "farm-hive": [{"branch": "farmbot/farm-1-followup", "role": "followup", "head": "f" * 40, "pr": None}]}})
+        remotes = {repo: f"{ORG}{repo}.git" for repo in ("common", "Farm-Contract", "farm-hive")}
+        listed = {remotes["common"]: [("main", "a" * 40), ("farmbot/farm-1", "c" * 40),
+                                      ("farmbot/farm-1-config", "d" * 40), ("farmbot/farm-1-config-2", "b" * 40)],
+                  remotes["Farm-Contract"]: [("farmbot/farm-1-waivers", "e" * 40)],
+                  remotes["farm-hive"]: [("farmbot/farm-1-followup", "f" * 40), ("farmbot/farm-1-waivers", "9" * 40)]}
+        with patch.object(foreign_work, "search_prs", return_value=[]), \
+                patch.object(foreign_work, "remote_branches", side_effect=lambda remote, cwd: listed[remote]):
+            report = foreign_work.foreign_work(self.ledger, self.item["id"], remotes, self.root / "local" / "repos")
+        self.assertEqual(report["foreign"], {"prs": [], "branches": [
+            {"repository": "farm-hive", "name": "farmbot/farm-1-waivers", "head": "9" * 40, "farmbot_name": True}]})
+        self.assertLessEqual({("common", "farmbot/farm-1-config"), ("common", "farmbot/farm-1-config-2"),
+                              ("Farm-Contract", "farmbot/farm-1-waivers"), ("farm-hive", "farmbot/farm-1-followup")},
+                             {(branch["repository"], branch["name"]) for branch in report["own"]["branches"]})
+        self.assertIn(waivers_pr, report["own"]["prs"])
+
     def test_listing_changes_nothing(self):
         before = (list(self.ledger.connection.iterdump()), {repo: refs(self.origins / f"{repo}.git") for repo in BRANCHES})
         self.report()

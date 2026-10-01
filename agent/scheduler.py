@@ -11,7 +11,7 @@ from .launcher import _read_worker_text
 from .ledger import LedgerError
 from .kw_ops import SERVER as KW_OPS_SERVER, resolve as resolve_kw_ops
 from .memory import publish_snapshot
-from .publication import issue_branch
+from .publication import SUFFIXES, issue_branch, suffix_of
 from .stages import current_root, runtime_can_launch, write_repositories
 from .withdrawal import NOTICE_REASONS, notice as withdrawal_notice
 
@@ -56,16 +56,18 @@ class Scheduler:
         self.active = {}
         self.lock = threading.RLock()
 
-    def _branch(self, issue):
+    def _branch(self, issue, *, suffixes=()):
         canonical = issue_branch(issue.get('identifier'), self.issue_prefix)
         name = issue.get("branch_name") or canonical
         name = re.sub(r"[^A-Za-z0-9._/一-鿿-]+", "-", name).strip("-/")
+        if suffix_of(name, canonical) in suffixes:
+            return canonical  # a job with an initial root keeps these names for its suffix branches (P12)
         return name if name == canonical or name.startswith(canonical + '-') else canonical
 
     def _worktrees_for(self, skill, item, issue):
         paths = {}
         if skill.writes:
-            branch = self._branch(issue)
+            branch = self._branch(issue, suffixes=SUFFIXES if skill.initial_root else ())
             # P4: a job with an initial root goes back to the issue branch its plan, or its nearest predecessor's,
             # records for a repository (spec §5.7). fix has no initial root and keeps today's branches.
             recorded = self._recorded_branches(item) if skill.initial_root else {}
@@ -168,7 +170,8 @@ class Scheduler:
         session = self.ledger.session(item['session_id']) or {}
         publication = (self.publication.scope(item=item, issue=issue,
                                              paths={repo: paths[repo] for repo in write_repos},
-                                             delegated=bool(session.get('delegation')))
+                                             delegated=bool(session.get('delegation')),
+                                             suffix_roles=skill.initial_root is not None)
                        if self.publication is not None else {'repositories': {}})
         # Carry one bounded, structured predecessor summary into the fresh prompt. The full
         # history stays in issue-context; a neutral staged attempt (a chat-to-fix restart) uses the
