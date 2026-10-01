@@ -310,9 +310,10 @@ class Receiver:
             current = self.ledger.active_item_for_issue(issue["id"])
             if current is not None and current["authority"] == "delegation":
                 self.ledger.request_status_check(issue["id"])
+        session = self.ledger.session(prepared["session_id"])
         opening = self.db.execute("SELECT * FROM session_openings WHERE session_id=? AND issue_id=?",
                                   (prepared["session_id"], issue["id"])).fetchone()
-        if (opening is None and prepared["action"] == "created" and self.db.execute(
+        if (opening is None and (prepared["action"] == "created" or session is None) and self.db.execute(
                 "SELECT 1 FROM session_openings WHERE issue_id=? AND session_id IS NULL "
                 "AND (error IS NULL OR error!='SessionCreationRefused')",
                 (issue["id"],)).fetchone()):
@@ -337,21 +338,24 @@ class Receiver:
                 with self.lock, self.db:
                     self.db.execute("UPDATE session_openings SET session_id=?,error=NULL WHERE issue_id=? AND since=?",
                                     (prepared["session_id"], issue["id"], opening["since"]))
-        if opening is not None and prepared["action"] == "created":
+        own_new_session = opening is not None and session is None
+        if opening is not None and (prepared["action"] == "created" or own_new_session):
             episode = self.ledger.episode(issue["id"])
             if (not delegated or issue["archived"] or issue["status_type"] in TERMINAL_STATUS_TYPES
                     or episode is None or episode["since"] != opening["since"] or episode["state"] == "dropped"):
                 self._send(prepared["session_id"], ack_id, {"type": "response",
                     "body": f"{self.bot_name} 创建会话后，这次委派已失效，未开始新的工作。"})
                 return
-        session = self.ledger.session(prepared["session_id"])
         if session is None and prepared["action"] == "created" and prepared.get("is_mention") and delegated:
             # Delegations may include Linear's synthetic thread comment. Verify
             # its origin off the webhook ACK path before granting write authority.
             if self.api.session_has_artificial_root(prepared["session_id"], issue["id"], app):
                 prepared = {**prepared, "is_mention": False, "text": ""}
-        is_delegation = (session["delegation"] if session else
-                         prepared["action"] == "created" and not prepared.get("is_mention") and delegated)
+        # A reply may beat both the signed creation and the synthetic event's short grace. Only the app's own
+        # verified opening can establish its new session's authority then; an existing mention is never promoted.
+        # This uses the normal prompted/no-history reroute, so a later created event starts no second job.
+        is_delegation = (session["delegation"] if session else delegated and
+                         (own_new_session or (prepared["action"] == "created" and not prepared.get("is_mention"))))
         # .get: an event the previous revision accepted, still pending at upgrade, carries neither person.
         session = self.ledger.ensure_session(prepared["session_id"], issue["id"], is_delegation, prepared["guidance"],
                                              creator=prepared.get("creator"))

@@ -139,6 +139,58 @@ class SilentSessionRecoveryTests(fixtures.ReceiverBase):
         self.reply_in("recovered-session", "解释一下")
         self.assertNotIn("创建会话后", self.sent()[-1][1]["body"])
 
+    def first_reply(self):
+        event = self.created()
+        event["action"] = "prompted"
+        event["agentActivity"] = {"id": "first-reply", "agentSessionId": "recovered-session",
+                                  "content": {"type": "prompt", "body": "server A"}}
+        self.receive(event)
+        self.assertTrue(self.receiver.process_one())
+        fix = self.ledger.active_item_for_issue(fixtures.ISSUE)
+        self.assertEqual((fix["skill"], fix["authority"]), ("fix", "delegation"))
+        self.assertIn("server A", self.messages(fix))
+        return fix
+
+    def test_reply_before_synthetic_creation_keeps_verified_own_delegation_authority(self):
+        self.due()
+        self.assertEqual(self.settle(), "opened")
+        fix = self.first_reply()
+        self.process_opened()
+        self.assertEqual(self.active_jobs(), [fix["id"]])
+        self.assertTrue(self.ledger.session("recovered-session")["delegation"])
+
+    def test_reply_after_lost_response_resolves_own_marker_before_routing(self):
+        self.due()
+        def lost(*args):
+            self.open_remote(*args)
+            raise TimeoutError()
+        self.api.create_session_on_issue.side_effect = lost
+        self.assertEqual(self.settle(), "retry")
+        fix = self.first_reply()
+        self.api.recovery_session_candidate.assert_called_once()
+        self.now += 15
+        self.assertEqual(self.settle(), "heard")
+        self.assertEqual(self.active_jobs(), [fix["id"]])
+        self.api.create_session_on_issue.assert_called_once()
+
+    def test_first_reply_without_a_verified_opening_marker_remains_a_mention(self):
+        self.due()
+        def lost(*args):
+            self.open_remote(*args)
+            raise TimeoutError()
+        self.api.create_session_on_issue.side_effect = lost
+        self.assertEqual(self.settle(), "retry")
+        self.remote["externalLinks"] = []
+        event = self.created()
+        event["action"] = "prompted"
+        event["agentActivity"] = {"id": "unverified-first-reply", "agentSessionId": "recovered-session",
+                                  "content": {"type": "prompt", "body": "修复"}}
+        self.receive(event)
+        self.assertTrue(self.receiver.process_one())
+        [chat] = self.ledger.items_for_session("recovered-session")
+        self.assertEqual((chat["skill"], chat["authority"]), ("chat", "mention"))
+        self.assertFalse(self.ledger.session("recovered-session")["delegation"])
+
     def test_interrupted_before_request_never_blindly_repeats_creation(self):
         self.due()
         self.api.create_session_on_issue.side_effect = SystemExit()

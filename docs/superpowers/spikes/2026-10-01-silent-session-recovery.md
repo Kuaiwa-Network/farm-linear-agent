@@ -47,16 +47,19 @@ Sources: [Linear agent interaction](https://linear.app/developers/agent-interact
 
 ## Validation
 
-The final Mac command was:
+The full local Mac command was:
 
 ```sh
 env -u FARMBOT_CONFIG -u FARMBOT_LINEAR_STUB_DIR python3 -B -m unittest discover -s tests -v
 ```
 
 It passed **1,618 tests in 228.561 seconds**, with **17 Windows-only skips**. Focused coverage includes
-20 own-session recovery scenarios, 58 API tests and 196 receiver tests. The initial API tests failed before
+20 own-session recovery scenarios, 58 API tests and 196 receiver tests in that run. The final arrival-order
+correction also passed all 23 recovery scenarios and 196 receiver tests. Final full-suite checks run in
+the pull request CI. The initial API tests failed before
 the methods existed; two later regression tests reproduced the late-webhook and intercepted-reply bugs
-before their corrections. `git diff --check` passed. The full suite needs localhost listeners and process
+before their corrections. Two additional tests reproduced the first-reply-before-creation race; the fix
+uses only verified own-session authority and preserves mention authority without a matching marker. `git diff --check` passed. The full suite needs localhost listeners and process
 inspection; it ran with the host access required by those offline fixtures.
 
 Windows was not executed on this Mac. Hosted Windows CI follows the recovery branch's pull request;

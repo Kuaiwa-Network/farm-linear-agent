@@ -919,8 +919,10 @@ allowing the controller to observe the removal, to start a new episode. Do not d
 
 The confirmed session queues a synthetic `created` under the same key as Linear's webhook. It waits
 five seconds for the signed webhook to supply guidance and people. A duplicate can enrich guidance,
-including after routing, but starts no second job. Without a webhook the synthetic event has no human
-creator and no guidance. Routing reads the card again: a closed card, removed delegation or replaced
+including after routing, but starts no second job. A reply arriving before creation is routed as delegation
+only if the app's own opening verifies the previously unrecorded session and the episode is still valid;
+without that proof it remains a mention, and an existing mention is never promoted. Without a webhook
+the synthetic event has no human creator and no guidance. Routing reads the card again: a closed card, removed delegation or replaced
 episode starts no work. Stop received during creation cancels the pending event. Late independent Linear
 sessions still use the normal takeover and claim-fencing rules.
 
