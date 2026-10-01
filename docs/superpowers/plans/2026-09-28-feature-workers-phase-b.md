@@ -58,8 +58,17 @@ state from Git history and the saved Claude session. Phase A's shared plumbing a
 - **Recovery check completed separately:** #75 implements and tests fresh-session recovery, with
   macOS and hosted Windows CI passing and the chosen TestBot card cleaned up. TestBot returned to
   its original release; see the [measured recovery record](../spikes/2026-10-01-silent-session-recovery.md).
-- **Next:** Task 11's toolchain diagnostics, B3 (Tasks 12–15), and the documentation/verification
-  rounds remain unfinished. The `feature` skill itself still does not exist.
+- **Task 11 implemented:** `doctor` checks the feature toolchain only when the host enables it,
+  using offline commands and sanitized profile counts. The seven new scenarios reproduced the
+  absent report/findings first; all 53 diagnostic tests then passed, plus 36 worker-reference checks.
+  The full offline command above passed **1,657 tests in 240.071 seconds**, with **18 Windows-only
+  skips**. The development Mac's read-only probe excluded lark-cli: Go 1.26.6 meets farm-hive's
+  `>=1.25.1`, protoc 35.1, Node 24.15.0, openspec 1.7.0, Python 3.13.14 and git-lfs 3.7.1 passed;
+  `buf` is absent from that shell's PATH and dotnet SDK 8.0.423 is an optional gap (10.0.203 installed).
+  No tool was installed, host profile edited or live feature run started. B2 now awaits whole-branch
+  review and CI; these Mac results do not verify the Windows desktop host.
+- **Next:** B3 (Tasks 12–15) and the documentation/verification rounds remain unfinished. The
+  `feature` skill itself still does not exist.
 
 ## Scope
 
@@ -7021,7 +7030,7 @@ report and exit status are unchanged and it runs no new command.
 
 Storage: none. Rollback: an older `doctor` omits `tools.feature`; nothing is stored.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `tests/test_doctor.py`, add `import sys` directly after `import subprocess` (`:8`). Then, after
 `class DoctorTests` (its last test, `test_the_runtime_finding_needs_no_ledger_and_changes_none`, ends at
@@ -7234,7 +7243,7 @@ class FeatureToolchainTests(unittest.TestCase):
 `Paths(self.config)`. The checkout has no `feature` until Task 12, so the class serves the fixture staged
 skill under that name, as `test_each_enabled_staged_skill_is_named_and_only_those` does.
 
-- [ ] **Step 2: Run the tests and confirm they fail**
+- [x] **Step 2: Run the tests and confirm they fail**
 
 Run: `python3 -m unittest discover -s tests -p 'test_doctor.py' -v`
 Expected (rehearsed on `33a28d3` plus Tasks 9 and 10, and after Tasks 1–10 with the same results): five
@@ -7244,7 +7253,7 @@ Expected (rehearsed on `33a28d3` plus Tasks 9 and 10, and after Tasks 1–10 wit
 empty; `test_a_host_that_does_not_enable_feature_probes_nothing` already passes (it pins that such a
 host runs nothing).
 
-- [ ] **Step 3: Implement** in `agent/doctor.py`, then stand in for the probes in `DoctorTests`.
+- [x] **Step 3: Implement** in `agent/doctor.py`, then stand in for the probes in `DoctorTests`.
 
 Replace the standard-library imports as Task 8 leaves them (its Step 8 puts `import json` first; at
 `33a28d3` they are `:2-7`, from `import os`), keeping `import json` once:
@@ -7452,7 +7461,7 @@ developer's real toolchain. In `tests/test_doctor.py`, end `DoctorTests.setUp`, 
             self.enterContext(patch("agent.doctor.feature_toolchain", return_value=READY_TOOLCHAIN))
 ```
 
-- [ ] **Step 4: Run the tests and confirm they pass**
+- [x] **Step 4: Run the tests and confirm they pass**
 
 Run: `python3 -m unittest discover -s tests -p 'test_doctor.py' -v`
 Expected: all pass, `FeatureToolchainTests` in about 3 s on macOS.
@@ -7470,7 +7479,7 @@ Measured on 2026-09-28 (0.2 to 1 s): go 1.26.6 against `>=1.25.1` from farm-hive
 ok; `missing` held only the `lark_cli` entry the command leaves out, and the dotnet SDK was 10.0.203
 only, so `optional_missing: ["dotnet_sdk"]`.
 
-- [ ] **Step 5: Document the report**
+- [x] **Step 5: Document the report**
 
 In `README.md`, "AI/operator diagnostics", add this paragraph after a blank line, following the one that
 ends "set an absolute `local_root` when inspecting from another checkout." (`:147`):
@@ -7530,14 +7539,14 @@ with:
 Run: `git diff --check`, then `python3 -m unittest discover -s tests -p 'test_skills.py' -v`.
 Expected: no whitespace errors; all pass.
 
-- [ ] **Step 6: Run the full suite**
+- [x] **Step 6: Run the full suite**
 
 Run: `python3 -m unittest discover -s tests -v`
 Expected: 0 failures, 7 more tests than after Task 10; on macOS no new skip, elsewhere one more (the
 master-key-file test) (rehearsed on `33a28d3` plus Tasks 9 and 10: 1230 tests, 16 skipped on macOS;
 after Tasks 1–10: 1312 tests, 16 skipped).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add agent/doctor.py tests/test_doctor.py README.md docs/operating-contract.md docs/development-workflow.md

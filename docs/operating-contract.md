@@ -58,7 +58,12 @@ worker, whatever its skill, starts without `LARKSUITE_CLI_APP_ID`, `LARKSUITE_CL
 override, because lark-cli prefers credentials from the environment to `--profile`; as with the
 kw_ops token, the removal covers only the environment a worker inherits, so these never belong in a
 shell startup file. Each `feature` launch carries the block as `tools.lark_cli`; other skills get
-none. An older revision ignores the key and passes those variables on.
+none. An older revision ignores the key and passes those variables on. On a host that enables
+`feature`, `doctor` adds `tools.feature`, the version of each tool its workers run against the
+repositories' pins and whether the configured lark-cli profile exists, with
+`feature_toolchain_incomplete` for a required tool that is missing or wrong (README, diagnostics). It
+runs each tool's version command offline, with lark-cli's update check and metadata fetch off, and
+never calls Feishu; a host that does not enable `feature` runs none of it.
 
 Explicit profiles select `environment` (`development`, `production`, or `offline`)
 and a lowercase `instance_id`. Existing configs default to `legacy` for compatibility.

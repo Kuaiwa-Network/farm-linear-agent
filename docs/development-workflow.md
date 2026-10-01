@@ -191,7 +191,9 @@ existing production data or copy its marker.
      `enabled_skills_invalid` means `serve` would refuse the profile's
      `enabled_skills`; `skill_runtime_unsupported` means the profile's `runtime`
      cannot launch an enabled skill, as `claude` cannot launch `fix`, so each of
-     that skill's jobs would fail at launch.
+     that skill's jobs would fail at launch. On a profile that enables `feature` it
+     also reports `tools.feature`: `feature_toolchain_incomplete` names the tools to
+     install first, and `lark_cli_unconfigured` means `serve` would refuse the profile.
    - `python3 -m agent.service seed-clones --config /absolute/profile.json --from ~/WorkSpaces/Farm`
      creates `local_root`, `.controller.lock`, `environment.json` and the bare
      clones; there is no separate init command. Local checkouts that share history

@@ -171,6 +171,22 @@ contract, Authority).
 `local_root` defaults to the checkout running the command, even when `--config`
 points elsewhere; set an absolute `local_root` when inspecting from another checkout.
 
+On a host whose config enables `feature`, the report also carries `tools.feature`: an entry per tool
+its workers run, each `{"found", "version", "required", "ok"}`, for Go (at least what farm-hive's
+`go.mod` in FarmBot's clone asks for, else 1.25.1), protoc 35.1, buf 1.72.0, Node 22 or later,
+openspec 1.7.0, `python3`, git-lfs, the dotnet SDK 8.0.423 (optional: only farm-common's acceptance
+script needs it), lark-cli with the configured profile, and on Windows bash, `sha256sum`, `mktemp`
+and `awk`; then the names under `missing` and `optional_missing`. A missing or wrong required tool is
+the finding `feature_toolchain_incomplete`, `lark_cli_unconfigured` means `serve` would refuse the
+config, and `lark_cli_store_exposed` means that the lark-cli store the workers read keeps its master
+key in a file and holds a user login, which every sandboxed worker could then read. Each probe runs a
+version command offline (no Go toolchain download, telemetry, update check or lark-cli metadata
+fetch: lark-cli runs with `LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1` and `LARKSUITE_CLI_REMOTE_META=off`),
+and `lark-cli profile list`, of which the report keeps the configured profile's name and counts,
+never an app ID, another profile's name or a user's name. Doctor never calls Feishu, and hosts that
+do not enable `feature` run none of this. It probes the tools on its own `PATH`, so run it from the
+environment `serve` starts in, whose `PATH` the workers inherit.
+
 Exit codes are **0** (`ok`: no problems detected by these checks), **1** (`attention`:
 findings need inspection), and **2** (`incomplete`: a config, skills, ledger, log or process
 check could not be completed). Incomplete takes precedence, retaining other findings.
