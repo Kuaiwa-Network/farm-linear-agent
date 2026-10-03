@@ -691,6 +691,134 @@ ownership. Results from another environment would not certify this production
 host. Preserve the ownership guard; do not copy sandbox secrets, relabel the
 installation record, reuse the desktop home implicitly or downgrade containment.
 
+### Native MXC evaluation (2026-10-03; partial)
+
+[#82](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/82) merged as
+`c90deb4a3e3d997cee9ba2c660fd223a11d61065`; its
+[head CI](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37121682789)
+passed. The following probes used that documentation revision, with executable
+and test trees still identical to `e8406d5`, in the separate development
+checkout on the **production Windows host**.
+
+Codex documents a native `mxc` backend in its
+[configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference).
+Its upstream implementation uses a process security environment without legacy
+sandbox-account setup. This evaluation selected it through a probe-only CLI
+override; FarmBot's generated Windows setting remains `elevated`. No production
+config, registered ownership, sandbox account or persistent app setting changed.
+Every attempt used a fresh isolated home, no seeded model authentication, dummy
+feature credentials, `PYTHONUTF8=1` and a sanitized environment. No model or live
+API was called.
+
+The native child now starts. With an ASCII working directory in a stable scratch
+root outside the checkout, explicit narrow workspace/state write grants still
+failed: CLI **0.156.1** exited **1** in **2.315 seconds**, and CLI **0.160.0**
+exited **1** in **2.368 seconds**. The child was observed inside FarmBot's Job
+Object, its source alias and user/auth-proxy tokens were withheld, its dummy
+canonical credentials and strict bot mode were delivered, and the Job Object
+settled empty. Earlier Unicode-path attempts failed at the same write boundary.
+
+A 0.160.0 minimal-read-policy probe denied relative and absolute creation,
+modification of an owned seeded file, and directory creation in the granted
+working directory; directory creation returned **WinError 5**. Its forbidden
+sibling write was also denied. A read-only `config/read` followed by standalone
+`command/exec`, without a thread or turn, confirmed the selected `mxc` backend,
+named profile and exact working-directory/state write grants. The parent could
+write the same working directory, while both named-profile and equivalent legacy
+workspace-policy executions denied it. This RPC completed in **0.424 seconds**;
+the diagnostic program's exit 0 records completion, not successful write access.
+A comparison launched through the Windows consent broker under a verified
+administrator token reproduced the denial in **2.274 seconds**.
+
+Moving only the probe working directory to a fresh ignored scratch directory
+inside the development checkout allowed its relative/absolute writes, seeded
+file modification and directory creation; the forbidden sibling remained
+blocked. The isolated home and attempt state stayed outside the checkout.
+This location dependence prompted the independent PowerShell comparison below.
+It did not justify relocating production state or broadening worker grants.
+
+The completed **0.160.0** checkout-scratch probe took **5.307 seconds** and exited
+**0**. Python/python3 **3.13.16**, Git **2.54.0.windows.1**, Git LFS **3.7.1**, Go
+**1.26.6**, buf **1.72.0**, openspec **1.7.0** and lark-cli **1.0.82** version
+probes passed after selecting each executable explicitly. Bash resolved to the
+prepared **Git for Windows** executable, not WSL, but exited **0xC0000142**
+([DLL initialization failure](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-erref/596a1078-e883-4972-9bbc-49e60bebca55)).
+Protoc failed process creation with **WinError 623**
+([illegal system DLL relocation](https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes--500-999-)).
+These are unresolved native toolchain findings, not successful generator checks.
+The fixture's exit 0 does not establish feature-worker readiness.
+
+Against a fresh empty lark store, dummy bot dry run exited **0**, forced-user
+dry run **2**, and missing-credential dry run **3**; the store stayed empty.
+The child belonged to the FarmBot Job Object, credential-withholding assertions
+passed and the job settled empty. Protected repository metadata, attempt-state
+writes, cancellation, Windows worker generators and real Feishu reads remain
+unverified for this backend. No FarmBot backend-selection change was made.
+
+UTF-8 logs, revisions, versions, timings, sanitized summaries and private scratch
+metadata are preserved in ignored `reports/isolated-windows-worker-*` directories.
+The final checkout-scratch report is
+`reports/isolated-windows-worker-20261003T130235Z/`; stdout SHA-256 is
+`8af569e42222db92c159075ea7306561f484339583733dae3d876526977da69f`.
+The detailed policy/RPC comparison is retained under
+`reports/isolated-windows-worker-20261003T124751Z/`, and the consent-broker
+comparison under `reports/isolated-windows-worker-20261003T125801Z/`.
+Raw paths and diagnostics remain private.
+
+#### Independent PowerShell comparison and image diagnosis
+
+The operator ran the same dummy-only **0.160.0** probe from a regular PowerShell
+window opened independently of Codex, under the selected current account. With
+the working directory, isolated home and attempt state all outside the checkout,
+it completed in **5.160 seconds**, exit **0**. All four allowed working-directory
+write checks passed, the forbidden sibling was denied, the native child was
+observed in the FarmBot Job Object and the job settled empty. Credential
+withholding, dummy canonical delivery, strict bot mode and the empty-store
+**0/2/3** dry runs passed. The earlier scratch write denial depends on the Codex
+launch context; it does not establish a FarmBot write-permission regression.
+The same Bash **0xC0000142** and protoc **WinError 623** failures remained.
+Other version results matched the completed checkout-scratch probe above.
+
+A focused direct comparison of the same binaries passed in **0.055 seconds**:
+GNU Bash **5.3.9**, `uname -s` **MSYS_NT-10.0-26200**, and **libprotoc 35.1**,
+all exit **0**. Read-only PE inspection found that protoc is x64 with relocations
+stripped and no base-relocation directory; Bash and its MSYS runtime are x64 with
+relocation data, but their dynamic-base/high-entropy flags are off.
+
+A subsequent **5.258-second** MXC probe used the documented
+[GetProcessMitigationPolicy](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getprocessmitigationpolicy)
+API to inspect the sandboxed child. Its ASLR policy enables bottom-up allocation,
+forced image relocation, high entropy and rejection of stripped images.
+[Microsoft's compatibility guidance](https://learn.microsoft.com/en-us/defender-endpoint/exploit-protection-reference#force-randomization-for-images-mandatory-aslr)
+states that the latter blocks binaries whose relocation information is stripped.
+The pinned prebuilt protoc image is therefore incompatible with the measured
+policy. ASLR is also a concrete compatibility hypothesis for Bash:
+[Cygwin's process-creation documentation](https://cygwin.com/cygwin-ug-net/highlights.html)
+describes its address-layout constraints. This check did not identify Bash's
+failing DLL or prove that ASLR is its only failure mechanism.
+
+No binary was patched, mitigation disabled or host exception installed. MXC is
+not yet an accepted FarmBot backend. The next development step is to evaluate a
+supported native runtime/toolchain combination, beginning with an ASLR-compatible
+build of pinned protoc and focused Bash compatibility diagnosis. Then verify
+protected metadata, attempt-state writes and cancellation before generators or
+live worker acceptance. The registered-runtime ownership issue still applies
+to the existing elevated backend.
+
+The independent report is retained under ignored
+`reports/isolated-windows-worker-20261003T131541Z/`; stdout SHA-256 is
+`6b3a3f74c1a70d81d4b9d5aede464afecf2e8fe64ce562c9c18b624db5fe2ded`.
+Direct probes and PE hashes are retained under
+`reports/native-tool-images-20261003T131943Z/`, with mitigation evidence under
+`reports/isolated-windows-worker-20261003T132145Z/`. All scopes remain isolated
+development checks on this production Windows host; no model/Feishu access,
+production configuration, ledger, service or parked job was involved.
+
+Documentation validation passed all **73** skill/reference tests in **0.357
+seconds**, with no failures, errors or skips. Changed links, whitespace and
+private-path checks passed. The full offline suite was not repeated for these
+documentation-only changes; the earlier measured native baseline remains above.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
@@ -728,8 +856,10 @@ Remaining release prerequisites:
    dry runs and real planning-document/attachment reads, including Windows Word
    conversion. The operator has requested these prerequisites one at a time;
    the authorized development implementation is now merged in #81. Complete
-   the isolated home's native elevated sandbox initialization, currently blocked
-   by the diagnosed registered-runtime ownership incompatibility above;
+   a supported isolated-home native launch integration: elevated initialization
+   is blocked by the registered-runtime ownership incompatibility, while the
+   MXC evaluation above has native tool incompatibilities, although the
+   independent PowerShell scratch-write comparison passed;
    merge-head CI has passed. Then verify the dummy feature credential grant and
    sandbox-child containment before privately supplying the selected controller
    source and verifying a real isolated worker. Real Feishu
