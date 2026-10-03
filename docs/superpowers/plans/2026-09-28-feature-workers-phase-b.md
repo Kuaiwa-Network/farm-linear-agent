@@ -315,9 +315,16 @@ restoration remain pending. The native Windows offline baseline now passes.
   verified administrator token, including Codex 0.156.1 with verified matching
   release helpers first in process-only `PATH` (**0.181 seconds**). Existing
   native CLI 0.160.0 also failed (**0.094 seconds**); no global CLI or persistent
-  `PATH` change was made. Root cause remains unresolved. The next scoped step is
-  isolated native Codex setup diagnosis, preserving containment and private
-  evidence. Windows worker generators and real Feishu reads remain pending. The
+  `PATH` change was made. Further read-only inspection of the isolated daily log
+  identified the registered Core ownership guard: legacy helper provisioning
+  cannot replace accounts owned by the desktop runtime. Codex installation
+  metadata confirms a different registered home; upstream registered-service
+  admission also requires the matching owner/home and installed package. The
+  next scoped step is supported native launch compatibility that preserves
+  FarmBot's per-attempt isolation, or separate native Windows verification;
+  another environment would not certify this production host. Ownership,
+  accounts, app settings and services were not changed during diagnosis.
+  Windows worker generators and real Feishu reads remain pending. The
   [native record](../spikes/2026-10-03-native-windows-offline.md#isolated-windows-worker-follow-up-2026-10-03-partial)
   retains this result and its limits. No production configuration, live credential,
   parked job or service was touched.

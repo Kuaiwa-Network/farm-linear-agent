@@ -625,15 +625,16 @@ The official npm platform archive for 0.156.1 passed its published SHA-512
 integrity check. Its CLI, sandbox setup helper, command runner and code-mode
 host all matched the installed bytes. The original `PATH` selected a different
 setup helper, but putting the verified matching helper directory first did not
-resolve the failure. Neither that lookup difference nor a Windows policy block
-is established as the cause. This is an unresolved native Codex initialization
-gap, not evidence establishing a FarmBot application regression. No containment
+resolve the failure. These initial checks did not establish a cause; the
+read-only diagnosis below subsequently identified the ownership guard. The
+results do not establish a FarmBot application regression. No containment
 check was weakened, fallback sandbox selected or skip added.
 
 A bounded read-only query of Defender, Code Integrity, AppLocker and Application
 events found no entries naming the Codex executables during these attempts.
 This absence does not establish that account, firewall or logon policy permits
-setup; the generic helper failure still has no more specific measured cause.
+setup; at this stage the generic helper failure had no more specific measured
+cause.
 
 UTF-8 logs, sanitized setup summaries, revision, timing, corrected component
 integrity comparison and private scratch-location metadata are retained under
@@ -644,7 +645,7 @@ Scratch evidence was preserved; no automatic profile, credential or state
 cleanup was attempted. No production FarmBot configuration or ledger was read,
 FarmBot service started, live issue changed or Feishu call made.
 
-The next concrete step is native Codex setup diagnosis using the isolated
+The next step at this stage was native Codex setup diagnosis using the isolated
 home's sandbox log and this measured failure. The
 [official Windows troubleshooting guidance](https://learn.chatgpt.com/docs/windows/windows-sandbox)
 identifies local user/group creation, firewall setup and sandbox-user logon
@@ -653,6 +654,42 @@ which, if any, applies here. Prepare sanitized diagnostics for operator review
 before sharing them; exclude sandbox secrets and private host paths. Actual
 sandbox-child Job Object membership, credential delivery, Windows worker
 generators and real Feishu reads remain pending.
+
+### Read-only ownership diagnosis (2026-10-03)
+
+Further inspection of the isolated home's daily sandbox log identified the
+underlying helper failure, including the last administrator-token attempt:
+`registered Core owns these sandbox accounts; helper provisioning is not permitted`.
+This is an intentional ownership refusal before legacy account provisioning,
+not an unexplained UAC or executable-integrity failure. Read-only Codex sandbox
+installation metadata confirmed that a registered runtime exists and its
+registered home differs from the fresh verification home. No identifiers,
+registered-home paths or secrets are included here.
+
+The upstream 0.156.1 setup helper enforces this refusal before writing the
+structured `setup_error.json`; its top-level error is written to the daily log.
+That explains why the RPC reported only helper exit 1. Upstream registered
+service admission also checks the exact owner and Codex home, and authenticates
+the installed package and caller image. The matching-home guard remains in
+0.160.0. Merely changing a routing flag is therefore not an established
+workaround for a fresh FarmBot home. This service-route conclusion comes from
+source inspection and the measured home mismatch; the existing desktop home
+was not used for another setup attempt.
+
+Sanitized cause evidence is retained in the same ignored report directory as
+`ownership-cause-summary.json`, along with upstream source provenance and the
+local diagnostic report. The isolated daily log SHA-256 is
+`a8a1669ed5364427ffc986073e666492c2733855183935bc5176b5d777f7689e`.
+No sandbox account, ownership record, app setting, service or credential was
+changed during this diagnosis.
+
+The next concrete development step is to establish a supported Codex launch
+integration that preserves FarmBot's per-attempt configuration isolation while
+using registered native sandbox ownership, or verify the existing isolated-home
+launcher in a separate native Windows environment without competing registered
+ownership. Results from another environment would not certify this production
+host. Preserve the ownership guard; do not copy sandbox secrets, relabel the
+installation record, reuse the desktop home implicitly or downgrade containment.
 
 ## Next verification step
 
@@ -691,8 +728,8 @@ Remaining release prerequisites:
    dry runs and real planning-document/attachment reads, including Windows Word
    conversion. The operator has requested these prerequisites one at a time;
    the authorized development implementation is now merged in #81. Complete
-   the isolated home's native elevated sandbox initialization, which still
-   fails after the authorized administrator-token setup attempts above;
+   the isolated home's native elevated sandbox initialization, currently blocked
+   by the diagnosed registered-runtime ownership incompatibility above;
    merge-head CI has passed. Then verify the dummy feature credential grant and
    sandbox-child containment before privately supplying the selected controller
    source and verifying a real isolated worker. Real Feishu
