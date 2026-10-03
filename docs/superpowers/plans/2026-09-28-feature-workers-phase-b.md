@@ -300,6 +300,34 @@ restoration remain pending. The native Windows offline baseline now passes.
   actual native worker credential delivery, Windows generators/gates and real
   bot document/attachment reads remain release prerequisites. Parked jobs and
   production state were untouched.
+- **Merged Windows credential follow-up (2026-10-03; partial):** #81 merged as
+  `e8406d5`. Its executable and test trees match the measured `9e7d75e` source;
+  merge-head CI completed successfully. An offline probe through `Launcher`, with
+  dummy credentials, no seeded model authentication and a newly generated
+  isolated Codex home, stopped during sandbox initialization: **0.329 seconds**,
+  exit 1. Codex CLI 0.156.1 refuses helper binaries beneath the Windows temporary
+  directory. No sandbox child or feature tool ran. The generated config required
+  the elevated sandbox and disabled shell snapshots, and the parent FarmBot Job
+  Object settled empty. Actual sandbox-child containment and credential delivery
+  remain unmeasured. A subsequent stable-root probe stopped before its child in
+  **0.279 seconds**, exit 1. The operator authorized verification-only elevated
+  sandbox setup; the supported setup RPC still reported failure under a
+  verified administrator token, including Codex 0.156.1 with verified matching
+  release helpers first in process-only `PATH` (**0.181 seconds**). Existing
+  native CLI 0.160.0 also failed (**0.094 seconds**); no global CLI or persistent
+  `PATH` change was made. Further read-only inspection of the isolated daily log
+  identified the registered Core ownership guard: legacy helper provisioning
+  cannot replace accounts owned by the desktop runtime. Codex installation
+  metadata confirms a different registered home; upstream registered-service
+  admission also requires the matching owner/home and installed package. The
+  next scoped step is supported native launch compatibility that preserves
+  FarmBot's per-attempt isolation, or separate native Windows verification;
+  another environment would not certify this production host. Ownership,
+  accounts, app settings and services were not changed during diagnosis.
+  Windows worker generators and real Feishu reads remain pending. The
+  [native record](../spikes/2026-10-03-native-windows-offline.md#isolated-windows-worker-follow-up-2026-10-03-partial)
+  retains this result and its limits. No production configuration, live credential,
+  parked job or service was touched.
 - **Remaining operational work:** selected jobs on FARM-1346 and FARM-1425 stay
   parked. Restoring TestBot's earlier code/feature setting and the private secret
   scan require the operator's next scoped action. Preserve current ledger,

@@ -558,6 +558,139 @@ Dummy probe and doctor evidence is retained separately. Link, whitespace and
 documentation checks accompany this documentation-only follow-up. Detailed
 host credential diagnostics remain private.
 
+## Isolated Windows worker follow-up (2026-10-03; partial)
+
+[#81](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/81) merged as
+`e8406d547c2663703f34b007f79f306cce35b362`. Its executable and test trees match
+the measured `9e7d75e` source above. The
+[merge-head CI](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37115429575)
+completed successfully; the earlier tested source's CI also passed.
+
+On this production Windows host, in the separate development checkout at the
+exact merged revision, an offline probe used `Launcher` to create its isolated
+Codex home, environment grant and native Job Object. It substituted the real
+Codex sandbox CLI for model execution, with dummy credentials and no seeded
+model authentication. This checks sandbox initialization before a model worker
+is attempted; it is not a full model-worker acceptance run.
+
+The attempt started at `2026-10-03T10:15:36.058735+00:00` and stopped in
+**0.329 seconds**, exit **1**, during sandbox initialization. Codex CLI 0.156.1
+refused helper binaries beneath the Windows temporary directory. The generated
+config selected `workspace-write` and native `windows.sandbox="elevated"`,
+disabled shell snapshots and excluded the configured source alias. No credential
+values appeared in that config. No sandbox child or feature tool ran, so actual
+credential delivery and sandbox-child membership of the FarmBot Job Object
+remain unmeasured. The parent job was recorded and settled empty.
+
+UTF-8 logs, revision, configuration checks, duration and private scratch-location
+metadata are retained under ignored
+`reports/isolated-windows-worker-20261003T101536Z/`. The stderr SHA-256 is
+`39133df019c3744501607c3bd219aca4b8a191c63e688ad46216c68b08081ea9`.
+Scratch evidence was preserved. The next scoped check uses a stable absolute
+verification root outside the checkout, followed by its native elevated sandbox
+initialization. This result does not justify a sandbox downgrade. No production
+FarmBot config or ledger was read, service started, live issue changed, credential
+installed or Feishu call made. Windows worker generators and real bot reads
+remain pending.
+
+### Authorized native sandbox setup (2026-10-03; incomplete)
+
+After the operator authorized verification-only native elevated sandbox setup,
+the next probe used a new stable absolute scratch root outside both the checkout
+and Windows temporary directory. It ran from documentation head
+`2bb93ab44c6abe770de8f0535ac4788f17910f7d`; the executable and test trees were
+unchanged from merged candidate `e8406d5`. This remains an isolated development
+check on the **production Windows host**.
+
+The stable-root probe started at `2026-10-03T10:32:42.114577+00:00` and stopped in
+**0.279 seconds**, exit **1**, with
+`orchestrator_helper_exit_nonzero: setup helper exited with status Some(1)`.
+The generated config still required the elevated native sandbox, disabled shell
+snapshots and excluded the source alias and credential values. No model
+authentication was seeded. No sandbox child or feature tool ran; the parent
+FarmBot Job Object was recorded and settled empty.
+
+The supported [setup RPC](https://learn.chatgpt.com/docs/app-server)
+was then called through a short-lived stdio app-server, without creating a
+thread or model turn. The completion notification reported `success=false`
+with the same helper-exit failure. Retrying Codex CLI **0.156.1** under a
+verified administrator token with its matching release helpers first in the
+process-only `PATH` also failed, in **0.181 seconds**. The app-server process
+exited 0, which does **not** mean sandbox setup succeeded. A comparison with the
+existing native CLI **0.160.0** under an administrator token failed in
+**0.094 seconds** as well; the installed CLI and persistent `PATH` were not
+replaced.
+
+The official npm platform archive for 0.156.1 passed its published SHA-512
+integrity check. Its CLI, sandbox setup helper, command runner and code-mode
+host all matched the installed bytes. The original `PATH` selected a different
+setup helper, but putting the verified matching helper directory first did not
+resolve the failure. These initial checks did not establish a cause; the
+read-only diagnosis below subsequently identified the ownership guard. The
+results do not establish a FarmBot application regression. No containment
+check was weakened, fallback sandbox selected or skip added.
+
+A bounded read-only query of Defender, Code Integrity, AppLocker and Application
+events found no entries naming the Codex executables during these attempts.
+This absence does not establish that account, firewall or logon policy permits
+setup; at this stage the generic helper failure had no more specific measured
+cause.
+
+UTF-8 logs, sanitized setup summaries, revision, timing, corrected component
+integrity comparison and private scratch-location metadata are retained under
+ignored `reports/isolated-windows-worker-20261003T103242Z/`. Stable-root probe
+stderr SHA-256:
+`984ed1deff49a060d8d2b393f1af6107e1021f2cdad76ad5bf575c277c007682`.
+Scratch evidence was preserved; no automatic profile, credential or state
+cleanup was attempted. No production FarmBot configuration or ledger was read,
+FarmBot service started, live issue changed or Feishu call made.
+
+The next step at this stage was native Codex setup diagnosis using the isolated
+home's sandbox log and this measured failure. The
+[official Windows troubleshooting guidance](https://learn.chatgpt.com/docs/windows/windows-sandbox)
+identifies local user/group creation, firewall setup and sandbox-user logon
+rights as checks when elevated setup fails; this result does not identify
+which, if any, applies here. Prepare sanitized diagnostics for operator review
+before sharing them; exclude sandbox secrets and private host paths. Actual
+sandbox-child Job Object membership, credential delivery, Windows worker
+generators and real Feishu reads remain pending.
+
+### Read-only ownership diagnosis (2026-10-03)
+
+Further inspection of the isolated home's daily sandbox log identified the
+underlying helper failure, including the last administrator-token attempt:
+`registered Core owns these sandbox accounts; helper provisioning is not permitted`.
+This is an intentional ownership refusal before legacy account provisioning,
+not an unexplained UAC or executable-integrity failure. Read-only Codex sandbox
+installation metadata confirmed that a registered runtime exists and its
+registered home differs from the fresh verification home. No identifiers,
+registered-home paths or secrets are included here.
+
+The upstream 0.156.1 setup helper enforces this refusal before writing the
+structured `setup_error.json`; its top-level error is written to the daily log.
+That explains why the RPC reported only helper exit 1. Upstream registered
+service admission also checks the exact owner and Codex home, and authenticates
+the installed package and caller image. The matching-home guard remains in
+0.160.0. Merely changing a routing flag is therefore not an established
+workaround for a fresh FarmBot home. This service-route conclusion comes from
+source inspection and the measured home mismatch; the existing desktop home
+was not used for another setup attempt.
+
+Sanitized cause evidence is retained in the same ignored report directory as
+`ownership-cause-summary.json`, along with upstream source provenance and the
+local diagnostic report. The isolated daily log SHA-256 is
+`a8a1669ed5364427ffc986073e666492c2733855183935bc5176b5d777f7689e`.
+No sandbox account, ownership record, app setting, service or credential was
+changed during this diagnosis.
+
+The next concrete development step is to establish a supported Codex launch
+integration that preserves FarmBot's per-attempt configuration isolation while
+using registered native sandbox ownership, or verify the existing isolated-home
+launcher in a separate native Windows environment without competing registered
+ownership. Results from another environment would not certify this production
+host. Preserve the ownership guard; do not copy sandbox secrets, relabel the
+installation record, reuse the desktop home implicitly or downgrade containment.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
@@ -573,10 +706,11 @@ account provides separate-account isolation. The operator chose the current
 account for this host, with its store restricted to FarmBot. Local profile setup
 and strict bot mode now pass; actual worker credential validation remains
 unresolved, with detailed diagnostics retained privately. The
-feature-only environment-credential variant is implemented only in draft #81;
-the merged candidate still withholds credential variables from every worker.
-Review that authority change before any live use. It installs no credential
-loader and copies no DPAPI profile into worker accounts.
+feature-only environment-credential variant merged in #81 as `e8406d5`; the
+original baseline candidate `707ea87` still withholds credential variables from
+every worker. The merged variant still needs actual Windows worker acceptance
+before live use. It installs no credential loader and copies no DPAPI profile
+into worker accounts.
 
 Remaining release prerequisites:
 
@@ -593,8 +727,11 @@ Remaining release prerequisites:
    mode and credential path. Complete strict bot mode, bot
    dry runs and real planning-document/attachment reads, including Windows Word
    conversion. The operator has requested these prerequisites one at a time;
-   the authorized development implementation is now draft #81. Complete its
-   review and applicable CI before privately supplying the selected controller
+   the authorized development implementation is now merged in #81. Complete
+   the isolated home's native elevated sandbox initialization, currently blocked
+   by the diagnosed registered-runtime ownership incompatibility above;
+   merge-head CI has passed. Then verify the dummy feature credential grant and
+   sandbox-child containment before privately supplying the selected controller
    source and verifying a real isolated worker. Real Feishu
    access remains untested here; local profile setup performed no network
    authentication.
