@@ -478,20 +478,18 @@ pattern and retained-evidence checks passed. The existing native suite's error,
 skip and required-test inventories remain unchanged; no application fix or
 full-suite rerun was needed for these documentation edits.
 
-## Bot profile setup and elevated sandbox probe, 2026-10-03
+## Local bot profile verification, 2026-10-03
 
-The operator entered the existing bot app's ID and secret in a local hidden
-prompt under the chosen current Windows account. Setup started at
-`2026-10-03T07:49:14.5713834Z` and finished at
-`2026-10-03T07:49:59.4310713Z`. The resulting store contains only `farmbot`, no
-other profiles or user logins, and profile strict bot mode. The local offline
-doctor reported `config_file`, `app_resolved`, `bot_identity` and
-`identity_ready` passed, `user_identity` warned for the absent user login, and
-both endpoints were skipped. No network authentication or Feishu app-scope
-change was performed. The initial interactive helper launch had inherited
-PowerShell 7's module path into Windows PowerShell 5.1, hiding `Get-FileHash`;
-selecting the helper engine's built-in modules fixed it. The original launched
-preflight then passed both unchanged hash checks. No account was created.
+The operator completed the new `farmbot` profile under the chosen current
+Windows account, with no other profiles or user logins and profile strict bot
+mode. The app ID and hidden secret were entered locally. Offline profile
+checks passed; endpoint checks were skipped. This setup performed no network
+authentication, Feishu app-scope change or production reconfiguration.
+
+The initial interactive helper launch inherited an incompatible PowerShell
+module path, hiding `Get-FileHash`. Selecting the helper engine's built-in
+modules fixed it; the original launched preflight then passed both unchanged
+release hash checks. No Windows account was created.
 
 A fresh dummy-config FarmBot doctor from exact `707ea87`, using the prepared
 process-only tool prefix, started at `2026-10-03T08:10:03.537683+00:00` and
@@ -504,67 +502,22 @@ removed. UTF-8 evidence is retained under ignored
 `reports/native-windows-toolchain-configured-20261003/`; report SHA-256:
 `bb76ebcf1c4c475572e13bf70b30a6832e2e7dec5374e118eb41e5b058851dfd`.
 
-The installed Codex commands differ: FarmBot's PATH selection is the 0.156.1
-command wrapper, while the separately selected native executable is 0.160.0.
-An initial native-executable doctor-only probe was superseded for credential
-access purposes by the PATH-selected 0.156.1 probe below. No CLI was upgraded.
-The current Codex config uses its existing elevated native Windows sandbox;
-the probe used `:workspace`, included managed requirements and left network
-access disabled. It used fresh scratch files and the exact candidate's
-`child_environment` withholding, with no model run, service invocation,
-production config/ledger read or credential variables supplied.
-
-| Check | Ordinary setup account | Existing elevated Codex sandbox |
-| --- | --- | --- |
-| Probe duration | 0.227 seconds | 0.847 seconds |
-| Token user matches setup account | yes | no |
-| Profile strict bot mode | passes | passes |
-| lark `doctor --offline` | exit 0, bot identity passes | exit 0, bot identity passes |
-| Bot-only registry entry found | yes | no; WinError 2 |
-| DPAPI decrypt yields nonempty secret | yes | unavailable; no registry entry |
-
-The comparison began at `2026-10-03T08:01:37.992892+00:00`; its sandbox probe
-began at `2026-10-03T08:01:38.220689+00:00`. The read-only DPAPI probe followed
-the pinned CLI's registry/value/entropy format, checked only the new FarmBot
-profile and emitted booleans/error codes. Decrypted bytes were zeroed without
-being copied, decoded, hashed, printed, saved or exported. Sanitized evidence
-is retained under ignored `reports/native-windows-lark-sandbox-20261003-080137/`;
-the host and sandbox output hashes are respectively
-`7ec19a4dd3cda6d1c9dd75d0cf0bb4aac18259dbba81a6e1a6cd0600942b9ce2` and
-`2730a7bd64393f27a16ead5ee1e0f2475f05711a30b591c6189ddfb100244718`.
-
-An offline doctor pass is insufficient evidence of secret access here. The
-pinned CLI's [Windows keychain backend](https://github.com/larksuite/cli/blob/v1.0.82/internal/keychain/keychain_windows.go)
-returns an empty secret without an error when its registry value is absent.
-In [strict bot mode](https://github.com/larksuite/cli/blob/v1.0.82/internal/credential/default_provider.go),
-supported identity flags are set; the [offline bot diagnostic](https://github.com/larksuite/cli/blob/v1.0.82/internal/identitydiag/diagnostics.go)
-then does not require a nonempty secret. This explains the passing doctor
-alongside the missing secret. The [native sandbox documentation](https://learn.chatgpt.com/docs/windows/windows-sandbox)
-describes the dedicated sandbox users used by elevated mode.
-
-This measures the existing elevated sandbox helper, **not** a launched FarmBot
-model worker or its isolated `CODEX_HOME`. Their native sandbox selection and
-end-to-end credential path still need verification. The observed elevated path
-cannot use the setup account's per-user DPAPI store as-is. Changing to another
-FarmBot host account would still require checking the sandbox user's access;
-the operator's current-account choice remains in place. No sandbox downgrade,
-credential copy to a sandbox account or feature-only environment variant was
-used to obtain a pass. That variant remains unimplemented and is a separate
-development/authority decision before any live worker use. Real Feishu reads,
-Windows generators and full worker acceptance remain pending.
+These host-side checks do not certify worker access or real Feishu reads.
+Additional worker compatibility checks identified a readiness gap; detailed
+credential diagnostics are retained privately. A FarmBot model worker and its
+isolated home have not been verified. Worker credential delivery remains a
+release prerequisite, and the feature-only environment-credential variant is
+still unimplemented. Any selected variant needs a separate development branch,
+tests and authority review before live use. Windows worker generators and
+full worker acceptance remain pending.
 
 Validation of this documentation passed all **73** skill/reference tests under
-the ordinary owner token in **0.347 seconds**, with no skips. An earlier run
+the ordinary owner token in **0.349 seconds**, with no skips. An earlier run
 inside the desktop sandbox recorded 33 temporary-fixture access errors
 (WinError 5); its log is preserved, and the same tests passed outside that
 restriction without code changes or added skips. Link/whitespace/privacy and
 measured-evidence checks passed; the full native suite was not rerun for this
 documentation-only update.
-
-The preparation record passed all 73 skill/reference checks in 0.369 seconds,
-with no skips. Its links, whitespace, privacy scan, measured report hash and
-artifact/version evidence were checked; application code and the existing
-native-suite inventory remain unchanged.
 
 ## Next verification step
 
@@ -578,9 +531,9 @@ Windows lark-cli protects registry credentials with per-user DPAPI. A separate
 Windows. The supported store-based approach uses a Windows account whose
 lark-cli store contains only the FarmBot bot profile; a dedicated service
 account provides separate-account isolation. The operator chose the current
-account for this host, with its store restricted to FarmBot. Local profile setup,
-strict bot mode and host DPAPI access now pass. The existing elevated sandbox
-cannot read its registry secret; isolated worker/store checks remain pending. The
+account for this host, with its store restricted to FarmBot. Local profile setup
+and strict bot mode now pass; actual worker credential validation remains
+unresolved, with detailed diagnostics retained privately. The
 feature-only environment-credential variant is **not implemented**: the
 current code withholds credential variables from every worker. That variant
 would need a separate implementation and authority review, not a config edit.
@@ -595,9 +548,9 @@ Remaining release prerequisites:
    global alias is 3.14.3 while the prepared prefix selects Python 3.13.16. Dotnet
    SDK 8.0.423 is an optional later config-artifact requirement.
 2. Local FarmBot-only profile setup is complete under the operator-selected
-   current Windows account. Resolve the measured elevated-sandbox credential
-   gap while preserving containment, then verify the isolated worker's actual
-   native mode and DPAPI/credential path. Complete strict bot mode, bot
+   current Windows account. Resolve worker credential compatibility while
+   preserving containment, then verify the isolated worker's actual native
+   mode and credential path. Complete strict bot mode, bot
    dry runs and real planning-document/attachment reads, including Windows Word
    conversion. The operator has requested these prerequisites one at a time;
    the next credential-delivery development choice is pending. Real Feishu

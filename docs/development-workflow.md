@@ -331,10 +331,10 @@ user with DPAPI, so a separate home isolates nothing there and FarmBot refuses o
 supported Windows store-based approach uses an account whose lark-cli store holds only the
 FarmBot bot profile, with no personal profiles or logins. A dedicated service account provides
 separate-account isolation. The operator chose the current Windows account for the 2026-10-03
-verification, with a FarmBot-only store. Local setup and host DPAPI access passed, but the existing
-elevated Codex sandbox uses a different token user and cannot read the bot's registry secret.
-Its passing lark offline doctor does not prove that secret is available. Isolated worker/store
-checks and a credential-delivery solution remain pending before `feature` is enabled.
+verification, with a FarmBot-only store. Local setup and offline host checks passed; actual
+worker credential compatibility remains unresolved, with detailed diagnostics retained privately.
+A passing offline profile check does not certify worker access or real Feishu reads. Isolated
+worker/store checks and credential delivery remain pending before `feature` is enabled.
 The feature-only environment-credential variant is not implemented: current
 workers withhold those variables, so it would need a separate implementation and authority review.
 The native Windows read-only toolchain inventory does not verify the store or real bot fetching;
