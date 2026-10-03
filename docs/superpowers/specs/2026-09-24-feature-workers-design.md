@@ -1215,7 +1215,10 @@ parked FARM-1419 session. This was one Mac observation, not a running-worker or
 Windows live check. The remaining Phase B operator decision is:
 
 - For the operator, before `feature` runs on the Windows host: lark-cli keeps secrets per Windows
-  user (DPAPI), so a separate lark-cli home isolates nothing there. Either a host account whose
-  lark-cli store holds only the FarmBot profile, or environment credentials in the `feature`
-  worker's shell, which would require a separately reviewed authority change: the current code
-  withholds these variables from every worker.
+  user (DPAPI), so a separate lark-cli home isolates nothing there. A dedicated FarmBot service
+  account whose lark-cli store holds only the FarmBot bot profile is the currently supported
+  approach; choosing and arranging it remains the operator's decision. The feature-only
+  environment-credential variant is not implemented and would require a separate implementation
+  and authority review: the current code withholds these variables from every worker. The
+  read-only Windows inventory found lark-cli absent from the interactive account's PATH; store
+  isolation, actual worker generators and real Feishu access remain unverified.

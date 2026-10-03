@@ -186,6 +186,15 @@ restoration remain pending. The native Windows offline baseline now passes.
   directory was removed. No tool installation, credential setup, production
   profile edit, Linear call or Feishu call occurred. The native record lists
   the measured versions and remaining worker/generator checks.
+  After #79 merged as `03c9833`, the explicitly requested fresh Windows repeat
+  used the same exact candidate and a new dummy config/empty scratch root:
+  **4.826 seconds**, exit 2, with the expected `ledger_unreadable` separate
+  from `feature_toolchain_incomplete`. Every tool version and gap matched the
+  first inventory. Python's actual bash resolution agrees with `where.exe bash`:
+  the WSL launcher is selected first. Scratch cleanup completed; the ordinary
+  host token was used and no production configuration or ledger was read.
+  Real worker generators/gates and Feishu access remain pending. The native
+  record retains the repeat's UTF-8 evidence and concrete release prerequisites.
 - **Step 4.1, Feishu setup:** the operator authorized exactly the four
   application read/download scopes and Can view on the planning subtree and
   its sub-pages. The Mac uses a dedicated FarmBot-only home, its own file key,
@@ -234,9 +243,12 @@ restoration remain pending. The native Windows offline baseline now passes.
   open with its human owner. Running-worker withdrawal, re-delegation and a
   native Windows live run were not tested in this round.
 - **Step 5, Windows lark-cli:** still open. A dedicated service account is the
-  existing supported option; passing credentials only to feature workers would
-  need a separate implementation. No Windows account or credential store was
-  configured during this task.
+  existing supported option, with only the FarmBot bot profile in its per-user
+  DPAPI store. A separate `HOME` isolates nothing on Windows. Passing credentials
+  only to feature workers is not implemented and would need a separate authority
+  review and implementation; current workers withhold those variables. The
+  account/store decision remains with the operator. No Windows account or
+  credential store was configured during this task.
 - **Remaining operational work:** selected jobs on FARM-1346 and FARM-1425 stay
   parked. Restoring TestBot's earlier code/feature setting and the private secret
   scan require the operator's next scoped action. Preserve current ledger,

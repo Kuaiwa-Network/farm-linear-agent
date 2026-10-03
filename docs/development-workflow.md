@@ -327,10 +327,13 @@ lark-cli credentials, or `LARKSUITE_CLI_CONFIG_DIR`, in a shell startup file: Fa
 credential variables and the config-directory override after per-worker overrides, preserving the
 selected store; it cannot remove what a worker's shell sources. Diagnostic and Unity children get
 the same removals, plus the configured kw_ops token. On Windows, lark-cli keeps every profile's secret in the user's registry, protected per
-user, so a separate home isolates nothing there and FarmBot refuses one; before `feature` is enabled
-on the Windows production host, the operator chooses between a host account whose lark-cli store
-holds only the FarmBot profile and environment credentials in the `feature` worker's shell (the Phase
-B plan's open question, still awaiting native-host verification).
+user with DPAPI, so a separate home isolates nothing there and FarmBot refuses one. The currently
+supported Windows approach is a dedicated FarmBot service account whose lark-cli store holds only
+the FarmBot bot profile. Choosing and configuring that account remains an operator action before
+`feature` is enabled. The feature-only environment-credential variant is not implemented: current
+workers withhold those variables, so it would need a separate implementation and authority review.
+The native Windows read-only toolchain inventory does not verify the store or real bot fetching;
+see the [measured record and release prerequisites](superpowers/spikes/2026-10-03-native-windows-offline.md).
 
 ## Keeping production untouched
 
