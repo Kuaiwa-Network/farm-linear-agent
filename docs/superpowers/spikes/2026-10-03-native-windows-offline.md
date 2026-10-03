@@ -937,6 +937,117 @@ were changed. Retained measurement/hash, changed-link, privacy and whitespace
 checks passed. The full suite was not repeated for these documentation-only
 changes; the measured native baseline remains unchanged.
 
+#### MSYS object-directory denial (2026-10-03; partial)
+
+This follow-up used the same separate development checkout on the **production
+Windows host**, after #84 merged as `d66388267ee9e0989e6ec95a0db6f0250b6451e3`.
+[Merge-head CI](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37130017579)
+passed. Executable/test/skill/reference trees still match `e8406d5`; Python was
+**3.13.16**, with `PYTHONUTF8=1`, and the explicit native Codex CLI was **0.160.0**.
+No production config, ledger or runtime state was read. All worker probes used
+fresh state/home directories, dummy credentials and the previous explicit
+filesystem policy; no model or live API was called.
+
+The exact **3.6.7-4** runtime debug data was downloaded from the official
+[immutable package repository revision](https://github.com/git-for-windows/pacman-repo/tree/5d5b0de653a50a198e71a84bea558256ec88402a).
+The 432,528-byte `msys2-runtime-devel-3.6.7-4-x86_64.pkg.tar.xz` matched its Git
+blob identity; package SHA-256 was
+`a8879b916108a9422314a34ace9f25108e7fecbd1b88c945dc504e5f7c5ec63a`.
+Only debug data was extracted, without installing a package. The debug file's
+CRC32 **0x23a6d10d** matched the installed DLL's `.gnu_debuglink`; its SHA-256 was
+`ef71739d79541e5eb731dd698fd4f89e3a4d246640e842c616a288709d25c130`.
+The symbols map the fault at RVA **0x2ece1** to
+`dll_list::cleanup_forkables` and its referenced global at RVA **0x283d90** to
+`cygwin_shared`. The owned child's captured exception context confirms a null
+RAX and a read access violation at **0xe7b4**. This is a cleanup failure after an
+earlier fatal initialization error.
+
+The diagnostic child now has distinct owned standard handles, with stderr
+captured privately. Both installed and portable runtimes report the earlier
+failure as **`NtCreateDirectoryObject` returning 0xC0000022 /
+STATUS_ACCESS_DENIED** for their installation-specific directory under
+`\BaseNamedObjects`; installation identifiers and paths are omitted here. The
+[matching source](https://github.com/git-for-windows/msys2-runtime/blob/fb42d71358dd896ab324c52970f7d03f9ab0dfe5/winsup/cygwin/mm/shared.cc)
+creates this directory in `get_shared_parent_dir()` and calls `api_fatal` on
+failure. The later
+[cleanup routine](https://github.com/git-for-windows/msys2-runtime/blob/fb42d71358dd896ab324c52970f7d03f9ab0dfe5/winsup/cygwin/forkable.cc)
+reads shared state that initialization never populated. An object directory is
+a Windows kernel namespace object, not a checkout filesystem directory; see
+[Microsoft's API reference](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-zwcreatedirectoryobject).
+
+An independent native probe used a unique transient verification name, MSYS's
+`OBJ_OPENIF` and **0x2000f** directory access mask, and an Everyone DACL granting
+that mask. It never opened an MSYS/production object or changed an existing ACL.
+The directory operation returned **STATUS_SUCCESS directly** and
+**STATUS_ACCESS_DENIED inside MXC**. A `CreateEventW` control using a unique
+`Local\` name succeeded in both contexts. Every owned handle was closed; no
+object was made permanent or pre-created for a worker. The corrected direct
+comparison took **0.096 seconds** and both Bash children exited **0**. An initial
+diagnostic version reused one NUL handle for stdin/stdout and caused debugger
+invalid-handle exceptions in both direct controls; separate handles corrected
+that harness error. Those initial failures are not application regressions.
+
+The latest official
+[Git for Windows release](https://github.com/git-for-windows/git/releases/tag/v2.56.0.windows.1)
+was tested separately, without host installation or PATH changes. The
+59,958,024-byte `PortableGit-2.56.0-64-bit.7z.exe` matched the release API's SHA-256
+`eceb5e061aa90df2f69ddd3e90f0030e1b8037a7829934bc40e4be1caa1accc1`.
+The archive was extracted with the existing 7-Zip tool, never executed. Its
+runtime DLL SHA-256 was
+`2a89b7c31b323c42e2fb37900af087aeb27417694e630a210bc75b0369410bc7`.
+Preparation/direct probes took **16.434 seconds**, reporting Git
+**2.56.0.windows.1**, Bash **5.3.15(2)-release**, MSYS package **3.6.10-4** and
+`uname -s` **MSYS_NT-10.0-26200**. This is native Git for Windows Bash, not WSL.
+
+| Final contained comparison | Installed Git | Portable Git |
+| --- | --- | --- |
+| Git version | 2.54.0.windows.1 | 2.56.0.windows.1 |
+| Git LFS version | 3.7.1 | 3.8.0 |
+| MSYS package | 3.6.7-4 | 3.6.10-4 |
+| Probe duration | 5.865 seconds | 5.916 seconds |
+| Ordinary Bash, builtin, sh, uname, ls, awk | 0xC0000142 | 0xC0000142 |
+| DLL load | WinError 1114 | WinError 1114 |
+| Original captured fatal error | NtCreateDirectoryObject: 0xC0000022 | NtCreateDirectoryObject: 0xC0000022 |
+| Debugger cleanup fault RVA | 0x2ece1 | 0x2ed11 |
+| Separate namespace probe | 0xC0000022 | 0xC0000022 |
+
+Both comparisons retained all four ASLR flags, passed Git/LFS and the separate
+relocatable protoc **35.1** version probe, denied forbidden-sibling writes, and
+passed dummy credential delivery/withholding, strict-bot dry runs **0/2/3**,
+Job membership and empty settlement. Fixture exit 0 records completion, not
+readiness. These findings identify the first captured MSYS startup failure;
+they do not establish that fixing the namespace compatibility would resolve
+every later fork/ASLR/generator issue. No mitigation or containment was weakened.
+
+Retained ignored evidence:
+
+- `reports/portable-git-native-20261003T144451Z/` (archive integrity and versions).
+- `.local/verification/msys-symbols/summary.json` (debug-data identity/symbol map).
+- `reports/msys-namespace-direct-20261003T150348Z/` (initial handle-control error)
+  and `reports/msys-namespace-direct-20261003T150445Z/` (corrected direct controls).
+- `reports/isolated-windows-worker-20261003T150614Z/` (installed runtime) and
+  `reports/isolated-windows-worker-20261003T150620Z/` (portable runtime).
+  Sandbox stdout SHA-256 values:
+  `b6b9fb5ca772067e84ecde4ff85d2f26e5e8315a07866d55641ddc4a81ac9559` and
+  `bdbcc84a94bb75f6f93c20f44f5e8cfbc0510fac59577e37c9d5f7ad5d7cb6ce`.
+- `reports/msys-final-controls-20261003T150614Z/` (combined measurements).
+
+Raw UTF-8 logs, debugger/probe sources, executables and host metadata remain
+private. The next release step is a supported contained native Windows launch
+that runs Bash: resolve the existing registered-runtime ownership blocker for
+FarmBot's selected elevated backend, or establish and review a compatible
+sandbox/runtime integration. MXC remains a verification-only evaluation; a Git
+upgrade alone did not resolve this blocker. Repository worker generators and
+real Feishu reads remain pending. No accounts, app settings, credentials,
+production enablement or deployment were changed.
+
+Documentation validation passed **73** skill/reference tests in **0.424
+seconds**, with **0 failures, 0 errors and 0 skips**, using fresh temporary state
+in the development checkout. Retained measurements/hashes, changed links,
+privacy and whitespace checks passed. No executable behavior changed, so the
+full offline suite was not repeated; its previously measured baseline still
+applies.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
@@ -968,7 +1079,9 @@ Remaining release prerequisites:
    global alias is 3.14.3 while the prepared prefix selects Python 3.13.16. Dotnet
    SDK 8.0.423 is an optional later config-artifact requirement.
    The separate relocatable protoc 35.1 build now passes the MXC synthetic
-   generation fixture; native MSYS initialization remains unresolved. Neither
+   generation fixture; native MSYS startup is blocked by an object-directory
+   access denial inside the MXC evaluation, including the latest tested portable
+   Git. Neither
    direct version probes nor this fixture certify the repository generators.
 2. Local FarmBot-only profile setup is complete under the operator-selected
    current Windows account. Resolve worker credential compatibility while
@@ -979,7 +1092,7 @@ Remaining release prerequisites:
    the authorized development implementation is now merged in #81. Complete
    a supported isolated-home native launch integration: elevated initialization
    is blocked by the registered-runtime ownership incompatibility, while the
-   MXC evaluation above still has the MSYS initialization failure, although the
+   MXC evaluation above still denies the MSYS shared-object directory, although the
    independent PowerShell scratch-write comparison passed;
    merge-head CI has passed. Then verify the dummy feature credential grant and
    sandbox-child containment before privately supplying the selected controller
