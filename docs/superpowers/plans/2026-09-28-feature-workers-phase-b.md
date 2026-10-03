@@ -300,6 +300,20 @@ restoration remain pending. The native Windows offline baseline now passes.
   actual native worker credential delivery, Windows generators/gates and real
   bot document/attachment reads remain release prerequisites. Parked jobs and
   production state were untouched.
+- **Merged Windows credential follow-up (2026-10-03; partial):** #81 merged as
+  `e8406d5`. Its executable and test trees match the measured `9e7d75e` source;
+  merge-head CI is still running. An offline probe through `Launcher`, with
+  dummy credentials, no seeded model authentication and a newly generated
+  isolated Codex home, stopped during sandbox initialization: **0.329 seconds**,
+  exit 1. Codex CLI 0.156.1 refuses helper binaries beneath the Windows temporary
+  directory. No sandbox child or feature tool ran. The generated config required
+  the elevated sandbox and disabled shell snapshots, and the parent FarmBot Job
+  Object settled empty. Actual sandbox-child containment and credential delivery
+  remain unmeasured. The next scoped step is sandbox initialization under a
+  stable verification root outside the checkout. The
+  [native record](../spikes/2026-10-03-native-windows-offline.md#isolated-windows-worker-follow-up-2026-10-03-partial)
+  retains this result and its limits. No production configuration, live credential,
+  parked job or service was touched.
 - **Remaining operational work:** selected jobs on FARM-1346 and FARM-1425 stay
   parked. Restoring TestBot's earlier code/feature setting and the private secret
   scan require the operator's next scoped action. Preserve current ledger,

@@ -1225,8 +1225,8 @@ its remaining verification is:
   personal profiles or user logins, citing the app's read-only scopes. Those scopes do not
   isolate other credentials belonging to the same Windows user. At merged candidate `707ea87`,
   all workers withhold credential variables. The operator subsequently authorized the feature-only
-  environment variant; draft [#81](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/81)
-  implements explicit `app_id`/`secret_env` delivery (P13 amendment), pending review and live acceptance. The
+  environment variant; [#81](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/81), merged as
+  `e8406d5`, implements explicit `app_id`/`secret_env` delivery (P13 amendment). Live acceptance remains pending. The
   initial Windows inventory found lark-cli absent from the interactive account's PATH. The
   prepared development prefix now supplies its verified 1.0.82 binary. Local profile setup and
   offline host checks passed; all required feature entries pass in the fresh host doctor.

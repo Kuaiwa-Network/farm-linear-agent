@@ -558,6 +558,41 @@ Dummy probe and doctor evidence is retained separately. Link, whitespace and
 documentation checks accompany this documentation-only follow-up. Detailed
 host credential diagnostics remain private.
 
+## Isolated Windows worker follow-up (2026-10-03; partial)
+
+[#81](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/81) merged as
+`e8406d547c2663703f34b007f79f306cce35b362`. Its executable and test trees match
+the measured `9e7d75e` source above. The
+[merge-head CI](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37115429575)
+is still running; the earlier tested source's CI completed successfully.
+
+On this production Windows host, in the separate development checkout at the
+exact merged revision, an offline probe used `Launcher` to create its isolated
+Codex home, environment grant and native Job Object. It substituted the real
+Codex sandbox CLI for model execution, with dummy credentials and no seeded
+model authentication. This checks sandbox initialization before a model worker
+is attempted; it is not a full model-worker acceptance run.
+
+The attempt started at `2026-10-03T10:15:36.058735+00:00` and stopped in
+**0.329 seconds**, exit **1**, during sandbox initialization. Codex CLI 0.156.1
+refused helper binaries beneath the Windows temporary directory. The generated
+config selected `workspace-write` and native `windows.sandbox="elevated"`,
+disabled shell snapshots and excluded the configured source alias. No credential
+values appeared in that config. No sandbox child or feature tool ran, so actual
+credential delivery and sandbox-child membership of the FarmBot Job Object
+remain unmeasured. The parent job was recorded and settled empty.
+
+UTF-8 logs, revision, configuration checks, duration and private scratch-location
+metadata are retained under ignored
+`reports/isolated-windows-worker-20261003T101536Z/`. The stderr SHA-256 is
+`39133df019c3744501607c3bd219aca4b8a191c63e688ad46216c68b08081ea9`.
+Scratch evidence was preserved. The next scoped check uses a stable absolute
+verification root outside the checkout, followed by its native elevated sandbox
+initialization. This result does not justify a sandbox downgrade. No production
+FarmBot config or ledger was read, service started, live issue changed, credential
+installed or Feishu call made. Windows worker generators and real bot reads
+remain pending.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
@@ -573,10 +608,11 @@ account provides separate-account isolation. The operator chose the current
 account for this host, with its store restricted to FarmBot. Local profile setup
 and strict bot mode now pass; actual worker credential validation remains
 unresolved, with detailed diagnostics retained privately. The
-feature-only environment-credential variant is implemented only in draft #81;
-the merged candidate still withholds credential variables from every worker.
-Review that authority change before any live use. It installs no credential
-loader and copies no DPAPI profile into worker accounts.
+feature-only environment-credential variant merged in #81 as `e8406d5`; the
+original baseline candidate `707ea87` still withholds credential variables from
+every worker. The merged variant still needs actual Windows worker acceptance
+before live use. It installs no credential loader and copies no DPAPI profile
+into worker accounts.
 
 Remaining release prerequisites:
 
@@ -593,9 +629,10 @@ Remaining release prerequisites:
    mode and credential path. Complete strict bot mode, bot
    dry runs and real planning-document/attachment reads, including Windows Word
    conversion. The operator has requested these prerequisites one at a time;
-   the authorized development implementation is now draft #81. Complete its
-   review and applicable CI before privately supplying the selected controller
-   source and verifying a real isolated worker. Real Feishu
+   the authorized development implementation is now merged in #81. Complete
+   applicable CI and the isolated home's native elevated sandbox initialization
+   before privately supplying the selected controller source and verifying a
+   real isolated worker. Real Feishu
    access remains untested here; local profile setup performed no network
    authentication.
 3. Run generators and repository gates in a real Windows worker sandbox: native

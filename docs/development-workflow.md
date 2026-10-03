@@ -338,9 +338,9 @@ worker credential compatibility remains unresolved, with detailed diagnostics re
 A passing offline profile check does not certify worker access or real Feishu reads. Isolated
 worker/store checks and credential delivery remain pending before `feature` is enabled.
 At the verified merged candidate `707ea87`, all workers withhold credential variables. The
-operator subsequently authorized the feature-only environment variant implemented in draft
-[#81](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/81), described below. Its authority
-review and actual Windows worker acceptance remain pending before live use.
+operator subsequently authorized the feature-only environment variant implemented in
+[#81](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/81), merged as `e8406d5` and described
+below. Actual Windows worker acceptance remains pending before live use.
 The native Windows read-only toolchain inventory does not verify the store or real bot fetching;
 see the [measured record and release prerequisites](superpowers/spikes/2026-10-03-native-windows-offline.md).
 
