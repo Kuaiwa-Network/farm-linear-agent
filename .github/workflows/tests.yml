@@ -17,9 +17,9 @@ jobs:
   offline:
     name: Offline / ${{ matrix.os }} / Python 3.13
     runs-on: ${{ matrix.os }}
-    # Windows' full suite reached the final Git fixtures at the previous 20-minute limit.
-    # Keep every check, including native containment; allow slower hosted runners to finish.
-    timeout-minutes: 30
+    # PR #78's Windows run hit 30 minutes before reaching native containment tests.
+    # Keep every check and allow slower hosted runners to finish the full suite.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
