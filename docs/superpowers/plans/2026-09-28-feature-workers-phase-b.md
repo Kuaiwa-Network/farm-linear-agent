@@ -369,6 +369,25 @@ restoration remain pending. The native Windows offline baseline now passes.
   retains provenance, build options, reports and limitations. No production
   PATH, app settings, backend selection or mitigation was changed; real Feishu
   reads and Windows worker generators remain pending.
+- **MSYS startup diagnosis (2026-10-03; partial):** #84 merged as `d663882`,
+  and [merge-head CI](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37130017579)
+  passed; executable/test trees still match `e8406d5`. Matching runtime symbols
+  identify the observed access violation in `dll_list::cleanup_forkables`,
+  reading a null `cygwin_shared` pointer. Captured private child stderr exposes
+  the earlier startup failure: `NtCreateDirectoryObject` under
+  `\BaseNamedObjects` returns **0xC0000022 / STATUS_ACCESS_DENIED**. An independent
+  probe of a unique transient object directory succeeds directly and fails
+  inside MXC, while a local named event succeeds in both. The installed MSYS
+  3.6.7-4 and separately extracted official PortableGit 2.56.0 / MSYS 3.6.10-4
+  show the same startup denial in **5.865** and **5.916 seconds**. Job containment,
+  settlement, credential withholding and filesystem write-denial checks pass.
+  This establishes a native toolchain/sandbox compatibility blocker on the
+  production Windows host; upgrading Git alone did not resolve it. See the
+  [diagnosis record](../spikes/2026-10-03-native-windows-offline.md#msys-object-directory-denial-2026-10-03-partial)
+  for integrity, controls and limitations. Next: establish a supported contained
+  Windows launch that runs Bash, then complete worker and repository-generator
+  acceptance. FarmBot still selects the elevated backend; no permissions,
+  mitigation, account/app settings, credentials or production state were changed.
 - **Remaining operational work:** selected jobs on FARM-1346 and FARM-1425 stay
   parked. Restoring TestBot's earlier code/feature setting and the private secret
   scan require the operator's next scoped action. Preserve current ledger,
