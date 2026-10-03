@@ -302,15 +302,22 @@ restoration remain pending. The native Windows offline baseline now passes.
   production state were untouched.
 - **Merged Windows credential follow-up (2026-10-03; partial):** #81 merged as
   `e8406d5`. Its executable and test trees match the measured `9e7d75e` source;
-  merge-head CI is still running. An offline probe through `Launcher`, with
+  merge-head CI completed successfully. An offline probe through `Launcher`, with
   dummy credentials, no seeded model authentication and a newly generated
   isolated Codex home, stopped during sandbox initialization: **0.329 seconds**,
   exit 1. Codex CLI 0.156.1 refuses helper binaries beneath the Windows temporary
   directory. No sandbox child or feature tool ran. The generated config required
   the elevated sandbox and disabled shell snapshots, and the parent FarmBot Job
   Object settled empty. Actual sandbox-child containment and credential delivery
-  remain unmeasured. The next scoped step is sandbox initialization under a
-  stable verification root outside the checkout. The
+  remain unmeasured. A subsequent stable-root probe stopped before its child in
+  **0.279 seconds**, exit 1. The operator authorized verification-only elevated
+  sandbox setup; the supported setup RPC still reported failure under a
+  verified administrator token, including Codex 0.156.1 with verified matching
+  release helpers first in process-only `PATH` (**0.181 seconds**). Existing
+  native CLI 0.160.0 also failed (**0.094 seconds**); no global CLI or persistent
+  `PATH` change was made. Root cause remains unresolved. The next scoped step is
+  isolated native Codex setup diagnosis, preserving containment and private
+  evidence. Windows worker generators and real Feishu reads remain pending. The
   [native record](../spikes/2026-10-03-native-windows-offline.md#isolated-windows-worker-follow-up-2026-10-03-partial)
   retains this result and its limits. No production configuration, live credential,
   parked job or service was touched.
