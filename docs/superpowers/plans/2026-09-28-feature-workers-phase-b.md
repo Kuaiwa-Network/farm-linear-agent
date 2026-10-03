@@ -124,6 +124,129 @@ state from Git history and the saved Claude session. Phase A's shared plumbing a
   occurred. Native Windows host checks, live Feishu permissions and an operator-selected Code card
   remain pending.
 
+## As executed (2026-10-03, Task 17; partial)
+
+B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
+The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
+it merged as [#78](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/78)
+on 2026-10-03 at `707ea87`. Its final source `613c393` adds only the CI time-limit
+change; its tree equals that merge. The task text below is the historical plan;
+the implementation and operating contract govern where it differs. Task 17 is
+not complete: the Windows toolchain gaps and credential-store decision,
+real worker/desktop acceptance, the operator's private secret scan and TestBot
+restoration remain pending. The native Windows offline baseline now passes.
+
+- **Step 1, macOS offline suite:** the wiki-file candidate's full offline suite
+  passed 1,725 tests in 308.294 seconds, with 18 Windows-only skips. All thirteen
+  feature journeys ran. Final hosted macOS verification of source `613c393` in
+  [run 37082351164](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37082351164)
+  passed 1,725 tests in 407.032 seconds, with the same 18 skips and thirteen
+  journeys, using Python 3.13.15.
+- **Step 2, Windows:** the exact merged candidate `707ea87` passed a fresh full
+  offline suite in an isolated development checkout on the production Windows
+  host on 2026-10-03, using an operator-authorized elevated test token:
+  **1,725 tests in 906.705 seconds, zero failures or errors, 69 platform
+  skips**. All thirteen feature journeys and all seven native Job Object tests
+  ran and passed. Python 3.13.16, Git 2.54.0.windows.1, Git LFS 3.7.1,
+  `PYTHONUTF8=1` and the pinned workflow's environment sanitization were used.
+  The initial non-elevated diagnostic run had six symlink-creation errors and
+  five capability skips (1,725 tests in 859.699 seconds, 74 total skips). Each
+  error reproduced with Windows error 1314. The elevated token passed symlink
+  preflight and all eleven affected cases in a focused recheck, then the full
+  suite. The sanitized
+  [native Windows record](../spikes/2026-10-03-native-windows-offline.md) preserves
+  both runs, every error and skip, and retained UTF-8 evidence. No test, skip,
+  application code, Windows setting or account privilege was changed, and no
+  production config or runtime state was copied or changed.
+  The earlier hosted run passed 1,725 tests in 2,409.401 seconds, with 69 platform
+  skips, all thirteen journeys and all seven native Job Object tests executed,
+  using Python 3.13.15 and `PYTHONUTF8=1`. Both jobs tested merge `a8eac11`
+  (parents `1a2f5fc` and
+  `613c393`). The earlier Windows run was cancelled at the 30-minute job limit;
+  #78 raised that allowance to 60 minutes without changing tests or skips.
+  Neither hosted CI nor this native offline run verifies desktop acceptance,
+  generators and gates inside a real Windows worker sandbox or service-account
+  readiness; the read-only tool inventory below found gaps.
+- **Step 3, doctor:** the initial read-only Mac inspection found `feature`
+  loaded but disabled, and four existing attention findings. The operator later
+  enabled it for the selected tests. Buf 1.72.0 was installed with its published
+  checksum verified; the Stage A tools were available. Dotnet SDK 8.0.423 remains
+  an optional gap for later config-artifact checks. Read-only doctor before and
+  after the withdrawal test reported the same four existing findings, with no
+  pending cleanup for that test. The authorized Windows throwaway-config
+  doctor ran from exact `707ea87` with dummy Linear values and an empty state
+  root outside every checkout. It reported Go 1.24.9 below `>=1.25.1`, buf
+  1.73.0 instead of 1.72.0, and missing protoc, openspec and lark-cli. Dotnet SDK
+  9.0.306 leaves the optional 8.0.423 gap. Node 24.19.0, python3 3.14.3, Git LFS
+  3.7.1 and bash/coreutils/awk version probes succeeded, but `where.exe bash`
+  put the WSL launcher first. The proposed `farmbot` profile is unverified
+  because lark-cli was absent. This describes the interactive account's PATH,
+  not a future service account. Doctor exited 2 with the expected unreadable
+  empty ledger and toolchain findings; the root stayed empty and the scratch
+  directory was removed. No tool installation, credential setup, production
+  profile edit, Linear call or Feishu call occurred. The native record lists
+  the measured versions and remaining worker/generator checks.
+- **Step 4.1, Feishu setup:** the operator authorized exactly the four
+  application read/download scopes and Can view on the planning subtree and
+  its sub-pages. The Mac uses a dedicated FarmBot-only home, its own file key,
+  profile `farmbot`, strict bot mode and no personal user login. Actual-store
+  offline checks passed: bot identity resolved, worker writes to the store were
+  denied, bot dry run exited 0 and user dry run exited 2. This setup agrees with
+  the recorded Task 10 spike; no shared personal store was accepted.
+- **Step 4.2, planning reads:** TestBot read the wiki-hosted Word attachment on
+  FARM-1346 as the bot. The 41,658-byte download's SHA-256 matched the original
+  Linear upload. This exposed `docs +fetch` rejecting wiki objects of type
+  `file`; #78 grants linked-wiki `wiki +node-get --as bot` lookup and uses its
+  object token for the existing bot download. On FARM-1419, the worker fetched
+  the native planning document at revision 236, all 625 lines; its saved JSON
+  was 43,645 bytes. The reads were observed in actual feature attempts.
+  Heading counts, isolated fetch wall time and a separate Word-conversion
+  check were not measured. The operator's private scan for credential values
+  in outputs, run logs, comments and PR text is still pending.
+- **Step 4.3, Stage A:** FARM-1346 parked at unanswered contract questions.
+  FARM-1425 resumed with the operator's explicit provisional test defaults,
+  attributed to that operator without claiming other roles' approval. It opened
+  draft [Farm-Contract #318](https://github.com/Kuaiwa-Network/Farm-Contract/pull/318)
+  at `b89af151`; all twelve hosted contract gates passed. It parked with A done,
+  `pause.kind=stage_limit`, and no worker PID, without a repository handoff.
+  This path began through a conversation. A separate initial Bot/Code
+  delegation on FARM-1419 queued `feature` before any session message, with
+  target null, Farm-Contract writes only and no Unity resource. Its named A-only
+  scope was saved before assessment. Existing merged contract #317 covered
+  the requested contract work, so no new changes or PR were needed; it parked
+  with A done and later stages pending. No exhaustive audit of every approval
+  escalation or every read-only Git command is claimed by these observations.
+- **Additional selected Stage D test:** the operator separately authorized
+  FARM-1425's backend draft and one repair round. TestBot handed off to farm-hive
+  and updated draft [#353](https://github.com/Kuaiwa-Network/farm-hive/pull/353)
+  to `5536797a`. Independent review's three findings were repaired; selected
+  offline race probes passed. Hosted vet/build/race and Windows devctl checks
+  passed, but the protocol-provenance gate rejected the unmerged contract pin
+  and later gates were skipped. This is not full game-feature CI readiness.
+  The job remains paused after D; both game PRs remain unmerged test drafts.
+- **Step 4.4, parked-job withdrawal:** on FARM-1419, authorized removal of
+  TestBot delegation at 00:17:47 UTC on 2026-10-03 was confirmed on two status
+  reads. Cancellation followed in 65.65 seconds; cleanup finished by 00:18:55.747.
+  Linear showed exactly one withdrawal response and a Finished session; a later
+  read found no duplicate response. Three owned-worktree recovery refs matched
+  the recorded heads. Owned worktrees and read-only snapshots were removed;
+  read-only snapshots receive no recovery refs by design. The real issue stays
+  open with its human owner. Running-worker withdrawal, re-delegation and a
+  native Windows live run were not tested in this round.
+- **Step 5, Windows lark-cli:** still open. A dedicated service account is the
+  existing supported option; passing credentials only to feature workers would
+  need a separate implementation. No Windows account or credential store was
+  configured during this task.
+- **Remaining operational work:** selected jobs on FARM-1346 and FARM-1425 stay
+  parked. Restoring TestBot's earlier code/feature setting and the private secret
+  scan require the operator's next scoped action. Preserve current ledger,
+  history and recovery evidence when restoring; do not replace them with an old
+  pre-test database. No production deployment has occurred.
+- **Evidence:** the native Windows record and its retained offline logs/metadata;
+  TestBot's read-only ledger/doctor observations, retained worker
+  reports, cleanup and recovery-ref checks, Linear session UI, and hosted CI
+  artifacts. Private run data and host paths are not included in this repository.
+
 ## Scope
 
 In Phase B (spec §13, item 2):
