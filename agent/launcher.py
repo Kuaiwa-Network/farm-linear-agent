@@ -14,6 +14,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from .kw_ops import child_environment
+from .lark_cli import worker_credentials
 
 RuntimeConfig = namedtuple("RuntimeConfig", "name command home_env mcp_format seed_files writable_flag",
                            defaults=(None,))
@@ -158,12 +159,13 @@ class Launcher:
     # How long an unreadable process table is retried while the exited worker stays unreaped.
     settle_retry_seconds = 60.0
 
-    def __init__(self, runs_root, runtime, host, clock=time.time, token_env=None):
+    def __init__(self, runs_root, runtime, host, clock=time.time, token_env=None, lark_cli=None):
         self.runs_root = Path(runs_root)
         self.runtime = runtime
         self.host = host
         self.clock = clock
         self.token_env = token_env
+        self.lark_cli = dict(lark_cli or {})
         self._handles = {}
         self._stopping = {}
         self._jobs = {}
@@ -199,7 +201,9 @@ class Launcher:
         return self.runs_root / item_id
 
     def spawn(self, item_id, message, mcp_servers, budget_seconds, cwd, extra_env=None, writable=(), cancelled=None,
-              model_settings=None, withheld_env=()):
+              model_settings=None, withheld_env=(), lark_cli_access=False):
+        # Read only the controller's configured source, before overrides; fail before creating an attempt.
+        lark_env = worker_credentials(self.lark_cli, self.runtime.name, os.environ) if lark_cli_access else {}
         # A fresh worker is also a new attempt after an operator retry. Stop fences from
         # its previous attempt must not prevent this worker requesting another batch.
         with self._unsandboxed_lock:
@@ -223,6 +227,9 @@ class Launcher:
         settings = {"sandbox_workspace_write": {"writable_roots": roots, "network_access": True}}
         if self.runtime.name == "codex":
             settings["features"] = {"memories": False}
+            if os.name == "nt":
+                # An isolated CODEX_HOME must not inherit a disabled native sandbox default.
+                settings["windows"] = {"sandbox": "elevated"}
             # codex exec records `trust_level = "trusted"` here for a cwd it has no decision for, then loads the
             # repository's own .codex/config.toml: measured, its MCP servers start and send any inline
             # credentials; per Codex's trust prompt, project hooks and exec policies load too. The literal --cd
@@ -236,9 +243,14 @@ class Launcher:
             # snapshot, so `exclude` holds only with the snapshot off (measured).
             secrets = sorted({server["bearer_token_env_var"] for server in mcp_servers.values()
                               if "bearer_token_env_var" in server})
+            if self.lark_cli.get("secret_env"):
+                secrets.append(self.lark_cli["secret_env"])
             if secrets:
                 settings["features"]["shell_snapshot"] = False
                 settings["shell_environment_policy"] = {"exclude": secrets}
+                if lark_env:
+                    # lark-cli needs the canonical secret in shell children, never in config.toml.
+                    settings["shell_environment_policy"].update(inherit="all", ignore_default_excludes=True)
         root_settings = {}
         if self.runtime.name == "codex":
             root_settings["sandbox_mode"] = "workspace-write"
@@ -261,9 +273,14 @@ class Launcher:
         if self.runtime.name == "claude":
             env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
         # Apply withholding last: overrides must not restore a secret or select a different lark-cli store.
-        for name in withheld_env:
-            env.pop(name, None)
-        env = child_environment(None, env)
+        fold = str.upper if os.name == "nt" else str
+        denied = {fold(name) for name in withheld_env}
+        env = {name: value for name, value in env.items() if fold(name) not in denied}
+        env = child_environment(None, env, secret_env=self.lark_cli.get("secret_env"))
+        if lark_env:
+            env = {name: value for name, value in env.items()
+                   if name.upper() not in {"LARKSUITE_CLI_STRICT_MODE", "LARKSUITE_CLI_AUTH_PROXY"}}
+            env.update(lark_env)
         stdout = open(run_dir / "stdout.log", "w", encoding="utf-8")
         stderr = open(run_dir / "stderr.log", "w", encoding="utf-8")
         kwargs = {"start_new_session": True} if os.name != "nt" else {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
@@ -363,7 +380,8 @@ class Launcher:
                         or (cancelled is not None and cancelled())):
                     return Unsandboxed(-signal.SIGTERM, False, time.monotonic() - start)
                 process = subprocess.Popen([str(part) for part in argv], cwd=str(cwd),
-                                           env=child_environment(self.token_env, env),
+                                           env=child_environment(self.token_env, env,
+                                                                 secret_env=self.lark_cli.get("secret_env")),
                                            stdin=subprocess.DEVNULL, stdout=handle, stderr=subprocess.STDOUT,
                                            **kwargs)
                 if owner is not None:

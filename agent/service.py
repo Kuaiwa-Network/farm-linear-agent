@@ -48,7 +48,7 @@ def build(config, runtime_override=None):
     worktrees = Worktrees(paths.repos, paths.worktrees, config.repos)
     runtime = RUNTIMES[runtime_override or config.runtime]
     token_env = config.kw_ops.get("token_env")
-    launcher = Launcher(paths.runs, runtime, config.host, token_env=token_env)
+    launcher = Launcher(paths.runs, runtime, config.host, token_env=token_env, lark_cli=config.lark_cli)
     ledger = Ledger(paths.ledger, check_same_thread=False)
     # One list of entries, read by both: the pool switches and runs the slots it describes, and the
     # scheduler tells the worker which -buildTarget that slot was switched to.
@@ -92,13 +92,13 @@ def build(config, runtime_override=None):
                     # composes its argv: Unity cannot run inside sandbox_workspace_write at all.
                     run_unsandboxed=launcher.run_unsandboxed,
                     mcp=UnityIdentity(ROOT / "agent" / "probes" / "editor-readiness.cs.txt",
-                                      token_env=token_env))
+                                      token_env=token_env, secret_env=config.lark_cli.get("secret_env")))
     progress = SessionProgress(Ledger(paths.ledger, check_same_thread=False), api)
     recovery_ledger = Ledger(paths.ledger, check_same_thread=False)
     recovery_pool = SlotPool(recovery_ledger, worktrees, entries, host=config.host, editors_root=paths.editors,
                             state_dir=launcher.state_dir,
                             mcp=UnityIdentity(ROOT / 'agent' / 'probes' / 'editor-readiness.cs.txt',
-                                              token_env=token_env),
+                                              token_env=token_env, secret_env=config.lark_cli.get("secret_env")),
                             editor_pid=lambda folder: editor_holds_project(folder, strict=True))
     recovery = RecoveryController(recovery_ledger, recovery_pool, host=config.host,
                                   evidence_root=paths.config_dir / 'resource-recovery',

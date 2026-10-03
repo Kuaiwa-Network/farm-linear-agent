@@ -762,10 +762,11 @@ class UnityIdentity:
     """
 
     def __init__(self, probe_path, timeout=120, start_timeout=120, clock=time.time, sleep=time.sleep,
-                 token_env=None):
+                 token_env=None, secret_env=None):
         self.probe_path = Path(probe_path)
         self.timeout = timeout
         self.token_env = token_env
+        self.secret_env = secret_env
         # Task 0 Step 5 measured cold Editor start to a usable MCP endpoint at 16 s. 120 is generous headroom
         # over a measured number; the 600 an earlier draft carried was a guess at an unmeasured one.
         self.start_timeout = start_timeout
@@ -843,7 +844,7 @@ class UnityIdentity:
         """
         command = [str(editor_path(slot["folder"], override=entry.get("unity"))), "-projectPath",
                    str(slot["folder"]), "-logFile", str(Path(slot["folder"]) / "Logs" / "farmbot-editor.log")]
-        subprocess.Popen(command, start_new_session=True, env=child_environment(self.token_env),
+        subprocess.Popen(command, start_new_session=True, env=child_environment(self.token_env, secret_env=self.secret_env),
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         deadline = self.clock() + self.start_timeout
         while True:

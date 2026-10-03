@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from .linear_api import LinearAPI, UploadError, save_stream
 from .kw_ops import validate_config as validate_kw_ops_config
+from .lark_cli import SKILLS as LARK_CLI_SKILLS
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = ROOT / ".local" / "agent" / "config.json"
@@ -25,21 +26,32 @@ _HOSTNAME = re.compile(r"(?=.{1,253}\Z)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.
 
 
 # lark-cli as FarmBot's own read-only Feishu app (spec §5.4, D12; P5). A lark-cli profile holds the app's ID and secret
-# in lark-cli's own store; FarmBot knows only the profile's name and, optionally, the FarmBot-only HOME of that store.
-LARK_CLI_SKILLS = ("feature",)  # skills whose workers read the 策划案; fgui joins them in Phase D
+# in lark-cli's own store, or an explicit app_id/secret_env selects feature-only environment credentials.
 # A subset of lark-cli's own profile names that stays one plain argv word: no leading "-", no space or shell syntax.
 _LARK_CLI_PROFILE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+_LARK_APP_ID = re.compile(r"cli_[A-Za-z0-9]{1,64}")
+_SECRET_ENV = re.compile(r"[A-Z_][A-Z0-9_]*")
 
 
 def validate_lark_cli(block, local_root):
-    """The host profile's optional block: {} or {"profile": NAME} with an optional absolute "home", never on Windows.
+    """A profile with optional HOME, or an explicit app_id/secret_env pair. Never an inline secret.
 
     No message repeats a value, so that an app secret put here by mistake reaches no log or traceback."""
     if block == {}:
         return
+    if isinstance(block, dict) and set(block) == {"app_id", "secret_env"}:
+        if not isinstance(block["app_id"], str) or not _LARK_APP_ID.fullmatch(block["app_id"]):
+            raise ValueError("lark_cli app_id must be a Feishu app ID")
+        name = block["secret_env"]
+        if not isinstance(name, str) or not _SECRET_ENV.fullmatch(name):
+            raise ValueError("lark_cli secret_env must be an environment variable name")
+        if (name in {"HOME", "PATH", "PYTHONPATH", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "TEMP", "TMP", "TMPDIR",
+                     "CLAUDE_CODE_DISABLE_AUTO_MEMORY", "SYSTEMROOT", "COMSPEC", "PATHEXT"}
+                or name.startswith(("FARMBOT_", "LARKSUITE_CLI_", "GIT_", "PYTHON"))):
+            raise ValueError("lark_cli secret_env conflicts with an integration environment variable")
+        return
     if not isinstance(block, dict) or "profile" not in block or set(block) - {"profile", "home"}:
-        raise ValueError("lark_cli accepts profile and an optional home only; the app ID and secret stay in the "
-                         "lark-cli profile")
+        raise ValueError("lark_cli accepts profile with optional home, or app_id and secret_env; never an inline secret")
     if not isinstance(block["profile"], str) or not _LARK_CLI_PROFILE.fullmatch(block["profile"]):
         raise ValueError("lark_cli profile must be 1-64 ASCII letters, digits, '.', '_' or '-', starting with a letter "
                          "or digit")
@@ -69,7 +81,7 @@ def require_lark_cli(config, enabled):
     needing = sorted(set(enabled) & set(LARK_CLI_SKILLS))
     if needing and not config.lark_cli:
         raise ValueError(f"enabled skill {', '.join(needing)} reads the 策划案 with lark-cli: set lark_cli.profile in the "
-                         "private config (docs/development-workflow.md)")
+                         "private config, or configure app_id and secret_env (docs/development-workflow.md)")
 
 
 @dataclass
@@ -90,8 +102,7 @@ class Config:
     codex_workers: dict = field(default_factory=dict)
     # {"url": ..., "token_env": NAME}; the token itself lives in the controller's environment, never here.
     kw_ops: dict = field(default_factory=dict)
-    # {"profile": NAME, "home": optional absolute directory}: where feature workers' lark-cli finds FarmBot's own
-    # Feishu app (P5). Never its app ID or secret, which stay in that lark-cli profile.
+    # A profile with optional home, or {"app_id": ID, "secret_env": NAME}. Never an app secret value.
     lark_cli: dict = field(default_factory=dict)
     # Names of the skills this instance runs (spec §9.11); None runs every skill in the checkout's skills/ but the
     # opt-in ones (Phase B plan, P1).
@@ -140,6 +151,8 @@ class Config:
                 raise ValueError("invalid codex worker reasoning_effort")
         validate_kw_ops_config(self.kw_ops)
         validate_lark_cli(self.lark_cli, self.local_root)
+        if self.lark_cli.get("secret_env") and self.lark_cli["secret_env"] == self.kw_ops.get("token_env"):
+            raise ValueError("lark_cli secret_env must differ from kw_ops token_env")
         if self.enabled_skills is not None and (
                 not isinstance(self.enabled_skills, list)
                 or any(not isinstance(name, str) or not name.strip() for name in self.enabled_skills)

@@ -1242,6 +1242,49 @@ class SchedulerTests(unittest.TestCase):
                                  {"profile": "farmbot"} if skill == staged.name else None)
 
 
+    def test_configured_environment_credentials_are_granted_to_feature_only(self):
+        from test_lark_cli import BLOCK, SECRET
+        script = ("import json,os,pathlib,sys;sys.stdin.read();"
+                  "pathlib.Path(sys.argv[1]).write_text(json.dumps({{k:os.environ.get(k) for k in "
+                  "['FEATURE_FEISHU_SECRET','LARKSUITE_CLI_APP_ID','LARKSUITE_CLI_APP_SECRET',"
+                  "'LARKSUITE_CLI_STRICT_MODE']}}))")
+        runtime = RUNTIMES["codex"]._replace(command=[sys.executable, "-c", script, "{last_message}"], seed_files={})
+        launcher = Launcher(Path(self.tmp.name) / "real-runs", runtime, "h", lark_cli=BLOCK)
+        self.scheduler.launcher = launcher
+        self.scheduler.runtime_name = "codex"
+        self.scheduler.lark_cli = BLOCK
+        staged = self.use_staged_skill()
+        items = [self.item(), self.item(issue_id=OTHER, session="s2", skill="chat"),
+                 self.item(issue_id="10000000-0000-4000-8000-000000000003", session="s3", skill=staged.name)]
+        with patch.dict(os.environ, {BLOCK["secret_env"]: SECRET, "LARKSUITE_CLI_APP_SECRET": "ambient-secret"}):
+            launched = {item["skill"]: self.launched(launcher, item) for item in items}
+        for skill, (config, payload, handle) in launched.items():
+            with self.subTest(skill=skill):
+                values = json.loads((handle.run_dir / "last_message.txt").read_text(encoding="utf-8"))
+                self.assertIsNone(values[BLOCK["secret_env"]])
+                self.assertEqual(values["LARKSUITE_CLI_APP_SECRET"], SECRET if skill == staged.name else None)
+                self.assertEqual(values["LARKSUITE_CLI_APP_ID"], BLOCK["app_id"] if skill == staged.name else None)
+                self.assertEqual(values["LARKSUITE_CLI_STRICT_MODE"], "bot" if skill == staged.name else None)
+                self.assertEqual(payload["tools"].get("lark_cli"),
+                                 {"authentication": "environment"} if skill == staged.name else None)
+                for value in (SECRET, BLOCK["app_id"]):
+                    self.assertNotIn(value, json.dumps(payload))
+                    self.assertNotIn(value, json.dumps(config))
+
+    def test_missing_environment_source_is_an_unavailable_feature_tool(self):
+        from test_lark_cli import BLOCK
+        staged = self.use_staged_skill()
+        self.scheduler.lark_cli = BLOCK
+        self.scheduler.runtime_name = "codex"
+        runtime = RUNTIMES["codex"]._replace(command=RUNTIMES["fake"].command, seed_files={})
+        launcher = Launcher(Path(self.tmp.name) / "real-runs", runtime, "h", lark_cli=BLOCK)
+        self.scheduler.launcher = launcher
+        item = self.item(skill=staged.name)
+        with patch.dict(os.environ, {BLOCK["secret_env"]: "", "FAKE_CLI_MODE": "echo"}):
+            _, payload, _ = self.launched(launcher, item)
+        self.assertEqual(payload["tools"]["lark_cli"], {
+            "status": "unavailable", "reason": "lark_cli secret is not set in the controller environment"})
+
     def test_an_item_with_no_reservation_is_launched_with_no_tools_and_no_resource_block(self):
         """Enforcement is tool injection (spec §7): a fix worker that holds no slot must not reach the Unity
         MCP, and for a reservation-bound server such as that one the manifest's own `resources`/`mcp`

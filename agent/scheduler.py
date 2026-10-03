@@ -11,6 +11,7 @@ from .dispatch import dispatch_message
 from .launcher import _read_worker_text
 from .ledger import LedgerError
 from .kw_ops import SERVER as KW_OPS_SERVER, resolve as resolve_kw_ops
+from .lark_cli import tools as lark_tools
 from .memory import publish_snapshot
 from .publication import SUFFIXES, issue_branch, suffix_of
 from .stages import current_root, runtime_can_launch, write_repositories
@@ -167,10 +168,8 @@ class Scheduler:
             servers[KW_OPS_SERVER] = kw_ops_grant.server
         tools = {KW_OPS_SERVER: kw_ops_grant.tools} if kw_ops_grant.tools is not None else {}
         if skill.name in LARK_CLI_SKILLS:
-            # Where lark-cli finds FarmBot's own Feishu app (P5): exactly the host's block, a profile name and, when
-            # configured, the FarmBot-only HOME of its store. Never a credential: those stay in the lark-cli profile.
-            tools["lark_cli"] = (dict(self.lark_cli) if self.lark_cli
-                                 else {"status": "unavailable", "reason": "lark_cli is not configured on this host"})
+            # A profile/home or a credential-free environment grant. Never copy app_id/secret_env into the prompt.
+            tools["lark_cli"] = lark_tools(self.lark_cli, self.runtime_name, os.environ)
         try:
             memory = publish_snapshot(Path(self.db_path).resolve().parent / "memory", self.ledger.memory_rows())
         except (OSError, ValueError, sqlite3.Error) as exc:
@@ -217,6 +216,8 @@ class Scheduler:
         if self.ledger.item(item["id"])["state"] != "queued":
             return None
         options = {}
+        if (skill.name in LARK_CLI_SKILLS and tools.get("lark_cli", {}).get("authentication") == "environment"):
+            options["lark_cli_access"] = True
         if self.runtime_name == "codex":
             options["model_settings"] = {**DEFAULT_CODEX_MODEL_SETTINGS,
                                          **self.codex_workers.get(skill.name, {})}

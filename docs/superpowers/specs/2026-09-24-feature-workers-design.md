@@ -1122,8 +1122,11 @@ proposed manifest: the Farm-Client write, the Unity slot and the `ui_ready` gate
 and Farm-Client is read for stage A's gap list), and a job takes only the resources its manifest
 lists (P11). The write-back waits for Phase C (P3). Only skills with an initial root re-attach to
 recorded branches (P4), and a plan cannot record a bad issue branch (P9). lark-cli credentials stay
-in lark-cli, which workers run with the host's profile as the FarmBot app (P5), and lark-cli's
-credential variables are withheld from every worker (P13). A `feature` session has no pinned target
+in lark-cli for the profile variant, which workers run with the host's profile as the FarmBot app (P5).
+The 2026-10-03 P13 amendment adds an explicit `app_id`/`secret_env` variant: only Codex feature workers
+receive configured bot credentials after inherited credentials are withheld, with strict bot mode,
+no credential values in launch files, and the source alias withheld from other workers, Unity and
+diagnostics. Actual Windows worker and Feishu acceptance remain pending. A `feature` session has no pinned target
 (P6). `stage` and `merge_request` are the two new notice kinds (P7), posted as P15 says. A re-pin
 gets a new `-config-<n>` branch (P12). A stage limit in the delegation text is honoured (P14). Stage
 D follows farm-hive's designer-source pin (P16). Controller Git preserves the current clone-validation and write-root boundaries added after P10
@@ -1217,5 +1220,6 @@ Windows live check. The remaining Phase B operator decision is:
 - For the operator, before `feature` runs on the Windows host: lark-cli keeps secrets per Windows
   user (DPAPI), so a separate lark-cli home isolates nothing there. Either a host account whose
   lark-cli store holds only the FarmBot profile, or environment credentials in the `feature`
-  worker's shell, which would require a separately reviewed authority change: the current code
-  withholds these variables from every worker.
+  worker's shell through the explicit `app_id`/`secret_env` variant (P13 amendment). The operator must
+  still verify delivery, actual read scopes and one document/attachment in the native elevated worker
+  context before enabling feature; profile presence or doctor's source-presence check is insufficient.
