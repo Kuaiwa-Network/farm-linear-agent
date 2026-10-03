@@ -351,6 +351,24 @@ restoration remain pending. The native Windows offline baseline now passes.
   and real Feishu reads remain pending. The
   [MXC record](../spikes/2026-10-03-native-windows-offline.md#native-mxc-evaluation-2026-10-03-partial)
   preserves the measured results, hashes and limits.
+- **Protoc/MSYS follow-up (2026-10-03; partial):** #83 merged as `8451f60`,
+  with passing merge-head CI and executable/test trees still matching `e8406d5`.
+  Verified upstream protobuf 35.1 and pinned Abseil sources produced a separate
+  x64 MSVC protoc image with relocation data and ASLR flags retained. The
+  corrected incremental build took **173.930 seconds**; a **5.774-second** MXC
+  fixture passed generation/encoding/decoding and matched all **11** official
+  output hashes, while read-only input and forbidden-sibling writes were denied.
+  Bash, `sh`, `uname`, `ls` and `awk` still fail initialization. A focused DLL
+  load fails with **WinError 1114** only inside MXC; a native loader comparison
+  identified **0xC0000005** in **`msys-2.0.dll` at RVA `0x2ece1`**, while the same
+  debugger/Bash direct control exits 0. The internal cause remains unconfirmed;
+  matching source/symbol diagnosis is next. Job settlement and dummy credential
+  isolation passed. This is synthetic tool verification on the production
+  Windows host, not repository-generator or live-worker acceptance. The
+  [follow-up record](../spikes/2026-10-03-native-windows-offline.md#relocatable-protoc-and-msys-initialization-2026-10-03-partial)
+  retains provenance, build options, reports and limitations. No production
+  PATH, app settings, backend selection or mitigation was changed; real Feishu
+  reads and Windows worker generators remain pending.
 - **Remaining operational work:** selected jobs on FARM-1346 and FARM-1425 stay
   parked. Restoring TestBot's earlier code/feature setting and the private secret
   scan require the operator's next scoped action. Preserve current ledger,
