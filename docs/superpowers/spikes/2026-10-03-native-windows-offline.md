@@ -519,6 +519,44 @@ restriction without code changes or added skips. Link/whitespace/privacy and
 measured-evidence checks passed; the full native suite was not rerun for this
 documentation-only update.
 
+## Feature credential development follow-up (2026-10-03)
+
+The operator authorized the planned feature-only environment variant as a separate
+development change. Draft [FarmBot #81](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/81)
+implements `lark_cli.app_id`/`secret_env`, with forced bot mode only for Codex feature
+workers and withholding for other workers, Unity and diagnostics. Native Windows
+isolated Codex homes explicitly require the elevated sandbox. This code is not
+merged or deployed; the exact merged candidate above remains `707ea87`.
+
+On the **production Windows host, in the separate development checkout**, source
+`9e7d75e586d98c317cd40429e727f24bbc250d41` passed the full offline command
+`python -B -m unittest discover -s tests -v`, using the explicit Python 3.13.16
+executable, `PYTHONUTF8=1`, sanitized inherited selectors and the symlink-capable
+elevated test token. Result: **1,741 tests in 774.396 seconds; 1,672 passes,
+zero failures/errors, 69 skips**. All thirteen feature journeys and all seven
+native Job Object tests ran and passed. The skip IDs and reasons exactly match
+the 69-case elevated baseline inventory above; no skips were added. Wall time
+was 775.262 seconds. Git remained 2.54.0.windows.1 and Git LFS 3.7.1.
+
+The 430 related focused tests also passed with 54 existing skips under the
+ordinary token. These include its existing symlink capability skips; the full
+run used the verified symlink-capable token. A dummy credential test with an
+empty lark store passed both directly and through the existing elevated Codex
+0.156.1 sandbox helper: bot dry run exit 0, user exit 2, no credentials exit 3.
+The new doctor mode, using only dummy values and a fresh empty state root,
+completed in 0.832 seconds, exit 2, with `tools.feature.missing=[]` and only the
+expected `ledger_unreadable`. It read no profile store and the scratch state
+remained empty. These checks performed no real Feishu authentication and do not
+certify an actual model worker or its isolated home.
+
+UTF-8 logs, revision, versions, full per-test result/skip inventories and timing
+remain in ignored `reports/native-windows-feature-credentials-full/`; the full
+log SHA-256 is
+`1e9bcc3ef90d2e5a0d70348309df7371c942e9358124788fe082305ea5f2f0e2`.
+Dummy probe and doctor evidence is retained separately. Link, whitespace and
+documentation checks accompany this documentation-only follow-up. Detailed
+host credential diagnostics remain private.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
@@ -534,9 +572,10 @@ account provides separate-account isolation. The operator chose the current
 account for this host, with its store restricted to FarmBot. Local profile setup
 and strict bot mode now pass; actual worker credential validation remains
 unresolved, with detailed diagnostics retained privately. The
-feature-only environment-credential variant is **not implemented**: the
-current code withholds credential variables from every worker. That variant
-would need a separate implementation and authority review, not a config edit.
+feature-only environment-credential variant is implemented only in draft #81;
+the merged candidate still withholds credential variables from every worker.
+Review that authority change before any live use. It installs no credential
+loader and copies no DPAPI profile into worker accounts.
 
 Remaining release prerequisites:
 
@@ -553,7 +592,9 @@ Remaining release prerequisites:
    mode and credential path. Complete strict bot mode, bot
    dry runs and real planning-document/attachment reads, including Windows Word
    conversion. The operator has requested these prerequisites one at a time;
-   the next credential-delivery development choice is pending. Real Feishu
+   the authorized development implementation is now draft #81. Complete its
+   review and applicable CI before privately supplying the selected controller
+   source and verifying a real isolated worker. Real Feishu
    access remains untested here; local profile setup performed no network
    authentication.
 3. Run generators and repository gates in a real Windows worker sandbox: native

@@ -267,9 +267,9 @@ restoration remain pending. The native Windows offline baseline now passes.
   current Windows account, with only the FarmBot bot profile and no personal
   profiles or logins in its per-user DPAPI store. The app's read-only permissions
   do not provide separate-account isolation. A separate `HOME` isolates nothing
-  on Windows. Passing credentials only to feature workers is not implemented
-  and would need a separate authority
-  review and implementation; current workers withhold those variables. The
+  on Windows. At the merged candidate, passing credentials only to feature
+  workers is not implemented and needs a separate authority review and
+  implementation; those workers withhold the variables. The
   operator completed the new local profile setup, with no other profiles or
   user logins and strict bot mode. Offline host checks passed; worker credential
   compatibility remains unresolved. Detailed credential diagnostics are
@@ -279,6 +279,26 @@ restoration remain pending. The native Windows offline baseline now passes.
   performed. The environment-credential variant remains a separate
   implementation/authority decision before live use. The native record retains
   sanitized host evidence and the remaining release prerequisites.
+- **Windows credential development follow-up (2026-10-03):** the operator
+  authorized the planned feature-only environment variant. Separate draft
+  [FarmBot #81](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/81)
+  implements it and explicitly requires the elevated native Windows Codex
+  sandbox; it is not merged or deployed. In the separate development checkout
+  on the production Windows host, source `9e7d75e` passed **1,741 offline tests
+  in 774.396 seconds**, zero failures/errors and the same 69 skips as the
+  elevated baseline. All thirteen feature journeys and all seven native Job
+  Object tests ran and passed. Python 3.13.16, Git 2.54.0.windows.1, Git LFS
+  3.7.1 and `PYTHONUTF8=1` were used, with inherited selectors sanitized.
+  Dummy credentials and an empty store passed bot dry run and rejected user
+  mode and missing credentials through the elevated sandbox helper. A fresh
+  dummy environment-mode doctor took 0.832 seconds and reported only the
+  expected empty ledger, with no required toolchain gap or profile-store read.
+  This is development evidence, not actual isolated-worker or live Feishu
+  acceptance. The native record preserves the UTF-8 logs, hash, timing and
+  unchanged skip inventory. Review/CI, a privately supplied controller source,
+  actual native worker credential delivery, Windows generators/gates and real
+  bot document/attachment reads remain release prerequisites. Parked jobs and
+  production state were untouched.
 - **Remaining operational work:** selected jobs on FARM-1346 and FARM-1425 stay
   parked. Restoring TestBot's earlier code/feature setting and the private secret
   scan require the operator's next scoped action. Preserve current ledger,
