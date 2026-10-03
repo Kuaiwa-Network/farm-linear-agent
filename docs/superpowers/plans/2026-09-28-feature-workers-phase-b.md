@@ -388,6 +388,23 @@ restoration remain pending. The native Windows offline baseline now passes.
   Windows launch that runs Bash, then complete worker and repository-generator
   acceptance. FarmBot still selects the elevated backend; no permissions,
   mitigation, account/app settings, credentials or production state were changed.
+- **Registered-runtime integration check (2026-10-04; partial):** #85 merged as
+  `e5946e0`, with passing PR and merge-head CI. A **0.284-second** read-only ownership/caller
+  check confirms that the current Windows user owns the registered runtime;
+  the fresh attempt home differs, and the selected native CLI **0.160.0** has
+  no OS package identity (**15700 / APPMODEL_ERROR_NO_PACKAGE**). Matching
+  0.160.0 source still enforces owner/home/package and installed caller checks.
+  No new provisioning or service request was made. A **5.969-second** contained
+  namespace control found that a unique directory beside its owned local event
+  can be created, while the MSYS global object-directory operation remains
+  denied. All ASLR flags, Job containment/settlement, dummy credential isolation
+  and write-denial checks pass; Bash still fails. This provides an integration
+  direction, not a validated runtime fix. The
+  [integration record](../spikes/2026-10-03-native-windows-offline.md#registered-runtime-admission-and-local-object-control-2026-10-04-partial)
+  retains measured inputs and distinguishes source inference from execution.
+  A sanitized upstream request was prepared locally; submission requires
+  separate explicit authorization. Native worker generators and real Feishu
+  access remain pending; no account, app setting or production action changed.
 - **Remaining operational work:** selected jobs on FARM-1346 and FARM-1425 stay
   parked. Restoring TestBot's earlier code/feature setting and the private secret
   scan require the operator's next scoped action. Preserve current ledger,
