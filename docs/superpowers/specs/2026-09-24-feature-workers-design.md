@@ -1215,11 +1215,24 @@ Answered on 2026-09-25 and folded in above: D11 to D17, and how merges move the 
 The Phase B question about a session response after delegation removal was
 observed on 2026-10-03: Linear displayed the response once and completed the
 parked FARM-1419 session. This was one Mac observation, not a running-worker or
-Windows live check. The remaining Phase B operator decision is:
+Windows live check. The Windows account choice was recorded on 2026-10-03;
+its remaining verification is:
 
 - For the operator, before `feature` runs on the Windows host: lark-cli keeps secrets per Windows
-  user (DPAPI), so a separate lark-cli home isolates nothing there. Either a host account whose
-  lark-cli store holds only the FarmBot profile, or environment credentials in the `feature`
-  worker's shell through the explicit `app_id`/`secret_env` variant (P13 amendment). The operator must
-  still verify delivery, actual read scopes and one document/attachment in the native elevated worker
-  context before enabling feature; profile presence or doctor's source-presence check is insufficient.
+  user (DPAPI), so a separate lark-cli home isolates nothing there. A dedicated FarmBot service
+  account whose lark-cli store holds only the FarmBot bot profile provides separate-account
+  isolation. The operator chose the current Windows account, with a FarmBot-only store and no
+  personal profiles or user logins, citing the app's read-only scopes. Those scopes do not
+  isolate other credentials belonging to the same Windows user. At merged candidate `707ea87`,
+  all workers withhold credential variables. The operator subsequently authorized the feature-only
+  environment variant; draft [#81](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/81)
+  implements explicit `app_id`/`secret_env` delivery (P13 amendment), pending review and live acceptance. The
+  initial Windows inventory found lark-cli absent from the interactive account's PATH. The
+  prepared development prefix now supplies its verified 1.0.82 binary. Local profile setup and
+  offline host checks passed; all required feature entries pass in the fresh host doctor.
+  Worker credential compatibility remains unresolved, with detailed diagnostics retained
+  privately. These checks do not certify an isolated FarmBot worker or its credential path.
+  The operator must still verify credential delivery, actual read scopes and one document/attachment
+  in the native elevated worker context before enabling feature; profile presence or doctor's
+  source-presence check is insufficient. Actual Windows worker generators and real Feishu access
+  remain open; the current account choice does not authorize a sandbox downgrade or credential export.
