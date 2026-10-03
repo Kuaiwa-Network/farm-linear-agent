@@ -1048,6 +1048,109 @@ privacy and whitespace checks passed. No executable behavior changed, so the
 full offline suite was not repeated; its previously measured baseline still
 applies.
 
+#### Registered-runtime admission and local-object control (2026-10-04; partial)
+
+This follow-up ran from merged #85 at
+`e5946e0cb4b64dda17e3a91554416dee281bf727`, in the separate development checkout
+on the **production Windows host**. The operator's local date was 2026-10-04
+(Asia/Shanghai); retained UTC report timestamps below are still 2026-10-03.
+[PR CI](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37132528124)
+and [merge-head CI](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37136149475)
+passed. Executable/test trees
+remain unchanged from `e8406d5`; no full-suite repeat was needed for this
+documentation-only checkpoint.
+
+The latest stable upstream release checked was
+[Codex 0.160.0](https://github.com/openai/codex/releases/tag/rust-v0.160.0), already
+the explicit selected native CLI. A **0.284-second** read-only check examined
+only the protected Codex ownership metadata and an owned `--version` child,
+using a newly created verification home, Python **3.13.16** and `PYTHONUTF8=1`.
+It confirmed:
+
+- The registered Core record and completed runtime registration are present,
+  with two recorded runtime accounts.
+- The current Windows user's SID matches the owner. The fresh worker home does
+  not match the registered home. No SID, package identifier or home path is
+  included in the shareable output.
+- `GetPackageFamilyName` on the owned CLI child returns **15700 /
+  APPMODEL_ERROR_NO_PACKAGE**; the child exits **0**. The
+  [Microsoft API reference](https://learn.microsoft.com/en-us/windows/win32/api/appmodel/nf-appmodel-getpackagefamilyname)
+  identifies this result as absence of OS package identity.
+- The fresh home contains only a runtime-created `tmp/` directory; auth, config
+  and model state remain absent. No registered-home files, production FarmBot
+  config or ledger were read, and no provisioning/service request was made.
+
+The
+[0.160.0 ownership source](https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/windows-sandbox-rs/src/runtime_ownership.rs)
+still admits only the matching owner, home and package family. Its
+[runner receipt checks](https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/windows-sandbox-rs/src/app_package.rs)
+also require the matching Codex home. Registered service
+[caller admission](https://github.com/openai/codex/blob/a956835d020762cb2b570053af06f643a11c0ecc/codex-rs/windows-sandbox-service/src/package_identity/registered.rs)
+requires the installed service's package family and exact allowed caller image.
+The inspected launch/provisioning interfaces carry one Codex home; a supported
+separate sandbox authority-home setting was not established in those interfaces
+or the checked official documentation. These are source-based integration
+constraints, not a newly executed registered-service refusal. Changing a routing
+flag would not satisfy the measured home/caller inputs. Preserve these guards;
+do not use the interactive desktop home as a worker config/auth/state fallback.
+
+A native object control then tested a narrower namespace operation without
+granting new permissions. It created a unique `Local\` event, queried **only
+that owned event's** actual object name, and requested a unique sibling directory
+under the same parent, with the same **0x2000f** access mask, `OBJ_OPENIF` and
+Everyone DACL as the preceding directory control. The actual namespace names
+were withheld from output. Every owned event/directory handle was closed; no
+existing MSYS/production object or ACL was read or changed.
+
+| Operation | Direct control | Contained MXC control |
+| --- | --- | --- |
+| Unique directory under global BaseNamedObjects | STATUS_SUCCESS | STATUS_ACCESS_DENIED |
+| Unique Local event | Success | Success |
+| Name query on owned event | Success | Success |
+| Unique directory beside owned event | STATUS_SUCCESS | STATUS_SUCCESS |
+| All owned object handles closed | Yes | Yes |
+
+The direct comparison took **0.091 seconds**, with installed and portable Bash
+children exiting **0**. The contained comparison took **5.969 seconds** using
+PortableGit **2.56.0**, MSYS **3.6.10-4**, the relocatable protoc **35.1** image
+and the previous explicit permission profile. All four ASLR flags, allowed
+scratch writes, forbidden-sibling denial, Job membership/empty settlement,
+dummy credential delivery/withholding and strict-bot dry runs **0/2/3** passed.
+Git/LFS and protoc still run; Bash/MSYS still fail with **0xC0000142** and the
+same original directory denial. Fixture exit 0 means completion, not readiness.
+
+The owned-event sibling result provides a concrete private-object namespace
+integration direction. It does not run a modified MSYS runtime, prove fork or
+repository-generator behavior, or establish MXC as an accepted FarmBot backend.
+No MSYS binary/source patch, permission exception, mitigation change or
+pre-created global object was used. FarmBot still selects `elevated`; the MXC
+selector exists only in the ignored verification harness.
+
+Retained ignored evidence:
+
+- `reports/registered-home-readonly-20261003T163721Z/`: ownership booleans, CLI
+  image/source hashes, child package-identity result and timing.
+- `reports/msys-namespace-direct-20261003T163116Z/`: direct namespace controls.
+- `reports/isolated-windows-worker-20261003T163122Z/`: contained controls,
+  UTF-8 logs and preserved scratch metadata. Sandbox stdout SHA-256:
+  `a145500e4fc00e863cce665d38b52270d94781637de460dcdd2b31504f1b2c60`.
+- `.local/verification/codex-01600-source/`: inspected immutable upstream source.
+- `.local/verification/codex-windows-support-draft.md`: sanitized upstream
+  integration request, prepared locally and not submitted by this checkpoint.
+
+Next: obtain a supported integration for isolated attempt homes with the
+registered runtime, or develop and review a contained private-object MSYS
+integration. The existing current Windows account already matches ownership;
+this finding does not call for another account or another UAC retry. Sending the
+prepared upstream request requires separate explicit operator authorization.
+Native worker credentials/state writes/cancellation, real Windows repository
+generators and real Feishu reads remain pending. No account, app setting,
+credential, service or production state changed.
+
+Documentation validation passed **73** skill/reference tests in **0.370
+seconds**, with **0 failures, 0 errors and 0 skips**. Retained measurements and
+hashes, changed links, support-draft privacy and whitespace checks passed.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
