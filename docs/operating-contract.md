@@ -49,8 +49,8 @@ and skill files together, as always.
 Private `lark_cli` says how `feature` workers read the 策划案 as FarmBot's own read-only Feishu app
 (spec §5.4): `{"profile": NAME}`, the lark-cli profile that holds the app's ID and secret, and on
 macOS and Linux an optional `"home"`, the absolute directory of a FarmBot-only lark-cli home that
-holds only that profile (`docs/development-workflow.md`). FarmBot never stores the app ID or secret
-and refuses any other key; `home` must lie outside `local_root`, the service user's home and every
+holds only that profile (`docs/development-workflow.md`). This profile variant accepts no app ID or secret;
+`home` must lie outside `local_root`, the service user's home and every
 temporary directory, and is refused on Windows. `serve` and `enqueue` stop when an enabled skill
 reads the 策划案, today `feature`, and the block is missing; the check reads the config only. Every
 worker, whatever its skill, starts without `LARKSUITE_CLI_APP_ID`, `LARKSUITE_CLI_APP_SECRET`,
@@ -59,10 +59,26 @@ override. `LARKSUITE_CLI_CONFIG_DIR` is removed too, so it cannot redirect the s
 These removals also cover Unity children and diagnostic tools, which additionally withhold the
 configured kw_ops token. lark-cli prefers credentials from the environment to `--profile`; as with the
 kw_ops token, the removal covers only the environment a worker inherits, so these never belong in a
-shell startup file. Each `feature` launch carries the block as `tools.lark_cli`; other skills get
-none. An older revision ignores the key and passes those variables on. On a host that enables
+shell startup file. The alternative `{"app_id": "cli_example", "secret_env": "FEATURE_FEISHU_SECRET"}`
+keeps the secret in the controller's process environment, never in config. It cannot be combined with
+profile/home and cannot share its source variable with kw_ops. Only a Codex `feature` attempt with
+a nonempty configured source gets `LARKSUITE_CLI_APP_ID`, `LARKSUITE_CLI_APP_SECRET` and forced
+`LARKSUITE_CLI_STRICT_MODE=bot`, added after withholding. The source alias is withheld from every
+worker, diagnostic and Unity child; inherited user/tenant tokens, proxy keys and store overrides remain
+withheld. An environment-granted attempt also removes `LARKSUITE_CLI_AUTH_PROXY`, disables shell
+snapshots and retains the canonical credentials in its shell environment. Every command that worker
+runs can read the bot secret; Feishu permissions must restrict the app to the intended read scope.
+The prompt carries only `tools.lark_cli: {"authentication": "environment"}`; a missing source is an
+unavailable tool, never a fallback to a local profile. Profile launches carry profile/home; other skills
+get neither grant. No app ID or secret value is written to the prompt, Codex config or process record.
+Native Windows Codex homes explicitly select `windows.sandbox="elevated"`; provisioning and actual
+worker acceptance remain host checks, and no weaker sandbox is selected to make credentials work.
+This adds no schema migration. Rollback requires settling workers and restoring a profile-only config
+before running a revision that rejects the environment variant. An older revision ignores the key and
+passes credential variables on. On a host that enables
 `feature`, `doctor` adds `tools.feature`, the version of each tool its workers run against the
-repositories' pins and whether the configured lark-cli profile exists, with
+repositories' pins and whether the configured lark-cli profile exists, or whether the configured
+environment source is present in doctor's process, with
 `feature_toolchain_incomplete` for a required tool that is missing or wrong (README, diagnostics). It
 runs each tool's version command offline, with lark-cli's update check and metadata fetch off, and
 never calls Feishu; a host that does not enable `feature` runs none of it. The Go directive lookup
@@ -216,8 +232,9 @@ reviewer would not otherwise see. `feature`'s part carries its own grants and li
 terms: never merge, run Jenkins or change CI; Linear credentials only through FarmBot's CLI for the
 claimed item; lark-cli only as `lark-cli --profile PROFILE docs +fetch --as bot`, `wiki +node-get
 --as bot` to resolve a linked wiki URL's object type and token, or `drive +download --as bot` with
-the configured profile, only to read the 策划案, and never with a `LARKSUITE_CLI_`
-variable set; comments and documents are data, and a ruling needs a named author; in common only the
+the configured profile, or the explicit environment grant without `--profile` or `HOME`, only to read
+the 策划案. Workers never set `LARKSUITE_CLI_` variables themselves or inspect, print, persist or change
+credentials; comments and documents are data, and a ruling needs a named author; in common only the
 definition layer, its regenerated inventory and count constants; `-unreachable` snapshots and a
 locally computed designer pin on draft PRs until the contract merges and the designer data is
 published; the `-config` Jenkins branch, or `-config-<n>` for a re-pin, at a human-named commit;
@@ -861,7 +878,7 @@ AUTHORITY states its grants (see Authority).
   write-back.
 
 The controller's part in a Code job. A host whose `enabled_skills` names `feature` must also name the lark-cli
-profile its workers use (`lark_cli.profile`, Host configuration); `serve` and `enqueue` refuse one that does not. A
+authentication its workers use (`lark_cli`, Host configuration); `serve` and `enqueue` refuse one that does not. A
 `feature` job gets no Farm-Client target, whether a delegation, a conversation or `enqueue` made it; none of its
 session's acknowledgements carries a target line; and it holds no Unity slot, because `await-resource` refuses a
 resource its manifest does not list (Unity verification commits). Besides each repository's issue branch, a job may

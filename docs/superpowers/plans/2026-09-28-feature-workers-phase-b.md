@@ -267,7 +267,7 @@ restoration remain pending. The native Windows offline baseline now passes.
   current Windows account, with only the FarmBot bot profile and no personal
   profiles or logins in its per-user DPAPI store. The app's read-only permissions
   do not provide separate-account isolation. A separate `HOME` isolates nothing
-  on Windows. At the merged candidate, passing credentials only to feature
+  on Windows. At merged candidate `707ea87`, passing credentials only to feature
   workers is not implemented and needs a separate authority review and
   implementation; those workers withhold the variables. The
   operator completed the new local profile setup, with no other profiles or
@@ -276,8 +276,9 @@ restoration remain pending. The native Windows offline baseline now passes.
   retained privately. These checks do not certify a FarmBot model worker or its
   isolated home. Credential delivery and actual Windows worker acceptance remain
   open. No account was created, sandbox downgraded or Feishu network call
-  performed. The environment-credential variant remains a separate
-  implementation/authority decision before live use. The native record retains
+  performed. The development follow-up below records the subsequently authorized
+  environment-credential implementation; its authority review remains pending
+  before live use. The native record retains
   sanitized host evidence and the remaining release prerequisites.
 - **Windows credential development follow-up (2026-10-03):** the operator
   authorized the planned feature-only environment variant. Separate draft
@@ -346,7 +347,7 @@ Settled while reviewing the drafts (2026-09-28):
 - **P10. Controller git in worker-writable clones.** A worker rooted in a repository can write that bare clone's config, hooks and attributes, and the controller's own git calls there (fetch, worktree add, cleanup) run outside the sandbox. This exposure dates from #39, not Phase B. Phase B runs every git call it adds in a clone with hooks and fsmonitor off, and builds the read-only checkouts as repositories of the controller's own (Task 6); hardening the existing calls is a separate security task, listed under Known Risks.
 - **P11. Resources follow the manifest.** `await-resource` refuses a resource kind the item's skill manifest does not list, and the Unity root checks use `stages.current_root` instead of `fix`-only rules, so a Phase B `feature` job cannot take a Unity slot. `enqueue` of `feature` pins no target (P6).
 - **P12. Re-pins get a new branch.** A re-pin to a farm-common commit that does not descend from the pushed `-config` tip uses `farmbot/<key>-config-<n>` (n from 2), never a force push.
-- **P13. lark-cli credential variables are withheld** (`LARKSUITE_CLI_APP_ID`, `LARKSUITE_CLI_APP_SECRET`, `LARKSUITE_CLI_PROXY_KEY` and any `LARKSUITE_CLI_*ACCESS_TOKEN`) from every worker's environment and from the controller's own runs outside a sandbox (Unity batch runs, Editor launches), because exported credentials override `--profile` (Task 10).
+- **P13. Inherited lark-cli credential variables are withheld** (`LARKSUITE_CLI_APP_ID`, `LARKSUITE_CLI_APP_SECRET`, `LARKSUITE_CLI_PROXY_KEY` and any `LARKSUITE_CLI_*ACCESS_TOKEN`) from every worker's environment and from the controller's Unity batch runs, Editor launches and diagnostics, because exported credentials override `--profile` (Task 10). Amendment on 2026-10-03: the explicit `app_id`/`secret_env` variant may add only its configured bot ID and secret, plus forced strict bot mode, to Codex `feature` workers after withholding. The source alias remains withheld from all these children. Workers never set, inspect, print or persist credentials themselves. This does not authorize production setup or weaker containment.
 - **P14. A stage limit in the delegation text is honoured.** If the delegation text or a session message asks to stop after a stage, the worker finishes that stage and pauses (`waiting`, `pause.kind` `stage_limit`) instead of handing off, and `doctor` shows that pause by name. The first live Code run (Task 17) uses this to stop after stage A.
 - **P15. Stage notices.** A `stage` notice is posted only for a skipped stage and for stage C's pass; stage A ends with the `merge_request` for the contract PR. Request ids: `questions-<n>`, `foreign-work-<n>` (from 1), `stage-<letter>`, `merge-contract`, `merge-waivers`, `config-needed` then `config-needed-<n>` (from 2), `closing` then `closing-<n>` (from 2).
 - **P16. Designer-source mechanism.** Stage D and the closing steps target farm-hive's designer-source pin: the three `DESIGNER_SOURCE_*` values in `config/pb/toolchain.env`, which `designer-source.pipeline` publishes. farm-hive kept that pin when it moved configgen to a Go tool dependency (farm-hive #76, 2026-08-27), and its main bumped it three times on 2026-09-28. `config-artifact.pipeline`'s archive is not a target: nothing on farm-hive main refers to it, and the header of farm-common's `designer-source.pipeline`, which says farm-hive consumes only that archive, does not describe farm-hive as it is. The skill still tells the worker to follow farm-hive's own instructions if they change, and to say in the hive PR which mechanism it used.
@@ -377,6 +378,21 @@ Settled while reviewing the drafts (2026-09-28):
 - **No live action.** No task posts to Linear, pushes to a real repository or runs lark-cli against Feishu, except the live checks of Task 17, each with the operator's go-ahead, on TestBot and operator-chosen cards only.
 
 ## Shared Interfaces
+
+Interface amendment (2026-10-03): the profile-only Task 10 implementation below remains the
+historical baseline. The explicit alternative host block is `lark_cli: {"app_id": "cli_example",
+"secret_env": "FEATURE_FEISHU_SECRET"}`, mutually exclusive with profile/home, with no inline secret.
+Only Codex feature attempts receive those configured credentials and forced strict bot mode after
+P13's withholding. Their public payload is only `tools.lark_cli: {"authentication": "environment"}`;
+missing credentials produce `status: unavailable`. The source alias is withheld from every worker,
+Unity child and diagnostic, and cannot also hold kw_ops's token. Feature commands use the same read
+allowlist and `--as bot`, without profile/home flags. Generated Codex settings disable shell snapshots
+and retain canonical credentials in feature shells without writing values to files. Windows Codex
+homes explicitly require the elevated sandbox. Doctor's environment result measures source presence
+only, with no profile read or live access. This is an authority/interface change in a separate code
+branch; native worker, generator and real Feishu acceptance remain release prerequisites. See the
+[current operating contract](../../operating-contract.md) and
+[credential workflow](../../development-workflow.md#feature-only-environment-credentials).
 
 Implement these exactly; a task that needs a change updates this section first.
 

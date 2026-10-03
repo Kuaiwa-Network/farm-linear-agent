@@ -103,8 +103,8 @@ What does not separate them:
 - `issue_prefix` selects the team key accepted for publishing; it defaults to
   `FARM`, the key of the real 农场 issues a development profile tests.
 - The Code worker (`feature`) is opt-in: TestBot runs it only when its profile's
-  `enabled_skills` names it and `lark_cli.profile` names the lark-cli profile of the
-  FarmBot Feishu app (Setting up TestBot). A Code job runs for days and publishes real
+  `enabled_skills` names it and `lark_cli` selects the FarmBot Feishu app through a profile or
+  the explicit environment variant (Setting up TestBot). A Code job runs for days and publishes real
   draft PRs in Farm-Contract, common and farm-hive, and branches such as
   `farmbot/<key>-config` in common.
 - `tests/test_feature_journey.py` drives Code jobs through the whole controller
@@ -256,7 +256,9 @@ A lark-cli command that can write its config directory, as any command run outsi
 also fetches API metadata from Feishu at startup unless `LARKSUITE_CLI_REMOTE_META=off` is set; the
 commands below set it. lark-cli also takes credentials from `LARKSUITE_CLI_APP_ID`,
 `LARKSUITE_CLI_APP_SECRET` and its access-token variables before any profile; FarmBot withholds
-those, and `LARKSUITE_CLI_PROXY_KEY`, from every worker.
+inherited values, and `LARKSUITE_CLI_PROXY_KEY`, from every worker. Only the explicit
+[environment variant](#feature-only-environment-credentials) then supplies its configured bot credentials
+to a Codex feature worker.
 
 Measured on TestBot's Mac on 2026-10-01, lark-cli 1.0.82 and codex-cli 0.156.1, with a dummy profile,
 inside `codex sandbox -P :workspace` and with no Feishu call:
@@ -277,7 +279,7 @@ not a real Feishu fetch or Windows setup.
 | A FarmBot-only lark-cli home with its own key (`lark_cli.home`) | the FarmBot app's secret only, readable by any worker on the host; only `feature`'s AUTHORITY grants its use | chosen for TestBot |
 | A host account whose lark-cli store holds only the FarmBot profile (no `home`) | that account's whole store, which must never hold a personal login | for a host that runs FarmBot as an account of its own; a Windows option |
 | Downgrading a store that holds a personal login | every profile in it, the personal login included | rejected, unless the operator accepts it knowingly |
-| Environment credentials in the `feature` worker's shell | the FarmBot app's secret, in every command's environment | only if the home fails; FarmBot would first have to exempt that worker from the withholding; a Windows option |
+| Environment credentials in the `feature` worker's shell | the FarmBot app's secret, in every command's environment | explicit `app_id`/`secret_env` variant; verify the actual worker before enabling feature |
 | lark-cli's sidecar auth proxy | a signing key, not the secret | not needed; a host service to supervise |
 | A tenant token the controller mints | a token for about two hours | rejected: shorter than a 10-hour attempt |
 
@@ -335,10 +337,41 @@ verification, with a FarmBot-only store. Local setup and offline host checks pas
 worker credential compatibility remains unresolved, with detailed diagnostics retained privately.
 A passing offline profile check does not certify worker access or real Feishu reads. Isolated
 worker/store checks and credential delivery remain pending before `feature` is enabled.
-The feature-only environment-credential variant is not implemented: current
-workers withhold those variables, so it would need a separate implementation and authority review.
+At the verified merged candidate `707ea87`, all workers withhold credential variables. The
+operator subsequently authorized the feature-only environment variant implemented in draft
+[#81](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/81), described below. Its authority
+review and actual Windows worker acceptance remain pending before live use.
 The native Windows read-only toolchain inventory does not verify the store or real bot fetching;
 see the [measured record and release prerequisites](superpowers/spikes/2026-10-03-native-windows-offline.md).
+
+### Feature-only environment credentials
+
+The alternative private block is `"lark_cli": {"app_id": "cli_example", "secret_env": "FEATURE_FEISHU_SECRET"}`.
+It names an app and a controller environment variable, never an inline secret. It cannot contain
+`profile` or `home`. Use a distinct uppercase source name; runtime/config selectors and the kw_ops
+token source are refused. Supply the value privately to the controller process through the host's
+credential management. This change installs no credential loader and does not copy a Windows DPAPI
+profile into worker accounts.
+
+Only Codex `feature` workers receive the configured ID and secret as `LARKSUITE_CLI_APP_ID` and
+`LARKSUITE_CLI_APP_SECRET`, plus forced `LARKSUITE_CLI_STRICT_MODE=bot`. The source alias is removed
+from every worker, Unity run, Editor launch and diagnostic child, even after environment overrides.
+Other workers retain no lark credential; user/tenant access tokens, proxy keys and config-directory
+overrides are still withheld. Feature launches remove the auth-proxy override too. Worker prompts
+contain only `tools.lark_cli: {"authentication": "environment"}` and authorize the same three reads,
+with `--as bot` and without `--profile` or `HOME`. Missing credentials are an unavailable tool;
+there is no fallback to a profile. Secret values never enter the generated Codex config or process
+record, and shell snapshots are disabled. Every command in the authorized feature worker can read
+the bot secret, so the app's actual Feishu permissions remain a release check.
+
+`doctor` checks the source's presence in its own process and lark-cli's version, without passing the
+secret to probes or reading the profile store in this mode. This establishes neither live Feishu
+access nor delivery into a real worker. Native Windows isolated Codex homes explicitly require the
+elevated sandbox; provision and verify that worker context separately, without downgrading it.
+Retain dummy offline evidence, then verify the selected app's read permissions and one operator-chosen
+document/attachment inside an actual worker before enabling feature. Generator acceptance remains
+a separate check. No state schema changes; settle workers and restore a profile block before a
+rollback to code that rejects this variant.
 
 ## Keeping production untouched
 

@@ -963,6 +963,34 @@ class FeatureToolchainTests(unittest.TestCase):
         self.assertIn("lark_cli", report["tools"]["feature"]["missing"])
         self.assertNotIn("personal-decoy", json.dumps(report, ensure_ascii=False))
 
+    def test_environment_mode_reports_presence_without_reading_profiles_or_passing_the_secret(self):
+        from test_lark_cli import BLOCK, SECRET
+        self.config.lark_cli = BLOCK
+        with patch.dict(os.environ, {BLOCK["secret_env"]: SECRET}):
+            report = self.report()
+        entry = report["tools"]["feature"]["entries"]["lark_cli"]
+        self.assertTrue(entry["ok"])
+        self.assertEqual(entry["authentication"], "environment")
+        self.assertTrue(entry["secret_set_in_doctor_environment"])
+        self.assertIsNone(entry["profile"]["other_profiles"])
+        for name in (*HEALTHY, "lark-cli"):
+            seen = self.seen(name)
+            if seen is not None:
+                self.assertNotIn(BLOCK["secret_env"], seen)
+        for value in (SECRET, *BLOCK.values()):
+            self.assertNotIn(value, json.dumps(report))
+
+    def test_missing_environment_secret_is_a_toolchain_gap_even_with_a_profile_on_disk(self):
+        from test_lark_cli import BLOCK
+        self.config.lark_cli = BLOCK
+        with patch.dict(os.environ, {BLOCK["secret_env"]: ""}):
+            report = self.report()
+        entry = report["tools"]["feature"]["entries"]["lark_cli"]
+        self.assertFalse(entry["ok"])
+        self.assertFalse(entry["secret_set_in_doctor_environment"])
+        self.assertIn("lark_cli", report["tools"]["feature"]["missing"])
+        self.assertIsNone(entry["profile"]["other_profiles"])
+
     def test_a_feature_host_without_lark_cli_is_the_finding_serve_would_refuse(self):
         self.config.lark_cli = {}
         report = self.report()

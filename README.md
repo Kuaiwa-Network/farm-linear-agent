@@ -147,14 +147,20 @@ receiver:
 "lark_cli": {"profile": "farmbot", "home": "/absolute/private/lark-cli-home"}
 ```
 
-FarmBot stores neither the app ID nor its secret; they stay in that lark-cli profile. `home` must lie
+In profile mode FarmBot stores neither the app ID nor its secret; they stay in that lark-cli profile. `home` must lie
 outside `local_root`, your home directory and every temporary directory. `serve` and `enqueue` refuse
 a host that enables `feature` without the block. Create the home and the profile as the
 [development workflow](docs/development-workflow.md) describes. Every worker starts without
 `LARKSUITE_CLI_APP_ID`, `LARKSUITE_CLI_APP_SECRET`, `LARKSUITE_CLI_PROXY_KEY` and any
 `LARKSUITE_CLI_*ACCESS_TOKEN`, because lark-cli prefers credentials from the environment to
 `--profile`. FarmBot also removes `LARKSUITE_CLI_CONFIG_DIR` after worker overrides, preserving
-the configured store selection. Diagnostic and Unity children get the same removals. They cover
+the configured store selection. An explicit `lark_cli: {"app_id": "cli_example", "secret_env": "FEATURE_FEISHU_SECRET"}`
+instead supplies bot credentials only to Codex `feature` workers, after these removals, with forced bot
+mode. It cannot be combined with profile/home. The secret value stays in the controller's environment;
+the worker's commands can read it. The source alias is removed from every worker, diagnostic and Unity
+child, and values are excluded from launch prompts and saved Codex settings. See the
+[environment variant](docs/development-workflow.md#feature-only-environment-credentials) for its limits.
+Diagnostic and Unity children get the same removals. They cover
 only the inherited environment, so never export these variables, or
 `LARKSUITE_CLI_CONFIG_DIR`, in a shell startup file on a FarmBot host, and never run
 `lark-cli config keychain-downgrade` for your own lark-cli store there: every sandboxed worker could
@@ -165,8 +171,9 @@ out of the workers' reach, as the development workflow's lark-cli section descri
 otherwise the operator must accept and record that exposure before enabling `feature`. Diagnostic
 and Unity children also withhold the credential variables and configured kw_ops token. On Windows,
 lark-cli protects secrets per Windows user, so a separate home isolates nothing; the production
-host's account/store setup remains undecided ([feature-workers design](docs/superpowers/specs/2026-09-24-feature-workers-design.md)
-§14.2), and `feature` stays disabled there until it is settled and verified.
+host must verify its selected credential route inside a real worker before enabling `feature`.
+Native Windows Codex homes require the elevated sandbox; this change does not provision it or enable
+feature on a host.
 
 ## AI/operator diagnostics
 

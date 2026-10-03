@@ -300,7 +300,7 @@ def _satisfies(version, required):
 
 def _probe_environment(config):
     from .kw_ops import child_environment
-    filtered = child_environment(config.kw_ops.get("token_env"))
+    filtered = child_environment(config.kw_ops.get("token_env"), secret_env=config.lark_cli.get("secret_env"))
     source = os.environ if filtered is None else filtered
     return {**source, **PROBE_ENV}
 
@@ -344,6 +344,13 @@ def _lark_cli(config, env):
                "user_logins": None, "master_key_file": None}
     entry = {"found": found, "version": _version(completed), "required": None, "ok": False, "profile": profile}
     if entry["version"] is None or not block:
+        return entry
+    if "secret_env" in block:
+        from .lark_cli import secret_value
+        # Presence in doctor's process is a toolchain finding, never proof of sandbox access or live scopes.
+        entry["authentication"] = "environment"
+        entry["secret_set_in_doctor_environment"] = secret_value(block, os.environ) is not None
+        entry["ok"] = config.runtime == "codex" and entry["secret_set_in_doctor_environment"]
         return entry
     _, listed = _run(["lark-cli", "profile", "list"], env)
     try:
@@ -453,8 +460,8 @@ def diagnose(config, *, now=None):
     if "feature" in (report["skills"]["enabled"] or []):
         feature = report["tools"]["feature"] = feature_toolchain(config, paths)
         if not config.lark_cli:
-            _finding(report, "lark_cli_unconfigured", "serve refuses to start: set lark_cli.profile to the lark-cli "
-                     "profile that holds FarmBot's Feishu app (docs/development-workflow.md).")
+            _finding(report, "lark_cli_unconfigured", "serve refuses to start: configure the lark-cli profile or "
+                     "explicit app_id/secret_env variant for FarmBot's Feishu app (docs/development-workflow.md).")
         if feature["missing"]:
             _finding(report, "feature_toolchain_incomplete", "Install or fix these before this host runs feature; its "
                      "workers stop where a tool is missing.", tools=feature["missing"])

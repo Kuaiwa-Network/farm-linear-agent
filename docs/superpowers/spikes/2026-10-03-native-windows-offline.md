@@ -506,9 +506,10 @@ These host-side checks do not certify worker access or real Feishu reads.
 Additional worker compatibility checks identified a readiness gap; detailed
 credential diagnostics are retained privately. A FarmBot model worker and its
 isolated home have not been verified. Worker credential delivery remains a
-release prerequisite, and the feature-only environment-credential variant is
-still unimplemented. Any selected variant needs a separate development branch,
-tests and authority review before live use. Windows worker generators and
+release prerequisite. At this check's exact candidate `707ea87`, the feature-only
+environment-credential variant is unimplemented; the subsequently authorized
+development follow-up below records its implementation in a separate tested draft.
+Authority review remains pending before live use. Windows worker generators and
 full worker acceptance remain pending.
 
 Validation of this documentation passed all **73** skill/reference tests under

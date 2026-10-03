@@ -178,11 +178,17 @@ with `docs +fetch` or download a `file` using `data.obj_token`; the wiki node to
 Run the download in the state's design directory with a relative output filename. No other lark-cli
 command is authorized apart from local help (`--help`, `skills read`).
 
+If `tools.lark_cli` is `{"authentication": "environment"}`, FarmBot supplied the bot credentials and
+strict bot mode in your shell environment. Run the same three read commands with `--as bot`, omitting
+`HOME=` and `--profile`; for example `lark-cli docs +fetch --as bot --doc <URL> --doc-format markdown`.
+No credential value, app ID or source variable name appears in the launch message. Missing credentials
+produce `status: unavailable`; never fall back to a profile or personal login.
+
 Set `HOME` for that command alone; your shell keeps its own. The profile holds FarmBot's app ID and
 secret: never read, print or copy them, never use another profile, `--as user`, `auth` or `config`,
-and never set `LARKSUITE_CLI_*` variables yourself. FarmBot starts you without lark-cli's credential
-variables, which would override the profile, and `LARKSUITE_CLI_CONFIG_DIR`, which would select
-another store.
+and never set `LARKSUITE_CLI_*` variables yourself. Never inspect, print, copy or persist environment
+credentials either. FarmBot withholds inherited lark-cli credentials and `LARKSUITE_CLI_CONFIG_DIR`
+after worker overrides; only an explicit environment grant supplies its configured bot ID and secret.
 
 ## Suffix branches
 

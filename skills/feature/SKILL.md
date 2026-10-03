@@ -16,7 +16,7 @@ Your launch message holds `item_id`, the ledger `database`, the readable `worktr
 farm-hive, each on this card's issue branch), `reads` (detached checkouts of Farm-Contract's, Farm-Client's and
 farmgui's default branches, refreshed at every launch except a publication retry), `stage` (`root_repository`,
 `write_repositories`, `read_only_worktrees`), `tools.lark_cli` (the lark-cli profile of FarmBot's read-only Feishu
-app, and its lark-cli home when the host has one), `guidance`, bounded `prior_context`, `user_requests`, the FarmBot
+app and optional home, or an explicit environment authentication grant), `guidance`, bounded `prior_context`, `user_requests`, the FarmBot
 paths `repo_root`, `contract` and `references`, `bot_name` (write it wherever a template says `<bot_name>`) and
 `state_dir`, the one private directory you may write outside the current stage's writable worktree (STATE_DIR
 below). There is no `target`: this job pins no client build and holds no Unity resource. Only
@@ -298,8 +298,11 @@ cd STATE_DIR/design && HOME=LARK_HOME lark-cli --profile PROFILE drive +download
 ```
 
 - Set `HOME` for the lark-cli command alone, never for your shell, whose own `HOME` git and gh keep using; leave
-  `HOME=LARK_HOME` out when there is no `home`. Never set or export a `LARKSUITE_CLI_` variable: credentials in the
+  `HOME=LARK_HOME` out when there is no `home`. Never set or export a `LARKSUITE_CLI_` variable yourself: credentials in the
   environment override the profile, and FarmBot keeps them out of your environment.
+- When `tools.lark_cli.authentication` is `environment`, FarmBot supplied strict bot credentials to your shell.
+  Use the same three read commands above with `--as bot`, leaving out `--profile PROFILE` and `HOME=LARK_HOME`.
+  Never inspect, print, copy, persist or change the credentials. Never fall back to a local profile.
 - Make `STATE_DIR/design` first. `docs +fetch` prints its result as JSON; redirect it to a file there. lark-cli
   takes only a relative path under the current directory for a path flag such as `--output` and refuses an absolute
   one (`unsafe file path`), so run `drive +download` from `STATE_DIR/design` with a bare file name, as above.
@@ -320,7 +323,8 @@ cd STATE_DIR/design && HOME=LARK_HOME lark-cli --profile PROFILE drive +download
   fetches it anew.
 - Stage A reads the original in full, its own open items (Q-0xx, TBD, 待确认) included, as Farm-Contract's rules
   require: never draft from a paraphrase.
-- A card that names a 策划案 without a link, a link the app cannot read, a `tools.lark_cli` without a profile
+- A card that names a 策划案 without a link, a link the app cannot read, a `tools.lark_cli` without a profile or
+  `authentication: environment`
   (absent, or `status` `unavailable`) or a failed fetch is a question naming the document and what failed. Never
   guess what the document says.
 

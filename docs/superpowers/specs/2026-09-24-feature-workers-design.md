@@ -1122,8 +1122,11 @@ proposed manifest: the Farm-Client write, the Unity slot and the `ui_ready` gate
 and Farm-Client is read for stage A's gap list), and a job takes only the resources its manifest
 lists (P11). The write-back waits for Phase C (P3). Only skills with an initial root re-attach to
 recorded branches (P4), and a plan cannot record a bad issue branch (P9). lark-cli credentials stay
-in lark-cli, which workers run with the host's profile as the FarmBot app (P5), and lark-cli's
-credential variables are withheld from every worker (P13). A `feature` session has no pinned target
+in lark-cli for the profile variant, which workers run with the host's profile as the FarmBot app (P5).
+The 2026-10-03 P13 amendment adds an explicit `app_id`/`secret_env` variant: only Codex feature workers
+receive configured bot credentials after inherited credentials are withheld, with strict bot mode,
+no credential values in launch files, and the source alias withheld from other workers, Unity and
+diagnostics. Actual Windows worker and Feishu acceptance remain pending. A `feature` session has no pinned target
 (P6). `stage` and `merge_request` are the two new notice kinds (P7), posted as P15 says. A re-pin
 gets a new `-config-<n>` branch (P12). A stage limit in the delegation text is honoured (P14). Stage
 D follows farm-hive's designer-source pin (P16). Controller Git preserves the current clone-validation and write-root boundaries added after P10
@@ -1220,13 +1223,16 @@ its remaining verification is:
   account whose lark-cli store holds only the FarmBot bot profile provides separate-account
   isolation. The operator chose the current Windows account, with a FarmBot-only store and no
   personal profiles or user logins, citing the app's read-only scopes. Those scopes do not
-  isolate other credentials belonging to the same Windows user. The feature-only
-  environment-credential variant is not implemented and would require a separate implementation
-  and authority review: the current code withholds these variables from every worker. The
+  isolate other credentials belonging to the same Windows user. At merged candidate `707ea87`,
+  all workers withhold credential variables. The operator subsequently authorized the feature-only
+  environment variant; draft [#81](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/81)
+  implements explicit `app_id`/`secret_env` delivery (P13 amendment), pending review and live acceptance. The
   initial Windows inventory found lark-cli absent from the interactive account's PATH. The
   prepared development prefix now supplies its verified 1.0.82 binary. Local profile setup and
   offline host checks passed; all required feature entries pass in the fresh host doctor.
   Worker credential compatibility remains unresolved, with detailed diagnostics retained
   privately. These checks do not certify an isolated FarmBot worker or its credential path.
-  Credential delivery, actual Windows worker generators and real Feishu access remain open;
-  the current account choice does not authorize a sandbox downgrade or credential export.
+  The operator must still verify credential delivery, actual read scopes and one document/attachment
+  in the native elevated worker context before enabling feature; profile presence or doctor's
+  source-presence check is insufficient. Actual Windows worker generators and real Feishu access
+  remain open; the current account choice does not authorize a sandbox downgrade or credential export.

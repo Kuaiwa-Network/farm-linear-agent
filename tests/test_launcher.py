@@ -375,6 +375,78 @@ class LauncherTests(unittest.TestCase):
         self.assertIs(config["features"]["shell_snapshot"], False)
         self.assertNotIn("dummy-token-value", text)
 
+    def test_explicit_lark_grant_reaches_only_the_feature_shell_without_saved_values(self):
+        import tomllib
+        from test_lark_cli import BLOCK, SECRET
+        script = ("import json,os,pathlib,sys;sys.stdin.read();"
+                  "pathlib.Path(sys.argv[1]).write_text(json.dumps({{k: os.environ.get(k) for k in "
+                  "['LARKSUITE_CLI_APP_ID','LARKSUITE_CLI_APP_SECRET','LARKSUITE_CLI_STRICT_MODE',"
+                  "'LARKSUITE_CLI_AUTH_PROXY','LARKSUITE_CLI_USER_ACCESS_TOKEN','FEATURE_FEISHU_SECRET']}}))")
+        runtime = RUNTIMES["codex"]._replace(command=[sys.executable, "-c", script, "{last_message}"], seed_files={})
+        launcher = Launcher(self.runs, runtime, "h", lark_cli=BLOCK)
+        with patch.dict(os.environ, {BLOCK["secret_env"]: SECRET, "LARKSUITE_CLI_APP_SECRET": "ambient-secret"}):
+            handle = launcher.spawn("lark-granted", self.message, {}, 30, self.tmp.name, lark_cli_access=True,
+                                    extra_env={BLOCK["secret_env"]: "override-secret",
+                                               "LARKSUITE_CLI_APP_SECRET": "override-secret",
+                                               "larksuite_cli_strict_mode": "user",
+                                               "LARKSUITE_CLI_AUTH_PROXY": "https://proxy.example.test",
+                                               "LARKSUITE_CLI_USER_ACCESS_TOKEN": "dummy-user-token"})
+        self.addCleanup(launcher.stop, "lark-granted")
+        output = json.loads(self.finished_by(launcher)[0].last_message)
+        self.assertEqual(output, {"LARKSUITE_CLI_APP_ID": BLOCK["app_id"], "LARKSUITE_CLI_APP_SECRET": SECRET,
+                                 "LARKSUITE_CLI_STRICT_MODE": "bot", "LARKSUITE_CLI_AUTH_PROXY": None,
+                                 "LARKSUITE_CLI_USER_ACCESS_TOKEN": None, BLOCK["secret_env"]: None})
+        text = (handle.run_dir / "home" / "config.toml").read_text(encoding="utf-8")
+        config = tomllib.loads(text)
+        self.assertIs(config["features"]["shell_snapshot"], False)
+        self.assertEqual(config["shell_environment_policy"], {"exclude": [BLOCK["secret_env"]],
+                                                             "inherit": "all", "ignore_default_excludes": True})
+        for name in ("home/config.toml", "prompt.md", "process.json", "stdout.log", "stderr.log"):
+            saved = (handle.run_dir / name).read_text(encoding="utf-8")
+            self.assertNotIn(SECRET, saved)
+            self.assertNotIn(BLOCK["app_id"], saved)
+
+    def test_no_lark_grant_withholds_source_from_worker_and_unsandboxed_child(self):
+        from test_lark_cli import BLOCK, SECRET
+        script = ("import json,os,pathlib,sys;sys.stdin.read();"
+                  "pathlib.Path(sys.argv[1]).write_text(json.dumps(os.environ.get('FEATURE_FEISHU_SECRET')))")
+        runtime = RUNTIMES["codex"]._replace(command=[sys.executable, "-c", script, "{last_message}"], seed_files={})
+        launcher = Launcher(self.runs, runtime, "h", lark_cli=BLOCK)
+        with patch.dict(os.environ, {BLOCK["secret_env"]: SECRET}):
+            launcher.spawn("lark-denied", self.message, {}, 30, self.tmp.name,
+                           extra_env={BLOCK["secret_env"]: "override-secret"})
+            result = launcher.run_unsandboxed([sys.executable, "-c",
+                "import os; raise SystemExit(1 if os.environ.get('FEATURE_FEISHU_SECRET') else 0)"],
+                cwd=self.tmp.name, timeout=10, env={**os.environ, BLOCK["secret_env"]: "override-secret"})
+        self.addCleanup(launcher.stop, "lark-denied")
+        self.assertIsNone(json.loads(self.finished_by(launcher)[0].last_message))
+        self.assertEqual(result.returncode, 0)
+
+    def test_missing_lark_source_cannot_create_an_attempt_or_restore_a_profile(self):
+        from test_lark_cli import BLOCK
+        launcher = Launcher(self.runs, RUNTIMES["codex"], "h", lark_cli=BLOCK)
+        with patch.dict(os.environ, {}, clear=True), patch("agent.launcher.subprocess.Popen") as spawn:
+            with self.assertRaisesRegex(ValueError, "not set"):
+                launcher.spawn("lark-missing", self.message, {}, 30, self.tmp.name, lark_cli_access=True,
+                               extra_env={BLOCK["secret_env"]: "override-secret"})
+        spawn.assert_not_called()
+        self.assertFalse(launcher.state_dir("lark-missing").exists())
+
+    def test_codex_home_explicitly_requires_the_elevated_native_windows_sandbox(self):
+        import tomllib
+        runtime = RUNTIMES["codex"]._replace(command=RUNTIMES["fake"].command, seed_files={})
+        launcher = Launcher(self.runs, runtime, "h")
+        handle = launcher.spawn("sandbox-pinned", self.message, {}, 30, self.tmp.name,
+                                extra_env={"FAKE_CLI_MODE": "echo"})
+        self.addCleanup(launcher.stop, "sandbox-pinned")
+        self.finished_by(launcher)
+        config = tomllib.loads((handle.run_dir / "home/config.toml").read_text(encoding="utf-8"))
+        self.assertEqual(config["sandbox_mode"], "workspace-write")
+        if os.name == "nt":
+            self.assertEqual(config["windows"], {"sandbox": "elevated"})
+        else:
+            self.assertNotIn("windows", config)
+
     def test_a_codex_worker_without_a_token_server_keeps_its_shell_settings(self):
         import tomllib
         runtime = RUNTIMES["codex"]._replace(command=RUNTIMES["fake"].command, seed_files={})

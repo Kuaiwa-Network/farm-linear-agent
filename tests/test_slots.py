@@ -30,14 +30,16 @@ class UnityIdentityEnvironmentTests(unittest.TestCase):
             folder = Path(tmp)
             binary = folder / "Unity"
             binary.touch()
-            identity = UnityIdentity(folder / "probe.cs", token_env="KW_OPS_TOKEN")
+            identity = UnityIdentity(folder / "probe.cs", token_env="KW_OPS_TOKEN", secret_env="FEATURE_FEISHU_SECRET")
             slot = {"folder": str(folder)}
-            with patch.dict(os.environ, {"KW_OPS_TOKEN": "dummy-token", "UNITY_LICENSE_MARKER": "kept"}), \
+            with patch.dict(os.environ, {"KW_OPS_TOKEN": "dummy-token", "FEATURE_FEISHU_SECRET": "dummy-secret",
+                                        "UNITY_LICENSE_MARKER": "kept"}), \
                     patch("agent.slots.subprocess.Popen") as popen, \
                     patch.object(identity, "discover_instance", return_value="instance"):
                 self.assertEqual(identity.start(slot, {"unity": str(binary)}), "instance")
             child = popen.call_args.kwargs["env"]
             self.assertNotIn("KW_OPS_TOKEN", child)
+            self.assertNotIn("FEATURE_FEISHU_SECRET", child)
             self.assertEqual(child["UNITY_LICENSE_MARKER"], "kept")
 
 
