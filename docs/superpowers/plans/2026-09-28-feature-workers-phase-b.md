@@ -186,6 +186,36 @@ restoration remain pending. The native Windows offline baseline now passes.
   directory was removed. No tool installation, credential setup, production
   profile edit, Linear call or Feishu call occurred. The native record lists
   the measured versions and remaining worker/generator checks.
+  After #79 merged as `03c9833`, the explicitly requested fresh Windows repeat
+  used the same exact candidate and a new dummy config/empty scratch root:
+  **4.826 seconds**, exit 2, with the expected `ledger_unreadable` separate
+  from `feature_toolchain_incomplete`. Every tool version and gap matched the
+  first inventory. Python's actual bash resolution agrees with `where.exe bash`:
+  the WSL launcher is selected first. Scratch cleanup completed; the ordinary
+  host token was used and no production configuration or ledger was read.
+  Real worker generators/gates and Feishu access remain pending. The native
+  record retains the repeat's UTF-8 evidence and concrete release prerequisites.
+  The operator then requested the prerequisites one at a time. The ignored
+  development prefix now supplies Go 1.26.6, protoc 35.1, buf 1.72.0, openspec
+  1.7.0, lark-cli 1.0.82 and selected python3 3.13.16. Upstream hashes/integrity
+  were checked. A process-only PATH selects verified Git for Windows MSYS bash
+  5.3.9 (`uname`: MSYS), leaving persistent PATH unchanged. A fresh doctor on
+  exact `707ea87` completed in **7.409 seconds**, exit 2: the empty ledger is
+  expected, and the only remaining required gap is the absent `farmbot` profile,
+  not the lark binary. Optional dotnet SDK 8.0.423 remains absent. Scratch and
+  lark-store state were unchanged; no account, credential or service was changed.
+  This is development-prefix verification; the running service's environment
+  and actual worker checks remain unmeasured. The operator chose the current
+  Windows account and its FarmBot-only store, citing the app's read-only scopes.
+  A private profile-setup helper passed read-only Windows PowerShell preflight;
+  local app-ID/secret entry, DPAPI resolution, strict bot mode and actual worker
+  store access remain pending. No profile or credential was created. The native
+  record preserves this run, artifact provenance and the account choice.
+  After local profile setup, another exact-candidate doctor completed in
+  **0.854 seconds**, exit 2: all required `tools.feature` entries pass and
+  `missing=[]`; only the expected empty-ledger finding remains. Optional dotnet
+  SDK 8.0.423 is still absent. This host-side result does not establish sandbox
+  readiness; Step 5 records pending worker compatibility validation.
 - **Step 4.1, Feishu setup:** the operator authorized exactly the four
   application read/download scopes and Can view on the planning subtree and
   its sub-pages. The Mac uses a dedicated FarmBot-only home, its own file key,
@@ -233,10 +263,42 @@ restoration remain pending. The native Windows offline baseline now passes.
   read-only snapshots receive no recovery refs by design. The real issue stays
   open with its human owner. Running-worker withdrawal, re-delegation and a
   native Windows live run were not tested in this round.
-- **Step 5, Windows lark-cli:** still open. A dedicated service account is the
-  existing supported option; passing credentials only to feature workers would
-  need a separate implementation. No Windows account or credential store was
-  configured during this task.
+- **Step 5, Windows lark-cli:** account choice resolved by the operator: use the
+  current Windows account, with only the FarmBot bot profile and no personal
+  profiles or logins in its per-user DPAPI store. The app's read-only permissions
+  do not provide separate-account isolation. A separate `HOME` isolates nothing
+  on Windows. At the merged candidate, passing credentials only to feature
+  workers is not implemented and needs a separate authority review and
+  implementation; those workers withhold the variables. The
+  operator completed the new local profile setup, with no other profiles or
+  user logins and strict bot mode. Offline host checks passed; worker credential
+  compatibility remains unresolved. Detailed credential diagnostics are
+  retained privately. These checks do not certify a FarmBot model worker or its
+  isolated home. Credential delivery and actual Windows worker acceptance remain
+  open. No account was created, sandbox downgraded or Feishu network call
+  performed. The environment-credential variant remains a separate
+  implementation/authority decision before live use. The native record retains
+  sanitized host evidence and the remaining release prerequisites.
+- **Windows credential development follow-up (2026-10-03):** the operator
+  authorized the planned feature-only environment variant. Separate draft
+  [FarmBot #81](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/81)
+  implements it and explicitly requires the elevated native Windows Codex
+  sandbox; it is not merged or deployed. In the separate development checkout
+  on the production Windows host, source `9e7d75e` passed **1,741 offline tests
+  in 774.396 seconds**, zero failures/errors and the same 69 skips as the
+  elevated baseline. All thirteen feature journeys and all seven native Job
+  Object tests ran and passed. Python 3.13.16, Git 2.54.0.windows.1, Git LFS
+  3.7.1 and `PYTHONUTF8=1` were used, with inherited selectors sanitized.
+  Dummy credentials and an empty store passed bot dry run and rejected user
+  mode and missing credentials through the elevated sandbox helper. A fresh
+  dummy environment-mode doctor took 0.832 seconds and reported only the
+  expected empty ledger, with no required toolchain gap or profile-store read.
+  This is development evidence, not actual isolated-worker or live Feishu
+  acceptance. The native record preserves the UTF-8 logs, hash, timing and
+  unchanged skip inventory. Review/CI, a privately supplied controller source,
+  actual native worker credential delivery, Windows generators/gates and real
+  bot document/attachment reads remain release prerequisites. Parked jobs and
+  production state were untouched.
 - **Remaining operational work:** selected jobs on FARM-1346 and FARM-1425 stay
   parked. Restoring TestBot's earlier code/feature setting and the private secret
   scan require the operator's next scoped action. Preserve current ledger,

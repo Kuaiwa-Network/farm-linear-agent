@@ -316,12 +316,35 @@ Doctor's probes disable update checks, downloads and telemetry. This inventory
 describes the current interactive host account's PATH, not an unmeasured future
 FarmBot service account or worker environment.
 
-Doctor completed in **4.999 seconds**, exit **2** (`incomplete`),
+The first inventory completed in **4.999 seconds**, exit **2** (`incomplete`),
 with `feature_toolchain_incomplete` and the expected `ledger_unreadable` for
 the empty root. Feature was loaded and enabled only in this dummy config; no
 dummy value appeared in the output, the state root remained empty, and the
 scratch directory was removed afterwards. Go's required version uses the
 default directive because no farm-hive clone was present.
+
+After [#79](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/79) merged
+as `03c9833`, the operator explicitly requested this read-only check again.
+The repeat started at `2026-10-03T06:24:49.151308+00:00` and completed in
+**4.826 seconds**, using the same clean `707ea87` development clone and selected
+Python 3.13.16. The merged record changes only documentation; it does not change
+the candidate's executable tree. A fresh temporary config supplied the values
+above, with no `lark_cli.home`, and the new scratch state was empty before and
+after doctor. The ordinary, non-elevated host token was used; `PYTHONUTF8=1`
+and the workflow's selector/token sanitization were applied before Python.
+Doctor again exited **2** with `ledger_unreadable` and
+`feature_toolchain_incomplete`. The expected empty-ledger finding is separate
+from the measured toolchain gaps. The scratch directory was removed afterwards.
+No production config or ledger was read, service started, authentication run,
+account configured, credential installed or app setting changed.
+
+Every `tools.feature` entry, version and missing-tool classification exactly
+matches the first inventory. The table below therefore describes both runs.
+The new full UTF-8 doctor report, sanitized inventory and raw bash lookup are
+retained privately under the ignored
+`reports/native-windows-toolchain-20261003-recheck/` directory. The full report's
+SHA-256 is
+`07fb1d0b8a67abb3a93259dd9df549eea2ca09bd55ff2990c037a59f065deef8`.
 
 | Tool | Observed | Requirement / result |
 | --- | --- | --- |
@@ -339,9 +362,11 @@ default directive because no farm-hive clone was present.
 | dotnet SDK | 9.0.306 | 8.0.423; optional gap |
 | lark-cli | not on PATH | unavailable; farmbot profile presence unverified |
 
-`where.exe bash` put the WSL launcher first; Git for Windows bash therefore
-does not precede it on this PATH. A readable bash version alone does not prove
-the native shell and generator environment the Windows worker needs. The
+Both `where.exe bash` and Python's actual `shutil.which("bash")` resolution put
+the WSL launcher first; Git for Windows bash therefore does not precede it on
+this PATH. MSYS2 is also present later in the lookup. A readable bash version
+alone does not prove the native shell and generator environment the Windows
+worker needs. The
 `python3` alias resolves to Python 3.14.3; the offline suite explicitly used
 Python 3.13.16. No generator, contract gate, Go build or real worker sandbox
 acceptance was run by these version probes. The lark-cli executable was absent,
@@ -349,11 +374,188 @@ so its profile/store could not be inspected or certified. The private doctor
 report, sanitized tool inventory, raw bash lookup and cleanup evidence are
 retained with the elevated-run evidence.
 
-The documentation update passed all 73 skill/reference tests in 0.404 seconds.
+The original documentation update passed all 73 skill/reference tests in 0.404
+seconds; this follow-up passed the same 73 tests in 0.513 seconds, with no skips.
 Current verification-section links, the Task 17 anchor, whitespace and
 `git diff --check` passed. The record was checked against every initial error
 and skip, all required journey/Job Object IDs and all 69 final skip reasons;
 the measured duration and full-log hash were verified against local evidence.
+
+## Development toolchain preparation, 2026-10-03
+
+The operator requested the release prerequisites one at a time. The required
+tool executables were prepared under the ignored development-only
+`.local/verification/toolchain/` prefix. Go 1.26.6 matches the verified Mac
+toolchain and exceeds farm-hive's current `go 1.25.1` directive, read at
+[`e24b6cb`](https://github.com/Kuaiwa-Network/farm-hive/blob/e24b6cbc4403e19c49bf13cc7766deaa49db5184/go.mod).
+The official Windows Go, protoc, buf and lark-cli artifacts passed their
+upstream SHA-256 checks before extraction. Openspec was installed at exact
+1.7.0 into a separate npm prefix/cache with its published integrity and resolved
+dependencies retained in the local lockfile; lifecycle scripts were not run.
+Nothing was installed globally.
+
+The development process alone prepended this prefix, the selected Python 3.13
+runtime and the installed Git for Windows `usr/bin` to PATH. A `python3.exe`
+copy has the same hash as the selected Python 3.13.16 executable and uses the
+same runtime files. Bash provenance was checked using the Git installation's
+MSYS runtime marker and `uname -s`: `MSYS_NT-10.0-26200`. Its banner says
+`x86_64-pc-cygwin`, which alone would not establish whether it is Git's MSYS
+bash. The actual selected executable belongs to that verified Git installation;
+the WSL launcher is not selected in this process.
+
+The fresh dummy-config doctor from exact `707ea87` started at
+`2026-10-03T07:04:38.945537+00:00` and completed in **7.409 seconds**, exit **2**.
+The empty ledger remains expected. Every required executable version now
+passes; `feature_toolchain_incomplete` names only `lark_cli`, whose binary is
+present but whose proposed `farmbot` profile is absent. This check refused to
+inspect an existing personal lark config; the current account had none.
+Read-only profile listing reported zero other profiles and zero user logins.
+No profile, secret or authentication was created.
+
+| Tool | Prepared process result |
+| --- | --- |
+| Go | 1.26.6; passes >=1.25.1 |
+| protoc | 35.1; passes exact pin |
+| buf | 1.72.0; passes exact pin |
+| Node | 24.19.0; passes >=22 |
+| openspec | 1.7.0; passes exact pin |
+| python3 | 3.13.16; selected runtime |
+| Git LFS | 3.7.1; version probe passes |
+| bash | 5.3.9; verified Git for Windows MSYS |
+| sha256sum / mktemp | 8.32; version probes pass |
+| awk | 5.4.0; version probe passes |
+| lark-cli | 1.0.82; binary available, farmbot profile absent |
+| dotnet SDK | 9.0.306; optional 8.0.423 remains absent |
+
+Both persistent user and machine PATH values were checked unchanged. The
+scratch state remained empty and was removed; the existing lark-store state
+was unchanged. No production configuration/ledger was read, service restarted,
+account configured or feature enabled. The original unmodified-PATH inventory
+above remains valid; these results certify only the prepared development
+process, not the running service or its actual worker environment.
+
+The new UTF-8 report and metadata are retained under ignored
+`reports/native-windows-toolchain-prepared-20261003/`; its report SHA-256 is
+`25749e3733ad8b11158bc2a29cdbe0dc5016747d9fb7e76d3108a3700ae12bb6`.
+Download digests, npm integrity/lockfile and private executable-path metadata
+are retained with the ignored toolchain prefix. Sources are the official
+[Go download index](https://go.dev/dl/),
+[buf v1.72.0 release](https://github.com/bufbuild/buf/releases/tag/v1.72.0),
+[protoc v35.1 release](https://github.com/protocolbuffers/protobuf/releases/tag/v35.1),
+[lark-cli v1.0.82 release](https://github.com/larksuite/cli/releases/tag/v1.0.82)
+and [openspec 1.7.0 package](https://www.npmjs.com/package/@fission-ai/openspec/v/1.7.0).
+
+The operator then chose the **current Windows account**, citing the FarmBot
+Feishu app's read-only permissions. No new account is required for this chosen
+path. Its lark-cli store must remain FarmBot-only, with no personal profiles or
+user logins; the empty-store measurement above satisfies only the pre-setup
+check. Read-only Feishu scopes do not isolate other credentials belonging to
+the same Windows user, so this choice does not establish separate-account
+isolation. Actual Windows worker access to the bot's DPAPI credential remains
+unmeasured.
+
+A private local setup helper was prepared for the existing read-only FarmBot
+app. Its read-only preflight passed in Windows PowerShell: the verified 1.0.82
+binary matched its release archive and the current account's config/profile
+store remained empty. This preflight started at
+`2026-10-03T07:28:18.8645313Z`; sanitized evidence is retained under ignored
+`reports/native-windows-lark-local-*/`. A separate dummy-only subprocess fixture
+passed in Windows PowerShell 5.1: Unicode secret stdin, paths with spaces,
+credential/config/workspace-selector removal and disabled update/metadata
+flags. It accessed no lark credential store. At that point the setup itself had
+**not run**: it required the
+operator's local app-ID input and hidden secret prompt. The helper passes the
+secret on stdin, creates only a new `farmbot` profile, sets profile strict bot
+mode and checks `doctor --offline`; it saves only sanitized check names/status.
+It refuses to read or replace an existing config and performs no network
+authentication, personal login, app-scope change or production reconfiguration.
+This preparation is not evidence of a configured profile or working Feishu
+access.
+
+The account-choice documentation passed all 73 skill/reference checks in
+**0.346 seconds**, with no skips. Link, whitespace, private-path/credential
+pattern and retained-evidence checks passed. The existing native suite's error,
+skip and required-test inventories remain unchanged; no application fix or
+full-suite rerun was needed for these documentation edits.
+
+## Local bot profile verification, 2026-10-03
+
+The operator completed the new `farmbot` profile under the chosen current
+Windows account, with no other profiles or user logins and profile strict bot
+mode. The app ID and hidden secret were entered locally. Offline profile
+checks passed; endpoint checks were skipped. This setup performed no network
+authentication, Feishu app-scope change or production reconfiguration.
+
+The initial interactive helper launch inherited an incompatible PowerShell
+module path, hiding `Get-FileHash`. Selecting the helper engine's built-in
+modules fixed it; the original launched preflight then passed both unchanged
+release hash checks. No Windows account was created.
+
+A fresh dummy-config FarmBot doctor from exact `707ea87`, using the prepared
+process-only tool prefix, started at `2026-10-03T08:10:03.537683+00:00` and
+completed in **0.854 seconds**, exit **2**. `tools.feature.missing` is now **[]**:
+all required versions and the `farmbot` profile pass, with zero other profiles
+and zero user logins. The sole finding is the expected `ledger_unreadable` for
+the empty scratch root. Optional dotnet SDK 8.0.423 remains absent. Persistent
+PATH and the lark config were unchanged; the scratch state stayed empty and was
+removed. UTF-8 evidence is retained under ignored
+`reports/native-windows-toolchain-configured-20261003/`; report SHA-256:
+`bb76ebcf1c4c475572e13bf70b30a6832e2e7dec5374e118eb41e5b058851dfd`.
+
+These host-side checks do not certify worker access or real Feishu reads.
+Additional worker compatibility checks identified a readiness gap; detailed
+credential diagnostics are retained privately. A FarmBot model worker and its
+isolated home have not been verified. Worker credential delivery remains a
+release prerequisite, and the feature-only environment-credential variant is
+still unimplemented. Any selected variant needs a separate development branch,
+tests and authority review before live use. Windows worker generators and
+full worker acceptance remain pending.
+
+Validation of this documentation passed all **73** skill/reference tests under
+the ordinary owner token in **0.349 seconds**, with no skips. An earlier run
+inside the desktop sandbox recorded 33 temporary-fixture access errors
+(WinError 5); its log is preserved, and the same tests passed outside that
+restriction without code changes or added skips. Link/whitespace/privacy and
+measured-evidence checks passed; the full native suite was not rerun for this
+documentation-only update.
+
+## Feature credential development follow-up (2026-10-03)
+
+The operator authorized the planned feature-only environment variant as a separate
+development change. Draft [FarmBot #81](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/81)
+implements `lark_cli.app_id`/`secret_env`, with forced bot mode only for Codex feature
+workers and withholding for other workers, Unity and diagnostics. Native Windows
+isolated Codex homes explicitly require the elevated sandbox. This code is not
+merged or deployed; the exact merged candidate above remains `707ea87`.
+
+On the **production Windows host, in the separate development checkout**, source
+`9e7d75e586d98c317cd40429e727f24bbc250d41` passed the full offline command
+`python -B -m unittest discover -s tests -v`, using the explicit Python 3.13.16
+executable, `PYTHONUTF8=1`, sanitized inherited selectors and the symlink-capable
+elevated test token. Result: **1,741 tests in 774.396 seconds; 1,672 passes,
+zero failures/errors, 69 skips**. All thirteen feature journeys and all seven
+native Job Object tests ran and passed. The skip IDs and reasons exactly match
+the 69-case elevated baseline inventory above; no skips were added. Wall time
+was 775.262 seconds. Git remained 2.54.0.windows.1 and Git LFS 3.7.1.
+
+The 430 related focused tests also passed with 54 existing skips under the
+ordinary token. These include its existing symlink capability skips; the full
+run used the verified symlink-capable token. A dummy credential test with an
+empty lark store passed both directly and through the existing elevated Codex
+0.156.1 sandbox helper: bot dry run exit 0, user exit 2, no credentials exit 3.
+The new doctor mode, using only dummy values and a fresh empty state root,
+completed in 0.832 seconds, exit 2, with `tools.feature.missing=[]` and only the
+expected `ledger_unreadable`. It read no profile store and the scratch state
+remained empty. These checks performed no real Feishu authentication and do not
+certify an actual model worker or its isolated home.
+
+UTF-8 logs, revision, versions, full per-test result/skip inventories and timing
+remain in ignored `reports/native-windows-feature-credentials-full/`; the full
+log SHA-256 is
+`1e9bcc3ef90d2e5a0d70348309df7371c942e9358124788fe082305ea5f2f0e2`.
+Dummy probe and doctor evidence is retained separately. Link, whitespace and
+documentation checks accompany this documentation-only follow-up. Detailed
+host credential diagnostics remain private.
 
 ## Next verification step
 
@@ -362,12 +564,53 @@ with an elevated test token. The ordinary host token still lacks directory
 symlink privilege; this result does not certify that token or the running
 service account's capabilities.
 
-Before enabling Windows feature workers, prepare the pinned toolchain (Go at
-least 1.25.1, protoc 35.1, buf 1.72.0, openspec 1.7.0 and native Git bash before
-the WSL launcher) and decide on a dedicated FarmBot service account for the
-Windows lark-cli store. Credential setup and host tool installation need their
-own scoped operator action. Then verify generators and gates in a real Windows
-worker sandbox and the bot store/fetch path. Dotnet SDK 8.0.423 remains an
-optional later config-artifact requirement. Desktop Unity acceptance and any
-production deployment also remain separately scoped work. FARM-1346 and
-FARM-1425 stay parked; their unmerged test drafts are unaffected.
+Windows lark-cli protects registry credentials with per-user DPAPI. A separate
+`HOME` does not isolate that store, and FarmBot rejects `lark_cli.home` on
+Windows. The supported store-based approach uses a Windows account whose
+lark-cli store contains only the FarmBot bot profile; a dedicated service
+account provides separate-account isolation. The operator chose the current
+account for this host, with its store restricted to FarmBot. Local profile setup
+and strict bot mode now pass; actual worker credential validation remains
+unresolved, with detailed diagnostics retained privately. The
+feature-only environment-credential variant is implemented only in draft #81;
+the merged candidate still withholds credential variables from every worker.
+Review that authority change before any live use. It installs no credential
+loader and copies no DPAPI profile into worker accounts.
+
+Remaining release prerequisites:
+
+1. The development prefix now passes required executable probes. Prepare and
+   verify the selected Windows account's toolchain: Go at least 1.25.1 (then
+   check the actual farm-hive directive), protoc 35.1, buf 1.72.0, openspec 1.7.0,
+   lark-cli and native Git for Windows bash before WSL. Verify `python3`,
+   coreutils and awk in the eventual worker environment; the current `python3`
+   global alias is 3.14.3 while the prepared prefix selects Python 3.13.16. Dotnet
+   SDK 8.0.423 is an optional later config-artifact requirement.
+2. Local FarmBot-only profile setup is complete under the operator-selected
+   current Windows account. Resolve worker credential compatibility while
+   preserving containment, then verify the isolated worker's actual native
+   mode and credential path. Complete strict bot mode, bot
+   dry runs and real planning-document/attachment reads, including Windows Word
+   conversion. The operator has requested these prerequisites one at a time;
+   the authorized development implementation is now draft #81. Complete its
+   review and applicable CI before privately supplying the selected controller
+   source and verifying a real isolated worker. Real Feishu
+   access remains untested here; local profile setup performed no network
+   authentication.
+3. Run generators and repository gates in a real Windows worker sandbox: native
+   bash/contract gates, byte-identical generated outputs, protoc with read-only
+   siblings, Go builds/module caches and Git LFS. Version probes do not verify
+   these paths. Use an operator-selected scope without resuming parked jobs.
+4. Check the selected service account's symlink capability and relevant native
+   ownership/process checks, then complete Windows desktop Unity acceptance.
+   The elevated offline baseline does not certify the ordinary token or a
+   future service account.
+5. Finish the operator's private output/log/comment/PR secret scan and scoped
+   TestBot restoration, preserving current ledger/history and recovery evidence.
+   Require approved release provenance and applicable CI; FARM-1425's unmerged
+   contract test pin currently fails backend provenance and is not release
+   evidence. FARM-1346 and FARM-1425 stay parked, and their test drafts stay
+   unmerged.
+6. Review the completed evidence before separately authorizing production
+   feature enablement or deployment. Neither is authorized or performed by this
+   read-only check.
