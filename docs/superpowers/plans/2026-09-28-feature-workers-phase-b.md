@@ -195,6 +195,18 @@ restoration remain pending. The native Windows offline baseline now passes.
   host token was used and no production configuration or ledger was read.
   Real worker generators/gates and Feishu access remain pending. The native
   record retains the repeat's UTF-8 evidence and concrete release prerequisites.
+  The operator then requested the prerequisites one at a time. The ignored
+  development prefix now supplies Go 1.26.6, protoc 35.1, buf 1.72.0, openspec
+  1.7.0, lark-cli 1.0.82 and selected python3 3.13.16. Upstream hashes/integrity
+  were checked. A process-only PATH selects verified Git for Windows MSYS bash
+  5.3.9 (`uname`: MSYS), leaving persistent PATH unchanged. A fresh doctor on
+  exact `707ea87` completed in **7.409 seconds**, exit 2: the empty ledger is
+  expected, and the only remaining required gap is the absent `farmbot` profile,
+  not the lark binary. Optional dotnet SDK 8.0.423 remains absent. Scratch and
+  lark-store state were unchanged; no account, credential or service was changed.
+  This is development-prefix verification; the dedicated account's access,
+  toolchain/store and real worker checks remain pending its selection and local
+  password entry. The native record preserves this run and artifact provenance.
 - **Step 4.1, Feishu setup:** the operator authorized exactly the four
   application read/download scopes and Can view on the planning subtree and
   its sub-pages. The Mac uses a dedicated FarmBot-only home, its own file key,

@@ -381,6 +381,81 @@ Current verification-section links, the Task 17 anchor, whitespace and
 and skip, all required journey/Job Object IDs and all 69 final skip reasons;
 the measured duration and full-log hash were verified against local evidence.
 
+## Development toolchain preparation, 2026-10-03
+
+The operator requested the release prerequisites one at a time. The required
+tool executables were prepared under the ignored development-only
+`.local/verification/toolchain/` prefix. Go 1.26.6 matches the verified Mac
+toolchain and exceeds farm-hive's current `go 1.25.1` directive, read at
+[`e24b6cb`](https://github.com/Kuaiwa-Network/farm-hive/blob/e24b6cbc4403e19c49bf13cc7766deaa49db5184/go.mod).
+The official Windows Go, protoc, buf and lark-cli artifacts passed their
+upstream SHA-256 checks before extraction. Openspec was installed at exact
+1.7.0 into a separate npm prefix/cache with its published integrity and resolved
+dependencies retained in the local lockfile; lifecycle scripts were not run.
+Nothing was installed globally.
+
+The development process alone prepended this prefix, the selected Python 3.13
+runtime and the installed Git for Windows `usr/bin` to PATH. A `python3.exe`
+copy has the same hash as the selected Python 3.13.16 executable and uses the
+same runtime files. Bash provenance was checked using the Git installation's
+MSYS runtime marker and `uname -s`: `MSYS_NT-10.0-26200`. Its banner says
+`x86_64-pc-cygwin`, which alone would not establish whether it is Git's MSYS
+bash. The actual selected executable belongs to that verified Git installation;
+the WSL launcher is not selected in this process.
+
+The fresh dummy-config doctor from exact `707ea87` started at
+`2026-10-03T07:04:38.945537+00:00` and completed in **7.409 seconds**, exit **2**.
+The empty ledger remains expected. Every required executable version now
+passes; `feature_toolchain_incomplete` names only `lark_cli`, whose binary is
+present but whose proposed `farmbot` profile is absent. This check refused to
+inspect an existing personal lark config; the current account had none.
+Read-only profile listing reported zero other profiles and zero user logins.
+No profile, secret or authentication was created.
+
+| Tool | Prepared process result |
+| --- | --- |
+| Go | 1.26.6; passes >=1.25.1 |
+| protoc | 35.1; passes exact pin |
+| buf | 1.72.0; passes exact pin |
+| Node | 24.19.0; passes >=22 |
+| openspec | 1.7.0; passes exact pin |
+| python3 | 3.13.16; selected runtime |
+| Git LFS | 3.7.1; version probe passes |
+| bash | 5.3.9; verified Git for Windows MSYS |
+| sha256sum / mktemp | 8.32; version probes pass |
+| awk | 5.4.0; version probe passes |
+| lark-cli | 1.0.82; binary available, farmbot profile absent |
+| dotnet SDK | 9.0.306; optional 8.0.423 remains absent |
+
+Both persistent user and machine PATH values were checked unchanged. The
+scratch state remained empty and was removed; the existing lark-store state
+was unchanged. No production configuration/ledger was read, service restarted,
+account configured or feature enabled. The original unmodified-PATH inventory
+above remains valid; these results certify only the prepared development
+process, not the running service or the eventual dedicated account.
+
+The new UTF-8 report and metadata are retained under ignored
+`reports/native-windows-toolchain-prepared-20261003/`; its report SHA-256 is
+`25749e3733ad8b11158bc2a29cdbe0dc5016747d9fb7e76d3108a3700ae12bb6`.
+Download digests, npm integrity/lockfile and private executable-path metadata
+are retained with the ignored toolchain prefix. Sources are the official
+[Go download index](https://go.dev/dl/),
+[buf v1.72.0 release](https://github.com/bufbuild/buf/releases/tag/v1.72.0),
+[protoc v35.1 release](https://github.com/protocolbuffers/protobuf/releases/tag/v35.1),
+[lark-cli v1.0.82 release](https://github.com/larksuite/cli/releases/tag/v1.0.82)
+and [openspec 1.7.0 package](https://www.npmjs.com/package/@fission-ai/openspec/v/1.7.0).
+
+The next dependency is the operator's dedicated Windows account choice and
+local password entry. A standard-account creation script was prepared privately
+but not executed. The eventual account must receive only the needed tool and
+development-resource access before its own version, store and sandbox checks.
+No current interactive-account result substitutes for that account's checks.
+
+The preparation record passed all 73 skill/reference checks in 0.369 seconds,
+with no skips. Its links, whitespace, privacy scan, measured report hash and
+artifact/version evidence were checked; application code and the existing
+native-suite inventory remain unchanged.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
@@ -399,7 +474,8 @@ would need a separate implementation and authority review, not a config edit.
 
 Remaining release prerequisites:
 
-1. Prepare the selected Windows account's toolchain: Go at least 1.25.1 (then
+1. The development prefix now passes required executable probes. Prepare and
+   verify the selected Windows account's toolchain: Go at least 1.25.1 (then
    check the actual farm-hive directive), protoc 35.1, buf 1.72.0, openspec 1.7.0,
    lark-cli and native Git for Windows bash before WSL. Verify `python3`,
    coreutils and awk in the eventual worker environment; the current `python3`
