@@ -211,6 +211,11 @@ restoration remain pending. The native Windows offline baseline now passes.
   local app-ID/secret entry, DPAPI resolution, strict bot mode and actual worker
   store access remain pending. No profile or credential was created. The native
   record preserves this run, artifact provenance and the account choice.
+  After local profile setup, another exact-candidate doctor completed in
+  **0.854 seconds**, exit 2: all required `tools.feature` entries pass and
+  `missing=[]`; only the expected empty-ledger finding remains. Optional dotnet
+  SDK 8.0.423 is still absent. This host-side result does not establish sandbox
+  credential access; Step 5 records the measured gap.
 - **Step 4.1, Feishu setup:** the operator authorized exactly the four
   application read/download scopes and Can view on the planning subtree and
   its sub-pages. The Mac uses a dedicated FarmBot-only home, its own file key,
@@ -265,8 +270,21 @@ restoration remain pending. The native Windows offline baseline now passes.
   on Windows. Passing credentials only to feature workers is not implemented
   and would need a separate authority
   review and implementation; current workers withhold those variables. The
-  local credential setup and actual Windows sandbox/store checks remain open.
-  No Windows account or credential store was configured during this task.
+  operator completed the new local profile setup at 07:49:59 UTC, with no other
+  profiles or user logins and strict bot mode. An ordinary-account read-only
+  probe decrypted a nonempty bot secret. Under the existing elevated native
+  sandbox, the PATH-selected Codex 0.156.1 command runs as a different token user
+  and cannot find that registry entry (WinError 2). Lark's offline doctor passes
+  there anyway: strict bot identity flags do not prove a nonempty secret.
+  Measured probe durations were 0.227 seconds on the host and 0.847 seconds in
+  the sandbox. The separately installed native executable is 0.160.0; neither
+  CLI was upgraded. These are helper probes, not a FarmBot model worker or its
+  isolated home. Resolving credential delivery and verifying that worker's
+  native sandbox selection remain open. No account was created, containment
+  downgraded, credential exported or Feishu network call performed. The
+  environment-credential variant remains a separate implementation/authority
+  decision. The native record retains sanitized evidence and the source-based
+  explanation of the offline diagnostic's limitation.
 - **Remaining operational work:** selected jobs on FARM-1346 and FARM-1425 stay
   parked. Restoring TestBot's earlier code/feature setting and the private secret
   scan require the operator's next scoped action. Preserve current ledger,

@@ -1224,6 +1224,10 @@ its remaining verification is:
   environment-credential variant is not implemented and would require a separate implementation
   and authority review: the current code withholds these variables from every worker. The
   initial Windows inventory found lark-cli absent from the interactive account's PATH. The
-  prepared development prefix now supplies its verified 1.0.82 binary; local app-ID/secret input
-  and actual worker DPAPI access remain pending. The empty store and private setup helper's
-  read-only preflight do not verify a configured profile, worker generators or real Feishu access.
+  prepared development prefix now supplies its verified 1.0.82 binary. Local profile setup and
+  host DPAPI access passed; all required feature entries pass in the fresh host doctor. The
+  existing elevated Codex sandbox uses a different token user and cannot find the bot's registry
+  secret, even though lark's strict-bot offline doctor reports ready. These helper probes do not
+  verify an isolated FarmBot worker's native mode or credential path. Credential delivery,
+  actual Windows worker generators and real Feishu access remain open; the current account
+  choice does not authorize a sandbox downgrade or credential export.
