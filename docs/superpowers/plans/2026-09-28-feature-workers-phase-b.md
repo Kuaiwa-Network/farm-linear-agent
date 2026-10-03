@@ -328,6 +328,29 @@ restoration remain pending. The native Windows offline baseline now passes.
   [native record](../spikes/2026-10-03-native-windows-offline.md#isolated-windows-worker-follow-up-2026-10-03-partial)
   retains this result and its limits. No production configuration, live credential,
   parked job or service was touched.
+- **Native MXC evaluation (2026-10-03; partial):** #82 merged as `c90deb4`,
+  with passing head CI and executable/test trees still matching `e8406d5`.
+  Probe-only `mxc` selection starts the native child in the FarmBot Job Object;
+  dummy canonical credential delivery, alias/user-token withholding and empty
+  job settlement passed. Stable scratch working directories outside the checkout
+  still reject writes under CLI 0.156.1 and 0.160.0, despite confirmed narrow
+  grants; a consent-broker administrator-token comparison reproduced this.
+  A fresh working directory inside this development checkout permits the expected
+  writes and blocks its forbidden sibling. The final 0.160.0 probe took
+  **5.307 seconds**: dummy lark bot/user/missing dry runs returned **0/2/3**, but
+  native Git for Windows bash failed with **0xC0000142**, and protoc creation with
+  **WinError 623**. Its exit 0 is fixture completion, not worker readiness.
+  The operator's independent regular-PowerShell comparison then passed all allowed
+  scratch writes and its forbidden-sibling/containment/dummy-credential checks
+  outside the checkout in **5.160 seconds**; both native tool failures remained.
+  The same binaries run directly. Read-only image and sandbox mitigation checks
+  found that prebuilt protoc strips relocations, while MXC rejects stripped images;
+  Bash's exact DLL failure remains unconfirmed. The next step is compatible native
+  tools and runtime acceptance. No FarmBot backend change, binary patch, mitigation
+  exception, model/API call, production setup or deployment was made; generators
+  and real Feishu reads remain pending. The
+  [MXC record](../spikes/2026-10-03-native-windows-offline.md#native-mxc-evaluation-2026-10-03-partial)
+  preserves the measured results, hashes and limits.
 - **Remaining operational work:** selected jobs on FARM-1346 and FARM-1425 stay
   parked. Restoring TestBot's earlier code/feature setting and the private secret
   scan require the operator's next scoped action. Preserve current ledger,
