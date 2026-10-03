@@ -132,9 +132,9 @@ it merged as [#78](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/78)
 on 2026-10-03 at `707ea87`. Its final source `613c393` adds only the CI time-limit
 change; its tree equals that merge. The task text below is the historical plan;
 the implementation and operating contract govern where it differs. Task 17 is
-not complete: a passing native Windows offline baseline, the Windows
-credential-store decision, the operator's private secret scan and TestBot
-restoration remain pending.
+not complete: the Windows toolchain gaps and credential-store decision,
+real worker/desktop acceptance, the operator's private secret scan and TestBot
+restoration remain pending. The native Windows offline baseline now passes.
 
 - **Step 1, macOS offline suite:** the wiki-file candidate's full offline suite
   passed 1,725 tests in 308.294 seconds, with 18 Windows-only skips. All thirteen
@@ -142,21 +142,22 @@ restoration remain pending.
   [run 37082351164](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37082351164)
   passed 1,725 tests in 407.032 seconds, with the same 18 skips and thirteen
   journeys, using Python 3.13.15.
-- **Step 2, Windows:** the exact merged candidate `707ea87` ran once in an
-  isolated development worktree on the production Windows host on 2026-10-03,
-  with Python 3.13.16, Git 2.54.0.windows.1, Git LFS 3.7.1 and `PYTHONUTF8=1`.
-  The full command `python -B -m unittest discover -s tests -v` ran **1,725
-  tests in 859.699 seconds: 0 failures, 6 errors and 74 skips**. All thirteen
-  journeys and all seven native Job Object tests ran and passed. All six errors
-  reproduced in a focused run and end at directory-symlink creation with
-  Windows error 1314. Preflight failed the same way inside and outside the
-  sandbox: the non-elevated test token has no symlink privilege. The 74 skips
-  comprise 69 platform skips and five existing tests skipped for missing symlink
-  capability; no test or skip was changed. The sanitized
-  [native Windows record](../spikes/2026-10-03-native-windows-offline.md) lists
-  every error and skip and identifies retained UTF-8 evidence. A passing native
-  baseline remains pending until symlink capability is available. No production
-  config or runtime state was copied, and no service or Windows setting changed.
+- **Step 2, Windows:** the exact merged candidate `707ea87` passed a fresh full
+  offline suite in an isolated development checkout on the production Windows
+  host on 2026-10-03, using an operator-authorized elevated test token:
+  **1,725 tests in 906.705 seconds, zero failures or errors, 69 platform
+  skips**. All thirteen feature journeys and all seven native Job Object tests
+  ran and passed. Python 3.13.16, Git 2.54.0.windows.1, Git LFS 3.7.1,
+  `PYTHONUTF8=1` and the pinned workflow's environment sanitization were used.
+  The initial non-elevated diagnostic run had six symlink-creation errors and
+  five capability skips (1,725 tests in 859.699 seconds, 74 total skips). Each
+  error reproduced with Windows error 1314. The elevated token passed symlink
+  preflight and all eleven affected cases in a focused recheck, then the full
+  suite. The sanitized
+  [native Windows record](../spikes/2026-10-03-native-windows-offline.md) preserves
+  both runs, every error and skip, and retained UTF-8 evidence. No test, skip,
+  application code, Windows setting or account privilege was changed, and no
+  production config or runtime state was copied or changed.
   The earlier hosted run passed 1,725 tests in 2,409.401 seconds, with 69 platform
   skips, all thirteen journeys and all seven native Job Object tests executed,
   using Python 3.13.15 and `PYTHONUTF8=1`. Both jobs tested merge `a8eac11`
@@ -164,15 +165,27 @@ restoration remain pending.
   `613c393`). The earlier Windows run was cancelled at the 30-minute job limit;
   #78 raised that allowance to 60 minutes without changing tests or skips.
   Neither hosted CI nor this native offline run verifies desktop acceptance,
-  the installed feature toolchain or generators and gates inside a real Windows
-  worker sandbox.
+  generators and gates inside a real Windows worker sandbox or service-account
+  readiness; the read-only tool inventory below found gaps.
 - **Step 3, doctor:** the initial read-only Mac inspection found `feature`
   loaded but disabled, and four existing attention findings. The operator later
   enabled it for the selected tests. Buf 1.72.0 was installed with its published
   checksum verified; the Stage A tools were available. Dotnet SDK 8.0.423 remains
   an optional gap for later config-artifact checks. Read-only doctor before and
   after the withdrawal test reported the same four existing findings, with no
-  pending cleanup for that test. Windows throwaway-config doctor has not run.
+  pending cleanup for that test. The authorized Windows throwaway-config
+  doctor ran from exact `707ea87` with dummy Linear values and an empty state
+  root outside every checkout. It reported Go 1.24.9 below `>=1.25.1`, buf
+  1.73.0 instead of 1.72.0, and missing protoc, openspec and lark-cli. Dotnet SDK
+  9.0.306 leaves the optional 8.0.423 gap. Node 24.19.0, python3 3.14.3, Git LFS
+  3.7.1 and bash/coreutils/awk version probes succeeded, but `where.exe bash`
+  put the WSL launcher first. The proposed `farmbot` profile is unverified
+  because lark-cli was absent. This describes the interactive account's PATH,
+  not a future service account. Doctor exited 2 with the expected unreadable
+  empty ledger and toolchain findings; the root stayed empty and the scratch
+  directory was removed. No tool installation, credential setup, production
+  profile edit, Linear call or Feishu call occurred. The native record lists
+  the measured versions and remaining worker/generator checks.
 - **Step 4.1, Feishu setup:** the operator authorized exactly the four
   application read/download scopes and Can view on the planning subtree and
   its sub-pages. The Mac uses a dedicated FarmBot-only home, its own file key,

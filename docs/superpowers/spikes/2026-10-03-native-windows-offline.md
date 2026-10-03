@@ -1,15 +1,21 @@
 # Native Windows offline verification, 2026-10-03
 
 The exact merged candidate `707ea87ce0e6819dff873d0928e81d6220c01e02`
-was tested once in an isolated development worktree outside the running
-installation on the **production Windows host**. A read-only query observed
-the `FarmBot-Receiver` scheduled task as Running; neither its configuration nor
-its runtime state was read or copied. No Mac runtime state was copied.
+passed the native offline suite after the operator authorized an elevated test
+process: **1,725 tests, 1,656 passed, zero failures or errors, 69 platform skips**.
+All thirteen feature journeys and all seven native Windows Job Object tests
+ran and passed. The initial non-elevated diagnostic run and its symlink errors
+are retained below, followed by the measured elevated rerun.
 
-This run does **not** establish production readiness: the required directory
-symlink capability is missing from the test token. No application change or new
-skip was made to obtain a pass. The running service, credentials, live issues,
-parked jobs and production resources were not changed.
+Both runs used isolated development checkouts outside the running installation
+on the **production Windows host**. A read-only query observed the
+`FarmBot-Receiver` scheduled task as Running; neither its configuration nor
+its runtime state was read or copied. No Mac runtime state was copied.
+The passing offline baseline does not establish full production readiness:
+the feature-toolchain inventory found gaps, and real worker sandbox, credential
+store and desktop acceptance checks remain. No application change or new skip
+was made. The running service, credentials, live issues, parked jobs and
+production resources were not changed.
 
 ## Environment and command
 
@@ -25,7 +31,8 @@ parked jobs and production resources were not changed.
 - The test worktree was clean at the candidate revision and held no production
   config. Fixtures supplied temporary state, local Git remotes and fake
   worker/Linear/Unity integrations. Native execution ran outside the Codex
-  sandbox; the test token was not elevated and had no symlink privilege.
+  sandbox. The initial test token was not elevated and had no symlink privilege;
+  the follow-up test process used an elevated token after operator approval.
 
 The selected interpreter executed this command from the repository root:
 
@@ -33,13 +40,13 @@ The selected interpreter executed this command from the repository root:
 python -B -m unittest discover -s tests -v
 ```
 
-Directory symlink preflight failed with `OSError`, Windows error 1314, both
+Initial directory symlink preflight failed with `OSError`, Windows error 1314, both
 inside and outside the sandbox. The Developer Mode flag was absent. This fails
 [CI's dependency gate](../../ci.md); the operator-requested full run proceeded
 as diagnostic evidence with every test unchanged. Windows settings were not
 modified.
 
-## Measured result
+## Initial non-elevated measured result
 
 - **1,725 tests: 1,645 passed, 0 assertion failures, 6 errors, 74 skips.**
 - Unittest duration: **859.699 seconds**;
@@ -74,7 +81,41 @@ tree is unchanged from the candidate; its log and metadata are retained too.
 No exception from the production monitor was observed or inferred from this
 fixture's traceback.
 
-## Errors reproduced in focused testing
+## Elevated follow-up: passing native offline baseline
+
+The operator authorized an Administrator test process. A fresh local clone of
+the same exact candidate was checked out detached, with its own Git metadata,
+no production config and no copied runtime state. `PYTHONUTF8=1` and the same
+workflow environment sanitization were applied before Python started.
+The test process's elevated token passed the real directory-symlink preflight.
+No Developer Mode setting, account privilege, service or credential was changed.
+
+- Focused recheck: the six errored IDs and five capability-skipped IDs below
+  all ran and passed: **11 tests in 3.639 seconds**, zero failures,
+  errors or skips (4.040 seconds subprocess wall time).
+- Fresh full command: `python -B -m unittest discover -s tests -v`, with the
+  selected CPython 3.13.16 executable: **1,725 tests, 1,656 passed, zero failures
+  or errors, 69 skips**.
+- Unittest duration: **906.705 seconds**; discovery and subprocess wall
+  time: **907.306 seconds**. Started `2026-10-03T04:03:35.169336+00:00` and finished
+  `2026-10-03T04:18:42.518486+00:00`.
+- All **13 feature journeys** and all **seven native Windows Job Object tests**
+  ran and passed again, with exactly the IDs listed below.
+- The 69 skipped IDs and their reasons exactly match the initial run's platform
+  entries in the inventory below. The five entries under `Windows symlink
+  privilege unavailable`, `creating symlinks needs a privilege on this host`
+  and `symlinks unavailable` all passed in this run. The remaining skips are
+  existing platform exclusions; none was added or changed.
+- Windows, Python, Git and LFS versions match the initial environment above.
+  No application regression was found, so no code-fix branch was needed.
+
+UTF-8 logs, per-test results, focused evidence, revision/version metadata and
+the symlink preflight are retained locally under the ignored
+`reports/native-windows-707ea87-elevated/` directory. Raw logs contain private
+host paths and are not published. The full log's SHA-256 is
+`aed3d50af54660d8226f65314a22a616d4c09855aa64e4665ea69f3d2ba455eb`.
+
+## Initial errors reproduced in focused testing
 
 All six share `OSError: WinError 1314` while creating a directory symlink:
 
@@ -111,7 +152,10 @@ All six share `OSError: WinError 1314` while creating a directory symlink:
 - `test_windows_workers.WindowsWorkerTests.test_spontaneous_exit_reaps_child_and_preserves_unrelated_process`
 - `test_windows_workers.WindowsWorkerTests.test_stop_is_proven_quiescent`
 
-## Every platform and capability skip
+## Initial platform and capability skip inventory
+
+This lists all 74 initial skips. The elevated run retained exactly the 69
+platform entries; its five resolved capability skips are identified above.
 
 ### Windows worker jobs contain children; tested in test_windows_workers (1)
 
@@ -259,15 +303,71 @@ All six share `OSError: WinError 1314` while creating a directory symlink:
 
 - `test_worktrees.ReattachTests.test_no_hook_or_fsmonitor_planted_in_the_clone_runs_while_re_attaching`
 
+## Read-only Windows feature-toolchain inventory
+
+After operator approval, the selected Python ran
+`python -B -m agent.service doctor --config <scratch config>` from the exact
+candidate. The temporary config lived outside every checkout, used only
+`doctor-only` Linear values, an `offline` profile, Codex runtime, an empty
+absolute state root, enabled `chat`, `fix` and `feature`, and proposed lark-cli
+profile `farmbot` with no Windows `home`. No production config or ledger was
+read, no Linear or Feishu request ran, and no credential setup was performed.
+Doctor's probes disable update checks, downloads and telemetry. This inventory
+describes the current interactive host account's PATH, not an unmeasured future
+FarmBot service account or worker environment.
+
+Doctor completed in **4.999 seconds**, exit **2** (`incomplete`),
+with `feature_toolchain_incomplete` and the expected `ledger_unreadable` for
+the empty root. Feature was loaded and enabled only in this dummy config; no
+dummy value appeared in the output, the state root remained empty, and the
+scratch directory was removed afterwards. Go's required version uses the
+default directive because no farm-hive clone was present.
+
+| Tool | Observed | Requirement / result |
+| --- | --- | --- |
+| Go | 1.24.9 | >=1.25.1; gap |
+| protoc | not on PATH | 35.1; gap |
+| buf | 1.73.0 | 1.72.0; gap |
+| Node | 24.19.0 | >=22; passes version probe |
+| openspec | not on PATH | 1.7.0; gap |
+| python3 on PATH | 3.14.3 | readable version; passes version probe |
+| Git LFS | 3.7.1 | readable version; passes version probe |
+| bash version probe | 5.2.21 | version readable; WSL launcher first |
+| sha256sum | 8.32 | readable version; passes version probe |
+| mktemp | 8.32 | readable version; passes version probe |
+| awk | 5.1.0 | readable version; passes version probe |
+| dotnet SDK | 9.0.306 | 8.0.423; optional gap |
+| lark-cli | not on PATH | unavailable; farmbot profile presence unverified |
+
+`where.exe bash` put the WSL launcher first; Git for Windows bash therefore
+does not precede it on this PATH. A readable bash version alone does not prove
+the native shell and generator environment the Windows worker needs. The
+`python3` alias resolves to Python 3.14.3; the offline suite explicitly used
+Python 3.13.16. No generator, contract gate, Go build or real worker sandbox
+acceptance was run by these version probes. The lark-cli executable was absent,
+so its profile/store could not be inspected or certified. The private doctor
+report, sanitized tool inventory, raw bash lookup and cleanup evidence are
+retained with the elevated-run evidence.
+
+The documentation update passed all 73 skill/reference tests in 0.404 seconds.
+Current verification-section links, the Task 17 anchor, whitespace and
+`git diff --check` passed. The record was checked against every initial error
+and skip, all required journey/Job Object IDs and all 69 final skip reasons;
+the measured duration and full-log hash were verified against local evidence.
+
 ## Next verification step
 
-Provide symlink capability to the isolated test process, then verify directory
-symlink creation and rerun the six errors and five capability-skipped cases.
-A successful full offline baseline on the exact candidate remains pending;
-the diagnostic run above is not a passing release gate. Enabling Developer
-Mode or changing account privileges is an operator action outside this run.
+The native offline baseline is complete for the exact candidate on this host
+with an elevated test token. The ordinary host token still lacks directory
+symlink privilege; this result does not certify that token or the running
+service account's capabilities.
 
-Windows feature-toolchain doctor, generators/gates in a real worker sandbox,
-lark-cli store selection and bot fetching, desktop Unity acceptance, and any
-production deployment remain separately scoped work. FARM-1346 and FARM-1425
-stay parked; their unmerged test drafts are unaffected.
+Before enabling Windows feature workers, prepare the pinned toolchain (Go at
+least 1.25.1, protoc 35.1, buf 1.72.0, openspec 1.7.0 and native Git bash before
+the WSL launcher) and decide on a dedicated FarmBot service account for the
+Windows lark-cli store. Credential setup and host tool installation need their
+own scoped operator action. Then verify generators and gates in a real Windows
+worker sandbox and the bot store/fetch path. Dotnet SDK 8.0.423 remains an
+optional later config-artifact requirement. Desktop Unity acceptance and any
+production deployment also remain separately scoped work. FARM-1346 and
+FARM-1425 stay parked; their unmerged test drafts are unaffected.

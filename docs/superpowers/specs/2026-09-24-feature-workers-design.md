@@ -1172,15 +1172,21 @@ Checked on 2026-10-01–03 in the operator-selected Phase B Mac tests (the
   and a Finished session. Cleanup removed owned worktrees and read-only
   snapshots, preserving matching recovery refs for the owned worktrees.
 
-Checked on 2026-10-03 on the production Windows host, from an isolated
-development worktree at exact merged candidate `707ea87`: 1,725 offline tests
-in 859.699 seconds, zero failures, six errors and 74 skips. All thirteen feature
-journeys and all seven native Job Object tests ran and passed. The six errors
-reproduced while creating symlinks with Windows error 1314; five additional
-capability skips have the same host-privilege cause. A passing native baseline
-and the real Windows worker/toolchain/store checks remain pending. The
-[native Windows record](../spikes/2026-10-03-native-windows-offline.md) lists
-every error and skip; no production configuration or state was copied or changed.
+Checked on 2026-10-03 on the production Windows host, from isolated
+development checkouts at exact merged candidate `707ea87`: the elevated native
+offline baseline passed **1,725 tests in 906.705 seconds**, zero failures
+or errors and 69 platform skips. All thirteen feature journeys and all seven
+native Job Object tests ran and passed. The initial non-elevated run had six
+directory-symlink errors and five capability skips from Windows error 1314;
+all eleven affected cases passed after the operator authorized an elevated
+test token, before the fresh full run. No code or skip was changed. The
+throwaway-config doctor found Go/buf version gaps and missing protoc, openspec
+and lark-cli on the interactive account's PATH, with the WSL bash launcher
+first. Real Windows worker/generator, service-account/store and desktop checks
+remain pending. The
+[native Windows record](../spikes/2026-10-03-native-windows-offline.md) preserves
+both measured runs, every error/skip and the tool inventory; no production
+configuration or state was copied or changed.
 
 Found while writing this design:
 
