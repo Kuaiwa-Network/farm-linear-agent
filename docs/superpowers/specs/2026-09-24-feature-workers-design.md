@@ -1149,8 +1149,28 @@ returned an issue's screenshot, served directly with no redirect, one observatio
 created has no `creator` at all, only a `botActor`; a test card labelled 功能/Code, delegated to TestBot, which
 runs only chat and fix, opened a read-only conversation whose first activity named that, and a later
 「修复一下」 in that session was refused as feature work, so no fix started.
-Still open here: the LFS push, lark-cli as the FarmBot app, the Windows PATH tools, the proto export, and
+Still open here: the LFS push, lark-cli as the FarmBot app on Windows, the Windows PATH tools, the proto export, and
 whether `fileUpload` works with the client-credentials token.
+
+Checked on 2026-10-01–03 in the operator-selected Phase B Mac tests (the
+[Task 17 partial record](../plans/2026-09-28-feature-workers-phase-b.md#as-executed-2026-10-03-task-17-partial)):
+
+- Actual feature workers read a wiki-hosted Word attachment on FARM-1346 and
+  a native planning document on FARM-1419 as FarmBot's bot identity. The Word
+  download matched the original Linear upload; the native document was read in
+  full at revision 236. The dedicated Mac store resolved bot identity offline
+  inside the sandbox, refused worker writes and refused a user dry run. The
+  operator's private scan of logs/comments/PR text for secret values remains
+  pending; these checks do not establish the Windows store or Windows fetching.
+- FARM-1425 completed Stage A with an unmerged test contract draft and twelve
+  passing hosted contract gates, then parked at the requested stage limit with
+  no worker PID. The operator's defaults were provisional and recorded under
+  their own authorship. FARM-1419 separately verified initial Bot/Code routing
+  with no client target or Unity resource and an A-only assessment/stop.
+- Removing delegation from the parked FARM-1419 job cancelled it after two
+  confirming reads, in 65.65 seconds. Linear displayed one withdrawal response
+  and a Finished session. Cleanup removed owned worktrees and read-only
+  snapshots, preserving matching recovery refs for the owned worktrees.
 
 Found while writing this design:
 
@@ -1172,13 +1192,14 @@ Found while writing this design:
 
 ### 14.2 Open questions
 
-Answered on 2026-09-25 and folded in above: D11 to D17, and how merges move the card (§9.8). Raised
-by Phase B (its plan's Open Questions) and still pending live verification:
+Answered on 2026-09-25 and folded in above: D11 to D17, and how merges move the card (§9.8).
+The Phase B question about a session response after delegation removal was
+observed on 2026-10-03: Linear displayed the response once and completed the
+parked FARM-1419 session. This was one Mac observation, not a running-worker or
+Windows live check. The remaining Phase B operator decision is:
 
 - For the operator, before `feature` runs on the Windows host: lark-cli keeps secrets per Windows
   user (DPAPI), so a separate lark-cli home isolates nothing there. Either a host account whose
   lark-cli store holds only the FarmBot profile, or environment credentials in the `feature`
   worker's shell, which would require a separately reviewed authority change: the current code
   withholds these variables from every worker.
-- To check live: whether Linear shows the response FarmBot posts to a session whose issue is no
-  longer delegated (§9.8), and whether that response completes the session.

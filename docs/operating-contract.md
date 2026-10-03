@@ -1028,6 +1028,12 @@ older work that a conversation handed over to after it began. Without this app's
 is withdrawn, but no delegation work launches. A worker's `fetch-issue` that finds the card
 undelegated asks for a status read now; a worker never cancels other work.
 
+Observed on 2026-10-03 in one authorized TestBot check on macOS: withdrawing
+delegation from the parked FARM-1419 Code job cancelled it after two reads, in
+65.65 seconds. Linear displayed one withdrawal response and a Finished session;
+cleanup completed with owned-worktree recovery refs preserved. This observation
+does not verify running-worker withdrawal or native Windows live behavior.
+
 **A new delegation owns the card.** A delegation's `created` event, or a reply that routes a
 delegation session again, while the card is delegated here and work is active in another session:
 
