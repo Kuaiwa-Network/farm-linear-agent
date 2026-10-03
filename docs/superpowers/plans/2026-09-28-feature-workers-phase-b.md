@@ -132,8 +132,9 @@ it merged as [#78](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/78)
 on 2026-10-03 at `707ea87`. Its final source `613c393` adds only the CI time-limit
 change; its tree equals that merge. The task text below is the historical plan;
 the implementation and operating contract govern where it differs. Task 17 is
-not complete: native Windows checks, the Windows credential-store decision,
-the operator's private secret scan and TestBot restoration remain pending.
+not complete: a passing native Windows offline baseline, the Windows
+credential-store decision, the operator's private secret scan and TestBot
+restoration remain pending.
 
 - **Step 1, macOS offline suite:** the wiki-file candidate's full offline suite
   passed 1,725 tests in 308.294 seconds, with 18 Windows-only skips. All thirteen
@@ -141,15 +142,30 @@ the operator's private secret scan and TestBot restoration remain pending.
   [run 37082351164](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37082351164)
   passed 1,725 tests in 407.032 seconds, with the same 18 skips and thirteen
   journeys, using Python 3.13.15.
-- **Step 2, Windows:** the operator's Windows host has not been checked; no
-  host access was available during these observations. The same hosted run
-  passed 1,725 tests in 2,409.401 seconds, with 69 platform skips, all thirteen
-  journeys and all seven native Job Object tests executed, using Python 3.13.15
-  and `PYTHONUTF8=1`. Both jobs tested merge `a8eac11` (parents `1a2f5fc` and
+- **Step 2, Windows:** the exact merged candidate `707ea87` ran once in an
+  isolated development worktree on the production Windows host on 2026-10-03,
+  with Python 3.13.16, Git 2.54.0.windows.1, Git LFS 3.7.1 and `PYTHONUTF8=1`.
+  The full command `python -B -m unittest discover -s tests -v` ran **1,725
+  tests in 859.699 seconds: 0 failures, 6 errors and 74 skips**. All thirteen
+  journeys and all seven native Job Object tests ran and passed. All six errors
+  reproduced in a focused run and end at directory-symlink creation with
+  Windows error 1314. Preflight failed the same way inside and outside the
+  sandbox: the non-elevated test token has no symlink privilege. The 74 skips
+  comprise 69 platform skips and five existing tests skipped for missing symlink
+  capability; no test or skip was changed. The sanitized
+  [native Windows record](../spikes/2026-10-03-native-windows-offline.md) lists
+  every error and skip and identifies retained UTF-8 evidence. A passing native
+  baseline remains pending until symlink capability is available. No production
+  config or runtime state was copied, and no service or Windows setting changed.
+  The earlier hosted run passed 1,725 tests in 2,409.401 seconds, with 69 platform
+  skips, all thirteen journeys and all seven native Job Object tests executed,
+  using Python 3.13.15 and `PYTHONUTF8=1`. Both jobs tested merge `a8eac11`
+  (parents `1a2f5fc` and
   `613c393`). The earlier Windows run was cancelled at the 30-minute job limit;
   #78 raised that allowance to 60 minutes without changing tests or skips.
-  Hosted CI does not verify the operator's desktop, its installed toolchain or
-  generators and gates inside a real Windows worker sandbox.
+  Neither hosted CI nor this native offline run verifies desktop acceptance,
+  the installed feature toolchain or generators and gates inside a real Windows
+  worker sandbox.
 - **Step 3, doctor:** the initial read-only Mac inspection found `feature`
   loaded but disabled, and four existing attention findings. The operator later
   enabled it for the selected tests. Buf 1.72.0 was installed with its published
@@ -213,7 +229,8 @@ the operator's private secret scan and TestBot restoration remain pending.
   scan require the operator's next scoped action. Preserve current ledger,
   history and recovery evidence when restoring; do not replace them with an old
   pre-test database. No production deployment has occurred.
-- **Evidence:** TestBot's read-only ledger/doctor observations, retained worker
+- **Evidence:** the native Windows record and its retained offline logs/metadata;
+  TestBot's read-only ledger/doctor observations, retained worker
   reports, cleanup and recovery-ref checks, Linear session UI, and hosted CI
   artifacts. Private run data and host paths are not included in this repository.
 

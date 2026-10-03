@@ -1172,6 +1172,16 @@ Checked on 2026-10-01–03 in the operator-selected Phase B Mac tests (the
   and a Finished session. Cleanup removed owned worktrees and read-only
   snapshots, preserving matching recovery refs for the owned worktrees.
 
+Checked on 2026-10-03 on the production Windows host, from an isolated
+development worktree at exact merged candidate `707ea87`: 1,725 offline tests
+in 859.699 seconds, zero failures, six errors and 74 skips. All thirteen feature
+journeys and all seven native Job Object tests ran and passed. The six errors
+reproduced while creating symlinks with Windows error 1314; five additional
+capability skips have the same host-privilege cause. A passing native baseline
+and the real Windows worker/toolchain/store checks remain pending. The
+[native Windows record](../spikes/2026-10-03-native-windows-offline.md) lists
+every error and skip; no production configuration or state was copied or changed.
+
 Found while writing this design:
 
 - Linear: whether GraphQL returns uploads as Markdown or `<linear-image>` and replies through
