@@ -328,9 +328,11 @@ credential variables and the config-directory override after per-worker override
 selected store; it cannot remove what a worker's shell sources. Diagnostic and Unity children get
 the same removals, plus the configured kw_ops token. On Windows, lark-cli keeps every profile's secret in the user's registry, protected per
 user with DPAPI, so a separate home isolates nothing there and FarmBot refuses one. The currently
-supported Windows approach is a dedicated FarmBot service account whose lark-cli store holds only
-the FarmBot bot profile. Choosing and configuring that account remains an operator action before
-`feature` is enabled. The feature-only environment-credential variant is not implemented: current
+supported Windows store-based approach uses an account whose lark-cli store holds only the
+FarmBot bot profile, with no personal profiles or logins. A dedicated service account provides
+separate-account isolation. The operator chose the current Windows account for the 2026-10-03
+verification, with a FarmBot-only store; local credential setup and real worker/store checks remain
+pending before `feature` is enabled. The feature-only environment-credential variant is not implemented: current
 workers withhold those variables, so it would need a separate implementation and authority review.
 The native Windows read-only toolchain inventory does not verify the store or real bot fetching;
 see the [measured record and release prerequisites](superpowers/spikes/2026-10-03-native-windows-offline.md).

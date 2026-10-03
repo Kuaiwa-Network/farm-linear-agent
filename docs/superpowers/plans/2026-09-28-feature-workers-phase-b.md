@@ -204,9 +204,13 @@ restoration remain pending. The native Windows offline baseline now passes.
   expected, and the only remaining required gap is the absent `farmbot` profile,
   not the lark binary. Optional dotnet SDK 8.0.423 remains absent. Scratch and
   lark-store state were unchanged; no account, credential or service was changed.
-  This is development-prefix verification; the dedicated account's access,
-  toolchain/store and real worker checks remain pending its selection and local
-  password entry. The native record preserves this run and artifact provenance.
+  This is development-prefix verification; the running service's environment
+  and actual worker checks remain unmeasured. The operator chose the current
+  Windows account and its FarmBot-only store, citing the app's read-only scopes.
+  A private profile-setup helper passed read-only Windows PowerShell preflight;
+  local app-ID/secret entry, DPAPI resolution, strict bot mode and actual worker
+  store access remain pending. No profile or credential was created. The native
+  record preserves this run, artifact provenance and the account choice.
 - **Step 4.1, Feishu setup:** the operator authorized exactly the four
   application read/download scopes and Can view on the planning subtree and
   its sub-pages. The Mac uses a dedicated FarmBot-only home, its own file key,
@@ -254,13 +258,15 @@ restoration remain pending. The native Windows offline baseline now passes.
   read-only snapshots receive no recovery refs by design. The real issue stays
   open with its human owner. Running-worker withdrawal, re-delegation and a
   native Windows live run were not tested in this round.
-- **Step 5, Windows lark-cli:** still open. A dedicated service account is the
-  existing supported option, with only the FarmBot bot profile in its per-user
-  DPAPI store. A separate `HOME` isolates nothing on Windows. Passing credentials
-  only to feature workers is not implemented and would need a separate authority
+- **Step 5, Windows lark-cli:** account choice resolved by the operator: use the
+  current Windows account, with only the FarmBot bot profile and no personal
+  profiles or logins in its per-user DPAPI store. The app's read-only permissions
+  do not provide separate-account isolation. A separate `HOME` isolates nothing
+  on Windows. Passing credentials only to feature workers is not implemented
+  and would need a separate authority
   review and implementation; current workers withhold those variables. The
-  account/store decision remains with the operator. No Windows account or
-  credential store was configured during this task.
+  local credential setup and actual Windows sandbox/store checks remain open.
+  No Windows account or credential store was configured during this task.
 - **Remaining operational work:** selected jobs on FARM-1346 and FARM-1425 stay
   parked. Restoring TestBot's earlier code/feature setting and the private secret
   scan require the operator's next scoped action. Preserve current ledger,

@@ -432,7 +432,7 @@ scratch state remained empty and was removed; the existing lark-store state
 was unchanged. No production configuration/ledger was read, service restarted,
 account configured or feature enabled. The original unmodified-PATH inventory
 above remains valid; these results certify only the prepared development
-process, not the running service or the eventual dedicated account.
+process, not the running service or its actual worker environment.
 
 The new UTF-8 report and metadata are retained under ignored
 `reports/native-windows-toolchain-prepared-20261003/`; its report SHA-256 is
@@ -445,11 +445,37 @@ are retained with the ignored toolchain prefix. Sources are the official
 [lark-cli v1.0.82 release](https://github.com/larksuite/cli/releases/tag/v1.0.82)
 and [openspec 1.7.0 package](https://www.npmjs.com/package/@fission-ai/openspec/v/1.7.0).
 
-The next dependency is the operator's dedicated Windows account choice and
-local password entry. A standard-account creation script was prepared privately
-but not executed. The eventual account must receive only the needed tool and
-development-resource access before its own version, store and sandbox checks.
-No current interactive-account result substitutes for that account's checks.
+The operator then chose the **current Windows account**, citing the FarmBot
+Feishu app's read-only permissions. No new account is required for this chosen
+path. Its lark-cli store must remain FarmBot-only, with no personal profiles or
+user logins; the empty-store measurement above satisfies only the pre-setup
+check. Read-only Feishu scopes do not isolate other credentials belonging to
+the same Windows user, so this choice does not establish separate-account
+isolation. Actual Windows worker access to the bot's DPAPI credential remains
+unmeasured.
+
+A private local setup helper was prepared for the existing read-only FarmBot
+app. Its read-only preflight passed in Windows PowerShell: the verified 1.0.82
+binary matched its release archive and the current account's config/profile
+store remained empty. This preflight started at
+`2026-10-03T07:28:18.8645313Z`; sanitized evidence is retained under ignored
+`reports/native-windows-lark-local-*/`. A separate dummy-only subprocess fixture
+passed in Windows PowerShell 5.1: Unicode secret stdin, paths with spaces,
+credential/config/workspace-selector removal and disabled update/metadata
+flags. It accessed no lark credential store. The setup itself has **not run**: it requires the
+operator's local app-ID input and hidden secret prompt. The helper passes the
+secret on stdin, creates only a new `farmbot` profile, sets profile strict bot
+mode and checks `doctor --offline`; it saves only sanitized check names/status.
+It refuses to read or replace an existing config and performs no network
+authentication, personal login, app-scope change or production reconfiguration.
+This preparation is not evidence of a configured profile or working Feishu
+access.
+
+The account-choice documentation passed all 73 skill/reference checks in
+**0.346 seconds**, with no skips. Link, whitespace, private-path/credential
+pattern and retained-evidence checks passed. The existing native suite's error,
+skip and required-test inventories remain unchanged; no application fix or
+full-suite rerun was needed for these documentation edits.
 
 The preparation record passed all 73 skill/reference checks in 0.369 seconds,
 with no skips. Its links, whitespace, privacy scan, measured report hash and
@@ -465,9 +491,11 @@ service account's capabilities.
 
 Windows lark-cli protects registry credentials with per-user DPAPI. A separate
 `HOME` does not isolate that store, and FarmBot rejects `lark_cli.home` on
-Windows. A dedicated FarmBot service account whose lark-cli store contains only
-the FarmBot bot profile is the currently supported approach. Choosing that
-account and arranging its bot-only store remain operator decisions. The
+Windows. The supported store-based approach uses a Windows account whose
+lark-cli store contains only the FarmBot bot profile; a dedicated service
+account provides separate-account isolation. The operator chose the current
+account for this host, with its store restricted to FarmBot. Local credential
+setup, strict bot mode and actual worker/store checks remain pending. The
 feature-only environment-credential variant is **not implemented**: the
 current code withholds credential variables from every worker. That variant
 would need a separate implementation and authority review, not a config edit.
@@ -479,14 +507,16 @@ Remaining release prerequisites:
    check the actual farm-hive directive), protoc 35.1, buf 1.72.0, openspec 1.7.0,
    lark-cli and native Git for Windows bash before WSL. Verify `python3`,
    coreutils and awk in the eventual worker environment; the current `python3`
-   alias is 3.14.3 while the offline suite used selected Python 3.13.16. Dotnet
+   global alias is 3.14.3 while the prepared prefix selects Python 3.13.16. Dotnet
    SDK 8.0.423 is an optional later config-artifact requirement.
-2. Choose the dedicated FarmBot service account and, under separate scoped
-   authorization, configure only its `farmbot` bot profile and required
-   read/download permissions. Validate store isolation, strict bot mode, bot
+2. Under the operator-selected current Windows account, enter the existing
+   read-only app's ID and secret locally to configure only its `farmbot` bot
+   profile. Validate the FarmBot-only store, DPAPI credential resolution in the
+   actual worker, strict bot mode, bot
    dry runs and real planning-document/attachment reads, including Windows Word
-   conversion. Real Feishu access remains untested here; no authentication or
-   credential setup was performed.
+   conversion. The operator has requested these prerequisites one at a time;
+   manual credential input is the next dependency. Real Feishu access remains
+   untested here; no authentication or credential setup was performed.
 3. Run generators and repository gates in a real Windows worker sandbox: native
    bash/contract gates, byte-identical generated outputs, protoc with read-only
    siblings, Go builds/module caches and Git LFS. Version probes do not verify

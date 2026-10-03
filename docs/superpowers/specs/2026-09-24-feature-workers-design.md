@@ -1212,13 +1212,18 @@ Answered on 2026-09-25 and folded in above: D11 to D17, and how merges move the 
 The Phase B question about a session response after delegation removal was
 observed on 2026-10-03: Linear displayed the response once and completed the
 parked FARM-1419 session. This was one Mac observation, not a running-worker or
-Windows live check. The remaining Phase B operator decision is:
+Windows live check. The Windows account choice was recorded on 2026-10-03;
+its remaining verification is:
 
 - For the operator, before `feature` runs on the Windows host: lark-cli keeps secrets per Windows
   user (DPAPI), so a separate lark-cli home isolates nothing there. A dedicated FarmBot service
-  account whose lark-cli store holds only the FarmBot bot profile is the currently supported
-  approach; choosing and arranging it remains the operator's decision. The feature-only
+  account whose lark-cli store holds only the FarmBot bot profile provides separate-account
+  isolation. The operator chose the current Windows account, with a FarmBot-only store and no
+  personal profiles or user logins, citing the app's read-only scopes. Those scopes do not
+  isolate other credentials belonging to the same Windows user. The feature-only
   environment-credential variant is not implemented and would require a separate implementation
   and authority review: the current code withholds these variables from every worker. The
-  read-only Windows inventory found lark-cli absent from the interactive account's PATH; store
-  isolation, actual worker generators and real Feishu access remain unverified.
+  initial Windows inventory found lark-cli absent from the interactive account's PATH. The
+  prepared development prefix now supplies its verified 1.0.82 binary; local app-ID/secret input
+  and actual worker DPAPI access remain pending. The empty store and private setup helper's
+  read-only preflight do not verify a configured profile, worker generators or real Feishu access.
