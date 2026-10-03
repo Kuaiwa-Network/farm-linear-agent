@@ -819,6 +819,124 @@ seconds**, with no failures, errors or skips. Changed links, whitespace and
 private-path checks passed. The full offline suite was not repeated for these
 documentation-only changes; the earlier measured native baseline remains above.
 
+#### Relocatable protoc and MSYS initialization (2026-10-03; partial)
+
+#83 merged as `8451f606ff2fbbefd07860f640a79f716ce464ee`; its
+[merge-head CI](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37127150756)
+passed. This follow-up uses that revision, whose executable/test trees still
+match `e8406d5`. It remains isolated development on the production Windows host.
+
+A separate x64 static build of **protoc 35.1** now runs inside MXC with all four
+measured ASLR flags retained. It uses the official
+[protobuf 35.1 source release](https://github.com/protocolbuffers/protobuf/releases/tag/v35.1)
+and its pinned **Abseil 20250512.1** dependency. Source archives were verified
+against the release asset digests before extraction:
+
+| Source | SHA-256 |
+| --- | --- |
+| `protobuf-35.1.zip` | `bf89df2fa0088de9c9890fbfba0076263a36c2f84847a7b54e7e32effd6201c7` |
+| `abseil-cpp-20250512.1.tar.gz` | `9b7a064305e9fd94d124ffa6cc358592eb42b5da588fb4e07d09254aa40086db` |
+
+The Abseil digest also matches the
+[Bazel Central Registry record](https://github.com/bazelbuild/bazel-central-registry/blob/main/modules/abseil-cpp/20250512.1/source.json).
+Existing Visual Studio 2022 tools provided **MSVC 19.44.35219.0**, Windows SDK
+**10.0.26100.0** and **CMake 3.31.6-msvc6**. The globally resolved CMake 3.18.1
+was not used. Source files were unchanged; dependencies were supplied locally,
+with CMake fetching disabled. The verification-only build uses these options
+with the upstream [Windows build instructions](https://github.com/protocolbuffers/protobuf/blob/v35.1/cmake/README.md):
+
+```text
+Generator: Visual Studio 17 2022, x64; C++17
+protobuf_BUILD_TESTS=OFF
+protobuf_BUILD_SHARED_LIBS=OFF
+protobuf_BUILD_LIBUPB=ON
+protobuf_WITH_ZLIB=OFF
+protobuf_MSVC_STATIC_RUNTIME=ON
+FETCHCONTENT_SOURCE_DIR_ABSL=<verified Abseil source>
+FETCHCONTENT_FULLY_DISCONNECTED=ON
+CMAKE_EXE_LINKER_FLAGS=/DYNAMICBASE /HIGHENTROPYVA /FIXED:NO
+Build: cmake --build <build> --config Release --target protoc --parallel 4
+```
+
+The first build disabled UPB and failed with **C1083** for the required generated
+`google/protobuf/descriptor.upb.h`; its **67.444-second** attempt is retained.
+Enabling that upstream dependency corrected the build configuration. The
+successful incremental retry took **173.930 seconds**, including **166.909
+seconds** compiling/linking. This is not a clean-build timing. Its image has
+dynamic-base/high-entropy flags, **23,224 bytes** of relocation data and no
+stripped-relocation flag. Image SHA-256:
+`71b837c0c7e9a5ac1a833150f2ef4c9d97d456c5faabc0da66388ea1d204fb5a`.
+The separate image remains under ignored verification storage; no installation
+or production PATH was changed.
+
+A synthetic fixture exercises proto2 custom field options, proto3 optional/map/
+oneof/nested/enum fields, a well-known timestamp import, a service and UTF-8 text.
+Direct official/local compiler comparisons passed in **0.161 seconds**: all
+**11 files** were byte-identical (C++, Python, C#, an imported/source-info
+descriptor set, encoded bytes and decoded text). A **5.774-second** MXC probe
+then passed version, generation, encoding and decoding; all 11 hashes matched
+the official baseline. Writes to the read-only fixture marker and forbidden
+sibling were denied, allowed scratch writes passed, and the marker was unchanged.
+Job Object membership/empty settlement and dummy credential withholding/dry
+runs passed. This verifies the synthetic protoc fixture, not farm-hive or
+Farm-Contract generators, repository gates, worker cancellation or live access.
+
+MSYS remains the native blocker. A **5.722-second** matrix found **0xC0000142**
+for Bash version, a Bash builtin, `sh`, `uname`, `ls` and `awk`, before any
+repository workload. The selected Bash is Git for Windows, not WSL. The shared
+runtime reports **3.6.7-fb42d71358dd896ab324c52970f7d03f9ab0dfe5**; its SHA-256
+is `13f0b0dc94588766ecfa1867f1a00061508ba1dc62f5b8e858ac59f01e358aa0`.
+A **5.966-second** focused probe found that `LoadLibraryExW` for `msys-2.0.dll`
+fails with **WinError 1114** inside MXC. The same load and all six direct MSYS
+startup controls pass outside MXC in **0.247 seconds**, using an empty HOME and
+an environment without credentials. The packaged `strace` version works, but
+tracing crashes with **0xC0000005** in both contexts and yields an empty trace;
+that diagnostic-tool failure does not establish a sandbox-specific cause.
+
+A small local native debugger then captured the owned Bash child's loader
+events without changing host debugging settings. The final **5.765-second**
+MXC comparison observed first- and second-chance **0xC0000005** in
+**`msys-2.0.dll` at RVA `0x2ece1`**, with child ASLR flags **15**. The same
+debugger/Bash direct control exited **0**, with ASLR flags **0**. The debugger
+changes how the exception is surfaced; ordinary launch still reports
+0xC0000142. This identifies the failing module and offset, not the internal
+initialization cause or proof that ASLR is its only cause. The
+[matching runtime source](https://github.com/git-for-windows/msys2-runtime/blob/fb42d71358dd896ab324c52970f7d03f9ab0dfe5/winsup/cygwin/init.cc)
+provides the next source/symbol diagnosis target. The owned job settled empty
+after each sandbox probe, and its credential and write-denial checks passed.
+
+Retained ignored reports:
+
+- `reports/protoc-native-build-20261003T134937Z/` (initial configuration failure)
+  and `reports/protoc-native-build-20261003T135228Z/` (successful retry).
+- `reports/protoc-native-fixture-20261003T135831Z/` (direct byte comparison) and
+  `reports/isolated-windows-worker-20261003T135924Z/` (sandbox generation).
+  Sandbox stdout SHA-256:
+  `2d1ad02f81165a50977f9002e2bebbbb6940b1f77d9bb03b725c7281d827a7c3`.
+- `reports/isolated-windows-worker-20261003T135308Z/` (MSYS startup matrix),
+  `reports/isolated-windows-worker-20261003T140136Z/` (DLL load), and
+  `reports/msys-direct-control-20261003T140246Z/` (direct controls).
+- `reports/msys-loader-direct-20261003T141200Z/` and
+  `reports/isolated-windows-worker-20261003T141218Z/` (final loader comparison).
+  Sandbox stdout SHA-256:
+  `d9bf8de52a60ce863da4de0ea088d53336a808e8e90649b82acd0c3d84d2f75b`.
+
+UTF-8 raw logs, tool paths and diagnostic sources remain private. No binary
+patch, mitigation exception, account/app setting change or production action was
+made. FarmBot still generates the elevated backend; MXC was selected only by the
+verification harness and remains unaccepted. Next: diagnose the MSYS loader
+fault against matching symbols/source and establish a supported native launch
+combination before metadata/state-write/cancellation acceptance, Windows
+repository generators or real Feishu reads.
+
+Documentation validation passed **73** skill/reference tests in **0.396
+seconds**, with no failures, errors or skips. An initial run in the Codex
+execution sandbox had **33 temporary-state access errors**; the native rerun
+used fresh temporary state under the development checkout. No tests or skips
+were changed. Retained measurement/hash, changed-link, privacy and whitespace
+checks passed. The full suite was not repeated for these documentation-only
+changes; the measured native baseline remains unchanged.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
@@ -849,6 +967,9 @@ Remaining release prerequisites:
    coreutils and awk in the eventual worker environment; the current `python3`
    global alias is 3.14.3 while the prepared prefix selects Python 3.13.16. Dotnet
    SDK 8.0.423 is an optional later config-artifact requirement.
+   The separate relocatable protoc 35.1 build now passes the MXC synthetic
+   generation fixture; native MSYS initialization remains unresolved. Neither
+   direct version probes nor this fixture certify the repository generators.
 2. Local FarmBot-only profile setup is complete under the operator-selected
    current Windows account. Resolve worker credential compatibility while
    preserving containment, then verify the isolated worker's actual native
@@ -858,7 +979,7 @@ Remaining release prerequisites:
    the authorized development implementation is now merged in #81. Complete
    a supported isolated-home native launch integration: elevated initialization
    is blocked by the registered-runtime ownership incompatibility, while the
-   MXC evaluation above has native tool incompatibilities, although the
+   MXC evaluation above still has the MSYS initialization failure, although the
    independent PowerShell scratch-write comparison passed;
    merge-head CI has passed. Then verify the dummy feature credential grant and
    sandbox-child containment before privately supplying the selected controller
