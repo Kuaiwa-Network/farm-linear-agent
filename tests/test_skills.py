@@ -530,6 +530,10 @@ class FeatureInstructionTests(unittest.TestCase):
     def test_the_design_document_is_read_only_and_only_as_farmbots_app(self):
         self.assert_phrases((
             "lark-cli --profile PROFILE docs +fetch --as bot", "lark-cli --profile PROFILE drive +download --as bot",
+            "lark-cli --profile PROFILE wiki +node-get --as bot --node-token WIKI_URL",
+            "read `data.obj_type` and `data.obj_token`", "never use the wiki node token as the file token",
+            "a direct docx link needs no wiki lookup", "returns no file token",
+            "For other object types, ask for a supported design link",
             "`tools.lark_cli.profile`", "Never `--as user`, never another profile",
             "Never set or export a `LARKSUITE_CLI_` variable", "only a relative path under the current directory",
             "Fetch only links found in the card's description, its human comments and this job's session messages",

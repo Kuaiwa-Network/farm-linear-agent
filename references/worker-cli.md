@@ -169,7 +169,14 @@ subcommand, `--as bot` goes on the subcommand, and the `HOME=` part is left out 
 ```text
 HOME=<tools.lark_cli.home> lark-cli --profile <tools.lark_cli.profile> <command> --as bot ...
 HOME=<tools.lark_cli.home> lark-cli --profile <tools.lark_cli.profile> docs +fetch --as bot --doc <URL> --doc-format markdown
+HOME=<tools.lark_cli.home> lark-cli --profile <tools.lark_cli.profile> wiki +node-get --as bot --node-token <WIKI_URL>
+HOME=<tools.lark_cli.home> lark-cli --profile <tools.lark_cli.profile> drive +download --as bot --file-token <OBJ_TOKEN> --output <FILE_NAME>
 ```
+
+Resolve only a linked wiki URL with `wiki +node-get`. Its `data.obj_type` says whether to fetch a `docx`
+with `docs +fetch` or download a `file` using `data.obj_token`; the wiki node token is not the file token.
+Run the download in the state's design directory with a relative output filename. No other lark-cli
+command is authorized apart from local help (`--help`, `skills read`).
 
 Set `HOME` for that command alone; your shell keeps its own. The profile holds FarmBot's app ID and
 secret: never read, print or copy them, never use another profile, `--as user`, `auth` or `config`,
