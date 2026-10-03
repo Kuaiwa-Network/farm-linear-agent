@@ -1151,6 +1151,104 @@ Documentation validation passed **73** skill/reference tests in **0.370
 seconds**, with **0 failures, 0 errors and 0 skips**. Retained measurements and
 hashes, changed links, support-draft privacy and whitespace checks passed.
 
+#### MSYS private-namespace IPC control (2026-10-04; partial)
+
+This continues the separate development-checkout investigation on the
+**production Windows host**. #86 merged as
+`6bf4919cd9c4a74bb2602dd84fa3adf196dea0f5`; its PR CI passed. The measurements
+below ran at its recorded pre-merge head `4ba8fce`; the executable trees of
+both revisions still match candidate `e8406d5`. No service, account, app
+setting, credential or production state changed.
+
+An existing [Microsoft MXC issue #1061](https://github.com/microsoft/mxc/issues/1061)
+reports the same MSYS `NtCreateDirectoryObject` global-namespace denial.
+It remains open at this check. A
+[Microsoft member's response](https://github.com/microsoft/mxc/issues/1061#issuecomment-5669346845)
+identifies an MSYS namespace adaptation and OS namespace virtualization as
+implementation work. This is upstream context, not a fix measured on this host.
+Reviewed Git for Windows runtime source at immutable commit
+`81d9bd3d1c3680aa611ff2e5d1950787ffc95c6a` hard-codes the global path in
+`get_shared_parent_dir()` and the session `BNOLINKS` path in
+`get_session_parent_dir()` in
+[shared.cc](https://github.com/git-for-windows/msys2-runtime/blob/81d9bd3d1c3680aa611ff2e5d1950787ffc95c6a/winsup/cygwin/mm/shared.cc).
+Its [environment-options parser](https://github.com/git-for-windows/msys2-runtime/blob/81d9bd3d1c3680aa611ff2e5d1950787ffc95c6a/winsup/cygwin/environ.cc)
+has no namespace override. This reviewed source was not rebuilt or claimed to
+match the exact installed DLL's provenance. No environment-setting fix was
+established by this review.
+
+A **0.028-second** read-only build preflight of the prepared portable Git
+prefix, with empty HOME and no Bash startup files, found `gcc`, `g++`, `make`,
+`autoconf`, `automake` and `libtool` absent on that selected PATH. This is a
+source-build toolchain gap, not an application regression or a claim about
+every tool installed elsewhere on the PC. The native MSVC verification helper
+does not supply an MSYS runtime build environment; a runtime prototype needs
+a separate isolated GNU/MSYS build toolchain first. No installation was made.
+
+A verification-only native helper extends the earlier directory control.
+Each parent and owned child independently resolves the namespace of its own
+unique `Local` event. The parent creates a unique directory there, then a
+relative shared-memory section, mutex and object-manager symbolic link. The
+child reopens them, maps both the section and its link, acquires the mutex,
+checks the parent's marker and changes it; the parent verifies the update.
+These are transient fixture objects, with every owned handle closed. The
+helper neither touches an existing MSYS object/ACL nor pre-creates a global
+MSYS directory. Its sibling-write control deletes only a unique fixture file
+it has just created in the direct run; the contained write is denied.
+
+The final direct comparison took **0.074 seconds**, and the contained fixture
+took **5.711 seconds** with native Codex **0.160.0**, Python **3.13.16** and
+`PYTHONUTF8=1`. Both controls exit **0** and all four object creations return
+`STATUS_SUCCESS`. The contained native parent and child each report ASLR
+flags **15** (all four flags), versus **5** directly. Both report Job membership;
+the outer fixture confirms the sandbox process belongs to FarmBot's Job and
+that the Job settles empty. The child's sibling-write control returns Win32
+**5 / access denied** inside the sandbox, versus successful creation directly.
+The existing allowed-write/forbidden-sibling and dummy credential isolation
+controls also pass. This retains the explicit policy and security settings.
+The first attempted fixture did not forward the new helper flag; it is not
+counted as IPC verification. The corrected harness requires the requested IPC
+result to be present before accepting a completed fixture.
+
+The selected tools remain official PortableGit **2.56.0** / MSYS **3.6.10-4**
+and the separate relocatable protoc **35.1**. Git, LFS, protoc, Python, Go,
+buf, openspec and lark-cli version probes pass. Bash/version/builtin, sh,
+uname, ls and awk still return **0xC0000142**. Strict bot-only dummy dry runs
+retain exits **0 / 2 / 3** for bot / user / missing credentials. No model or
+Feishu API is called; fixture exit **0** establishes control completion.
+MXC is selected by the ignored evaluation harness only; Launcher-generated
+config and FarmBot's product backend remain **elevated**.
+
+Retained local evidence:
+
+- `reports/msys-ipc-direct-20261003T232345Z/`: direct UTF-8 output and summary.
+- `reports/isolated-windows-worker-20261003T232349Z/`: contained UTF-8 logs,
+  summary and private scratch metadata; stdout SHA-256
+  `5592a77ded6e087dca6171b57d48bc7ec1b37c3af51d28ba75664229eaecfa99`.
+- Native IPC helper SHA-256
+  `01d974de6d217b07cbf302c09eb792470e4f34eadf883be5f4e07319a54e5e57`;
+  source SHA-256
+  `63a683bf6bf83ce10c4d1cf8539a5687bf60279a407f2a7a2d87db8b75c01d33`.
+- `.local/verification/msys-namespace-upstream-evidence.json` and
+  `.local/verification/msys-namespace-source/`: pinned source-review context.
+- `reports/msys-build-preflight-20261003T232925Z/`: the selected-prefix build-tool
+  availability check, UTF-8 output and summary.
+
+This validates more primitives for a potential private-namespace adaptation;
+it does not validate actual MSYS startup, Bash pipes, MSYS fork/exec, process
+signalling, simultaneous workers or repository generators. No MSYS source or
+binary patch was applied. Next: build and review an actual MSYS adaptation or
+obtain a supported contained runtime, then execute those acceptance cases.
+The registered Codex owner/home/caller constraints from the preceding record
+remain unresolved. Actual worker credentials/state writes/cancellation, real
+Windows generators and Feishu/Word access remain pending. The operator deferred
+publishing the prepared upstream report; no new upstream issue was posted.
+
+Documentation validation passed **73** skill/reference tests in **0.605
+seconds**, with **0 failures, 0 errors and 0 skips**. No product code, test,
+skill or reference changed; a full offline-suite repeat is unnecessary for
+this documentation update. Retained measurement/hash, link, privacy and
+whitespace checks passed.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host

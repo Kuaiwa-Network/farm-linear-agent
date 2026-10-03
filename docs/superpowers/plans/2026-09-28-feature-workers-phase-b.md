@@ -405,6 +405,22 @@ restoration remain pending. The native Windows offline baseline now passes.
   A sanitized upstream request was prepared locally; submission requires
   separate explicit authorization. Native worker generators and real Feishu
   access remain pending; no account, app setting or production action changed.
+- **MSYS private-namespace IPC check (2026-10-04; partial):** #86 merged as
+  `6bf4919`. Microsoft already tracks the same global object-directory denial
+  in [MXC #1061](https://github.com/microsoft/mxc/issues/1061). Reviewed pinned
+  MSYS source hard-codes the global and session object paths; its options
+  parser provides no namespace override. A **0.074-second** direct native
+  control and **5.711-second** contained fixture both passed unique private
+  directory, shared-memory section, mutex, object-link and cross-process
+  reopening/update checks. Inside the fixture, parent and child retain all
+  four ASLR flags, the child's forbidden sibling write is denied, and the
+  FarmBot Job settles empty. Bash still fails; no MSYS runtime was patched,
+  no OS namespace virtualization was added, and FarmBot still selects the
+  elevated backend. See the
+  [IPC record](../spikes/2026-10-03-native-windows-offline.md#msys-private-namespace-ipc-control-2026-10-04-partial)
+  for measured controls, source links and remaining actual runtime/fork tests.
+  The operator deferred the prepared upstream report; no issue was posted.
+  Native workers, real repository generators and Feishu reads remain pending.
 - **Remaining operational work:** selected jobs on FARM-1346 and FARM-1425 stay
   parked. Restoring TestBot's earlier code/feature setting and the private secret
   scan require the operator's next scoped action. Preserve current ledger,
