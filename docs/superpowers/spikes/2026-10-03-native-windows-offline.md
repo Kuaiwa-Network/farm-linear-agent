@@ -1556,10 +1556,11 @@ At final source `048334d93c258680f036ffdb262adf91b26d2d8c`, the broader selectio
 still has **152 passed, four failed, 14 skipped**, in **36.764 seconds**, with
 the same four failure IDs and all 37 skip IDs. Its native CMD smoke sequence
 also passes with a clean checkout in **26.182 seconds**, without Bash or WSL.
-Go vet and whitespace checks pass. The focused native Windows job in
+Go vet and whitespace checks pass.
 [CI run 37169189943](https://github.com/Kuaiwa-Network/common/actions/runs/37169189943)
-passed on the final head; complete Linux acceptance is pending. The earlier
-failed jobs are not passing evidence.
+passed complete Linux acceptance and the focused native Windows job on the
+final head. This does not replace complete Windows producer acceptance. The
+earlier failed jobs are not passing evidence.
 
 The documentation follow-up passed all **73 relevant skill/reference tests**
 in **0.393 seconds** (**0.514 seconds** including Python startup), with no

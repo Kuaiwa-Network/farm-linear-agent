@@ -178,9 +178,9 @@ selection passes 33 top-level tests with two existing fixture skips in 17.902
 seconds. The final three-package run has 152 passes, four remaining failures
 and 14 top-level skips in 36.764 seconds; all 37 skip events are unchanged.
 Exact final source `048334d` passes native server and combined server/client
-generation/verification in 26.182 seconds without Bash or WSL. The focused
-Windows job in [CI run 37169189943](https://github.com/Kuaiwa-Network/common/actions/runs/37169189943)
-passed; complete Linux acceptance is pending. The
+generation/verification in 26.182 seconds without Bash or WSL.
+[CI run 37169189943](https://github.com/Kuaiwa-Network/common/actions/runs/37169189943)
+passed complete Linux acceptance and the focused native Windows job. The
 [CMD record](../spikes/2026-10-03-native-windows-offline.md#native-windows-cmd-follow-up-2026-10-04-partial)
 retains the reproduction, regression checks and remaining Windows gaps. The
 next code step is the private-parent fixture and Windows permission boundary;
