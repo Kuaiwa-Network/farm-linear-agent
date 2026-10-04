@@ -2895,6 +2895,125 @@ TestBot restoration remain pending. Complete producer/publication readiness
 and production feature enablement/deployment are not certified or authorized
 by this check.
 
+## Native Windows controller credential and containment follow-up (2026-10-04; partial)
+
+FarmBot [#101](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/101)
+is merged as `4149d05fe3f05ed6f56bb411c71ba27daef4cc63`. GitHub main was checked before creating
+the next documentation branch; its merged tree equals the reviewed source.
+The executable/test/skill/reference trees still equal the #81 candidate
+`e8406d547c2663703f34b007f79f306cce35b362`. This check uses the ordinary operator
+token on the **production Windows host in the separate development checkout**,
+with a fresh absolute scratch root outside the checkout/installation, including
+spaces and Unicode. Python is 3.13.16 with `PYTHONUTF8=1` set before launch.
+No production configuration/ledger, real credential store, model authentication,
+service, app settings, Windows accounts or parked work were changed or used.
+
+The read-only registered-runtime check completed in **0.357 seconds**.
+The privately selected, previously verified Codex CLI reports **0.160.0**;
+its image SHA-256 remains `37762753b554982eef1c109303d1be652b6397f1479e844794353a85650199c6`. Protected installation
+metadata reports a registered Core runtime, the current user as owner, two
+registered accounts and a completed registration. The new worker home still
+does **not** match the registered home. The owned CLI child has **no package
+identity**, with Windows query status **15700**, and `--version` exits 0.
+Its fresh home gains only `tmp`; no auth, configuration or model state is seeded.
+No provisioning helper or service request ran. This is an admission preflight,
+not a new sandbox-launch result. The retained 0.160.0 source at
+`a956835d020762cb2b570053af06f643a11c0ecc` still requires registered owner/home,
+installed package family and caller executable identity; standalone legacy
+setup cannot replace registered-runtime accounts. The earlier measured launch
+failure therefore remains unresolved. See the
+[registered-runtime admission record](#registered-runtime-admission-and-local-object-control-2026-10-04-partial).
+The [official Windows sandbox documentation](https://learn.chatgpt.com/docs/windows/windows-sandbox)
+describes elevated mode as the preferred native sandbox. This check preserves
+FarmBot's `windows.sandbox="elevated"` selection and uses no Bash, MSYS or WSL.
+
+An independent offline **controller/gate probe passed in 0.879 seconds**.
+It calls the real `Launcher.spawn`, generated isolated Codex-home configuration
+and native `windows_worker_gate`, but substitutes a native Python helper for
+`codex exec` and sets `seed_files={}`. **No Codex sandbox or model worker ran.**
+Its result establishes controller environment delivery and Windows Job Object
+containment; it does not establish sandbox filesystem/network isolation,
+read-only sibling enforcement, elevated-account tool access or real credential
+delivery through Codex's shell tool.
+
+| Attempt | Duration | Measured result |
+| --- | --- | --- |
+| Explicit dummy feature grant | 0.547 s | Canonical dummy bot ID/secret delivered; source alias, inherited user/tenant tokens, proxy key, store override and GitHub tokens withheld; strict bot mode forced and auth proxy withheld |
+| No feature grant | 0.325 s | Canonical credentials and source alias remain withheld despite hostile per-attempt overrides |
+| Missing configured source | Before process creation | Refused without creating an attempt or starting a child |
+
+Each started attempt independently observes **three owned processes** in its
+Job Object: the gate, native helper and helper's sleeping descendant. Intentional
+feature-helper exit 3 and explicit no-grant stop both reap all three processes,
+leave an empty Job Object and pass `assert_quiescent`. A separately owned unrelated
+process stays alive through both settlements, then is reaped by its own creator.
+The controller has no running attempts at completion. No source alias, dummy
+credential value or app ID appears in the prompt/config/process record; auth is
+not seeded, shell snapshots stay disabled and the source alias stays excluded.
+
+Inside the granted helper, native version probes select Python **3.13.16**, Git
+**2.54.0.windows.1**, Git LFS **3.7.1**, the private .NET SDK **8.0.423** and
+lark-cli **1.0.82** successfully. These are ordinary-token helper results,
+not proof that Codex's elevated sandbox can access those tools. The no-grant
+helper checks Python/Git/LFS/.NET, without exercising a feature-only lark grant.
+Three lark-cli `docs +fetch --dry-run` commands use only dummy environment
+credentials and a fresh empty store, with remote metadata/update checks off:
+bot exits **0**, `--as user` is refused with **2**, and missing canonical secret
+is refused with **5**. All three match the intended result. The store remains
+empty; the dummy app ID appears in the bot dry-run output, but the secret does
+not. No real planning document or Feishu endpoint is accessed.
+
+Focused native commands use the selected Python executable explicitly with
+`-B -m unittest discover -s tests -p PATTERN -v` after removing inherited
+FarmBot/fake selectors, lark variables and GitHub/controller token variables:
+
+| Pattern | Result | unittest duration | Including startup | UTF-8 log SHA-256 |
+| --- | --- | --- | --- | --- |
+| `test_windows_workers.py` | All **7** native Job Object tests pass; no skips/failures/errors | 0.511 s | 1.042 s | `fdf8ba1e85102430afc4736d0aa00f843671ac91c8205f3be0453373fdafe657` |
+| `test_lark_cli.py` | All **8** tests pass; no skips/failures/errors | 0.010 s | 0.227 s | `a781ac06ffd1af9b8143dc24fc6ae11386d816c5ae2d3b7aa9ade4c2f236f069` |
+
+Three incomplete local probe-harness runs are retained as evidence:
+`native-worker-grants-b527b132` (0.633 s),
+`native-worker-grants-396f58ac` (0.893 s) and
+`native-worker-grants-3537d376` (0.865 s). The first incorrectly
+required the nonsensitive dummy app ID to be absent from dry-run output. The
+other two incorrectly expected a no-grant lark version command to succeed while
+deliberately injecting `LARKSUITE_CLI_AUTH_PROXY`; this pinned binary refuses
+that variable because the `authsidecar` build feature is absent. The final
+harness checks secret absence separately and runs feature-only lark commands
+only in the granted attempt, retaining all credential/containment assertions.
+These were harness assumptions, not application regressions or relaxed product
+tests. Each failed run's owned Job Objects and recorded helpers/descendants are
+independently confirmed empty/dead afterward.
+
+Ignored local evidence is retained in `registered-home-readonly-20261004T092410Z`,
+`native-worker-grants-e1a9c046` and `native-worker-focused-2de4ab96`. Sanitized
+grant-summary SHA-256 is `3b2e43ad4826182e817209cccd400c588866d7165010a7c80aa1dd66c5a6ef37`; ownership-summary
+SHA-256 is `3eae9d81c5db3205ce98238def2f539af73d4eb2bd63159a77108f5e88222eb5`. Probe-source SHA-256 is
+`d756708eb2780ff4facb7ba6ded2fdc1ea20f0c8008262b6bb9c21452e6b5c52`. All four completed worker stdout/stderr logs are
+empty UTF-8 files with SHA-256
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`;
+private paths/PIDs, ownership values and raw host diagnostics stay local.
+All **73 relevant documentation tests pass** in 0.359 seconds (0.477 seconds
+including startup), without skips/failures/errors; UTF-8 log SHA-256 is
+`4c1b0a26a6cef894c7dce69888475c03a25fa411c676a852a7095dc0d1b61b8f`.
+Local links/anchors, measured evidence, privacy and whitespace are checked.
+No FarmBot runtime,
+common source, pin, containment/ownership guard or skip changed; no full offline
+suite rerun or production deployment is claimed.
+
+**Next:** complete a supported isolated-home native Codex launch integration
+without bypassing registered-runtime admission, then repeat the dummy feature
+grant and descendant checks through an actual Codex sandbox child. Only after
+that passes should the selected real controller credential source, read-only
+Feishu documents/attachments and Windows Word conversion be tested. Remaining
+native Farm-Contract/farm-hive generators and repository gates, ordinary-worker
+symlink/ownership capability, Windows desktop Unity, private secret scanning,
+approved release provenance/CI and scoped TestBot restoration remain pending.
+FARM-1346/FARM-1425 stay parked; the unmerged contract/backend test drafts are
+not release evidence. No manual account or credential setup is requested by
+this independent controller check.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
@@ -2961,8 +3080,9 @@ Remaining release prerequisites:
    MSYS finding is separate experimental evidence, not a release prerequisite
    for FarmBot's configured elevated backend; the independent PowerShell
    scratch-write comparison passed;
-   merge-head CI has passed. Then verify the dummy feature credential grant and
-   sandbox-child containment before privately supplying the selected controller
+   merge-head CI has passed. The ordinary-token native helper now verifies the controller dummy grant
+   and Job Object descendant settlement, but actual Codex sandbox-child grant
+   and containment remain pending before privately supplying the selected controller
    source and verifying a real isolated worker. Real Feishu
    access remains untested here; local profile setup performed no network
    authentication.

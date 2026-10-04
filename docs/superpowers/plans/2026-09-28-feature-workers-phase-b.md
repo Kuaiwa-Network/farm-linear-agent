@@ -452,6 +452,23 @@ Windows worker acceptance, followed by remaining native repository gates,
 ordinary-token/Unity checks and real Feishu reads. The private SDK cache does
 not configure a production worker; production and parked jobs remain unchanged.
 
+**2026-10-04 native controller/gate follow-up:** FarmBot #101 is merged as
+`4149d05`; its reviewed tree matches main. The read-only Codex 0.160.0 admission
+preflight still finds a fresh-home mismatch and a CLI child without package
+identity. No provisioning or app/account/settings change ran. Independently,
+two ordinary-token native helpers through the real FarmBot launcher/gate pass
+dummy grant/withholding checks and Job Object settlement on exit/stop, each
+with gate/helper/descendant membership observed and unrelated work preserved.
+Missing source is refused before process creation. Bot/user/missing-secret
+lark dry runs return expected 0/2/5 without real credentials or network access.
+All seven native worker tests and eight lark tests pass without skips. The
+[controller credential/containment record](../spikes/2026-10-03-native-windows-offline.md#native-windows-controller-credential-and-containment-follow-up-2026-10-04-partial)
+retains timings, hashes and the three corrected harness assumptions. This
+substitutes Python for Codex exec: **actual isolated Codex sandbox launch,
+credential delivery and filesystem/network boundaries remain unverified**.
+Next is supported native runtime integration, then actual sandbox-child dummy
+acceptance before real Feishu reads. No production runtime or parked job changed.
+
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
 it merged as [#78](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/78)
