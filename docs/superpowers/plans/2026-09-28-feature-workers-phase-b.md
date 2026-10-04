@@ -583,6 +583,22 @@ field/message/enum/error-code/README gate and all its selftests. Gates 3, 7, 9,
 10 and 12, native backend paths and actual worker/live release prerequisites
 remain pending. No production, credential or parked-job action occurs.
 
+**2026-10-05 field-gate candidate review:** Farm-Contract #322 at `d73e91d`
+ports the entire gate 7 with a shared native Python implementation and POSIX
+wrapper. Independent ordinary-token Windows checks of the committed export
+pass all 55 tests without skips, execute all six actual junction cases, accept
+60 proto files plus README and preserve all 600 exported files. Early duplicate
+map/qualified-type regressions are fixed with negative and positive coverage;
+the original options census boundary and every inherited guard/selftest remain.
+All 13 candidate CI jobs pass; exact-head field matrices run 55 Windows tests
+and 61 native plus 61 wrapper tests on each Linux/macOS host. The
+[field-gate record](../spikes/2026-10-03-native-windows-offline.md#native-windows-contract-field-gate-review-2026-10-05-candidate)
+retains timings, hashes and platform exclusions. Gate 7 requires an
+operator-approved merge and exact-merged-source acceptance; then gate 9 is
+next. Gates 3, 9, 10 and 12, native backend paths and actual worker/live release
+prerequisites remain pending. No production, credential or parked-job action
+occurs.
+
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
 it merged as [#78](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/78)

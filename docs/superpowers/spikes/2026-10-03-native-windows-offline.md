@@ -3620,6 +3620,102 @@ worker/live release prerequisites remain pending. Production feature
 enablement and deployment remain outside this authorization; parked jobs and
 unmerged test drafts remain unchanged.
 
+## Native Windows contract field gate review (2026-10-05; candidate)
+
+Farm-Contract [#322](https://github.com/Kuaiwa-Network/Farm-Contract/pull/322)
+ports gate 7 at committed source **`d73e91d6990b8eee8a545fcc6f283b3721f45285`**, based on merged
+gate 6 source **`831c1e1b5068168b433476923f7c106661b7b3f7`**. Only the native Python checker and regressions,
+POSIX wrapper, README and CI change. Protocols, OpenSpec sources and the
+canonical manifest are unchanged. This is candidate acceptance; an
+operator-approved merge and exact-merged-source verification remain required.
+
+The entire gate is retained: stat's claimed-stages field and two reward
+messages; guild talent/retro field numbers and existing type/cardinality
+predicates; the whole-body milestone prohibition; duplicate RetroClaim tags;
+two explicit first UNSPECIFIED enum zero values; the 38-message issued census;
+canonical error-code comment conflicts and active 217–227 / 228–232 coverage;
+three README-owned ranges and dynamic next-unallocated header/tail agreement.
+The four stat negative/positive selftests run before real input; the guild
+reward-id mutation runs after the candidate passes. Stat selftest/argument
+failures return 2, while real input/guard/mutation failures return 1. Full
+protobuf syntax/type validation remains `buf build`.
+
+Token recognition accepts legal multiline whitespace and comment-separated
+declarations without allowing comments/literals to supply them. The code scan
+preserves hidden top-level `.proto` coverage and case-sensitive suffixes,
+without recursion. Read failures, malformed lexical/declaration structure,
+invalid UTF-8, nonordinary sources and linked/reparse roots/inputs refuse
+acceptance. Source bytes are never normalized or written.
+
+Early parent review reproduces two draft-port regressions: map and qualified
+field types evade the original duplicate-tag assertion. They are fixed before
+acceptance, with committed duplicate-tag negatives and distinct-tag positives,
+including absolute qualified types. The original options-bearing tag-census
+boundary is preserved; it is covered explicitly and is not full protobuf
+validity evidence. No protocols or guard requirements are changed to obtain
+a pass.
+
+The parent independently exports the exact final committed source on the
+**production Windows host**, using a separate development checkout, fresh
+scratch state, the ordinary current-user token and selected Python **3.13.16**.
+`PYTHONUTF8=1` is set before Python; commands use `-I -X utf8 -B` and sanitized
+OS-variable-only child environments. Git is **2.54.0.windows.1**, Git LFS **3.7.1**.
+All **55 native Windows tests** pass with zero failures/errors/skips in
+**12.901 seconds** (12.995 including startup).
+All six real owned junction cases execute, covering repository/proto roots
+and stat/guild/README/code-scan inputs. Controlled IO faults test denied and
+disappeared inputs without changing ACLs or privileges. Six POSIX-only actual
+file-link/dangling-link/FIFO cases are defined only on POSIX; they do not
+certify ordinary-token Windows file-symlink capability or constitute Windows
+unittest skips.
+
+The real native checker accepts all **60 proto files** and the required README,
+returns exit 0 in **0.091 seconds**, and retains both success lines:
+`proto-fields OK` and `guild-compete talent proto-fields OK`. The export/check
+sequence takes **15.788 seconds**. All **600 exported files** remain byte-identical;
+aggregate SHA-256 is
+`fa03fed4aaf2909151c785462232dd105559ec86204ba01a03732abb7333fdf2`.
+Manifest SHA-256 remains
+`d6038613a74d9d2746e026278e2472db84e4950de9a49faf4671bc9c0c297323`.
+No production configuration/ledger read, credential access, Bash/MSYS/WSL
+invocation, service action or host-setting change occurs. Actual FarmBot
+worker grants, credentials and runtime remain outside this development CLI
+acceptance.
+
+[CI run 37244166468](https://github.com/Kuaiwa-Network/Farm-Contract/actions/runs/37244166468)
+matches the candidate head and succeeds in all **13 jobs**, preserving all
+existing contract gates and manifest/marker/naming jobs. Field-job logs confirm
+exact-head checkout: Windows **55** native tests in **15.243 seconds**;
+Linux **61** native plus **61** wrapper tests in **13.881 / 13.512 seconds**;
+macOS **61** native plus **61** wrapper tests in **11.896 / 12.622 seconds**.
+Each suite has zero failures/errors/skips and each real checker returns both
+success lines. Windows excludes the two wrapper steps in each field, naming,
+marker and manifest job. These workflow exclusions do not establish native
+acceptance for the other contract gates.
+
+Private UTF-8 logs and sanitized summary are retained in `native-proto-fields-candidate-2827892b`.
+Checker-source SHA-256 is
+`e2309518d41dc04d5360d7047e8f145dcb25ec95ccf2dc9ba7d519df5702b8b9`;
+native regression log SHA-256 is
+`34dad1128d3166d7369259d0f8871bcf9abf34a575cbe897e726e5d8b42c652e`;
+real-repository log SHA-256 is
+`3643f69ebc44674f10fe5c117046a2003f2862ce65bdd08e59061001dffd3d56`;
+review-summary SHA-256 is
+`cd243c880abb4a9ea7ed4ae04aa92136c9d0f88a4a5eb83db7a1f2b0c3945680`.
+
+All 73 relevant documentation tests pass without skips, failures or errors
+in 0.554 seconds (0.685 including startup); UTF-8 log SHA-256 is
+`32cee7b0992451bf8e36c1bda45e91cd25c0e6c844c80287c871eb012d89d544`.
+Evidence, links, privacy and whitespace are checked.
+
+**Next:** obtain the operator's code merge for #322 and verify its merged
+source and applicable CI, then continue with gate 9. Gates **3, 9, 10 and 12**
+still need native ports; gate 7 remains candidate evidence until merged
+acceptance. Native backend paths, actual worker/live access and the remaining
+release prerequisites below remain pending. Production feature enablement
+and deployment stay outside this authorization; parked jobs and unmerged
+test drafts remain unchanged.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
@@ -3704,8 +3800,11 @@ Remaining release prerequisites:
    tests and the real marker check passing; all seven merge-head CI jobs succeed.
    Gate 6 is merged in #321 as `831c1e1`; all 34 exact-merged-source Windows
    tests and the real 237-Ack check pass, preserving all 598 exported files;
-   all 10 merge-head CI jobs succeed. Gates 3, 7, 9, 10 and 12 still need native
-   ports; gate 7 is dispatched to the existing Farm-Contract-rooted task.
+   all 10 merge-head CI jobs succeed. Gate 7 candidate #322 now passes all 55
+   native Windows tests, the full real gate and all 13 candidate CI jobs;
+   operator-approved code merge and exact-merged-source acceptance are pending.
+   Gates 3, 9, 10 and 12 still need native ports, with gate 9 next after that
+   acceptance.
 4. Check the selected service account's symlink capability and relevant native
    ownership/process checks, then complete Windows desktop Unity acceptance.
    The elevated offline baseline does not certify the ordinary token or a
