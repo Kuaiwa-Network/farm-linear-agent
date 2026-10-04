@@ -500,8 +500,8 @@ gates and live release prerequisites remain pending; no production action,
 credential setup, Bash process or protocol/draft mutation occurs.
 
 **2026-10-04 native manifest-port review:** Farm-Contract
-[#319](https://github.com/Kuaiwa-Network/Farm-Contract/pull/319) remains an open
-code PR at `445212a`. Review reproduces junction traversal at its initial head;
+[#319](https://github.com/Kuaiwa-Network/Farm-Contract/pull/319) is initially reviewed
+as an open code PR at `445212a`. Review reproduces junction traversal at its initial head;
 the corrected generator rejects linked roots and excludes reparse directories.
 Independent ordinary-token Windows acceptance from committed bytes passes all
 19 tests, including real junctions, with no skips. Manifest check, rewrite and
@@ -514,6 +514,18 @@ remaining gates. Verify the separately approved code merge before promoting
 gate 4's candidate evidence. Gates 3, 5, 6, 7, 9, 10 and 12, native backend
 paths, actual isolated Codex workers and live release prerequisites remain
 pending. No production, credential or parked-job action occurs.
+
+**2026-10-04 merged manifest acceptance:** The operator merges Farm-Contract
+#319 as `332b22c`; its Git tree matches reviewed source `445212a`. Independent
+ordinary-token Windows verification of the exact merged export passes all
+19 regressions without skips, and manifest check/rewrite/recheck preserve all
+source bytes. All four merge-head push CI jobs succeed; the PR-only breaking
+step is excluded on push and retains its earlier passing PR result. The
+[merged manifest record](../spikes/2026-10-03-native-windows-offline.md#native-windows-merged-contract-manifest-acceptance-2026-10-04)
+retains timings, hashes and limits. Next is native gate 5 in the same
+Farm-Contract-rooted task on a separate branch. Seven other native contract
+gates and the remaining worker/live release prerequisites are still pending;
+no production or parked-job action occurs.
 
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before

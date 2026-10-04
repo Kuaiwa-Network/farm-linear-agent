@@ -3210,7 +3210,7 @@ does not certify the installed production service or enable feature workers.
 Farm-Contract [PR #319](https://github.com/Kuaiwa-Network/Farm-Contract/pull/319)
 adds a standard-library Python entry point for gate 4. The reviewed candidate is
 **`445212aa9d9be774f72c35767f82ac1eaea5493b`**, based on
-`f18cbf6a4ae4a1e98dea1f99b7c8f0983769581d`. It remains unmerged. Code changes
+`f18cbf6a4ae4a1e98dea1f99b7c8f0983769581d`. At this review checkpoint it is unmerged. Code changes
 and their regression coverage belong to the separate Farm-Contract-rooted task;
 this FarmBot change records verification only.
 
@@ -3283,7 +3283,7 @@ documentation tests** pass without skips, failures or errors in **0.371 seconds*
 Evidence hashes, links, privacy and whitespace are checked; no full FarmBot
 suite rerun is needed for this documentation-only change.
 
-**Next:** review and merge the code candidate separately, then verify the
+**Next at this checkpoint:** review and merge the code candidate separately, then verify the
 actual merged revision. Native ports remain pending for gates **3, 5, 6, 7,
 9, 10 and 12**. CI's full contract-gate pass is Linux evidence; it does not
 establish a full native Windows twelve-gate pass. The local Node 24/CI Node 22
@@ -3294,6 +3294,50 @@ private secret scan, release provenance/CI and scoped TestBot restoration
 remain release prerequisites. Neither code-candidate verification nor this
 documentation change certifies the installed production service or enables
 feature workers. Parked jobs and unmerged test drafts remain unchanged.
+
+## Native Windows merged contract manifest acceptance (2026-10-04)
+
+The operator merges Farm-Contract [#319](https://github.com/Kuaiwa-Network/Farm-Contract/pull/319)
+as **`332b22c00dc4a79e0cbb7ecad1f187023319259d`**. Its complete Git tree equals
+reviewed source `445212aa9d9be774f72c35767f82ac1eaea5493b`; this independently
+verified merge does not introduce another implementation change. FarmBot's
+candidate record [#105](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/105)
+is merged as `5d98453c4cc3058633b41af5c842cb3f8f780477`.
+
+On the production Windows host, the same ordinary-token, isolated development
+verifier exports the **exact merged committed bytes** and completes in
+**5.348 seconds**. All **19 native Windows regressions** pass without failures,
+errors or skips in **2.456 seconds** (2.548 including startup). Existing-manifest
+check, default generation and recheck all exit 0 in 0.065, 0.064 and 0.076
+seconds respectively. All 60 proto files and all 594 exported files remain
+byte-identical, with the same manifest and aggregate tree hashes as the candidate.
+No source normalization, containment change, production configuration/ledger
+read, credential access, Bash/MSYS/WSL invocation or service action occurs.
+
+[Push CI run 37202202685](https://github.com/Kuaiwa-Network/Farm-Contract/actions/runs/37202202685)
+matches the exact merged SHA and succeeds in all four jobs. The breaking-waiver
+workflow step is restricted to pull requests and therefore excluded on this
+push; it passed in the reviewed candidate's PR run above. Windows again excludes
+the two Mac/Linux shell-wrapper steps. These workflow exclusions do not earn
+native Windows acceptance for the other seven pending gates.
+
+Private UTF-8 logs and summary are retained in `native-manifest-candidate-1d16a613`.
+Native regression log SHA-256 is
+`4cd1f7309c4eed326c667cf6242955d17fbf424065be7baff4e7ef452a7c717b`;
+acceptance-summary SHA-256 is
+`24aa0bccc32718f6fdabaa783d8e0a61e698bc2eeb451ac084bcbd34eb972fdf`.
+All 73 relevant documentation tests pass without skips, failures or errors
+in 0.329 seconds (0.434 including startup); UTF-8 log SHA-256 is
+`17aa62a2b801093c13509a62960c5c24eb51ea53805f6f7cec121787d5e223d4`.
+Evidence, links, privacy and whitespace are checked.
+
+**Next:** port gate 5, the placeholder provenance-marker check, in the existing
+Farm-Contract-rooted task on a separate `codex/` branch. Preserve marker detection,
+backtick legends, built-in negative checks, source boundaries and unchanged
+protocol/spec bytes. Gate 4 now has merged native Windows entry-point evidence;
+gates 3, 5, 6, 7, 9, 10 and 12 remain pending. Full native contract/backend checks,
+actual isolated workers, real Feishu/Word, ordinary-worker capabilities, Unity
+and the other release prerequisites listed below remain open.
 
 ## Next verification step
 
@@ -3373,10 +3417,10 @@ Remaining release prerequisites:
    rejection, read-only siblings, Go caches, Git LFS and containment. Farm-hive's
    existing `config/pb/gen.bat` still calls Bash and is not such an equivalent.
    Direct common generation does not verify these paths. Use an operator-selected
-   scope without resuming parked jobs. Farm-Contract #319's corrected native
-   manifest candidate passes 19 local Windows tests and exact-head three-platform
-   CI, but remains unmerged; verify its merged revision separately. Seven other
-   required contract wrappers still lack verified native Windows entry points.
+   scope without resuming parked jobs. Farm-Contract #319 is merged at `332b22c`;
+   its exact merged source passes 19 local Windows tests and four CI jobs.
+   Seven other required contract wrappers still lack verified native Windows
+   entry points.
 4. Check the selected service account's symlink capability and relevant native
    ownership/process checks, then complete Windows desktop Unity acceptance.
    The elevated offline baseline does not certify the ordinary token or a
