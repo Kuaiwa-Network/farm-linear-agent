@@ -291,10 +291,32 @@ native Windows coverage pass in
 [CI run 37177769988](https://github.com/Kuaiwa-Network/common/actions/runs/37177769988).
 The
 [Git-executable-fixture record](../spikes/2026-10-03-native-windows-offline.md#native-windows-git-executable-fixture-follow-up-2026-10-04-partial)
-retains measured results and coverage limits. Next is the top-level-output
-fixture, preserving strict parsing, bounded execution and environment
-sanitization. Complete module, native worker/gate and Feishu acceptance remain
-pending.
+retains measured results and coverage limits. The following top-level-output
+fixture record continues the strict parsing, bounded execution and environment
+sanitization checks. Complete module, native worker/gate and Feishu acceptance
+remain pending.
+
+**2026-10-04 Git top-level-output fixture follow-up:** common #155 merged as
+`a9bdb46` and FarmBot #94 as `4bd6617`. The mock used native Windows backslashes
+where the strict parser correctly requires Git's forward-slash output.
+[common PR #156](https://github.com/Kuaiwa-Network/common/pull/156)
+corrects only the test and CI: command working directories and results retain
+native paths, while stdout uses Git's format. Spaces and Unicode, six malformed
+output cases and Windows-native backslash rejection are covered; all seven
+native rejection cases run. Runtime validation and existing skips are unchanged.
+The working fix based on `a9bdb46` passes the two probe/normalization tests in
+0.960 seconds with no skips. The expanded selection has **43 passes, two
+existing fixture skips and zero failures** in 18.502 seconds; all ten skip IDs
+are unchanged. The Git-state package has **16 passes, one failure and no skips**
+in 10.468 seconds. Only the native slow-filter timeout assertion remains in
+that package; fixture/runtime classification is still unresolved. Committed
+source is `d916b2f41eeed8c83f49ab0e2c6fb4a93beb43c3`; complete Linux acceptance
+and focused native Windows coverage pass in
+[run 37178562032](https://github.com/Kuaiwa-Network/common/actions/runs/37178562032).
+The [top-level-output fixture record](../spikes/2026-10-03-native-windows-offline.md#native-windows-git-top-level-output-fixture-follow-up-2026-10-04-partial)
+retains measured results and coverage limits. Next is the native Git timeout
+scenario, preserving descendant containment and bounded execution. Wider module,
+actual Windows worker/gate and Feishu acceptance remain pending.
 
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
