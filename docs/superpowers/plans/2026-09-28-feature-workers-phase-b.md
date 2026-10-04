@@ -214,17 +214,37 @@ passed; TempDir cleanup failed because the fixture hardlinked the running test
 image. A diagnostic run confirmed both paths are writable and share identity,
 correcting the earlier readonly classification.
 [common PR #152](https://github.com/Kuaiwa-Network/common/pull/152)
-uses an independent copy, asserts distinct identity and the specific relative
-path rejection, and requires explicit file removal. Runtime behavior and skips
-are unchanged. The working fix passes 35 focused top-level tests with two
+merged as `e3475ea`; it uses an independent copy, asserts distinct identity and
+the specific relative path rejection, and requires explicit file removal.
+Runtime behavior and skips are unchanged. The working fix passes 35 focused top-level tests with two
 existing fixture skips in 18.662 seconds. The three-package run has 154 passes,
 two remaining failures and 14 top-level skips in 36.390 seconds; all 37 skip
 IDs are unchanged. Committed source `7884d92` passed complete Linux acceptance
 and focused native Windows coverage in
 [CI run 37173629731](https://github.com/Kuaiwa-Network/common/actions/runs/37173629731). The
 [executable-fixture record](../spikes/2026-10-03-native-windows-offline.md#native-windows-executable-fixture-follow-up-2026-10-04-partial)
-retains the correction, diagnosis and measurements. The Windows-invalid
-newline snapshot fixture is next; actual workers and Feishu reads remain pending.
+retains the correction, diagnosis and measurements. The following newline-fixture
+record completes that selected test correction; actual workers and Feishu reads
+remain pending.
+
+**2026-10-04 newline-fixture follow-up:** common #152 merged as `e3475ea`
+and FarmBot #91 as `6e0ceb5`. The unsafe-tree test reproduced a fixture-creation
+failure before the snapshotter could run: Windows rejects newline filenames.
+[common PR #153](https://github.com/Kuaiwa-Network/common/pull/153)
+checks LF/CR rejection through the shared logical-path guard on every platform.
+Windows must reject the physical filename with `ERROR_INVALID_NAME` and leave
+the source empty; Unix still checks snapshotter rejection and destination cleanup.
+This does not certify physical newline-entry snapshotting on Windows. Runtime
+behavior and existing skips are unchanged. The working fix based on `e3475ea`
+passes 36 focused top-level tests with two existing fixture skips in 18.098 seconds.
+The three-package run has 155 passes, one remaining failure and 14 top-level
+skips in 36.163 seconds; all 37 skip IDs are unchanged. Committed source
+`8fd21f8e74b205793338740c8742b813132cd999` passed complete Linux acceptance and
+focused native Windows coverage in
+[CI run 37174882807](https://github.com/Kuaiwa-Network/common/actions/runs/37174882807).
+The [newline-fixture record](../spikes/2026-10-03-native-windows-offline.md#native-windows-newline-fixture-follow-up-2026-10-04-partial)
+retains measured results and coverage limits. Next is the legacy ownership
+scanner's Windows path matching; actual workers and Feishu reads remain pending.
 
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
