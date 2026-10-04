@@ -529,7 +529,7 @@ no production or parked-job action occurs.
 
 **2026-10-04 native marker-gate review:** Farm-Contract
 [#320](https://github.com/Kuaiwa-Network/Farm-Contract/pull/320), at `26e8e4a`
-on merged manifest base `332b22c`, is unmerged and ready for review. Independent
+on merged manifest base `332b22c`, is initially reviewed as unmerged and ready for review. Independent
 ordinary-token Windows verification of committed bytes passes all 23 tests
 without skips and checks all 379 OpenSpec Markdown files while preserving
 all 596 exported files. The port preserves marker/backtick/line-matching rules
@@ -542,6 +542,18 @@ Verify a separately approved merge before promoting this candidate evidence.
 Next is gate 6; gates 3, 6, 7, 9, 10 and 12, native backend paths and actual
 worker/live release prerequisites remain pending. No production, credential
 or parked-job action occurs.
+
+**2026-10-04 merged marker acceptance:** The operator merges Farm-Contract
+#320 as `8c7e591`; its full Git tree matches reviewed source `26e8e4a`.
+Independent ordinary-token Windows verification of the exact merged export
+passes all 23 tests without skips and accepts all 379 OpenSpec Markdown files,
+preserving all 596 exported files. All seven merge-head push CI jobs succeed;
+the PR-only breaking step retains its earlier passing PR result. The
+[merged marker record](../spikes/2026-10-03-native-windows-offline.md#native-windows-merged-contract-marker-acceptance-2026-10-04)
+retains timings, evidence hashes and workflow exclusions. Gate 6 is dispatched
+to the same Farm-Contract-rooted task on a separate branch; gates 3, 6, 7, 9,
+10 and 12, native backend paths and actual worker/live release prerequisites
+remain pending. No production, credential or parked-job action occurs.
 
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
