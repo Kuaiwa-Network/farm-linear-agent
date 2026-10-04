@@ -1249,6 +1249,138 @@ skill or reference changed; a full offline-suite repeat is unnecessary for
 this documentation update. Retained measurement/hash, link, privacy and
 whitespace checks passed.
 
+## Native Windows tools follow-up (2026-10-04; partial)
+
+The operator chose native Windows tools, keeping Bash for Mac/Linux testing.
+The earlier MSYS failures came from the experimental MXC evaluation; FarmBot
+selects the elevated Windows backend for both fix and feature workers. Those
+MXC findings do not prove that the working bug fixer, or the configured feature
+backend, cannot run its tools. Further MSYS build work is deferred.
+
+The first check reused common's existing native `designer/tools/gen-config.cmd`
+launcher. An isolated checkout of `945550c84cdf15121397e8e2818c7015d3aa4124`
+on this **production Windows host**, outside the running installation, passed
+version and inventory but failed generation: the privately built pinned plugin
+reported `protoc-gen-go.exe v1.36.8`; the preflight expected
+`protoc-gen-go v1.36.8`. The new regression reproduced that failure before
+the fix. This is a native generator bug, independent of MSYS.
+
+[common draft PR #148](https://github.com/Kuaiwa-Network/common/pull/148)
+compares the exact private executable basename and pinned version, retains the
+single-line check, corrects the fake tools to match upstream, and adds focused
+PowerShell Windows CI. No containment, ownership check, dependency pin or
+skip was weakened. This PR is unmerged; no production generator was upgraded.
+At head `ba5bfa9e907462ab28f8b73b62aac3158b456525`,
+[CI run 37165148969](https://github.com/Kuaiwa-Network/common/actions/runs/37165148969)
+passed both complete Linux acceptance and the focused native Windows language
+regression job. The first Windows run lacked protoc and could not canonicalize
+the hosted Go SDK path; the CI-only follow-up supplies checksum-pinned native
+protoc 35.1 and a real scratch copy of Go 1.25.1, preserving the path checks.
+That focused job does not run the complete Windows producer suite.
+
+Measured on clean candidate `289c406dd25701d297923a94e6aca3231409097a`:
+CPython 3.13.16 with `PYTHONUTF8=1` set before startup, native CMD, Go 1.25.1
+and protoc 35.1; Git 2.54.0.windows.1 and Git LFS 3.7.1. Inherited
+FarmBot/fake-worker selectors, Feishu credentials
+and GitHub token variables were removed. Go build/module caches and generated
+outputs used development scratch directories; Git hooks/fsmonitor were off.
+No production config, ledger or credential store was read.
+
+| Native command through `gen-config.cmd` | Exit | Seconds |
+| --- | --- | --- |
+| `version` | 0 | 2.313 |
+| `inventory --out ABSOLUTE_FILE` | 0 | 1.228 |
+| `generate --profile farm-hive --out ABSENT_DIR` | 0 | 7.167 |
+| `verify --profile farm-hive --against GENERATED_DIR` | 0 | 2.878 |
+| `generate --profile farm-hive --profile unity-client --out ABSENT_DIR` | 0 | 8.342 |
+| `verify --profile farm-hive --profile unity-client --against GENERATED_DIR` | 0 | 3.106 |
+
+The sequence, including revision/status/version probes, took **25.277 seconds**.
+The checkout remained clean. Bash and WSL were not invoked. This proves the
+listed direct native operations, not execution inside a real FarmBot worker,
+C# compilation, complete producer acceptance or release readiness.
+
+`go vet ./internal/toolchain` passed. The native focused command
+`go test -count=1 -run '^TestGenerateLanguages' ./internal/toolchain`
+passed **22 top-level tests**, with **two existing explicit-fixture skips**,
+in **6.686 seconds** subprocess wall time. Native generation above ran separately.
+
+The broader `go test -count=1 ./internal/artifact ./internal/repoinfo ./internal/toolchain`
+selection is not green: **169 top-level tests, 148 passed, seven failed,
+14 skipped**, in **34.767 seconds**. An untouched baseline checkout repeated
+the same selection in **37.019 seconds**: **168 top-level tests, 147 passed,
+the same seven failures and the same skips**. The extra passing test is the
+new version regression. Go subtests are not added to these top-level totals.
+
+The seven remaining failed top-level tests are:
+
+- `TestMaterializeModuleRequiresFreshChildOfPrivateParent`: Windows fixture/private-parent semantics need review.
+- `TestMaterializeModuleCleanupPreservesReplacementIdentity`: replacement identity was not preserved.
+- `TestSnapshotterRejectsUnsafeTreesFreshnessAndOverlap`: Windows rejected the fixture's newline filename before the check.
+- `TestSnapshotterCleanupPreservesReplacementDestinationIdentity`: replacement marker was not preserved.
+- `TestWindowsLauncherRejectsMalformedPreflightWithoutRunningGo`: malformed native CMD preflight behavior differs from its required exit/result.
+- `TestResolveExecutableRejectsRelativeLookPathResultWithErrDotDisabled`: fixture cleanup encounters Windows read-only file semantics.
+- `TestLegacyOwnershipScannerRejectsDatedActiveFiles`: Windows path matching needs review.
+
+A first longer temporary-root run also hit two Git fixture path-length failures;
+the shorter fresh system-temp run above removed those failures without changing
+Git settings. The two cleanup-identity failures remain the next priority; their
+checks must be repaired, not skipped. No claim is made about other Windows
+generator or gate paths.
+
+All **37 skip events**, including subtests, were already present on baseline.
+The ordinary native test token lacks symlink privilege; no privilege or Windows
+setting was changed. The complete sanitized skip inventory is:
+
+| Test or subtest | Reason |
+| --- | --- |
+| `TestReadBoundRegularRejectsIntermediateDirectoryReplacementAfterRead` | Open-directory replacement unavailable: access denied. |
+| `TestLoadInputSetRejectsLinksAndInvalidModulePins/symlink_toolchain.json` | Symlink privilege unavailable on this test token. |
+| `TestLoadInputSetRejectsLinksAndInvalidModulePins/symlink_go.mod` | Symlink privilege unavailable on this test token. |
+| `TestLoadInputSetRejectsLinksAndInvalidModulePins/symlink_go.sum` | Symlink privilege unavailable on this test token. |
+| `TestReadRejectsInvalidUTF8AndLinkedManifest/symlink` | Symlink privilege unavailable on this test token. |
+| `TestProductionSourceDigestMatchesExactPackerPipeline` | Linux-only independent packer comparison; platform-neutral digest tests ran. |
+| `TestBoundRootContainsDirectoryIdentitySkipsSymlinksWithoutFollowing` | Symlink privilege unavailable on this test token. |
+| `TestSnapshotterRejectsUnsafeTreesFreshnessAndOverlap/symlink` | Symlink privilege unavailable on this test token. |
+| `TestSnapshotterRejectsUnsafeTreesFreshnessAndOverlap/case_collision` | filesystem is case-insensitive |
+| `TestValidateTreeRejectsPhysicalMutations/symlink` | Symlink privilege unavailable on this test token. |
+| `TestValidateTreeRejectsPhysicalMutations/fifo` | mkfifo unavailable: exec: "mkfifo": executable file not found in %PATH% |
+| `TestBuildRejectsUnsafePhysicalRootShapes/root_symlink` | Symlink privilege unavailable on this test token. |
+| `TestBuildRejectsUnsafePhysicalRootShapes/directory_symlink` | Symlink privilege unavailable on this test token. |
+| `TestBuildRejectsUnsafePhysicalRootShapes/case-colliding_files` | filesystem does not support case-distinct fixture names: open <private-path> |
+| `TestBoundTreeWalkRejectsDirectorySymlinkSwapBeforeEnumeration` | Symlink privilege unavailable on this test token. |
+| `TestGenerateLanguagesRejectsInvalidStagingBeforeRunningTools/case_collision` | filesystem is case-insensitive |
+| `TestGenerateLanguagesRejectsInvalidStagingBeforeRunningTools/schema_file_symlink` | Symlink privilege unavailable on this test token. |
+| `TestGenerateLanguagesRejectsInvalidStagingBeforeRunningTools/schema_root_symlink` | Symlink privilege unavailable on this test token. |
+| `TestGenerateLanguagesRejectsInvalidStagingBeforeRunningTools/module_root_symlink` | Symlink privilege unavailable on this test token. |
+| `TestGenerateLanguagesRejectsInvalidStagingBeforeRunningTools/output_symlink_ancestor` | Symlink privilege unavailable on this test token. |
+| `TestSourceDigestRejectsUnsafeTrees/newline_name` | Windows does not permit newline path components |
+| `TestSourceDigestRejectsUnsafeTrees/backslash_name` | a backslash is a Windows path separator |
+| `TestSourceDigestRejectsUnsafeTrees/symlink` | Symlink privilege unavailable on this test token. |
+| `TestSourceDigestRejectsUnsafeTrees/fifo` | mkfifo unavailable: exec: "mkfifo": executable file not found in %PATH% |
+| `TestSourceDigestRejectsUnsafeTrees/root_symlink` | Symlink privilege unavailable on this test token. |
+| `TestGenerateLanguagesRejectsMissingExtraAndMalformedOutputs/symlink_Go` | Symlink privilege unavailable on this test token. |
+| `TestGenerateLanguagesProductionFixture` | Requires an explicit existing empty production fixture directory. |
+| `TestGenerateLanguagesProductionSingleViews` | Requires an explicit existing empty single-view fixture directory. |
+| `TestSystemRunnerCommandEnv/Unix_nonnull_empty_does_not_inherit` | Windows requires SYSTEMROOT in every explicit environment |
+| `TestSystemRunnerRejectsExecutableSymlink` | Symlink privilege unavailable on this test token. |
+| `TestFromEnvRejectsUnsafeRootsAndPaths` | Symlink privilege unavailable on this test token. |
+| `TestProfilePathRejectsEscapesAndLinks` | Symlink privilege unavailable on this test token. |
+| `TestLegacyShellGuardRejectsDatedActiveFilesThroughNeutralWrapper` | POSIX Bash legacy guard test. |
+| `TestLegacyShellGuardRetainsExactHistoricalDocumentationExemptions` | POSIX Bash legacy guard test. |
+| `TestUnixLauncherUsesItsCheckoutAndPreservesArguments` | Unix launcher test. |
+| `TestUnixLauncherRejectsMalformedPreflightWithoutRunningGo` | Unix launcher test. |
+| `TestCheckClientExportRejectsOptionLikeBaseRefBeforeGit` | Unix gate script test. |
+
+UTF-8 logs, durations, revisions, command outcomes and SHA-256 hashes remain
+in ignored local `reports/native-common-*/` directories. The final native
+sequence's server-generation log hash is
+`4ff5e3e83bd84c4fa9d8c5598c79a5563385162e26671401c10d4870929eeb13`;
+the combined-generation log hash is
+`45c0af91d960875e97372f64cf98a33565185f752ba67951ec26dddff4ea9943`.
+Raw temporary paths remain local. Real Feishu access and Windows worker
+acceptance remain pending.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
@@ -1272,18 +1404,16 @@ into worker accounts.
 
 Remaining release prerequisites:
 
-1. The development prefix now passes required executable probes. Prepare and
-   verify the selected Windows account's toolchain: Go at least 1.25.1 (then
-   check the actual farm-hive directive), protoc 35.1, buf 1.72.0, openspec 1.7.0,
-   lark-cli and native Git for Windows bash before WSL. Verify `python3`,
-   coreutils and awk in the eventual worker environment; the current `python3`
-   global alias is 3.14.3 while the prepared prefix selects Python 3.13.16. Dotnet
-   SDK 8.0.423 is an optional later config-artifact requirement.
-   The separate relocatable protoc 35.1 build now passes the MXC synthetic
-   generation fixture; native MSYS startup is blocked by an object-directory
-   access denial inside the MXC evaluation, including the latest tested portable
-   Git. Neither
-   direct version probes nor this fixture certify the repository generators.
+1. Use native Windows entry points and tools: configured Python 3.13.16, Git
+   and Git LFS, Go respecting each repository's pin, protoc 35.1, buf 1.72.0,
+   Node/openspec 1.7.0 and lark-cli. The global `python3` alias is 3.14.3 and
+   must not select the verifier's interpreter. Common's native CMD generation
+   now passes at the development candidate above; review its draft fix and
+   repair the outstanding Windows ownership/fixture failures before complete
+   producer acceptance. Dotnet SDK 8.0.423 remains needed for C# compilation.
+   Keep Bash for Mac/Linux testing. The current doctor's legacy Windows Bash
+   inventory is not proof that equivalent native generators/gates exist;
+   update its requirements together with the verified native workflow.
 2. Local FarmBot-only profile setup is complete under the operator-selected
    current Windows account. Resolve worker credential compatibility while
    preserving containment, then verify the isolated worker's actual native
@@ -1292,18 +1422,22 @@ Remaining release prerequisites:
    conversion. The operator has requested these prerequisites one at a time;
    the authorized development implementation is now merged in #81. Complete
    a supported isolated-home native launch integration: elevated initialization
-   is blocked by the registered-runtime ownership incompatibility, while the
-   MXC evaluation above still denies the MSYS shared-object directory, although the
-   independent PowerShell scratch-write comparison passed;
+   is blocked by the registered-runtime ownership incompatibility. The MXC
+   MSYS finding is separate experimental evidence, not a release prerequisite
+   for FarmBot's configured elevated backend; the independent PowerShell
+   scratch-write comparison passed;
    merge-head CI has passed. Then verify the dummy feature credential grant and
    sandbox-child containment before privately supplying the selected controller
    source and verifying a real isolated worker. Real Feishu
    access remains untested here; local profile setup performed no network
    authentication.
-3. Run generators and repository gates in a real Windows worker sandbox: native
-   bash/contract gates, byte-identical generated outputs, protoc with read-only
-   siblings, Go builds/module caches and Git LFS. Version probes do not verify
-   these paths. Use an operator-selected scope without resuming parked jobs.
+3. Provide native Windows equivalents for the remaining Farm-Contract and
+   farm-hive generators/gates, then run them in a real Windows worker: preserve
+   canonical hashes, exact output sets, contract reachability and dirty-source
+   rejection, read-only siblings, Go caches, Git LFS and containment. Farm-hive's
+   existing `config/pb/gen.bat` still calls Bash and is not such an equivalent.
+   Direct common generation does not verify these paths. Use an operator-selected
+   scope without resuming parked jobs.
 4. Check the selected service account's symlink capability and relevant native
    ownership/process checks, then complete Windows desktop Unity acceptance.
    The elevated offline baseline does not certify the ordinary token or a
