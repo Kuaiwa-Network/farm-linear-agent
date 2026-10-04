@@ -411,6 +411,28 @@ retains exact provenance and coverage limits. Next is an offline recheck with
 a symlink-capable token on the operator-selected current account. Complete
 producer, actual worker/gate and Feishu acceptance remain pending.
 
+**2026-10-04 symlink-capable token follow-up:** common #160 merged as
+`34dd6dd` and FarmBot #99 as `5db0d67`. On the same operator-selected account,
+an elevated offline token passed file/directory symlink capability and all
+five previously failing symlink cases, without skips. The exact-merge full
+module activated 26 skip IDs and found one broken-link no-follow classification
+regression. [common PR #161](https://github.com/Kuaiwa-Network/common/pull/161)
+classifies only verified reparse metadata rejection; strict artifact walks and
+skipped-link type-change checks remain enforced. At clean committed source
+`1d3a68a08f300ac77bbcf9cdbbfb053752e1c2f8`, the full native module has
+**538 passes, zero failures and 25 top-level skips** in 59.051 seconds,
+with 35 total skip events. All 26 activated IDs pass. All eight native
+publication, four archive cleanup/refusal and 15 Excel XML cases still pass.
+The [symlink-capable token record](../spikes/2026-10-03-native-windows-offline.md#native-windows-symlink-capable-token-follow-up-2026-10-04-partial)
+retains every remaining skip/reason and local UTF-8 evidence hashes. This
+elevated development check on the production host does not certify the ordinary
+worker token. Next are common fix review/merge and pinned .NET/C# checks;
+complete producer, actual Windows worker/gate/Unity and Feishu acceptance
+remain pending. Complete Linux acceptance and focused native Windows CI pass
+at that source in [run 37188965053](https://github.com/Kuaiwa-Network/common/actions/runs/37188965053).
+No production configuration, ledger, account/settings or
+service change occurred.
+
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
 it merged as [#78](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/78)
