@@ -2771,6 +2771,130 @@ real Feishu planning-document/attachment reads, the private release scan and
 scoped TestBot restoration remain pending. No parked job resumed; the unmerged
 FARM-1425 contract/backend test drafts remain non-release provenance.
 
+## Native Windows .NET and C# follow-up (2026-10-04; partial)
+
+GitHub confirms common #161 merged as
+`b367febe20d6db65ebb386aa871bdb2671df9525` and documentation-only FarmBot #100
+as `612279cffc64811627ba4f4b2b6a711ae5c17636`. Their merged trees match the
+reviewed source trees exactly; no post-merge code was left on either branch.
+Both completed development branches were removed, and their verification
+processes exited. The preserved local audit retains this provenance.
+
+This next check ran on the **production Windows host in the separate
+development checkout**, at exact merged common, using the **ordinary operator
+token**. It read no production configuration/ledger or lark-cli credential
+store, authenticated to no Feishu/Linear endpoint, started no service and
+changed no account, app setting, global PATH or production deployment. Parked
+jobs and their unmerged test drafts remain untouched.
+
+The host's discoverable SDK was **9.0.306**, so it did not satisfy the exact
+**8.0.423** acceptance pin. The verifier fetched Microsoft's
+[official .NET 8 release metadata](https://builds.dotnet.microsoft.com/dotnet/release-metadata/8.0/releases.json)
+and selected the
+[8.0.423 Windows x64 ZIP](https://builds.dotnet.microsoft.com/dotnet/Sdk/8.0.423/dotnet-sdk-8.0.423-win-x64.zip).
+Its 285,072,593 bytes matched the published SHA-512 before extraction:
+`063fcc35c136277e6fd767c66579f3b92db22a078a7f0c7177b6af1edb2c9afae1613f6cfdc01acf7421773d9ac77f0ef73a7fd8b37f469e7e3505e5c1361ba0`.
+Archive paths and duplicate/link entries were checked before unpacking into
+the ignored private verification cache. Preparation took **29.437 seconds**.
+This is a private development SDK, not a system installation or a production
+worker configuration change.
+
+The selected executable reported **8.0.423**. Python 3.13.16 began with
+`PYTHONUTF8=1`; Go 1.25.1 `windows/amd64`, protoc 35.1, Git 2.54.0.windows.1
+and Git LFS 3.7.1 were measured. The runner removed inherited FarmBot/Lark,
+Git/Go, .NET/NuGet/MSBuild and credential-provider selectors, disabled Git
+hooks/fsmonitor and used explicit native executable paths. A fresh short
+scratch parent contained space-bearing fixture/output paths, pinned
+`global.json` with roll-forward disabled, private `DOTNET_CLI_HOME`, NuGet
+packages/HTTP cache and compiler object/output directories. Restore used an
+explicit temporary NuGet config containing only public nuget.org and the
+checked-in dependency lock. Public SDK/package downloads were preparation;
+no live FarmBot integration was contacted. Builds used `--no-restore`,
+disabled shared compiler/MSBuild servers, and preserved warnings-as-errors.
+Bash/MSYS/WSL were not invoked.
+
+An initial attempt failed before compilation because the verifier's temporary
+NuGet config incorrectly put `<clear/>` in `packageSourceCredentials`.
+NuGet treated it as an incomplete credential entry. Removing that invalid
+section fixed the harness; no credentials were supplied or read. Its failed
+restore took **0.912 seconds** and its UTF-8 log SHA-256 is
+`e4d8ff1a1c345e4edc120e50cca6fb8e439e94657b0ec65a448c7013e3f91e99`.
+It is not an application regression or passing acceptance evidence.
+
+The corrected native sequence completed in **38.548 seconds**:
+
+1. `go test -json -count=1 -run
+   '^(TestGenerateLanguagesProductionFixture|TestGenerateLanguagesProductionSingleViews)$'
+   ./internal/toolchain -args -fixture-root <fresh-empty-combined-dir>
+   -single-view-fixture-root <fresh-empty-single-views-dir>` ran both previously
+   opt-in production language tests. Both passed in **6.335 seconds**, with
+   **zero failures and zero skips**. They compile generated Go and verify
+   generated-byte stability and plugin cleanup. The client-only case removes
+   Go from PATH and still generates C# successfully with the pinned protoc.
+2. Copies of the checked-in `Farm.Config.Generated.Compile.csproj` and
+   `packages.lock.json` were restored with `dotnet restore --locked-mode`
+   and built with `dotnet build -c Release --no-restore`, setting
+   `GeneratedConfigRoot` and separate private object/output directories.
+   The target remains `netstandard2.0`, C# 9.0 and exact Google.Protobuf
+   **3.35.1**. Combined and client-only frozen fixtures each compiled all
+   **four generated C# files** with zero warnings/errors.
+3. Native `designer/tools/gen-config.cmd generate --profile farm-hive
+   --profile unity-client --out <fresh-absent-artifact>` generated the full
+   designer artifact at the exact merged common revision in **11.019 seconds**.
+   Native `verify` passed before compilation in **4.204 seconds**.
+   The same locked C# project compiled all **103 generated C# files** in
+   **1.397 seconds**, with zero warnings/errors.
+4. The complete full artifact had **597 files**. Its independent tree hash
+   stayed `10a08d41150d64a70530fe8f25450d5c9f16a8052c1de6f11f8dc304af89d769`
+   through restore/build; both frozen-fixture trees also stayed unchanged.
+   Every copied lock stayed byte-identical and the resolved assets contain
+   Google.Protobuf 3.35.1. Native `verify` passed again after compilation in
+   **3.122 seconds**. The common checkout remained clean.
+
+All three C# builds passed with **zero warnings and zero errors**:
+
+| Scope | Generated C# files | Restore duration | Build duration |
+| --- | ---: | ---: | ---: |
+| combined-fixture | 4 | 8.251 seconds | 1.373 seconds |
+| client-only-fixture | 4 | 0.545 seconds | 0.982 seconds |
+| actual-common | 103 | 0.555 seconds | 1.397 seconds |
+
+UTF-8 logs, versions, revision, selected tool metadata, generated/assembly
+hashes and durations remain local. Passing check log SHA-256 hashes are:
+
+- `language-fixtures`: `e45e06673a34ac2a024c7f3d9c5f3329f5c77aea000b20f0df06cc49dfba0fbf`.
+- `combined-fixture-restore`: `5068d420ebe37a6dd8b8d46a4348351cfab13f3bc44608bd3d8a1fa5c41c9090`.
+- `combined-fixture-build`: `84429c06c614cb23efd774e7c5396c344706ddedfad2834c52db15596bd34bac`.
+- `client-only-fixture-restore`: `d33ff5d425f841800147a8690b489c7514023a4a6134169dcb2b8cd9d8f04146`.
+- `client-only-fixture-build`: `db6b21216dbed32896756dc039dd10e1d2bd013d88bab6e306c55cb7c154b614`.
+- `generate-common-combined`: `a7526047342515363903896da570ca6da08df4cef966c282d50da088742897b2`.
+- `verify-common-combined`: `5d699f8f7a471ad82a44882dd97fbb59e71bc246d7bd8588b1ef3840143832b2`.
+- `actual-common-restore`: `1053e968286e535bf01e1bd1e949ca25a3e619b858b3f69f3504185c7673b1a0`.
+- `actual-common-build`: `959f4e5217c329e573e0ddb079732c4c47f4fe5d030da490330087bb06071aa2`.
+- `verify-common-after-compile`: `5d699f8f7a471ad82a44882dd97fbb59e71bc246d7bd8588b1ef3840143832b2`.
+
+This focused sequence activated the two opt-in language tests from the prior
+full-module skip inventory. That historical inventory remains unchanged in
+its record; no new full module or FarmBot controller suite run is claimed.
+Common source/runtime, schemas, generated checked-in outputs, dependency pins
+and warnings are unchanged. No code fix or new skip was needed. All 73 relevant
+skill/reference tests pass in **0.365 seconds** (0.487 seconds including
+startup); their UTF-8 log SHA-256 is
+`5908205fb8274412b22f98c32df98efcb9950b919875a560dae3bf6ef07ec98e`.
+Measured-evidence, local-link/anchor, privacy and whitespace checks pass.
+This documentation-only update needs no full-suite rerun or hosted-CI wait.
+
+Next is actual isolated Windows worker acceptance: prove native launch,
+read-only sibling access, dummy feature credential grants and descendant
+containment before any real credential/read test. The separate .NET cache
+does not establish that a deployed worker can select/access it. Native
+Farm-Contract/farm-hive generator/gate equivalents and their worker runs,
+ordinary-token symlink/ownership capability, Windows desktop Unity, real Feishu
+planning-document/attachment reads, the private release scan and scoped
+TestBot restoration remain pending. Complete producer/publication readiness
+and production feature enablement/deployment are not certified or authorized
+by this check.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
@@ -2810,14 +2934,18 @@ Remaining release prerequisites:
    Workbook mode fixture correction #160 is merged; all 15 Excel XML tests
    pass without skips. The same-account elevated recheck passed all five
    symlink cases and exposed one no-follow classification regression.
-   Common #161 fixes it; its committed-source full native module has 538 passes,
+   Common #161 is merged; its committed-source full native module has 538 passes,
    zero failures and 25 top-level skips (35 skip events). The ordinary worker
-   token is not certified by this elevated test. Review/merge of #161, pinned
-   .NET/C# checks and complete producer acceptance remain pending.
+   token is not certified by that elevated test. On exact merged #161, the
+   separate ordinary-token sequence passes both opt-in production language
+   fixtures without skips and compiles the full artifact's 103 generated C#
+   files with zero warnings/errors using private .NET 8.0.423. Complete
+   producer/publication and actual worker tool-selection acceptance remain pending.
    Preserve the distinction between host capabilities, fixture assumptions
    and application regressions during the focused rechecks.
-   Dotnet SDK 8.0.423 remains needed
-   for C# compilation.
+   .NET SDK 8.0.423 is checksum-verified in the private development cache;
+   locked native C# compilation now passes. Its production worker selection
+   and access remain untested; the host's global SDK is still 9.0.306.
    Keep Bash for Mac/Linux testing. The current doctor's legacy Windows Bash
    inventory is not proof that equivalent native generators/gates exist;
    update its requirements together with the verified native workflow.
