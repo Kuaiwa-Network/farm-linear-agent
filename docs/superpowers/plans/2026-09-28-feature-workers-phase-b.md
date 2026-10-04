@@ -191,7 +191,8 @@ common #150 merged as `c3aa16f`; the latter tree matches the tested `048334d`.
 The private-parent failure came from a fixture that leaves its Windows parent
 unchanged but expects Unix mode-policy rejection. The active common contract
 requires caller-trusted Windows parents and does not certify ownership/DACL
-safety. [common PR #151](https://github.com/Kuaiwa-Network/common/pull/151)
+safety. [common PR #151](https://github.com/Kuaiwa-Network/common/pull/151), now
+merged as `77f0056`,
 preserves Unix 0755-parent rejection and checks successful native Windows
 creation of exactly the three retained documents, alongside invalid-path and
 existing-root rejection. The marker assertion now also rejects missing or
@@ -203,9 +204,27 @@ of the 37 skip IDs is unchanged.
 [CI run 37171263841](https://github.com/Kuaiwa-Network/common/actions/runs/37171263841)
 passed complete Linux acceptance and the focused native Windows job. The
 [parent-policy record](../spikes/2026-10-03-native-windows-offline.md#native-windows-parent-policy-follow-up-2026-10-04-partial)
-retains the diagnosis and measurements. The next code step is the Windows
-readonly executable-fixture cleanup; actual workers and Feishu reads remain
-pending.
+retains the diagnosis and measurements. The following executable-fixture
+record completes that selected cleanup investigation; actual workers and
+Feishu reads remain pending.
+
+**2026-10-04 executable-fixture follow-up:** common #151 merged as `77f0056`
+and FarmBot #90 as `370d10b`. The original relative-lookup rejection already
+passed; TempDir cleanup failed because the fixture hardlinked the running test
+image. A diagnostic run confirmed both paths are writable and share identity,
+correcting the earlier readonly classification.
+[common PR #152](https://github.com/Kuaiwa-Network/common/pull/152)
+uses an independent copy, asserts distinct identity and the specific relative
+path rejection, and requires explicit file removal. Runtime behavior and skips
+are unchanged. The working fix passes 35 focused top-level tests with two
+existing fixture skips in 18.662 seconds. The three-package run has 154 passes,
+two remaining failures and 14 top-level skips in 36.390 seconds; all 37 skip
+IDs are unchanged. Committed source `7884d92` passed complete Linux acceptance
+and focused native Windows coverage in
+[CI run 37173629731](https://github.com/Kuaiwa-Network/common/actions/runs/37173629731). The
+[executable-fixture record](../spikes/2026-10-03-native-windows-offline.md#native-windows-executable-fixture-follow-up-2026-10-04-partial)
+retains the correction, diagnosis and measurements. The Windows-invalid
+newline snapshot fixture is next; actual workers and Feishu reads remain pending.
 
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
