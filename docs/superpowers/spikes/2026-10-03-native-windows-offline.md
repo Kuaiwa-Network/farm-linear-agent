@@ -1411,6 +1411,10 @@ The two tests reproduced on merged common before changes. Their causes differ:
   replacement and injected failure to occur, and preserves both the foreign
   marker and moved owned bytes. Snapshot production cleanup needed no change.
 
+The operator merged #149 on 2026-10-04 as
+`95f600827853d247cb2731535e3e1390a6f0403e`. The following measurements are from
+its pre-merge source candidate; no production generator or service was deployed.
+
 At candidate `e5c82b77f2dc43133ea6abdc240f03a4abb5b0b9`, both targeted tests and
 all six new document replacement cases pass. The expanded Windows CI selection
 also covers language generation, owned cleanup and cancellation: **30 top-level
@@ -1490,8 +1494,8 @@ Remaining release prerequisites:
    and Git LFS, Go respecting each repository's pin, protoc 35.1, buf 1.72.0,
    Node/openspec 1.7.0 and lark-cli. The global `python3` alias is 3.14.3 and
    must not select the verifier's interpreter. Common's native CMD generation
-   now passes at the development candidates above; #148 is merged. Review
-   cleanup fix #149 and repair the five outstanding Windows failures before
+   now passes at the development candidates above; #148 and cleanup fix #149
+   are merged. Repair the five outstanding Windows failures before
    complete producer acceptance. Dotnet SDK 8.0.423 remains needed for C# compilation.
    Keep Bash for Mac/Linux testing. The current doctor's legacy Windows Bash
    inventory is not proof that equivalent native generators/gates exist;

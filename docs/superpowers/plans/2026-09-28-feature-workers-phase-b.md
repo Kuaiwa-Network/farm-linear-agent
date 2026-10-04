@@ -147,7 +147,8 @@ settings, state or service changed; Task 17 remains incomplete.
 
 **2026-10-04 cleanup follow-up:** after verifying #148 and FarmBot #87 merged,
 [common PR #149](https://github.com/Kuaiwa-Network/common/pull/149)
-captures private-module identities from handles on Windows. Six new same-byte
+captures private-module identities from handles on Windows and merged as
+`95f6008`. Six new same-byte
 document replacement cases fail before the fix and pass after it. The snapshot
 fixture's original rename was denied while a child file was open; moving its
 replacement between copies now exercises the existing cleanup guard and proves
