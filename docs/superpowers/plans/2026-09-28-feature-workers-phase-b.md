@@ -555,6 +555,20 @@ to the same Farm-Contract-rooted task on a separate branch; gates 3, 6, 7, 9,
 10 and 12, native backend paths and actual worker/live release prerequisites
 remain pending. No production, credential or parked-job action occurs.
 
+**2026-10-05 message-naming candidate review:** Farm-Contract #321 at
+`f055513` ports gate 6 with a shared native Python implementation and POSIX
+wrapper. Independent ordinary-token Windows checks of the committed export
+pass all 34 tests without skips, accept 60 proto files and 237 same-file Ack/Req
+pairs, and preserve all 598 exported files. All 10 candidate CI jobs pass;
+exact-head naming matrices run 34 Windows tests and 37 native plus 37 wrapper
+tests on Linux/macOS. The
+[message-naming record](../spikes/2026-10-03-native-windows-offline.md#native-windows-contract-message-naming-gate-review-2026-10-05-candidate)
+retains timings, hashes, actual junction cases and platform exclusions. Gate 6
+requires an operator-approved merge and exact-merged-source acceptance; then
+gate 7 is next. Gates 3, 7, 9, 10 and 12, native backend paths and actual
+worker/live release prerequisites remain pending. No production, credential
+or parked-job action occurs.
+
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
 it merged as [#78](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/78)
