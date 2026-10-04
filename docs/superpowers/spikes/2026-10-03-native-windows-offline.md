@@ -1488,8 +1488,9 @@ the same error. The original fixture shared TEMP across its cases, so the leaked
 directory could also prevent a subsequent uppercase-identity case from reaching
 Git. That secondary failure did not establish acceptance of uppercase identities.
 
-[common PR #150](https://github.com/Kuaiwa-Network/common/pull/150)
-adds an undefined-variable guard before substring validation. The existing
+[common PR #150](https://github.com/Kuaiwa-Network/common/pull/150), subsequently
+merged as `c3aa16f42b50eee9ba9307ac05b91a33afdcc696`, adds an undefined-variable
+guard before substring validation. The existing
 single-line, exact 40-character lowercase-hex check, Go pinning and owned
 nonrecursive cleanup remain intact. The fixture now isolates TEMP per case and
 adds whitespace, pipe, extra-line and blank-line identities. It requires exit 2,
@@ -1592,9 +1593,93 @@ The final server-generation log SHA-256 is
 `9af71079e274b2f4ce3cabee670cbb64b43237e1c224e48c1f1df22149b1dd97`;
 the final combined-generation log SHA-256 is
 `cef5f044e66652bc9170b6a8676593faf630b65178ad4c174c86fddf1bb1e6d0`.
-The next concrete code step is to investigate the private-parent fixture and
-Windows permission boundary without relaxing it. Untested Windows workers,
+The private-parent investigation selected next is recorded below. Untested Windows workers,
 Feishu reads and release prerequisites remain pending; no parked job resumed.
+
+## Native Windows parent-policy follow-up (2026-10-04; partial)
+
+GitHub confirms FarmBot #89 merged as
+`c26e4f3bb8fce0e6de76ba057075deb92ad6992d`. Common #150 was still open when this
+investigation began, then the operator merged it as
+`c3aa16f42b50eee9ba9307ac05b91a33afdcc696`. Its tree matches the previously
+tested `048334d`. The independent parent-policy branch was rebased onto that
+exact merge before broader verification. All work used the **production Windows
+host in the separate development checkout**, the ordinary owner token outside
+the app sandbox, Python 3.13.16 with `PYTHONUTF8=1`, native pinned Go 1.25.1 and
+the previously described environment sanitization/private caches. No production
+configuration, ledger, service, credential, account setting or ACL was changed.
+
+The original `TestMaterializeModuleRequiresFreshChildOfPrivateParent/public_parent`
+failure reproduced at merged `95f6008` in **1.049 seconds**. That fixture creates
+a canonical temporary parent, changes it to 0755 only on Unix, then expects
+rejection on both platforms. Its unchanged Windows parent is not evidence of
+an unsafe ACL being accepted. The active common
+[design contract](https://github.com/Kuaiwa-Network/common/blob/c3aa16f42b50eee9ba9307ac05b91a33afdcc696/docs/superpowers/specs/2026-08-09-common-owned-config-protobuf-pipeline-design.md#L195)
+explicitly treats a caller-trusted output/system-temp parent as a precondition;
+canonical no-follow/identity checks do not certify ownership or DACL safety.
+Windows does not emulate Unix 0700 directory permissions here. The module
+implementation and this fixture are unchanged by #150.
+
+[common PR #151](https://github.com/Kuaiwa-Network/common/pull/151)
+corrects that fixture to match the existing platform contract. Unix retains
+0755-parent rejection. Windows creates a fresh module under the caller-controlled
+canonical temporary parent and verifies its exact path, exact three filenames
+and retained document bytes. Relative paths, noncanonical paths and existing
+roots still must fail. Existing-marker validation now also fails if its evidence
+was deleted or cannot be read. README states the existing Windows trust
+precondition, and the focused Windows job now executes the parent-policy test.
+No application behavior, containment/identity check or skip was changed.
+
+The corrected standalone parent test passes **one top-level test and all four
+subcases, zero failures or skips**, in **1.294 seconds**. At exact rebased
+candidate `e56845240d55cbc7552dbeb6eb8640e5390180be`:
+
+- The existing focused language/cleanup/launcher selection plus parent policy
+  ran **36 top-level tests: 34 passed, two existing explicit production-fixture
+  skips, zero failures**, in **25.475 seconds**. Six existing capability subtest
+  skips remain; all eight skip IDs are already in the earlier inventory.
+- `go test -json -count=1 ./internal/artifact ./internal/repoinfo ./internal/toolchain`
+  ran **170 top-level tests: 153 passed, three failed, 14 skipped**, in
+  **42.250 seconds**. All **37 skip IDs** match the previous CMD baseline. The
+  focused and broader selections ran concurrently; these are their individual
+  wall durations, not a summed suite duration.
+- Go formatting, `go vet ./internal/toolchain` and whitespace checks passed.
+  The diff contains a test fixture, CI coverage and README only. Native generation
+  was not repeated because executable behavior and generator inputs are unchanged;
+  the previous verified #150 generation evidence remains applicable.
+
+The remaining failed top-level tests are:
+
+- `TestResolveExecutableRejectsRelativeLookPathResultWithErrDotDisabled`:
+  Windows readonly executable-fixture cleanup.
+- `TestSnapshotterRejectsUnsafeTreesFreshnessAndOverlap`: its `newline_path`
+  fixture attempts a Windows-invalid filename.
+- `TestLegacyOwnershipScannerRejectsDatedActiveFiles`: Windows path matching.
+
+The focused native Windows job in
+[CI run 37171263841](https://github.com/Kuaiwa-Network/common/actions/runs/37171263841)
+passed at `e568452`; complete Linux acceptance is pending.
+This three-package measurement does not establish complete common Windows
+acceptance, a trusted service account's ACLs or actual worker readiness.
+
+The documentation follow-up passed all **73 relevant skill/reference tests**
+in **0.708 seconds** (**0.968 seconds** including Python startup), with zero
+failures, errors or skips. Measured counts, all historical skip records, local
+record links, the design-contract line, privacy patterns and whitespace passed.
+
+UTF-8 logs, revisions, versions and duration metadata remain local. The original
+fixture reproduction log SHA-256 is
+`e25f264e928356826b23aabdf1178095e2f51001b222381474fa8777fa6340b4`;
+the corrected standalone test's log SHA-256 is
+`bbf6db95647fd5dfa495685ccc1de420cff5cee5d5a05a0003dec371e6cc453d`;
+the expanded focused selection's log SHA-256 is
+`bf14537bad0d6fd56a4e1204df2d80c1eb83da8befd13b3cd7c5adaec6c62e39`;
+the three-package result's log SHA-256 is
+`5a38f9aada328f32685bf8fd4c9d23b11ee106cd0496e08aa3fabf58b19f205e`.
+Next is the Windows readonly executable-fixture cleanup, preserving relative
+lookup rejection and ownership checks. Windows workers, native repository gates,
+real Feishu reads and the remaining release prerequisites stay pending. No
+parked job resumed and no production deployment or feature enablement occurred.
 
 ## Next verification step
 
@@ -1623,9 +1708,9 @@ Remaining release prerequisites:
    and Git LFS, Go respecting each repository's pin, protoc 35.1, buf 1.72.0,
    Node/openspec 1.7.0 and lark-cli. The global `python3` alias is 3.14.3 and
    must not select the verifier's interpreter. Common's native CMD generation
-   now passes at the development candidates above; #148 and cleanup fix #149
-   are merged, and native CMD preflight fix #150 is under review. Repair the
-   four outstanding Windows failures before
+   now passes at the development candidates above; #148, cleanup fix #149
+   and native CMD preflight fix #150 are merged. Parent-policy fixture correction
+   #151 is under review; repair the three outstanding Windows failures before
    complete producer acceptance. Dotnet SDK 8.0.423 remains needed for C# compilation.
    Keep Bash for Mac/Linux testing. The current doctor's legacy Windows Bash
    inventory is not proof that equivalent native generators/gates exist;
