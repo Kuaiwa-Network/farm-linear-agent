@@ -569,6 +569,20 @@ gate 7 is next. Gates 3, 7, 9, 10 and 12, native backend paths and actual
 worker/live release prerequisites remain pending. No production, credential
 or parked-job action occurs.
 
+**2026-10-05 merged message-naming acceptance:** The operator merges
+Farm-Contract #321 as `831c1e1`; its full Git tree matches reviewed source
+`f055513`. Independent ordinary-token Windows verification of the exact merged
+export passes all 34 tests without skips, accepts 60 proto files and 237
+same-file Ack/Req pairs, and preserves all 598 exported files. All 10 merged
+push CI jobs succeed; the PR-only breaking step retains its earlier passing
+PR result. The
+[merged naming record](../spikes/2026-10-03-native-windows-offline.md#native-windows-merged-contract-message-naming-acceptance-2026-10-05)
+retains timings, hashes and workflow exclusions. Gate 7 is dispatched to the
+existing Farm-Contract-rooted task on a separate branch, preserving the entire
+field/message/enum/error-code/README gate and all its selftests. Gates 3, 7, 9,
+10 and 12, native backend paths and actual worker/live release prerequisites
+remain pending. No production, credential or parked-job action occurs.
+
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
 it merged as [#78](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/78)
