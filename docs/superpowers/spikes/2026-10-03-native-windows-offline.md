@@ -3420,7 +3420,7 @@ in **0.323 seconds** (0.432 including startup); UTF-8 log SHA-256 is
 Evidence hashes, links, privacy and whitespace are checked; this documentation
 change needs no full FarmBot suite rerun.
 
-**Next:** merge the reviewed code separately and verify the exact merged
+**Next at this checkpoint:** merge the reviewed code separately and verify the exact merged
 revision before promoting gate 5's candidate evidence, then address gate 6's
 message-naming check in the Farm-Contract-rooted task. Six other native contract
 wrapper ports remain pending: **3, 6, 7, 9, 10 and 12**. Native backend paths,
@@ -3429,6 +3429,56 @@ desktop Unity, private secret scan, release provenance/CI and scoped TestBot
 restoration remain release prerequisites. No full Windows twelve-gate pass,
 installed-service readiness or production feature enablement is claimed;
 parked jobs and unmerged test drafts stay unchanged.
+
+## Native Windows merged contract marker acceptance (2026-10-04)
+
+The operator merges Farm-Contract [#320](https://github.com/Kuaiwa-Network/Farm-Contract/pull/320)
+as **`8c7e591ee22dd8e7c47eee08254e923f891b1473`**. Its full Git tree equals
+reviewed source `26e8e4aa897243b1d816f1f18350cedf1cb1e52d`, independently
+verified before rechecking the exact merged export. The FarmBot candidate
+record [#107](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/107)
+is merged as `856771dbc502ea06cd0543f69bc3c329c6ac66c6`.
+
+On the production Windows host, the same ordinary-token development verifier
+uses explicitly selected Python 3.13.16, pre-start `PYTHONUTF8=1`, sanitized
+OS-variable-only environments and fresh scratch state. The export/check
+sequence completes in **3.959 seconds**. All **23 native Windows tests** pass
+without failures/errors/skips in **1.038 seconds** (1.128 including startup),
+including all four real junction cases. The real checker returns **exit 0,
+`markers OK`** in **0.152 seconds**, with all **379 OpenSpec Markdown files**
+in scope. All **596 exported files** remain byte-identical, with the same
+aggregate and manifest hashes as the reviewed candidate. No source-byte
+normalization, production configuration/ledger read, credential access,
+Bash/MSYS/WSL invocation, service action or host-setting change occurs.
+
+[Push CI run 37206895753](https://github.com/Kuaiwa-Network/Farm-Contract/actions/runs/37206895753)
+matches the exact merged SHA and succeeds in all **seven jobs**. Its PR-only
+breaking-waiver step is excluded on push, retaining the reviewed PR's passing
+result. Windows excludes the two shell-wrapper steps in each marker/manifest
+job. These workflow exclusions do not establish native Windows acceptance
+for the six other pending gates; the full contract-gate job remains Linux
+evidence.
+
+Private UTF-8 logs and sanitized summary are retained in
+`native-markers-candidate-9d722b3b`. Native regression log SHA-256 is
+`ba71b793bc2e33eb09ad324efb3e78e9bdad38cd953bf059bb2357799ce08dc0`;
+real-repository log SHA-256 remains
+`86e262f5368050e41ef72e05829fab4345767bffca4a438f76693f14cb2a6751`;
+acceptance-summary SHA-256 is
+`fb885af5e271f966701f38a156d80c79ef26300d864038a39c823e5fab9547b6`.
+All 73 relevant documentation tests pass without skips, failures or errors
+in 0.331 seconds (0.436 including startup); UTF-8 log SHA-256 is
+`9be2d78b80ca12456a4851f64e218f6b56b181353ee5a313d385514a81cf342a`.
+Evidence, links, privacy and whitespace are checked.
+
+**Next:** gate 6's native message-naming port is dispatched to the existing
+Farm-Contract-rooted task on a separate branch. Preserve same-file `_Ack` to
+`_Req` pairing, legitimate request-only messages, top-level source scope and
+coverage/read-failure refusal. Gate 5 now has merged native entry-point evidence;
+gates **3, 6, 7, 9, 10 and 12**, native backend paths and actual worker/live
+release prerequisites remain pending. Production feature enablement and
+deployment remain outside this authorization; parked jobs and test drafts
+remain unchanged.
 
 ## Next verification step
 
@@ -3510,10 +3560,9 @@ Remaining release prerequisites:
    Direct common generation does not verify these paths. Use an operator-selected
    scope without resuming parked jobs. Farm-Contract #319 is merged at `332b22c`;
    its exact merged source passes 19 local Windows tests and four CI jobs.
-   Seven other required contract wrappers still lack verified native Windows
-   entry points on that merged source. Gate 5 now has reviewed candidate evidence
-   in #320, pending its separate code merge and merged-source verification;
-   the six other wrapper ports remain pending.
+   Gate 5 is now merged in #320 as `8c7e591`, with 23 exact-merged-source Windows
+   tests and the real marker check passing; all seven merge-head CI jobs succeed.
+   Six other required contract wrapper ports remain pending, with gate 6 next.
 4. Check the selected service account's symlink capability and relevant native
    ownership/process checks, then complete Windows desktop Unity acceptance.
    The elevated offline baseline does not certify the ordinary token or a
