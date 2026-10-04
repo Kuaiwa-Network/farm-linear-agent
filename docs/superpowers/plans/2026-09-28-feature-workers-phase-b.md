@@ -386,9 +386,30 @@ Excel XML mode assertion remains a separate investigation. Complete Linux
 acceptance and focused native Windows CI pass at that exact source in
 [run 37184160786](https://github.com/Kuaiwa-Network/common/actions/runs/37184160786).
 The [native publication identity record](../spikes/2026-10-03-native-windows-offline.md#native-windows-publication-identity-follow-up-2026-10-04-partial)
-retains measured provenance and coverage limits. Next is the Excel XML mode
-assertion. Complete producer, actual worker/gate and Feishu acceptance remain
-pending.
+retains measured provenance and coverage limits. The following workbook mode
+record continues that assertion. Complete producer, actual worker/gate and
+Feishu acceptance remain pending.
+
+**2026-10-04 native workbook mode follow-up:** common #159 merged as `48e0a21`
+and FarmBot #98 as `2599e5b`. The workbook fixture expected Unix `0600` on
+Windows, where Go reports a writable file as `0666`.
+[common PR #160](https://github.com/Kuaiwa-Network/common/pull/160)
+retains exact Unix permissions and checks preservation of the mode observed
+before rewriting on Windows. Canonical bytes, workbook semantics and
+idempotence remain asserted. Runtime code is unchanged; no skip or ownership
+exception was added. All **15 Excel XML tests pass**, without skips, in
+0.866 seconds. At committed source `14152257593156b707031b2cc18758169a9dd3ef`,
+a fresh full native run has **524 passes, five failures and 32 top-level skips**
+in 59.940 seconds, with all 61 skip IDs unchanged. All five remaining failures
+occur while creating symlink fixtures under the ordinary token; no other
+failure remains in this measured inventory. All eight native publication and
+four archive cleanup/refusal cases still pass. Complete Linux acceptance and
+focused native Windows CI pass at that exact source in
+[run 37185512325](https://github.com/Kuaiwa-Network/common/actions/runs/37185512325).
+The [native workbook mode record](../spikes/2026-10-03-native-windows-offline.md#native-windows-workbook-mode-follow-up-2026-10-04-partial)
+retains exact provenance and coverage limits. Next is an offline recheck with
+a symlink-capable token on the operator-selected current account. Complete
+producer, actual worker/gate and Feishu acceptance remain pending.
 
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before

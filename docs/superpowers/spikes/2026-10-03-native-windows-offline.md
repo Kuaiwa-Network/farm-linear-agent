@@ -2533,6 +2533,91 @@ acceptance, actual Windows worker/gate acceptance and real Feishu reads remain
 pending. No parked job resumed and no production deployment or feature
 enablement occurred.
 
+## Native Windows workbook mode follow-up (2026-10-04; partial)
+
+GitHub confirms [common #159](https://github.com/Kuaiwa-Network/common/pull/159)
+merged as `48e0a2146fd60191fa05a0a4a4d11d40157db010` and
+[FarmBot #98](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/98)
+as `2599e5b8d42bcfeedf874edf76de29d52c7b37ee`. This step starts from that exact
+common merge on the **production Windows host in the separate development
+checkout**, using the ordinary owner token outside the app sandbox, configured
+Python 3.13.16 with `PYTHONUTF8=1`, native Go 1.25.1/protoc 35.1, sanitized
+selectors, private caches and fresh `RUNNER_TEMP` scratch. Production
+configuration, ledger, services, credentials, account settings and ACLs were
+untouched.
+
+`TestReformatFileIfSingleLineCanonicalAndIdempotent` fails on the exact merge
+in **0.829 seconds**, without skips, with the sanitized diagnostic
+`mode=0666 want 0600`. The fixture assumes Unix access bits on Windows.
+[Go's Windows mode implementation](https://raw.githubusercontent.com/golang/go/go1.25.1/src/os/types_windows.go)
+reports a writable regular file as `0666`; its
+[permission API uses the writable bit for the read-only attribute](https://pkg.go.dev/os#Chmod).
+This is a fixture mismatch, not a rewrite permission regression.
+
+[common PR #160](https://github.com/Kuaiwa-Network/common/pull/160)
+retains the exact `0600` assertion on Unix. On Windows it captures the observed
+mode before rewriting and asserts that mode is preserved afterward. Exact
+canonical bytes, logical workbook equality and second-pass idempotence remain
+asserted. Runtime code, source XML and generated outputs are unchanged; no
+skip, containment exception or ownership relaxation was added. FileMode
+preservation is not DACL validation. Focused native Windows CI adds the entire
+Excel XML package.
+
+The working correction based on `48e0a21` runs
+`go test -json -count=1 ./internal/excelxml`: **15 top-level tests passed,
+zero failures and zero skips**, in **0.866 seconds**. Canonicalization,
+observed-mode preservation, logical workbook semantics, idempotence, parsing,
+source traversal and the production-source formatting gate all actually run.
+Go formatting and whitespace checks pass. Native language generation was not
+repeated because its executable code and inputs are unchanged.
+
+Committed source is `14152257593156b707031b2cc18758169a9dd3ef`.
+That exact source passes complete Linux acceptance and focused native Windows coverage in
+[run 37185512325](https://github.com/Kuaiwa-Network/common/actions/runs/37185512325).
+The documentation follow-up passes all **73 relevant skill/reference tests**
+in **0.389 seconds** (**0.506 seconds** including Python startup), with zero
+failures, errors or skips.
+
+A fresh native `go test -json -count=1 ./...` at that exact commit runs
+**561 top-level tests: 524 passed, five failed, 32 skipped**, in **59.940
+seconds**. All **61 skip IDs** and their previously recorded reasons are
+unchanged. All 15 Excel XML tests, eight native publication cases and four
+native archive cleanup/refusal cases pass. The remaining failed top-level
+tests are:
+
+- `TestFilePublicationRejectsInitiallyExistingForeignTypes`
+- `TestNativeWindowsArchiveExtractionReparse`
+- `TestNativeWindowsArchiveInputReparse`
+- `TestNativeWindowsArchiveNoReplace`
+- `TestTypeDefsAreWired`
+
+All five fail while creating symlink fixtures because the ordinary token lacks
+the required privilege. Their two failed subtest IDs remain
+`TestFilePublicationRejectsInitiallyExistingForeignTypes/symlink` and
+`TestNativeWindowsArchiveNoReplace/foreign_reparse`. The Excel XML assertion
+is the only difference from the previous failed-test inventory; no
+non-capability failure remains in this measured inventory. This does not
+certify reparse handling on a capable token or complete producer readiness.
+No skipped check is claimed as native verification.
+
+UTF-8 logs, revision, selected versions and duration metadata remain local.
+The exact-merge failure log SHA-256 is
+`3f2f855cf3d4bac8df177470e327541deef76aa2cc9ef428eb97f0f41859f6a0`;
+the passing Excel XML package log SHA-256 is
+`b0ea2ddf2c44d59d7cd4c1f94c026e1c334842549430e231380779e1cf85ed88`;
+the refreshed full-module log SHA-256 is
+`84c280f8b23d221d0b0fa730902aeb4e10186518ce10c91b1ba45d43d2c5b851`.
+The documentation-test log SHA-256 is
+`3b39110f7633e200d421054586f9d440d7a55846ee280b22c7bf10c2d698efef`.
+
+Next is the offline symlink-capability recheck on the operator-selected
+current account, using a capable test token. A Windows administrator
+PowerShell/UAC confirmation may be required; this is not permission to change
+account or system settings. Complete producer, actual Windows worker/gate
+acceptance, .NET/C# and Unity gates, real Feishu reads, the private release
+scan and TestBot restoration remain pending. No parked job resumed and no
+production deployment or feature enablement occurred.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
@@ -2567,12 +2652,13 @@ Remaining release prerequisites:
    boundary packages pass with all existing skips unchanged. Git-executable
    fixture correction #155 and top-level-output fixture correction #156 are
    merged, as is native Git timeout fixture correction #157; all 17 Git-state
-   tests pass. Archive owned-cleanup fix #158 is merged. Publication identity
-   fixture correction #159 is under review; all eight native publication cases
-   and the expanded focused selection pass. The refreshed full native module
-   run has six failed top-level tests: five require host symlink capability and
-   the Excel XML mode assertion remains a separate investigation. All 61 skip
-   IDs remain unchanged. Complete producer acceptance remains pending.
+   tests pass. Archive owned-cleanup fix #158 and publication identity fixture
+   correction #159 are merged; all eight native publication cases pass.
+   Workbook mode fixture correction #160 is under review; all 15 Excel XML
+   tests pass without skips. The refreshed full native module run has five
+   failed top-level tests, all requiring host symlink capability. All 61 skip
+   IDs remain unchanged. An offline capable-token recheck and complete
+   producer acceptance remain pending.
    Preserve the distinction between host capabilities, fixture assumptions
    and application regressions during the focused rechecks.
    Dotnet SDK 8.0.423 remains needed
