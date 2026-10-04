@@ -433,6 +433,25 @@ at that source in [run 37188965053](https://github.com/Kuaiwa-Network/common/act
 No production configuration, ledger, account/settings or
 service change occurred.
 
+**2026-10-04 native .NET/C# follow-up:** common #161 merged as `b367feb`
+and FarmBot #100 as `612279c`; both merged trees match their final reviewed
+sources. The ordinary-token check on this production Windows host uses the
+separate development checkout and a private Microsoft SHA-512-verified
+**.NET 8.0.423** SDK. The host's global SDK 9.0.306 is unchanged. Both opt-in
+production language-fixture tests pass without skips, including client-only
+generation with Go absent from PATH. All three locked C# builds pass with
+zero warnings/errors: four files from each frozen fixture and **103 C# files**
+from a fresh full common two-profile artifact at exact merge
+`b367febe20d6db65ebb386aa871bdb2671df9525`. Google.Protobuf remains pinned to
+3.35.1. The full artifact's 597 files are byte-stable through compilation,
+native verification passes before/after, and the checkout stays clean.
+The [native .NET/C# record](../spikes/2026-10-03-native-windows-offline.md#native-windows-net-and-c-follow-up-2026-10-04-partial)
+retains measured versions, timings and local UTF-8 hashes. No common source,
+runtime, pin or skip changed; no full-suite rerun is claimed. Next is isolated
+Windows worker acceptance, followed by remaining native repository gates,
+ordinary-token/Unity checks and real Feishu reads. The private SDK cache does
+not configure a production worker; production and parked jobs remain unchanged.
+
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
 it merged as [#78](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/78)
