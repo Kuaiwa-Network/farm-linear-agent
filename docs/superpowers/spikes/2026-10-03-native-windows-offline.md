@@ -3339,6 +3339,97 @@ gates 3, 5, 6, 7, 9, 10 and 12 remain pending. Full native contract/backend chec
 actual isolated workers, real Feishu/Word, ordinary-worker capabilities, Unity
 and the other release prerequisites listed below remain open.
 
+## Native Windows contract marker gate review (2026-10-04; candidate)
+
+Farm-Contract [PR #320](https://github.com/Kuaiwa-Network/Farm-Contract/pull/320)
+ports gate 5, the placeholder provenance-marker check, at exact candidate
+**`26e8e4aa897243b1d816f1f18350cedf1cb1e52d`**, based on merged manifest revision
+`332b22c00dc4a79e0cbb7ecad1f187023319259d`. At this review checkpoint the code
+PR is unmerged and ready for review. Code and its regression coverage remain
+in the Farm-Contract-rooted task; this FarmBot change records evidence only.
+
+The native Python implementation preserves the actual prefix regex, immediate
+left-backtick exemption, both built-in negative/legend selftests, case-sensitive
+`.md` selection and LF-only matching/line numbering. CR, form-feed and Unicode
+separators do not introduce new grep lines. It includes project, specs, changes,
+archive and hidden-directory Markdown, with no source-byte normalization.
+The previous shell implementation could report success after a grep read error;
+the shared implementation now rejects missing/unreadable, invalid UTF-8 and
+empty ordinary-Markdown input. Source roots must be ordinary directories;
+linked/reparse directories and files cannot select outside input. No detection
+rule, source-ownership check or test is weakened.
+
+Independent verification runs on the **production Windows host**, with the
+ordinary current-user token, explicitly selected Python **3.13.16**, Git
+**2.54.0.windows.1** and Git LFS **3.7.1**, in a separate development checkout
+and fresh export of committed bytes. `PYTHONUTF8=1` precedes Python startup.
+Windows OS-variable allowlisting excludes inherited FarmBot, model, repository
+and credential selectors; home/temp/application-data paths are fresh scratch.
+Git user/system configuration is excluded and hooks/fsmonitor are disabled.
+No Bash/MSYS/WSL, production configuration/ledger, Feishu authentication,
+service, account setting or deployment is involved.
+
+| Check | Command | Seconds | Result |
+| --- | --- | --- | --- |
+| Native regressions | `& $Python -I -X utf8 -B tools/test-check-markers.py` | 1.052 (1.139 including startup) | **23 pass; zero failures, errors or skips**. |
+| Real committed repository | `& $Python -I -X utf8 -B tools/check-markers.py` | 0.151 | Exit 0, `markers OK`; **379 OpenSpec Markdown files** in scope. |
+
+The whole export/check sequence takes **3.884 seconds**. Tests exercise actual
+CLI rejection and both deliberately damaged-pattern selftests, valid and invalid
+markers, legends, LF/control-character boundaries, case-sensitive filenames,
+all Markdown scopes, spaces/Unicode, unrelated cwd and missing/invalid input.
+Read-denied, traversal-denied and disappeared-file cases use controlled IO
+faults; they do not change host ACLs or prove a particular production ACL.
+Four directory-boundary cases create real Windows junctions, confirm their
+type and fail if creation fails. They cover linked roots, outside targets,
+only-linked input, and aliases/cycles while preserving outside dummy sentinels.
+Linux/macOS add two actual file-symlink cases. All **596 exported files** remain
+byte-identical, with aggregate SHA-256
+`a1bc6f5034bda6779b29d674c7c5f61be4f22ecbc2111a42e57c185ea5950e5c`.
+Protocol, draft protocol, OpenSpec, manifest, waiver and merged manifest-tool
+bytes are unchanged from the base. Manifest SHA-256 remains
+`d6038613a74d9d2746e026278e2472db84e4950de9a49faf4671bc9c0c297323`.
+
+[CI run 37204937766](https://github.com/Kuaiwa-Network/Farm-Contract/actions/runs/37204937766)
+is green for all **seven jobs**: existing Linux contract gates, three manifest
+jobs and three marker jobs. Marker checkout logs confirm the exact candidate
+SHA. Hosted Windows runs **23 native tests** in 1.038 seconds; Linux runs
+**25 native tests** in 0.684 seconds and **25 wrapper tests** in 0.700 seconds;
+macOS runs **25 native tests** in 0.684 seconds and **25 wrapper tests** in
+0.892 seconds. Every invocation has zero unittest skips/failures/errors, and
+all applicable real marker checks pass. Windows excludes the two shell-wrapper
+steps in each marker/manifest job; those workflow exclusions are not native
+test skips or evidence for the remaining Windows ports. The full contract-gate
+job remains Linux evidence.
+
+Private UTF-8 logs and sanitized summary are retained in
+`native-markers-candidate-ca7b16a0`. Checker source SHA-256 is
+`c4bf3182929cfa62605c39fc35604bf7a3cafb2a5d427621e1166db3191a1396`;
+regression log SHA-256 is
+`5ab548201cc0f225983517c6619e9312e2586eb3d3ffaa3832954f7c5c8c0cf1`;
+real-repository log SHA-256 is
+`86e262f5368050e41ef72e05829fab4345767bffca4a438f76693f14cb2a6751`;
+acceptance-summary SHA-256 is
+`0b62fc5acd4d86d1e3f30f8f00ed9415ae30281b8d3c14f163242dfe9326f062`.
+Per-command durations/exits and hashes remain in that summary. Private paths,
+credentials and raw host logs are not published.
+
+All **73 relevant documentation tests** pass without skips, failures or errors
+in **0.323 seconds** (0.432 including startup); UTF-8 log SHA-256 is
+`a20bb6a6bac854187df5d7a670e82e6f95c04436205e8edf69cbd497eb805a2a`.
+Evidence hashes, links, privacy and whitespace are checked; this documentation
+change needs no full FarmBot suite rerun.
+
+**Next:** merge the reviewed code separately and verify the exact merged
+revision before promoting gate 5's candidate evidence, then address gate 6's
+message-naming check in the Farm-Contract-rooted task. Six other native contract
+wrapper ports remain pending: **3, 6, 7, 9, 10 and 12**. Native backend paths,
+actual isolated Codex workers, real Feishu/Word, ordinary-worker capabilities,
+desktop Unity, private secret scan, release provenance/CI and scoped TestBot
+restoration remain release prerequisites. No full Windows twelve-gate pass,
+installed-service readiness or production feature enablement is claimed;
+parked jobs and unmerged test drafts stay unchanged.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
@@ -3420,7 +3511,9 @@ Remaining release prerequisites:
    scope without resuming parked jobs. Farm-Contract #319 is merged at `332b22c`;
    its exact merged source passes 19 local Windows tests and four CI jobs.
    Seven other required contract wrappers still lack verified native Windows
-   entry points.
+   entry points on that merged source. Gate 5 now has reviewed candidate evidence
+   in #320, pending its separate code merge and merged-source verification;
+   the six other wrapper ports remain pending.
 4. Check the selected service account's symlink capability and relevant native
    ownership/process checks, then complete Windows desktop Unity acceptance.
    The elevated offline baseline does not certify the ordinary token or a
