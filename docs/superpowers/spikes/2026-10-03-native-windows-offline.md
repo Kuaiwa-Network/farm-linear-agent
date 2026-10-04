@@ -1265,11 +1265,12 @@ reported `protoc-gen-go.exe v1.36.8`; the preflight expected
 `protoc-gen-go v1.36.8`. The new regression reproduced that failure before
 the fix. This is a native generator bug, independent of MSYS.
 
-[common draft PR #148](https://github.com/Kuaiwa-Network/common/pull/148)
+[common PR #148](https://github.com/Kuaiwa-Network/common/pull/148)
 compares the exact private executable basename and pinned version, retains the
 single-line check, corrects the fake tools to match upstream, and adds focused
 PowerShell Windows CI. No containment, ownership check, dependency pin or
-skip was weakened. This PR is unmerged; no production generator was upgraded.
+skip was weakened. It merged on 2026-10-04 as
+`e743062666acfea21ee9fcf64a5fbef8f269cdcf`; no production generator was upgraded.
 At head `ba5bfa9e907462ab28f8b73b62aac3158b456525`,
 [CI run 37165148969](https://github.com/Kuaiwa-Network/common/actions/runs/37165148969)
 passed both complete Linux acceptance and the focused native Windows language
@@ -1317,16 +1318,16 @@ The seven remaining failed top-level tests are:
 - `TestMaterializeModuleRequiresFreshChildOfPrivateParent`: Windows fixture/private-parent semantics need review.
 - `TestMaterializeModuleCleanupPreservesReplacementIdentity`: replacement identity was not preserved.
 - `TestSnapshotterRejectsUnsafeTreesFreshnessAndOverlap`: Windows rejected the fixture's newline filename before the check.
-- `TestSnapshotterCleanupPreservesReplacementDestinationIdentity`: replacement marker was not preserved.
+- `TestSnapshotterCleanupPreservesReplacementDestinationIdentity`: replacement marker was absent; the cleanup follow-up below identifies a fixture failure before replacement.
 - `TestWindowsLauncherRejectsMalformedPreflightWithoutRunningGo`: malformed native CMD preflight behavior differs from its required exit/result.
 - `TestResolveExecutableRejectsRelativeLookPathResultWithErrDotDisabled`: fixture cleanup encounters Windows read-only file semantics.
 - `TestLegacyOwnershipScannerRejectsDatedActiveFiles`: Windows path matching needs review.
 
 A first longer temporary-root run also hit two Git fixture path-length failures;
 the shorter fresh system-temp run above removed those failures without changing
-Git settings. The two cleanup-identity failures remain the next priority; their
-checks must be repaired, not skipped. No claim is made about other Windows
-generator or gate paths.
+Git settings. The two cleanup-identity failures were the next priority; the
+follow-up below resolves them without skips. No claim is made about other
+Windows generator or gate paths.
 
 All **37 skip events**, including subtests, were already present on baseline.
 The ordinary native test token lacks symlink privilege; no privilege or Windows
@@ -1381,6 +1382,87 @@ the combined-generation log hash is
 Raw temporary paths remain local. Real Feishu access and Windows worker
 acceptance remain pending.
 
+## Native Windows cleanup follow-up (2026-10-04; partial)
+
+GitHub confirms common #148 merged as `e743062` and the documentation-only
+FarmBot #87 merged as `13cc2cd`. The next development branch starts from that
+exact common merge, on this **production Windows host in the separate development
+checkout**. Production configuration, its ledger, services and credentials were
+not read or changed. Python 3.13.16 started with `PYTHONUTF8=1`; the same sanitized
+native CMD/Go 1.25.1/protoc 35.1 environment, private caches and fresh scratch
+outputs described above were used. The ordinary test token and its symlink
+limitations were unchanged.
+
+The two tests reproduced on merged common before changes. Their causes differ:
+
+- `TestMaterializeModuleCleanupPreservesReplacementIdentity` exposed a real
+  identity bug. On Windows, Go's `os.Lstat` metadata can defer file-ID lookup
+  until `os.SameFile`; by then the original pathname may identify a replacement.
+  [common PR #149](https://github.com/Kuaiwa-Network/common/pull/149)
+  captures the directory through the existing no-follow bound-root helper and
+  each document through its open handle before closing it. Six new same-byte
+  replacement cases cover all three module documents, with and without an
+  injected primary error; the new test failed before the fix and passes after it.
+- `TestSnapshotterCleanupPreservesReplacementDestinationIdentity` failed before
+  its intended replacement: Windows refuses to rename a directory while a child
+  file is open. Its old missing-marker result did not prove that production
+  snapshot cleanup deleted a foreign directory. The revised fixture replaces
+  between copies after confirming an owned file was copied, requires the
+  replacement and injected failure to occur, and preserves both the foreign
+  marker and moved owned bytes. Snapshot production cleanup needed no change.
+
+At candidate `e5c82b77f2dc43133ea6abdc240f03a4abb5b0b9`, both targeted tests and
+all six new document replacement cases pass. The expanded Windows CI selection
+also covers language generation, owned cleanup and cancellation: **30 top-level
+tests, 28 passed, two existing explicit-fixture skips, zero failures**,
+in **6.970 seconds**. Six existing capability subtest skips remain in that
+selection (case-sensitive filenames and symlink creation); they are already in
+the 37-event inventory above. No skip or weakened identity check was added.
+
+The same three-package selection on the working fix ran **170 top-level tests:
+151 passed, five failed, 14 skipped**, in **34.817 seconds**. It adds one passing
+top-level regression and resolves the two prior failures; all **37 skip IDs**
+match the earlier baseline. The remaining failed top-level tests are:
+
+- `TestMaterializeModuleRequiresFreshChildOfPrivateParent`
+- `TestSnapshotterRejectsUnsafeTreesFreshnessAndOverlap`
+- `TestWindowsLauncherRejectsMalformedPreflightWithoutRunningGo`
+- `TestResolveExecutableRejectsRelativeLookPathResultWithErrDotDisabled`
+- `TestLegacyOwnershipScannerRejectsDatedActiveFiles`
+
+Their measured classifications remain as listed above. The next concrete code
+step is the native CMD malformed-preflight behavior; full Windows producer
+acceptance still requires all five failures to be resolved. Go formatting,
+`go vet ./internal/artifact ./internal/repoinfo ./internal/toolchain` and
+`git diff --check` passed.
+
+The exact committed candidate repeated native CMD version/inventory, server
+generate/verify and combined server/client generate/verify with exit 0 throughout
+in **25.582 seconds**, including revision/status/version probes. The checkout
+remained clean. Bash and WSL were not invoked. This does not certify an actual
+worker sandbox, C# compilation, complete Windows acceptance or release readiness.
+
+[CI run 37167444887](https://github.com/Kuaiwa-Network/common/actions/runs/37167444887)
+passed complete Linux acceptance and the expanded focused native Windows job
+at source `e5c82b7`. This does not replace the pending complete Windows suite.
+The documentation follow-up passed all **73 relevant skill/reference tests**
+in **0.382 seconds**, with no failures, errors or skips. Measured counts, skip
+IDs, record links, privacy patterns and whitespace checks passed.
+
+UTF-8 logs, revision, versions, duration and hashes remain local. The initial
+two-test reproduction log SHA-256 is
+`af01d8af37856eba1e19e138dfa9328d6703ee41d8a0796a1d4fb1fe0a2d1e86`;
+the expanded passing selection's log SHA-256 is
+`3c25eaa6f561921200843aecf52a2b2cb1eb213b060f7208ae595bb1ec3e11c1`;
+the three-package result's log SHA-256 is
+`8ab6ac34bc3cad3ea85afefe8c7b4b62c2885639a4c7484975a66ed1c40738b9`.
+The new server-generation log SHA-256 is
+`569e0de6198c567af557679704fcaad13d02b7625b7dbaaf491e69d1ba9a6799`;
+the combined-generation log SHA-256 is
+`7e6ca635e4e84990c76ab9e4dc2499bb50911d780fed51a5ab3c33cd3743df05`.
+Real worker generators/gates and real Feishu access remain pending. No parked
+job was resumed, and no production deployment or feature enablement occurred.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
@@ -1408,9 +1490,9 @@ Remaining release prerequisites:
    and Git LFS, Go respecting each repository's pin, protoc 35.1, buf 1.72.0,
    Node/openspec 1.7.0 and lark-cli. The global `python3` alias is 3.14.3 and
    must not select the verifier's interpreter. Common's native CMD generation
-   now passes at the development candidate above; review its draft fix and
-   repair the outstanding Windows ownership/fixture failures before complete
-   producer acceptance. Dotnet SDK 8.0.423 remains needed for C# compilation.
+   now passes at the development candidates above; #148 is merged. Review
+   cleanup fix #149 and repair the five outstanding Windows failures before
+   complete producer acceptance. Dotnet SDK 8.0.423 remains needed for C# compilation.
    Keep Bash for Mac/Linux testing. The current doctor's legacy Windows Bash
    inventory is not proof that equivalent native generators/gates exist;
    update its requirements together with the verified native workflow.
