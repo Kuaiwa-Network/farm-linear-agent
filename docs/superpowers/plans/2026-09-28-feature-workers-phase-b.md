@@ -527,6 +527,22 @@ Farm-Contract-rooted task on a separate branch. Seven other native contract
 gates and the remaining worker/live release prerequisites are still pending;
 no production or parked-job action occurs.
 
+**2026-10-04 native marker-gate review:** Farm-Contract
+[#320](https://github.com/Kuaiwa-Network/Farm-Contract/pull/320), at `26e8e4a`
+on merged manifest base `332b22c`, is unmerged and ready for review. Independent
+ordinary-token Windows verification of committed bytes passes all 23 tests
+without skips and checks all 379 OpenSpec Markdown files while preserving
+all 596 exported files. The port preserves marker/backtick/line-matching rules
+and selftests, and fails on source-read errors that the old shell script could
+swallow. Exact-head marker CI passes 23 Windows tests and 25 native plus 25
+wrapper tests on each Linux/macOS host; all seven CI jobs succeed. The
+[marker-gate record](../spikes/2026-10-03-native-windows-offline.md#native-windows-contract-marker-gate-review-2026-10-04-candidate)
+retains timings, hashes, actual junction coverage and controlled IO-fault limits.
+Verify a separately approved merge before promoting this candidate evidence.
+Next is gate 6; gates 3, 6, 7, 9, 10 and 12, native backend paths and actual
+worker/live release prerequisites remain pending. No production, credential
+or parked-job action occurs.
+
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
 it merged as [#78](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/78)
