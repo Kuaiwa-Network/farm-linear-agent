@@ -1756,9 +1756,88 @@ the expanded focused selection log SHA-256 is
 `97700554a7753872c19052e9c8798b538fb7c58ec0f384905d684357973d94cf`;
 the three-package result log SHA-256 is
 `213c3258f2590090feef13854e86476a0828a58bc26a29775304d2b0cfe5ccb2`.
-Next is the Windows-invalid newline snapshot fixture, preserving unsafe-tree
-rejection. Native worker/gate acceptance, Feishu reads and the remaining release
-prerequisites remain pending. No parked job resumed and no production deployment
+The following newline-fixture record completes the selected Windows-invalid
+filename correction, preserving unsafe-tree rejection. Native worker/gate
+acceptance, Feishu reads and the remaining release prerequisites remain pending.
+No parked job resumed and no production deployment
+or feature enablement occurred.
+
+## Native Windows newline-fixture follow-up (2026-10-04; partial)
+
+GitHub confirms common #152 merged as
+`e3475ea83b80334021e72f9d4c016d6cc4b75e50` and FarmBot #91 as
+`6e0ceb552e9dbf021e9845f5769c3b251a60d277`. This fixture branch starts from
+that exact common merge. Checks used the **production Windows host in the
+separate development checkout**, the ordinary owner token outside the app
+sandbox, Python 3.13.16 started with `PYTHONUTF8=1`, native Go 1.25.1/protoc 35.1
+and the previously described inherited-selector sanitization, private caches and
+fresh scratch. Production configuration, ledger, service, credentials, account
+settings and ACLs were untouched.
+
+`TestSnapshotterRejectsUnsafeTreesFreshnessAndOverlap` reproduced its
+`newline_path` fixture-creation failure on exact merged common in **1.291 seconds**.
+Windows rejects ordinary filenames containing these control characters before
+the snapshotter can read them; see
+[Microsoft's filename rules](https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file).
+This is an invalid platform fixture, rather than measured snapshotter acceptance
+of an unsafe source entry.
+
+[common PR #153](https://github.com/Kuaiwa-Network/common/pull/153)
+checks both LF and CR through the existing `validateLogicalPath` guard used by
+`SnapshotSource`. On native Windows both physical filename attempts must return
+`ERROR_INVALID_NAME` (123), and their source directories must remain empty.
+On Unix both files are still created, the snapshotter must reject them specifically
+as newline paths, and failed destinations must be absent. The shared path guard
+therefore runs on Windows; a physical newline source entry cannot reach the
+snapshotter through this native filesystem fixture. This is not Windows
+end-to-end coverage of such an entry. The whole unsafe-tree test is now included
+in focused native Windows CI. No runtime code, ownership/containment guard or
+existing skip changed, and no new skip was added.
+
+Measured native results for the working fix based on `e3475ea`:
+
+- The corrected standalone unsafe-tree test passes **one top-level test** in
+  **1.193 seconds**, with zero failures. Both LF/CR cases run and pass. The same
+  two existing subtest skips remain: `symlink` (ordinary token lacks privilege)
+  and `case_collision` (case-insensitive filesystem).
+- The expanded language/cleanup/launcher/parent-policy/relative-lookup/unsafe-tree
+  selection runs **38 top-level tests: 36 passed, two existing explicit
+  production-fixture skips, zero failures**, in **18.098 seconds**. Eight existing
+  capability subtest skips remain. All ten skip IDs equal the previous selection's
+  eight IDs plus the unsafe-tree test's two existing IDs; none was newly introduced.
+- `go test -json -count=1 ./internal/artifact ./internal/repoinfo ./internal/toolchain`
+  runs **170 top-level tests: 155 passed, one failed, 14 skipped**, in
+  **36.163 seconds**. All **37 skip IDs** match the preceding executable-fixture
+  run and the original inventory above. Focused and broader selections overlapped;
+  durations are measured separately.
+- Go formatting, `go vet ./internal/artifact` and whitespace checks pass.
+  The diff contains test and CI changes only. Generation was not repeated because
+  executable behavior and generator inputs are unchanged.
+
+Committed source is `8fd21f8e74b205793338740c8742b813132cd999`.
+[CI run 37174882807](https://github.com/Kuaiwa-Network/common/actions/runs/37174882807)
+passed complete Linux acceptance and focused native Windows coverage at that
+exact head.
+The sole remaining failed top-level test is
+`TestLegacyOwnershipScannerRejectsDatedActiveFiles` (Windows path matching),
+selected as the next separate correction. These three-package results do not
+establish complete common Windows acceptance, actual worker readiness or
+service-account capabilities.
+
+The documentation follow-up passes all **73 relevant skill/reference tests**
+in **0.362 seconds** (**0.480 seconds** including Python startup), with zero
+failures, errors or skips. Measured counts, historical skips, new record links,
+privacy patterns and whitespace checks pass. UTF-8 logs, revisions, selected versions
+and duration metadata remain local. The initial failure log SHA-256 is
+`4e24d9400f23aa7fcf7b181d5ffe074820d7ebf94e3a56552b41e1dff88a79c2`;
+the passing standalone fixture log SHA-256 is
+`db397c7d38001b4b53db8d45ba210d681f04745d2fa1d0761ea9c9d7ee5908e9`;
+the expanded focused selection log SHA-256 is
+`f6a8fced05cbc5eb1519648886ab8d373217374dc1a388cd7f045ff43151a786`;
+the three-package result log SHA-256 is
+`3ca6f742b2dd34cb720bb8f601133f4da524cec2caa7757c6b2c231beda24130`.
+Native worker/gate acceptance, real Feishu reads and the remaining release
+prerequisites stay pending. No parked job resumed and no production deployment
 or feature enablement occurred.
 
 ## Next verification step
@@ -1790,9 +1869,10 @@ Remaining release prerequisites:
    must not select the verifier's interpreter. Common's native CMD generation
    now passes at the development candidates above; #148, cleanup fix #149
    and native CMD preflight fix #150 are merged. Parent-policy fixture correction
-   #151 is merged, and executable-fixture correction #152 is under review;
-   repair the two outstanding Windows failures before
-   complete producer acceptance. Dotnet SDK 8.0.423 remains needed for C# compilation.
+   #151 and executable-fixture correction #152 are merged. Newline-fixture
+   correction #153 is under review; repair the one remaining Windows scanner
+   failure before complete producer acceptance. Dotnet SDK 8.0.423 remains needed
+   for C# compilation.
    Keep Bash for Mac/Linux testing. The current doctor's legacy Windows Bash
    inventory is not proof that equivalent native generators/gates exist;
    update its requirements together with the verified native workflow.
