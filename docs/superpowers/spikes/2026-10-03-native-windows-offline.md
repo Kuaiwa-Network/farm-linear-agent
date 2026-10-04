@@ -2293,6 +2293,136 @@ Wider module gaps, actual Windows worker/gate acceptance and real Feishu reads
 remain pending. No parked job resumed and no production deployment or feature
 enablement occurred.
 
+## Native Windows archive cleanup follow-up (2026-10-04; partial)
+
+GitHub confirms [common #157](https://github.com/Kuaiwa-Network/common/pull/157)
+merged as `34315e4158905493e1d1297b67c10fcf666322f7` and
+[FarmBot #96](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/96)
+as `715af486a8ab45e17699d5ac9d85e2120018ab6b`. The new branch starts from that
+exact common merge. Checks used the **production Windows host in the separate
+development checkout**, the ordinary owner token outside the app sandbox,
+Python 3.13.16 started with `PYTHONUTF8=1`, native Go 1.25.1/protoc 35.1,
+inherited-selector sanitization, private caches and fresh `RUNNER_TEMP` scratch.
+Production configuration, ledger, service, credentials, account settings and
+ACLs were untouched.
+
+The owned-temp cleanup case of
+`TestFilePublicationReconciliationAndCleanupIdentity` reproduced on exact merged
+common in **6.693 seconds**, with no skips. Both archive cleanup paths combine
+`FILE_DISPOSITION_ON_CLOSE` with `POSIX_SEMANTICS`; this NTFS host rejects the
+combination with a not-supported diagnostic. A new native regression before
+the runtime correction fails both owned deletion cases in **1.217 seconds**;
+its wrong-identity and hardlink refusal cases already pass. This is an
+application cleanup bug, distinct from missing symlink privilege. It also
+causes spool cleanup errors to obscure ordinary archive validation errors.
+
+[common PR #158](https://github.com/Kuaiwa-Network/common/pull/158)
+uses delete-plus-POSIX disposition through a shared helper for both the owned
+unpublished file and verifier spool. As the
+[Microsoft disposition reference](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddk/ns-ntddk-_file_disposition_information_ex)
+describes, the name is removed when the deleting handle closes. Parent-relative
+opens, no-follow handling, identity and single-link checks remain enforced;
+there is no path-based deletion fallback. No-replace publication is unchanged.
+The four native regression cases cover owned temporary cleanup, owned spool
+cleanup, refusal of a different expected identity, and refusal of a hardlink
+alias. The spool cases exercise paths with spaces and Unicode.
+
+After the flag correction, the ambiguous-completion fixture still fails in
+**2.694 seconds**: its hardlink/remove simulation conflicts with Windows' held
+file sharing protection. Windows now uses the real held-handle rename before
+injecting the ambiguous diagnostic; Unix retains its link/remove simulation.
+The terminal-success and final-byte assertions are unchanged. Corrected cleanup
+and reconciliation pass **two top-level tests** in **1.123 seconds**, without
+skips; all four native regression cases pass.
+
+The fixture also registers `Close` cleanup for early failures or skips and
+reports unexpected cleanup errors. This lets its existing unavailable-symlink
+skip complete without a locked-handle temporary-directory cleanup failure.
+No skip was added and no identity/containment check was weakened. Focused
+Windows CI adds native cleanup, reconciliation and publication-success tests.
+
+Measured results for the final working fix based on `34315e4`:
+
+- `go test -json -count=1 ./internal/archive` runs **31 top-level tests:
+  27 passed, four failed, zero skipped**, in **27.675 seconds**. The four
+  failures are all missing-symlink-capability cases listed below. One existing
+  symlink subtest is skipped. Real two-pass production-archive verification,
+  hostile-input rejection, limit/error classification, publication seams and
+  compression-cleanup evidence pass.
+- The expanded focused CI selection runs **49 top-level tests: 47 passed,
+  two existing explicit production-fixture skips, zero failures**, in
+  **19.355 seconds**. The prior ten skip IDs remain; the existing archive
+  symlink skip makes **11 skip events**. All four native cleanup/refusal cases
+  run and pass. Package and focused selections overlapped; durations are
+  measured separately.
+- Go formatting, `go vet ./internal/archive` and whitespace checks pass.
+  Direct native language generation was not repeated because its code and
+  inputs are unaffected; actual archive publication/verification paths ran in
+  the package tests.
+
+Committed source is `08dd1249a29828fcff702af2f6c5ea10fc7e6009`.
+That exact source passed complete Linux acceptance and focused native Windows coverage in
+[run 37180962600](https://github.com/Kuaiwa-Network/common/actions/runs/37180962600).
+The documentation follow-up passes all **73 relevant skill/reference tests**
+in **0.666 seconds** (**0.912 seconds** including Python startup), with zero
+failures, errors or skips.
+
+A fresh native `go test -json -count=1 ./...` at that exact commit runs
+**561 top-level tests: 522 passed, seven failed, 32 skipped**, in **63.286
+seconds**. The additional top-level test is the new Windows cleanup regression.
+There are two failed subtest IDs and **61 skip events**. All 60 prior skip IDs
+remain, with their reasons recorded above. The additional observed event uses
+an existing skip; its earlier locked-handle cleanup failure is now corrected:
+
+| Package | Test | Reason |
+| --- | --- | --- |
+| `internal/archive` | `TestFilePublicationSuccessAndNoReplace/symlink` | Ordinary token lacks symlink capability; existing skip now completes after fixture handle cleanup |
+
+The remaining failed top-level tests are:
+
+- `TestFilePublicationRejectsInitiallyExistingForeignTypes`
+- `TestNativeWindowsArchiveExtractionReparse`
+- `TestNativeWindowsArchiveInputReparse`
+- `TestNativeWindowsArchiveNoReplace`
+- `TestPublishCommitsExactStageIdentityAndCloseIsNilAfterPublication`
+- `TestReformatFileIfSingleLineCanonicalAndIdempotent`
+- `TestTypeDefsAreWired`
+
+The four archive failures and `TestTypeDefsAreWired` fail while creating symlink
+fixtures under this ordinary token. The two failed subtests are
+`TestFilePublicationRejectsInitiallyExistingForeignTypes/symlink` and
+`TestNativeWindowsArchiveNoReplace/foreign_reparse`. They do not certify reparse
+handling on a capable token; no privilege or account setting was changed.
+The output-directory saved identity assertion and Excel XML Unix-mode
+expectation still need focused investigation. No not-supported cleanup
+diagnostic remains in the failed-test inventory. This is the measured current
+result, superseding the preceding 16-failure inventory for this candidate;
+complete native producer and actual FarmBot worker/gate acceptance are pending.
+
+UTF-8 logs, revisions, selected versions and duration metadata remain local.
+The initial cleanup failure log SHA-256 is
+`aaf38e4d285e53cf8fdbffcb841e1c794bdaabbb008a961410a0ca715ccd007a`;
+the new regression's failure log SHA-256 is
+`0bbe20061579ac5765644ee4c63829b0d0f1ffc1a972454a0ee6af5b4ff92bab`;
+the intermediate ambiguous-fixture result log SHA-256 is
+`7111903f36e6e718a51e7caa3aef07d8fb4307e68e89378d82e7059af36f56ab`;
+the passing cleanup/reconciliation log SHA-256 is
+`c0e63f0ea873f17443a7213c048878397b2d07d2129fede37c90d8b2094ff20a`;
+the final archive-package log SHA-256 is
+`aa7c5442171b488de9901a93add97708dd8d7c856ccb7e7783c9035b7f5c460d`;
+the expanded focused selection log SHA-256 is
+`513353220be26094eb17c925a3f16d5970516d468f12d9134cb2c55eb29fceeb`;
+the refreshed full-module log SHA-256 is
+`d9f6380ab22357ab3b417e047d94e32702f64706fcf7e42f91f57811c577ab21`.
+The documentation-test log SHA-256 is
+`e5c68546bbc5f90331da4347ac46bf9edfaf811a6f4988a2ef8a1563253bc613`.
+
+Next is the saved publication identity assertion, preserving owned stage/final
+identity and terminal publication semantics. Host reparse capability, wider
+module gaps, actual Windows worker/gate acceptance and real Feishu reads remain
+pending. No parked job resumed and no production deployment or feature
+enablement occurred.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
@@ -2326,12 +2456,14 @@ Remaining release prerequisites:
    correction #153 and scanner correction #154 are merged. The scanner's three
    boundary packages pass with all existing skips unchanged. Git-executable
    fixture correction #155 and top-level-output fixture correction #156 are
-   merged. Native Git timeout fixture correction #157 is under review; all 17
-   Git-state tests and the expanded focused selection pass. The refreshed full
-   native module run has 16 failed top-level tests, with all 60 skip IDs unchanged;
-   complete producer acceptance remains pending. Preserve the distinction between
-   host capabilities, fixture assumptions and application regressions during the
-   focused rechecks.
+   merged, as is native Git timeout fixture correction #157; all 17 Git-state
+   tests pass. Archive owned-cleanup fix #158 is under review. The refreshed
+   full native module run has seven failed top-level tests: five require host
+   symlink capability and two remain separate investigations. All prior 60 skip
+   IDs remain, plus one existing archive symlink skip now reached without a
+   cleanup failure. Complete producer acceptance remains pending. Preserve the
+   distinction between host capabilities, fixture assumptions and application
+   regressions during the focused rechecks.
    Dotnet SDK 8.0.423 remains needed
    for C# compilation.
    Keep Bash for Mac/Linux testing. The current doctor's legacy Windows Bash
