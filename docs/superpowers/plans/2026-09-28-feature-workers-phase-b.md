@@ -362,10 +362,33 @@ mode assertions remain separate investigations. Complete Linux acceptance and
 focused native Windows CI passed at that exact committed source in
 [run 37180962600](https://github.com/Kuaiwa-Network/common/actions/runs/37180962600).
 The [native archive cleanup record](../spikes/2026-10-03-native-windows-offline.md#native-windows-archive-cleanup-follow-up-2026-10-04-partial)
-retains the runtime fix, current inventory and coverage limits. Next is the
-saved publication identity assertion, preserving ownership and terminal
-publication semantics. Complete module, actual worker/gate and Feishu
-acceptance remain pending.
+retains the runtime fix, current inventory and coverage limits. The following
+publication identity record continues the check, preserving ownership and
+terminal publication semantics. Complete module, actual worker/gate and
+Feishu acceptance remain pending.
+
+**2026-10-04 native publication identity follow-up:** common #158 merged as
+`266dae5` and FarmBot #97 as `063c0ec`. The saved-stage assertion is a test
+fixture error: Windows path-based `os.Stat` can defer identity lookup until
+after the stage basename is renamed. [common PR #159](https://github.com/Kuaiwa-Network/common/pull/159)
+captures that identity from an independently opened handle before publication,
+closes the handle, and retains final-identity, byte and terminal-close
+assertions. Runtime ownership and no-replace checks are unchanged; no skip was
+added. The corrected output-directory package has **28 passes, five existing
+top-level skips and zero failures** in 1.798 seconds, with all eight native
+publication cases actually passing. Its expanded focused selection has
+**50 passes, two existing top-level fixture skips and zero failures** in
+18.443 seconds; all 11 skip IDs are unchanged. At committed source
+`33056482192ecde13d61168de39166446ccf8730`, a fresh full native run has
+**523 passes, six failures and 32 top-level skips** in 59.162 seconds, with all
+61 skip IDs unchanged. Five failures require host symlink capability; the
+Excel XML mode assertion remains a separate investigation. Complete Linux
+acceptance and focused native Windows CI pass at that exact source in
+[run 37184160786](https://github.com/Kuaiwa-Network/common/actions/runs/37184160786).
+The [native publication identity record](../spikes/2026-10-03-native-windows-offline.md#native-windows-publication-identity-follow-up-2026-10-04-partial)
+retains measured provenance and coverage limits. Next is the Excel XML mode
+assertion. Complete producer, actual worker/gate and Feishu acceptance remain
+pending.
 
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before

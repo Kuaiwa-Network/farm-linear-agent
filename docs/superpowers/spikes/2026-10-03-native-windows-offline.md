@@ -2423,6 +2423,116 @@ module gaps, actual Windows worker/gate acceptance and real Feishu reads remain
 pending. No parked job resumed and no production deployment or feature
 enablement occurred.
 
+## Native Windows publication identity follow-up (2026-10-04; partial)
+
+GitHub confirms [common #158](https://github.com/Kuaiwa-Network/common/pull/158)
+merged as `266dae538d0169dbcb7ad7a54ec11f8dd0a16d52` and
+[FarmBot #97](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/97)
+as `063c0ec1790294867857eaee1592ffa0adef18d1`. This step starts from that exact
+common merge on the **production Windows host in the separate development
+checkout**, using the ordinary owner token outside the app sandbox, configured
+Python 3.13.16 with `PYTHONUTF8=1`, native Go 1.25.1/protoc 35.1, sanitized
+selectors, private caches and fresh `RUNNER_TEMP` scratch. Production
+configuration, ledger, services, credentials, account settings and ACLs were
+untouched.
+
+`TestPublishCommitsExactStageIdentityAndCloseIsNilAfterPublication` fails on
+the exact merge in **0.965 seconds**, without skips. Its pre-rename `os.Stat`
+does not necessarily capture a physical file identity on Windows: the
+[Go 1.25.1 path-stat implementation](https://raw.githubusercontent.com/golang/go/go1.25.1/src/os/stat_windows.go)
+can defer that lookup. When `os.SameFile` later tries the old stage basename,
+publication has already moved it. In contrast,
+[handle-stat captures the identity immediately](https://raw.githubusercontent.com/golang/go/go1.25.1/src/os/types_windows.go).
+This is a fixture error. The runtime already uses held-handle identities, and
+the actual native publication/ownership suite passes.
+
+[common PR #159](https://github.com/Kuaiwa-Network/common/pull/159)
+captures the stage's identity from an independently opened directory handle
+and closes it before publication. Final identity, complete marker bytes, the
+injected post-publication close diagnostic and repeated terminal-success
+assertions remain enforced. Runtime code is unchanged; no containment,
+ownership, no-follow, link-count or no-replace check is weakened. No skip was
+added. Focused Windows CI adds the corrected assertion, foreign BoundRoot
+refusal and native no-replace suite.
+
+Measured checks for the working correction based on `266dae5`:
+
+- The focused identity test passes in **1.021 seconds**, without skips.
+- `go test -json -count=1 ./internal/outputdir` runs **33 top-level tests:
+  28 passed, zero failed, five skipped**, in **1.798 seconds**. All eight
+  `TestNativeWindowsNoReplacePublication` cases run and pass: actual complete
+  publication, foreign file/directory/reparse preservation, stage replacement
+  refusal, cleanup replacement preservation, unsupported primitive refusal
+  and post-publication close diagnostics as terminal success.
+- The expanded focused CI selection runs **52 top-level tests: 50 passed,
+  zero failed, two existing fixture skips**, in **18.443 seconds**. All eight
+  native publication cases, the corrected saved-identity assertion and foreign
+  BoundRoot refusal run and pass. Its **11 skip IDs** are exactly unchanged
+  from the preceding archive cleanup selection.
+- Go formatting and whitespace checks pass. Native language generation was
+  not repeated: this change only corrects a test fixture and adds CI coverage.
+
+The output-directory package has these seven existing skip events, whose
+reported platform reasons remain unchanged. They are not counted as native
+verification; the separate eight native publication cases above actually run.
+
+| Test | Existing reported reason |
+| --- | --- |
+| `TestClosePreservesReplacementAndAggregatesCleanupFailures` | Test-side replacement blocked by held root; native injection coverage is separate |
+| `TestPrivateWorkClosePreservesReplacementAndReportsCleanupFailure` | Test-side replacement blocked by held root; native injection coverage is separate |
+| `TestPublishPreservesRacedTargetsAndCleansOnlyOwnedStage/symlink` | Reparse coverage belongs to the native Windows suite |
+| `TestPublishRefusesStageReplacementBeforeNoReplaceCall` | Test-side replacement blocked by held stage; native injection coverage is separate |
+| `TestPublishRejectsRacedCaseFoldBasenameBeforeSyscall` | Windows case-insensitive namespace cannot create the distinct raced basename |
+| `TestPublishUsesIdentityReconciliationAsTerminalBoundary/final_identity_commits_despite_syscall_diagnostic` | Held stage prevents test-side rename |
+| `TestTransactionPrepareWorkCreationFailurePreservesReplacedChildAndBlocksParentCleanup` | Held work root prevents test-side replacement |
+
+Committed source is `33056482192ecde13d61168de39166446ccf8730`.
+That exact source passes complete Linux acceptance and focused native Windows coverage in
+[run 37184160786](https://github.com/Kuaiwa-Network/common/actions/runs/37184160786).
+The documentation follow-up passes all **73 relevant skill/reference tests**
+in **0.379 seconds** (**0.496 seconds** including Python startup), with zero
+failures, errors or skips.
+
+A fresh native `go test -json -count=1 ./...` at that exact commit runs
+**561 top-level tests: 523 passed, six failed, 32 skipped**, in **59.162
+seconds**. All **61 skip IDs** and their previously recorded reasons are
+unchanged. The remaining failed top-level tests are:
+
+- `TestFilePublicationRejectsInitiallyExistingForeignTypes`
+- `TestNativeWindowsArchiveExtractionReparse`
+- `TestNativeWindowsArchiveInputReparse`
+- `TestNativeWindowsArchiveNoReplace`
+- `TestReformatFileIfSingleLineCanonicalAndIdempotent`
+- `TestTypeDefsAreWired`
+
+The four archive failures and `TestTypeDefsAreWired` still require host symlink
+capability. Their two failed subtest IDs remain
+`TestFilePublicationRejectsInitiallyExistingForeignTypes/symlink` and
+`TestNativeWindowsArchiveNoReplace/foreign_reparse`. The Excel XML Unix-mode
+expectation remains a separate focused investigation. The saved-stage
+assertion is the only difference from the previous failed-test inventory; it
+passes together with all eight native publication cases. No skipped check is
+claimed as production-host readiness.
+
+UTF-8 logs, revision, selected versions and duration metadata remain local.
+The exact-merge failure log SHA-256 is
+`412690f649cd58f9f89bf910b7872b4905841b35f22ecf61a5f41173eed12117`;
+the corrected focused identity log SHA-256 is
+`58962b4659f8bb4ee4fbb8c2d4dc33393a0ba1eefff5787a2ffeb8cea2914e80`;
+the output-directory package log SHA-256 is
+`98148487cd12550d8df5616638391f3f34837b5b2cd02eb3a7d372c0b61d5a1e`;
+the expanded focused selection log SHA-256 is
+`cca3c1e8b468e50cae9cf773d0203bd5cc12bcdf6d2eceb448f4160f7e4dee8e`;
+the refreshed full-module log SHA-256 is
+`24f51c54fc5fa0e8f2baeb97f7364a4e6d58a8dd497f149b75f53ca0a1a8c1a2`.
+The documentation-test log SHA-256 is
+`cb5ff05824b1820e45e0fd20c7e8c2113e057bab2da3bdf46a1430c04c3ae796`.
+
+Next is the Excel XML mode assertion. Host reparse capability, wider module
+acceptance, actual Windows worker/gate acceptance and real Feishu reads remain
+pending. No parked job resumed and no production deployment or feature
+enablement occurred.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
@@ -2457,13 +2567,14 @@ Remaining release prerequisites:
    boundary packages pass with all existing skips unchanged. Git-executable
    fixture correction #155 and top-level-output fixture correction #156 are
    merged, as is native Git timeout fixture correction #157; all 17 Git-state
-   tests pass. Archive owned-cleanup fix #158 is under review. The refreshed
-   full native module run has seven failed top-level tests: five require host
-   symlink capability and two remain separate investigations. All prior 60 skip
-   IDs remain, plus one existing archive symlink skip now reached without a
-   cleanup failure. Complete producer acceptance remains pending. Preserve the
-   distinction between host capabilities, fixture assumptions and application
-   regressions during the focused rechecks.
+   tests pass. Archive owned-cleanup fix #158 is merged. Publication identity
+   fixture correction #159 is under review; all eight native publication cases
+   and the expanded focused selection pass. The refreshed full native module
+   run has six failed top-level tests: five require host symlink capability and
+   the Excel XML mode assertion remains a separate investigation. All 61 skip
+   IDs remain unchanged. Complete producer acceptance remains pending.
+   Preserve the distinction between host capabilities, fixture assumptions
+   and application regressions during the focused rechecks.
    Dotnet SDK 8.0.423 remains needed
    for C# compilation.
    Keep Bash for Mac/Linux testing. The current doctor's legacy Windows Bash
