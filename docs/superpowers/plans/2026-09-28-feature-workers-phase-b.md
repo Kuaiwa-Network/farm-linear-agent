@@ -231,7 +231,8 @@ remain pending.
 and FarmBot #91 as `6e0ceb5`. The unsafe-tree test reproduced a fixture-creation
 failure before the snapshotter could run: Windows rejects newline filenames.
 [common PR #153](https://github.com/Kuaiwa-Network/common/pull/153)
-checks LF/CR rejection through the shared logical-path guard on every platform.
+merged as `7902de8`; it checks LF/CR rejection through the shared logical-path
+guard on every platform.
 Windows must reject the physical filename with `ERROR_INVALID_NAME` and leave
 the source empty; Unix still checks snapshotter rejection and destination cleanup.
 This does not certify physical newline-entry snapshotting on Windows. Runtime
@@ -243,8 +244,33 @@ skips in 36.163 seconds; all 37 skip IDs are unchanged. Committed source
 focused native Windows coverage in
 [CI run 37174882807](https://github.com/Kuaiwa-Network/common/actions/runs/37174882807).
 The [newline-fixture record](../spikes/2026-10-03-native-windows-offline.md#native-windows-newline-fixture-follow-up-2026-10-04-partial)
-retains measured results and coverage limits. Next is the legacy ownership
-scanner's Windows path matching; actual workers and Feishu reads remain pending.
+retains measured results and coverage limits. The following scanner record
+corrects the initial path-matching diagnosis; actual workers and Feishu reads
+remain pending.
+
+**2026-10-04 ownership-scanner follow-up:** common #153 merged as `7902de8`
+and FarmBot #92 as `1b5d59a`. The test helper omitted an extensionless and a
+Markdown shebang fixture because Windows exposes no Unix execute bits; each
+matched zero of eight forbidden legacy markers. This supersedes the earlier
+path-matching classification. [common PR #154](https://github.com/Kuaiwa-Network/common/pull/154)
+conservatively scans regular shebang files on Windows and retains Unix's
+execute-bit condition. Seven regression cases cover script and historical-text
+classification; dated active-file rejection and exact documentation exemptions
+pass. The working fix based on `7902de8` passes 40 focused top-level tests with
+two existing fixture skips in 18.616 seconds. Its three-package run has **157
+passes, zero failures and 14 top-level skips** in 44.294 seconds, including one
+new regression test; all 37 skip IDs are unchanged. Committed source
+`66ce51a785b7dd3a015773e6a19ac4b7baad4bc7` passed complete Linux acceptance and
+focused native Windows coverage in
+[CI run 37176606613](https://github.com/Kuaiwa-Network/common/actions/runs/37176606613).
+The [ownership-scanner record](../spikes/2026-10-03-native-windows-offline.md#native-windows-ownership-scanner-follow-up-2026-10-04-partial)
+retains the corrected diagnosis and measured coverage limits. A wider native
+configgen module run has 508 passes, 20 failed top-level tests and 32 top-level
+skips in 64.821 seconds, with all 60 skip events recorded. Fresh `RUNNER_TEMP`
+scratch lets native no-replace publication pass, but the native Git slow-filter
+timeout assertion still fails. Full module acceptance, native worker/gate and
+Feishu acceptance remain pending. Next is the Git resolver's relative-executable
+fixture, preserving fail-closed path resolution.
 
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
