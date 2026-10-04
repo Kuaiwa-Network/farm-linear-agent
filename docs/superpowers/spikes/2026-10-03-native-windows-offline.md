@@ -2000,6 +2000,89 @@ Native worker/gate acceptance, real Feishu reads and the remaining release
 prerequisites stay pending. No parked job resumed and no production deployment
 or feature enablement occurred.
 
+## Native Windows Git-executable-fixture follow-up (2026-10-04; partial)
+
+GitHub confirms [common #154](https://github.com/Kuaiwa-Network/common/pull/154)
+merged as `1adc87df5beae4e1e0b620562562cf26243ac85d` and
+[FarmBot #93](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/93)
+as `1d5cbdf7483dcce970a13114535f2c2c74d466c7`. The new branch starts from that
+exact common merge. Checks used the **production Windows host in the separate
+development checkout**, the ordinary owner token outside the app sandbox,
+Python 3.13.16 started with `PYTHONUTF8=1`, native Go 1.25.1/protoc 35.1,
+inherited-selector sanitization, private caches and fresh scratch supplied as
+`RUNNER_TEMP`. Production configuration, ledger, service, credentials, account
+settings and ACLs were untouched.
+
+`TestResolveGitRejectsRelativeLookPathResultWithErrDotDisabled` reproduced on
+exact merged common in **2.506 seconds**, with no skips. Its real `exec.LookPath`
+returned a relative executable with `execerrdot=0`, and `ResolveGit` rejected it
+as intended. Only temporary-directory cleanup failed: the fixture hardlinked
+the currently running Go test image. Windows prohibits deletion of a file that
+is mapped as an executable; see the
+[DeleteFileW reference](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-deletefilew).
+This is a fixture lifetime problem, not evidence that relative-path rejection
+failed.
+
+[common PR #155](https://github.com/Kuaiwa-Network/common/pull/155)
+always copies the test executable into an independent file and asserts that
+source and fixture do not share file identity. The test still exercises real
+relative lookup, requires an empty resolved path and the specific
+non-absolute-path error, then requires explicit fixture deletion as well as
+automatic temporary-directory cleanup. Focused Windows CI adds this exact test.
+Only tests and CI changed; runtime containment, ownership checks, generator
+inputs and existing skips are unchanged. No Bash or MSYS execution is required.
+
+Measured results for the working fix based on `1adc87d`:
+
+- The corrected standalone test passes **one top-level test** in **0.940
+  seconds**, with zero failures or skips. Its explicit deletion and automatic
+  cleanup both succeed.
+- The expanded focused CI selection runs **43 top-level tests: 41 passed,
+  two existing explicit production-fixture skips, zero failures**, in
+  **18.421 seconds**. Eight existing capability subtest skips remain; all ten
+  skip IDs match the preceding focused selection above. The added resolver test
+  actually runs and passes.
+- `go test -json -count=1 ./internal/gitstate` runs **17 top-level tests:
+  15 passed, two failed, zero skipped**, in **10.247 seconds**. The corrected
+  resolver test passes within this package. The remaining failures are
+  `TestNativeWindowsGitState` and
+  `TestResolveTopLevelUsesOneSanitizedBoundedGitProbe`; there are no failed
+  subtests. The former still returns nil instead of a deadline error in its
+  native slow-filter timeout scenario, whose fixture/runtime classification
+  remains unresolved. The latter's mock supplies Windows backslashes where
+  the actual Git-output contract requires an absolute forward-slash path.
+  Strict output validation remains enforced. Package and focused selections
+  overlapped; durations are measured separately.
+- Go formatting, `go vet ./internal/gitstate` and whitespace checks pass.
+  Native generation and the complete module suite were not repeated because
+  runtime behavior and generator inputs are unchanged. The preceding
+  560-test/20-failure module inventory is historical, not a new count for this
+  candidate; no current full-module result is inferred by subtraction.
+
+Committed source is `3f99c166650ce1bbc8a23deef195f625d826d219`.
+[CI run 37177769988](https://github.com/Kuaiwa-Network/common/actions/runs/37177769988)
+passed complete Linux acceptance and focused native Windows coverage at that
+exact head. The documentation follow-up passes all **73 relevant
+skill/reference tests** in **0.360 seconds** (**0.476 seconds** including Python
+startup), with zero failures, errors or skips.
+UTF-8 logs, revisions, selected versions and duration metadata remain local.
+The initial failure log SHA-256 is
+`879d2f5499f4cbd51d2e0ea588c962c8e0424bf20874b1db5c12904f28cbca1d`;
+the passing standalone log SHA-256 is
+`c20c14a34369b87116b8e1cd6b74ff6a74233e1941f85de0aa686af64eba38f8`;
+the expanded focused selection log SHA-256 is
+`0b5a1b45e9140c70dba5bb0962d64ba4e57ff6bcd74339ed09ab4619a1a3b056`;
+the Git-state package log SHA-256 is
+`86f96ccea400d54b4ad449f8180f32be6b27eef81af4e1efab4e15c210b518f6`.
+The documentation-test log SHA-256 is
+`fd2892da4bec0752d40c81c6441c849adbb3785e7ae29c14d3f5ee12d06449e6`.
+
+Next is the mocked Git top-level-output fixture, preserving strict path and
+single-line validation, one bounded probe and sanitized environment assertions.
+The native timeout scenario, wider module gaps, actual Windows worker/gate
+acceptance and real Feishu reads remain pending. No parked job resumed and no
+production deployment or feature enablement occurred.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
@@ -2030,11 +2113,13 @@ Remaining release prerequisites:
    now passes at the development candidates above; #148, cleanup fix #149
    and native CMD preflight fix #150 are merged. Parent-policy fixture correction
    #151 and executable-fixture correction #152 are merged. Newline-fixture
-   correction #153 is merged. Scanner correction #154 is under review; its three
-   boundary packages pass with all existing skips unchanged. The wider native
-   module run exposes the additional failures recorded above; complete producer
-   acceptance remains pending. Preserve the distinction between host capabilities,
-   fixture assumptions and application regressions during the focused rechecks.
+   correction #153 and scanner correction #154 are merged. The scanner's three
+   boundary packages pass with all existing skips unchanged. Git-executable
+   fixture correction #155 is under review; its corrected test and expanded
+   focused selection pass. Two Git-state package failures and the wider native
+   module gaps are recorded above; complete producer acceptance remains pending.
+   Preserve the distinction between host capabilities, fixture assumptions and
+   application regressions during the focused rechecks.
    Dotnet SDK 8.0.423 remains needed
    for C# compilation.
    Keep Bash for Mac/Linux testing. The current doctor's legacy Windows Bash
