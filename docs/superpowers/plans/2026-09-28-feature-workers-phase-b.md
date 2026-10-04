@@ -483,6 +483,22 @@ independent native contract/backend generator and gate work offline, while
 preserving this release gate. No account switch, credential access, app/settings
 change, production change or upstream issue publication occurs.
 
+**2026-10-04 native contract-gate follow-up:** #103 merged as `e54cf2b`.
+On the production Windows host, an ordinary-token check in a fresh separate
+Farm-Contract checkout at `f18cbf6` passes compilation, lint, coverage and
+OpenSpec configuration in 7.267 seconds. All 452 messages are accounted for;
+the explicit merged common checkout matches the registry snapshot. An
+independent scratch manifest reproduces all 60 protocol files byte for byte,
+while the eight committed Bash gate wrappers remain untested. No native
+equivalent exists for those entries at this candidate; the scratch probe is
+not generator acceptance. Existing Node 24 differs from CI's Node 22, and
+only OpenSpec's version query is exercised. The
+[contract-gate record](../spikes/2026-10-03-native-windows-offline.md#native-windows-farm-contract-gate-inventory-and-manifest-probe-2026-10-04-partial)
+retains commands, hashes, gaps and a prepared handoff for the manifest port
+in a Farm-Contract-rooted task. Actual Codex workers, remaining contract/backend
+gates and live release prerequisites remain pending; no production action,
+credential setup, Bash process or protocol/draft mutation occurs.
+
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
 it merged as [#78](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/78)

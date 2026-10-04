@@ -3109,6 +3109,102 @@ capabilities, desktop Unity, private secret scanning, release provenance/CI and
 scoped TestBot restoration also remain pending. Parked jobs and unmerged test
 drafts remain outside this verification.
 
+## Native Windows Farm-Contract gate inventory and manifest probe (2026-10-04; partial)
+
+FarmBot [#103](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/103)
+is merged as `e54cf2b3a040af992ba48b05b5b380fdae6e87ff`. This follow-up runs
+on the **production Windows host**, with the ordinary current-user token, in
+a fresh separate Farm-Contract development checkout at exact default-branch
+revision **`f18cbf6a4ae4a1e98dea1f99b7c8f0983769581d`**. It reads no production FarmBot configuration
+or ledger and copies no Mac state. No service, account, application setting,
+credential installation, live issue or Feishu operation occurs. Preparation
+uses existing GitHub authentication to read the private repository; it does
+not set up new credentials. An initial anonymous clone fails authentication
+before the authenticated clone completes in 3.850 seconds; both private logs
+are retained. That preparation failure is not an application regression.
+
+The [authoritative gate inventory](https://github.com/Kuaiwa-Network/Farm-Contract/blob/f18cbf6a4ae4a1e98dea1f99b7c8f0983769581d/README.md#二线上协议proto)
+requires twelve checks, including the breaking-waiver wrapper; bare
+`buf breaking` would omit its waiver accounting and is not substituted.
+CI pins buf **1.72.0** and OpenSpec **1.7.0**. Native Python
+is **3.13.16**, Git **2.54.0.windows.1** and Git LFS **3.7.1**.
+The existing native Node reports **v24.19.0**, while CI selects Node 22;
+only OpenSpec's version query is exercised here, without claiming strict
+validation or CI-equivalent Node selection. No global tool is installed or
+upgraded. The source contains no tracked LFS files requiring hydration.
+
+`PYTHONUTF8=1` is set before Python starts. Child environments are built
+from a Windows OS-variable allowlist, removing inherited FarmBot, credential,
+repository-selection and model-runtime selectors. Home, temporary files,
+application-data directories, Buf cache and output are fresh scratch paths;
+Git user/system configuration is excluded and hooks/fsmonitor are disabled.
+Coverage explicitly selects the separate common checkout at merged #161,
+**`b367febe20d6db65ebb386aa871bdb2671df9525`**, rather than searching for host repositories.
+No Bash, MSYS or WSL process is invoked.
+
+The native check sequence completes in **7.267 seconds**. The
+following committed gate entries all exit **0**, without skips. PowerShell
+variables below stand for the explicitly selected executables and private
+scratch/development paths used by the verifier:
+
+| Gate | Command | Seconds | Measured result |
+| --- | --- | --- | --- |
+| 1 | `& $Buf build` | 0.058 | Protocol compilation passes. |
+| 2 | `& $Buf lint` | 0.088 | Lint passes with the committed configuration. |
+| 8 | `& $Python -B tools/check-coverage.py --farm-common $CommonCheckout --json $ScratchCoverage` | 0.081 | All 452 registered messages accounted for; upstream drift comparison passes. |
+| 11 | `& $Python -B tools/check-openspec-config.py` | 0.038 | Configuration and its built-in negative fixtures pass. |
+
+Coverage finds **374 migrated, 59 drafted and 19 trimmed** messages. Its
+committed snapshot provenance remains `farm-common@b7ae4675393b4a8d7a293261c0347d941fdfc84a`;
+the explicitly selected merged common source matches that snapshot. A drafted
+disposition passes this static accounting gate, without certifying that draft's
+behavior or authorizing promotion. The parked test drafts remain unmerged.
+
+A separate **read-only manifest probe** hashes all **60** `.proto` source
+files and writes only scratch output. Lowercase SHA-256, two spaces, C byte
+path ordering and LF reproduce both the committed Git blob and the checkout's
+`MANIFEST.sha256` **byte for byte**. Manifest SHA-256 is
+`d6038613a74d9d2746e026278e2472db84e4950de9a49faf4671bc9c0c297323`. This proves the measured source
+bytes and canonical manifest agree; it does **not** run or certify the Bash
+generator or its check entry point. All **592 tracked Farm-Contract files**
+remain byte-identical, with aggregate SHA-256
+`0d52f1ef4713f075d64e189d58806dcd2985157ab3b36e5d88d7df57132aebcc`; both development checkouts remain clean.
+
+**Eight required gate entries remain pending native Windows implementation**:
+3 `check-breaking-waiver.sh`, 4 `gen-manifest.sh --check`, 5 `check-markers.sh`,
+6 `check-msg-naming.sh`, 7 `check-proto-fields.sh`, 9 `check-spec-provenance.sh`,
+10 `check-readme-inventory.sh` and 12 `check-openspec-validate.sh`, all under
+`tools/`. They are not run in this sequence and earn no pass or skip credit.
+The current repository has no equivalent Python, PowerShell or CMD entry
+points for them. This is a missing native workflow, without evidence of a
+protocol regression. No guard, ownership rule, waiver or test is weakened.
+Farm-Contract uses Buf for compilation; protoc code generation belongs to
+consumer repositories and is not an extra contract prerequisite.
+
+UTF-8 command logs, coverage JSON, scratch manifest and private preparation
+metadata remain ignored locally in `native-contract-70bce7cc` and its preparation reports.
+Sanitized summary SHA-256 is `ef612700b280e00c9e81acef6ddf2ff55159a1690c694da2ef89eb57f1163355`;
+probe-source SHA-256 is `49bdd337489e629ec5ed15ac93f3abd53bac024b838b91a0b9474ceb052e7f90`. Per-command exit codes, durations
+and log hashes are preserved in the summary. Private paths, credentials and
+raw host logs are not published. All **73 relevant documentation tests pass**
+without skips/failures/errors in **0.355 seconds** (0.476 seconds including
+startup); UTF-8 log SHA-256 is
+`0d89c1d5748258557e48413f7a28c0d94dc25d0affef8aa5c7a23350c9d4c0e0`. Evidence hashes, links,
+privacy and whitespace are checked. No executable behavior changes or full
+FarmBot suite rerun occurs.
+
+**Next:** port the manifest generator first, preserving the exact canonical
+bytes and adding native Windows failure cases; then address the remaining
+seven wrappers and their existing negative checks. Farm-Contract's
+[task boundary](https://github.com/Kuaiwa-Network/Farm-Contract/blob/f18cbf6a4ae4a1e98dea1f99b7c8f0983769581d/AGENTS.md#一本仓任务只做契约)
+requires code edits in a task rooted in that repository. A self-contained
+private handoff is prepared, without writing contract or consumer code here.
+The supported isolated-home Codex launch, actual sandbox-child acceptance,
+remaining native backend gates, real Feishu/Word, ordinary-worker capability
+checks, desktop Unity, private secret scan, release provenance/CI and scoped
+TestBot restoration remain release prerequisites. This host measurement
+does not certify the installed production service or enable feature workers.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
