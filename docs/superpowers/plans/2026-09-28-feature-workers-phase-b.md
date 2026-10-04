@@ -469,6 +469,20 @@ credential delivery and filesystem/network boundaries remain unverified**.
 Next is supported native runtime integration, then actual sandbox-child dummy
 acceptance before real Feishu reads. No production runtime or parked job changed.
 
+**2026-10-04 native runtime-isolation follow-up:** #102 merged as `6293766`.
+Configured CLI 0.156.1 and the verified/current packaged CLI 0.160.0 expose
+config-ignore/rule-ignore/ephemeral flags, but no separate sandbox-home option.
+The directly launched packaged CLI still lacks package identity, and the
+stored ready-package receipt differs from the current installed package.
+The protected registration stays unchanged. These controls have not established
+a supported bridge for FarmBot's fresh worker homes; actual native Codex worker
+acceptance remains pending. The
+[runtime-isolation record](../spikes/2026-10-03-native-windows-offline.md#native-windows-codex-configurationruntime-isolation-follow-up-2026-10-04-partial)
+retains read-only measurements and two corrected verifier attempts. Next is
+independent native contract/backend generator and gate work offline, while
+preserving this release gate. No account switch, credential access, app/settings
+change, production change or upstream issue publication occurs.
+
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
 it merged as [#78](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/78)

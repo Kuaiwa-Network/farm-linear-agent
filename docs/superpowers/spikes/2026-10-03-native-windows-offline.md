@@ -3014,6 +3014,101 @@ FARM-1346/FARM-1425 stay parked; the unmerged contract/backend test drafts are
 not release evidence. No manual account or credential setup is requested by
 this independent controller check.
 
+## Native Windows Codex configuration/runtime isolation follow-up (2026-10-04; partial)
+
+FarmBot [#102](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/102)
+is merged as `6293766f95b913f3294e17d87e58c27bacc2ffe0`, with the reviewed source tree unchanged.
+This next check again runs on the **production Windows host in the separate
+development checkout**, using Python 3.13.16 with `PYTHONUTF8=1`, fresh absolute
+scratch homes outside the checkout/installation, and sanitized environments.
+No production FarmBot configuration/ledger, app configuration/auth file, real
+credential store, model or Feishu endpoint is accessed. No service restart,
+provisioning, account/settings change or parked-job activity is performed.
+
+The successful CLI-option check completes in **0.400 seconds**:
+the configured PATH command reports **0.156.1**, while the previously verified
+candidate reports **0.160.0**. All eight owned version/help processes exit 0.
+Both expose `--ignore-user-config`, `--ignore-rules`, `--ephemeral`, `--config`
+and `--profile`; neither exposes `--config-file` or a separate sandbox-home
+override. The fresh home gains only `tmp`, with no auth/config/session state.
+The [official non-interactive documentation](https://learn.chatgpt.com/docs/non-interactive-mode)
+describes ignoring user config and avoiding saved rollout files; the
+[environment-variable reference](https://learn.chatgpt.com/docs/config-file/environment-variables)
+describes a separate SQLite-state location. These controls do not establish
+separate Windows sandbox ownership. The
+[configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
+provides no sandbox-home setting. The
+[official changelog](https://learn.chatgpt.com/docs/changelog) still lists
+0.160.0 as the newest stable CLI on the checked page (released 2026-10-01).
+No configured CLI is upgraded or replaced here.
+
+A read-only installed-package check completes in **0.333 seconds**.
+Windows metadata identifies one current-user Codex package, with the same
+family as the protected runtime registration. The running sandbox service and
+its sibling CLI are inside that OS-resolved current staged package. That CLI
+reports **0.160.0**, with the same verified image SHA-256
+`37762753b554982eef1c109303d1be652b6397f1479e844794353a85650199c6`, and supports the same exec isolation flags. Nevertheless,
+its directly launched child has **no package identity** (Windows status
+**15700**). The stored `ready_package` does **not** match the currently installed
+package; querying the stored package's staged path returns **1168**. Thus a
+nonempty registration receipt is not evidence that it is ready for the current
+package. The app manifest declares browser-host and sandbox-runner aliases,
+but no `codex.exe` CLI activation alias. Both observed aliases are present for
+the current user. No alias or app activation is invoked. The protected runtime
+record remains byte-for-byte unchanged throughout this check.
+
+The retained 0.160.0 source still binds runtime admission to the owner, exact
+Codex home, installed package and caller image. It passes `config.codex_home`
+to native sandbox execution; supplied sandbox-state metadata changes the
+permission profile, without replacing that home. See the
+[registered-runtime admission evidence](#registered-runtime-admission-and-local-object-control-2026-10-04-partial).
+Ignoring config, redirecting SQLite state or selecting a profile therefore
+does not prove that FarmBot's fresh per-attempt home can launch against this
+registered runtime. Reusing the desktop home would also require separately
+proving instruction/config/state isolation; it is not adopted as an untested
+bridge. **No supported isolated-home native integration has been established
+on this machine.** The successful controller/helper results in #102 remain
+independent; actual Codex sandbox-child grants, containment, tool access and
+read-only sibling enforcement remain pending. No weaker sandbox or ownership
+exception is selected to obtain acceptance.
+
+Two incomplete verifier attempts remain local: `native-codex-options-a8631515`
+(0.910 seconds) used the documentation's `sandbox windows --help` syntax.
+This CLI interprets `windows --help` as the requested command, attempted a
+restricted-token launch, and returned `CreateProcessAsUserW` error **2** before
+creating the target process. This unintended query earns no sandbox acceptance
+credit. The corrected query is `codex sandbox --help`. The package-check
+attempt `packaged-runtime-cli-27f0b2ee` (0.002 seconds) stopped before launching
+any child because it required the older ready-package staged lookup to succeed;
+the completed check instead resolves the current installed package and reports
+the mismatch explicitly. These verifier issues do not change FarmBot behavior.
+
+UTF-8 help/version/identity logs and private metadata remain ignored locally in
+`native-codex-options-044c794f` and `packaged-runtime-cli-4521cea2`. Sanitized summary SHA-256 values are
+`e29c8b631d4740076c7da2ead0cb206260fd69bf5cb25e010f72a0b5e2e00394` and
+`2e9058c0157feec111e8470b83a4357ca32bb5ab645b8379a1cc9b02912c5773` respectively. Successful command-log hashes
+are retained per command in the first summary. Probe-source SHA-256 values are
+`6f004a516958c85b4696814409f6bab7085ad3205f2620c83d62288300ec4369` and
+`593074ecbb92bffcf83bbe18ee6e200e75080a5434e961b8db86f98dd60196ea`. Private paths, package identifiers, SIDs and
+raw failure diagnostics are not published. All **73 relevant documentation
+tests pass** without skips/failures/errors in 0.354 seconds (0.472 seconds
+including startup); UTF-8 log SHA-256 is
+`5072c57bb38b45ff04caaf00a07c9ea72e7c4c80a0a6df9825808ca41df4a5bd`.
+Evidence hashes, local links/anchors, privacy and whitespace are checked.
+Executable behavior is unchanged; no full FarmBot suite rerun
+or production readiness is claimed.
+
+**Next:** continue the independent native Farm-Contract/farm-hive generator and
+repository-gate work offline. Native worker promotion still requires a supported
+Codex path that preserves isolated worker configuration/state and registered
+runtime admission, followed by actual sandbox-child dummy acceptance. This is
+not resolved by granting the Feishu bot more permissions or creating another
+Windows account. The prepared upstream report remains deferred at the operator's
+request; nothing is published to OpenAI. Real Feishu/Word, ordinary-worker
+capabilities, desktop Unity, private secret scanning, release provenance/CI and
+scoped TestBot restoration also remain pending. Parked jobs and unmerged test
+drafts remain outside this verification.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
