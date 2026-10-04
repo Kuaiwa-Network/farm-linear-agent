@@ -130,19 +130,40 @@ state from Git history and the saved Claude session. Phase A's shared plumbing a
 testing. Fix and feature use the same elevated Windows launcher; experimental
 MXC/MSYS failures below do not establish a failure of that configured path.
 Common's existing `gen-config.cmd` exposed a native plugin-name bug, fixed in
-[common draft PR #148](https://github.com/Kuaiwa-Network/common/pull/148).
+[common PR #148](https://github.com/Kuaiwa-Network/common/pull/148), now merged
+as `e743062`.
 Clean candidate `289c406` passed native inventory, server generation/verify and
 combined server/client generation/verify, without Bash, in 25.277 seconds.
 The [common CI run](https://github.com/Kuaiwa-Network/common/actions/runs/37165148969)
 passed complete Linux acceptance and the focused Windows regression job at
 `ba5bfa9`; that later commit changes CI setup only.
 The focused language tests passed 22 top-level tests with two existing fixture
-skips; broader checks still have seven failures and the same skips as an
-untouched baseline, including two cleanup-identity failures that must be repaired.
+skips; broader checks initially had seven failures and the same skips as an
+untouched baseline, including two cleanup-identity failures investigated next.
 The [native tool record](../spikes/2026-10-03-native-windows-offline.md#native-windows-tools-follow-up-2026-10-04-partial)
 preserves the measurements and all 37 skip events. Native remaining gates,
 actual worker acceptance and real Feishu reads remain pending. No production
 settings, state or service changed; Task 17 remains incomplete.
+
+**2026-10-04 cleanup follow-up:** after verifying #148 and FarmBot #87 merged,
+[common PR #149](https://github.com/Kuaiwa-Network/common/pull/149)
+captures private-module identities from handles on Windows and merged as
+`95f6008`. Six new same-byte
+document replacement cases fail before the fix and pass after it. The snapshot
+fixture's original rename was denied while a child file was open; moving its
+replacement between copies now exercises the existing cleanup guard and proves
+both foreign and moved owned bytes survive. Snapshot production cleanup did not
+need a fix. The expanded focused selection passes 28 top-level tests with two
+existing fixture skips in 6.970 seconds. The three-package run has 151 passes,
+five remaining failures and 14 top-level skips in 34.817 seconds; all 37 skip
+events are unchanged. Exact candidate `e5c82b7` passed native server and combined
+server/client generation/verification in 25.582 seconds without Bash. The
+[common CI run](https://github.com/Kuaiwa-Network/common/actions/runs/37167444887)
+passed complete Linux acceptance and the expanded focused Windows job. The
+[cleanup record](../spikes/2026-10-03-native-windows-offline.md#native-windows-cleanup-follow-up-2026-10-04-partial)
+retains the measurements, correction and pending checks. Native CMD preflight
+is the next code step; real worker/Feishu acceptance and release readiness remain
+pending.
 
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
