@@ -199,9 +199,9 @@ unreadable evidence. Application behavior, identity checks and skips are
 unchanged. Candidate `e568452` passes 34 focused top-level tests with two
 existing fixture skips in 25.475 seconds. Its three-package run has 153 passes,
 three remaining failures and 14 top-level skips in 42.250 seconds; every one
-of the 37 skip IDs is unchanged. The focused Windows job in
+of the 37 skip IDs is unchanged.
 [CI run 37171263841](https://github.com/Kuaiwa-Network/common/actions/runs/37171263841)
-passed; complete Linux acceptance is pending. The
+passed complete Linux acceptance and the focused native Windows job. The
 [parent-policy record](../spikes/2026-10-03-native-windows-offline.md#native-windows-parent-policy-follow-up-2026-10-04-partial)
 retains the diagnosis and measurements. The next code step is the Windows
 readonly executable-fixture cleanup; actual workers and Feishu reads remain

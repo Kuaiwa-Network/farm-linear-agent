@@ -1656,9 +1656,8 @@ The remaining failed top-level tests are:
   fixture attempts a Windows-invalid filename.
 - `TestLegacyOwnershipScannerRejectsDatedActiveFiles`: Windows path matching.
 
-The focused native Windows job in
 [CI run 37171263841](https://github.com/Kuaiwa-Network/common/actions/runs/37171263841)
-passed at `e568452`; complete Linux acceptance is pending.
+passed complete Linux acceptance and the focused native Windows job at `e568452`.
 This three-package measurement does not establish complete common Windows
 acceptance, a trusted service account's ACLs or actual worker readiness.
 
