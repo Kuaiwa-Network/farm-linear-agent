@@ -3205,6 +3205,96 @@ checks, desktop Unity, private secret scan, release provenance/CI and scoped
 TestBot restoration remain release prerequisites. This host measurement
 does not certify the installed production service or enable feature workers.
 
+## Native Windows contract manifest port review (2026-10-04; candidate)
+
+Farm-Contract [PR #319](https://github.com/Kuaiwa-Network/Farm-Contract/pull/319)
+adds a standard-library Python entry point for gate 4. The reviewed candidate is
+**`445212aa9d9be774f72c35767f82ac1eaea5493b`**, based on
+`f18cbf6a4ae4a1e98dea1f99b7c8f0983769581d`. It remains unmerged. Code changes
+and their regression coverage belong to the separate Farm-Contract-rooted task;
+this FarmBot change records verification only.
+
+Review reproduces a Windows regression at initial head
+`805adf6ef6fbc3fce47037ba2dcb48d5f46b266b`: `os.walk(..., followlinks=False)`
+still descends into a directory junction. With one ordinary protocol file and
+a real junction to an outside dummy source directory, that version incorrectly
+includes both files. The corrected candidate inspects `lstat()` reparse
+attributes, rejects a linked/reparse `proto/` root, and prunes linked/reparse
+directories before descent. Repeating the same native probe produces one
+manifest entry, excludes the junction target and preserves the outside file.
+Both generator invocations exit 0 in 0.054 seconds; no skip or permission
+bypass is used. The linked-root, outside-target, only-linked-input and internal
+alias/cycle regression cases create real junctions on Windows, and fail if
+creation fails. Linux/macOS exercise real directory and file symlinks.
+
+Independent acceptance runs on the **production Windows host**, using the
+ordinary current-user token, a separate development checkout and a fresh
+export of the candidate's committed bytes. Python **3.13.16** is selected
+explicitly, with `PYTHONUTF8=1` set before startup. A Windows OS-variable
+allowlist excludes inherited FarmBot, model and credential selectors; homes,
+application-data directories and temporary files are fresh scratch paths.
+Git user/system configuration is excluded and hooks/fsmonitor are disabled.
+No Bash, MSYS, WSL, production configuration/ledger, Feishu authentication,
+service, account setting or deployment is involved.
+
+| Check | Command | Seconds | Result |
+| --- | --- | --- | --- |
+| Native regressions | `& $Python -I -X utf8 -B tools/test-gen-manifest.py` | 2.412 (2.502 including startup) | **19 pass; zero failures, errors or skips**, including all four junction cases. |
+| Existing manifest | `& $Python -I -X utf8 -B tools/gen-manifest.py --check` | 0.064 | Exit 0. |
+| Default generation | `& $Python -I -X utf8 -B tools/gen-manifest.py` | 0.065 | Exit 0; canonical bytes preserved. |
+| Regenerated manifest | `& $Python -I -X utf8 -B tools/gen-manifest.py --check` | 0.063 | Exit 0. |
+
+The full export/check sequence takes **4.945 seconds**. All **60 proto files**
+and all **594 exported files** remain byte-identical. Independently hashed,
+committed and regenerated manifest SHA-256 is
+`d6038613a74d9d2746e026278e2472db84e4950de9a49faf4671bc9c0c297323`;
+exported-tree aggregate SHA-256 is
+`868f028c204e663124cac8fd63373e4cd7faeb9fcec19c1367e65ea65f29dd5b`.
+Acceptance uses raw committed bytes: the host checkout's Git CRLF conversion
+must not be repaired by normalizing protocol source to obtain a pass.
+
+[CI run 37201736449](https://github.com/Kuaiwa-Network/Farm-Contract/actions/runs/37201736449)
+matches the exact corrected candidate and passes all four jobs: existing
+Linux contract gates, plus manifest checks on Windows, Linux and macOS.
+Hosted Windows runs **19 tests** in 3.564 seconds. Linux runs **21 tests** in
+2.716 seconds through the native entry point and 2.471 seconds through the
+shell wrapper; macOS runs **21 tests** in 1.563 and 1.682 seconds respectively.
+All test invocations have zero skips. The two shell-wrapper workflow steps
+are intentionally excluded on Windows; these are not native test skips or
+evidence of Windows Bash acceptance.
+
+UTF-8 native command logs and sanitized summaries are retained privately in
+`native-manifest-candidate-bac77720`; the junction reports are
+`native-manifest-links-cac25174` and `native-manifest-links-fa960e54`.
+Generator source SHA-256 is
+`77b2e004b91735c47fa947b5badd2e4fb375d71d6b91ce8880858db1286ee601`;
+native regression log SHA-256 is
+`455c315c56f2124b3d27a153508ee89a15f1868e29bb2fab9db5df93a43db944`;
+acceptance-summary SHA-256 is
+`4e59feb8ed3a58ca81a1c899b2fbdc78b26fea94e1eac67bfce0f1c97de81e3f`.
+An earlier overlay verification reached 19 passing tests but stopped because
+the local verifier parsed stdout while unittest wrote its summary to stderr.
+That incomplete report is retained; after repairing the verifier, acceptance
+uses the exact committed candidate above. This is a verifier error, separate
+from the reproduced and corrected junction regression. All **73 relevant
+documentation tests** pass without skips, failures or errors in **0.371 seconds**
+(0.480 seconds including startup); UTF-8 log SHA-256 is
+`bf02b59c520531046bb2ef130b33481a5b74822b57a97652a2ef17042d66eba5`.
+Evidence hashes, links, privacy and whitespace are checked; no full FarmBot
+suite rerun is needed for this documentation-only change.
+
+**Next:** review and merge the code candidate separately, then verify the
+actual merged revision. Native ports remain pending for gates **3, 5, 6, 7,
+9, 10 and 12**. CI's full contract-gate pass is Linux evidence; it does not
+establish a full native Windows twelve-gate pass. The local Node 24/CI Node 22
+difference and strict OpenSpec path remain unverified. Native farm-hive
+generators/gates, actual isolated Codex worker grants and containment, real
+Feishu/Word access, ordinary-worker symlink capability, desktop Unity,
+private secret scan, release provenance/CI and scoped TestBot restoration
+remain release prerequisites. Neither code-candidate verification nor this
+documentation change certifies the installed production service or enables
+feature workers. Parked jobs and unmerged test drafts remain unchanged.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
@@ -3283,7 +3373,10 @@ Remaining release prerequisites:
    rejection, read-only siblings, Go caches, Git LFS and containment. Farm-hive's
    existing `config/pb/gen.bat` still calls Bash and is not such an equivalent.
    Direct common generation does not verify these paths. Use an operator-selected
-   scope without resuming parked jobs.
+   scope without resuming parked jobs. Farm-Contract #319's corrected native
+   manifest candidate passes 19 local Windows tests and exact-head three-platform
+   CI, but remains unmerged; verify its merged revision separately. Seven other
+   required contract wrappers still lack verified native Windows entry points.
 4. Check the selected service account's symlink capability and relevant native
    ownership/process checks, then complete Windows desktop Unity acceptance.
    The elevated offline baseline does not certify the ordinary token or a

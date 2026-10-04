@@ -499,6 +499,22 @@ in a Farm-Contract-rooted task. Actual Codex workers, remaining contract/backend
 gates and live release prerequisites remain pending; no production action,
 credential setup, Bash process or protocol/draft mutation occurs.
 
+**2026-10-04 native manifest-port review:** Farm-Contract
+[#319](https://github.com/Kuaiwa-Network/Farm-Contract/pull/319) remains an open
+code PR at `445212a`. Review reproduces junction traversal at its initial head;
+the corrected generator rejects linked roots and excludes reparse directories.
+Independent ordinary-token Windows acceptance from committed bytes passes all
+19 tests, including real junctions, with no skips. Manifest check, rewrite and
+recheck preserve all 60 protocol files and all 594 exported files. Exact-head
+CI passes the existing Linux gates and three-platform manifest jobs; Linux/macOS
+each run 21 native and 21 shell-wrapper tests without skips. The
+[manifest-port record](../spikes/2026-10-03-native-windows-offline.md#native-windows-contract-manifest-port-review-2026-10-04-candidate)
+retains timings, evidence hashes, the corrected local verifier error and
+remaining gates. Verify the separately approved code merge before promoting
+gate 4's candidate evidence. Gates 3, 5, 6, 7, 9, 10 and 12, native backend
+paths, actual isolated Codex workers and live release prerequisites remain
+pending. No production, credential or parked-job action occurs.
+
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
 it merged as [#78](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/78)
