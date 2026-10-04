@@ -186,6 +186,27 @@ retains the reproduction, regression checks and remaining Windows gaps. The
 next code step is the private-parent fixture and Windows permission boundary;
 actual worker and Feishu acceptance remain pending.
 
+**2026-10-04 parent-policy follow-up:** FarmBot #89 merged as `c26e4f3`, then
+common #150 merged as `c3aa16f`; the latter tree matches the tested `048334d`.
+The private-parent failure came from a fixture that leaves its Windows parent
+unchanged but expects Unix mode-policy rejection. The active common contract
+requires caller-trusted Windows parents and does not certify ownership/DACL
+safety. [common PR #151](https://github.com/Kuaiwa-Network/common/pull/151)
+preserves Unix 0755-parent rejection and checks successful native Windows
+creation of exactly the three retained documents, alongside invalid-path and
+existing-root rejection. The marker assertion now also rejects missing or
+unreadable evidence. Application behavior, identity checks and skips are
+unchanged. Candidate `e568452` passes 34 focused top-level tests with two
+existing fixture skips in 25.475 seconds. Its three-package run has 153 passes,
+three remaining failures and 14 top-level skips in 42.250 seconds; every one
+of the 37 skip IDs is unchanged.
+[CI run 37171263841](https://github.com/Kuaiwa-Network/common/actions/runs/37171263841)
+passed complete Linux acceptance and the focused native Windows job. The
+[parent-policy record](../spikes/2026-10-03-native-windows-offline.md#native-windows-parent-policy-follow-up-2026-10-04-partial)
+retains the diagnosis and measurements. The next code step is the Windows
+readonly executable-fixture cleanup; actual workers and Feishu reads remain
+pending.
+
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
 it merged as [#78](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/78)
