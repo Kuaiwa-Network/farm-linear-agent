@@ -1434,9 +1434,9 @@ match the earlier baseline. The remaining failed top-level tests are:
 - `TestResolveExecutableRejectsRelativeLookPathResultWithErrDotDisabled`
 - `TestLegacyOwnershipScannerRejectsDatedActiveFiles`
 
-Their measured classifications remain as listed above. The next concrete code
-step is the native CMD malformed-preflight behavior; full Windows producer
-acceptance still requires all five failures to be resolved. Go formatting,
+Their measured classifications remain as listed above. Native CMD preflight
+was selected next and is recorded in the following section; this earlier run
+still had all five failures. Go formatting,
 `go vet ./internal/artifact ./internal/repoinfo ./internal/toolchain` and
 `git diff --check` passed.
 
@@ -1467,6 +1467,135 @@ the combined-generation log SHA-256 is
 Real worker generators/gates and real Feishu access remain pending. No parked
 job was resumed, and no production deployment or feature enablement occurred.
 
+## Native Windows CMD follow-up (2026-10-04; partial)
+
+GitHub confirms common #149 merged as
+`95f600827853d247cb2731535e3e1390a6f0403e` and the documentation-only FarmBot #88
+merged as `3721c003feeb292a1ae7b1d46c3d6772d8b8faa9`. This next code branch starts
+from that exact common merge on the **production Windows host in the separate
+development checkout**. Python 3.13.16 started with `PYTHONUTF8=1`. The selected
+native CMD/Go 1.25.1/protoc 35.1 environment, inherited-selector sanitization,
+private caches and fresh scratch outputs were retained. These checks used the
+ordinary owner token outside the desktop app sandbox, without UAC elevation;
+the token's symlink limitations are unchanged. No production configuration,
+ledger, service or credential was read or changed.
+
+The merged launcher's malformed-Git test reproduced a real CMD error: an empty
+identity leaves `FARM_COMMON_COMMIT` undefined, and substring expansion then
+causes a syntax-error exit 255 before the owned temporary directory is removed.
+Pipe-prefixed output is skipped by the existing `for /f eol=|` reader and reaches
+the same error. The original fixture shared TEMP across its cases, so the leaked
+directory could also prevent a subsequent uppercase-identity case from reaching
+Git. That secondary failure did not establish acceptance of uppercase identities.
+
+[common PR #150](https://github.com/Kuaiwa-Network/common/pull/150)
+adds an undefined-variable guard before substring validation. The existing
+single-line, exact 40-character lowercase-hex check, Go pinning and owned
+nonrecursive cleanup remain intact. The fixture now isolates TEMP per case and
+adds whitespace, pipe, extra-line and blank-line identities. It requires exit 2,
+an empty temporary directory, no Go run and no Go version probe after invalid
+Git identity. Go-version cases still require that their preflight probe ran.
+No containment/ownership check was weakened and no skip was added.
+
+The stronger regression failed before the application change for missing and
+pipe-prefixed identity in **4.198 seconds**. The working fix based on `95f6008`
+then produced these measured native results:
+
+- `go test -json -count=1 -run '^TestWindowsLauncher' ./internal/repoinfo`:
+  **five top-level tests passed, zero failures or skips**, in **17.683 seconds**.
+- The expanded Windows CI selection (language, cleanup, cancellation and all
+  launcher regressions): **35 top-level tests, 33 passed, two existing explicit
+  production-fixture skips, zero failures**, in **18.553 seconds**. Its six
+  existing capability subtest skips (case-sensitive names and symlink creation)
+  are already in the 37-event inventory above.
+- `go test -json -count=1 ./internal/artifact ./internal/repoinfo ./internal/toolchain`:
+  **170 top-level tests: 152 passed, four failed, 14 skipped**, in
+  **38.112 seconds**. Every one of the **37 skip IDs** matches the prior baseline.
+  This selection is not the complete common suite or complete Windows acceptance.
+- Go formatting, `go vet ./internal/artifact ./internal/repoinfo ./internal/toolchain`
+  and whitespace checks passed. The Windows CI job now includes all native
+  launcher tests; complete Linux acceptance remains required.
+
+The remaining failed top-level tests are:
+
+- `TestMaterializeModuleRequiresFreshChildOfPrivateParent`: the Windows
+  `public_parent` fixture does not change permissions before expecting rejection;
+  review the fixture and actual Windows private-parent enforcement together.
+- `TestSnapshotterRejectsUnsafeTreesFreshnessAndOverlap`: the `newline_path`
+  fixture cannot create its Windows-invalid filename.
+- `TestResolveExecutableRejectsRelativeLookPathResultWithErrDotDisabled`:
+  the readonly fixture fails during cleanup; preserve relative-lookup rejection.
+- `TestLegacyOwnershipScannerRejectsDatedActiveFiles`: Windows path matching
+  needs review.
+
+At committed source `b7959f483bae7b11822e4c3483188b58684fb578`, native CMD
+version/inventory, server generate/verify and combined server/client
+generate/verify all exited 0 in **25.736 seconds**, including revision, status
+and version probes. The checkout remained clean and Bash/WSL were not invoked.
+This does not verify C# compilation, the actual worker sandbox, remaining
+repository gates or real Feishu access.
+
+The initial hosted Windows job at `b7959f4` exposed a separate path-spelling
+fixture mismatch: its TEMP contains an 8.3 short alias, so a captured child CWD
+did not equal the long path expected by the test. Intermediate candidate
+`dd2da16920dddc5dc85e62c1ab41b186b1fe032f` canonicalizes that fixture's created
+temporary inputs before use. Exact child paths, arguments, tool resolution and
+environment assertions remain intact; production launcher path handling is
+unchanged. The expanded selection passes again locally with the same **33
+passes and eight skip events**, in **18.219 seconds**.
+
+That hosted rerun then reached a second difference: CMD preserves an inherited
+`SystemRoot` key's spelling when updating its value, while the test requires
+exactly one nonempty uppercase `SYSTEMROOT` entry. An explicit mixed-case
+fixture reproduced that failure locally in **4.127 seconds**. The launcher now
+removes that key before recreating it from the already validated system root;
+the duplicate-entry and canonical-spelling assertions remain intact. With both
+corrections, the focused selection passes **33 top-level tests, two existing
+fixture skips and six existing capability subtest skips**, in **17.902 seconds**.
+At final source `048334d93c258680f036ffdb262adf91b26d2d8c`, the broader selection
+still has **152 passed, four failed, 14 skipped**, in **36.764 seconds**, with
+the same four failure IDs and all 37 skip IDs. Its native CMD smoke sequence
+also passes with a clean checkout in **26.182 seconds**, without Bash or WSL.
+Go vet and whitespace checks pass.
+[CI run 37169189943](https://github.com/Kuaiwa-Network/common/actions/runs/37169189943)
+passed complete Linux acceptance and the focused native Windows job on the
+final head. This does not replace complete Windows producer acceptance. The
+earlier failed jobs are not passing evidence.
+
+The documentation follow-up passed all **73 relevant skill/reference tests**
+in **0.393 seconds** (**0.514 seconds** including Python startup), with no
+failures, errors or skips. Measured counts, historical skip inventory, links,
+privacy patterns and whitespace checks passed.
+
+UTF-8 logs, exact revisions, versions, durations and hashes remain local. The
+stronger pre-fix regression log SHA-256 is
+`099b9d56255e2d63be481be386258a336064ed9e4d78eb033c8e23deb1caf0f7`;
+the five-launcher log SHA-256 is
+`606154360a20b88930a7754a87f79d8b57bc505fbf337a4a9a6e42da69fb2e94`;
+the expanded passing selection's log SHA-256 is
+`02e5cbed378233e3814893412cf4fcdbc89bbb6daa4c6ea273acb82f0a5a3977`;
+the three-package result's log SHA-256 is
+`f5d0f856f9db3e941657a2df0d591ffea9d83c59de6bf6f48cee586f4253d8db`.
+The server-generation log SHA-256 is
+`4f1c6bbfaf4b90748f5e6bf5fcd18d3f0bc539072f7c0d7d3162034ce4741a2a`;
+the combined-generation log SHA-256 is
+`3713cc1a2c797f05b954c79c1d80803c0b31fde8ed79df2a604d486d23b0b1e6`.
+The passing fixture-follow-up log SHA-256 is
+`0fb3344e5cef4986d849e7cce6b42f92d07ea5e3a862d582c63fd8329805424e`.
+The mixed-case pre-fix regression log SHA-256 is
+`f3d78eefa2a02371dfec954b7cea99e0a3b3a2a45218e353accabf852124745d`;
+the final focused selection's log SHA-256 is
+`19d448af58aa47c755179867464729ba35524664e3f0b31374208c1b3b5aaa44`;
+the final three-package log SHA-256 is
+`be3662e9b43245d74bd3735f8f115597d34b10d412c8c058b8b05a8e559e008b`.
+The final server-generation log SHA-256 is
+`9af71079e274b2f4ce3cabee670cbb64b43237e1c224e48c1f1df22149b1dd97`;
+the final combined-generation log SHA-256 is
+`cef5f044e66652bc9170b6a8676593faf630b65178ad4c174c86fddf1bb1e6d0`.
+The next concrete code step is to investigate the private-parent fixture and
+Windows permission boundary without relaxing it. Untested Windows workers,
+Feishu reads and release prerequisites remain pending; no parked job resumed.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
@@ -1495,7 +1624,8 @@ Remaining release prerequisites:
    Node/openspec 1.7.0 and lark-cli. The global `python3` alias is 3.14.3 and
    must not select the verifier's interpreter. Common's native CMD generation
    now passes at the development candidates above; #148 and cleanup fix #149
-   are merged. Repair the five outstanding Windows failures before
+   are merged, and native CMD preflight fix #150 is under review. Repair the
+   four outstanding Windows failures before
    complete producer acceptance. Dotnet SDK 8.0.423 remains needed for C# compilation.
    Keep Bash for Mac/Linux testing. The current doctor's legacy Windows Bash
    inventory is not proof that equivalent native generators/gates exist;

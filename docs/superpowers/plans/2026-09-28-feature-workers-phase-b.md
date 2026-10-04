@@ -161,9 +161,30 @@ server/client generation/verification in 25.582 seconds without Bash. The
 [common CI run](https://github.com/Kuaiwa-Network/common/actions/runs/37167444887)
 passed complete Linux acceptance and the expanded focused Windows job. The
 [cleanup record](../spikes/2026-10-03-native-windows-offline.md#native-windows-cleanup-follow-up-2026-10-04-partial)
-retains the measurements, correction and pending checks. Native CMD preflight
-is the next code step; real worker/Feishu acceptance and release readiness remain
-pending.
+retains the measurements, correction and pending checks. The following CMD
+record completes that next code step; real worker/Feishu acceptance and release
+readiness remain pending.
+
+**2026-10-04 CMD follow-up:** after verifying common #149 and FarmBot #88 merged,
+[common PR #150](https://github.com/Kuaiwa-Network/common/pull/150)
+rejects an undefined Git identity before CMD substring expansion. Empty or
+pipe-prefixed output previously exited 255 with a syntax error and left the
+owned temporary directory behind; both now use the existing exit-2 cleanup
+path without probing Go. All five native launcher tests pass with no skips in
+17.683 seconds. Hosted CI exposed an 8.3 TEMP fixture mismatch and inherited
+`SystemRoot` key spelling. Canonical fixture inputs and recreating the one
+uppercase `SYSTEMROOT` entry preserve the exact assertions. The final focused
+selection passes 33 top-level tests with two existing fixture skips in 17.902
+seconds. The final three-package run has 152 passes, four remaining failures
+and 14 top-level skips in 36.764 seconds; all 37 skip events are unchanged.
+Exact final source `048334d` passes native server and combined server/client
+generation/verification in 26.182 seconds without Bash or WSL.
+[CI run 37169189943](https://github.com/Kuaiwa-Network/common/actions/runs/37169189943)
+passed complete Linux acceptance and the focused native Windows job. The
+[CMD record](../spikes/2026-10-03-native-windows-offline.md#native-windows-cmd-follow-up-2026-10-04-partial)
+retains the reproduction, regression checks and remaining Windows gaps. The
+next code step is the private-parent fixture and Windows permission boundary;
+actual worker and Feishu acceptance remain pending.
 
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
