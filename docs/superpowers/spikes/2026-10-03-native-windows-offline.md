@@ -3480,6 +3480,91 @@ release prerequisites remain pending. Production feature enablement and
 deployment remain outside this authorization; parked jobs and test drafts
 remain unchanged.
 
+## Native Windows contract message-naming gate review (2026-10-05; candidate)
+
+Farm-Contract [#321](https://github.com/Kuaiwa-Network/Farm-Contract/pull/321)
+ports gate 6 at committed source **`f055513b53f58be38d36cd9692c356452b62ffc5`**, based on merged
+gate 5 source **`8c7e591ee22dd8e7c47eee08254e923f891b1473`**. Only the native Python checker and regressions,
+POSIX wrapper, README and CI change. Protocols, OpenSpec sources and manifest
+are unchanged. This is candidate acceptance; an operator-approved merge and
+exact-merged-source verification remain required.
+
+The checker preserves the one-way rule: each actual `<X>_Ack` declaration
+requires `<X>_Req` in the **same file**; legitimate request-only messages remain
+allowed. It selects ordinary, non-hidden, case-sensitive top-level
+`proto/*.proto` files, with no recursive scan. Token recognition handles legal
+multiline whitespace and comments while excluding declarations inside comments
+and string literals. Missing/unreadable/invalid input, malformed lexical or
+declaration structure, no selected files and zero actual Ack declarations fail
+instead of earning coverage. Full protobuf syntax/type validation remains
+the existing `buf build` gate. Linked/reparse roots are refused and internal
+link entries are excluded; checks never normalize source bytes.
+
+The parent independently exports the exact committed candidate on the
+**production Windows host**, using a separate development checkout, fresh
+scratch state, the ordinary current-user token and explicitly selected Python
+**3.13.16**. `PYTHONUTF8=1` is set before Python starts; native commands use
+`-I -X utf8 -B` and sanitized OS-variable-only child environments. Git is
+**2.54.0.windows.1**, Git LFS **3.7.1**. No production configuration/ledger
+read, credential access, Bash/MSYS/WSL invocation, service action or host-setting
+change occurs. This development CLI check does not certify the actual isolated
+FarmBot worker's grants, credentials or runtime.
+
+All **34 native Windows tests** pass without failures, errors or skips in
+**2.085 seconds** (2.171 including startup).
+All three real owned junction cases execute: linked root refusal, selected
+reparse-directory exclusion and linked-only coverage refusal. Controlled IO
+faults verify read/inventory/disappeared-source failure without changing ACLs
+or privileges. Regression cases also cover same-file versus cross-file
+pairing, request-only messages, lexical boundaries, comments/literals,
+multiline declarations, UTF-8/BOM/CRLF, top-level scope and unrelated cwd.
+The three POSIX file-link cases are defined only on POSIX; they are not Windows
+unittest skips or ordinary-token Windows file-symlink acceptance.
+
+The real native checker accepts **all 60 proto files and
+237 Ack declarations**, returns exit 0 in
+**0.046 seconds**, and reports
+`msg naming OK（237 个 _Ack 全部有配对 _Req）`. The export/check sequence takes
+**4.732 seconds**. All **598 exported files** remain byte-identical;
+aggregate SHA-256 is
+`707038ee29ed49ff45c087a44e393daea8d55c134e870cf934cbf7fb0b4f1af3`.
+Manifest SHA-256 remains
+`d6038613a74d9d2746e026278e2472db84e4950de9a49faf4671bc9c0c297323`.
+
+[CI run 37221446869](https://github.com/Kuaiwa-Network/Farm-Contract/actions/runs/37221446869)
+matches the candidate head and succeeds in all **10 jobs**, including the
+existing Linux contract gates and manifest/marker matrices. Naming-job logs
+confirm exact-head checkout on each platform: Windows **34** native tests in
+**1.833 seconds**; Linux **37** native plus **37** wrapper tests in
+**1.349 / 1.468 seconds**; macOS **37** native plus **37** wrapper tests in
+**1.654 / 1.980 seconds**. Each suite has zero failures/errors/skips and each
+real checker reports 237 paired Ack declarations. Windows excludes both
+shell-wrapper steps in each naming, marker and manifest job; these workflow
+exclusions do not establish native acceptance for the other contract gates.
+
+Private UTF-8 logs and sanitized summary are retained in `native-msg-naming-candidate-aa07dec1`.
+Checker-source SHA-256 is
+`170896af30248c7f58b4103a30100c8933605876d712d5d7c924e5c8d2e447c0`;
+native regression log SHA-256 is
+`57210b32a288cbc628574a43116aebbe22e81b5f4e9224726ea057a6ddc2adcf`;
+real-repository log SHA-256 is
+`e3100536fbd8d5fbd8562f46a52b6271a0e71f384950c1ddda36dd37fb7e2d4c`;
+review-summary SHA-256 is
+`5e4b929f070d9e6e88d148e89aa8f915fb3a95daf7e2d2e74b890a6c6a60e030`.
+
+All 73 relevant documentation tests pass without skips, failures or errors
+in 0.320 seconds (0.428 including startup); UTF-8 log SHA-256 is
+`1d1f6c87b3c4db698949a7c03803c2daec7235898c774bdf842b76be5d69f46d`.
+Evidence, links, privacy and whitespace are checked.
+
+**Next:** obtain the operator's code merge for #321, verify its merged source
+and applicable CI, then port gate 7 on a separate branch. Gates **3, 7, 9, 10
+and 12** still need native ports; gate 6 remains candidate evidence until merged
+acceptance. Native backend paths, actual isolated-worker/live access and the
+remaining release prerequisites below remain pending. Production feature
+enablement and deployment stay outside this authorization; parked jobs and
+unmerged test drafts remain unchanged.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
@@ -3562,7 +3647,10 @@ Remaining release prerequisites:
    its exact merged source passes 19 local Windows tests and four CI jobs.
    Gate 5 is now merged in #320 as `8c7e591`, with 23 exact-merged-source Windows
    tests and the real marker check passing; all seven merge-head CI jobs succeed.
-   Six other required contract wrapper ports remain pending, with gate 6 next.
+   Gate 6 candidate #321 now passes 34 native Windows tests, the real 237-Ack
+   check and all 10 CI jobs, but still requires an operator-approved code merge
+   and exact-merged-source acceptance. Gates 3, 7, 9, 10 and 12 still need native
+   ports; gate 7 is next after gate 6 merged acceptance.
 4. Check the selected service account's symlink capability and relevant native
    ownership/process checks, then complete Windows desktop Unity acceptance.
    The elevated offline baseline does not certify the ordinary token or a
