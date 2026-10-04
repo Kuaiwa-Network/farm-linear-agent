@@ -269,8 +269,32 @@ configgen module run has 508 passes, 20 failed top-level tests and 32 top-level
 skips in 64.821 seconds, with all 60 skip events recorded. Fresh `RUNNER_TEMP`
 scratch lets native no-replace publication pass, but the native Git slow-filter
 timeout assertion still fails. Full module acceptance, native worker/gate and
-Feishu acceptance remain pending. Next is the Git resolver's relative-executable
-fixture, preserving fail-closed path resolution.
+Feishu acceptance remain pending. The following Git-executable-fixture record
+continues the relative-path rejection check.
+
+**2026-10-04 Git-executable-fixture follow-up:** common #154 merged as `1adc87d`
+and FarmBot #93 as `1d5cbdf`. The Git resolver correctly rejected the relative
+executable, but the test hardlinked the running test image, which Windows could
+not delete during fixture cleanup. [common PR #155](https://github.com/Kuaiwa-Network/common/pull/155)
+uses an independent copy, asserts distinct file identity, checks the empty
+result and specific non-absolute-path error, and requires explicit deletion and
+temporary-directory cleanup. Runtime behavior and existing skips are unchanged.
+The working fix based on `1adc87d` passes the corrected test in 0.940 seconds
+with no skips. The expanded focused selection has **41 passes, two existing
+fixture skips and zero failures** in 18.421 seconds; all ten skip IDs are
+unchanged. The Git-state package has **15 passes, two failures and no skips**
+in 10.247 seconds. Its remaining failures are the native slow-filter timeout
+assertion and a mocked top-level path that uses Windows backslashes instead of
+Git's required forward-slash output. Committed source is
+`3f99c166650ce1bbc8a23deef195f625d826d219`; complete Linux acceptance and focused
+native Windows coverage pass in
+[CI run 37177769988](https://github.com/Kuaiwa-Network/common/actions/runs/37177769988).
+The
+[Git-executable-fixture record](../spikes/2026-10-03-native-windows-offline.md#native-windows-git-executable-fixture-follow-up-2026-10-04-partial)
+retains measured results and coverage limits. Next is the top-level-output
+fixture, preserving strict parsing, bounded execution and environment
+sanitization. Complete module, native worker/gate and Feishu acceptance remain
+pending.
 
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
