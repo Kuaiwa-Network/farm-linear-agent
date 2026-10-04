@@ -314,9 +314,32 @@ source is `d916b2f41eeed8c83f49ab0e2c6fb4a93beb43c3`; complete Linux acceptance
 and focused native Windows coverage pass in
 [run 37178562032](https://github.com/Kuaiwa-Network/common/actions/runs/37178562032).
 The [top-level-output fixture record](../spikes/2026-10-03-native-windows-offline.md#native-windows-git-top-level-output-fixture-follow-up-2026-10-04-partial)
-retains measured results and coverage limits. Next is the native Git timeout
-scenario, preserving descendant containment and bounded execution. Wider module,
-actual Windows worker/gate and Feishu acceptance remain pending.
+retains measured results and coverage limits. The following native Git timeout
+record continues the descendant-containment and bounded-execution check. Wider
+module, actual Windows worker/gate and Feishu acceptance remain pending.
+
+**2026-10-04 native Git timeout follow-up:** common #156 merged as `4cf13ae`
+and FarmBot #95 as `371d5fc`. The original fixture changed a tracked file's size,
+letting Git report dirt without invoking the slow clean filter. Changing only
+the content to the same length makes the actual timeout/descendant test pass.
+[common PR #157](https://github.com/Kuaiwa-Network/common/pull/157)
+also forces and checks a changed mtime and makes the fixture filter required;
+the 750 ms deadline, runtime classification, readiness and delayed survival
+checks remain enforced. The working fix based on `4cf13ae` passes the native
+scenario in 5.937 seconds and **all 17 Git-state tests** in 14.016 seconds,
+without skips. The expanded selection has **44 passes, two existing fixture
+skips and zero failures** in 19.117 seconds; all ten skip IDs are unchanged.
+At committed source `21c16033e4890ad8442c0b28c7c1317c8a6d27ce`, a fresh complete
+Windows module run has **512 passes, 16 failed top-level tests and 32 top-level
+skips** in 60.612 seconds; all 60 skip IDs match the prior inventory. Native
+Git and NTFS no-replace publication both pass. Complete Linux acceptance and
+focused native Windows coverage pass in
+[run 37179792174](https://github.com/Kuaiwa-Network/common/actions/runs/37179792174).
+The [native Git timeout record](../spikes/2026-10-03-native-windows-offline.md#native-windows-git-timeout-follow-up-2026-10-04-partial)
+retains the diagnosis, current inventory and coverage limits. Next is native
+archive publication, starting with its no-replace/identity failures and keeping
+host symlink limitations distinct. Complete module, actual worker/gate and
+Feishu acceptance remain pending.
 
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before

@@ -2168,6 +2168,131 @@ bounded execution or adding skips. Wider module gaps, actual Windows worker/gate
 acceptance and real Feishu reads remain pending. No parked job resumed and no
 production deployment or feature enablement occurred.
 
+## Native Windows Git timeout follow-up (2026-10-04; partial)
+
+GitHub confirms [common #156](https://github.com/Kuaiwa-Network/common/pull/156)
+merged as `4cf13ae721751e09506d5d9b4b1bfe73ac98c01b` and
+[FarmBot #95](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/95)
+as `371d5fc67d4ccc532c51e11caf1b8c383781e478`. The new branch starts from that
+exact common merge. Checks used the **production Windows host in the separate
+development checkout**, the ordinary owner token outside the app sandbox,
+Python 3.13.16 started with `PYTHONUTF8=1`, native Go 1.25.1/protoc 35.1,
+Git 2.54.0.windows.1 and Git LFS 3.7.1, inherited-selector sanitization, private
+caches and fresh `RUNNER_TEMP` scratch. Production configuration, ledger,
+service, credentials, account settings and ACLs were untouched.
+
+`TestNativeWindowsGitState` reproduced on exact merged common in **2.793
+seconds**, with no skips: Capture returned nil instead of a deadline error.
+The committed fixture contained nine bytes, but its replacement contained
+30 bytes. Git can report this size change without hashing the file or invoking
+the clean filter; its pinned
+[Windows source](https://github.com/git-for-windows/git/blob/v2.54.0.windows.1/read-cache.c#L415-L461)
+shows the early return before content comparison. Changing only the replacement
+to different nine-byte content passes the actual timeout and descendant checks
+in **5.829 seconds**, without skips. Together with the source, this identifies
+the missed filter execution as a fixture problem; no runtime containment change
+is needed for this failure.
+
+[common PR #157](https://github.com/Kuaiwa-Network/common/pull/157)
+keeps the indexed size, changes the bytes, forces mtime two seconds beyond the
+baseline and asserts the same size plus changed mtime. The fixture filter is
+required, so failed execution cannot silently fall back to unfiltered content.
+The **750 ms deadline**, runtime-error classification, ten-second return bound,
+real filter readiness marker and delayed descendant-survival marker check are
+unchanged. The real Git process still runs through the Windows Job Object
+coordinator, and focused Windows CI now includes this exact native scenario.
+Only tests and CI changed; runtime validation, containment, ownership checks,
+generator inputs and existing skips are unchanged. No external Bash generator
+or new host tool prerequisite was introduced.
+
+Measured results for the working fix based on `4cf13ae`:
+
+- The hardened native test passes **one top-level test** in **5.937 seconds**,
+  with zero failures or skips. The actual filter descendant starts, Capture
+  returns the deadline runtime error, and the survival marker remains absent
+  after the 2.5-second observation interval.
+- `go test -json -count=1 ./internal/gitstate` passes **all 17 top-level tests**
+  in **14.016 seconds**, with zero failures or skips. All previously identified
+  Git-state failures are resolved for this development candidate.
+- The expanded focused CI selection runs **46 top-level tests: 44 passed,
+  two existing explicit production-fixture skips, zero failures**, in
+  **19.117 seconds**. Eight existing capability subtest skips remain; all ten
+  skip IDs match the preceding selection. The actual native Git timeout and
+  descendant scenario runs and passes. Package and focused selections
+  overlapped; durations are measured separately.
+- Go formatting, `go vet ./internal/gitstate` and whitespace checks pass.
+  Native generation was not repeated because runtime behavior and generator
+  inputs are unchanged.
+
+Committed source is `21c16033e4890ad8442c0b28c7c1317c8a6d27ce`.
+[CI run 37179792174](https://github.com/Kuaiwa-Network/common/actions/runs/37179792174)
+passed complete Linux acceptance and focused native Windows coverage at that
+exact head, including the real Git timeout/descendant scenario on Windows.
+The documentation follow-up passes all **73 relevant skill/reference tests**
+in **0.393 seconds** (**0.508 seconds** including Python startup), with zero
+failures, errors or skips.
+
+With the Git-state package green, a fresh native
+`go test -json -count=1 ./...` at that exact commit refreshes the wider inventory:
+**560 top-level tests: 512 passed, 16 failed, 32 skipped**, in **60.612 seconds**.
+There are **51 failed subtest IDs** and **60 skip events**, including subtests,
+retained in the local UTF-8 log and sanitized inventory. Every skip ID matches
+the prior full-module inventory and its recorded reasons above; no skips were
+added. This is a measured current count, superseding the earlier 20-failure
+inventory for this candidate. Both the real Git timeout/descendant test and
+`TestNativeWindowsNoReplacePublication` pass. This proves the tested common
+subprocess and NTFS scenarios under the ordinary token, not actual FarmBot
+worker/gate acceptance or service readiness.
+
+The remaining failed top-level tests are:
+
+- `TestFilePublicationReconciliationAndCleanupIdentity`
+- `TestFilePublicationRejectsInitiallyExistingForeignTypes`
+- `TestFilePublicationSuccessAndNoReplace`
+- `TestNativeWindowsArchiveExtractionReparse`
+- `TestNativeWindowsArchiveInputReparse`
+- `TestNativeWindowsArchiveNoReplace`
+- `TestPublishCommitsExactStageIdentityAndCloseIsNilAfterPublication`
+- `TestReformatFileIfSingleLineCanonicalAndIdempotent`
+- `TestTypeDefsAreWired`
+- `TestVerifyInstanceLocalHooks`
+- `TestVerifyLimitMatrixAndSecondPassDisagreement`
+- `TestVerifyProductionArchiveTwoPass`
+- `TestVerifyPublicationBoundarySeams`
+- `TestVerifyPublicationRootCloseDiagnosticCommitBoundary`
+- `TestVerifyRejectsHostileArchiveBeforeOutput`
+- `TestWriteCompressionCleanupFailuresAreRuntimeAndUnpublished`
+
+The ordinary token's missing symlink capability still causes definition and
+archive reparse fixture failures. Several archive publication/verification
+failures report a not-supported operation; their source and failure stage need
+focused investigation, rather than assuming an absent backend or weakening
+no-replace/identity checks. The output-directory publication assertion,
+Excel XML Unix-mode expectation and compression-cleanup evidence also remain
+separate gaps. Complete native producer acceptance is pending.
+
+UTF-8 logs, revisions, selected versions and duration metadata remain local.
+The initial failure log SHA-256 is
+`01cbd9eb3276df565556e1402a2acd6d273d32ca08db4051f9de9ad140f06ad7`;
+the same-size-only experiment log SHA-256 is
+`675b3a2cd25a9c3b877512a129c7115a4e77fe395683ebedd30541cf4b782c8a`;
+the hardened native-test log SHA-256 is
+`81cc500a21d92ec0bc45b5929077cc72868376399568f646a9e3ce861ed411e5`;
+the expanded focused selection log SHA-256 is
+`e2daa6d3e278b9a9c5e90d14192e8819ec856b97d82a6be412f29502ba5c17f6`;
+the Git-state package log SHA-256 is
+`7e62b8240a290cf50a5af3e092121ed7624543921d519a4c1d891c38de391940`;
+the refreshed full-module log SHA-256 is
+`9509f9cb54c831aeafb07861b2df6099702ff080560516e2411667a7f82c1208`.
+The documentation-test log SHA-256 is
+`3201d8d619bc0b6696f27430c480ca35eac3ee98982dd2bc35fa6946a980da88`.
+
+Next is native archive publication, starting with its file/no-replace and
+identity failures while keeping missing host symlink capability distinct.
+Wider module gaps, actual Windows worker/gate acceptance and real Feishu reads
+remain pending. No parked job resumed and no production deployment or feature
+enablement occurred.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
@@ -2200,12 +2325,13 @@ Remaining release prerequisites:
    #151 and executable-fixture correction #152 are merged. Newline-fixture
    correction #153 and scanner correction #154 are merged. The scanner's three
    boundary packages pass with all existing skips unchanged. Git-executable
-   fixture correction #155 is merged. Top-level-output fixture correction #156
-   is under review; its two corrected tests and expanded focused selection pass.
-   One Git-state package failure and the wider native module gaps are recorded
-   above; complete producer acceptance remains pending. Preserve the distinction
-   between host capabilities, fixture assumptions and application regressions
-   during the focused rechecks.
+   fixture correction #155 and top-level-output fixture correction #156 are
+   merged. Native Git timeout fixture correction #157 is under review; all 17
+   Git-state tests and the expanded focused selection pass. The refreshed full
+   native module run has 16 failed top-level tests, with all 60 skip IDs unchanged;
+   complete producer acceptance remains pending. Preserve the distinction between
+   host capabilities, fixture assumptions and application regressions during the
+   focused rechecks.
    Dotnet SDK 8.0.423 remains needed
    for C# compilation.
    Keep Bash for Mac/Linux testing. The current doctor's legacy Windows Bash
