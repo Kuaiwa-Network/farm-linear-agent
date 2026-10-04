@@ -126,6 +126,24 @@ state from Git history and the saved Claude session. Phase A's shared plumbing a
 
 ## As executed (2026-10-03, Task 17; partial)
 
+**2026-10-04 direction:** use native Windows tools and keep Bash for Mac/Linux
+testing. Fix and feature use the same elevated Windows launcher; experimental
+MXC/MSYS failures below do not establish a failure of that configured path.
+Common's existing `gen-config.cmd` exposed a native plugin-name bug, fixed in
+[common draft PR #148](https://github.com/Kuaiwa-Network/common/pull/148).
+Clean candidate `289c406` passed native inventory, server generation/verify and
+combined server/client generation/verify, without Bash, in 25.277 seconds.
+The [common CI run](https://github.com/Kuaiwa-Network/common/actions/runs/37165148969)
+passed complete Linux acceptance and the focused Windows regression job at
+`ba5bfa9`; that later commit changes CI setup only.
+The focused language tests passed 22 top-level tests with two existing fixture
+skips; broader checks still have seven failures and the same skips as an
+untouched baseline, including two cleanup-identity failures that must be repaired.
+The [native tool record](../spikes/2026-10-03-native-windows-offline.md#native-windows-tools-follow-up-2026-10-04-partial)
+preserves the measurements and all 37 skip events. Native remaining gates,
+actual worker acceptance and real Feishu reads remain pending. No production
+settings, state or service changed; Task 17 remains incomplete.
+
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
 it merged as [#78](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/78)
@@ -405,6 +423,22 @@ restoration remain pending. The native Windows offline baseline now passes.
   A sanitized upstream request was prepared locally; submission requires
   separate explicit authorization. Native worker generators and real Feishu
   access remain pending; no account, app setting or production action changed.
+- **MSYS private-namespace IPC check (2026-10-04; partial):** #86 merged as
+  `6bf4919`. Microsoft already tracks the same global object-directory denial
+  in [MXC #1061](https://github.com/microsoft/mxc/issues/1061). Reviewed pinned
+  MSYS source hard-codes the global and session object paths; its options
+  parser provides no namespace override. A **0.074-second** direct native
+  control and **5.711-second** contained fixture both passed unique private
+  directory, shared-memory section, mutex, object-link and cross-process
+  reopening/update checks. Inside the fixture, parent and child retain all
+  four ASLR flags, the child's forbidden sibling write is denied, and the
+  FarmBot Job settles empty. Bash still fails; no MSYS runtime was patched,
+  no OS namespace virtualization was added, and FarmBot still selects the
+  elevated backend. See the
+  [IPC record](../spikes/2026-10-03-native-windows-offline.md#msys-private-namespace-ipc-control-2026-10-04-partial)
+  for measured controls, source links and remaining actual runtime/fork tests.
+  The operator deferred the prepared upstream report; no issue was posted.
+  Native workers, real repository generators and Feishu reads remain pending.
 - **Remaining operational work:** selected jobs on FARM-1346 and FARM-1425 stay
   parked. Restoring TestBot's earlier code/feature setting and the private secret
   scan require the operator's next scoped action. Preserve current ledger,
