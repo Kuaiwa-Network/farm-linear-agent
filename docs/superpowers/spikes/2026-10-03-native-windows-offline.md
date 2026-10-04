@@ -1819,8 +1819,9 @@ Committed source is `8fd21f8e74b205793338740c8742b813132cd999`.
 passed complete Linux acceptance and focused native Windows coverage at that
 exact head.
 The sole remaining failed top-level test is
-`TestLegacyOwnershipScannerRejectsDatedActiveFiles` (Windows path matching),
-selected as the next separate correction. These three-package results do not
+`TestLegacyOwnershipScannerRejectsDatedActiveFiles` (initially classified as
+Windows path matching; the following record corrects that diagnosis), selected
+as the next separate correction. These three-package results do not
 establish complete common Windows acceptance, actual worker readiness or
 service-account capabilities.
 
@@ -1836,6 +1837,165 @@ the expanded focused selection log SHA-256 is
 `f6a8fced05cbc5eb1519648886ab8d373217374dc1a388cd7f045ff43151a786`;
 the three-package result log SHA-256 is
 `3ca6f742b2dd34cb720bb8f601133f4da524cec2caa7757c6b2c231beda24130`.
+Native worker/gate acceptance, real Feishu reads and the remaining release
+prerequisites stay pending. No parked job resumed and no production deployment
+or feature enablement occurred.
+
+## Native Windows ownership-scanner follow-up (2026-10-04; partial)
+
+GitHub confirms common #153 merged as
+`7902de856c27964ad869f18761a02f27d9a965ed` and FarmBot #92 as
+`1b5d59a8571d85913ca7a5bf778ef1e21328c46c`. The scanner branch starts from
+that exact common merge. Checks used the **production Windows host in the
+separate development checkout**, the ordinary owner token outside the app
+sandbox, Python 3.13.16 started with `PYTHONUTF8=1`, native Go 1.25.1/protoc 35.1,
+inherited-selector sanitization, private caches and fresh scratch. Production
+configuration, ledger, service, credentials, account settings and ACLs were
+untouched.
+
+`TestLegacyOwnershipScannerRejectsDatedActiveFiles` reproduced on exact merged
+common in **0.849 seconds**, with no skips. The scanner's test helper classified
+scripts without recognized extensions only when Unix execute bits and a shebang
+were both present. Windows does not provide those execute bits, even after
+`os.Chmod(0755)`; Go documents that only the owner-writable bit controls the
+Windows read-only attribute in its
+[pinned Chmod reference](https://pkg.go.dev/os@go1.25.1#Chmod).
+The extensionless and Markdown script fixtures therefore each matched zero of
+the eight required legacy markers. This supersedes the earlier path-matching
+classification; no separator correction was required.
+
+[common PR #154](https://github.com/Kuaiwa-Network/common/pull/154)
+conservatively includes every regular shebang file in the Windows test scan,
+retaining the Unix execute-bit condition and ordinary historical-text exemptions.
+The new `TestActiveSourceCandidateUsesHostScriptSemantics` has seven cases:
+extensionless/Markdown scripts at 0755, the same two at 0644, ordinary executable
+text, historical Markdown, and a recognized CMD file. Native Windows additionally
+must expose no Unix execute bits in these fixtures. All dated active-file
+canaries and exact historical documentation exemptions remain enforced.
+Focused Windows CI now includes the actual repository scan, both existing
+ownership scanner tests and the new regression. Only tests and CI changed:
+runtime code, containment/ownership checks, generator inputs and existing skips
+are unchanged. Fixture shebangs are read as text; Bash is not invoked or required
+by these native checks.
+
+Measured results for the working fix based on `7902de8`:
+
+- The scanner, historical-exemption and new host-semantics tests pass **three
+  top-level tests** in **1.026 seconds**, with zero failures or skips. All seven
+  new regression cases run and pass.
+- The expanded focused CI selection runs **42 top-level tests: 40 passed,
+  two existing explicit production-fixture skips, zero failures**, in
+  **18.616 seconds**. Eight existing capability subtest skips remain; all ten
+  skip IDs match the previous focused selection.
+- `go test -json -count=1 ./internal/artifact ./internal/repoinfo ./internal/toolchain`
+  runs **171 top-level tests: 157 passed, zero failed, 14 skipped**, in
+  **44.294 seconds**. The one extra top-level test is the new host-semantics
+  regression; all seven previously identified failures are now resolved.
+  All **37 skip IDs** match the preceding newline-fixture run and original
+  inventory above. Focused and broader selections overlapped; durations are
+  measured separately.
+- Go formatting, `go vet ./internal/repoinfo` and whitespace checks pass.
+  Native generation was not repeated because runtime behavior and generator
+  inputs are unchanged.
+
+Committed source is `66ce51a785b7dd3a015773e6a19ac4b7baad4bc7`.
+[CI run 37176606613](https://github.com/Kuaiwa-Network/common/actions/runs/37176606613)
+passed complete Linux acceptance and focused native Windows coverage at that
+exact head. Passing these three packages does not
+establish complete Windows producer acceptance, actual worker readiness or
+service-account capabilities.
+
+The wider native `go test -json -count=1 ./...` check at exact committed source
+ran **560 top-level tests: 508 passed, 20 failed, 32 skipped**, in
+**64.821 seconds**. There were **60 skip events**, including subtests. This is
+new coverage outside the three boundary packages; those packages remain green.
+The initial wrapper omitted `RUNNER_TEMP`, which two native acceptance tests
+require. A focused recheck set it only to fresh local scratch, leaving host
+settings untouched: **two top-level tests, one passed and one failed, zero
+skips**, in **2.910 seconds**. `TestNativeWindowsNoReplacePublication` passes
+its actual NTFS backend and race checks. `TestNativeWindowsGitState` gets past
+its streaming/index assertions but fails its slow-filter timeout assertion:
+Capture returns nil instead of a deadline error. Descendant containment is not
+certified by that incomplete scenario. No full-module rerun followed this setup
+correction, so the initial 20-failure count is not a post-correction count.
+
+The ordinary token's missing symlink capability also affects definition/archive
+reparse fixtures. Other measured gaps include Unix mode expectations, relative
+Git-executable cleanup, Git top-level output assumptions, saved publication
+identity, unsupported archive publication, archive-error classification and
+compression-cleanup evidence. These remain separate investigations; the
+scanner-only change does not alter their packages. No checks were weakened or
+new skips added. The next focused correction is the Git resolver's relative
+executable fixture, preserving fail-closed path resolution.
+
+The documentation follow-up passes all **73 relevant skill/reference tests**
+in **0.437 seconds** (**0.560 seconds** including Python startup), with zero
+failures, errors or skips. UTF-8 logs, revisions, selected versions
+and duration metadata remain local. The initial failure log SHA-256 is
+`ff01c08fe1ee5d475d47b6c7446f772873bfe40f3cda26fb3dc343e84f2cd431`;
+the passing scanner/exemption/regression log SHA-256 is
+`dff4ba7240b0291e62b7e006dd6ad52ff5f64fde61a67cad1e6bc52ddadc1099`;
+the expanded focused selection log SHA-256 is
+`9c70f2889a041d43d8da3c2d25d7144e98e9c025d6d2bb8ffa29a016880e393b`;
+the three-package result log SHA-256 is
+`1b91096a64cf956eaaf9154280cd90746e3298a33050f4955bfdaa62d072871f`.
+The full-module log SHA-256 is
+`2d2899361d016c7d3f30e87dfe4ac1d4a30fe7255436edd7ab9b50b501a7b288`;
+the native setup follow-up log SHA-256 is
+`ab9382fc401062d68471f8a4d1e6fb1316d820c2fee8552193b4f401224c2ddd`.
+
+The full-module failed top-level tests are:
+
+- `TestFilePublicationReconciliationAndCleanupIdentity`
+- `TestFilePublicationRejectsInitiallyExistingForeignTypes`
+- `TestFilePublicationSuccessAndNoReplace`
+- `TestNativeWindowsArchiveExtractionReparse`
+- `TestNativeWindowsArchiveInputReparse`
+- `TestNativeWindowsArchiveNoReplace`
+- `TestNativeWindowsGitState`
+- `TestNativeWindowsNoReplacePublication`
+- `TestPublishCommitsExactStageIdentityAndCloseIsNilAfterPublication`
+- `TestReformatFileIfSingleLineCanonicalAndIdempotent`
+- `TestResolveGitRejectsRelativeLookPathResultWithErrDotDisabled`
+- `TestResolveTopLevelUsesOneSanitizedBoundedGitProbe`
+- `TestTypeDefsAreWired`
+- `TestVerifyInstanceLocalHooks`
+- `TestVerifyLimitMatrixAndSecondPassDisagreement`
+- `TestVerifyProductionArchiveTwoPass`
+- `TestVerifyPublicationBoundarySeams`
+- `TestVerifyPublicationRootCloseDiagnosticCommitBoundary`
+- `TestVerifyRejectsHostileArchiveBeforeOutput`
+- `TestWriteCompressionCleanupFailuresAreRuntimeAndUnpublished`
+
+The previous 37 boundary skip IDs are all present. The additional 23 existing
+skip events exposed by this broader selection are:
+
+| Package | Test | Reason |
+| --- | --- | --- |
+| `cmd/configgen` | `TestCheckConfigArtifactScript` | Unix producer shell behavior runs only on Darwin and Linux |
+| `cmd/configgen` | `TestCheckConfigArtifactScriptCompileOwnershipRegression` | Unix producer shell behavior runs only on Darwin and Linux |
+| `cmd/configgen` | `TestCheckConfigArtifactScriptCompileOwnershipRegressionChild` | Unix producer shell behavior runs only on Darwin and Linux |
+| `cmd/configgen` | `TestCheckConfigArtifactScriptRejectsCopiedNonGitCheckoutBeforeArtifactWork` | Unix producer shell behavior runs only on Darwin and Linux |
+| `cmd/configgen` | `TestConfigArtifactPipelineCleanupRejectsNamespaceReplacement` | Unix producer shell behavior runs only on Darwin and Linux |
+| `cmd/configgen` | `TestConfigArtifactPipelinePackResolverBehavior` | Unix producer shell behavior runs only on Darwin and Linux |
+| `cmd/configgen` | `TestConfigArtifactPipelineUploadRevalidatesExactHandoff` | Unix producer shell behavior runs only on Darwin and Linux |
+| `cmd/configgen` | `TestInventoryDefaultSourceRejectsSymlinkEscape` | Ordinary token lacks symlink capability |
+| `cmd/configgen` | `TestPackConfigArtifactScript` | Unix producer shell behavior runs only on Darwin and Linux |
+| `cmd/configgen` | `TestPackConfigArtifactScriptRealBehaviorCallGraphAndImmutability` | Unix producer shell behavior runs only on Darwin and Linux |
+| `cmd/configgen` | `TestPbOutAndClientOutMustDiffer` | Ordinary token lacks symlink capability |
+| `internal/generate` | `TestVerifyPreservesReplacedPrivateWorkAndLeavesAgainstUnchanged` | Task 10 owns native Windows outputdir identity-injection coverage for held-directory replacement |
+| `internal/generate` | `TestVerifyTreatsAgainstSwapAfterOpenAsRuntimeWithoutPrivateWork` | Native held-root replacement is covered by the Windows identity-injection gate |
+| `internal/outputdir` | `TestClosePreservesReplacementAndAggregatesCleanupFailures` | Held no-FILE_SHARE_DELETE root prevents native replacement; Task 10 owns native injection coverage |
+| `internal/outputdir` | `TestPrivateWorkClosePreservesReplacementAndReportsCleanupFailure` | Held no-FILE_SHARE_DELETE root prevents native replacement; Task 10 owns native injection coverage |
+| `internal/outputdir` | `TestPublishPreservesRacedTargetsAndCleansOnlyOwnedStage/symlink` | Native Windows reparse coverage runs in native_windows_test.go |
+| `internal/outputdir` | `TestPublishRefusesStageReplacementBeforeNoReplaceCall` | Held no-FILE_SHARE_DELETE stage prevents native replacement; Task 10 owns native injection coverage |
+| `internal/outputdir` | `TestPublishRejectsRacedCaseFoldBasenameBeforeSyscall` | Windows case-insensitive namespace cannot create the distinct raced basename |
+| `internal/outputdir` | `TestPublishUsesIdentityReconciliationAsTerminalBoundary/final_identity_commits_despite_syscall_diagnostic` | Held no-FILE_SHARE_DELETE stage prevents a test-side rename |
+| `internal/outputdir` | `TestTransactionPrepareWorkCreationFailurePreservesReplacedChildAndBlocksParentCleanup` | Held no-FILE_SHARE_DELETE work root prevents a test-side replacement |
+| `internal/profile` | `TestLoadRejectsNoncanonicalProfileAndSourcePaths/profile_symlink` | Ordinary token lacks symlink capability |
+| `internal/profile` | `TestLoadRejectsNoncanonicalProfileAndSourcePaths/repository-root_symlink` | Ordinary token lacks symlink capability |
+| `internal/profile` | `TestLoadRejectsNoncanonicalProfileAndSourcePaths/source_symlink` | Ordinary token lacks symlink capability |
+
 Native worker/gate acceptance, real Feishu reads and the remaining release
 prerequisites stay pending. No parked job resumed and no production deployment
 or feature enablement occurred.
@@ -1870,8 +2030,12 @@ Remaining release prerequisites:
    now passes at the development candidates above; #148, cleanup fix #149
    and native CMD preflight fix #150 are merged. Parent-policy fixture correction
    #151 and executable-fixture correction #152 are merged. Newline-fixture
-   correction #153 is under review; repair the one remaining Windows scanner
-   failure before complete producer acceptance. Dotnet SDK 8.0.423 remains needed
+   correction #153 is merged. Scanner correction #154 is under review; its three
+   boundary packages pass with all existing skips unchanged. The wider native
+   module run exposes the additional failures recorded above; complete producer
+   acceptance remains pending. Preserve the distinction between host capabilities,
+   fixture assumptions and application regressions during the focused rechecks.
+   Dotnet SDK 8.0.423 remains needed
    for C# compilation.
    Keep Bash for Mac/Linux testing. The current doctor's legacy Windows Bash
    inventory is not proof that equivalent native generators/gates exist;
