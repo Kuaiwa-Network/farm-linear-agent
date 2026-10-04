@@ -1620,8 +1620,9 @@ canonical no-follow/identity checks do not certify ownership or DACL safety.
 Windows does not emulate Unix 0700 directory permissions here. The module
 implementation and this fixture are unchanged by #150.
 
-[common PR #151](https://github.com/Kuaiwa-Network/common/pull/151)
-corrects that fixture to match the existing platform contract. Unix retains
+[common PR #151](https://github.com/Kuaiwa-Network/common/pull/151), subsequently
+merged as `77f0056e7c3a9ef74dd68774fe616d4443a4d051`, corrects that fixture to
+match the existing platform contract. Unix retains
 0755-parent rejection. Windows creates a fresh module under the caller-controlled
 canonical temporary parent and verifies its exact path, exact three filenames
 and retained document bytes. Relative paths, noncanonical paths and existing
@@ -1651,7 +1652,8 @@ candidate `e56845240d55cbc7552dbeb6eb8640e5390180be`:
 The remaining failed top-level tests are:
 
 - `TestResolveExecutableRejectsRelativeLookPathResultWithErrDotDisabled`:
-  Windows readonly executable-fixture cleanup.
+  Windows executable-fixture cleanup; the following diagnosis corrects the
+  initial readonly classification.
 - `TestSnapshotterRejectsUnsafeTreesFreshnessAndOverlap`: its `newline_path`
   fixture attempts a Windows-invalid filename.
 - `TestLegacyOwnershipScannerRejectsDatedActiveFiles`: Windows path matching.
@@ -1675,10 +1677,89 @@ the expanded focused selection's log SHA-256 is
 `bf14537bad0d6fd56a4e1204df2d80c1eb83da8befd13b3cd7c5adaec6c62e39`;
 the three-package result's log SHA-256 is
 `5a38f9aada328f32685bf8fd4c9d23b11ee106cd0496e08aa3fabf58b19f205e`.
-Next is the Windows readonly executable-fixture cleanup, preserving relative
-lookup rejection and ownership checks. Windows workers, native repository gates,
+The executable-fixture investigation selected next is recorded below, preserving
+relative lookup rejection and ownership checks. Windows workers, native repository gates,
 real Feishu reads and the remaining release prerequisites stay pending. No
 parked job resumed and no production deployment or feature enablement occurred.
+
+## Native Windows executable-fixture follow-up (2026-10-04; partial)
+
+GitHub confirms common #151 merged as
+`77f0056e7c3a9ef74dd68774fe616d4443a4d051` and FarmBot #90 as
+`370d10b5dbc61dca0ba92052986c934c58967587`. The common merge's tree matches
+tested source `e568452`; this fixture branch starts from that exact merge.
+Checks used the **production Windows host in the separate development checkout**,
+the ordinary owner token outside the app sandbox, Python 3.13.16 started with
+`PYTHONUTF8=1`, native Go 1.25.1/protoc 35.1 and the previously described
+inherited-selector sanitization, private caches and fresh scratch. No production
+configuration, ledger, service, credential, account setting or ACL was changed.
+
+`TestResolveExecutableRejectsRelativeLookPathResultWithErrDotDisabled`
+reproduced its TempDir cleanup error on exact merged common in **2.918 seconds**.
+The relative `LookPath` precondition and application rejection had already
+passed; cleanup returned access denied. A diagnostic-only run in **3.008 seconds**
+confirmed the fixture and running test executable are both writable
+and share file identity. This supersedes the earlier readonly classification.
+The fixture hardlinks the active test image; Windows deletion rules restrict
+files held open or mapped, as documented by
+[Microsoft's DeleteFileW reference](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-deletefilew).
+An independent copy removes that coupling and passes cleanup.
+
+[common PR #152](https://github.com/Kuaiwa-Network/common/pull/152)
+copies the executable into a fresh fixture on every platform. It asserts a
+different file identity, preserves the real relative `LookPath` result with
+`GODEBUG=execerrdot=0`, requires the application to return no path and the
+non-absolute-path rejection, and explicitly removes the fixture afterward.
+TempDir cleanup still runs. Native Windows CI now executes this case. The
+production resolver, containment/ownership checks and existing skips are unchanged.
+
+The copied standalone case passes **one top-level test, zero failures or skips**,
+in **1.239 seconds**. After strengthening the rejection assertion, the working
+fix based on `77f0056` produced these measurements:
+
+- The focused language/cleanup/launcher/parent-policy selection plus relative
+  lookup ran **37 top-level tests: 35 passed, two existing explicit
+  production-fixture skips, zero failures**, in **18.662 seconds**. Six existing
+  capability subtest skips remain; all eight skip IDs match the prior selection.
+- `go test -json -count=1 ./internal/artifact ./internal/repoinfo ./internal/toolchain`
+  ran **170 top-level tests: 154 passed, two failed, 14 skipped**, in
+  **36.390 seconds**. All **37 skip IDs** match the preceding parent-policy run.
+  Focused and broader selections ran concurrently; their durations are measured
+  separately.
+- Go formatting, `go vet ./internal/toolchain` and whitespace checks passed.
+  The diff contains the test fixture and CI coverage only. Generation was not
+  repeated because executable behavior and generator inputs are unchanged.
+
+Committed source `7884d9211f9d148cebb354192c33515710bb49c4` records the tested
+fixture. [CI run 37173629731](https://github.com/Kuaiwa-Network/common/actions/runs/37173629731)
+passed complete Linux acceptance and focused native Windows coverage at that
+exact head. The remaining failed top-level tests are:
+
+- `TestSnapshotterRejectsUnsafeTreesFreshnessAndOverlap`: its `newline_path`
+  fixture attempts a filename Windows cannot create.
+- `TestLegacyOwnershipScannerRejectsDatedActiveFiles`: Windows path matching.
+
+The documentation follow-up passed all **73 relevant skill/reference tests**
+in **0.376 seconds** (**0.492 seconds** including Python startup), with no
+failures, errors or skips. Measured counts, historical skips, record links,
+identity/writability diagnostics, privacy patterns and whitespace checks passed.
+
+These measurements cover three packages, not complete common Windows acceptance,
+actual workers or service-account readiness. UTF-8 logs, revisions, selected
+versions and duration metadata remain local. The initial failure log SHA-256 is
+`1e9a5cc88584d4d8b2d644c756d9fac409f6bd7a3c05f548b8773cde34ece7b1`;
+the diagnostic reproduction log SHA-256 is
+`798f91fb715d73de4c5657a66933a9cf8b68e892f527e824bcf78899c5a68df7`;
+the passing standalone fixture log SHA-256 is
+`89a4aa27527ac37aa9f519bb889a7aee77e81e95fa999b0fe069dffadf7c2632`;
+the expanded focused selection log SHA-256 is
+`97700554a7753872c19052e9c8798b538fb7c58ec0f384905d684357973d94cf`;
+the three-package result log SHA-256 is
+`213c3258f2590090feef13854e86476a0828a58bc26a29775304d2b0cfe5ccb2`.
+Next is the Windows-invalid newline snapshot fixture, preserving unsafe-tree
+rejection. Native worker/gate acceptance, Feishu reads and the remaining release
+prerequisites remain pending. No parked job resumed and no production deployment
+or feature enablement occurred.
 
 ## Next verification step
 
@@ -1709,7 +1790,8 @@ Remaining release prerequisites:
    must not select the verifier's interpreter. Common's native CMD generation
    now passes at the development candidates above; #148, cleanup fix #149
    and native CMD preflight fix #150 are merged. Parent-policy fixture correction
-   #151 is under review; repair the three outstanding Windows failures before
+   #151 is merged, and executable-fixture correction #152 is under review;
+   repair the two outstanding Windows failures before
    complete producer acceptance. Dotnet SDK 8.0.423 remains needed for C# compilation.
    Keep Bash for Mac/Linux testing. The current doctor's legacy Windows Bash
    inventory is not proof that equivalent native generators/gates exist;
