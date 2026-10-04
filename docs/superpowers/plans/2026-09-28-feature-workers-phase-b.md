@@ -336,10 +336,36 @@ Git and NTFS no-replace publication both pass. Complete Linux acceptance and
 focused native Windows coverage pass in
 [run 37179792174](https://github.com/Kuaiwa-Network/common/actions/runs/37179792174).
 The [native Git timeout record](../spikes/2026-10-03-native-windows-offline.md#native-windows-git-timeout-follow-up-2026-10-04-partial)
-retains the diagnosis, current inventory and coverage limits. Next is native
-archive publication, starting with its no-replace/identity failures and keeping
-host symlink limitations distinct. Complete module, actual worker/gate and
-Feishu acceptance remain pending.
+retains the diagnosis, current inventory and coverage limits. The following
+archive cleanup record continues the no-replace/identity check, keeping host
+symlink limitations distinct. Complete module, actual worker/gate and Feishu
+acceptance remain pending.
+
+**2026-10-04 native archive cleanup follow-up:** common #157 merged as `34315e4`
+and FarmBot #96 as `715af48`. Both archive deletion paths combined delete flags
+that this NTFS host rejects. [common PR #158](https://github.com/Kuaiwa-Network/common/pull/158)
+uses the supported disposition through verified held handles, preserving
+identity, link-count, no-follow and no-replace checks. Four native cases prove
+owned temporary/spool deletion and refusal of a different identity or hardlink
+alias. The ambiguous-completion fixture now uses native Windows rename;
+fixture cleanup closes held handles and reports unexpected errors. No skip was
+added. The working fix based on `34315e4` has **27 archive-package passes and
+four missing-symlink-capability failures** in 27.675 seconds. Its expanded
+selection has **47 passes, two existing top-level fixture skips and zero
+failures** in 19.355 seconds. The prior ten focused skip IDs remain, plus one
+existing archive symlink skip now reached without a fixture cleanup failure.
+At committed source `08dd1249a29828fcff702af2f6c5ea10fc7e6009`, a fresh full
+native run has **522 passes, seven failures and 32 top-level skips** in 63.286
+seconds; all prior 60 skip IDs remain, plus that existing skip. Five failures
+require host symlink capability; the saved publication identity and Excel XML
+mode assertions remain separate investigations. Complete Linux acceptance and
+focused native Windows CI passed at that exact committed source in
+[run 37180962600](https://github.com/Kuaiwa-Network/common/actions/runs/37180962600).
+The [native archive cleanup record](../spikes/2026-10-03-native-windows-offline.md#native-windows-archive-cleanup-follow-up-2026-10-04-partial)
+retains the runtime fix, current inventory and coverage limits. Next is the
+saved publication identity assertion, preserving ownership and terminal
+publication semantics. Complete module, actual worker/gate and Feishu
+acceptance remain pending.
 
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
