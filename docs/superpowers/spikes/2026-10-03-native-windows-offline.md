@@ -4886,6 +4886,118 @@ worker/tool/cache and Feishu/Word access,
 Unity desktop/symlink checks and separately authorized release remain pending.
 FARM-1346/FARM-1425 remain parked and their test drafts remain unmerged.
 
+## Native Windows backend full synchronization and registry (2026-10-05)
+
+The operator authorized continuing development and merging reviewed code/record
+PRs once their applicable checks pass. Deployment, feature enablement, services,
+live issues, credentials and production resource changes remain outside that
+authorization. Measurements below use this **production Windows PC**, an
+ordinary current-user token, separate development checkouts and owned scratch.
+They certify the stated development checks, not production-worker readiness.
+Python 3.13.16 starts with `PYTHONUTF8=1`; selected Git is 2.54.0.windows.1,
+Git LFS 3.7.1 and native Go 1.25.1. No Bash command or production config/ledger
+is used by these verification sequences.
+
+[Backend #356](https://github.com/Kuaiwa-Network/farm-hive/pull/356) is merged as
+`e14b88b73935d18a62da929111b2559853c13c7a`. Its full tree matches reviewed `4afc0aa`:
+`72f40ab6c517097db21287a96a8856ad09b4ff27`. Exact merged-source local acceptance executes
+**20 provenance tests in 30.273s**, zero failures/errors/skips;
+the complete sequence takes **98.809s**. All 58 snapshots match
+the committed Contract pin, preserving 4,667 backend files, all 608 Contract
+files and upstream metadata. All eight merged-push jobs pass; Windows runs
+20 provenance tests in 37.530s and the existing 15/17 generator/offline tests
+in 49.919s/76.821s, with no native skips. The unchanged backend main-suite
+eleven conditional Go skips remain those listed in the preceding acceptance.
+
+[Backend #357](https://github.com/Kuaiwa-Network/farm-hive/pull/357) is merged as
+`1c8bbce08ede3206791aa7ec8407be3d8bf0cac1`. The full tree equals candidate
+`3ec25f445076b6ef691865b96a52a603b241b997`: `5ef0ed930c80e93ed2739d8fde2906946ee2de73`.
+The explicit `gen-msg-protos.py --contract ... --git ...` path synchronizes
+every TARGETS package from the read-only local Contract worktree, compiles in
+owned scratch, then publishes snapshots, generated Go and provenance after
+rechecking both inputs and destinations. Compile failure preserves backend
+outputs. Dirty/staged/untracked proto iteration retains `-dirty`; absent or
+nonancestor declared local refs retain `-unreachable`. Both release gates
+continue to reject those markers. No fetching, authentication, dependency
+downloads, inherited source selectors or containment changes are introduced.
+
+The committed candidate executes **17 full-sync tests in
+118.173s**, zero failures/errors/skips. Existing Windows
+generator/offline suites also pass 15/17 tests in 28.202s/72.454s. The real
+58-package synchronization succeeds from merged Contract `71dadae`, followed
+by the native offline and independent local provenance gates. The upstream
+contains three intentional proto differences since backend's older pin:
+`friend_chat`, `mail` and `monthly_pass`. Only their three snapshot/output pairs
+and the manifest change in scratch. The initial verifier's manifest-only
+expectation failed; byte inspection established these upstream differences,
+and the corrected complete output/source comparisons and both gates pass.
+No protocol update is committed to backend as part of this tool port.
+
+The real synchronization completes in 6.339s. The combined acceptance sequence,
+including the investigation follow-up, takes **238.707s**. All 4,669
+development source files and 608 Contract files/metadata remain unchanged.
+Repeated synchronization preserves the resulting scratch tree. Source SHA-256
+is `bdf2721c69cea7e7b06caf226a149e821d5b797686b6eb16724273eb7b358fdf`; synchronized scratch
+source SHA-256 `62be7a6feb89d0e47170f26e5a0ceae544c926455cfe3ff249b8c6853d9ad0fc`; 58 generated
+output-set SHA-256 `9449486a32dc3fbf6b9515c50ca4fe86292f79ad843dfb346052764a4850b941`.
+Natural TDD red is the unavailable full-sync mode. The first implementation
+run's one missing-manifest error-message assertion was corrected before the
+final committed 17-test acceptance. No skips or containment weakening were added.
+
+All eight #357 candidate and eight merged-push jobs pass. The merged native
+message matrix executes the 15 generator, 17 offline-gate and 17 full-sync
+tests; its independent provenance matrix executes 20. Windows durations are
+63.338s/104.504s/148.811s and 36.931s respectively, with zero native skips.
+The merged main suite retains the same eleven conditional Go skips.
+[Merged native message run](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37285732235),
+[merged provenance run](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37285732222),
+and [merged backend CI](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37285732227)
+provide the three applicable workflow results.
+
+[Backend #358](https://github.com/Kuaiwa-Network/farm-hive/pull/358) is merged as
+`bcc8e47d2fb7c789234d39536f81d98302136a6b`. Reviewed `b204b08`, original CI's
+merge source `f99058e` and the final merge have identical full tree
+`eea1a050a0bc8a84b669138be32e4ade1ad193a7`. Native `gen-registry.py` and
+`ci/check_proto_registry.py` need selected pinned Go and prepared caches, with
+native Git for the gate; protoc is unnecessary. They build the unchanged Go
+registry primitive, stage all generated outputs, and compare HEAD blobs/index
+and the actual file set. Committed drift, staged changes, extras, aliases and
+concurrent work are preserved and rejected; unstaged registry edits remain
+repairable under the existing gate's semantics. No status/diff/clean filters,
+credentials, downloads or repeated Go package tests are used.
+
+Exact merged local acceptance runs **13 tests in
+53.031s**, zero failures/errors/skips; the sequence takes
+**95.889s**. The real generator and gate reproduce **all 59 registry
+files**, preserving all **4,674 source files**. Source SHA-256 is
+`ca420faf4dbc94f8a672c7f1753d1869b475660e4e97d484497d82a0bccf2159`; output-set SHA-256
+`2f29c9598a0758b1d69712ea36c55bdec4b263da2be7f09d6ee81671b1d3e9ae`. Candidate local acceptance
+also passed all 13 tests in 55.709s. Natural red was the missing native entry
+point. All eleven candidate jobs pass: the three new registry jobs execute 13
+tests each, the existing message/provenance matrices run their actual suites,
+and both original backend jobs succeed. Windows registry duration is 167.325s;
+there are zero native skips and the main suite's eleven conditional Go skips
+remain unchanged.
+[Candidate registry matrix](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37285882423),
+[message matrix](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37285882571),
+[provenance matrix](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37285882425),
+and [backend CI](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37285882541)
+are green; #358 merged-push CI remains to be inspected in the next record.
+
+Private UTF-8 evidence is retained under report names `native-contract-sync-candidate-8965d515`,
+`native-full-sync-candidate-0ac07a2e` and `native-registry-candidate-508cf270`. The #357 regression-log SHA-256 is
+`da8c0bf7b221227134315a5291a58b4deed1e7d7bda60560e43937acfc0cbf79`; #358 merged regression-log
+SHA-256 `5a2fca751769826733dc85e8b78a2ba345ef97a6190dda78fa716127fb52c35d`. The unchanged owned
+process helper SHA-256 is `0385e5477aa664178c9732ac40e2a8033857dc22cbb5bc73672cf8f19f6b8ebd`.
+Raw host logs, paths, account identity and credential values are not committed.
+
+Backend full snapshot synchronization and registry CLI/gate ports are complete.
+Next work is native designer/config generation and its independent gates, then
+complete producer/publication and actual worker tool/cache/grant/runtime checks.
+Real Feishu/Word reads, ordinary-token desktop Unity/symlink acceptance and
+separately authorized release remain pending. Parked issues and unmerged test
+drafts remain untouched.
+
 Remaining release prerequisites:
 
 1. Use native Windows entry points and tools: configured Python 3.13.16, Git
@@ -4971,12 +5083,15 @@ Remaining release prerequisites:
    CI jobs pass, preserving all 4,662 files. #355 is merged as `fef7d64`;
    exact merged acceptance passes 15 generator and 17 offline-gate tests
    without skips and all five merged CI jobs, preserving all 4,664 files and
-   58 outputs. Candidate #356 at `4afc0aa` adds native local Contract
-   provenance: all 20 exact-source Windows tests and three native CI jobs pass,
-   matching all 58 snapshots and preserving 4,667 backend / 608 Contract files.
-   Code merge and exact merged provenance acceptance remain required. Full
-   synchronization, registry gate, designer/config tooling
-   and complete producer/publication remain pending.
+   58 outputs. #356 is merged as `e14b88b`; all 20 exact-merged Windows
+   provenance tests and eight merged CI jobs pass, preserving 4,667 backend /
+   608 Contract files. #357 is merged as `1c8bbce`: its candidate runs 17 local
+   full-sync tests and real 58-package synchronization plus both gates; its
+   identical merged tree passes all eight push-CI jobs. #358 is merged as
+   `bcc8e47`; exact merged Windows acceptance runs 13 registry tests and
+   reproduces all 59 outputs, preserving 4,674 files. All eleven candidate
+   CI jobs pass. Designer/config tooling, complete producer/publication and
+   actual worker/tool-selection acceptance remain pending.
 4. Check the selected service account's symlink capability and relevant native
    ownership/process checks, then complete Windows desktop Unity acceptance.
    The elevated offline baseline does not certify the ordinary token or a
