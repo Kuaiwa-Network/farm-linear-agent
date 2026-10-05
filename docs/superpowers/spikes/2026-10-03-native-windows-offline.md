@@ -4755,6 +4755,137 @@ Word reads, Unity desktop/symlink acceptance and separately authorized release
 remain prerequisites. FARM-1346/FARM-1425 stay parked; unmerged test drafts do
 not establish release provenance.
 
+## Native Windows backend local Contract provenance (2026-10-05)
+
+**Merged offline-gate acceptance:** farm-hive
+[#355](https://github.com/Kuaiwa-Network/farm-hive/pull/355) is merged as
+**`fef7d64678ec53ee9a06a2ad749167e8a02b3576`**, with full tree
+`5b3d3561b6ba1ba5ed4a4d5b692463978f573c16` equal to reviewed
+`29fbc9807ed8d6a0702ed9e75b605ae00d84531e`. Exact merged native Windows acceptance
+passes all **15 generator tests** in **28.150
+seconds** and **17 offline-gate tests** in **72.074
+seconds**, zero failures/errors/skips. The real gate takes
+**9.785 seconds**, preserving all **4,664
+canonical files** and all **58 outputs**; the full sequence is
+**175.176 seconds**. Merged
+[native CI](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37278094098)
+passes both suites on Windows/Linux/macOS in **61.818 + 90.789 /
+33.147 + 7.696 / 15.144 + 19.906 seconds** respectively, and the real full gate
+preserves the same source hash. Merged
+[existing CI](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37278094159)
+passes both jobs on this exact SHA. All five applicable jobs and every native
+step pass; the same 11 conditional Go skips recorded in the
+[offline-gate record](#native-windows-backend-offline-message-gate-2026-10-05)
+remain distinct from the zero-skip native suites.
+
+**New code candidate:** farm-hive
+[#356](https://github.com/Kuaiwa-Network/farm-hive/pull/356) at
+**`4afc0aad778c0ab5bf3c4477cdb8e05f608ab711`**, tree
+`72f40ab6c517097db21287a96a8856ad09b4ff27`, adds
+`ci/check_contract_sync.py`, its 20 actual behavioral tests, scoped native CI
+and README. Exactly four files change. Old POSIX entry points, module/tool
+pins, protocol snapshots, manifests, generated artifacts and the owned process
+helper retain their bytes. The existing API path remains POSIX; the new native
+path explicitly selects a local Contract checkout and native Git, supports
+ordinary clones and Git worktrees, and uses only committed upstream objects.
+
+It validates the provenance header independently of the offline gate, requires
+the declared branch without fallback, and requires the pin to name a commit
+which is an ancestor of local `origin/<declared branch>`. It checks the pinned
+Contract manifest's canonical rows, complete proto file set and every content
+hash, then compares all tracked backend snapshots by unique basename. Missing
+evidence, aliases, nonordinary Git modes, unknown/unmerged commits, duplicate
+basenames and byte drift fail. Unconsumed upstream proto is reported without
+failure; unrelated dirty Contract working-copy bytes do not replace committed
+objects. The gate prints the observed local ref and warns that it may be stale;
+fetching happens outside the gate. It uses no credentials or network, writes
+neither repository, and strips inherited FarmBot/Git/authentication selectors.
+Hooks/fsmonitor, lazy fetching and replace refs are disabled; all child
+processes retain the unchanged owned Job/session runner. No containment or
+ownership check is weakened and no skip is added.
+
+**Measured preparation and acceptance:** the production Windows PC uses the
+ordinary current-user token in separate development checkouts and fresh owned
+scratch. Python **3.13.16** starts with `PYTHONUTF8=1`; selected Git is
+**2.54.0.windows.1**, Git LFS **3.7.1**. This gate needs no Go/protoc or module
+download. An anonymous preparation attempt fails because Farm-Contract is
+private (credential prompts are disabled). A separate development clone is
+then prepared using the existing GitHub login, with no credential/profile
+installation or app/account setting change. Actual acceptance runs with
+authentication/network disabled and reads no production configuration/ledger.
+No service, live issue, Feishu access, parked job or deployment is touched.
+Ordinary CLI checks do not certify an actual FarmBot worker.
+
+The source pin remains **`5d774fa32c922f6927e01faaa8783c8b88b9f08b`**, on observed local
+`origin/main` **`71dadaed8d111219e7170ab6712d97bbb28d8925`**, which matches freshly observed GitHub
+main and Contract #326. The gate compares the historical pin rather than
+requiring latest HEAD bytes; later docs/tool changes on main do not invalidate
+the pin. Natural TDD red runs one real test in **0.745 seconds**, failing on
+the absent not-yet-implemented gate; log SHA-256 is
+`dff2511a8da2965f591323beef20ae924104a1259cfbd2243beeca23951bb74c`.
+Working-tree green passes **20 tests in 29.172 seconds**, zero failures/errors/
+skips. Exact candidate archive acceptance passes all **20 tests** in
+**30.106 seconds**. A fresh local Git baseline is
+created over canonical candidate archive bytes, without remotes; it is a
+comparison baseline, not release provenance. Commands use selected Python with
+`-I -X utf8 -B tools/test_check_contract_sync.py` and, from an unrelated cwd,
+`-I -X utf8 -B ci/check_contract_sync.py --git GIT_EXE --contract CONTRACT_CHECKOUT`.
+The actual full gate matches **58 snapshots** in
+**2.526 seconds**, preserving all
+**4,667 backend files** and **608 Contract files**, plus Contract index/config/
+HEAD/packed refs and the observed branch ref. Full exact archive/baseline/test/
+gate/check duration is **99.834 seconds**. Cases cover real Unicode/
+emoji roots, an actual junction, Git worktree, main/nonmain lines, ancestor vs
+unmerged/unknown/noncommit pins, missing/bad manifests and complete sets,
+heartbeat and every snapshot path family, self-consistent backend edits that
+still violate upstream bytes, poisoned selectors and read-only preservation.
+
+[Native candidate CI](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37279905521)
+passes on exact candidate SHA on Windows/Linux/macOS: **20 tests** each in
+**42.762 / 4.957 /
+7.862 seconds**, zero failures/errors/skips. Each
+also performs the actual 58-snapshot check and preserves the same backend and
+Contract source hashes as local acceptance. Every native job/step actually
+runs. CI prepares full history for the declared private Contract line with
+the existing read secret and disables credential persistence; the check then
+sanitizes inherited authentication. PR scope is confined to provenance inputs/
+tooling and main/banshu pushes run fully. No Go package tests or previous native
+generator/offline suites are repeated in this workflow.
+[Existing candidate CI](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37279905445)
+passes both build and Windows devctl jobs, with every configured step running
+successfully. Its PR merge `d5334639f03964ffa536d439b857ce1cf6d8f75c` has merged #355 and this
+candidate as parents; its full tree equals the reviewed candidate tree. The
+same 11 existing conditional Go skips remain recorded in the offline-gate
+section linked above, separate from the zero-skip native suite. All five
+applicable candidate jobs pass; no provenance/test check is bypassed.
+
+Private UTF-8 evidence retains reports `native-msg-gate-candidate-881596e7`
+and `native-contract-sync-candidate-92d6ad42`,
+source maps, commands, versions, durations, preparation failure and log hashes.
+Private paths, credential values and raw host logs are not committed. Digests:
+
+- Merged #355 canonical source: `c26cf21816d42d64d994247f64c75c7c7009e0c0a2e19095ecb75b89899cce82`.
+- Candidate backend/Contract sources: `ac2dc747ca9dc8ea7fca56091827880a9192fdfe765c9a2d2a6dd9c812cf40c7` / `e99dd3ccdf7ca58440a377cd7cdae84b5f2ce93163efad0c83885836dc007fd2`.
+- Native provenance gate: `7a3b80f00a645a0ded83f8eb5d5b50a8ec8177c725febbe3c9246c625f4e31b2`.
+- Unchanged owned runner: `0385e5477aa664178c9732ac40e2a8033857dc22cbb5bc73672cf8f19f6b8ebd`.
+- Exact candidate test log: `f23f9c17d23b350f9f2bd72d4dffbbab0d2dfed9d7e3d6590311e77e30141f2e`.
+- Actual provenance log: `e3c85093cd08dacc8bacb89beff9334c02c21abc84e693f88b4f3b904e4185ef`.
+- Merged/candidate summaries: `9ec71a54ad698cdf235f8a56bcd871862ce3a0da7874c3f2dcbd1399750d2314` / `35bda328c8322f9edeaff26a77e8b08c5ba167c271aa45428cbb68f20f11fbc0`.
+
+Documentation checks pass all **73 relevant tests** in **0.414
+seconds** (0.522 including startup), without failures/errors/skips.
+UTF-8 documentation-test log SHA-256 is `88e4f8cb171e46e3268121549fa8ae5b44622c1cc798c7c6b01192ea13b62852`. Retained hashes,
+links, public-record privacy and whitespace are checked separately.
+
+**Next:** merge the reviewed code candidate after applicable CI and verify its
+exact merged revision, then finish native full snapshot synchronization and
+the registry gate. The native local checkout path is the measured candidate;
+the API variant remains POSIX and is not needed to run this local path.
+Designer/config tooling, complete producer/publication, actual Windows
+worker/tool/cache and Feishu/Word access,
+Unity desktop/symlink checks and separately authorized release remain pending.
+FARM-1346/FARM-1425 remain parked and their test drafts remain unmerged.
+
 Remaining release prerequisites:
 
 1. Use native Windows entry points and tools: configured Python 3.13.16, Git
@@ -4837,12 +4968,15 @@ Remaining release prerequisites:
    entry-point evidence. Backend main `e24b6cb` now reproduces 59 native Go
    registry files and 58 message outputs without drift. Farm-hive #354 is
    merged as `1702356`; all 15 exact-merged Windows tests and all five merged
-   CI jobs pass, preserving all 4,662 files. Candidate #355 at `29fbc98`
-   adds the native offline snapshot/reproducibility gate; exact source passes
-   15 generator and 17 gate tests without skips, preserving all 4,664 files
-   and 58 outputs. Code merge and exact merged gate acceptance
-   remain required. Full synchronization/provenance, registry gate,
-   designer/config tooling and complete producer/publication remain pending.
+   CI jobs pass, preserving all 4,662 files. #355 is merged as `fef7d64`;
+   exact merged acceptance passes 15 generator and 17 offline-gate tests
+   without skips and all five merged CI jobs, preserving all 4,664 files and
+   58 outputs. Candidate #356 at `4afc0aa` adds native local Contract
+   provenance: all 20 exact-source Windows tests and three native CI jobs pass,
+   matching all 58 snapshots and preserving 4,667 backend / 608 Contract files.
+   Code merge and exact merged provenance acceptance remain required. Full
+   synchronization, registry gate, designer/config tooling
+   and complete producer/publication remain pending.
 4. Check the selected service account's symlink capability and relevant native
    ownership/process checks, then complete Windows desktop Unity acceptance.
    The elevated offline baseline does not certify the ordinary token or a

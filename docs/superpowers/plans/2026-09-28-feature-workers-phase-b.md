@@ -769,6 +769,23 @@ registry gate acceptance remain next; designer/config generation, complete
 producer/publication, actual worker tool/cache selection, real Feishu/Word
 reads, Unity acceptance and separately authorized release remain pending.
 
+**2026-10-05 backend local Contract provenance:** Farm-hive #355 is merged as
+`fef7d64`; exact merged Windows acceptance passes 15 generator and 17 offline
+gate tests, and all five merged CI jobs succeed. Candidate #356 at `4afc0aa`
+adds native committed-upstream ancestry/manifest/byte checks via an explicit
+local Contract checkout. All 20 exact-source Windows tests and the real
+58-snapshot check pass without skips, preserving 4,667 backend and 608 Contract
+files and the Contract index/refs. Three native CI platforms pass with equal
+source hashes. Existing backend CI passes both equal-tree PR-merge jobs; all
+five applicable jobs succeed. Code merge and exact merged provenance acceptance
+remain required. The
+[local provenance record](../spikes/2026-10-03-native-windows-offline.md#native-windows-backend-local-contract-provenance-2026-10-05)
+retains preparation failure, TDD red, measured results, hashes and remaining
+boundaries. Full synchronization, registry/config tooling,
+complete producer/publication, actual worker/Feishu/Unity acceptance and
+separately authorized release remain pending; client acceptance precedes UI
+authoring. No production or parked-job action occurs.
+
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
 it merged as [#78](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/78)
