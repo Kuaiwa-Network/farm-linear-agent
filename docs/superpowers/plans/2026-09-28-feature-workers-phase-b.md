@@ -1196,10 +1196,94 @@ The focused **5.333-second** Python comparison finds private mode `0o700` direct
 are created but cannot be used or deleted by either restricted worker; inherited
 directory permissions work while outside writes stay denied. A reviewed Windows
 temporary-workspace helper with ownership/reparse regression coverage is the
-next code task, before rerunning backend generators and selecting a launcher
-backend. The [comparison record](../spikes/2026-10-03-native-windows-offline.md#existing-fixer-windows-launch-comparison-2026-10-05-partial)
+next code task at that comparison; the follow-up below implements it and
+measures the native backend generators/gates with explicit launcher selection. The [comparison record](../spikes/2026-10-03-native-windows-offline.md#existing-fixer-windows-launch-comparison-2026-10-05-partial)
 retains configuration findings, exact versions/times/hashes, verifier errors
 and the weaker read/network isolation of the native unelevated option.
+
+**2026-10-05/06 explicit native backend and temporary workspaces:** FarmBot
+[#128](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/128) at
+`de0e94d78e23704ab40e3ce37c65e31651090252` implements host
+`codex_windows_sandbox`: only `elevated` (default) or explicit `unelevated`, with
+no omitted-setting or error fallback. It merged as `43d702c7023094e27f40e1303e903a7c7912509f`;
+production selection remains separately authorized. Eight
+focused regressions pass in
+**1.761 seconds**. The production host's separate ordinary-token development
+checkout runs **1,749 tests in 906.770 seconds**: **1,669 pass, zero assertion
+failures, six WinError 1314 fixture errors and 74 skips**. All **13 feature
+journeys** and all **seven native Job tests** run and pass. The complete sanitized
+skip map and focused unchanged-source audit are retained in the Windows record;
+ordinary-token symlink/ownership acceptance remains unresolved.
+
+Backend [#363](https://github.com/Kuaiwa-Network/farm-hive/pull/363) at
+`8016c76d20fd2a4b29fce57ceafeb3480e54d6c4` adds the reviewed shared helper to
+all **11** native temporary-workspace callers, staging/fixture copies and
+affected workflows. Windows inherits assigned permissions; POSIX keeps `0700`;
+reparse/identity/collision checks, verified cleanup and failure evidence remain
+intact, with no chmod/ACL repair or broader grants. **136** focused normal-host
+tests pass in **378.336 seconds**, zero skips. Two original adapter failures
+remain recorded at a **261-unit** response-file path: official Windows protoc
+**35.1** passes **259 units** and fails **260/261**. A fresh **56-unit** owned
+TEMP makes all six adapter tests pass in **16.998 seconds**. Startup TEMP's
+260-unit check alone does not certify nested native-tool paths.
+
+Actual restricted-token helper acceptance passes on pinned native Codex
+**0.156.1 / 0.160.0** in **5.368 seconds**: successful creation/use/verified
+cleanup, failed-body evidence retention and released pins, three denied outside
+write opens per CLI and settled owned Jobs. Actual FarmBot `Launcher.stop`
+passes both CLI cases in **2.310 seconds** total, killing owned child/descendant
+members, emptying Jobs, recording teardown and leaving a separate control
+alive until its own cleanup. Scheduler Stop/undelegation and full authenticated
+model-worker acceptance are not measured by those commands.
+
+The first generator retry retains a private child result-replacement
+`os.replace` WinError 5 during parent progress reads. The child still replaces
+results atomically; the parent now reads the final result only after a verified
+empty Job, avoiding the reader's `FILE_SHARE_DELETE` conflict. The next retry passes eight
+synchronization steps but its old-baseline comparison fails: current Contract
+`71dada` is 30 commits newer than backend pin `5d774`, so three proto/three Go
+outputs and the manifest differ. No new protocol snapshots or parked-draft
+merges are used. The independent same-input ordinary-token baseline now passes
+in **106.704 seconds**: **58** protobuf outputs, **58** snapshots and **59**
+outputs including registry, with all three backend gates passing and original
+source/cache/tool bytes unchanged. Its full artifact maps are the basis for the
+restricted-token comparison, which passes in **106.081 seconds** with all
+58 protobuf/58 snapshot/59 registry full maps and three gates matching. Config
+generation and both gates pass in **142.698 seconds**, all **368 artifacts**
+byte-identical. Exact selected sources, metadata/cache bytes and protected
+writes/owned Jobs are independently audited; no model turn occurs.
+
+FarmBot's two hosted matrices pass **1,749 tests per OS**, zero failures/errors,
+**69 Windows / 19 Mac skips**. The PR matrix tests synthetic `debc401` with
+the candidate's identical complete tree; dispatch tests `de0e94d` directly.
+All 13 journeys pass everywhere and all seven native Job tests pass on both
+Windows runs. Backend's final `79ded860` matrix passes **136 tests per OS**,
+zero failures/errors/skips; general CI passes after the unchanged original
+Mongo dependency timeout is retained and retried. FarmBot #128 merged as
+`43d702c7023094e27f40e1303e903a7c7912509f`; backend #363 merged as
+`6eff95c278ccdee1e9caeed862969bd0140198f8`. Their checked trees match their
+respective merged trees. The final backend follow-up changes README only.
+The Windows record retains every local error, per-platform skip, run/job time,
+input/output/tool/audit hash and original observer/different-input failure.
+
+These are isolated development checks on the **production Windows host**, using
+the operator-selected current account. No production config/ledger, model/auth/
+Feishu, account/settings/service, privilege or deployment action occurs. Native
+unelevated remains weaker in read/network isolation; same-account DPAPI and
+controller-memory isolation are not certified. MXC stays optional. The actual
+Scheduler/Lifecycle/Launcher/Worktrees offline probe passes all four native
+cases in **17.131 seconds**: Stop, confirmed undelegation, worker exit 7 and
+budget expiry. Owned work is preserved before verified-quiescent cleanup;
+fixture-only notices and direct private-ledger claims do not certify a real
+model turn, worker CLI/service authentication or live Linear delivery. Remaining
+prerequisites are approved producer/release provenance, real model
+worker/CLI/service authentication, live response/recovery and unclaimed
+startup acceptance, scoped Feishu/Word reads, ordinary
+symlink and desktop Unity acceptance, private scan/restoration, and separately
+authorized feature release. FARM-1346/FARM-1425 and draft #318/#353 stay parked/
+unmerged. Task 17 and production readiness remain incomplete; client/UI work is
+later. See the [Windows record](../spikes/2026-10-03-native-windows-offline.md)
+for all failures, revisions, versions, durations, hashes and per-test skips.
 
 ## Scope
 

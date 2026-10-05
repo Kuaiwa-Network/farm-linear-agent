@@ -5670,7 +5670,7 @@ the standalone artifact comparison, SHA-256
 Application code is unchanged, so the full offline suite is not repeated for
 this documentation-only record.
 
-**Proposed integration:** expose an explicit host-level Codex Windows backend
+**Integration proposed at this comparison:** expose an explicit host-level Codex Windows backend
 choice, retaining elevated as the default and accepting only elevated or
 unelevated. Do not omit the setting, select MXC or automatically fall back after
 an error. Fix, chat and feature share the launcher, so this belongs to the host
@@ -5679,6 +5679,10 @@ must preserve fresh homes, exact write grants, credential filtering, untrusted
 project settings and owned Jobs, and test config validation and service wiring.
 Unelevated does not support restricted reads; these probes do not establish
 same-account DPAPI credential or controller-process-memory isolation.
+
+These next steps were recorded before the follow-up below; that follow-up
+implements the selector and temporary-workspace fix and carries the current
+remaining prerequisites.
 
 Remaining release prerequisites:
 
@@ -5725,3 +5729,638 @@ Remaining release prerequisites:
    feature enablement/deployment. No deployment, restart or enablement is
    authorized or performed here. Task 17 remains incomplete and Phase B's Code
    worker still ends after the server; client/UI phases remain later work.
+
+### Explicit native Windows backend and owned temporary workspaces (2026-10-05/06; partial)
+
+These measurements use separate development checkouts and newly owned fixtures
+on the **production Windows host**, under the operator-selected current account.
+They do not use the running installation's configuration or ledger. No model
+turn, authentication, Feishu request, production configuration/ledger read,
+account or app setting change, service action, privilege grant or deployment
+occurs. No Bash/MSYS/WSL path or automatic sandbox fallback is introduced.
+
+**Merged FarmBot host selection:** [#128](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/128)
+implements `codex_windows_sandbox` in its reviewed code candidate at
+`de0e94d78e23704ab40e3ce37c65e31651090252`, tree
+`110c46450b00375f124d51bb39b0be4543dffbf4`. It accepts exactly `elevated`
+(the default) or explicitly selected `unelevated`; the generated isolated home
+always writes that choice. Fix, chat and feature share the host choice. Missing
+or failed elevated admission never causes an implicit/disabled/unelevated/MXC
+fallback. Fresh homes, exact write roots, controller Git ownership checks,
+credential filtering and Job containment remain in place. Eight focused
+configuration/launcher/service regressions pass in **1.761 seconds**.
+Unelevated remains the restricted current-user backend: it does not establish
+restricted reads, same-account DPAPI isolation or controller-memory isolation.
+It merged as `43d702c7023094e27f40e1303e903a7c7912509f` with the identical tree, replacing
+the preceding proposed integration; it is not a deployed host choice. The
+production configuration was not changed to select it.
+
+**Native local offline suite:** the selected CPython **3.13.16** executable runs
+`python -B -m unittest discover -s tests -v` with `PYTHONUTF8=1` set before
+startup and inherited FarmBot/auth selectors removed. Git is
+**2.54.0.windows.1**, Git LFS **3.7.1**. The candidate above discovers
+**1,749 tests: 1,669 passed, zero assertion failures, six errors and 74 skips**.
+Unittest reports **905.937 seconds**; full subprocess wall time is
+**906.770 seconds**. All **13 feature journeys** and all **seven native Windows
+Job Object tests** actually run and pass. This ordinary-token run is diagnostic
+evidence rather than a passing full-suite certificate.
+
+All six errors end at fixture symlink creation with **WinError 1314**, before
+the affected ownership checks exercise their linked fixtures. The unchanged
+failed surfaces are independently compared with the base revision; no new
+skip, weakened guard, privilege grant or host setting change is used:
+
+- `test_environment.EnvironmentTests.test_state_symlink_and_external_slot_are_rejected`
+- `test_memory.MemorySnapshotTests.test_invalid_stored_ids_and_symlink_root_are_refused`
+- `test_memory.MemorySnapshotTests.test_prune_preserves_references_and_ignores_unrelated_paths`
+- `test_memory.MemorySnapshotTests.test_symlinked_retained_attempt_aborts_pruning_before_deletion`
+- `test_memory.MemorySnapshotTests.test_symlinked_retained_item_aborts_pruning_before_deletion`
+- `test_worktrees.WorktreeTests.test_verification_rejects_foreign_checkout_and_missing_worktree`
+
+Every skipped ID and sanitized reason is retained in the table below. The raw
+UTF-8 logs, revision/version metadata, focused evidence and every original skip
+reason remain private. The independent full-suite audit SHA-256 is
+`f217c1a4ec3e1525e74bf449ed289f2c61ea658d257583d6cd7bcce7003b11ca`.
+Missing symlink capability remains a release prerequisite; an earlier elevated
+baseline or a hosted Windows pass does not certify this token.
+
+Windows local suite: all 74 platform/capability skips, with private paths omitted.
+
+| Skipped test | Sanitized observed reason |
+| --- | --- |
+| `test_cleanup.CancellationCleanupTests.test_exited_parent_with_detached_child_holds_cleanup_after_restart` | Windows worker jobs contain children; tested in test_windows_workers |
+| `test_cleanup.PreservationTests.test_symlinked_worktree_is_never_followed` | Windows symlink privilege unavailable |
+| `test_cleanup.SelfExitedWorkerCleanupTests.test_continuation_of_a_self_exited_paused_worker_launches` | POSIX self-exit evidence; Windows workers are proved by Job Objects |
+| `test_cleanup.SelfExitedWorkerCleanupTests.test_resource_fencing_certifies_a_worker_that_exited_by_itself` | POSIX self-exit evidence; Windows workers are proved by Job Objects |
+| `test_cleanup.SelfExitedWorkerCleanupTests.test_resource_fencing_fails_while_the_old_handle_is_still_registered` | POSIX self-exit evidence; Windows workers are proved by Job Objects |
+| `test_cleanup.SelfExitedWorkerCleanupTests.test_retirement_leaves_the_reap_of_a_registered_worker_to_poll` | POSIX self-exit evidence; Windows workers are proved by Job Objects |
+| `test_config.LarkCliConfigTests.test_a_home_lies_outside_local_root_the_users_home_and_every_temporary_directory` | Windows refuses every lark_cli home |
+| `test_doctor.FeatureToolchainTests.test_a_store_whose_key_is_a_file_and_that_holds_a_login_is_exposed` | the macOS store's master key file |
+| `test_doctor.ProcessProbeTests.test_invalid_pids_are_never_passed_to_os_kill` | POSIX process inspection |
+| `test_doctor.ProcessProbeTests.test_permission_denied_and_ps_failure_are_unknown_not_dead` | POSIX process inspection |
+| `test_doctor.ProcessProbeTests.test_real_worker_is_recognized_and_reaped_worker_is_dead` | POSIX process inspection |
+| `test_heartbeat.HeartbeatFileTests.test_a_fifo_or_symlink_is_unreadable_without_waiting` | FIFOs and O_NOFOLLOW symlink refusal are POSIX |
+| `test_heartbeat.HeartbeatFileTests.test_write_replaces_a_symlink_or_fifo_instead_of_opening_it` | FIFOs are POSIX |
+| `test_launcher.LauncherTests.test_a_fifo_the_worker_left_as_a_report_file_cannot_block_poll` | FIFOs in a directory are POSIX |
+| `test_launcher.LauncherTests.test_a_kill_after_a_restart_persists_its_targets_past_a_fifo_left_for_their_temporary_file` | FIFOs in a directory are POSIX |
+| `test_launcher.LauncherTests.test_a_kill_after_a_restart_refuses_a_fifo_teardown_record_before_signalling` | FIFOs in a directory are POSIX |
+| `test_launcher.LauncherTests.test_a_stop_replaces_a_fifo_the_live_worker_swapped_in_for_its_teardown_record` | FIFOs in a directory are POSIX |
+| `test_launcher.LauncherTests.test_cleanup_checks_refuse_a_fifo_launch_or_teardown_record_without_blocking` | FIFOs in a directory are POSIX |
+| `test_launcher.LauncherTests.test_group_kill_escalates_when_only_the_child_ignores_term` | POSIX process group semantics |
+| `test_launcher.LauncherTests.test_spawn_notes_an_undelivered_prompt_past_a_fifo_the_worker_left_for_the_note` | FIFOs in a directory are POSIX |
+| `test_launcher.LauncherTests.test_spawn_records_the_pid_past_a_fifo_the_new_worker_put_at_its_launch_record` | FIFOs in a directory are POSIX |
+| `test_launcher.LauncherTests.test_stop_does_not_block_on_a_fifo_teardown_record_and_holds_cleanup` | FIFOs in a directory are POSIX |
+| `test_launcher.PosixSelfExitTeardownTests.test_a_claimed_worker_is_not_reaped_by_poll_even_without_waitid` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_a_failing_teardown_check_still_reports_every_exit` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_a_fifo_teardown_record_holds_cleanup_without_blocking_the_poll` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_a_fifo_that_appears_at_the_teardown_record_is_replaced_by_the_verified_one` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_a_group_still_reported_after_the_reap_holds_cleanup` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_a_member_that_cannot_be_terminated_holds_cleanup` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_a_process_table_that_stays_unreadable_holds_cleanup` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_a_reap_that_cannot_complete_is_retried` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_a_repeated_stop_keeps_what_an_earlier_stop_recorded` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_a_signalled_member_that_leaves_the_session_is_still_checked` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_a_teardown_record_naming_another_pid_holds_cleanup` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_a_verified_self_exit_keeps_an_interrupted_stops_recorded_descendants` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_an_unreadable_process_table_is_retried_while_the_worker_stays_unreaped` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_an_unverified_self_exit_supersedes_an_interrupted_stop_record` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_normal_exit_is_proven_quiescent` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_other_group_in_the_worker_session_is_terminated_and_recorded` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_poll_leaves_a_worker_being_killed_to_kill` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_same_group_survivor_is_terminated_and_recorded` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_setsid_descendant_escapes_the_session_check` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_stop_after_a_self_exit_leaves_the_reap_and_its_evidence_to_poll` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_stop_racing_a_self_exit_signals_the_group_even_without_waitid` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_stop_racing_a_self_exit_still_reaches_the_worker_group` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_stop_terminates_a_group_member_the_parent_walk_cannot_see` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_what_the_worker_left_for_the_unverified_record_is_replaced_not_opened` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_without_waitid_a_self_exit_keeps_holding_cleanup` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSessionScanTests.test_a_failed_ps_exit_proves_nothing` | POSIX sessions and process groups |
+| `test_launcher.PosixSessionScanTests.test_a_member_that_exits_before_getsid_is_skipped` | POSIX sessions and process groups |
+| `test_launcher.PosixSessionScanTests.test_a_session_that_cannot_be_read_proves_nothing` | POSIX sessions and process groups |
+| `test_launcher.PosixSessionScanTests.test_a_table_that_does_not_list_farmbot_itself_proves_nothing` | POSIX sessions and process groups |
+| `test_launcher.PosixSessionScanTests.test_group_and_session_members_are_listed_but_not_the_leader_or_zombies` | POSIX sessions and process groups |
+| `test_launcher.PosixSessionScanTests.test_ps_that_fails_or_times_out_proves_nothing` | POSIX sessions and process groups |
+| `test_launcher.PosixSessionScanTests.test_signals_reach_the_group_and_only_members_still_in_the_session` | POSIX sessions and process groups |
+| `test_launcher.PosixSessionScanTests.test_the_group_is_gone_only_when_the_kernel_says_so` | POSIX sessions and process groups |
+| `test_launcher.WorkerFileReadTests.test_a_fifo_is_refused_without_waiting_for_a_writer` | FIFOs in a directory are POSIX |
+| `test_launcher.WorkerFileReadTests.test_a_symlink_is_refused_even_to_a_regular_file` | Windows has no O_NOFOLLOW; making a symlink there needs a privilege |
+| `test_launcher.WorkerFileWriteTests.test_a_fifo_at_the_name_is_replaced_without_waiting_for_a_reader` | FIFOs in a directory are POSIX |
+| `test_launcher.WorkerFileWriteTests.test_a_symlink_at_the_name_is_replaced_and_what_it_names_is_left_alone` | making a symlink on Windows needs a privilege |
+| `test_scheduler.SchedulerTests.test_a_fifo_left_for_the_batch_summary_is_no_evidence_and_cannot_stall_the_launch` | FIFOs in a directory are POSIX |
+| `test_service.SignalShutdownTests.test_sigterm_during_pool_ensure_also_cleans_up_and_restores_the_handler` | POSIX service termination contract |
+| `test_service.SignalShutdownTests.test_sigterm_reaps_the_batch_child_and_closes_a_running_service` | POSIX service termination contract |
+| `test_slots.PoolTests.test_a_fifo_left_for_the_batch_summary_cannot_stall_the_batch_run` | FIFOs in a directory are POSIX |
+| `test_slots.PoolTests.test_what_the_worker_left_at_the_token_path_is_replaced_by_the_grant` | no FIFOs in a directory, and making a symlink needs a privilege |
+| `test_uploads.ArchiveTests.test_a_link_on_the_way_to_a_member_is_never_descended` | creating symlinks needs a privilege on this host |
+| `test_uploads.DownloadTests.test_an_edited_manifest_cannot_lead_a_write_through_a_link_inside_the_directory` | creating symlinks needs a privilege on this host |
+| `test_uploads.OutputDirectoryTests.test_a_symlinked_out_is_refused` | creating symlinks needs a privilege on this host |
+| `test_worktrees.ControllerGitTests.test_farmbots_git_in_a_worktree_follows_neither_of_its_pointers` | the filter here is a shell script |
+| `test_worktrees.ControllerGitTests.test_farmbots_own_git_runs_no_hook_left_in_the_clone` | the hooks here are shell scripts |
+| `test_worktrees.ControllerGitTests.test_within_those_parts_a_worker_commits_and_pushes_but_cannot_touch_the_config` | macOS's Seatbelt, as Codex's |
+| `test_worktrees.ReadCheckoutTests.test_anything_else_at_the_path_is_replaced_and_unsafe_requests_are_refused` | symlinks unavailable: WinError 1314 (private paths omitted) |
+| `test_worktrees.ReadCheckoutTests.test_no_hook_fsmonitor_filter_or_setting_of_the_host_or_the_clone_runs` | the hooks, fsmonitor and filters here are shell scripts |
+| `test_worktrees.ReadCheckoutTests.test_removal_never_acts_through_a_link` | POSIX permissions; Windows has the junction test |
+| `test_worktrees.ReattachTests.test_no_hook_or_fsmonitor_planted_in_the_clone_runs_while_re_attaching` | the planted hooks and fsmonitor are shell scripts |
+
+**Backend temporary workspaces:** [farm-hive #363](https://github.com/Kuaiwa-Network/farm-hive/pull/363)
+has code candidate `8016c76d20fd2a4b29fce57ceafeb3480e54d6c4`, tree
+`e804562d2750f71497e4c300b9dd5de494aa502c`. The shared `tools/native_temp.py`
+helper replaces all **11** native generator/designer/gate workspace callers;
+the minimal full-sync stage and test fixtures copy the helper, and all five
+affected native workflows select its changes. Windows exclusively creates
+random ordinary directories with inherited parent permissions instead of
+Python 3.13's special `mode=0o700` DACL. POSIX retains `0700` and anchored
+directory descriptors. Parent/ancestor identity, reparse, collision, replacement
+and owned-cleanup checks remain explicit. Windows pins verified entries and
+deletes through held handles. Any body error retains the whole workspace,
+releases handles and propagates the original exception; uncertain cleanup and
+read-only evidence are preserved. There is no ACL repair, chmod, global
+`tempfile` override or extra write grant.
+
+The nine normal-host focused suites pass **136 tests in 378.336 seconds**,
+with zero failures/errors/skips in the successful collection. The original
+local-adapter run retains **two failures**: its **110-unit** selected TEMP
+produces a **261-unit** nested `protoc-0.args` path. A focused control with the
+official pinned Windows protoc **35.1** succeeds at **259 UTF-16 units** and
+fails at **260 and 261** with `Failed to open argument file: protoc-0.args`.
+A fresh owned **56-unit** TEMP allows all **six** local-adapter tests to pass
+in **16.998 seconds**, without changing code bytes, ACLs or settings. That
+rerun's UTF-8 log SHA-256 is
+`784cec1beed4e5d297a6bc1c5e35f52062a9f0b4381c784ad5e78b7faa4b1c52`.
+Both the failed and passing logs remain private. Selected TEMP must leave room
+for nested workspaces and native tool filenames; the separate 260-unit startup
+check does not establish protoc file-access readiness.
+
+**Actual restricted-token helper acceptance:** private report
+`native-temp-workspaces-88b6b4a3a6fe`, checked at
+**2026-10-05 15:55:28 UTC**, completes in **5.368 seconds** with pinned native
+Codex **0.156.1 / 0.160.0** (**2.457 / 2.434 seconds** per CLI). Both exercise
+the committed helper bytes above: ordinary create/list/file and directory
+write/read/delete succeed; successful contexts clean only their owned trees;
+a body failure retains bytes and the original exception while releasing pins.
+All **three protected outside write-handle opens per CLI** deny access. Native
+child/descendant containment, dead-member confirmation, empty Jobs and joined
+readers pass. No credentials are seeded. The helper SHA-256 is
+`a5665d86e62f00bf4167e5436b170094985ffbc09c3246819f8b818fb41991e6`.
+This is actual native command acceptance, separately from the normal-host
+unittests and from full authenticated model-worker acceptance.
+
+**Actual Launcher Stop:** private report
+`native-unelevated-launcher-stop-c328b7618d`, checked at
+**2026-10-05 15:49:56 UTC**, takes **2.310 seconds**. The real FarmBot launcher
+at `de0e94d` selects explicit unelevated without changing its command/grants.
+Both pinned CLI cases pass (**0.837 / 0.748 seconds**; the Stop calls themselves
+take **0.042 / 0.022 seconds**). `Launcher.stop` returns true; teardown marks
+the attempt killed and empty, observed child/descendant members die, the Job
+empties and controller attempts return to zero. An independently owned control
+process survives that Stop, then settles only through its own Job cleanup.
+All three protected handles deny writes, credentials stay absent and protected
+source/registration/sentinels remain unchanged. Independent audit SHA-256 is
+`8bb6be1b1e4f3ac9959ca3626699233af2669bcca4bcbeca040fb14165abd141`.
+This measures `Launcher.stop`; it does not claim Scheduler Stop, delegation
+removal, Linear response delivery or a complete model-worker lifecycle.
+
+**Generator follow-up and retained failures:** the original combined retry
+`a7b350` lasts about **42 seconds**, then the private child's atomic result
+`os.replace` hits **WinError 5** while the parent reads progress during execution,
+before generator acceptance. That observation failure is retained; it is not
+backend generator acceptance or an application fix. The child still atomically
+replaces its result. The parent now reads the final result only after a verified
+empty Job, avoiding the reader's `FILE_SHARE_DELETE` conflict during replacement.
+The subsequent `74d503` run passes all **eight** full-synchronization
+steps, but comparison against the old baseline **fails**. Its selected Contract
+main `71dadaed8d111219e7170ab6712d97bbb28d8925`, checked against current GitHub
+state, is **30 commits newer** than the backend's existing
+`5d774fa32c922f6927e01faaa8783c8b88b9f08b` source pin.
+Three proto files, their three generated Go files and the manifest differ.
+Those are different inputs; the old-baseline comparison is not an output match.
+The **58-file** result and both original aggregate hashes remain private.
+No new protocol snapshot is committed and no parked draft is merged to obtain
+these fixture results.
+
+**Independent same-input ordinary-token baseline:** private report
+`native-contract-backend-normal-baseline-bf3e9a23de` passes in
+**106.704 seconds**, using backend `8016c76d` and Contract `71dada` above,
+Go **1.25.1**, the pinned MSVC-built protoc **35.1**, protobuf Go plugin **v1.36.8**, native
+Git **2.54.0.windows.1** and buf **1.72.0**. Full protobuf synchronization,
+registry generation and all three backend message/provenance/registry gates
+pass in the owned fixture. Contract buf build/lint/manifest checks also pass.
+Original source trees, Git metadata, all staged cache bytes and selected tools
+remain unchanged; generated outputs and their local Git baseline are fixture
+evidence only. The exact artifact sets are:
+
+| Set | Files | Aggregate SHA-256 |
+| --- | --- | --- |
+| Protobuf outputs (manifest compared separately) | 58 | `9449486a32dc3fbf6b9515c50ca4fe86292f79ad843dfb346052764a4850b941` |
+| Protocol snapshots | 58 | `5018e99210cc666d228345ae96f72fae6b5d3dcfb7ce345982bc7a2d61554270` |
+| Registry outputs | 59 | `2f29c9598a0758b1d69712ea36c55bdec4b263da2be7f09d6ee81671b1d3e9ae` |
+
+The restricted-token comparison below uses these full same-input maps;
+the ordinary-token baseline alone does not certify a restricted worker.
+
+**Native backend/config acceptance with explicit launcher selection:** these
+checks use committed FarmBot `de0e94d78e23704ab40e3ce37c65e31651090252`
+(tree `110c46450b00375f124d51bb39b0be4543dffbf4`) and backend candidate
+`8016c76d20fd2a4b29fce57ceafeb3480e54d6c4`
+(tree `e804562d2750f71497e4c300b9dd5de494aa502c`). The actual FarmBot
+Launcher selects `unelevated` explicitly; its application default remains
+`elevated`. Fresh owned fixtures on this production PC stay separate from
+the running installation. Python **3.13.16**, native Codex **0.160.0**,
+Go/gofmt **1.25.1**, Git **2.54.0.windows.1**, native protoc **35.1** and
+buf **1.72.0** are selected explicitly. This is standalone app-server
+`command/exec` under the launcher's configured `workspace-write` policy;
+no thread/model turn is started and no named permission profile is used.
+The selected protoc is the previously recorded MSVC-built native image,
+SHA-256 `71b837c0c7e9a5ac1a833150f2ef4c9d97d456c5faabc0da66388ea1d204fb5a`;
+it is distinct from the official release image used for the separate path-limit
+control. These consumer checks do not certify a published tool/source release.
+
+The preserved **49.732-second** strict run,
+`native-unelevated-contract-backend-74d5038bcd`, completed protobuf
+synchronization but rejected its expected manifest-only change set. The
+selected clean Contract `71dadaed8d111219e7170ab6712d97bbb28d8925` is newer
+than the backend snapshots' `5d774fa32c922f6927e01faaa8783c8b88b9f08b` pin.
+Exactly seven files change: the provenance manifest plus the proto and
+generated Go files for friendchat, mail and monthlypass; no file is added
+or removed. This is a different selected input, not a temporary-workspace
+regression. The failure and its original strict expectations remain frozen.
+
+An independent native ordinary-token baseline at **2026-10-05 16:16:25 UTC**,
+`native-contract-backend-normal-baseline-bf3e9a23de`, passes in **106.704
+seconds** using the exact same backend/Contract inputs and tools, without
+Codex. Each command uses the backend's owned native Job runner and settles
+before returning. Contract buf build/lint/manifest, full protobuf sync,
+registry generation and all three native local gates pass. The frozen report
+records full input/output maps, the exact seven-file change list and no
+registry changes. It measures local inputs; it approves no release provenance
+or parked draft.
+
+The actual-launcher restricted run at **2026-10-05 16:29:51 UTC**,
+`native-unelevated-contract-backend-f62aa2626f`, passes in **106.081 seconds**.
+Its explicit baseline-report mode first requires the same revisions/trees,
+source bytes, captured Git metadata, tool hashes and entire **9596-file**
+read-only staged cache. It then compares the complete synchronized/final
+fixture maps, every artifact hash and exact change lists to that frozen
+independent baseline. All **58** protobuf outputs, **58** snapshots, **59**
+registry outputs and the manifest match. The protobuf aggregate SHA-256 is
+`9449486a32dc3fbf6b9515c50ca4fe86292f79ad843dfb346052764a4850b941`;
+the snapshot aggregate is
+`5018e99210cc666d228345ae96f72fae6b5d3dcfb7ce345982bc7a2d61554270`;
+the registry aggregate is
+`2f29c9598a0758b1d69712ea36c55bdec4b263da2be7f09d6ee81671b1d3e9ae`.
+All three gates exit zero. All **13** protected write handles deny access;
+required dependency reads succeed. The native child is in FarmBot's Job,
+the child dies, both outer/nested Jobs empty and RPC readers settle.
+
+The config run at **2026-10-05 16:32:01 UTC**,
+`native-unelevated-config-d7a909e40c`, passes in **142.698 seconds** with
+the same FarmBot/backend candidate, tools and cache, and read-only Common
+`b367febe20d6db65ebb386aa871bdb2671df9525`. Native `config/pb/gen.py`
+takes **31.061 seconds**; the manifest and reproduction gates pass in
+**0.458/36.302 seconds**. All **368** config artifacts match the committed
+fixture before/after generation and gates, aggregate SHA-256
+`c08d3a34049e0c4d56b54401ea1cac7620ac66610517f8888b95ca3be4d6a63d`.
+Common committed Git objects satisfy designer version `2026-09-29.a3f8951`
+and digest `0c804d08c1e5c76a7b321b55ad2a2e850fced72f78c37d207188f45c3ab5aad1`;
+published archive access is not tested. All **15** protected write handles
+deny, required dependency reads succeed, the child dies and both Jobs empty.
+
+Across the two restricted runs, selected backend/Common/Contract sources and captured
+metadata, the entire staged module cache, selected original-cache/tool inputs
+and the runtime registration receipt remain unchanged. Only owned build/output/home/TEMP/state
+are writable. Shorter owned ordinary TEMP paths address the measured nested
+protoc path limit; no ACL, system long-path setting or grant change occurs.
+All raw logs and per-file maps remain private. No model/auth/Feishu call,
+production config/ledger read, runtime provisioning, service restart or
+deployment occurs. These results establish native generator compatibility
+in this measured development launch route; actual model-worker integration,
+ordinary-token symlink capability, scoped live
+reads, published-source/release approval and production readiness remain
+pending. Hosted CI counts and infrastructure reruns are audited separately.
+
+Independent helper/normal-baseline audit SHA-256 is
+`ee598f2b074f20f46e52544640321a512c873f34a8f3ad280aabd2d014f01e5c`;
+combined restricted audit is
+`8b83a9e60c0f0545c56ef80c8561aa24c64dfd85ba647792119256a8026c07d0`;
+config restricted audit is
+`1dc53a8bee357d3c3b3cdfa1035c7221ef544af2de8ac4bf3cd64d74ced3f37a`.
+All bound logs are strict UTF-8, with exact lengths/hashes and independent
+per-file input/output checks. Raw host evidence remains private.
+
+### FarmBot explicit Windows backend: completed offline CI (2026-10-05)
+
+FarmBot [#128](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/128)
+merges as `43d702c7023094e27f40e1303e903a7c7912509f`, whose full tree
+`110c46450b00375f124d51bb39b0be4543dffbf4` equals tested code candidate
+`de0e94d78e23704ab40e3ce37c65e31651090252`. Both completed CI runs are checked
+independently. The [manual dispatch](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37334586260)
+checks out that exact candidate SHA. The
+[pull-request run](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37334921151)
+checks out GitHub's synthetic merge `debc40101d437fd04ff08b458541b80554b4340e`;
+its parents are base `3ee1c8285ad57af698c17a633d382d5543227726` and candidate
+`de0e94d`, and its full tree is independently verified equal through GitHub's
+Git-commit API. The PR artifact's tested revision is the synthetic merge, not
+the head SHA, although its complete source/test tree is identical.
+
+| Run | Platform | Tests | Passed | Failures/errors | Skips | Unittest seconds | Subprocess seconds |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 37334586260 | Windows | 1,749 | 1,680 | 0 / 0 | 69 | 2793.526 | 2803.173 |
+| 37334586260 | macOS | 1,749 | 1,730 | 0 / 0 | 19 | 485.858 | 486.704 |
+| 37334921151 | Windows | 1,749 | 1,680 | 0 / 0 | 69 | 1513.192 | 1515.430 |
+| 37334921151 | macOS | 1,749 | 1,730 | 0 / 0 | 19 | 576.877 | 577.696 |
+
+All **1,749** unique log IDs and timing IDs on each platform/run match the local
+candidate's discovered set, with ordered, nonnegative timings. All **13 feature
+journeys** actually run and pass in all four jobs. All **seven native Windows
+Job Object tests** actually run and pass in both Windows jobs; their macOS skips
+remain platform skips. The suite and artifact-upload steps complete successfully.
+Hosted Windows passes its real symlink preflight and exercises the six ordinary
+host fixture errors and five capability-skipped IDs; that does not confer
+symlink privilege on the production host's current token.
+
+Both Windows jobs use Python **3.13.15**, Git **2.55.0.windows.5** and Git LFS
+**3.7.1** on Windows Server 2025. Both macOS jobs use Python **3.13.15**, Git
+**2.55.0** and Git LFS **3.8.0** on macOS 26.6.2 arm64. These hosted environments
+are separate from the production Windows PC's selected Python **3.13.16**.
+
+**Every platform skip:** both Windows CI jobs have exactly the **69** unchanged
+IDs and observed reasons from the preceding local **74-entry** table, minus
+these five capability skips, which actually run and pass on hosted Windows:
+
+- `test_cleanup.PreservationTests.test_symlinked_worktree_is_never_followed`
+- `test_uploads.ArchiveTests.test_a_link_on_the_way_to_a_member_is_never_descended`
+- `test_uploads.DownloadTests.test_an_edited_manifest_cannot_lead_a_write_through_a_link_inside_the_directory`
+- `test_uploads.OutputDirectoryTests.test_a_symlinked_out_is_refused`
+- `test_worktrees.ReadCheckoutTests.test_anything_else_at_the_path_is_replaced_and_unsafe_requests_are_refused`
+
+All **19** macOS skip IDs and sanitized observed reasons are identical between
+these two runs and are listed here:
+
+| Skipped test | Existing observed reason |
+| --- | --- |
+| `test_cleanup_recovery.CleanupRecoveryTests.test_new_attempt_with_reused_pid_is_not_covered_by_old_boot` | Windows boot proof |
+| `test_cleanup_recovery.CleanupRecoveryTests.test_reused_pid_after_reboot_is_not_an_old_worker` | Windows boot proof |
+| `test_cleanup_recovery.CleanupRecoveryTests.test_scheduler_preserves_then_cleans_without_killing_reused_pid` | Windows boot proof |
+| `test_config.LarkCliConfigTests.test_a_home_is_refused_on_windows` | lark-cli keeps secrets per Windows user, whatever HOME says |
+| `test_doctor.FeatureToolchainTests.test_windows_uses_its_running_python_and_never_probes_posix_tools` | native Windows interpreter selection |
+| `test_launcher.WorkerFileReadTests.test_an_oversized_launch_record_is_refused_by_the_windows_containment_check` | the Windows containment path reads every attempt's launch record |
+| `test_uploads.OutputDirectoryTests.test_a_junction_is_refused_as_out` | junctions exist on Windows only |
+| `test_uploads.WindowsNameTests.test_colon_names_create_no_stream` | Windows file-name semantics are checked on Windows |
+| `test_uploads.WindowsNameTests.test_reserved_device_names_are_never_opened` | Windows file-name semantics are checked on Windows |
+| `test_uploads.WindowsNameTests.test_trailing_dots_and_spaces_do_not_alias` | Windows file-name semantics are checked on Windows |
+| `test_windows_workers.WindowsWorkerTests.test_assignment_failure_never_runs_requested_command` | Windows Job Objects |
+| `test_windows_workers.WindowsWorkerTests.test_later_contained_attempt_cannot_certify_legacy_attempt_with_same_pid` | Windows Job Objects |
+| `test_windows_workers.WindowsWorkerTests.test_normal_exit_is_proven_quiescent` | Windows Job Objects |
+| `test_windows_workers.WindowsWorkerTests.test_receiver_crash_terminates_its_worker_job` | Windows Job Objects |
+| `test_windows_workers.WindowsWorkerTests.test_simultaneous_stop_and_poll_finalize_job_once` | Windows Job Objects |
+| `test_windows_workers.WindowsWorkerTests.test_spontaneous_exit_reaps_child_and_preserves_unrelated_process` | Windows Job Objects |
+| `test_windows_workers.WindowsWorkerTests.test_stop_is_proven_quiescent` | Windows Job Objects |
+| `test_worktrees.ControllerGitTests.test_cleanup_refuses_a_junction_in_the_item_directory` | junctions are Windows' |
+| `test_worktrees.ReadCheckoutTests.test_a_junction_is_refused_as_a_symlink_is` | junctions are Windows' |
+
+**Artifact and log integrity:** all four downloaded ZIPs match GitHub's artifact
+digests. Every summary, timing map and raw unittest log is valid UTF-8; private
+raw host paths remain local. Exact ZIP and raw-log SHA-256 values are:
+
+| Run | Platform | ZIP SHA-256 | Raw unittest log SHA-256 |
+| --- | --- | --- | --- |
+| 37334586260 | Windows | `5c13caef135d18abc1d352d25b31973c4431c50bf9c140020d90ba8f4ed646cd` | `aa984245b45c2087e1f013cf3e104edb3d627e7e9b9b426d7326ff092df8d6d7` |
+| 37334586260 | macOS | `00a29bb20c1c1a923e5f468ed8beaa5e0bf855ab555bc2ea79ab916b91e5a5f2` | `6cc3ce85edf65dc3070064cfbca7640e85ec055549fe832f616e293bacba5cec` |
+| 37334921151 | Windows | `83f3d0cc82192848582f020d99b678d4fdd5db37b41d8b9a9a59760d6bbccfb2` | `cc3b70c3d0da9e2cccce469855173736158b0fd53d45a9e6f04a175e0b4be4b4` |
+| 37334921151 | macOS | `bb4f93d40d05c901e232ae1aed12ae760fffce0bbd4a8ac6e3ee4112350dbf92` | `fe835bbe2550e77777381d497562adc7f901d77171f6486a37f94bc78534e8c1` |
+
+The independent private audit SHA-256 values are:
+
+- Run **37334586260**: `9f095aa76211468cd920048838ced72695387883ffd873a5776b6a8778f2e5f5`.
+- Run **37334921151**: `e65cc312e0cddd3aec4a9b3f2f62c51474e275ce4afb79fff567462d70e33728`.
+
+The long dispatch's Windows suite completes in **2,793.526 seconds**, rather
+than hanging or failing. The same source tree's PR job takes **1,513.192
+seconds**. Per-test comparisons show the additional time is distributed,
+including **374.349 seconds** in receiver tests, **269.010** in scheduler tests,
+**179.208** in slots and **133.153** in service tests; the largest single-test
+increase is **25.757 seconds**. These are measured fixture timings. Runner
+telemetry is unavailable, so a CPU, disk or other host-resource cause is not
+asserted. No job is cancelled or rerun, no timeout is increased and no check is
+weakened. Both original runs and all per-test evidence are retained.
+
+This completes offline CI evidence for the merged host-selection implementation;
+it does not change production configuration, certify the ordinary-token symlink
+capability, establish authenticated model/Feishu/Unity acceptance or authorize
+service restart, feature enablement or deployment.
+
+For backend PR #363 code commit `8016c76d20fd2a4b29fce57ceafeb3480e54d6c4`, all
+15 native jobs passed on Windows, macOS and Ubuntu. The preserved strict UTF-8
+logs report **136 tests per OS, 408 executions total, with zero failures,
+errors or skips**. The final `79ded860404022272f7743438a753c81a7a43ff5` follow-up
+changes README only; these measurements belong to the earlier `8016` checks.
+The final `79ded` native checks have also completed successfully, with the
+same 136 tests per OS and zero failures, errors or skips.
+
+Each timing cell below is `unittest seconds / job wall seconds`; sums of suite
+seconds do not represent elapsed wall time across parallel jobs.
+
+| Native workflow | Tests per OS | Windows | macOS | Ubuntu |
+| --- | ---: | ---: | ---: | ---: |
+| [Contract provenance](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37339112419) | 20 | 33.735 / 134 | 9.517 / 40 | 5.908 / 30 |
+| [Designer provenance](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37339112503) | 17 | 14.106 / 152 | 4.706 / 39 | 3.581 / 34 |
+| [Protocol registry](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37339112510) | 13 | 114.346 / 205 | 21.398 / 61 | 34.482 / 82 |
+| [Local/snapshot/full-sync and workspace helper](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37339112773) | 63 | 374.842 / 483 | 55.261 / 94 | 50.291 / 91 |
+| [Config and local adapter](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37339112828) | 23 | 79.892 / 297 | 24.954 / 100 | 16.163 / 100 |
+
+The local message job runs 14 workspace helper, 15 local message, 17 snapshot
+gate and 17 full-sync tests. Windows suite durations are 0.085, 50.945,
+157.007 and 166.805 seconds respectively. Config runs 17 generator and six
+local adapter tests; Windows durations are 58.128 and 21.764 seconds.
+Hosted tests use the hosted runner token; the separate measured restricted
+Windows generator results establish the worker sandbox boundary.
+
+The first general CI build attempt on `8016` failed in
+`modules/monthlypass.TestMongoSnapshotGetRejectsDocumentWithoutLevels`: the
+required Mongo connection reported server-selection timeout with topology
+Unknown. That test and workflow are unchanged by the candidate. Vet, build,
+Windows devctl typechecking and Mongo setup had passed; downstream provenance
+gates were skipped after the race step failed. This was not a contract
+provenance rejection or a demonstrated temp-helper regression. No gates or
+skips changed for the retry. Preserve both outcomes in the record.
+
+Private original failed-step log SHA-256:
+`50d6509b9f6536b3bef3dbddb3592ee74d8bf83fc278dfb5f1f3c548be72d20d`.
+Private 15-job native count/UTF-8/hash audit SHA-256:
+`43c89ddefc75ccc1b88aad0a5bf733e182014f04dc809c662731d5031d17288f`.
+
+The unchanged [general CI retry](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37339112782/attempts/2)
+passed: build job `111866338811` reports 584 seconds of job wall time and 165
+seconds for the race step. The subsequent config manifest/reproduction,
+message snapshot/reproduction, Contract synchronization and registry gates
+also passed. This validates that selected CI checkout; it does not approve
+unmerged test drafts or certify production-host readiness.
+
+Private complete retry-log SHA-256:
+`daabb14bdfdae5471a8f008a146ed6cfabb6f0060b99bb372aa6b8fd777559e8`.
+Private retry race-step excerpt SHA-256:
+`ef3400b64a4ecd421679dfe66a014997b3dc3965661eae94562768d031149e26`.
+Private original-failure/retry audit SHA-256:
+`837fccc04c4076033ad11616c97dd39b959a2468a6ae58c7716d033cd46547a5`.
+
+Final README head `79ded` native measurements (`unittest seconds / job wall
+seconds`) are:
+
+| Native workflow | Tests per OS | Windows | macOS | Ubuntu |
+| --- | ---: | ---: | ---: | ---: |
+| [Contract provenance](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37342094086) | 20 | 31.434 / 107 | 11.203 / 42 | 4.110 / 29 |
+| [Designer provenance](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37342093989) | 17 | 9.823 / 92 | 3.130 / 35 | 2.257 / 28 |
+| [Protocol registry](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37342093880) | 13 | 124.642 / 241 | 21.437 / 61 | 33.796 / 81 |
+| [Local/snapshot/full-sync and workspace helper](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37342093883) | 63 | 315.310 / 436 | 64.160 / 108 | 47.944 / 92 |
+| [Config and local adapter](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37342093970) | 23 | 78.534 / 293 | 21.899 / 96 | 16.446 / 97 |
+
+Final Windows workspace-helper/local/snapshot/full-sync durations are 0.117,
+62.136, 112.831 and 140.226 seconds. Config-generator/local-adapter durations
+are 56.721 and 21.813 seconds. All 15 final native logs are strict UTF-8 with
+their byte lengths and SHA-256 preserved in the private audit.
+Final native audit SHA-256:
+`283b5a83ef175e6cbd9fccc6670fd7d4dd71de54582924afb8f99c34424f7391`.
+
+**Offline native Scheduler/Lifecycle boundaries (2026-10-05 UTC):** the
+development checkout is clean at FarmBot
+`43d702c7023094e27f40e1303e903a7c7912509f`, tree
+`110c46450b00375f124d51bb39b0be4543dffbf4`. Python **3.13.16** and the
+existing pinned Codex **0.160.0** image (SHA-256
+`37762753b554982eef1c109303d1be652b6397f1479e844794353a85650199c6`)
+exercise actual `Scheduler`, `Lifecycle`, explicit-unelevated `Launcher`
+and `Worktrees` through the private app-server `command/exec` route. The
+four fresh Code jobs use file `StubLinear`, local Git origins, private
+ledgers and exclusive ordinary scratch directories. A native dummy child
+claims and checkpoints through `Ledger` directly; worker CLI authentication
+and a model turn are not exercised.
+
+The retained first attempt, `native-unelevated-scheduler-0f8453b5a888` at
+**17:00:15 UTC**, fails in **35.264 seconds** before native readiness. The
+replacement runtime did not consume the Scheduler's complete stdin prompt:
+`Launcher.spawn` blocked delivering it, while the child waited for the
+controller's preflight marker. The child's unchanged **30-second** deadline
+expired with `controller_preflight_timeout`; runtime exit then produced
+`BrokenPipeError: prompt not fully delivered`, allowing the controller to
+write its marker too late. Claim/checkpoint/protected-write code was not
+reached. Both owned Jobs settled and the separate control was cleaned up;
+sources, dummy origins, CLI bytes and registration receipt remained unchanged.
+The failed verifier SHA-256 is
+`600eb2df8f22d016946e5a5c55cbaa44d1d0ea8d60a5164647ef03c9e8a64e02`;
+its private summary SHA-256 is
+`097384c5653f18c73efc59d8e6e6892f6d59ac536d974d2d1afcc4a62eada3cb`.
+
+The private harness was corrected to drain the bounded
+dummy prompt through EOF before app-server startup. The controller privately
+saves the actual dispatch using the same UTF-8/Windows newline translation
+as Launcher's stdin writer, and checks the complete received byte count and
+SHA-256. Prompt contents remain private. All four prompts are **13,098–13,125
+bytes**; no new attempt has a stdin delivery error. No application code,
+write root, ownership check, claim rule, containment policy or timeout is
+changed. The corrected frozen verifier SHA-256 is
+`d5aba40e5e34f1e5cb71afab2f65104d53c0156a781c13bb38d95f4ce994c1b4`.
+
+At **17:14:24 UTC**, `native-unelevated-scheduler-8ffcee36b630` passes all
+four cases in **17.131 seconds**:
+
+| Case | Case wall time | Trigger to settlement | Measured terminal result |
+| --- | ---: | ---: | --- |
+| Scheduler Stop | 4.856 s | 1.170 s | cancelled; Launcher killed/stopped |
+| Confirmed undelegation | 3.673 s | 1.098 s | cancelled; Launcher killed/stopped |
+| Native command failure | 3.719 s | 1.204 s | failed; native command exit 7, wrapper exit 1, Launcher exited |
+| Budget expiry | 3.620 s | 1.095 s | failed; Launcher killed/budget |
+
+Each case verifies exact Scheduler write grants and **10** protected write
+denials, native child/descendant membership in both actual Launcher and
+nested app-server Jobs, an active claim/checkpoint and rejected late-token
+renewal after terminal transition. Stop and undelegation sample claim
+revocation before Launcher's signalling. Two separated `Lifecycle.refresh`
+reads confirm fixture undelegation and first flag the running claim; a
+private clock advances through the withdrawal grace within its active
+lease before Scheduler cancellation. The budget case advances only
+Launcher's clock, leaving the ledger lease valid; neither grace nor the
+attempt budget was waited in real time.
+
+Actual WIP preservation, `remove_preserved` and read-checkout removal run
+only after both Jobs are empty and all observed members are dead. Every
+case verifies its recovery reference and exact saved WIP bytes, one file
+stub terminal notice, and a disjoint owned control surviving worker
+retirement before its own cleanup. No force cleanup or trust-check bypass
+is used. All four final Job/control checks pass, all tracked source/dummy
+origin/CLI bytes and the registration receipt remain unchanged, and no
+auth file is seeded. The **30** bound logs (**54,644 bytes**), including RPC
+JSONL and descendant output, pass strict UTF-8 and recorded hash checks.
+The successful private summary SHA-256 is
+`d96cff1f02fb15f0e6384dde252f50097e0fe621bcfdc310ed77ade50ad9d57a`.
+Independent success audit SHA-256 is
+`715bf3f10480e2d31b4eb2515fa5333dda22c15091448b69ed4c39b1c43ee140`;
+the retained first-failure audit is
+`f5683692c754d2a7e7e6a2a5f356301c17dfc454208a609dc146e1d77a215634`.
+
+These are development-fixture measurements with synthetic private clocks,
+direct Ledger claims and dummy native commands. They complete the selected
+offline Scheduler Stop, confirmed-undelegation, native nonzero and budget
+boundary checks; they do not certify authenticated model-worker startup,
+worker CLI authentication, the signed webhook/service profile path,
+unclaimed startup timeout, real Linear/Feishu reads or notices, published
+release provenance, desktop Unity or production readiness. No model/auth
+request, production config/ledger read, service start, runtime provisioning,
+account/ACL/host-setting change, Bash/WSL invocation, enablement or deployment
+occurs. Remaining actual worker/live acceptance requires separately scoped
+authorization; parked jobs and unmerged test drafts remain untouched.
+
+Remaining release prerequisites:
+
+1. Verify approved producer/publication/release provenance beyond the passing
+   local generator/registry/config and gate comparisons. Common
+   producer acceptance/publication remains its supported Linux/Jenkins workflow;
+   unmerged test drafts are not approved release provenance.
+2. Exercise the selected backend in a real authenticated model worker, keeping
+   fresh isolated homes, exact grants, ownership checks and Job containment.
+   Offline native Scheduler Stop/confirmed undelegation/failure/budget cases
+   pass below the model boundary; real worker CLI/service authentication,
+   unclaimed startup deadlines, live response delivery and model recovery
+   still require their own scoped acceptance.
+3. Verify the operator-selected current-account FarmBot-only DPAPI profile in
+   the real worker: strict bot mode, scoped Feishu planning-document/attachment
+   reads and Word conversion. Offline/helper/profile diagnostics do not certify
+   Feishu access. No account or credential configuration is performed here.
+4. Resolve ordinary-token symlink capability and complete its ownership/alias
+   checks; perform Windows desktop Unity acceptance. Do not substitute elevated
+   fixtures, junction checks or hosted CI for this token and desktop.
+5. Complete the operator's private output/log/comment/PR scan and scoped TestBot
+   restoration, preserving ledger/history/recovery evidence. FARM-1346 and
+   FARM-1425 remain parked; Farm-Contract #318 and farm-hive #353 remain unmerged
+   test drafts and untouched by these checks.
+6. Review the completed acceptance evidence and separately authorize production
+   feature enablement/deployment. No restart, enablement or deployment occurs.
+   Task 17 remains incomplete; Phase B's Code worker ends after the server, and
+   client/UI phases remain subsequent work.
+
+**Merged source:** FarmBot [#128](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/128)
+merged as `43d702c7023094e27f40e1303e903a7c7912509f`, tree
+`110c46450b00375f124d51bb39b0be4543dffbf4`, identical to the tested code
+candidate and synthetic PR merge tree. Backend
+[#363](https://github.com/Kuaiwa-Network/farm-hive/pull/363) merged as
+`6eff95c278ccdee1e9caeed862969bd0140198f8`, tree
+`3fcb7e937b10a670413fd82ba22b70a56cf0b145`, identical to its final checked
+`79ded860404022272f7743438a753c81a7a43ff5` head. Its preceding `8016c76d`
+contains the measured executable/test/workflow bytes; the sole follow-up change
+is README's POSIX cleanup limitation and native path-length guidance. No
+protocol snapshot, contract provenance pin, credential or production state is
+changed by either merge. The operator's symlink-setting decision remains
+separate from these development merges and offline evidence.
+
+**Record validation:** the documented discovery command
+`python -B -m unittest discover -s tests -p test_skills.py -v`, with the selected
+Python 3.13.16 executable and sanitized environment, passes **73 tests** with
+zero failures/errors/skips in **0.349 seconds** (**0.465** including startup).
+Private UTF-8 log SHA-256 is
+`d8f876d2632728610dc53a5603ee9231821589bf6da8bece8be0160440dfd03d`.
+The initial module-style command discovered 73 tests but produced two
+`ModuleNotFoundError` import errors in
+`test_every_plan_example_is_a_plan_the_ledger_saves` and
+`test_documented_checkpoint_is_accepted_and_available_to_the_next_worker`;
+its original log remains private. Discovery adds the test directory as the
+existing cross-test imports require. No application/test source changes or
+new skips resolve this invocation error. The record changes only documentation.
