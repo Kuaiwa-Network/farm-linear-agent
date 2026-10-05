@@ -678,6 +678,23 @@ assertion and existing skip_specs warning inventory. Gates 3 and 12, native
 backend paths and actual worker/live release prerequisites remain pending.
 No production, credential or parked-job action occurs.
 
+**2026-10-05 OpenSpec-validation candidate review:** Farm-Contract #325 at
+`4e04e21` ports gate 12 with shared native Python/Node and POSIX wrapper entry
+points. Parent ordinary-token Windows checks pass 49 tests without skips, all
+19 actual junction fixtures, ten extra real-parser cases and the real 50-change
+gate with explicit/PATH runtime selection; all 606 exported files stay unchanged.
+The pinned upstream parser, both coverage selftests, lower-bound coverage and
+literal skip_specs warning inventory remain. Fixture/recording corrections
+include macOS temporary-path identity, without changing gate guards or adding
+skips. All 22 final-head CI jobs pass; Windows runs 49 native tests and each
+POSIX host runs 58 native plus 58 wrapper tests with the actual pinned package.
+The
+[OpenSpec validation record](../spikes/2026-10-03-native-windows-offline.md#native-windows-contract-openspec-validation-review-2026-10-05-candidate)
+retains timings, hashes, versions and exclusions. Code merge and merged-source
+acceptance remain required; gate 3 is next. Backend native paths and actual
+worker/live release prerequisites remain pending. No production, credential or
+parked-job action occurs.
+
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
 it merged as [#78](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/78)
