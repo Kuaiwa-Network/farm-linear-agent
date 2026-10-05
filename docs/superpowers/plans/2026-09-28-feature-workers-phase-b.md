@@ -613,6 +613,23 @@ provenance direction and built-in selftest. Gates 3, 9, 10 and 12, native
 backend paths and actual worker/live release prerequisites remain pending.
 No production, credential or parked-job action occurs.
 
+**2026-10-05 provenance-gate candidate review:** Farm-Contract #323 at
+`272e06b` ports gate 9 with a shared native Python implementation and POSIX
+wrapper. Independent ordinary-token Windows verification of the committed
+export passes all 39 tests without skips and all ten actual junction fixtures,
+accepts 34 main specs and preserves all 602 exported files. A separate parent
+probe passes 27 fixtures with unchanged bytes. All four guard directions, five
+startup selftests and inherited TSV boundaries remain; no protocols, specs or
+provenance rows change. All 16 candidate CI jobs pass; provenance matrices run
+39 Windows tests and 47 native plus 47 wrapper tests on each Linux/macOS host,
+including actual Bash comparisons. The
+[provenance record](../spikes/2026-10-03-native-windows-offline.md#native-windows-contract-provenance-gate-review-2026-10-05-candidate)
+retains timings, hashes and platform exclusions. Gate 9 requires an
+operator-approved merge and exact-merged-source acceptance; gate 10 is next.
+Gates 3, 10 and 12, native backend paths and actual worker/live release
+prerequisites remain pending. No production, credential or parked-job action
+occurs.
+
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
 it merged as [#78](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/78)
