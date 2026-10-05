@@ -725,6 +725,20 @@ worker/live checks and final release prerequisites remain pending; UI authoring
 follows the required client-stage acceptance. No production or parked-job action
 occurs.
 
+**2026-10-05 merged breaking-waiver acceptance:** The operator merges
+Farm-Contract #326 as `71dadae`; its full Git tree equals reviewed `c5529a8`.
+Independent ordinary-token Windows tests of the exact merged export pass all
+55 tests without skips, all 17 junction fixtures, the real 60-proto zero-waiver
+check and native PATH discovery, preserving all 608 exported files. All 25
+merged push CI jobs succeed; PR-only comparisons retain the reviewed PR evidence.
+The [merged breaking-waiver record](../spikes/2026-10-03-native-windows-offline.md#native-windows-merged-contract-breaking-waiver-acceptance-2026-10-05)
+retains versions, timings, hashes, startup TEMP limitation and every platform
+exclusion. All Contract wrapper ports now have native merged entry-point
+evidence. Backend generator/gate inspection starts from main `e24b6cb` in a
+fresh development checkout. Backend tooling, actual worker/live acceptance and
+release prerequisites remain pending; UI authoring follows client-stage
+acceptance. No production or parked-job action occurs.
+
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
 it merged as [#78](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/78)
