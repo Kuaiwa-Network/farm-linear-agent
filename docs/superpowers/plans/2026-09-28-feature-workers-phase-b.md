@@ -739,6 +739,19 @@ fresh development checkout. Backend tooling, actual worker/live acceptance and
 release prerequisites remain pending; UI authoring follows client-stage
 acceptance. No production or parked-job action occurs.
 
+**2026-10-05 backend native local-message candidate:** Independent Windows
+checks of farm-hive main `e24b6cb` reproduce all 59 registry and 58 message files.
+Code candidate #354 at `1f892e8` passes 15 exact-source native Windows tests,
+preserving all 4,662 files, and all three native CI platforms reproduce that
+same source. Existing backend CI also passes both jobs on the equal-tree PR
+merge; all five applicable jobs succeed. The [backend candidate record](../spikes/2026-10-03-native-windows-offline.md#native-windows-backend-local-message-candidate-2026-10-05)
+retains initial failures, the official-protoc UTF-8 argument-file correction,
+versions, durations, hashes and platform distinctions. Code merge and exact
+merged-source acceptance remain required. Full synchronization/provenance,
+backend gates/designer tooling, producer/publication, actual worker/live checks
+and release prerequisites remain pending. No production or parked-job action
+occurs; client-stage acceptance still precedes UI authoring.
+
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
 it merged as [#78](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/78)
