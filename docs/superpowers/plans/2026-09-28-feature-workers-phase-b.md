@@ -752,6 +752,23 @@ backend gates/designer tooling, producer/publication, actual worker/live checks
 and release prerequisites remain pending. No production or parked-job action
 occurs; client-stage acceptance still precedes UI authoring.
 
+**2026-10-05 backend native offline-message gate:** Farm-hive #354 is merged
+as `1702356`; its exact merged source passes 15 Windows tests and all five
+merge-head CI jobs, preserving all 4,662 canonical files. Candidate #355 at
+`29fbc98` adds native snapshot hashes/coverage and generated-output HEAD/index
+verification. Exact candidate acceptance passes 15 generator and 17 gate tests
+without failures/errors/skips, plus the real full gate, preserving all 4,664
+source files and 58 outputs. All three native CI platforms pass both suites and
+full source preservation. Existing backend CI passes both equal-tree PR-merge
+jobs; all five applicable jobs succeed. Code merge and exact merged gate
+acceptance remain required. The
+[backend offline-gate record](../spikes/2026-10-03-native-windows-offline.md#native-windows-backend-offline-message-gate-2026-10-05)
+retains revisions, natural TDD red, durations, hashes, measured skips and
+remaining boundaries. Native upstream provenance/full synchronization and
+registry gate acceptance remain next; designer/config generation, complete
+producer/publication, actual worker tool/cache selection, real Feishu/Word
+reads, Unity acceptance and separately authorized release remain pending.
+
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
 it merged as [#78](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/78)
