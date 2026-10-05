@@ -127,8 +127,10 @@ state from Git history and the saved Claude session. Phase A's shared plumbing a
 ## As executed (2026-10-03, Task 17; partial)
 
 **2026-10-04 direction:** use native Windows tools and keep Bash for Mac/Linux
-testing. Fix and feature use the same elevated Windows launcher; experimental
-MXC/MSYS failures below do not establish a failure of that configured path.
+testing. In merged development code, fix and feature use the same elevated
+Windows launcher; experimental MXC/MSYS failures below do not establish a
+failure of that configured path. The 2026-10-05 inspection below distinguishes
+this code from the older revision loaded by the running Windows controller.
 Common's existing `gen-config.cmd` exposed a native plugin-name bug, fixed in
 [common PR #148](https://github.com/Kuaiwa-Network/common/pull/148), now merged
 as `e743062`.
@@ -1140,6 +1142,64 @@ Final edits to the two records only do not change executable/test/worker sources
 The [Windows record](../spikes/2026-10-03-native-windows-offline.md) retains versions,
 durations, hashes and every platform skip. This does not certify the real isolated
 worker, production readiness or complete Task 17's remaining live/desktop checks.
+
+**2026-10-05 independent native MXC boundaries:** the operator's ordinary
+PowerShell run outside Codex tests merged FarmBot
+`d0f16c50303c55da312af459cbda57ce2bfd8a6d` with Python 3.13.16 and the pinned
+native Codex 0.160.0 image. Both completion/cancellation attempts pass all five
+allowed and five forbidden scratch write checks, dummy-credential environment
+isolation and Job Object containment/settlement in **2.841 seconds** total.
+Each observes six contained processes; the native child and its descendant
+exit, each Job empties, and the unrelated control survives. Protected
+registration/sentinels stay unchanged. The previous **2.845-second** Codex-context
+control retained containment but denied intended writes; the independent pass
+is scoped to its launch context. No Bash/MSYS/WSL, model/auth/Feishu call,
+production config/ledger read, account/settings/service change or deployment
+occurs. FarmBot still generates `elevated`; the harness injects an offline
+permission profile and selects MXC only by CLI override. This production PC's
+separate development checkout/scratch results do not certify production-worker
+readiness. Supported launcher integration, real Git worktree protections,
+generator/cache/process compatibility and remaining live/desktop/release checks
+are pending; registered elevated admission remains unresolved for that backend.
+MXC is an optional evaluation, not a release prerequisite. The
+[independent boundary record](../spikes/2026-10-03-native-windows-offline.md#independent-native-mxc-boundary-check-2026-10-05-partial)
+retains checked time, image/log hashes, the non-fatal executable-location
+diagnostic and current release prerequisites.
+
+**2026-10-05 existing fixer launch comparison:** read-only process/heartbeat
+inspection identifies the running Windows controller's clean startup revision
+`9f7db3e9a835ea61dfcdba3cbde2399989a62efe`, preceding #81's forced elevated
+setting. No owned Codex worker was active; newer installation files do not
+establish the loaded launcher. Reconstructed credential-free homes on pinned
+Codex 0.156.1 and 0.160.0 keep `workspace-write` but disable native Windows
+enforcement when its setting is omitted: all five forbidden scratch writes
+succeed on both images. Explicit native `unelevated` passes all five intended
+and five forbidden checks on both, with contained child/descendant cleanup, in
+**5.392 seconds** total. The initial unsupported RPC output cap was removed
+without changing grants. This measures standalone commands with no model,
+auth, Feishu, account setup, production config/ledger read, service restart or
+deployment; it does not certify the live fixer or actual model-worker launch.
+FarmBot still selects elevated. MXC is optional. Real controller Git worktrees
+also pass on both CLI versions in **9.702 seconds**: edit/stage/commit succeeds,
+all 13 protected write handles per CLI deny with `errno=13`, and owned descendants
+settle. Native common CMD generation/verification passes both `farm-hive` and
+combined `farm-hive`/`unity-client` profiles on 0.160.0 in **40.187 seconds**,
+with sources/metadata/cache inputs unchanged and both owned Jobs empty.
+Controller-only byte staging resolves a prepared-cache access gap without ACL
+changes or broader grants. Contract buf build/lint/manifest checks pass, but
+backend synchronization stops with WinError 5 on an owned Python temporary
+directory; protobuf/registry acceptance remains pending. Owned-Job cancellation
+and separate control survival pass on both versions; symlink creation fails
+with WinError 1314, with no new skips or privilege/settings changes.
+Actual model-worker integration remains pending before any application change.
+The focused **5.333-second** Python comparison finds private mode `0o700` directories
+are created but cannot be used or deleted by either restricted worker; inherited
+directory permissions work while outside writes stay denied. A reviewed Windows
+temporary-workspace helper with ownership/reparse regression coverage is the
+next code task, before rerunning backend generators and selecting a launcher
+backend. The [comparison record](../spikes/2026-10-03-native-windows-offline.md#existing-fixer-windows-launch-comparison-2026-10-05-partial)
+retains configuration findings, exact versions/times/hashes, verifier errors
+and the weaker read/network isolation of the native unelevated option.
 
 ## Scope
 
