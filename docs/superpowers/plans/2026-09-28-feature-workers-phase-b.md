@@ -743,7 +743,8 @@ acceptance. No production or parked-job action occurs.
 checks of farm-hive main `e24b6cb` reproduce all 59 registry and 58 message files.
 Code candidate #354 at `1f892e8` passes 15 exact-source native Windows tests,
 preserving all 4,662 files, and all three native CI platforms reproduce that
-same source. The [backend candidate record](../spikes/2026-10-03-native-windows-offline.md#native-windows-backend-local-message-candidate-2026-10-05)
+same source. Existing backend CI also passes both jobs on the equal-tree PR
+merge; all five applicable jobs succeed. The [backend candidate record](../spikes/2026-10-03-native-windows-offline.md#native-windows-backend-local-message-candidate-2026-10-05)
 retains initial failures, the official-protoc UTF-8 argument-file correction,
 versions, durations, hashes and platform distinctions. Code merge and exact
 merged-source acceptance remain required. Full synchronization/provenance,

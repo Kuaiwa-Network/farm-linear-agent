@@ -4544,8 +4544,31 @@ reports ANSI code page **1252** and Git **2.55.0.windows.5**; Linux/macOS Git is
 **2.55.0**. No native job
 or step is skipped. The workflow exercises this Python/process boundary without
 repeating Go package unit tests; PRs are scoped to its surface, while mainline
-pushes run fully. Existing backend CI remains required independently; its
-measured status is recorded with the final review before code merge.
+pushes run fully. [Existing backend CI run 37264673845](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37264673845)
+also succeeds in both `build` and `windows-devctl`, including the race suite,
+snapshot/reproducibility, contract provenance, registry and remaining gates.
+Its synthetic PR merge `669682cb8ab5caf98db4d76093fe3f5faa573b2e` has parents
+`e24b6cb` / `1f892e8` and the same full tree as the candidate. Both exact checkout
+logs are verified; none of their workflow steps is skipped. Thus all **five
+applicable CI jobs** pass. The existing Go build log retains **11 conditional
+skip events** (distinct from the new native suite's zero skips):
+
+- `TestRunInZoneFailurePropagationProbe`
+- `TestCorruptZSetScoreNeverSpreads/坏分数=nan`
+- `TestAdaptFuncItemsHandlesClearCoin`
+- `TestGuildClusterDefaultsToSingleProcessAfterBoot`
+- `TestGuildHostWiring`
+- `TestFriendClusterChild`
+- `TestMachineTZCalendarProbeChild`
+- `TestMachineTZProbeChild`
+- `TestPayWakeClusterChild`
+- `TestE2ERealGrantOnlyDishExists`
+- `TestRealRankConfigE2ELifecycleChild`
+
+These unchanged Go skips are recorded without claiming their skipped cases
+passed. Existing CI's own private dependency/provenance fetch remains its
+separate established workflow; the local and new native checks use no such
+credentials or private downloads.
 
 Private UTF-8 logs, before/after file hashes and summaries are retained in
 `native-backend-registry-e94bc4d4`, `native-backend-message-primitives-b2172e10` and `native-local-msg-candidate-99df9ded`;
@@ -4572,9 +4595,9 @@ registry/intra-cluster gates, designer/config generation and gates, complete
 producer/publication, actual worker grants/runtime/credentials/real Feishu,
 ordinary-token symlink/desktop Unity, private secret scan, release provenance
 and scoped TestBot restoration remain pending. Client-stage acceptance still
-precedes UI authoring. No production config/ledger, credential access,
-Bash/MSYS/WSL invocation, service/account/app setting, deployment, live issue
-mutation or parked-job action occurs. Test drafts remain unmerged. Code merge
+precedes UI authoring. Local checks access no production config/ledger or
+credentials and invoke no Bash/MSYS/WSL. No service/account/app setting,
+deployment, live issue mutation or parked-job action occurs. Test drafts remain unmerged. Code merge
 and exact merged-source acceptance are pending; this record proves development
 CLI behavior on this PC and hosted runners.
 
