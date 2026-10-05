@@ -736,6 +736,21 @@ class FeatureToolchainTests(unittest.TestCase):
     codes = DoctorTests.codes
     probe_toolchain = True  # DoctorTests.setUp then leaves the real probes in place
 
+    @unittest.skipUnless(os.name == 'nt', 'native Windows interpreter selection')
+    def test_windows_uses_its_running_python_and_never_probes_posix_tools(self):
+        self.stub('python3', '', code=9)
+        for name in ('bash', 'sha256sum', 'mktemp', 'awk'):
+            for path in self.stubs.glob(name + '*'):
+                path.unlink()
+        feature = self.report()['tools']['feature']
+        self.assertEqual(feature['missing'], [])
+        self.assertEqual(feature['entries']['python'],
+                         {'found': True, 'version': sys.version.split()[0], 'required': '>=3.13', 'ok': True})
+        self.assertNotIn('python3', feature['entries'])
+        for name in ('bash', 'sha256sum', 'mktemp', 'awk', 'python3'):
+            self.assertNotIn(name, feature['entries'])
+            self.assertIsNone(self.seen(name))
+
     def setUp(self):
         DoctorTests.setUp(self)
         self.stubs = Path(self.tmp.name) / "工具 目录"
@@ -807,7 +822,8 @@ class FeatureToolchainTests(unittest.TestCase):
                          {"found": True, "version": "8.0.423", "required": "8.0.423", "ok": True})
         expected = {"go", "protoc", "buf", "node", "openspec", "python3", "git_lfs", "dotnet_sdk", "lark_cli"}
         if os.name == "nt":
-            expected |= {"bash", "sha256sum", "mktemp", "awk"}
+            expected.remove("python3")
+            expected.add("python")
         self.assertEqual(set(feature["entries"]), expected)
         lark = feature["entries"]["lark_cli"]
         self.assertEqual((lark["found"], lark["version"], lark["required"], lark["ok"]), (True, "1.0.82", None, True))
@@ -834,12 +850,13 @@ class FeatureToolchainTests(unittest.TestCase):
         report = self.report()
         feature = report["tools"]["feature"]
         self.assertEqual(feature["entries"]["protoc"], {"found": False, "version": None, "required": "35.1", "ok": False})
-        self.assertEqual(feature["entries"]["python3"], {"found": True, "version": None, "required": None, "ok": False})
+        if os.name != "nt":
+            self.assertEqual(feature["entries"]["python3"], {"found": True, "version": None, "required": None, "ok": False})
         self.assertEqual(feature["entries"]["dotnet_sdk"]["version"], "10.0.203")
         self.assertEqual((feature["missing"], feature["optional_missing"]),
-                         (["buf", "node", "protoc", "python3"], ["dotnet_sdk"]))
+                         (["buf", "node", "protoc"] + ([] if os.name == "nt" else ["python3"]), ["dotnet_sdk"]))
         finding = next(f for f in report["findings"] if f["code"] == "feature_toolchain_incomplete")
-        self.assertEqual(finding["tools"], ["buf", "node", "protoc", "python3"])
+        self.assertEqual(finding["tools"], ["buf", "node", "protoc"] + ([] if os.name == "nt" else ["python3"]))
         self.assertEqual((report["status"], self.codes(report)), ("attention", {"feature_toolchain_incomplete"}))
 
     def test_go_must_satisfy_the_directives_in_farm_hives_go_mod(self):
@@ -909,7 +926,8 @@ class FeatureToolchainTests(unittest.TestCase):
                   "KW_OPS_TOKEN": "dummy"}
         with patch.dict(os.environ, denied):
             self.report()
-        names = [name for name in HEALTHY if os.name == "nt" or name not in ("bash", "sha256sum", "mktemp", "awk")]
+        names = [name for name in HEALTHY if name not in ("bash", "sha256sum", "mktemp", "awk")
+                 and (os.name != "nt" or name != "python3")]
         for name in (*names, "lark-cli"):
             with self.subTest(tool=name):
                 self.assertFalse(set(denied) & self.seen(name).keys())

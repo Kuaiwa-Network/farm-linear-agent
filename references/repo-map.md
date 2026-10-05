@@ -86,6 +86,53 @@ this contract. Missing generators remain explicit verification gaps or blockers.
 
 ## Code worker (`feature`): Farm-Contract
 
+### Native Windows commands
+
+For a Windows feature attempt (`execution.platform == "win32"`), use the
+absolute `execution.python` from dispatch. Set `PYTHONUTF8=1` before starting
+Python and use `-X utf8 -B`; use that interpreter for every `python3` example
+and the FarmBot ledger CLI. The Bash snippets below are macOS/Linux examples.
+Windows uses the native entry points in this table, with the same stage,
+provenance, gate and publication requirements. Never fall back to Bash, Git
+Bash, MSYS or WSL when a native entry point/tool/cache is missing; record the
+exact missing prerequisite and pause if the stage cannot proceed.
+
+| Repository operation | Native Windows entry point |
+| --- | --- |
+| Contract gates 3–7, 9, 10 and 12 | Selected Python runs the matching `tools/check-breaking-waiver.py`, `gen-manifest.py --check`, `check-markers.py`, `check-msg-naming.py`, `check-proto-fields.py`, `check-spec-provenance.py`, `check-readme-inventory.py` and `check-openspec-validate.py`; gate 3 retains `BREAKING_WAIVERS origin/main` arguments |
+| Contract gates 1, 2, 8 and 11 | Native `buf build`/`buf lint`, selected Python `tools/check-coverage.py` and `tools/check-openspec-config.py` |
+| Contract manifest regeneration | Selected Python `tools/gen-manifest.py` |
+| Common inventory/generate/verify | `designer\tools\gen-config.cmd` with the same flags and absolute paths as `gen-config.sh` |
+| Backend full protocol synchronization | Selected Python `gen-msg-protos.py --contract ABSOLUTE_CONTRACT --git ABSOLUTE_GIT --go ABSOLUTE_GO --protoc ABSOLUTE_PROTOC --gomodcache PREPARED_MODULE_CACHE --gocache OWNED_BUILD_CACHE` |
+| Backend registry generation | Selected Python `gen-registry.py --go ABSOLUTE_GO --gomodcache PREPARED_MODULE_CACHE --gocache OWNED_BUILD_CACHE` |
+| Backend protocol/registry gates | Selected Python `ci/check_msg_proto.py` and `ci/check_proto_registry.py` with explicit Git/Go/prepared-cache flags; the message gate also needs protoc |
+| Backend Contract provenance | Selected Python `ci/check_contract_sync.py --contract ABSOLUTE_CONTRACT --git ABSOLUTE_GIT` |
+| Backend designer digest before publication | Selected Python `config/pb/designer-digest.py --common ABSOLUTE_CONFIG_CHECKOUT --git ABSOLUTE_GIT --commit FULL_CONFIG_SHA` |
+| Backend config generation | Selected Python `config/pb/gen.py --common ABSOLUTE_COMMON --git ABSOLUTE_GIT --go ABSOLUTE_GO --protoc ABSOLUTE_PROTOC --gomodcache PREPARED_MODULE_CACHE --gocache OWNED_BUILD_CACHE` |
+| Backend independent designer/config gates | Selected Python `ci/check_designer_pin.py --common ABSOLUTE_COMMON --git ABSOLUTE_GIT`, `ci/check_pb_manifest.py --git ABSOLUTE_GIT`, and `ci/check_config_pb.py` with common/Git/Go/protoc/prepared-cache flags |
+
+Select ordinary absolute native executables from the already prepared host
+toolchain and check the repository's actual pins; use the tools' own `--help`
+for flags. Module caches must already contain the pinned dependencies and be
+readable by the worker; a writable build cache belongs under STATE_DIR. Do not
+copy private host paths into PRs, install tools, expose credentials, change
+account/app settings or grant writes to shared caches to make a check pass.
+Common's launcher selects pinned Go/Git from the process PATH; set up only that
+worker process's environment, retaining its repository sanitization.
+Set `GOPROXY=off` and `GOSUMDB=off` for the native verification processes;
+missing prepared dependencies must fail without downloading or authenticating.
+Common's source-digest Go tests also run natively. The complete producer acceptance
+script and release publisher remain on supported macOS/Linux/Jenkins; a Windows
+worker names that acceptance as not run locally and requires its applicable CI.
+It never runs the release publisher or Jenkins itself.
+
+The native digest reads committed blobs without extraction; retain the pending
+64-zero archive-hash placeholder until actual publication. The native config
+generator stages outputs before publication and preserves them on generation
+failure; it has no legacy `--cache` option. `--source` and the local `gen.bat`
+adapter remain UNPINNED and cannot substitute for the stage's pinned generation.
+Actual sandbox/cache access remains a host acceptance prerequisite.
+
 Stage A's root, and the closing steps' waiver removal. Follow the repository's own rules by path: `README.md` §一
 (the gap-first loop: three inputs, candidates and costs, confidence tiers, the client half of the gap list,
 scenario markers, testable scenarios and 验收) and §二 (the twelve local gates and how to install their tools),

@@ -1,6 +1,7 @@
 """Self-contained launch message for one worker (spec §8). Never embeds issue prose."""
 import json
 from pathlib import Path
+import sys
 
 # The launch AUTHORITY is the only instruction text the Codex approval reviewer trusts; skill files and tool
 # output are not (docs/operating-contract.md, Authority). Every grant a worker relies on is stated here: a
@@ -192,6 +193,10 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
         "renew_minutes": budget["renew_minutes"],
         "guidance": guidance or "",
     }
+    if item.get("skill") == "feature":
+        # Bind Python to the controller rather than a Windows Store/python3
+        # alias. This describes execution; it adds no roots or authority.
+        payload["execution"] = {"platform": sys.platform, "python": sys.executable}
     if reads:
         # Read-only default-branch checkouts for the manifest's `reads` (spec §9.6): never among `worktrees`, never
         # a write root. A skill without `reads` gets no key, so fix and chat launches are unchanged.

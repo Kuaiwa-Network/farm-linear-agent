@@ -1,5 +1,6 @@
 import hashlib
 import json
+import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -158,6 +159,19 @@ def payload_of(message):
 
 
 class DispatchTests(unittest.TestCase):
+    def test_feature_uses_the_controller_interpreter_and_native_host_commands(self):
+        for skill in ('feature', 'fix', 'chat'):
+            message = dispatch_message(item={'id': 'i', 'skill': skill},
+                issue={'identifier': 'FARM-1', 'url': 'u'},
+                skill_path=ROOT / 'skills' / skill / 'SKILL.md', worktrees={}, db_path='/db',
+                runtime='codex', guidance='', budget={'lease_seconds': 1, 'renew_minutes': 1})
+            payload = payload_of(message)
+            if skill == 'feature':
+                self.assertEqual(payload['execution'], {'platform': sys.platform, 'python': sys.executable})
+                self.assertEqual(payload['stage']['write_repositories'], [])
+            else:
+                self.assertNotIn('execution', payload)
+
     def test_publication_scope_and_session_requests_survive_dispatch_without_issue_comments(self):
         scope = {'repositories': {'farmgui': {'status': 'verified',
                  'url': 'https://github.com/Kuaiwa-Network/farmgui', 'branch': 'farmbot/farm-1'}}}
