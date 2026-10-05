@@ -3777,6 +3777,100 @@ backend paths and actual worker/live release prerequisites remain pending.
 Production feature enablement and deployment remain outside this authorization;
 parked jobs and unmerged test drafts remain unchanged.
 
+## Native Windows contract provenance-gate review (2026-10-05; candidate)
+
+Farm-Contract [#323](https://github.com/Kuaiwa-Network/Farm-Contract/pull/323)
+ports gate 9 at committed source **`272e06b20797b0a53282498e1bb1c0e9497cf478`**, based on merged
+gate 7 source **`396cf6d4f5cc2ca66f9f115a2af2dc93ce334583`**. Only the native Python checker and regressions,
+POSIX wrapper, README and CI change. Protocols, OpenSpec sources, the provenance
+table and canonical manifest are unchanged. This is candidate acceptance;
+an operator-approved merge and exact-merged-source verification remain required.
+
+All four guards remain: missing registration, stale registration, nonexistent
+archive references and unflattened nonhidden spec directories. The four
+negative and one positive built-in selftests run before repository input;
+their failure or fixture IO failure returns 2. Unsupported arguments return
+2 before input/selftests; real input/guard failures return 1, and success is
+exactly `spec provenance OK`. The test fixture's early junction cleanup issue
+is corrected using per-alias active ownership state before acceptance.
+Initial [CI run 37246856085](https://github.com/Kuaiwa-Network/Farm-Contract/actions/runs/37246856085)
+at `8198885` passes Windows and the other gate jobs, but Linux/macOS each
+report four failed subcases: a test-injected `scandir` fault converts cleanup's
+integer directory handles to `Path`. The focused fixture fix passes those
+handles to the real `scandir`, retaining every intended directory-denial
+assertion. No checker guard, cleanup error or test is skipped to obtain a pass.
+
+The TSV retains two views: Bash tab-IFS row validation collapses tabs while
+coverage compares the raw first column. CR/BOM are not normalized; only
+LF-terminated rows are validated, while a final unterminated row participates
+in raw coverage. Duplicate registrations, opaque nonempty `inplace:` suffixes,
+no-note rows and registered non-`.md` files retain their original boundaries.
+The reverse scan remains nonhidden, top-level, case-sensitive `.md`; empty
+existing inventories gain no new minimum-count rule. Missing/unreadable/
+invalid UTF-8 and nonordinary selected inputs refuse acceptance. Unsafe
+absolute/traversal/drive/UNC/ADS references and selected links/reparse roots,
+files or archive ancestors are rejected before following them. No source bytes
+are normalized or written, and no note or Git-commit policy is added.
+
+The parent independently exports the exact committed source on the
+**production Windows host**, using a separate development checkout, fresh
+scratch state, the ordinary current-user token and explicit Python **3.13.16**.
+Pre-start `PYTHONUTF8=1`, `-I -X utf8 -B` and sanitized OS-variable-only child
+environments prevent inherited FarmBot selectors. All **39 native Windows
+tests** pass without failures/errors/skips in **6.688 seconds**
+(6.801 including startup), exercising all ten actual owned
+junction fixtures across root components, repository, selected spec/table,
+archive leaf/ancestor and unregistered directory boundaries. Controlled IO
+faults require no ACL/privilege changes. Eight POSIX-only tests cover actual
+Bash parsing/parity and file links/dangling links/FIFOs; they are defined only
+on POSIX and are not Windows unittest skips or file-symlink certification.
+
+The real native checker accepts all **34 main specification files**, returns
+exit 0 in **0.080 seconds**, and reports `spec provenance OK`.
+The export/check sequence takes **9.612 seconds**. All **602 exported
+files** remain byte-identical; aggregate SHA-256 is
+`e4a92a6b6d0aa74bbab17de256996dcc5fdf34e1c9ce061480c43135c3dd2b16`. Provenance-table SHA-256 remains
+`11d5e30979a7991cbd025e1eb13adc6a6e4eb41db25cf6ec5d3700f7f5c4dd43`; manifest SHA-256 remains
+`d6038613a74d9d2746e026278e2472db84e4950de9a49faf4671bc9c0c297323`. A separate parent probe passes **27 fresh fixtures**
+in **1.658 seconds**, preserving all their bytes and confirming all four
+directions, parser boundaries, scope, Unicode/spaces and invalid/unsafe input.
+No production configuration/ledger read, credential access, Bash/MSYS/WSL
+invocation, service action or host-setting change occurs. Actual FarmBot
+worker grants, credentials and runtime remain outside this development CLI
+acceptance.
+
+[CI run 37247258352](https://github.com/Kuaiwa-Network/Farm-Contract/actions/runs/37247258352)
+matches the candidate head and succeeds in all **16 jobs**, retaining the
+other contract gates. Provenance-job logs confirm exact checkout: Windows
+**39** native tests in **6.094 seconds**; Linux
+**47** native plus **47** wrapper tests in **3.016 / 6.119 seconds**;
+macOS **47** native plus **47** wrapper tests in **5.040 / 4.994 seconds**.
+Each suite has zero failures/errors/skips and each real checker reports success.
+Windows excludes the two wrapper steps in each provenance, field, naming,
+marker and manifest job. These workflow exclusions are separate from unittest
+skips and do not establish native acceptance for the other pending gates.
+
+Private UTF-8 logs and sanitized summary are retained in `native-spec-provenance-candidate-dde1c295`.
+Checker-source SHA-256 is `6fbf79ac758f337df4cc7b85bab71aa5859de4a9becfb78a2199675146a1a60e`;
+native regression log SHA-256 is `bd77eb9b7f5af479cdad0370f3bd324731553997690af10c4c74eb23b8df2754`;
+real-repository log SHA-256 is `1ec7ed86b48eea81824f2a3e5f544d56cd6ef82db4ce300ccf43b50d9d610ee2`;
+review-summary SHA-256 is `2137009897c03f1e4373d482e29db6c71b0d312ec07ac4b38a4e705eb9fe505b`;
+independent fixture-summary SHA-256 is `95c4dfc0ac681ab297a7709050a04c82dfd3cfb71f7f82a890817d3a73be744c`.
+
+Documentation checks pass all **73 relevant tests** in **0.355 seconds**
+(0.469 including startup), without failures/errors/skips. Local links,
+public evidence URLs, retained log hashes, privacy and whitespace are checked.
+UTF-8 documentation-test log SHA-256 is
+`0d89c1d5748258557e48413f7a28c0d94dc25d0affef8aa5c7a23350c9d4c0e0`.
+
+**Next:** obtain the operator's code merge for #323 and verify its merged
+source and applicable CI, then continue with gate 10. Gates **3, 10 and 12**
+still need native ports; gate 9 remains candidate evidence until merged
+acceptance. Native backend paths, actual worker/live access and the remaining
+release prerequisites below remain pending. Production feature enablement
+and deployment stay outside this authorization; parked jobs and unmerged
+test drafts remain unchanged.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
@@ -3864,8 +3958,11 @@ Remaining release prerequisites:
    all 10 merge-head CI jobs succeed. Gate 7 is merged in #322 as `396cf6d`;
    all 55 exact-merged-source Windows tests and the real field gate pass,
    preserving all 600 exported files; all 13 merge-head CI jobs succeed.
-   Gates 3, 9, 10 and 12 still need native ports; gate 9 is dispatched to the
-   existing Farm-Contract-rooted task.
+   Gate 9 candidate #323 passes all 39 native Windows tests, 27 parent
+   fixtures, the real 34-spec provenance check and all 16 candidate CI jobs;
+   operator-approved code merge and exact-merged-source acceptance are pending.
+   Gates 3, 10 and 12 still need native ports, with gate 10 next after that
+   acceptance.
 4. Check the selected service account's symlink capability and relevant native
    ownership/process checks, then complete Windows desktop Unity acceptance.
    The elevated offline baseline does not certify the ordinary token or a
