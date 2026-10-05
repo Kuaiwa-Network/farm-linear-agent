@@ -1091,6 +1091,23 @@ restoration remain pending. The native Windows offline baseline now passes.
   reports, cleanup and recovery-ref checks, Linear session UI, and hosted CI
   artifacts. Private run data and host paths are not included in this repository.
 
+**2026-10-05 backend full synchronization and registry:** the operator now
+authorizes merging reviewed code and records once applicable checks pass.
+Backend #356 is merged as `e14b88b`: 20 exact-merged local provenance tests and
+eight merged-push CI jobs pass. #357 is merged as `1c8bbce`: 17 exact-candidate
+Windows full-sync tests pass; the identical merged tree passes all eight push
+jobs. Real 58-package synchronization from merged Contract `71dadae` and both
+native gates pass, with three measured upstream snapshot/output differences
+confined to scratch. #358 is merged as `bcc8e47`: all 13 exact-merged local
+registry tests and the real 59-output generator/gate pass, preserving all
+4,674 source files; all eleven candidate CI jobs pass. Native suites have no
+skips; existing backend conditional Go skips remain unchanged. Measurements
+use the production Windows PC's ordinary token in separate development
+checkouts, and do not certify production-worker readiness. Designer/config,
+producer/publication, actual worker/live checks and separately authorized
+release remain pending. See the [Windows record](../spikes/2026-10-03-native-windows-offline.md)
+for revisions, durations, hashes, actual CI results and failure investigations.
+
 ## Scope
 
 In Phase B (spec §13, item 2):
