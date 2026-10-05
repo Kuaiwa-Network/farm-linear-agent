@@ -447,6 +447,61 @@ class LauncherTests(unittest.TestCase):
         else:
             self.assertNotIn("windows", config)
 
+    def test_explicit_unelevated_mode_preserves_codex_home_boundaries(self):
+        import tomllib
+        runtime = RUNTIMES["codex"]._replace(command=RUNTIMES["fake"].command, seed_files={})
+        launcher = Launcher(self.runs, runtime, "h", codex_windows_sandbox="unelevated")
+        writable = [Path(self.tmp.name) / "owned-worktree"]
+        server = {"url": "https://gm.test/mcp", "bearer_token_env_var": "KW_OPS_TOKEN"}
+        handle = launcher.spawn("sandbox-explicit", self.message, {"kw_ops": server}, 30, self.tmp.name,
+                                writable=writable, extra_env={"FAKE_CLI_MODE": "echo"})
+        self.addCleanup(launcher.stop, "sandbox-explicit")
+        self.finished_by(launcher)
+        config = tomllib.loads((handle.run_dir / "home/config.toml").read_text(encoding="utf-8"))
+        self.assertEqual(config["sandbox_mode"], "workspace-write")
+        if os.name == "nt":
+            self.assertEqual(config["windows"], {"sandbox": "unelevated"})
+        else:
+            self.assertNotIn("windows", config)
+        self.assertEqual(config["sandbox_workspace_write"], {
+            "writable_roots": [str(launcher.state_dir("sandbox-explicit")), str(writable[0])],
+            "network_access": True})
+        self.assertEqual(config["projects"][str(Path(self.tmp.name).resolve())], {"trust_level": "untrusted"})
+        self.assertEqual(config["features"], {"memories": False, "shell_snapshot": False})
+        self.assertEqual(config["shell_environment_policy"], {"exclude": ["KW_OPS_TOKEN"]})
+        self.assertEqual(config["mcp_servers"]["kw_ops"], server)
+
+        resumed = launcher.spawn("sandbox-explicit", self.message, {"kw_ops": server}, 30, self.tmp.name,
+                                 writable=writable, extra_env={"FAKE_CLI_MODE": "echo"})
+        self.finished_by(launcher)
+        self.assertNotEqual(resumed.run_dir, handle.run_dir)
+        self.assertEqual(tomllib.loads((resumed.run_dir / "home/config.toml").read_text(encoding="utf-8")), config)
+        self.assertFalse((resumed.run_dir / "home/auth.json").exists())
+
+    def test_windows_choice_does_not_change_fake_or_claude_home_settings(self):
+        import tomllib
+        for name in ("fake", "claude"):
+            with self.subTest(runtime=name):
+                runtime = RUNTIMES[name]._replace(command=RUNTIMES["fake"].command, seed_files={})
+                launcher = Launcher(self.runs / name, runtime, "h", codex_windows_sandbox="unelevated")
+                handle = launcher.spawn("non-codex", self.message, {}, 30, self.tmp.name,
+                                        extra_env={"FAKE_CLI_MODE": "echo"})
+                self.addCleanup(launcher.stop, "non-codex")
+                self.finished_by(launcher)
+                if name == "fake":
+                    config = tomllib.loads((handle.run_dir / "home/config.toml").read_text(encoding="utf-8"))
+                    self.assertNotIn("windows", config)
+                    self.assertNotIn("sandbox_mode", config)
+                else:
+                    self.assertEqual(json.loads((handle.run_dir / "home/mcp.json").read_text(encoding="utf-8")),
+                                     {"mcpServers": {}})
+
+    def test_launcher_refuses_an_invalid_windows_mode_before_creating_state(self):
+        for mode in (None, True, False, "", "disabled", "auto", "mxc", "unelevated ", [], {}):
+            with self.subTest(mode=mode), self.assertRaisesRegex(ValueError, "codex_windows_sandbox"):
+                Launcher(self.runs / "invalid", RUNTIMES["codex"], "h", codex_windows_sandbox=mode)
+        self.assertFalse((self.runs / "invalid").exists())
+
     def test_a_codex_worker_without_a_token_server_keeps_its_shell_settings(self):
         import tomllib
         runtime = RUNTIMES["codex"]._replace(command=RUNTIMES["fake"].command, seed_files={})

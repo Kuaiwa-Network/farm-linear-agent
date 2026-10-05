@@ -114,6 +114,8 @@ class Config:
     expected_app_user_id: str = ""
     expected_organization_id: str = ""
     issue_prefix: str = "FARM"
+    # A host-wide native backend, explicitly written to every Windows Codex home.
+    codex_windows_sandbox: str = "elevated"
     # Provenance set by the loader, never accepted from JSON or written as credentials.
     source_path: Path | None = field(default=None, init=False, repr=False, compare=False)
 
@@ -138,6 +140,9 @@ class Config:
         if (type(self.reconcile_seconds) not in (int, float) or not math.isfinite(self.reconcile_seconds)
                 or self.reconcile_seconds <= 0):
             raise ValueError("reconcile_seconds must be positive and finite")
+        if (not isinstance(self.codex_windows_sandbox, str)
+                or self.codex_windows_sandbox not in ("elevated", "unelevated")):
+            raise ValueError("codex_windows_sandbox must be elevated or unelevated")
         if not isinstance(self.codex_workers, dict):
             raise ValueError("codex_workers must map skill names to model settings")
         for skill, settings in self.codex_workers.items():

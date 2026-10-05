@@ -366,8 +366,12 @@ the bot secret, so the app's actual Feishu permissions remain a release check.
 
 `doctor` checks the source's presence in its own process and lark-cli's version, without passing the
 secret to probes or reading the profile store in this mode. This establishes neither live Feishu
-access nor delivery into a real worker. Native Windows isolated Codex homes explicitly require the
-elevated sandbox; provision and verify that worker context separately, without downgrading it.
+access nor delivery into a real worker. Native Windows isolated Codex homes explicitly select the
+host's `codex_windows_sandbox`: `"elevated"` by default, or an explicitly chosen `"unelevated"`
+restricted current-user backend. Verify the selected worker context separately. Unelevated mode
+has weaker read and network isolation and does not isolate the user's credentials; changing
+backends does not establish that the app's permissions or credential route are safe. There is no
+automatic fallback to another backend or to disabled enforcement.
 Retain dummy offline evidence, then verify the selected app's read permissions and one operator-chosen
 document/attachment inside an actual worker before enabling feature. Generator acceptance remains
 a separate check. No state schema changes; settle workers and restore a profile block before a

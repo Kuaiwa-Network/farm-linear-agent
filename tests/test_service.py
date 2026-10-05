@@ -315,6 +315,7 @@ class ServeTests(unittest.TestCase):
                         runtime="fake", repos=dict(self.c.config.repos), max_concurrent=2, port=0,
                         local_root=Path(self.tmp.name) / "slotted",
                         codex_workers={"fix": {"model": "gpt-5.6-sol", "reasoning_effort": "high"}},
+                        codex_windows_sandbox="unelevated",
                         slots=[{"id": "unity_slot:1", "repo": "Farm-Client", "build_target_argument": "OSXUniversal"}])
         components = build(config)
         self.addCleanup(components.server.server_close)
@@ -328,6 +329,7 @@ class ServeTests(unittest.TestCase):
         self.assertEqual(components.scheduler.slot_entries["unity_slot:1"]["build_target_argument"], "OSXUniversal")
         self.assertEqual(components.pool.run_unsandboxed, components.launcher.run_unsandboxed)
         self.assertEqual(components.scheduler.codex_workers, config.codex_workers)
+        self.assertEqual(components.launcher.codex_windows_sandbox, "unelevated")
 
     def test_shutdown_kills_an_unsandboxed_run_instead_of_orphaning_it_on_the_slot(self):
         """The batch Editor is a direct child of `serve` and the pool thread that waits on it is a daemon, so
