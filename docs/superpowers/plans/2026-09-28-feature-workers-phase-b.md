@@ -695,6 +695,21 @@ acceptance remain required; gate 3 is next. Backend native paths and actual
 worker/live release prerequisites remain pending. No production, credential or
 parked-job action occurs.
 
+**2026-10-05 merged OpenSpec-validation acceptance:** The operator merges
+Farm-Contract #325 as `c6fd159`; its full Git tree matches reviewed source
+`4e04e21`. Independent ordinary-token Windows verification of the exact merged
+export passes all 49 tests without skips, all 19 actual junction fixtures and
+both real 50-change checks with explicit selectors/local npm PATH discovery,
+preserving all 606 exported files. All 22 merged push CI jobs succeed; the
+PR-only breaking step retains its passing candidate-PR result. The
+[merged OpenSpec record](../spikes/2026-10-03-native-windows-offline.md#native-windows-merged-contract-openspec-validation-acceptance-2026-10-05)
+retains timings, versions, hashes and workflow exclusions. Gate 3 is dispatched
+to the existing Farm-Contract-rooted task on a separate branch, preserving both
+waiver mismatch directions, exact path/rule/message identity, baseline/bootstrap
+distinction and all 17 inherited criterion selftests with native Git/pinned buf.
+Backend native paths, actual worker/live checks and release prerequisites remain
+pending. No production, credential or parked-job action occurs.
+
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
 it merged as [#78](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/78)
