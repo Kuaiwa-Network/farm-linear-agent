@@ -1115,7 +1115,7 @@ and an unpublished committed-blob digest. Actual Windows acceptance reproduces
 source/metadata writes. The Linux telemetry cleanup race and macOS interpreter
 symlink failure are fixed and retain their failure evidence; #361's final
 seventeen candidate and seventeen merged-push jobs pass. #362's eight candidate
-jobs pass; its merged-push matrices were pending when recorded. FarmBot dispatch
+and seventeen merged-push jobs pass, with no native skips. FarmBot dispatch
 binds native platform/controller Python; Windows doctor and feature instructions
 select native tools and require no Bash/MSYS/WSL. Focused doctor/dispatch/skill
 checks pass 60/24/73 tests, with only doctor's four existing platform skips.
@@ -1130,6 +1130,16 @@ fallback. Actual sandbox tool/cache/grant checks, scoped Feishu/Word access,
 ordinary-token Unity/symlink acceptance, private scan/restoration and separately
 authorized release remain pending. See the [Windows record](../spikes/2026-10-03-native-windows-offline.md)
 for revisions, durations, hashes, failure investigations and current prerequisites.
+
+**2026-10-05 FarmBot full offline candidate CI:** #125's tested code at
+`83375fd` (identical GitHub merge tree `0f7d3c5`) passes 1,743 tests on both
+hosted platforms, zero failures/errors. All 13 feature journeys run on each;
+all seven Job Object tests and the new native interpreter probe run on Windows.
+Windows retains its exact 69-test baseline skip map; Mac has 19 platform skips.
+Final edits to the two records only do not change executable/test/worker sources.
+The [Windows record](../spikes/2026-10-03-native-windows-offline.md) retains versions,
+durations, hashes and every platform skip. This does not certify the real isolated
+worker, production readiness or complete Task 17's remaining live/desktop checks.
 
 ## Scope
 
