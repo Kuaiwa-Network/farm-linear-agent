@@ -1285,6 +1285,28 @@ unmerged. Task 17 and production readiness remain incomplete; client/UI work is
 later. See the [Windows record](../spikes/2026-10-03-native-windows-offline.md)
 for all failures, revisions, versions, durations, hashes and per-test skips.
 
+**2026-10-06 ordinary-account symlink and link-boundary follow-up:** after the operator's
+Developer Mode change, file/directory symlinks work with the selected current
+account. At merged `684b303`, all six prior WinError 1314 cases pass with zero
+skips in **1.071 seconds**. The complete native offline suite passes
+**1,749 tests**: **1,680 pass**, zero failures/errors, **69 existing platform
+skips**, **941.188 seconds**; all thirteen journeys and seven native
+Job Object tests pass. Five earlier capability skips now run and pass. The
+unchanged private native link probe passes both Codex 0.156.1/0.160.0 in
+**1.865 seconds**, with all owned links usable/exactly removed,
+eight outside write denials per CLI, contained child/descendant cancellation
+and survival of the disjoint control. Logs, tracked bytes and runtime receipt
+are verified; the previous errors and failed link attempt are retained.
+This completes the measured ordinary-account symlink/ownership/alias gap.
+Task 17's Windows offline suite check (Step 2) is complete.
+Actual authenticated model/CLI/service/webhook/live acceptance, scoped
+Feishu/Word reads, desktop Unity, approved producer/release provenance, private
+scan/TestBot restoration and separately authorized enablement/deployment
+remain pending. These are isolated development checks on the production
+Windows host, with no production state or credentials accessed. See the
+[current Windows record](../spikes/2026-10-03-native-windows-offline.md#ordinary-account-symlink-and-native-link-verification-2026-10-06-partial)
+for exact source/tool versions, hashes, all 69 skips and acceptance limits.
+
 ## Scope
 
 In Phase B (spec §13, item 2):
@@ -13501,7 +13523,7 @@ in 290 s, 16 skipped, all Windows-only (seven Job Object tests, three boot-proof
 tests, the containment path's read of a launch record, the junction refusal and the Windows refusal of a lark-cli
 `home`); the journey's eleven tests OK in 57 s.
 
-- [ ] **Step 2: Full offline suite on the Windows host,** run by the operator from a checkout of the candidate
+- [x] **Step 2: Full offline suite on the Windows host,** run by the operator from a checkout of the candidate
 revision (never the production checkout), with the configured Windows Python, not `python3`. Set `PYTHONUTF8` first,
 as CI (`.github/workflows/tests.yml`) and the 2026-09-22 Windows verification did, and record that it was set; Task
 15's fake worker reads its prompt as UTF-8 either way:

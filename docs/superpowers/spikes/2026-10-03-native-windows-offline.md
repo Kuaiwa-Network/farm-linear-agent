@@ -6364,3 +6364,182 @@ The initial module-style command discovered 73 tests but produced two
 its original log remains private. Discovery adds the test directory as the
 existing cross-test imports require. No application/test source changes or
 new skips resolve this invocation error. The record changes only documentation.
+
+### Ordinary-account symlink and native link verification (2026-10-06; partial)
+
+The operator reported enabling Windows Developer Mode on the current account.
+Agent-side checks then create, resolve and remove both file and directory
+symlinks in new isolated scratch storage, including paths with spaces and
+Unicode. The agent does not change a host setting, account or credential.
+The measured controlling process token is **not elevated**; private token-check
+SHA-256 is `74df2bfd1cd606ce944e3153ded0e9b52905cd8d46e3b2844ecb79f454a5a831`.
+These checks run from a separate development checkout on the **production
+Windows host**, independently of its installed FarmBot state.
+
+**Pinned source and tools:** merged FarmBot
+`684b303eb64ae07d23fab90bc5e32617e72beea3`, tree `9df300f7a93ea975fb116ad9b9ba85329a42000d`;
+Python **3.13.16**, `git version 2.54.0.windows.1`, `git-lfs/3.7.1 (GitHub; windows amd64; go 1.25.1; git b84b3384)`.
+`PYTHONUTF8=1` is set before Python starts; inherited `FARMBOT_*`, `FAKE_CLI_*`,
+GitHub tokens and lark-cli overrides are removed before discovery. The private
+runner uses the documented `unittest` discovery with verbosity 2, preserving
+per-test timing and strict UTF-8 logs. All tracked input bytes and clean status
+are checked before/after each run. The executable source matches #128; #129
+adds records only. The public measurements use the client date above; private
+timestamps retain UTC.
+
+**Focused recovery:** all **six** previous WinError 1314 cases pass in
+**1.071 seconds**, with zero failures/errors/skips:
+
+- `test_environment.EnvironmentTests.test_state_symlink_and_external_slot_are_rejected`
+- `test_memory.MemorySnapshotTests.test_invalid_stored_ids_and_symlink_root_are_refused`
+- `test_memory.MemorySnapshotTests.test_prune_preserves_references_and_ignores_unrelated_paths`
+- `test_memory.MemorySnapshotTests.test_symlinked_retained_attempt_aborts_pruning_before_deletion`
+- `test_memory.MemorySnapshotTests.test_symlinked_retained_item_aborts_pruning_before_deletion`
+- `test_worktrees.WorktreeTests.test_verification_rejects_foreign_checkout_and_missing_worktree`
+
+Private focused log SHA-256 is `ac6aefd5fa55398f43fac3b1467fac92b896bfd12cd52e709cf717a03df5f87c`.
+The original six-error run and every original skip remain recorded above;
+no application/test change, skip or ownership-check weakening obtains this pass.
+
+**Full native offline suite:** **1,749 tests**, **1,680 pass**, zero failures
+or errors, **69 platform skips**, in **940.593 unittest seconds**
+(**941.188 seconds** including capability/discovery work; Python
+startup and version/source metadata capture are outside that clock).
+All **13 feature journeys** and all **seven
+native Windows Job Object tests** actually execute and pass. All six previously
+errored IDs pass again in this full run. These five previously skipped capability
+tests also execute and pass:
+
+- `test_cleanup.PreservationTests.test_symlinked_worktree_is_never_followed`
+- `test_uploads.ArchiveTests.test_a_link_on_the_way_to_a_member_is_never_descended`
+- `test_uploads.DownloadTests.test_an_edited_manifest_cannot_lead_a_write_through_a_link_inside_the_directory`
+- `test_uploads.OutputDirectoryTests.test_a_symlinked_out_is_refused`
+- `test_worktrees.ReadCheckoutTests.test_anything_else_at_the_path_is_replaced_and_unsafe_requests_are_refused`
+
+The remaining 69 skipped IDs and observed reasons are unchanged from the
+preceding local 74-skip map after removing those five; every current skip is
+listed below. Static skip text mentioning symlink privileges in POSIX-only
+checks is retained as observed and does not contradict the measured Windows
+file/directory capability. No Windows Job test or feature journey is skipped.
+Private full log SHA-256 is `638c694946c3c75d1527dd3d930fc4ccb22ec710cb1dc7cd4f75fbd7df094022`;
+the read-only result/log/timing/source audit is
+`acc843d49ec3fc6a94c491042ea6215425addb74c52c3755a6502a6db80079eb`.
+
+| Skipped test | Observed reason |
+| --- | --- |
+| `test_cleanup.CancellationCleanupTests.test_exited_parent_with_detached_child_holds_cleanup_after_restart` | Windows worker jobs contain children; tested in test_windows_workers |
+| `test_cleanup.SelfExitedWorkerCleanupTests.test_continuation_of_a_self_exited_paused_worker_launches` | POSIX self-exit evidence; Windows workers are proved by Job Objects |
+| `test_cleanup.SelfExitedWorkerCleanupTests.test_resource_fencing_certifies_a_worker_that_exited_by_itself` | POSIX self-exit evidence; Windows workers are proved by Job Objects |
+| `test_cleanup.SelfExitedWorkerCleanupTests.test_resource_fencing_fails_while_the_old_handle_is_still_registered` | POSIX self-exit evidence; Windows workers are proved by Job Objects |
+| `test_cleanup.SelfExitedWorkerCleanupTests.test_retirement_leaves_the_reap_of_a_registered_worker_to_poll` | POSIX self-exit evidence; Windows workers are proved by Job Objects |
+| `test_config.LarkCliConfigTests.test_a_home_lies_outside_local_root_the_users_home_and_every_temporary_directory` | Windows refuses every lark_cli home |
+| `test_doctor.FeatureToolchainTests.test_a_store_whose_key_is_a_file_and_that_holds_a_login_is_exposed` | the macOS store's master key file |
+| `test_doctor.ProcessProbeTests.test_invalid_pids_are_never_passed_to_os_kill` | POSIX process inspection |
+| `test_doctor.ProcessProbeTests.test_permission_denied_and_ps_failure_are_unknown_not_dead` | POSIX process inspection |
+| `test_doctor.ProcessProbeTests.test_real_worker_is_recognized_and_reaped_worker_is_dead` | POSIX process inspection |
+| `test_heartbeat.HeartbeatFileTests.test_a_fifo_or_symlink_is_unreadable_without_waiting` | FIFOs and O_NOFOLLOW symlink refusal are POSIX |
+| `test_heartbeat.HeartbeatFileTests.test_write_replaces_a_symlink_or_fifo_instead_of_opening_it` | FIFOs are POSIX |
+| `test_launcher.LauncherTests.test_a_fifo_the_worker_left_as_a_report_file_cannot_block_poll` | FIFOs in a directory are POSIX |
+| `test_launcher.LauncherTests.test_a_kill_after_a_restart_persists_its_targets_past_a_fifo_left_for_their_temporary_file` | FIFOs in a directory are POSIX |
+| `test_launcher.LauncherTests.test_a_kill_after_a_restart_refuses_a_fifo_teardown_record_before_signalling` | FIFOs in a directory are POSIX |
+| `test_launcher.LauncherTests.test_a_stop_replaces_a_fifo_the_live_worker_swapped_in_for_its_teardown_record` | FIFOs in a directory are POSIX |
+| `test_launcher.LauncherTests.test_cleanup_checks_refuse_a_fifo_launch_or_teardown_record_without_blocking` | FIFOs in a directory are POSIX |
+| `test_launcher.LauncherTests.test_group_kill_escalates_when_only_the_child_ignores_term` | POSIX process group semantics |
+| `test_launcher.LauncherTests.test_spawn_notes_an_undelivered_prompt_past_a_fifo_the_worker_left_for_the_note` | FIFOs in a directory are POSIX |
+| `test_launcher.LauncherTests.test_spawn_records_the_pid_past_a_fifo_the_new_worker_put_at_its_launch_record` | FIFOs in a directory are POSIX |
+| `test_launcher.LauncherTests.test_stop_does_not_block_on_a_fifo_teardown_record_and_holds_cleanup` | FIFOs in a directory are POSIX |
+| `test_launcher.PosixSelfExitTeardownTests.test_a_claimed_worker_is_not_reaped_by_poll_even_without_waitid` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_a_failing_teardown_check_still_reports_every_exit` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_a_fifo_teardown_record_holds_cleanup_without_blocking_the_poll` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_a_fifo_that_appears_at_the_teardown_record_is_replaced_by_the_verified_one` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_a_group_still_reported_after_the_reap_holds_cleanup` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_a_member_that_cannot_be_terminated_holds_cleanup` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_a_process_table_that_stays_unreadable_holds_cleanup` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_a_reap_that_cannot_complete_is_retried` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_a_repeated_stop_keeps_what_an_earlier_stop_recorded` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_a_signalled_member_that_leaves_the_session_is_still_checked` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_a_teardown_record_naming_another_pid_holds_cleanup` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_a_verified_self_exit_keeps_an_interrupted_stops_recorded_descendants` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_an_unreadable_process_table_is_retried_while_the_worker_stays_unreaped` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_an_unverified_self_exit_supersedes_an_interrupted_stop_record` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_normal_exit_is_proven_quiescent` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_other_group_in_the_worker_session_is_terminated_and_recorded` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_poll_leaves_a_worker_being_killed_to_kill` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_same_group_survivor_is_terminated_and_recorded` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_setsid_descendant_escapes_the_session_check` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_stop_after_a_self_exit_leaves_the_reap_and_its_evidence_to_poll` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_stop_racing_a_self_exit_signals_the_group_even_without_waitid` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_stop_racing_a_self_exit_still_reaches_the_worker_group` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_stop_terminates_a_group_member_the_parent_walk_cannot_see` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_what_the_worker_left_for_the_unverified_record_is_replaced_not_opened` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSelfExitTeardownTests.test_without_waitid_a_self_exit_keeps_holding_cleanup` | POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py |
+| `test_launcher.PosixSessionScanTests.test_a_failed_ps_exit_proves_nothing` | POSIX sessions and process groups |
+| `test_launcher.PosixSessionScanTests.test_a_member_that_exits_before_getsid_is_skipped` | POSIX sessions and process groups |
+| `test_launcher.PosixSessionScanTests.test_a_session_that_cannot_be_read_proves_nothing` | POSIX sessions and process groups |
+| `test_launcher.PosixSessionScanTests.test_a_table_that_does_not_list_farmbot_itself_proves_nothing` | POSIX sessions and process groups |
+| `test_launcher.PosixSessionScanTests.test_group_and_session_members_are_listed_but_not_the_leader_or_zombies` | POSIX sessions and process groups |
+| `test_launcher.PosixSessionScanTests.test_ps_that_fails_or_times_out_proves_nothing` | POSIX sessions and process groups |
+| `test_launcher.PosixSessionScanTests.test_signals_reach_the_group_and_only_members_still_in_the_session` | POSIX sessions and process groups |
+| `test_launcher.PosixSessionScanTests.test_the_group_is_gone_only_when_the_kernel_says_so` | POSIX sessions and process groups |
+| `test_launcher.WorkerFileReadTests.test_a_fifo_is_refused_without_waiting_for_a_writer` | FIFOs in a directory are POSIX |
+| `test_launcher.WorkerFileReadTests.test_a_symlink_is_refused_even_to_a_regular_file` | Windows has no O_NOFOLLOW; making a symlink there needs a privilege |
+| `test_launcher.WorkerFileWriteTests.test_a_fifo_at_the_name_is_replaced_without_waiting_for_a_reader` | FIFOs in a directory are POSIX |
+| `test_launcher.WorkerFileWriteTests.test_a_symlink_at_the_name_is_replaced_and_what_it_names_is_left_alone` | making a symlink on Windows needs a privilege |
+| `test_scheduler.SchedulerTests.test_a_fifo_left_for_the_batch_summary_is_no_evidence_and_cannot_stall_the_launch` | FIFOs in a directory are POSIX |
+| `test_service.SignalShutdownTests.test_sigterm_during_pool_ensure_also_cleans_up_and_restores_the_handler` | POSIX service termination contract |
+| `test_service.SignalShutdownTests.test_sigterm_reaps_the_batch_child_and_closes_a_running_service` | POSIX service termination contract |
+| `test_slots.PoolTests.test_a_fifo_left_for_the_batch_summary_cannot_stall_the_batch_run` | FIFOs in a directory are POSIX |
+| `test_slots.PoolTests.test_what_the_worker_left_at_the_token_path_is_replaced_by_the_grant` | no FIFOs in a directory, and making a symlink needs a privilege |
+| `test_worktrees.ControllerGitTests.test_farmbots_git_in_a_worktree_follows_neither_of_its_pointers` | the filter here is a shell script |
+| `test_worktrees.ControllerGitTests.test_farmbots_own_git_runs_no_hook_left_in_the_clone` | the hooks here are shell scripts |
+| `test_worktrees.ControllerGitTests.test_within_those_parts_a_worker_commits_and_pushes_but_cannot_touch_the_config` | macOS's Seatbelt, as Codex's |
+| `test_worktrees.ReadCheckoutTests.test_no_hook_fsmonitor_filter_or_setting_of_the_host_or_the_clone_runs` | the hooks, fsmonitor and filters here are shell scripts |
+| `test_worktrees.ReadCheckoutTests.test_removal_never_acts_through_a_link` | POSIX permissions; Windows has the junction test |
+| `test_worktrees.ReattachTests.test_no_hook_or_fsmonitor_planted_in_the_clone_runs_while_re_attaching` | the planted hooks and fsmonitor are shell scripts |
+
+**Native restricted-worker link boundaries:** the unchanged earlier verifier
+`1bbe47794438592017e6f5c2e59cfe215f632577b9df8f571bddb6dc9b74af9d` now passes on both pinned
+Codex **0.156.1** and **0.160.0** in **1.865 seconds** total
+(**0.659 / 0.546 seconds**).
+Owned file/directory symlinks work, including directory creation through an
+owned link. File/directory symlinks and a junction to protected fixture targets
+are all created and removed exactly without following their targets. All
+**eight** protected write handles per CLI deny access, including modify/create
+through these aliases; protected bytes and absent escape-file markers remain
+unchanged. Native child/descendant membership is observed, owned Jobs empty
+after cancellation, readers settle, and a disjoint control survives until its
+own verified cleanup. The registered runtime receipt remains unchanged.
+
+This reuses the previously authorized explicit native unelevated route and its
+intrinsic NUL-device behavior, with exact workspace/state grants, no auth seed,
+no model turn and no runtime provisioning. It exercises standalone
+`OwnedProcess.cleanup`; the actual Scheduler/Lifecycle/Launcher/Worktrees
+four-case result above remains separate. The **10** bound strict UTF-8 logs
+total **17,493 bytes** and match their recorded hashes. Private link audit
+SHA-256 is `9de6c1c73469730dda794d91c0bc92a6cacf6d621e4093e7dbf5ededd0873d58`.
+
+**Current release prerequisites:** ordinary-account symlink capability and
+these measured ownership/alias checks are complete for this selected account,
+host, source and native images. This closes that gap; it does not certify a
+different account or future release image. Remaining prerequisites are the
+scoped authenticated model-worker/CLI/service/webhook and live delivery/recovery
+acceptance (including unclaimed startup), FarmBot-only current-account DPAPI
+profile/strict-bot Feishu planning-document and attachment reads/Word conversion,
+Windows desktop Unity acceptance, approved Common producer/publication/release
+provenance, private output review/scoped TestBot restoration, and separate
+production feature enablement/deployment authorization. FARM-1346/FARM-1425
+remain parked and Contract #318/backend #353 remain untouched unmerged drafts.
+No production configuration/ledger read, production service start/restart, live issue
+mutation, credential setup, Bash/MSYS/WSL use or deployment occurs.
+Task 17's Windows offline suite check (Step 2) is complete. Task 17 remains
+partial overall; Phase B's worker ends after the server, and client/UI phases
+are subsequent work.
+
+**Record validation:** the selected Python executable with
+`-B -m unittest discover -s tests -p test_skills.py -v` passes **73**
+documentation/reference tests in **0.396 seconds**
+(**0.526** including startup), zero failures/errors/skips.
+Private UTF-8 log SHA-256 is `fba8bb2533fb842a69c61ddc0baff0fc39a0b88af42e4b17a0a6f2dd69ba3230`.
+Accuracy, local links/anchors, whitespace and private-path/token checks pass.
+Only the two verification documents change; application/test source and
+production state remain independent of this record update.
