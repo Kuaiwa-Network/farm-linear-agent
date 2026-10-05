@@ -710,6 +710,21 @@ distinction and all 17 inherited criterion selftests with native Git/pinned buf.
 Backend native paths, actual worker/live checks and release prerequisites remain
 pending. No production, credential or parked-job action occurs.
 
+**2026-10-05 breaking-waiver candidate:** Farm-Contract #326 at `c5529a8`
+ports the last Contract Bash wrapper to native Python/Git/buf 1.72.0. Independent
+ordinary-token Windows verification passes all 55 tests without skips, all 17
+actual junction fixtures, the real 60-proto zero-waiver check and PATH discovery,
+plus 11 actual breaking fixtures and four baseline cases; all 608 exported files
+remain unchanged. All 25 candidate CI jobs succeed, including native Windows and
+POSIX wrapper regressions. The
+[breaking-waiver record](../spikes/2026-10-03-native-windows-offline.md#native-windows-contract-breaking-waiver-candidate-2026-10-05)
+retains measured failures/corrections, startup TEMP limit, owned-process evidence,
+versions, timings, hashes and every platform exclusion. Code merge and exact
+merged-source acceptance remain required. Backend generators/gates, actual
+worker/live checks and final release prerequisites remain pending; UI authoring
+follows the required client-stage acceptance. No production or parked-job action
+occurs.
+
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
 it merged as [#78](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/78)
