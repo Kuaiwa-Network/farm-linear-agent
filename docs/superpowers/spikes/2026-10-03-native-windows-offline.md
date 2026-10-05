@@ -4374,6 +4374,84 @@ The UI implementer follows the required client-stage acceptance. Production
 feature enablement/deployment needs separate authorization; parked jobs and
 unmerged test drafts remain unchanged.
 
+## Native Windows merged contract breaking-waiver acceptance (2026-10-05)
+
+The operator merges Farm-Contract [#326](https://github.com/Kuaiwa-Network/Farm-Contract/pull/326)
+as **`71dadaed8d111219e7170ab6712d97bbb28d8925`**. Its full Git tree
+`d18fbb2948db5e1631698ac86ff90f3ddc6034af` equals reviewed source `c5529a883bd3bb3b1d9cdf559a730b0aa74bc42f`.
+FarmBot candidate record [#119](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/119)
+is merged as `009613f2dbf46bdc0257e19f4faf3bdba109a3d9`. Its preceding checkpoint retains the
+11 extra actual breaking fixtures, four baseline cases, initial failures,
+corrections and measured startup TEMP limit. Checker and authority bytes match.
+
+On the production Windows host, the ordinary current-user token tests a fresh
+exact-merged-source scratch export from the separate development checkout.
+The selected Python 3.13.16 starts with `PYTHONUTF8=1`; actual native Git is
+2.54.0.windows.1, Git LFS is 3.7.1 and the existing pinned buf is 1.72.0.
+Owned home/temp/AppData and sanitized child environments exclude inherited
+FarmBot, Git, buf and credential selectors. Commands use the selected Python
+executable with `-I -X utf8 -B tools/test-check-breaking-waiver.py` and
+`-I -X utf8 -B tools/check-breaking-waiver.py BREAKING_WAIVERS origin/main`.
+All **55 Windows tests** pass in **51.830 seconds**
+(51.930 including startup), with zero failures/errors/skips.
+All **17 actual owned junction fixtures** and **17 inherited criterion selftests**
+execute. The real **60-proto** check against an owned local Git baseline passes
+with **zero waivers / zero breaks** in **3.556 seconds**;
+actual native PATH discovery from an unrelated working directory produces
+identical success output in **3.497 seconds**.
+All **608 exported files** remain unchanged and match the reviewed candidate.
+The complete sequence takes **66.402 seconds**.
+
+[Merged push CI run 37260999457](https://github.com/Kuaiwa-Network/Farm-Contract/actions/runs/37260999457)
+checks the exact merged SHA and succeeds in **25/25 jobs**. Windows runs **55**
+breaking-waiver tests in **62.469 seconds**; Linux runs **60** native plus **60**
+wrapper tests in **24.346 / 22.701 seconds**; macOS runs **60** native plus **60**
+wrapper tests in **22.429 / 23.664 seconds**. All suites have zero failures/errors/skips.
+All three use Python 3.13.16 and buf 1.72.0; Windows Git is 2.55.0.windows.5,
+Linux/macOS Git is 2.55.0. The PR-only breaking comparisons are excluded on push:
+native real comparison/source-preservation plus wrapper real comparison in
+each of three new jobs, and the original gates job's breaking step. They retain
+the passing candidate-PR comparison evidence; push does not invent a new
+protocol baseline. Windows excludes 16 Bash wrapper steps across eight jobs
+(including the already-counted breaking wrapper comparison). Five POSIX-only
+regression methods are defined only on POSIX. Every workflow exclusion is
+separate from unittest skips. Exact merged-source real comparison and source
+preservation are measured locally above.
+
+Private UTF-8 logs/summary are retained in `native-breaking-waiver-candidate-767bb0fb`. Native test
+log SHA-256 is `00ea337ca48501c16af4d6791b40911b0c6860b557a33c84edfb0aa2e8a4527a`;
+real/PATH-discovery log SHA-256 is `0e8495a6814aed321d4f031d131cf19a83a5d57c18c4d327015f5758b27729c7`;
+acceptance-summary SHA-256 is
+`511d86bd87b01620ce43fa6f9086b6d3e430fe0f6c6197e1c095a71e7bb76aa4`.
+The checker remains `4883b762048be2ab74f8d05082f83a2c98d46e00fd65b9057bc65c438a7580ed`, with unchanged legacy literal,
+provenance, manifest, waiver/config and native buf hashes. Retained log hashes,
+exact checkouts and platform exclusions are independently verified.
+
+Gate 3 is the last Contract Bash wrapper port. Its two-way exact identity,
+COMPILE/duplicate/output refusal, baseline/bootstrap distinction, replacement-ref
+handling, input guards and owned process cleanup remain enforced. Windows
+startup TEMP above 260 UTF-16 units still refuses early; the 260-unit native
+startup case passes. Junction tests do not certify ordinary-token symlink
+privilege, and these CLI checks do not certify actual FarmBot worker grants,
+runtime/credential handling or real Feishu access. No production config/ledger
+read, credential access, Bash/MSYS/WSL, service/account/app setting or deployment
+action occurs; parked jobs and unmerged test drafts remain unchanged.
+
+Documentation checks pass all **73 relevant tests** in **0.385 seconds**
+(0.492 including startup), without failures/errors/skips. Links, privacy,
+whitespace and retained evidence hashes are checked. UTF-8 documentation-test
+log SHA-256 is `f78a13b324f83a5de910a53d43dce4f9f6b438387509616efe012dd6732a4a21`.
+
+**Next:** inspect native backend generators/gates from farm-hive main
+`e24b6cbc4403e19c49bf13cc7766deaa49db5184` in a fresh separate development checkout. Preserve
+tool pins, canonical hashes, exact output sets, contract reachability and
+dirty-source rejection, read-only sibling boundaries, caches, LFS and owned
+containment. Backend tooling, producer/publication, actual worker/live checks,
+ordinary-token symlink/desktop Unity, private secret scan, release provenance
+and scoped TestBot restoration remain release prerequisites. Client-stage
+acceptance still precedes UI authoring; production enablement/deployment requires
+separate authorization.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
@@ -4469,12 +4547,14 @@ Remaining release prerequisites:
    CI jobs succeed. Gate 12 is merged in #325 as `c6fd159`; all 49
    exact-merged-source Windows tests and real 50-change checks with explicit/PATH
    runtime selection pass, preserving all 606 exported files; all 22 merge-head
-   CI jobs succeed. Gate 3 candidate #326 at `c5529a8` passes all 55 native
-   Windows tests with no skips, the real 60-proto zero-waiver check, 11 actual
-   breaking fixtures and four baseline cases, preserving all 608 exported files;
-   all 25 candidate CI jobs succeed. It is the last Contract wrapper port, but
-   code merge and exact merged-source acceptance remain required. Backend
-   generators/gates and complete producer/publication acceptance remain pending.
+   CI jobs succeed. Gate 3 is merged in #326 as `71dadae`; all 55 exact-merged
+   Windows tests, the real 60-proto zero-waiver check and native PATH discovery
+   pass without skips, preserving all 608 exported files; all 25 merged push
+   CI jobs succeed. The reviewed candidate retains 11 actual breaking fixtures
+   and four baseline cases. All Contract wrapper ports now have native merged
+   entry-point evidence. Backend generators/gates and complete
+   producer/publication acceptance remain pending; backend source inspection
+   starts from main `e24b6cb` in a fresh development checkout.
 4. Check the selected service account's symlink capability and relevant native
    ownership/process checks, then complete Windows desktop Unity acceptance.
    The elevated offline baseline does not certify the ordinary token or a
