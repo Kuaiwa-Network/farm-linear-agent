@@ -4027,6 +4027,71 @@ Native backend paths, actual worker/live access and the release prerequisites
 below remain pending. Production feature enablement and deployment stay outside
 this authorization; parked jobs and unmerged test drafts remain unchanged.
 
+## Native Windows merged contract inventory-gate acceptance (2026-10-05)
+
+The operator merges Farm-Contract [#324](https://github.com/Kuaiwa-Network/Farm-Contract/pull/324)
+as **`5cf4c7e8a2fba37cacd212e983b7a3b2d383f9f5`**. Its full Git tree equals reviewed source
+`474cb5f5ca19af4fcabccc292680816591ec0132`, independently checked before rechecking the exact
+merged export. FarmBot candidate record
+[#115](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/115) is merged
+as `5eece47b090c7878c5ae7c4c1bcac7571fbbf888`. The preceding candidate section remains the pre-merge
+checkpoint, including both corrected fixture failures and 26 extra checks.
+
+On the production Windows host, the ordinary current-user token runs the
+development verifier against a fresh merged-source scratch export using
+explicit Python 3.13.16, pre-start `PYTHONUTF8=1` and sanitized OS-variable-only
+child environments. All **35 native Windows tests** pass without
+failures/errors/skips in **2.724 seconds**
+(2.815 including startup), including all eight actual owned junction
+fixtures and both startup extractor selftest failure checks. The real checker
+accepts **60 protocol files and 60 README rows**, returns exit 0 in
+**0.035 seconds**, and reports `readme inventory OK`.
+The full export/check sequence takes **5.560 seconds**. All **604 exported
+files** remain byte-identical, matching the reviewed candidate's aggregate,
+checker-source, README, provenance-table, legacy literal and manifest hashes.
+No protocol, OpenSpec or provenance-table bytes change. Both mismatch directions,
+duplicate-row multiset comparison and inherited extractor/scope boundaries remain
+as documented in the candidate checkpoint. Actual ordinary-token file/directory
+symlink capability is not certified by these junction fixtures.
+No production configuration/ledger read, credential access, Bash/MSYS/WSL
+invocation, service action or host-setting change occurs. Actual FarmBot
+worker grants, runtime and credential access remain outside this development
+CLI acceptance.
+
+[Push CI run 37250183343](https://github.com/Kuaiwa-Network/Farm-Contract/actions/runs/37250183343)
+matches the exact merged SHA and succeeds in all **19 jobs**. Inventory-job
+logs confirm exact merged checkout: Windows **35** native tests in **3.112 seconds**;
+Linux **43** native plus **43** wrapper tests in **3.153 / 3.643 seconds**;
+macOS **43** native plus **43** wrapper tests in **2.938 / 3.611 seconds**.
+Each suite has zero failures/errors/skips; each real checker reports success.
+The PR-only breaking-waiver step is excluded on push, retaining its passing
+reviewed-PR result. Windows excludes the two wrapper steps in each inventory,
+provenance, field, naming, marker and manifest job. These workflow exclusions
+are separate from unittest skips; the full Linux gate job does not establish
+native Windows acceptance for the remaining gates.
+
+Private UTF-8 logs and sanitized summary are retained in `native-readme-inventory-candidate-bd08628a`.
+Native regression log SHA-256 is
+`613449955f349326868c57430f001557be696b4575df945d027c94d9dde38dbf`;
+real-repository log SHA-256 remains
+`66c541dc6711646ce95243035b6864c4bbf41a7e420bb65c0ca53923ea1091e4`;
+acceptance-summary SHA-256 is
+`fb80bf2233fbb730eb329cc3f8525841c98e41aa22f7b694c4a78b01b2a9eb90`.
+
+Documentation checks pass all **73 relevant tests** in **0.336 seconds**
+(0.444 including startup), without failures/errors/skips. Local links,
+public evidence URLs, retained log hashes, privacy and whitespace are checked.
+UTF-8 documentation-test log SHA-256 is
+`52f9c50c454cb24b9323386954f59cb2496d71b43f4b772e6afd3df3ffbacbe6`.
+
+**Next:** gate 12 is dispatched to the existing Farm-Contract-rooted task on a
+separate branch, preserving the actual pinned OpenSpec CLI, both startup coverage
+selftests, its lower-bound coverage assertion and the existing skip_specs warning
+inventory. Gate 10 now has merged native entry-point evidence. Gates **3 and 12**,
+native backend paths and actual worker/live release prerequisites remain pending.
+Production feature enablement and deployment remain outside this authorization;
+parked jobs and unmerged test drafts remain unchanged.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
@@ -4116,11 +4181,11 @@ Remaining release prerequisites:
    preserving all 600 exported files; all 13 merge-head CI jobs succeed.
    Gate 9 is merged in #323 as `ea30dd9`; all 39 exact-merged-source Windows
    tests and the real 34-spec provenance check pass, preserving all 602 exported
-   files; all 16 merge-head CI jobs succeed. Gate 10 candidate #324 passes all
-   35 native Windows tests, 26 parent fixtures, the real 60-file/60-row inventory
-   check and all 19 candidate CI jobs; operator-approved code merge and
-   exact-merged-source acceptance are pending. Gates 3 and 12 still need native
-   ports, with gate 12 next after that acceptance.
+   files; all 16 merge-head CI jobs succeed. Gate 10 is merged in #324 as
+   `5cf4c7e`; all 35 exact-merged-source Windows tests and the real 60-file/60-row
+   inventory check pass, preserving all 604 exported files; all 19 merge-head
+   CI jobs succeed. Gates 3 and 12 still need native ports; gate 12 is dispatched
+   to the existing Farm-Contract-rooted task.
 4. Check the selected service account's symlink capability and relevant native
    ownership/process checks, then complete Windows desktop Unity acceptance.
    The elevated offline baseline does not certify the ordinary token or a
