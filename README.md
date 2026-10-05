@@ -172,8 +172,13 @@ otherwise the operator must accept and record that exposure before enabling `fea
 and Unity children also withhold the credential variables and configured kw_ops token. On Windows,
 lark-cli protects secrets per Windows user, so a separate home isolates nothing; the production
 host must verify its selected credential route inside a real worker before enabling `feature`.
-Native Windows Codex homes require the elevated sandbox; this change does not provision it or enable
-feature on a host.
+Native Windows Codex homes explicitly select the private host setting `codex_windows_sandbox`,
+defaulting to `"elevated"`. A host may explicitly select `"unelevated"`, the restricted current-user
+backend, after verifying its worker tools and write boundaries. This choice applies to all Codex
+skills on the host; it provides weaker read and network isolation than elevated mode and does not
+isolate that user's credentials. Disabled or implicit sandbox modes are refused, and a failed
+backend never triggers an automatic fallback. macOS and Claude launches are unaffected. Changing
+this setting requires a settled service restart and does not provision a sandbox or enable feature.
 
 ## AI/operator diagnostics
 

@@ -10,6 +10,36 @@ from unittest.mock import patch
 from agent.config import LARK_CLI_SKILLS, Config, load_config, require_lark_cli
 
 
+class CodexWindowsSandboxConfigTests(unittest.TestCase):
+    def test_default_and_explicit_native_modes(self):
+        self.assertEqual(Config("c", "s", "w").codex_windows_sandbox, "elevated")
+        for mode in ("elevated", "unelevated"):
+            with self.subTest(mode=mode):
+                self.assertEqual(Config("c", "s", "w", codex_windows_sandbox=mode).codex_windows_sandbox, mode)
+
+    def test_disabled_implicit_and_invalid_modes_are_refused(self):
+        for mode in (None, True, False, 0, "", "disabled", "auto", "mxc", "Elevated", "unelevated ", [], {}):
+            with self.subTest(mode=mode), self.assertRaisesRegex(ValueError, "codex_windows_sandbox"):
+                Config("c", "s", "w", codex_windows_sandbox=mode)
+
+    def test_private_config_preserves_explicit_choice_and_rejects_invalid_choice(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "config.json"
+            data = {"client_id": "c", "client_secret": "s", "webhook_secret": "w",
+                    "codex_windows_sandbox": "unelevated"}
+            for mode in ("elevated", "unelevated"):
+                data["codex_windows_sandbox"] = mode
+                path.write_text(json.dumps(data), encoding="utf-8")
+                self.assertEqual(load_config(path).codex_windows_sandbox, mode)
+            data["codex_windows_sandbox"] = "disabled"
+            path.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "codex_windows_sandbox"):
+                load_config(path)
+            del data["codex_windows_sandbox"]
+            path.write_text(json.dumps(data), encoding="utf-8")
+            self.assertEqual(load_config(path).codex_windows_sandbox, "elevated")
+
+
 class LarkCliConfigTests(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix="飞书 配置 ")

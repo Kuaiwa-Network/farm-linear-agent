@@ -159,13 +159,18 @@ class Launcher:
     # How long an unreadable process table is retried while the exited worker stays unreaped.
     settle_retry_seconds = 60.0
 
-    def __init__(self, runs_root, runtime, host, clock=time.time, token_env=None, lark_cli=None):
+    def __init__(self, runs_root, runtime, host, clock=time.time, token_env=None, lark_cli=None, *,
+                 codex_windows_sandbox="elevated"):
+        if (not isinstance(codex_windows_sandbox, str)
+                or codex_windows_sandbox not in ("elevated", "unelevated")):
+            raise ValueError("codex_windows_sandbox must be elevated or unelevated")
         self.runs_root = Path(runs_root)
         self.runtime = runtime
         self.host = host
         self.clock = clock
         self.token_env = token_env
         self.lark_cli = dict(lark_cli or {})
+        self.codex_windows_sandbox = codex_windows_sandbox
         self._handles = {}
         self._stopping = {}
         self._jobs = {}
@@ -229,7 +234,7 @@ class Launcher:
             settings["features"] = {"memories": False}
             if os.name == "nt":
                 # An isolated CODEX_HOME must not inherit a disabled native sandbox default.
-                settings["windows"] = {"sandbox": "elevated"}
+                settings["windows"] = {"sandbox": self.codex_windows_sandbox}
             # codex exec records `trust_level = "trusted"` here for a cwd it has no decision for, then loads the
             # repository's own .codex/config.toml: measured, its MCP servers start and send any inline
             # credentials; per Codex's trust prompt, project hooks and exec policies load too. The literal --cd

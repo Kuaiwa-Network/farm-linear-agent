@@ -71,8 +71,16 @@ runs can read the bot secret; Feishu permissions must restrict the app to the in
 The prompt carries only `tools.lark_cli: {"authentication": "environment"}`; a missing source is an
 unavailable tool, never a fallback to a local profile. Profile launches carry profile/home; other skills
 get neither grant. No app ID or secret value is written to the prompt, Codex config or process record.
-Native Windows Codex homes explicitly select `windows.sandbox="elevated"`; provisioning and actual
-worker acceptance remain host checks, and no weaker sandbox is selected to make credentials work.
+Native Windows Codex homes explicitly write `windows.sandbox` from the host's
+`codex_windows_sandbox`, which accepts exactly `"elevated"` (the default) or `"unelevated"`.
+The latter selects Codex's restricted current-user backend and requires separate tool and write-boundary
+acceptance. It offers weaker read and network isolation than elevated mode and does not isolate the
+service user's credentials. The choice applies to every Codex skill and resume on that host, retains
+the same worktree/state write roots, untrusted project settings and Job Object containment, and adds
+no authority. Disabled and implicit modes are refused; startup or tool failure never selects a fallback.
+Provisioning and actual worker acceptance remain host checks. Other platforms and runtimes do not
+write this Windows setting. No state schema changes; an older revision ignores the new host key and
+uses its own sandbox selection, so settle workers and verify that selection before rollback.
 This adds no schema migration. Rollback requires settling workers and restoring a profile-only config
 before running a revision that rejects the environment variant. An older revision ignores the key and
 passes credential variables on. On a host that enables
