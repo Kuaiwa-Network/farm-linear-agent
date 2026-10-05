@@ -5325,16 +5325,382 @@ macOS (19 skips):
 | `test_worktrees.ControllerGitTests.test_cleanup_refuses_a_junction_in_the_item_directory` | junctions are Windows' |
 | `test_worktrees.ReadCheckoutTests.test_a_junction_is_refused_as_a_symlink_is` | junctions are Windows' |
 
+### Independent native MXC boundary check (2026-10-05; partial)
+
+The operator ran the prepared dummy-only verifier from ordinary PowerShell
+outside Codex on the **production Windows PC**, using the separate development
+checkout and new scratch state. At **2026-10-05 12:45:07 UTC**, the verifier tested
+FarmBot `d0f16c50303c55da312af459cbda57ce2bfd8a6d` with native Python **3.13.16**
+and `PYTHONUTF8=1`. The selected packaged Codex **0.160.0** image is pinned by
+SHA-256 `37762753b554982eef1c109303d1be652b6397f1479e844794353a85650199c6`.
+The full check passes in **2.841 seconds**, without Bash, MSYS or WSL.
+
+The verifier uses FarmBot's real Launcher/Windows gate and Job Object, disables
+auth seeding, and injects an offline permission profile with explicit work/state
+write grants. Its command selects `windows.sandbox="mxc"` for a native Python
+child through `codex sandbox`. FarmBot's generated config still selects
+`elevated`; this is an alternative-backend evaluation, not a changed launcher
+default, model worker or deployment. No application code is changed. MXC is an
+optional evaluation, not a release prerequisite; the operator subsequently
+selected verification of the existing fixer-style Windows launch approach.
+
+| Attempt | Seconds | Completion | Contained processes | Settlement |
+| --- | --- | --- | --- | --- |
+| Normal completion | 2.264 | Exit 0, reason `exited` | Six; native child and its descendant both in FarmBot's Job | Empty Job; both observed processes exited |
+| Cancellation | 0.270 | Exit 1, reason `stopped` | Six; native child and its descendant both in FarmBot's Job | Empty Job; both observed processes exited |
+
+On **both attempts**, all five intended writes succeed: workspace file creation,
+file modification and directory creation, plus attempt-state file and directory
+creation. All five forbidden writes fail with access denied: sibling file
+modification and creation, controller-clone config and hook modification, and
+foreign-attempt modification. These clone metadata targets are scratch sentinel
+files, not a real Git worktree acceptance check. The workspace includes spaces
+and Unicode. The verifier's unrelated owned control process survives each
+attempt, and the Launcher retains zero running attempts after settlement.
+
+Dummy feature app/secret values reach only the intended child environment with
+strict bot mode. The source alias, auth-proxy selector and user-token selector
+are withheld; no auth file is seeded and no credential value appears in generated
+config. The protected Codex registration and every forbidden-write sentinel
+remain byte-identical. No production config or ledger, real credentials, model,
+Feishu, account setup, service mutation, app setting or deployment is accessed.
+Both attempts retain the same non-fatal Python executable-location diagnostic
+on stderr; its cause is not established and it is not treated as tool
+compatibility acceptance.
+
+The earlier Codex-context control at the same revision took **2.845 seconds**:
+containment, cancellation and forbidden-write denial passed, but all five
+intended writes failed on each attempt. The independent pass establishes these
+boundaries for this ordinary PowerShell launch context. It does not repair
+registered elevated package/home admission or establish compatibility in every
+launch context. Historical MXC/MSYS results above remain unchanged; this native
+check invokes none of those tools.
+
+Private UTF-8 evidence, its verifier source and sanitized summary are retained
+under `native-mxc-boundaries-435f3947`; the context control is
+`native-mxc-boundaries-c5ca3049`. Checked independent log hashes:
+
+| Log | Bytes | SHA-256 |
+| --- | --- | --- |
+| Completion stdout | 1098 | `024708c901a15eddbdf897b683b8c4e8f1b738547445f7793584cf107ca9b081` |
+| Completion stderr | 127 | `04415aab70dc179350d9ef6f28b9143c66f723baac27ee8e1196ec5b775d022f` |
+| Cancellation stdout | 1098 | `b079c4c7aec5390751f7fdf28ee972e05ea01e311b65515da73f95798bbb67f6` |
+| Cancellation stderr | 127 | `04415aab70dc179350d9ef6f28b9143c66f723baac27ee8e1196ec5b775d022f` |
+
+No host paths, SIDs, credential values or raw logs are committed. This closes
+the independent native MXC write/containment boundary probe only. It does not
+certify the production installation or complete
+[Task 17](../plans/2026-09-28-feature-workers-phase-b.md#task-17-verification).
+
+### Existing fixer Windows launch comparison (2026-10-05; partial)
+
+The operator selected this comparison instead of treating MXC as a release
+requirement. Read-only inspection on the production Windows PC found one
+controller with the same **2026-09-30 09:01:53 UTC** process start. Its service
+heartbeat retains clean startup revision
+`9f7db3e9a835ea61dfcdba3cbde2399989a62efe`; the heartbeat stores this revision
+at startup rather than re-reading HEAD on every write. There was no owned
+Codex worker or worker gate to inspect. Reading newer files from the installation
+therefore does not establish which launcher the running controller loaded.
+No production configuration, ledger or credentials were read.
+
+That immutable startup launcher requests `workspace-write`, explicit worktree
+and state roots, a fresh `CODEX_HOME`, and Windows gate/Job containment. It does
+not select `windows.sandbox`. Merged
+[FarmBot #81](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/81)
+(`e8406d547c2663703f34b007f79f306cce35b362`) subsequently forced `elevated`
+for both fix and feature. Successful multi-repository fixes establish useful
+repository access, not whether writes elsewhere are blocked.
+
+Fresh credential-free configuration and standalone `command/exec` probes ran
+from the separate development checkout at FarmBot
+`d0f16c50303c55da312af459cbda57ce2bfd8a6d`, Python **3.13.16**, `PYTHONUTF8=1`.
+The ordinary PATH-selected Codex shim still matches the previous selection;
+its verified native **0.156.1** image has SHA-256
+`70bcb05f9bf1a4e7306edd0cd1b57d02af3267ad02a34b26f45c8c4bb20a3301`.
+The independently selected packaged **0.160.0** image retains SHA-256
+`37762753b554982eef1c109303d1be652b6397f1479e844794353a85650199c6`.
+An initial verifier selection error confused a separately PATH-resolvable
+`codex.exe` with the ordinary `codex` shim; it stopped before any CLI attempt.
+Correcting that private verifier lookup preserved both pinned image checks.
+
+The **1.756-second** configuration-only run at **2026-10-05 13:44:34 UTC**
+checked both images with the old implicit setting and an explicit `unelevated`
+comparison. All four `config/read` calls succeeded. The implicit setting kept
+`sandbox_mode="workspace-write"` but selected no Windows mode; both effective
+native sandbox feature flags were false on both versions. The comparison at
+**13:45:11 UTC** took **6.035 seconds**: each implicit command succeeded at
+all ten writes, including the five forbidden targets. This is a failed write
+boundary check, not native sandbox acceptance or proof of the live fixer's
+effective worker settings.
+
+Both initial `unelevated` commands were rejected before child execution with
+RPC `-32600`, `custom outputBytesCap is not supported with windows sandbox`.
+The focused retry removed only that unsupported transport option, retaining
+the legacy workspace-write roots. At **13:46:14 UTC**, both native
+`unelevated` commands passed in **5.392 seconds** total:
+
+| CLI | Seconds | Intended writes | Forbidden writes | Process settlement |
+| --- | --- | --- | --- | --- |
+| 0.156.1 | 2.441 | All five succeed | All five denied | Child and descendant in owned Job; both dead and Job empty after cleanup |
+| 0.160.0 | 2.451 | All five succeed | All five denied | Child and descendant in owned Job; both dead and Job empty after cleanup |
+
+The intended writes cover workspace create/modify/mkdir and state create/mkdir.
+The denied targets are sibling create/modify, fake controller clone config and
+hook modification, and a foreign-attempt marker. The workspace name includes
+spaces and Unicode; denied markers remain byte-identical. Each CLI starts
+behind FarmBot's gate, assigned to an owned Job before the handshake. Readers
+join, every owned Job empties, no auth file is seeded, and application launcher,
+gate and protected Codex registration remain unchanged. This uses reconstructed
+old settings with network disabled and a file-only credential store in an empty
+home; it does not start a model thread/turn, call Feishu, provision accounts,
+change app settings, restart a service or deploy. Native unelevated startup has
+its normal scratch ACL and NUL-device ACL handling; it is not an elevated
+account/provisioning path.
+
+Private reports `native-legacy-worker-5d62b5b9878e`,
+`native-legacy-worker-7b7a83f33084` and `native-legacy-worker-c68fde23ba15`
+retain the UTF-8 logs, source copies, image checks and every measured result.
+The focused verifier source SHA-256 is
+`4e6e87fb9753d738ed79b25a9b26eb3e59df4869c8d3a27f18c30e99bca4cd7e`.
+All 60 recorded logs passed strict UTF-8, size and SHA-256 checks.
+
+| Standalone RPC log | Bytes | SHA-256 |
+| --- | --- | --- |
+| 0.156.1 implicit | 8262 | `fd5649a68342c74fee43d3322d1e67c15f5bac2265dfb80815fe54d25cc7be1f` |
+| 0.160.0 implicit | 8252 | `ae2ad18f13009cf189774c5a52a3297bf9ea0680bb9b561ec9a4cccf316eb526` |
+| 0.156.1 unelevated retry | 8656 | `64f06671d2a87809d376b02af8fce4780d360220dfb7c776c1d9a60635f32ac4` |
+| 0.160.0 unelevated retry | 8645 | `0db8bfcb25f108e6a68ebdd167822f793f765dab4adbc4ae8cd4bd0540c3ec7d` |
+
+The supported native `unelevated` option is now a measured candidate without
+MXC. It uses a restricted current-user token with weaker read/network isolation
+than elevated, as described in the
+[Windows sandbox documentation](https://learn.chatgpt.com/docs/windows/windows-sandbox).
+The configured offline network setting is not a firewall test. These standalone
+command results do not certify actual `codex exec` model-worker startup, the live
+fixer, Scheduler Stop/undelegation or real Feishu access.
+FarmBot's merged launcher still selects elevated; no application change has
+been made.
+
+**Real Git worktree comparison:** at **2026-10-05 14:01:47 UTC**, both pinned
+images passed in **9.702 seconds** total (0.156.1: **4.891 seconds**; 0.160.0:
+**4.261 seconds**), using fresh local origins and the real controller's
+`Worktrees` helpers. The exact grants cover assigned worktree/state, dummy
+ledger directory, clone objects/refs/logs/LFS and the assigned worktree's own
+metadata. They do not grant the whole clone, worktrees parent, foreign worktree
+or read-only checkout. Each native child edited, staged, committed and read back
+an assigned source change; created owned state and an LFS-store sentinel; and
+finished with a clean worktree and controller clone allowlist.
+
+All **13 protected write-handle checks per CLI** were denied with `errno=13`:
+clone config and its lock, hook, attributes, packed refs, foreign metadata
+creation, foreign HEAD/index/source, read-only source/config, origin source and
+foreign item state. Existing bytes and absent-file markers stayed unchanged.
+Child and sleeping descendant were in the owned Job and both dead after cleanup;
+Jobs emptied, readers joined and no auth was seeded. Hooks, fsmonitor, signing
+and credential helpers were disabled; there was no remote publication. Private
+report `native-unelevated-worktrees-9f578f60bcf2` retains the exact source and
+all eight checked UTF-8 logs. Its verifier SHA-256 is
+`a881ad399cfc136e6a42f604bffa5305d0449e9db012ef1ffdb3bf205670f7b4`.
+The 0.156.1/0.160.0 RPC logs are **15948/15897 bytes**, SHA-256 respectively
+`138c83e9a7f8b1fb52b0db8466f327287be5eb0bade4f00022e6c3a9c6568da7`
+and `603379fa2820552724549b9c9b27802b8ac084f43a46c7f97f97230b1d4f87d2`.
+
+**Native common generator comparison:** an initial direct `codex sandbox`
+attempt at **13:54:35 UTC** is not used as acceptance: it exited before the
+child after **0.753 seconds** because that command requires a named permission
+profile (private report `native-unelevated-common-1563b46ee7`). The corrected
+private harness uses standalone app-server `command/exec`, retaining the
+generated legacy workspace-write policy with no permission profile or policy
+override. At **2026-10-05 14:02:35 UTC**, native Codex **0.160.0** completed
+all **11 checks** in **40.187 seconds** at common
+`b367febe20d6db65ebb386aa871bdb2671df9525`. Go **1.25.1**, Git
+**2.54.0.windows.1**, protoc **35.1**, source revision, native CMD/temp control,
+version/inventory, and both generation/verification profiles exited zero:
+
+| Profile | Generate seconds | Verify seconds | Files including manifests | Aggregate SHA-256 |
+| --- | --- | --- | --- | --- |
+| `farm-hive` | 9.906 | 2.734 | 189 | `d2e0920f380690c56c3f4e0e98de63bbde761d84aa0e0afa028caee6ca844d84` |
+| `farm-hive` + `unity-client` | 8.034 | 2.875 | 597 | `213967c11a5832ecefc19a864450946440603647903d0b66737b53150a742d16` |
+
+The real FarmBot Launcher contains the private RPC driver and native child;
+the app-server also uses a nested gated Job. Both Jobs empty, the child dies and
+controller running attempts return to zero. Only owned work/state roots are
+granted. All three protected write-handle checks deny access (common source
+module file, clone config and a prepared module-cache file). Common's tracked
+files and complete Git metadata stay unchanged, as do protected cache inputs,
+registered runtime receipt and application launcher. Temp/build cache/output
+are owned, module downloads are disabled, and Go telemetry is disabled by an
+owned mode file. No Bash/MSYS/WSL, model turn, authentication, account setup or
+production change occurs. Private report `native-unelevated-common-27d2acf06d`
+retains source, driver, per-command UTF-8 logs and artifact hashes. These are
+profile-specific generator results, not common producer release acceptance.
+An independent audit recomputed every generated hash and found all **597**
+combined-profile files identical in path and bytes to the earlier standalone
+acceptance at the same common revision. It checked all **13** summary-bound
+logs' strict UTF-8, sizes and SHA-256; four additional RPC/command logs are
+preserved separately. The outer stdout is **623 bytes**, SHA-256
+`abde1d718c3e9f517f72db5246b7bbd171f58ab1f4edaa68039799cde4d6dfb0`;
+outer stderr is empty. The entire prepared module cache was not snapshotted;
+the unchanged-cache claim covers the protected input checks above.
+
+**Contract/backend initial cache failure:** private report
+`native-unelevated-contract-backend-7883a8dee2`, checked at
+**2026-10-05 14:17:47 UTC**, took **37.250 seconds** and exited **1** before
+the first Go version command. Windows process creation returned **WinError 5**;
+no generator or gate ran. The fixture was archived from exact merged backend
+`0970063f57567d18e39ef95945a21c8f2c4d43ed`, tree
+`24337267efe2201bb4a0b089827969e12bbc202b`, with clean local Contract
+`71dadaed8d111219e7170ab6712d97bbb28d8925` as read-only input. All eight
+protected write handles denied access. Source/metadata/selected-cache hashes
+stayed unchanged; both Jobs emptied and no auth was seeded.
+
+The focused native **0.160.0** cache control, private report
+`native-unelevated-go-cache-control-1e58699bf6`, at **14:23:01 UTC** took
+**1.528 seconds**. The Common SDK runs, while the backend cache SDK fails
+with WinError 5; reads of that SDK and two dependency source files also deny
+access. All six protected write handles deny. Both Go binaries are identical,
+**15313408 bytes**, SHA-256
+`a6450f128e096d51d24f786e0e72eca13d6b9c48f9a2bd1cc0de4913e53f566a`;
+both run as the controlling development process. Read-only ACL inspection
+finds the backend cache inherits owner access through `OWNER RIGHTS` alongside
+system/admin access; the working cache also has an explicit current-owner
+grant. This establishes a restricted-token cache access gap before generator
+code runs, not a generator regression. The control's exit zero means its
+comparisons and containment completed, not backend generation acceptance.
+Existing cache ACLs and write grants were not changed. The next retry stages
+verified dependencies as new read-only inputs outside worker write roots.
+
+**Read-only cache staging and retry:** controller-only preparation at
+**2026-10-05 14:29:32 UTC** took **110.840 seconds**, copying **9596 files**
+and **191947181 bytes** from the prepared cache into new input storage outside
+both worker write roots. Every selected path, size and byte hash matches.
+Duplicate SDK/download artifacts and VCS cache are excluded; the already
+readable Go 1.25.1 SDK remains separately pinned. No original-cache write,
+ACL change, network call or extra worker grant occurs. No DOS read-only flag
+is added, so subsequent denied writes test the sandbox boundary. Private report
+`native-backend-module-input-stage-92b63a4b80` retains the full manifest,
+SHA-256 `0787a6dfff0823b386c49f8ac7f530e109bfa56dad33d9e8c645abdb7d12fa3e`.
+An independent audit checks **19192** source/destination file hashes, private
+audit SHA-256
+`aa73ffd7d699f263213bf9d384185039d741f56cb5ff5bcc3b975692ae05a8f1`.
+
+The retry at **14:32:29 UTC**, private report
+`native-unelevated-contract-backend-c816d3b0c0`, took **38.817 seconds**:
+both required dependency reads now succeed; all **13** protected write handles
+deny access. Go/Git/protoc/buf versions and Contract buf build/lint/manifest
+checks pass. The descriptor is **827410 bytes**, SHA-256
+`59780bce48d46211931c0eda375af989f0837040732740a16e4365596f1c75b6`.
+Backend full protobuf synchronization exits **1** after **0.117 seconds** with
+**WinError 5** on its owned temporary directory. This is a distinct failure
+from the inaccessible cached SDK. No protobuf/registry output or subsequent
+gate acceptance is claimed. The failure log is **220 bytes**, SHA-256
+`03193aaf7745b548aba65ca76519b4e8fcf6937d499c0fc463011d5223c44535`.
+The complete staged cache, original selected inputs, source/metadata and runtime
+receipt remain unchanged; both Jobs empty and the child dies. Native Python
+temporary-directory behavior is the next focused investigation.
+All **23** preserved retry logs pass strict UTF-8, and all ten summary-bound
+logs match sizes/hashes. The private retry audit SHA-256 is
+`8da60d50226a0a698d76b70a5c8666ad4c177da2142dd9271879ac7105136a02`.
+
+**Focused Python temporary-directory comparison:** at
+**2026-10-05 14:40:30 UTC**, private report
+`native-unelevated-tempfile-602c9279a40f` completed in **5.333 seconds**
+(0.156.1: **2.466 seconds**; 0.160.0: **2.405 seconds**). All three cases use
+the same explicitly granted owned TEMP. On both images, `tempfile.mkdtemp`
+and `os.mkdir(mode=0o700)` create the directory, but the worker cannot list it,
+write a file inside it or delete it (`errno=13`/WinError 5). Default
+`os.mkdir` with inherited permissions passes create/list/file write/read/delete
+and directory deletion. The ordinary file control also passes; both protected
+outside write handles deny with `errno=13`. Child/descendant containment,
+Job emptiness, reader settlement and unchanged sentinels/receipt all pass.
+
+Python 3.13 gives Windows mode `0o700` special access-control behavior, unlike
+other mode values, as documented in
+[Python's mkdir reference](https://docs.python.org/3.13/library/os.html#os.mkdir).
+The measured contrast isolates this private-directory behavior under native
+unelevated execution. No fallback, monkeypatch, ACL repair, skip or generator
+change was used; exit zero means the comparison completed, not that private
+directories or backend generation passed. Created inaccessible directories
+remain private diagnostic evidence. The frozen verifier SHA-256 is
+`dc99d08b4759e946087f2d0aa20fea19fa9c44ef2617537359fc9c96e042d3f5`;
+its checked UTF-8 RPC logs are **11372/11350 bytes**, SHA-256 respectively
+`5a7ae8c9a708f12b829041d44d10bef93a494378927db21ced45ca376458d9aa`
+and `4360706a2d6cbd51f9722c60840b5681807d43368de7a865b274c42b3ceb3f01`.
+The next concrete code task is a reviewed Windows temporary-workspace helper
+that preserves the assigned root's inherited runtime permissions, exclusive
+creation and ownership/reparse checks; POSIX private-directory behavior stays
+separate. Prove it with focused regression and native backend generation tests
+before accepting an unelevated launcher integration. Do not globally change
+`tempfile` or broaden worker write roots to make the check pass.
+
+**Cancellation and link capabilities:** at **2026-10-05 14:21:56 UTC**,
+private report `native-unelevated-cancellation-links-5203e7b6eb85` took
+**1.495 seconds** (0.156.1: **0.521 seconds**; 0.160.0: **0.468 seconds**).
+Explicit owned-Job cancellation passed on both images: native child and
+descendant die, worker Job empties, reader joins and a separate owned control
+Job survives until its own cleanup. This exercises `OwnedProcess.cleanup`,
+not Scheduler Stop or undelegation. All five measured protected write handles
+per CLI deny with `errno=13`, including modify/create through a junction.
+The scratch junction is created and removed without following its target;
+protected bytes and absent-file markers remain unchanged.
+
+File and directory symlink creation, including outside-target aliases, fails
+with **WinError 1314** on both images. Those alias checks therefore did not
+run; overall link acceptance is **failed**, separately from passed cancellation.
+No skips, privilege grants or host setting changes were added. Ordinary-worker
+symlink/ownership acceptance remains pending; successful junction checks and
+elevated fixtures do not fill that gap. The verifier SHA-256 is
+`1bbe47794438592017e6f5c2e59cfe215f632577b9df8f571bddb6dc9b74af9d`.
+Its checked UTF-8 RPC logs are **8737/8720 bytes**, SHA-256 respectively
+`2fa8e5e7525212ccfbc434783c03aa45c1e7b4fa0d80edddebfdb1440b147ccb`
+and `461b84bc7b2975f70191c928aeedac8c3328a7edfb03e35d948bc7a6d049f66f`.
+The separate private cache/cancellation audit checks all **18** preserved UTF-8
+logs, their bound hashes and frozen source copies, SHA-256
+`9a09b68f7c57a8412e8ce2649532db816f583742953eaa2c522b31d33a5b519d`.
+
+**Record validation:** **73** skill/reference tests pass with no failures,
+errors or skips in **0.449 seconds**. The UTF-8 test log SHA-256 is
+`a2217e7b248d4d3bebb6403aa1104c631e5dc6c35b3adcf1b2be9ea905da25d9`.
+The rendered documents' **54** local links resolve; new record anchors,
+whitespace and private-host-identity checks pass. An independent private audit
+retains all **25** Git/common logs' hashes and UTF-8 checks, source checks and
+the standalone artifact comparison, SHA-256
+`1ff818893b9a06da145516135bdba1e8ca09f50436e8a6379849ed703fd2151b`.
+Application code is unchanged, so the full offline suite is not repeated for
+this documentation-only record.
+
+**Proposed integration:** expose an explicit host-level Codex Windows backend
+choice, retaining elevated as the default and accepting only elevated or
+unelevated. Do not omit the setting, select MXC or automatically fall back after
+an error. Fix, chat and feature share the launcher, so this belongs to the host
+configuration rather than per-skill model settings. A separate implementation
+must preserve fresh homes, exact write grants, credential filtering, untrusted
+project settings and owned Jobs, and test config validation and service wiring.
+Unelevated does not support restricted reads; these probes do not establish
+same-account DPAPI credential or controller-process-memory isolation.
+
 Remaining release prerequisites:
 
-1. Resolve the supported native Codex isolated-home launch integration while
-   preserving owner/CLI identity, fresh config, explicit filesystem grants and
-   Job Object containment. Registered package/home admission remains the hard
-   blocker; metadata and dummy-helper success do not certify a real Codex child.
+1. Verify a supported native Codex launch with a fresh isolated worker home and
+   config, explicit filesystem grants, ownership checks and Job Object
+   containment. The merged launcher selects elevated; registered elevated
+   package/home admission remains unresolved for that backend. MXC is optional,
+   not a release prerequisite. The operator selected verification of the older
+   fixer-style launch approach. Reconstructed implicit settings failed all five
+   forbidden-write checks; explicit native unelevated passed the scratch
+   boundary and real Git comparisons above. Actual model-worker integration and
+   acceptance remain pending; successful fixes alone do not certify those boundaries.
 2. Run the selected native generators/gates in that actual ordinary-token worker:
    pinned tool selection, prepared read-only module cache, owned build cache,
    read-only siblings, exact hashes/output sets, failure preservation and process
-   settlement. Repository native ports are merged; sandbox acceptance is pending.
+   settlement. Repository native ports are merged; real Git worktree/clone
+   protections and common profile generation now pass in standalone commands
+   with native unelevated enforcement. Contract buf/manifest checks now pass.
+   Fix the measured Python private-directory incompatibility without broadening
+   grants, then rerun backend protobuf/registry and applicable gates. Actual
+   model-worker integration and failure/Scheduler Stop/undelegation cases remain
+   pending. Standalone owned-Job cancellation is measured separately above.
    Common producer acceptance/publication remains the supported Linux/Jenkins
    workflow, with applicable CI and approved release provenance.
 3. Verify the operator-selected current-account FarmBot-only DPAPI profile in
@@ -5342,13 +5708,15 @@ Remaining release prerequisites:
    planning-document, attachment and Word conversion reads. Real Feishu access
    is untested. The store variant requires an account with only the FarmBot profile;
    the alternative feature-only `app_id`/`secret_env` variant was implemented in
-   merged #81 after the initial handoff. Neither these profile-only scratch probes
-   nor offline environment-credential tests certify real worker access. Verify the
+   merged #81 after the initial handoff. Neither profile diagnostics nor offline
+   environment-credential tests certify real worker access. Verify the
    selected variant without switching credentials or accounts. The chosen account
    remains the operator's current account; do not configure another one.
-4. Complete ordinary-token worker symlink/ownership and Windows desktop Unity
-   acceptance. Elevated fixture results and hosted CI do not certify this token,
-   a future service account or a real desktop Editor.
+4. Resolve the measured ordinary-token symlink capability gap (WinError 1314),
+   complete ownership/alias checks, and perform Windows desktop Unity acceptance.
+   Elevated fixture results and hosted CI do not certify this token, a future
+   service account or a real desktop Editor. Any host privilege or setting change
+   requires its own operational authorization; none is performed here.
 5. Finish the operator's private output/log/comment/PR scan and scoped TestBot
    restoration, preserving ledger/history/recovery evidence. FARM-1346 and
    FARM-1425 stay parked; Contract #318 and backend #353 stay unmerged test
