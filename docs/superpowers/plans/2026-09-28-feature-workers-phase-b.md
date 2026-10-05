@@ -630,6 +630,21 @@ Gates 3, 10 and 12, native backend paths and actual worker/live release
 prerequisites remain pending. No production, credential or parked-job action
 occurs.
 
+**2026-10-05 merged provenance-gate acceptance:** The operator merges
+Farm-Contract #323 as `ea30dd9`; its full Git tree matches reviewed source
+`272e06b`. Independent ordinary-token Windows verification of the exact merged
+export passes all 39 tests without skips, executes all ten actual junction
+fixtures, accepts 34 main specs and preserves all 602 exported files. All 16
+merged push CI jobs succeed; the PR-only breaking step retains its earlier
+passing PR result. The
+[merged provenance record](../spikes/2026-10-03-native-windows-offline.md#native-windows-merged-contract-provenance-gate-acceptance-2026-10-05)
+retains timings, hashes and workflow exclusions. Gate 10 is dispatched to the
+existing Farm-Contract-rooted task on a separate branch, preserving both
+extractor selftests and both inventory mismatch directions, including
+duplicate-row multiset comparison. Gates 3, 10 and 12, native backend paths
+and actual worker/live release prerequisites remain pending. No production,
+credential or parked-job action occurs.
+
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
 it merged as [#78](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/78)
