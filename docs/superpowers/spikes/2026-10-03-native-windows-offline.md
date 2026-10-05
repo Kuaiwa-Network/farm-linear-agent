@@ -4452,6 +4452,132 @@ and scoped TestBot restoration remain release prerequisites. Client-stage
 acceptance still precedes UI authoring; production enablement/deployment requires
 separate authorization.
 
+## Native Windows backend local message candidate (2026-10-05)
+
+After exact merged Farm-Contract #326 acceptance, FarmBot record #120 is merged
+as `fe723d6d24a4653cfd98a647ca1ebfccea93c278`. A fresh separate farm-hive
+development checkout starts from main **`e24b6cbc4403e19c49bf13cc7766deaa49db5184`** (tree
+`b35a260771d5718b3d539368c763edbbe44dc31a`). Tests run on the production Windows
+PC with the ordinary current-user token, in owned development scratch exports;
+they do not read the production installation or certify its running worker.
+Python **3.13.16** starts with `PYTHONUTF8=1`; native Git is **2.54.0.windows.1**
+and Git LFS **3.7.1**. The global Go **1.24.9** is below this repository's pin.
+Private preparation downloads exact native Go **1.25.1** and public protobuf
+**v1.36.8**, taking **16.817 / 1.847 seconds**. Acceptance then runs offline with
+prepared caches, `GOENV=off`, `GOWORK=off`, `GOTOOLCHAIN=local`,
+`GOPROXY=off`, `GOSUMDB=off`, `GOFLAGS=-mod=readonly -buildvcs=false`, owned home/temp/AppData
+and sanitized FarmBot/Git/authentication selectors. No private dependency fetch
+or authentication occurs. Pinned protoc remains **35.1**.
+
+**Unchanged main primitives:** actual native `go test -json ./cmd/protoreggen`
+passes all **five tests**, without failures/errors/skips, in
+**11.355 seconds** including startup.
+Native `go run ./cmd/protoreggen` takes
+**1.886 seconds**, reproducing
+**59 registry files**, **58 packages** and **576 wire messages** byte for byte.
+All **4,658 source files** stay unchanged; complete preparation/export/checks
+take **65.406 seconds**. Direct native protoc/Go calls also reproduce
+all **58 message `.pb.go` files** with existing mappings/source-relative outputs
+in **2.446 seconds** (3.751 total), preserving
+all 4,658 source files. This primitive probe alone does not verify a native
+message entry point or either backend gate. Registry already has a native Go
+entry point; its Bash CI wrapper still needs its own native gate equivalent.
+
+**New code candidate:** farm-hive [#354](https://github.com/Kuaiwa-Network/farm-hive/pull/354)
+at **`1f892e84b85bed2c5cb2022f00cb590e4218e3ef`**, tree `cfaf8e8f4cc7525e2cfc09ded91e5f2571f0e850`, adds the explicit
+`gen-msg-protos.py --local` entry point, owned process helper, actual regression
+suite, scoped three-platform CI and README. Exactly five files change; all old
+Bash scripts, Go/module pins, protocol snapshots, manifests and generated
+artifacts retain their bytes. The new entry point reads the existing sole
+TARGETS table, runs four inherited branch-parser selftests, requires the declared
+branch and exact pins, preflights ordinary selected inputs/outputs/caches,
+refuses command shims, and disables downloads/credentials. It regenerates only
+selected `.pb.go` outputs; absence of `--local` refuses full synchronization.
+Windows launches suspended into a private Job; reviewed #326 runner functions
+are AST-identical. Other platforms use owned POSIX sessions. Output files and
+verified handles preserve bounded owned-process settlement.
+
+On a fresh exact-commit export, all **15 actual Windows tests** pass in
+**27.411 seconds**
+(27.558 including startup), zero failures/errors/skips.
+Commands use the selected Python executable with
+`-I -X utf8 -B tools/test_gen_msg_protos.py` and
+`-I -X utf8 -B gen-msg-protos.py --local --go GO_EXE --protoc PROTOC_EXE --gomodcache MODULE_CACHE --gocache BUILD_CACHE`.
+Actual full CLI reproduction from an unrelated directory takes
+**3.225 seconds** and preserves all
+**4,662 exported files**, including all 58 canonical outputs. The full exact
+export/check sequence takes **58.318 seconds**. Real fixtures cover
+source/tool/plugin-cache paths with spaces, Chinese text and emoji; poisoned
+inherited selectors; empty module-cache offline refusal; an actual junction;
+branch/pin/input/output errors; compile failure; argument-file injection; dead
+root/owned descendant settlement; and survival of another separately owned
+process. Junctions do not certify ordinary-token symlink privilege.
+
+**Measured failures and corrections:** the primitive probe initially assumed
+the POSIX plugin version basename; Windows correctly reports
+`protoc-gen-go.exe v1.36.8`. Correcting that strict probe expectation does not
+change a pin. The initial 12-test fixture run has one error from CMD path/output
+handling; canonical native CMD plus `/u` and UTF-16LE diagnostics correct it,
+and the focused actual junction check passes in **0.210 seconds**. The first
+hosted candidate `475e98d7` then runs 14 tests in **68.983 seconds** with
+**three failures**, zero errors/skips: the official Windows protoc turns Unicode
+argv paths into `??`. Linux/macOS pass that head. The successful MSVC development
+image had hidden this native-tool compatibility gap. The correction retains
+Unicode fixtures and uses protoc's native UTF-8 `@file`
+parser, one literal argument per line in fresh owned scratch, with CR/LF/NUL
+injection and file replacement refused. It changes no compiler image, locale,
+host settings, tool pin, source mapping or process containment. Strengthened
+emoji fixtures pass all **15 tests** locally with both the verified MSVC image
+(**27.401 seconds**) and official Windows release (**28.473 seconds**), with
+zero failures/errors/skips. The official image still has the separately recorded
+MXC stripped-relocation limitation; ordinary-token CLI success does not settle
+that future worker selection.
+
+[Final native CI run 37264673858](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37264673858)
+checks the exact final head. Windows/Linux/macOS each pass **15 tests** without
+failures/errors/skips in **65.748 /
+36.044 / 13.295 seconds**.
+Each also runs full native CLI reproduction and preserves all **4,662 files**
+with the same canonical source SHA-256 as the local exact export. All three use
+Python 3.13.16, Go 1.25.1, protoc 35.1 and protobuf plugin 1.36.8. Hosted Windows
+reports ANSI code page **1252** and Git **2.55.0.windows.5**; Linux/macOS Git is
+**2.55.0**. No native job
+or step is skipped. The workflow exercises this Python/process boundary without
+repeating Go package unit tests; PRs are scoped to its surface, while mainline
+pushes run fully. Existing backend CI remains required independently; its
+measured status is recorded with the final review before code merge.
+
+Private UTF-8 logs, before/after file hashes and summaries are retained in
+`native-backend-registry-e94bc4d4`, `native-backend-message-primitives-b2172e10` and `native-local-msg-candidate-99df9ded`;
+failed primitive/fixture/initial CI evidence is retained too. Candidate test-log
+SHA-256 is `df59947a67c06d12f9a04f03fe64a62a6bcf0871c6a79da7872fd1a5f50f3036`;
+CLI log SHA-256 is `10f6108163cea933d6c62c8c117705c086d3dd7278b279985b59abb4b39ca246`;
+summary SHA-256 is `7143e6e6a9d8e6c6d3687252a0add8f9a38aec5aa66da3dc1a9b7275c2f9616e`.
+Canonical full-source SHA-256 is `6ba485779a619f965ea275786f3afa09a565a9b44ffe113b6aa8f5316d1c2d3a`;
+the unchanged 58-file output-set SHA-256 is `3947c727f1a5a6f5f766f86336282b3bb6963edfa8b055932a57229a550d509f`.
+The 59-registry output-set SHA-256 is `2f29c9598a0758b1d69712ea36c55bdec4b263da2be7f09d6ee81671b1d3e9ae`.
+The selected MSVC protoc image remains
+`71b837c0c7e9a5ac1a833150f2ef4c9d97d456c5faabc0da66388ea1d204fb5a`; the official Windows image is
+`c77b7f5125113306ecde9b328e72466e5ca805a3974dbf10b9df91a35781e89c`.
+Evidence hashes, exact source, links, whitespace and privacy are checked.
+
+Documentation checks pass all **73 relevant tests** in **0.449 seconds**
+(0.557 including startup), without failures/errors/skips. UTF-8
+documentation-test log SHA-256 is `a2217e7b248d4d3bebb6403aa1104c631e5dc6c35b3adcf1b2be9ea905da25d9`.
+
+**Next:** merge the code candidate after applicable CI and accept its exact
+merged source, then implement the native backend offline message snapshot/
+reproducibility gate. Full contract synchronization and declared-line provenance,
+registry/intra-cluster gates, designer/config generation and gates, complete
+producer/publication, actual worker grants/runtime/credentials/real Feishu,
+ordinary-token symlink/desktop Unity, private secret scan, release provenance
+and scoped TestBot restoration remain pending. Client-stage acceptance still
+precedes UI authoring. No production config/ledger, credential access,
+Bash/MSYS/WSL invocation, service/account/app setting, deployment, live issue
+mutation or parked-job action occurs. Test drafts remain unmerged. Code merge
+and exact merged-source acceptance are pending; this record proves development
+CLI behavior on this PC and hosted runners.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
@@ -4552,9 +4678,13 @@ Remaining release prerequisites:
    pass without skips, preserving all 608 exported files; all 25 merged push
    CI jobs succeed. The reviewed candidate retains 11 actual breaking fixtures
    and four baseline cases. All Contract wrapper ports now have native merged
-   entry-point evidence. Backend generators/gates and complete
-   producer/publication acceptance remain pending; backend source inspection
-   starts from main `e24b6cb` in a fresh development checkout.
+   entry-point evidence. Backend main `e24b6cb` now reproduces 59 native Go
+   registry files and 58 message outputs without drift. Candidate farm-hive #354
+   at `1f892e8` passes 15 exact-source Windows tests and native three-platform
+   CI, preserving all 4,662 files; its UTF-8 argument-file fix resolves the
+   measured official-protoc Unicode argv failures. Code merge and exact merged
+   acceptance remain required. Full synchronization/provenance, native backend
+   gates, designer/config tooling and complete producer/publication remain pending.
 4. Check the selected service account's symlink capability and relevant native
    ownership/process checks, then complete Windows desktop Unity acceptance.
    The elevated offline baseline does not certify the ordinary token or a
