@@ -193,9 +193,11 @@ points elsewhere; set an absolute `local_root` when inspecting from another chec
 On a host whose config enables `feature`, the report also carries `tools.feature`: an entry per tool
 its workers run, each `{"found", "version", "required", "ok"}`, for Go (at least what farm-hive's
 `go.mod` in FarmBot's clone asks for, else 1.25.1), protoc 35.1, buf 1.72.0, Node 22 or later,
-openspec 1.7.0, `python3`, git-lfs, the dotnet SDK 8.0.423 (optional: only farm-common's acceptance
-script needs it), lark-cli with the configured profile, and on Windows bash, `sha256sum`, `mktemp`
-and `awk`; then the names under `missing` and `optional_missing`. A missing or wrong required tool is
+openspec 1.7.0, git-lfs, the dotnet SDK 8.0.423 (optional: only farm-common's acceptance
+script needs it) and lark-cli with the configured profile. Python is `python3` on macOS/Linux;
+Windows probes the controller's explicit interpreter as `python` (3.13 or later), and requires
+no Bash, WSL, `sha256sum`, `mktemp` or `awk`. The report then lists `missing` and
+`optional_missing`. A missing or wrong required tool is
 the finding `feature_toolchain_incomplete`, `lark_cli_unconfigured` means `serve` would refuse the
 config, and `lark_cli_store_exposed` means that the lark-cli store the workers read keeps its master
 key in a file and holds a user login, which every sandboxed worker could then read. Each probe runs a

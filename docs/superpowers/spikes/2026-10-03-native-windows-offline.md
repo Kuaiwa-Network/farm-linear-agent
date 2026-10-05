@@ -4998,110 +4998,212 @@ Real Feishu/Word reads, ordinary-token desktop Unity/symlink acceptance and
 separately authorized release remain pending. Parked issues and unmerged test
 drafts remain untouched.
 
+### Native Windows designer/config and feature tool selection (2026-10-05)
+
+These measurements use this production Windows PC's ordinary operator token,
+with separate development checkouts and owned scratch state. They do not certify
+the production installation or a real worker sandbox. Python is explicitly
+3.13.16 with `PYTHONUTF8=1`; native Git/Git LFS and the already prepared pinned
+Go/protoc tools are selected per process. Inherited FarmBot, Git and credential
+selectors are withheld. No Bash, MSYS or WSL is invoked. No production FarmBot
+configuration/ledger is read, no service is started/restarted, no credentials or
+accounts are configured and no Feishu or live issue operation is performed.
+The operator authorizes merging reviewed development code and records after
+applicable checks pass; deployment/production feature enablement stays separate.
+
+The following backend ports are now merged:
+
+| PR | Tested candidate | Merge | Measured native Windows result |
+| --- | --- | --- | --- |
+| [#359](https://github.com/Kuaiwa-Network/farm-hive/pull/359) | `238e257` | `4815aa1f8dc1d2206dba3f34b592474ddb8ef8d2` | Independent designer pin: 12 tests in 6.732s; real committed-source gate 9.637s; total sequence 51.464s |
+| [#360](https://github.com/Kuaiwa-Network/farm-hive/pull/360) | `093250b6448fa39f91cb117550e73fe6b11e23e2` | `6420a8ff0e10e21173775797f9279e729481f270` | Pinned config generation/gates: 16 tests in 39.276s; manifest 0.563s; real reproduction 37.290s; total 110.177s |
+| [#361](https://github.com/Kuaiwa-Network/farm-hive/pull/361) | `5ab0890b0d0cbb1635a289c5298a3b428ba77a7d` | `8eab7dc562ae34b7926beceb1afa42f6cfd94a26` | Native local adapter and telemetry fix; identical executable blobs to local `b63e50d`: 17 config tests in 39.720s, 6 adapter tests in 16.609s and 99 devctl Go tests; total 128.446s |
+| [#362](https://github.com/Kuaiwa-Network/farm-hive/pull/362) | `845dd9d6f991341207cf96a3eb8325d0fc27e555` | `0970063f57567d18e39ef95945a21c8f2c4d43ed` | Unpublished committed designer digest: 17 tests in 10.500s; complete config/adapter acceptance rerun below |
+
+All local results above have zero failures/errors/skips. The #360, #361 and
+#362 merged trees equal their final reviewed candidates; the final #361
+documentation-only correction changes no executable blob. The independent
+designer gate reads ordinary committed Git blobs or validates an explicitly
+hashed archive in memory. It does not trust the producer, extract files, fetch
+or write its source. Config generation stages outputs and the independent
+gates preserve the existing canonical hashes, exact manifest/output set,
+UNPINNED rejection and failure recovery. `gen.bat` and devctl now call selected
+native Python; their local-source outputs remain UNPINNED. They cannot substitute
+for the feature stage's pinned generation.
+
+The final #362 acceptance reproduces all **368 config artifacts**, preserving
+all **4,687 backend files**, **1,729 common files** and common Git metadata.
+It runs 17 config tests in 39.485s, 6 adapter tests in 16.476s and 99 Go tests
+without skips, followed by manifest/reproduction gates in 0.563s/37.074s.
+The sequence takes **129.222s**. Backend source SHA-256 is
+`7ea87e5e5da0aba64a2ea32446dd6572c302a75e015ec0e4d34ddfeefe0f8134`;
+common source SHA-256 `bcc88e76163c8a6596ddf1333e99d170b7e5a713777ee20f154dbb9ff16cd462`;
+output-set SHA-256 `c08d3a34049e0c4d56b54401ea1cac7620ac66610517f8888b95ca3be4d6a63d`.
+The real unpublished-digest check compares independent Git-archive bytes and
+canonical UTF-8-sorted hash rows to native committed-blob reading at merged
+common `b367febe20d6db65ebb386aa871bdb2671df9525`. All **263 source files** match
+digest `d189a438d6c5a51a89079e485442af490f8e4cd9775fcdda92fbe1a4c8d95764`
+in **11.061s**, preserving backend/common files and metadata. The verifier first
+expected the older pin's 260 files; inspecting the selected full tree established
+263, and the complete independent digest comparison passed. No application guard
+was relaxed. Archive publication and its hash are not claimed by this digest.
+
+Natural missing-entry-point regressions fail before implementation. Earlier
+#361 CI exposes two actual portability problems: macOS's Python symlink was
+rejected as a Windows executable, and a fresh Linux Go telemetry child recreated
+scratch directories during cleanup. POSIX canonicalizes the selected Python;
+Windows still rejects nonordinary executable paths. A private child config now
+contains Go's documented telemetry mode `off` before its first Go process.
+This changes no operator/global setting. Merely supplying `GOTELEMETRY=off` was
+insufficient: it is a reported mode, not a settable environment control.
+See [Go telemetry](https://go.dev/doc/telemetry). The wrong-Go-pin regression
+previously failed the merged #359 Linux registry job for this same cleanup race;
+that failure is retained, not described as a passing merge run. #361 revalidation
+passes 15 message-generator, 17 offline-message, 17 full-sync and 13 registry
+tests in 27.346s/72.499s/120.123s/53.237s, with zero failures/errors/skips.
+Containment and cleanup ownership checks remain intact.
+
+CI follow-up closes #358's previously pending inspection: all eleven merged-push
+jobs pass. #359's five applicable candidate jobs pass; its later merged Linux
+registry failure is the telemetry race described above. #360's five candidate
+and seventeen merged-push jobs pass. #361's final seventeen candidate and
+seventeen merged-push jobs pass. #362's eight applicable candidate jobs pass:
+the native designer matrix runs 17 tests per platform, the config matrix runs
+17 config plus 6 adapter tests per platform, and both original backend jobs pass.
+Windows durations are 10.265s (designer), 36.230s (config) and 14.097s (adapter).
+No native matrix test is skipped. The original main suite retains its existing
+eleven conditional Go skip events. Job IDs, UTF-8 logs, actual skip names and
+metadata are retained privately. Relevant results are
+[#361 merged config](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37297105260),
+[#361 merged registry](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37297105098),
+[#362 candidate designer](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37297868221),
+[#362 candidate config](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37297868052)
+and [#362 candidate backend CI](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37297868104).
+#362's broader merged-push matrices were still running when this record was
+prepared; candidate success and identical merged source do not claim their result.
+
+FarmBot now supplies feature dispatch with its native platform and explicit
+controller Python. Windows doctor probes that interpreter (at least 3.13) and
+requires no Bash/GNU utilities; macOS/Linux retain their Python3/native shell
+workflow. The feature skill and repository map select the verified native entry
+points above and the already merged Contract/common entry points. They require
+prepared readable dependencies and an owned writable build cache, without adding
+roots/grants or installing tools. Complete common producer acceptance and the
+release publisher stay on supported macOS/Linux/Jenkins. The Windows worker
+uses native inventory/generation/verification and reports complete acceptance as
+not run locally, requiring applicable CI; it never runs Jenkins or publication.
+Porting the publisher to Windows is not a prerequisite for this worker.
+
+Focused checks on FarmBot base `87e2c1883ad4b192836e5ab55efee4041b9d7786` plus
+these changes run with the selected Python and fresh HOME/AppData:
+`-B -m unittest discover -s tests -p test_doctor.py -v` runs **60 tests in
+7.097s**, four existing platform skips; `test_dispatch.py` runs **24 tests in
+0.006s**, and `test_skills.py` **73 tests in 0.419s**, neither with skips.
+All pass with zero failures/errors. The doctor regression first fails with the
+five missing POSIX/alias tools, then passes using actual controller Python with
+those stubs absent. Initial direct test-module invocation could not resolve the
+suite's top-level fixture imports; normal unittest discovery corrects the harness.
+Doctor's complete existing Windows skip list is:
+
+- `FeatureToolchainTests.test_a_store_whose_key_is_a_file_and_that_holds_a_login_is_exposed`:
+  macOS store master-key-file case.
+- `ProcessProbeTests.test_invalid_pids_are_never_passed_to_os_kill`:
+  POSIX process inspection.
+- `ProcessProbeTests.test_permission_denied_and_ps_failure_are_unknown_not_dead`:
+  POSIX process inspection.
+- `ProcessProbeTests.test_real_worker_is_recognized_and_reaped_worker_is_dead`:
+  POSIX process inspection.
+
+Two fresh, dummy-only doctor configs enable chat/fix/feature, select runtime
+codex, name lark profile `farmbot` without a Windows home, and point at a new
+empty absolute scratch root. The full reports exit 2/incomplete with the expected
+unreadable empty ledger; the root stays empty. Sanitized `tools.feature` results:
+
+| Tool | Prepared Go/protoc plus current PATH | Private prepared process PATH |
+| --- | --- | --- |
+| Python | 3.13.16, correct controller | 3.13.16, correct controller |
+| Go | 1.25.1, meets fallback minimum | 1.25.1, meets fallback minimum |
+| protoc | 35.1, correct | 35.1, correct |
+| buf | 1.73.0, wrong pin | 1.72.0, correct |
+| Node | 24.19.0, meets minimum | 24.19.0, meets minimum |
+| openspec | absent | 1.7.0, correct |
+| Git LFS | 3.7.1, found | 3.7.1, found |
+| .NET SDK (optional) | 9.0.306, wrong pin | 8.0.423, correct |
+| lark-cli | absent | 1.0.82, found; scratch profile absent |
+
+The first probe takes 0.557s, with required gaps buf/lark-cli/openspec and
+optional .NET. The prepared probe takes 6.515s, with only `lark_cli` missing
+because the new scratch AppData holds no profile. Its metadata has zero other
+profiles/user logins. This deliberately empty credential store neither reads
+nor disproves the operator's configured per-user DPAPI profile; a separate HOME
+does not isolate DPAPI credentials. These version inventories do not establish
+production PATH, worker cache/grants or real Feishu access.
+
+A fresh read-only Codex metadata/help check takes **0.715s**. Packaged CLI is
+0.160.0; the configured CLI reports 0.156.1. Packaged image SHA-256
+`37762753b554982eef1c109303d1be652b6397f1479e844794353a85650199c6`
+matches the previously inspected implementation. Runtime owner matches the
+current user, but its registered ready package differs from the current package
+and the new isolated home differs from the registered home. Version/exec-help/
+sandbox-help complete; no runtime-home override flag is found. The already
+running Codex service and protected record are left unchanged; no service RPC,
+setup, model call, credential read or app-setting change is made. A first private
+harness attempt lacked Node for the configured shim; explicitly selecting the
+already installed native Node corrects that harness limitation.
+This confirms the known admission constraints in metadata; it is not a new
+successful sandbox launch. The supported isolated-home integration remains
+unresolved. [Official Windows sandbox documentation](https://learn.chatgpt.com/docs/windows/windows-sandbox)
+describes the elevated/fallback backends but does not establish this integration.
+Do not rebind the registered runtime to the scratch home, share the interactive
+home, change accounts or choose a weaker sandbox to obtain a pass. The public
+upstream report remains deferred by the operator.
+
+Private evidence names are `native-designer-pin-candidate-d96bb484`,
+`native-config-candidate-601ac7ad`, `native-adapter-candidate-5f11e78b`,
+`native-adapter-candidate-795a61dc`, `native-designer-digest-real-309db116`,
+`native-feature-tools-3f0d7199`, `native-feature-tools-46b8276d`,
+`native-feature-tools-fb18d5ef`, `native-feature-doctor-dcab4346`,
+`native-feature-doctor-77d10040` and `native-runtime-readonly-d6090ab5`.
+Representative UTF-8 log SHA-256 values:
+
+| Log | SHA-256 |
+| --- | --- |
+| Final designer regression | `c13228412b40e904baf821e25f9b0ebecd09f3f313a02cf76e9b03a8f91f6fa8` |
+| Final config regression | `06d4bb4a0f6820313e32621791faaf417863e21b3576065b4704f9631fafb51e` |
+| Real unpublished digest | `8df9fa4baebbffed8dbad70c231b45ae18677325ecfc1ed4907230d530bf8a32` |
+| FarmBot doctor tests | `80cd634e5c79ff95fb1662b68c2fc709e21eddf1885210b8d235ee4fef1a365e` |
+| FarmBot dispatch tests | `82799f8e44c5ad1daf3251f695c048722795b76ca3420a060cbff845f6893233` |
+| FarmBot skill tests | `eb0ef92a383117c18f9a64255f2191860d1a43bf86f3c1e990c858cda6b764d4` |
+| Prepared scratch doctor | `619817b04a3dfafead73a404c5c89b2262c2350e0d8d56d829714075822650c9` |
+
+Raw host paths, account SIDs, credential values and private logs are not committed.
+
 Remaining release prerequisites:
 
-1. Use native Windows entry points and tools: configured Python 3.13.16, Git
-   and Git LFS, Go respecting each repository's pin, protoc 35.1, buf 1.72.0,
-   Node/openspec 1.7.0 and lark-cli. The global `python3` alias is 3.14.3 and
-   must not select the verifier's interpreter. Common's native CMD generation
-   now passes at the development candidates above; #148, cleanup fix #149
-   and native CMD preflight fix #150 are merged. Parent-policy fixture correction
-   #151 and executable-fixture correction #152 are merged. Newline-fixture
-   correction #153 and scanner correction #154 are merged. The scanner's three
-   boundary packages pass with all existing skips unchanged. Git-executable
-   fixture correction #155 and top-level-output fixture correction #156 are
-   merged, as is native Git timeout fixture correction #157; all 17 Git-state
-   tests pass. Archive owned-cleanup fix #158 and publication identity fixture
-   correction #159 are merged; all eight native publication cases pass.
-   Workbook mode fixture correction #160 is merged; all 15 Excel XML tests
-   pass without skips. The same-account elevated recheck passed all five
-   symlink cases and exposed one no-follow classification regression.
-   Common #161 is merged; its committed-source full native module has 538 passes,
-   zero failures and 25 top-level skips (35 skip events). The ordinary worker
-   token is not certified by that elevated test. On exact merged #161, the
-   separate ordinary-token sequence passes both opt-in production language
-   fixtures without skips and compiles the full artifact's 103 generated C#
-   files with zero warnings/errors using private .NET 8.0.423. Complete
-   producer/publication and actual worker tool-selection acceptance remain pending.
-   Preserve the distinction between host capabilities, fixture assumptions
-   and application regressions during the focused rechecks.
-   .NET SDK 8.0.423 is checksum-verified in the private development cache;
-   locked native C# compilation now passes. Its production worker selection
-   and access remain untested; the host's global SDK is still 9.0.306.
-   Keep Bash for Mac/Linux testing. The current doctor's legacy Windows Bash
-   inventory is not proof that equivalent native generators/gates exist;
-   update its requirements together with the verified native workflow.
-2. Local FarmBot-only profile setup is complete under the operator-selected
-   current Windows account. Resolve worker credential compatibility while
-   preserving containment, then verify the isolated worker's actual native
-   mode and credential path. Complete strict bot mode, bot
-   dry runs and real planning-document/attachment reads, including Windows Word
-   conversion. The operator has requested these prerequisites one at a time;
-   the authorized development implementation is now merged in #81. Complete
-   a supported isolated-home native launch integration: elevated initialization
-   is blocked by the registered-runtime ownership incompatibility. The MXC
-   MSYS finding is separate experimental evidence, not a release prerequisite
-   for FarmBot's configured elevated backend; the independent PowerShell
-   scratch-write comparison passed;
-   merge-head CI has passed. The ordinary-token native helper now verifies the controller dummy grant
-   and Job Object descendant settlement, but actual Codex sandbox-child grant
-   and containment remain pending before privately supplying the selected controller
-   source and verifying a real isolated worker. Real Feishu
-   access remains untested here; local profile setup performed no network
-   authentication.
-3. Provide native Windows equivalents for the remaining Farm-Contract and
-   farm-hive generators/gates, then run them in a real Windows worker: preserve
-   canonical hashes, exact output sets, contract reachability and dirty-source
-   rejection, read-only siblings, Go caches, Git LFS and containment. Farm-hive's
-   existing `config/pb/gen.bat` still calls Bash and is not such an equivalent.
-   Direct common generation does not verify these paths. Use an operator-selected
-   scope without resuming parked jobs. Farm-Contract #319 is merged at `332b22c`;
-   its exact merged source passes 19 local Windows tests and four CI jobs.
-   Gate 5 is now merged in #320 as `8c7e591`, with 23 exact-merged-source Windows
-   tests and the real marker check passing; all seven merge-head CI jobs succeed.
-   Gate 6 is merged in #321 as `831c1e1`; all 34 exact-merged-source Windows
-   tests and the real 237-Ack check pass, preserving all 598 exported files;
-   all 10 merge-head CI jobs succeed. Gate 7 is merged in #322 as `396cf6d`;
-   all 55 exact-merged-source Windows tests and the real field gate pass,
-   preserving all 600 exported files; all 13 merge-head CI jobs succeed.
-   Gate 9 is merged in #323 as `ea30dd9`; all 39 exact-merged-source Windows
-   tests and the real 34-spec provenance check pass, preserving all 602 exported
-   files; all 16 merge-head CI jobs succeed. Gate 10 is merged in #324 as
-   `5cf4c7e`; all 35 exact-merged-source Windows tests and the real 60-file/60-row
-   inventory check pass, preserving all 604 exported files; all 19 merge-head
-   CI jobs succeed. Gate 12 is merged in #325 as `c6fd159`; all 49
-   exact-merged-source Windows tests and real 50-change checks with explicit/PATH
-   runtime selection pass, preserving all 606 exported files; all 22 merge-head
-   CI jobs succeed. Gate 3 is merged in #326 as `71dadae`; all 55 exact-merged
-   Windows tests, the real 60-proto zero-waiver check and native PATH discovery
-   pass without skips, preserving all 608 exported files; all 25 merged push
-   CI jobs succeed. The reviewed candidate retains 11 actual breaking fixtures
-   and four baseline cases. All Contract wrapper ports now have native merged
-   entry-point evidence. Backend main `e24b6cb` now reproduces 59 native Go
-   registry files and 58 message outputs without drift. Farm-hive #354 is
-   merged as `1702356`; all 15 exact-merged Windows tests and all five merged
-   CI jobs pass, preserving all 4,662 files. #355 is merged as `fef7d64`;
-   exact merged acceptance passes 15 generator and 17 offline-gate tests
-   without skips and all five merged CI jobs, preserving all 4,664 files and
-   58 outputs. #356 is merged as `e14b88b`; all 20 exact-merged Windows
-   provenance tests and eight merged CI jobs pass, preserving 4,667 backend /
-   608 Contract files. #357 is merged as `1c8bbce`: its candidate runs 17 local
-   full-sync tests and real 58-package synchronization plus both gates; its
-   identical merged tree passes all eight push-CI jobs. #358 is merged as
-   `bcc8e47`; exact merged Windows acceptance runs 13 registry tests and
-   reproduces all 59 outputs, preserving 4,674 files. All eleven candidate
-   CI jobs pass. Designer/config tooling, complete producer/publication and
-   actual worker/tool-selection acceptance remain pending.
-4. Check the selected service account's symlink capability and relevant native
-   ownership/process checks, then complete Windows desktop Unity acceptance.
-   The elevated offline baseline does not certify the ordinary token or a
-   future service account.
-5. Finish the operator's private output/log/comment/PR secret scan and scoped
-   TestBot restoration, preserving current ledger/history and recovery evidence.
-   Require approved release provenance and applicable CI; FARM-1425's unmerged
-   contract test pin currently fails backend provenance and is not release
-   evidence. FARM-1346 and FARM-1425 stay parked, and their test drafts stay
-   unmerged.
-6. Review the completed evidence before separately authorizing production
-   feature enablement or deployment. Neither is authorized or performed by this
-   read-only check.
+1. Resolve the supported native Codex isolated-home launch integration while
+   preserving owner/CLI identity, fresh config, explicit filesystem grants and
+   Job Object containment. Registered package/home admission remains the hard
+   blocker; metadata and dummy-helper success do not certify a real Codex child.
+2. Run the selected native generators/gates in that actual ordinary-token worker:
+   pinned tool selection, prepared read-only module cache, owned build cache,
+   read-only siblings, exact hashes/output sets, failure preservation and process
+   settlement. Repository native ports are merged; sandbox acceptance is pending.
+   Common producer acceptance/publication remains the supported Linux/Jenkins
+   workflow, with applicable CI and approved release provenance.
+3. Verify the operator-selected current-account FarmBot-only DPAPI profile in
+   the real worker. Complete strict bot mode/dry runs and separately scoped
+   planning-document, attachment and Word conversion reads. Real Feishu access
+   is untested. Dedicated per-user profile isolation is the implemented approach;
+   the feature-only environment-credential variant is not implemented. The chosen
+   account remains the operator's current account; do not configure another one.
+4. Complete ordinary-token worker symlink/ownership and Windows desktop Unity
+   acceptance. Elevated fixture results and hosted CI do not certify this token,
+   a future service account or a real desktop Editor.
+5. Finish the operator's private output/log/comment/PR scan and scoped TestBot
+   restoration, preserving ledger/history/recovery evidence. FARM-1346 and
+   FARM-1425 stay parked; Contract #318 and backend #353 stay unmerged test
+   drafts. The unmerged contract pin still fails backend release provenance.
+6. Review completed acceptance evidence and separately authorize production
+   feature enablement/deployment. No deployment, restart or enablement is
+   authorized or performed here. Task 17 remains incomplete and Phase B's Code
+   worker still ends after the server; client/UI phases remain later work.

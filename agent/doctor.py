@@ -379,8 +379,11 @@ def feature_toolchain(config, paths):
               "buf": (["buf", "--version"], "1.72.0"), "node": (["node", "--version"], ">=22"),
               "openspec": (["openspec", "--version"], "1.7.0"), "python3": (["python3", "--version"], None),
               "git_lfs": (["git-lfs", "version"], None)}
-    if os.name == "nt":  # the repositories' bash gates on the Windows worker (Git for Windows)
-        probes.update({name: ([name, "--version"], None) for name in ("bash", "sha256sum", "mktemp", "awk")})
+    if os.name == "nt":
+        # Native repository gates use the controller's interpreter. A readable
+        # python3 alias or Git Bash tool does not establish that selection.
+        del probes["python3"]
+        probes["python"] = ([sys.executable, "--version"], ">=3.13")
     entries = {}
     for name, (argv, required) in probes.items():
         found, completed = _run(argv, env)

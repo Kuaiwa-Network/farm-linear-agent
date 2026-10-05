@@ -1108,6 +1108,29 @@ producer/publication, actual worker/live checks and separately authorized
 release remain pending. See the [Windows record](../spikes/2026-10-03-native-windows-offline.md)
 for revisions, durations, hashes, actual CI results and failure investigations.
 
+**2026-10-05 native designer/config and feature tools:** backend #359–#362
+are merged, with independent designer/pinned config gates, native local adapters
+and an unpublished committed-blob digest. Actual Windows acceptance reproduces
+368 config artifacts and the latest common tree's 263-source digest without
+source/metadata writes. The Linux telemetry cleanup race and macOS interpreter
+symlink failure are fixed and retain their failure evidence; #361's final
+seventeen candidate and seventeen merged-push jobs pass. #362's eight candidate
+jobs pass; its merged-push matrices were pending when recorded. FarmBot dispatch
+binds native platform/controller Python; Windows doctor and feature instructions
+select native tools and require no Bash/MSYS/WSL. Focused doctor/dispatch/skill
+checks pass 60/24/73 tests, with only doctor's four existing platform skips.
+Fresh dummy-only doctor probes distinguish current-PATH version gaps from correct
+prepared tools and the deliberately absent scratch DPAPI profile. The production
+Windows PC is used only through separate development checkouts/scratch; these
+results do not certify production or real worker readiness. Common producer
+acceptance/publication remains on supported macOS/Linux/Jenkins, outside the
+Windows worker. A fresh read-only Codex metadata/help check confirms the unresolved
+registered package/home admission constraints, without setup or weaker-sandbox
+fallback. Actual sandbox tool/cache/grant checks, scoped Feishu/Word access,
+ordinary-token Unity/symlink acceptance, private scan/restoration and separately
+authorized release remain pending. See the [Windows record](../spikes/2026-10-03-native-windows-offline.md)
+for revisions, durations, hashes, failure investigations and current prerequisites.
+
 ## Scope
 
 In Phase B (spec §13, item 2):

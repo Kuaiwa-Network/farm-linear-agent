@@ -85,6 +85,14 @@ never calls Feishu; a host that does not enable `feature` runs none of it. The G
 refuses an unsafe clone and disables lazy fetching explicitly; an incomplete clone uses the default
 minimum instead of fetching a missing object.
 
+Windows feature attempts receive `execution.platform` and the controller's absolute
+`execution.python` in dispatch. They use the native repository entry points in
+`references/repo-map.md`, with UTF-8 Python, rather than PATH's `python3` alias or a
+POSIX shell. Windows doctor probes that same interpreter and does not require Bash,
+WSL or GNU utilities. A version inventory does not certify prepared module caches,
+sandbox tool access or actual worker readiness. This adds no write roots or grants;
+fix/chat authority and containment are unchanged.
+
 Explicit profiles select `environment` (`development`, `production`, or `offline`)
 and a lowercase `instance_id`. Existing configs default to `legacy` for compatibility.
 Live profiles require `expected_bot_name`, pinned `expected_app_user_id` and
@@ -907,8 +915,8 @@ which stops nothing.
 In this revision a Code job ends after the server. The client stage (the UI-ready pause and Farm-Client, with the
 client's protocol and config exports), the client's closing steps and the write-back and archive of the contract
 change come with the next phase. A step the worker cannot run in its sandbox is named in the PR as not run, with its
-error; Go module downloads outside the writable roots, GNU `sha256sum`, protoc 35.1, `git status` in a read-only
-sibling worktree and every bash generator on Windows have not been verified in a worker sandbox. On a host that
+error; prepared Go cache access, protoc 35.1, `git status` in a read-only
+sibling worktree and the native Windows generators/gates have not been verified in a real worker sandbox. On a host that
 enables `feature`, `doctor` reports whether it has the toolchain its workers need; on any host it shows each
 unfinished Code job's root, stage states, pending pause and PR links (README, "AI/operator diagnostics").
 
