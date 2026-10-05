@@ -4190,6 +4190,73 @@ release prerequisites below remain pending. Production feature enablement and
 deployment stay outside this authorization; parked jobs and unmerged test
 drafts remain unchanged.
 
+## Native Windows merged contract OpenSpec-validation acceptance (2026-10-05)
+
+The operator merges Farm-Contract [#325](https://github.com/Kuaiwa-Network/Farm-Contract/pull/325)
+as **`c6fd15902fefc154c704925eca984dbbf9cf25d1`**. Its full Git tree equals reviewed source
+`4e04e217dc88d8ea59f6e945e11115feb582b117`, independently checked before testing the exact merged
+export. FarmBot candidate record
+[#117](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/117) is merged
+as `97e61e80280774c18e118eaa92eb20b6b07af76d`. The preceding candidate checkpoint retains the initial
+macOS fixture failure, its canonical-CWD-only correction and ten extra actual
+parser cases; the checker bytes remain identical.
+
+On the production Windows host, the ordinary current-user token runs the
+development verifier in a fresh merged-source scratch export, with explicit
+Python 3.13.16, pre-start `PYTHONUTF8=1`, native Node v24.19.0 and the existing
+pinned OpenSpec 1.7.0 package. Sanitized child environments exclude inherited
+FarmBot and credential selectors and use owned home/temp/AppData directories.
+All **49 native Windows tests** pass without failures/errors/skips in
+**15.565 seconds** (15.659 including startup),
+including all **19 actual owned junction fixtures**. The real upstream parser
+accepts all **50 in-flight changes** with explicit native runtime selectors in
+**0.626 seconds**, and with actual local npm PATH discovery in
+**0.624 seconds**. Both checks return exit 0 and identical
+success output. The full export/check sequence takes **20.185 seconds**.
+All **606 exported files** remain byte-identical to the reviewed candidate;
+checker, package entry, legacy literal, provenance and manifest hashes also match.
+The upstream strict parser, both startup coverage selftests, lower-bound coverage,
+literal skip_specs warning and input/process guards remain as documented.
+Junction fixtures do not certify ordinary-token file/directory symlink capability.
+These are development CLI checks; actual FarmBot worker grants/runtime/credentials
+and real Feishu access remain pending. No production config/ledger read,
+credential access, Bash/MSYS/WSL invocation, service action or host-setting change occurs.
+
+[Push CI run 37254693409](https://github.com/Kuaiwa-Network/Farm-Contract/actions/runs/37254693409)
+matches the exact merged SHA and succeeds in all **22 jobs**. OpenSpec job logs
+confirm exact merged checkout and the same pinned package: Windows **49** native
+tests in **25.435 seconds**; Linux **58** native plus **58** wrapper tests in
+**12.733 / 12.094 seconds**; macOS **58** native plus **58** wrapper tests in
+**13.959 / 13.152 seconds**. Every suite has zero failures/errors/skips. Each native
+real check and both POSIX wrapper checks accept all 50 changes; all three jobs
+preserve the 606-file source set. Windows/Linux use Node v22.23.3; macOS uses
+v22.23.2. The PR-only breaking step is excluded on push, retaining its passing
+reviewed-PR result. Windows excludes two Bash wrapper steps in each of the seven
+native gate jobs; these workflow exclusions are separate from unittest skips.
+The full Linux gate job does not establish native Windows gate 3 acceptance.
+
+Private UTF-8 logs and sanitized summary are retained in `native-openspec-validate-candidate-7a9504fd`.
+Native test log SHA-256 is `13c16fb19333d308592afdf4be2c878cca6cce16ce8befdcf1e2ebdf728c57fd`;
+real/PATH-discovery log SHA-256 remains `914024e76ac25d600b8c64370a6ab91571db9ae9fff79ff5802110a42beb1171`;
+acceptance-summary SHA-256 is
+`e117cf105a4a06831f3c9e7db69f2b546759ff61015f82e0ebf24e77a948cab3`.
+
+Documentation checks pass all **73 relevant tests** in **0.337 seconds**
+(0.442 including startup), without failures/errors/skips. Local links,
+public evidence URLs, retained log hashes, privacy and whitespace are checked.
+UTF-8 documentation-test log SHA-256 is
+`f681519694b91a1c04ccc83e3faadbe2a05e1c25a07da7d3ecd233c6446dcea0`.
+
+**Next:** gate 3 is dispatched to the existing Farm-Contract-rooted task on a
+separate branch. It must preserve both waiver mismatch directions, exact
+path/rule/full-message identity, duplicate and COMPILE refusal, baseline/bootstrap
+distinction and all 17 inherited criterion selftests, using native Git and the
+existing pinned buf. Gate 12 now has merged native entry-point evidence. Native
+backend generators/gates, actual isolated worker/runtime/credential and live
+access checks, and final release prerequisites remain pending. Production feature
+enablement/deployment stay outside this authorization; parked jobs and unmerged
+test drafts remain unchanged.
+
 ## Next verification step
 
 The native offline baseline is complete for the exact candidate on this host
@@ -4282,11 +4349,11 @@ Remaining release prerequisites:
    files; all 16 merge-head CI jobs succeed. Gate 10 is merged in #324 as
    `5cf4c7e`; all 35 exact-merged-source Windows tests and the real 60-file/60-row
    inventory check pass, preserving all 604 exported files; all 19 merge-head
-   CI jobs succeed. Gate 12 candidate #325 passes all 49 native Windows tests,
-   the real 50-change check with explicit/PATH runtime selection, ten parent
-   real-parser fixtures and all 22 candidate CI jobs; operator code merge and
-   exact-merged-source acceptance are pending. Gate 3 is the remaining native
-   Contract port, next after that acceptance.
+   CI jobs succeed. Gate 12 is merged in #325 as `c6fd159`; all 49
+   exact-merged-source Windows tests and real 50-change checks with explicit/PATH
+   runtime selection pass, preserving all 606 exported files; all 22 merge-head
+   CI jobs succeed. Gate 3 is the remaining native Contract wrapper port and is
+   dispatched to the existing Farm-Contract-rooted task.
 4. Check the selected service account's symlink capability and relevant native
    ownership/process checks, then complete Windows desktop Unity acceptance.
    The elevated offline baseline does not certify the ordinary token or a
