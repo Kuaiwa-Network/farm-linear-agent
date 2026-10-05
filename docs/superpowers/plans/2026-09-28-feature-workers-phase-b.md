@@ -1307,6 +1307,26 @@ Windows host, with no production state or credentials accessed. See the
 [current Windows record](../spikes/2026-10-03-native-windows-offline.md#ordinary-account-symlink-and-native-link-verification-2026-10-06-partial)
 for exact source/tool versions, hashes, all 69 skips and acceptance limits.
 
+**2026-10-06 native Feishu profile preparation:** the operator approves scoped
+read-only planning-document/attachment checks using the existing current-account
+`farmbot` profile. Target links have been requested; no real Feishu call occurs.
+At merged `e105228`, pinned lark-cli 1.0.82 passes release integrity, local
+version/help/embedded-guide reads and host offline profile doctor. Both native
+Codex 0.156.1/0.160.0 `command/exec` checks resolve the profile and report bot
+identity from fresh empty Codex homes, with exact owned workspace/state grants,
+networking disabled and strict bot environment. Both exit 0 in **1.241 seconds**
+total; owned child membership, empty-Job cleanup and settled RPC readers are
+verified. The first fixture's omitted explicit workspace root stops before a
+lark child and remains recorded; correcting only that fixture matches the
+preceding native harness. Profile-config metadata and runtime receipt remain
+unchanged. This closes offline native profile visibility, without certifying
+DPAPI token authentication, personal-login refusal, Feishu reads, Word
+conversion or real model-worker acceptance. See the
+[sanitized preparation record](../spikes/2026-10-03-native-windows-offline.md#native-read-only-feishu-profile-preparation-2026-10-06-partial).
+All live/release prerequisites remain pending; no credential/account setup,
+app-setting change, production state access, service start, live issue mutation,
+enablement or deployment occurs.
+
 ## Scope
 
 In Phase B (spec §13, item 2):
