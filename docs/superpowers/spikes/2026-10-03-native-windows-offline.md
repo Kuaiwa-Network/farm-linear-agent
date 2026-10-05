@@ -6543,3 +6543,92 @@ Private UTF-8 log SHA-256 is `fba8bb2533fb842a69c61ddc0baff0fc39a0b88af42e4b17a0
 Accuracy, local links/anchors, whitespace and private-path/token checks pass.
 Only the two verification documents change; application/test source and
 production state remain independent of this record update.
+
+### Native read-only Feishu profile preparation (2026-10-06; partial)
+
+The operator approves a read-only check using the existing current-account
+`farmbot` profile, without credential/account setup, app-setting changes,
+service actions or production configuration/ledger access. A planning-document
+link and an attachment link have been requested; no previously selected target
+was found in the inspected development verification evidence. **No Feishu
+request or bot-token authentication occurs in these preparation checks.** Real
+document/attachment reads and Word conversion remain pending.
+
+These checks use a separate development checkout on the **production Windows
+host**, at merged FarmBot `e1052288ec89c47554ee59546e7b22cb4862f0a2`, tree
+`684dac7850a937b68c53e6d642e79fc970a41326`. Python **3.13.16** starts with
+`PYTHONUTF8=1`. The lark-cli **1.0.82** archive matches pinned SHA-256
+`7d12b020965c9f8d86b2b09d932878f91476053bd5460dce83fcf985ff62b983`;
+the selected executable matches its archive entry, SHA-256
+`f547e8cbafbd9fb8f976c3dc5ef998101b8f78c883bd2c009952f4389e0ba7e4`.
+Native version, fetch/wiki/download help and version-matched embedded reading
+guides load successfully. The host preflight's seven commands take **0.442
+seconds** total; offline profile doctor exits **0** in **0.054 seconds**.
+Its raw output, which can identify the app, is projected to allowed check
+names/statuses in memory and is not retained.
+
+Two pinned native Codex images then run the same offline profile doctor via
+`app-server` `command/exec`, with fresh empty Codex homes and new owned scratch
+directories outside every checkout. The effective `workspace-write` policy
+selects **unelevated**, grants the exact assigned workspace/state roots and
+disables networking. The selected host's per-user profile environment is
+preserved; no lark-cli `home` or `HOME` override is added. Inherited credential
+overrides and FarmBot selectors are withheld, strict bot mode is forced for the
+child, remote metadata is off and update notifications are disabled.
+
+| Check | Host | Codex 0.156.1 native child | Codex 0.160.0 native child |
+| --- | --- | --- | --- |
+| `cli_version` | pass | pass | pass |
+| `config_file` | pass | pass | pass |
+| `app_resolved` | pass | pass | pass |
+| `bot_identity` | pass | pass | pass |
+| `user_identity` | warn | warn | warn |
+| `identity_ready` | pass | pass | pass |
+| `endpoint_open` | skip (offline) | skip (offline) | skip (offline) |
+| `endpoint_mcp` | skip (offline) | skip (offline) | skip (offline) |
+
+Both native commands exit **0**, each doctor taking **0.056 seconds**;
+the complete native checks take **0.410 / 0.381 seconds**, **1.241 seconds**
+total including preparation. Native child membership is observed in its owned
+Job before release, the gate is assigned before launch, Jobs are empty after
+cleanup, children are dead and RPC readers settle. No model turn or Codex
+auth-file seed occurs. The existing profile configuration's size, modification
+time and file identity, and the registered runtime receipt, remain unchanged.
+The current-account controlling token is not elevated. This reuses the already
+authorized native unelevated route and its intrinsic NUL-device behavior;
+no runtime provisioning or additional sandbox/root grants occur.
+
+The first private native fixture omits the explicit assigned workspace from
+its declared roots. Both effective-policy checks stop before launching a
+lark-cli child, with verified empty Jobs; its original evidence is retained.
+Adding that same owned workspace to the fixture, matching the preceding native
+acceptance harness, yields the results above. No application/test change,
+fallback, skip or relaxation of policy validation obtains this pass.
+Private first-result SHA-256 is
+`c9f0c778568709d6e6e7f20c7c69c45c6a5e941a26f65610018f80508fd4fad5`;
+passing host/native result SHA-256 values are respectively
+`67bb203fc9ebc912b1f24d29b896d4d2e07dd8bb2edd3e19b66c966d1456e689` and
+`ed5978a8eeecae56dcc733b3a4ea57d3b34e180e4a01e13d3e9a204f12181463`.
+
+**Measured limit and next prerequisite:** the selected native command route
+can resolve the existing profile and report bot identity offline. This does
+not prove DPAPI secret retrieval for a tenant-token request, strict-mode
+refusal of personal authentication, actual Feishu document/download permission,
+Word conversion or authenticated model-worker startup. The next concrete
+check uses only the operator-selected planning-document and linked attachment,
+the existing `farmbot` profile and explicit `--as bot`, retaining content and
+identifiers privately. Approval for those scoped reads is recorded; the target
+links are the remaining operator input. All other prerequisites listed in the
+preceding section remain pending. Task 17 stays partial; no live issue,
+production configuration, service, enablement or deployment action occurs.
+
+**Record validation:** the selected Python executable with
+`-B -m unittest discover -s tests -p test_skills.py -v` passes **73**
+documentation/reference tests, zero failures/errors/skips, in **0.559 seconds**
+(**0.802** including startup). Private UTF-8 log SHA-256 is
+`52aa4c093093880e3aba0ad9118b39ba24056a6810fa7d4a479c8d619619c2d8`.
+The native audit verifies both successful RPC exit codes, exact sanitized
+stdout/result projections and all **four** strict UTF-8 logs (**16,325 bytes**),
+SHA-256 `183ed33190341dddba5a837ea67f5f5489f475e7c94ecd3ce7d89d6c0bc34dc2`.
+Added links/anchors, whitespace and private-path/token scans pass. Only the two
+verification documents change; application/test source remains unchanged.
