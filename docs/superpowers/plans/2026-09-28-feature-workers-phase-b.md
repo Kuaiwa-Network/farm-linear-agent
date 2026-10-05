@@ -645,6 +645,24 @@ duplicate-row multiset comparison. Gates 3, 10 and 12, native backend paths
 and actual worker/live release prerequisites remain pending. No production,
 credential or parked-job action occurs.
 
+**2026-10-05 inventory-gate candidate review:** Farm-Contract #324 at
+`474cb5f` ports gate 10 with shared native Python and POSIX wrapper entry points.
+Independent ordinary-token Windows checks of the committed export pass all 35
+tests without skips, all eight actual junction fixtures and 26 extra cases,
+accept 60 proto files/60 README rows and preserve all 604 exported files.
+Both startup selftests, both mismatch directions, duplicate-row multiset
+comparison and inherited extraction/scope boundaries remain. Early Windows
+case-alias and POSIX host-tool-status fixture mistakes are fixed; real-input
+failures deliberately normalize the old host-specific ls status to native 1.
+All 19 candidate CI jobs pass; exact-head inventory matrices run 35 Windows
+tests and 43 native plus 43 wrapper tests on each Linux/macOS host. The
+[inventory record](../spikes/2026-10-03-native-windows-offline.md#native-windows-contract-inventory-gate-review-2026-10-05-candidate)
+retains timings, hashes, failure corrections and platform exclusions. Gate 10
+requires an operator-approved merge and exact-merged-source acceptance; gate
+12 is next. Gates 3 and 12, native backend paths and actual worker/live release
+prerequisites remain pending. No production, credential or parked-job action
+occurs.
+
 B1 merged as #71, B2 as #76, and B3, including Task 16's documentation, as #77.
 The chosen Mac live checks ran on the reviewed wiki-file fix at `5fe4746`, before
 it merged as [#78](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/78)
