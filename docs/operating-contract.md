@@ -107,6 +107,13 @@ WSL or GNU utilities. A version inventory does not certify prepared module cache
 sandbox tool access or actual worker readiness. This adds no write roots or grants;
 fix/chat authority and containment are unchanged.
 
+The optional [native Windows Git/LFS callback](windows-native-git.md) is built
+and selected separately; `serve` and `doctor` do not install or activate it.
+Its GitHub route remains HTTPS github.com only. An optional private companion
+pins one non-GitHub LFS origin and an existing native Git Credential Manager
+executable/hash for noninteractive server-only lookup. It changes no credential
+store, publication authority, worker write root or containment requirement.
+
 Explicit profiles select `environment` (`development`, `production`, or `offline`)
 and a lowercase `instance_id`. Existing configs default to `legacy` for compatibility.
 Live profiles require `expected_bot_name`, pinned `expected_app_user_id` and
