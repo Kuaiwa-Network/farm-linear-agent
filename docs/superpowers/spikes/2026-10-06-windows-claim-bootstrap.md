@@ -115,7 +115,17 @@ defaults. Actual worker fetch/push/publication and the genuine Contract stage-A
 check remain pending; production is unchanged. The earlier stopped-run evidence
 above remains valid. See the [build and selection recipe](../../windows-native-git.md).
 
-## Remaining acceptance
+## Genuine retry continuation
+
+The later [FARM-1435 stage-A record](2026-10-06-windows-stage-a-acceptance.md)
+now verifies the corrected storage instructions in a real Windows worker:
+complete foreign-work queries, native push/draft publication, all twelve gates
+passing, and the exact waiting/stage_limit pause with an empty Job. The source
+and initial failures above remain historical measurements. The optional callback
+also has a separately reproduced UTF-8 console regression and corrected native
+probe; final full CI and the parked-job withdrawal approval remain pending.
+
+## Earlier bootstrap prerequisites (historical)
 
 1. Select the tested native callback only in the authorized development wrapper,
    verify its frozen identities and measure real worker fetch/push/publication.

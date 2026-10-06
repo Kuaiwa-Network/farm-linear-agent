@@ -1509,6 +1509,31 @@ Real worker fetch/push/publication acceptance remains pending.
 The approved genuine-delta/draft-PR/stage-limit and parked-job undelegation checks
 remain pending. Task 17 is partial; production and Phase C are unchanged.
 
+
+**2026-10-06 genuine Windows Contract stage A:** the approved FARM-1435 retry
+runs merged FarmBot #140 (`bc2ce9bf`) using the configured 0.156.1 unelevated
+worker and an explicitly selected native Git callback. Claim storage succeeds
+without ACL repair, the real Feishu planning document is fetched as the bot,
+and foreign-work completes with no errors or matching foreign work. All twelve
+native Contract gates pass on baseline and changed/final trees without skips.
+The registered real [Contract draft #328](https://github.com/Kuaiwa-Network/Farm-Contract/pull/328)
+contains the approved ID/text correction and has all 28 CI checks passing.
+Native push/publication succeeds; common and farm-hive stay clean and unchanged.
+The plan records A done, stage_limit and waiting; doctor confirms the Contract
+root and draft link. The native Job is empty, no worker PID remains, and the
+session visibly Needs input. Creation-to-park duration is 920.765 seconds.
+The local known-credential scan finds no match in 477 files, comments or PR text.
+
+The optional callback's initial full Windows CI exposes two positive subtest
+failures under a UTF-8 console; the BOM insertion reproduces locally. The revised
+candidate passes seven native protocol checks, all configured remote reads,
+inherited selection and a fresh owned Contract fetch while rejecting an invalid
+CA. Final full CI is pending. The parked-stage-limit undelegation check awaits
+its separate required approval; the earlier cancelled attempt is not its proof.
+See the [complete measured stage-A record](../spikes/2026-10-06-windows-stage-a-acceptance.md).
+Task 17 remains partial at these boundaries; production and Phase C are unchanged.
+
+
 ## Scope
 
 In Phase B (spec §13, item 2):

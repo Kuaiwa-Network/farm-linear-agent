@@ -1225,6 +1225,24 @@ preserves intermediate failures and the unresolved packaged-runtime rename
 comparison. Genuine changed-contract draft-PR/stage-limit acceptance remains
 pending, with product questions still unanswered.
 
+
+Checked on 2026-10-06 in the approved genuine FARM-1435 Windows Contract retry:
+merged FarmBot #140, native Codex 0.156.1 unelevated, explicit development-only
+native Git callback. Actual bot document fetch, complete foreign-work queries,
+real push/draft publication and all twelve baseline/changed/final Contract gates
+succeed. Draft #328 has all 28 CI checks passing; wire declarations and the
+other writable repositories are unchanged. The worker parks exactly with A done,
+waiting/stage_limit, no PID and an empty Job; doctor and the Needs input session
+confirm it. Known credential scans match no run file, comment or PR text.
+This resolves genuine changed-contract/draft-PR/stage-limit acceptance for this
+scoped Windows development run. Removing delegation from that exact parked
+variant awaits its separately required approval. The optional callback's initial
+Windows CI console-encoding failure is reproduced and fixed with a native
+regression; its final full CI remains pending. See the
+[measured acceptance record](../spikes/2026-10-06-windows-stage-a-acceptance.md).
+Production, later live stages and Phase C remain outside this check.
+
+
 Found while writing this design:
 
 - Linear: whether GraphQL returns uploads as Markdown or `<linear-image>` and replies through

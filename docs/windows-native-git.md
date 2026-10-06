@@ -49,9 +49,30 @@ fall back to a shell helper. No production configuration is changed by this reci
 Verify read-only remote queries for every configured repository **inside the
 actual selected worker**, and verify an invalid CA is refused. Record the binary
 identities, effective policy, owned Job membership and empty-Job cleanup without
-credentials or private paths. Fetch/push/publication and a real worker still need
-their own measured acceptance. The optional callback changes no FarmBot defaults
+credentials or private paths. Each selected host/build needs its own measured
+fetch/push/publication and real-worker acceptance. The optional callback changes no FarmBot defaults
 and is not installed or selected by `serve` or `doctor`.
+
+On Windows, clear the helper with a process-local `GIT_CONFIG_PARAMETERS`
+entry; an empty `GIT_CONFIG_VALUE_n` disappears from the process environment
+and Git rejects the incomplete selector. The measured development wrapper uses:
+
+```powershell
+$env:GIT_CONFIG_COUNT = '2'
+$env:GIT_CONFIG_KEY_0 = 'http.sslBackend'
+$env:GIT_CONFIG_VALUE_0 = 'openssl'
+$env:GIT_CONFIG_KEY_1 = 'http.sslVerify'
+$env:GIT_CONFIG_VALUE_1 = 'true'
+$env:GIT_CONFIG_PARAMETERS = "'credential.helper='"
+```
+
+This is the Git transport portion of the previously sanitized development
+environment, not a service-start or production recipe. The
+[genuine Windows stage-A record](superpowers/spikes/2026-10-06-windows-stage-a-acceptance.md)
+now measures successful real-worker remote queries, push/publication and the
+requested stopping boundary using the initial callback candidate. The revised
+UTF-8 callback separately passed native remote queries and a fresh Contract
+fetch; its final full CI remains pending in that record.
 
 `tests/test_windows_git_askpass.py` compiles a dummy native GitHub CLI in a
 temporary path with spaces/Unicode. Its seven Windows tests use no host login;
