@@ -286,14 +286,16 @@ class Launcher:
             env = {name: value for name, value in env.items()
                    if name.upper() not in {"LARKSUITE_CLI_STRICT_MODE", "LARKSUITE_CLI_AUTH_PROXY"}}
             env.update(lark_env)
+        kwargs = {"start_new_session": True}
+        if os.name == "nt":
+            from .windows_job import WindowsJob, CREATE_SUSPENDED
+            kwargs = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | CREATE_SUSPENDED}
         stdout = open(run_dir / "stdout.log", "w", encoding="utf-8")
         stderr = open(run_dir / "stderr.log", "w", encoding="utf-8")
-        kwargs = {"start_new_session": True} if os.name != "nt" else {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
         job = None
         process = None
         try:
             if os.name == "nt":
-                from .windows_job import WindowsJob
                 job = WindowsJob()
                 command = [sys.executable, "-I", str(Path(__file__).with_name("windows_worker_gate.py")),
                            str(run_dir), *command]
@@ -314,6 +316,7 @@ class Launcher:
                 if job is not None:
                     try:
                         job.assign(process)
+                        job.resume(process)
                     except BaseException:
                         process.kill()
                         process.wait()

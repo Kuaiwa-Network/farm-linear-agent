@@ -30,6 +30,62 @@ class WindowsWorkerTests(unittest.TestCase):
             time.sleep(.03)
         self.fail('worker did not finish')
 
+    def test_assignment_precedes_even_python_redirector_and_gate_startup(self):
+        from agent.windows_job import WindowsJob, process_ids
+        import agent.launcher
+        marker = self.root / 'gate-started.txt'
+        real_gate = Path(agent.launcher.__file__).with_name('windows_worker_gate.py').read_text(encoding='utf-8')
+        (self.root / 'windows_worker_gate.py').write_text(
+            'from pathlib import Path\n' + f'Path({str(marker)!r}).write_text("started")\n' + real_gate,
+            encoding='utf-8')
+        real_assign = WindowsJob.assign
+        def delayed(job, process):
+            # A deliberately slow host assignment must not let a venv redirector
+            # or ordinary Python execute even the gate's first source statement.
+            time.sleep(1)
+            self.assertFalse(marker.exists())
+            self.assertEqual(Launcher.descendants(process.pid), [])
+            real_assign(job, process)
+        with patch.object(agent.launcher, '__file__', str(self.root / 'launcher.py')), \
+                patch.object(WindowsJob, 'assign', delayed):
+            handle = self.launcher.spawn('suspended', 'prompt', {}, 30, self.root, extra_env={'FAKE_CLI_MODE':'sleep'})
+        self.addCleanup(self.launcher.stop, 'suspended', 2)
+        deadline = time.monotonic() + 10
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(.02)
+        self.assertTrue(marker.exists())
+        # Read ancestry first: the gate may create another sleeping descendant
+        # between snapshots, and a previously read Job list would be stale.
+        descendants = set(Launcher.descendants(handle.pid))
+        owned = set(process_ids(self.launcher._jobs['suspended'].handle))
+        self.assertTrue(descendants <= owned)
+        self.launcher.stop('suspended', 2); self.finished()
+        self.launcher.assert_quiescent('suspended', handle.pid)
+
+    def test_resume_failure_starts_no_gate_and_retains_not_started_evidence(self):
+        from agent.windows_job import WindowsJob
+        with patch.object(WindowsJob, 'resume', side_effect=OSError('startup unavailable')), self.assertRaises(OSError):
+            self.launcher.spawn('resume-failed', 'prompt', {}, 30, self.root)
+        self.assertEqual(self.launcher.running(), {})
+        records = list((self.root / 'runs/resume-failed').glob('*/process.json'))
+        self.assertEqual(len(records), 1)
+        self.assertEqual(json.loads(records[0].read_text(encoding='utf-8')), {'state':'not_started'})
+        self.launcher.assert_quiescent('resume-failed', None)
+
+    def test_unassigned_suspended_creation_object_cannot_be_resumed(self):
+        from agent.windows_job import WindowsJob, CREATE_SUSPENDED
+        job = WindowsJob()
+        process = subprocess.Popen([sys.executable, '-c', 'raise SystemExit(0)'], creationflags=CREATE_SUSPENDED)
+        try:
+            with self.assertRaisesRegex(RuntimeError, 'assigned creation object'):
+                job.resume(process)
+            job.close()
+            with self.assertRaisesRegex(RuntimeError, 'live owned Job'):
+                job.resume(process)
+            self.assertIsNone(process.poll())
+        finally:
+            process.kill(); process.wait(timeout=5); job.close()
+
     def test_spontaneous_exit_reaps_child_and_preserves_unrelated_process(self):
         child_file = self.root / 'child.txt'
         worker = self.root / 'worker.py'
