@@ -210,3 +210,17 @@ remain pending.
 Documentation validation: 75 skill/reference tests pass in 0.757 s,
 zero failures/errors/skips; local links/anchors, privacy patterns and whitespace
 pass. Only two Markdown records change, so no repeat full suite is required.
+
+## Export inventory foundation
+
+`agent.fgui_export` prepares the read-only immutable inventory boundary described
+above. Synthetic plain v7 containers and real PNGs exercise truncation, both index
+widths, long UTF-8 string overrides, dependency closure/cycles, item/sprite bounds,
+missing/orphan files, links/hardlinks, mutation and independent resource limits.
+It does not invoke the publisher, install Client assets or widen the UI manifest.
+The measured 31-file export also calibrates actual dependency and artifact hashes,
+atlas dimensions and the three inherited Common resource-name ambiguities
+(`NameTag`, `btn_rukou_uibg`, `icon_beian_000`). Those are reported; they are not
+duplicate package/resource IDs or silently asserted unique name lookups. Runtime
+payload loading, scoped installation and approval/controller orchestration remain
+pending. Full candidate verification is recorded separately after completion.
