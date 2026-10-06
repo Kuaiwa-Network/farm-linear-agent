@@ -486,38 +486,38 @@ class EnabledSkillsTests(unittest.TestCase):
 
 
 class FeatureManifestTests(unittest.TestCase):
-    """Phase B, Task 12: the feature manifest is exactly the plan's Shared Interfaces, and it is opt-in (P1)."""
+    """Phase C adds the client stage and request-only Unity capability; opt-in/exclusive stay intact."""
 
     SHARED_INTERFACE = {
         "name": "feature",
         "trigger": ["delegation"],
         "intents": ["label:Bot/Code"],
-        "writes": ["Farm-Contract", "common", "farm-hive"],
+        "writes": ["Farm-Contract", "common", "farm-hive", "Farm-Client"],
         "initial_root": "Farm-Contract",
         "staged": True,
         "reads": ["Farm-Contract", "Farm-Client", "farmgui"],
-        "resources": [],
-        "gates": ["answers", "config_ready", "closing", "pr_review"],
+        "resources": ["unity_slot"],
+        "gates": ["answers", "config_ready", "ui_ready", "closing", "pr_review"],
         "mcp": [],
         "budget": {"lease_seconds": 2700, "max_hours": 10, "renew_minutes": 10},
         "opt_in": True,
         "exclusive": True,
     }
 
-    def test_the_manifest_file_is_the_shared_interface_and_task_1s_fixture(self):
+    def test_the_manifest_file_is_the_phase_c_shared_interface(self):
         raw = json.loads((ROOT / "skills" / "feature" / "skill.json").read_text(encoding="utf-8"))
         self.assertEqual(raw, self.SHARED_INTERFACE)
-        # Tasks 2-11 tested against FEATURE_SHAPE; the real manifest must be that shape, or their tests prove
-        # nothing about it.
-        self.assertEqual(raw, {"name": "feature", **FEATURE_SHAPE})
+        # The historical Phase B fixture still checks compatibility with target-free server stages.
+        for key in ("trigger", "intents", "initial_root", "staged", "reads", "mcp", "budget", "opt_in", "exclusive"):
+            self.assertEqual(raw[key], FEATURE_SHAPE[key])
 
     def test_the_manifest_loads_as_a_staged_opt_in_exclusive_skill_without_tools(self):
         feature = load_skills(ROOT / "skills")["feature"]
         self.assertEqual((feature.trigger, feature.intents, feature.writes, feature.initial_root, feature.staged,
                           feature.reads, feature.resources, feature.gates, feature.mcp, feature.budget),
-                         (("delegation",), ("label:Bot/Code",), ("Farm-Contract", "common", "farm-hive"),
-                          "Farm-Contract", True, ("Farm-Contract", "Farm-Client", "farmgui"), (),
-                          ("answers", "config_ready", "closing", "pr_review"), (),
+                         (("delegation",), ("label:Bot/Code",), ("Farm-Contract", "common", "farm-hive", "Farm-Client"),
+                          "Farm-Contract", True, ("Farm-Contract", "Farm-Client", "farmgui"), ("unity_slot",),
+                          ("answers", "config_ready", "ui_ready", "closing", "pr_review"), (),
                           {"lease_seconds": 2700, "max_hours": 10, "renew_minutes": 10}))
         self.assertEqual((feature.opt_in, feature.exclusive), (True, True))
         self.assertTrue(feature.skill_md.is_file())
@@ -777,13 +777,14 @@ class FeatureClosingInstructionTests(unittest.TestCase):
 
     def test_closing_polls_nothing_and_follows_the_root_order(self):
         self.assert_phrases((
-            "it polls nothing", "Farm-Contract (waiver removal), then farm-hive (the re-sync, then the pin)",
-            "with `FARM_CONTRACT` set to READS_CONTRACT", "it asks for no UI step",
+            "it polls nothing", "Farm-Client (post-merge export and verification)",
+            "with `FARM_CONTRACT` set to that snapshot", "One main input for both consumers",
             "Never pin it silently", "remove exactly those lines", "When a stage limit stops you after C"))
 
-    def test_the_delivery_names_the_client_work_and_leaves_the_change_unarchived(self):
+    def test_the_delivery_names_verified_client_work_and_pending_human_acceptance(self):
         self.assert_phrases((
-            "the merges still to do in order, the client work that remains", "the OpenSpec change is not archived yet",
+            "the merges still to do in order", "the client/config/main input and verification HEADs",
+            "the writeback/archive draft", "every human merge/acceptance or untested check still remaining",
             "finish delivered (\"Outcomes\") with every PR this job opened in `prs`"))
 
 
@@ -800,9 +801,10 @@ class FeatureClosingTemplateTests(unittest.TestCase):
             with self.subTest(section=name, phrase=phrase):
                 self.assertIn(phrase, section)
 
-    def test_the_closing_comment_asks_for_no_ui_step_and_warns_about_done(self):
+    def test_the_closing_comment_requires_both_consumers_and_warns_about_done(self):
         self.assert_in_section("feature closing", (
-            "本卡不含 UI 步骤", "designer-source.pipeline", "三行原样贴到本 issue", "我不会轮询 GitHub",
+            "UI 就绪已在阶段 E 核对", "同一个核验过的 main commit", "客户端 PR 要等契约合并后的重新导出",
+            "designer-source.pipeline", "三行原样贴到本 issue", "我不会轮询 GitHub",
             "Done 或 Canceled", "<owner.person.url>", "按本卡要求，<bot_name> 在阶段 <字母> 后停下"))
 
     def test_a_re_ask_says_what_was_looked_for(self):
@@ -811,6 +813,6 @@ class FeatureClosingTemplateTests(unittest.TestCase):
     def test_a_pin_for_another_commit_is_a_question_for_the_owner(self):
         self.assert_in_section("feature pin mismatch", ("我不会自行改用别的 commit", "<owner.person.url>"))
 
-    def test_the_delivery_lists_the_merges_the_client_work_and_the_unarchived_change(self):
+    def test_the_delivery_lists_client_provenance_and_pending_writeback_acceptance(self):
         self.assert_in_section("feature delivery", (
-            "还需合并", "不会合并", "客户端还要做", "尚未归档", "<owner.person.url>"))
+            "还需合并", "不会合并", "协议来源", "回账／归档草稿", "仍待人工完成", "<owner.person.url>"))

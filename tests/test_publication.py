@@ -82,7 +82,7 @@ class PublicationTests(unittest.TestCase):
             with self.subTest(suggested=suggested):
                 identifier, item_id = f'FBTEST-{number}', f'job-{number}'
                 with self.fetching_from_the_local_origin():
-                    paths = scheduler._worktrees_for(SimpleNamespace(writes=['farmgui'], initial_root=None),
+                    paths = scheduler._worktrees_for(SimpleNamespace(name='fix', writes=['farmgui'], initial_root=None),
                         {'id': item_id, 'publication_retries': 0},
                         {'identifier': identifier, 'branch_name': suggested})
                 scope = verifier.scope(item={'id': item_id, 'skill': 'fix'},
@@ -382,10 +382,11 @@ class SuffixBranchTests(unittest.TestCase):
         self.assertEqual(self.verify('common', suffix_roles=False)['head'], own)  # a fix: today's rules only
 
     def test_suffix_of_names_the_reserved_suffixes_and_numbers_repins_from_two(self):
-        self.assertEqual(publication.SUFFIXES, ('-config', '-config-<n>', '-waivers', '-followup'))
+        self.assertEqual(publication.SUFFIXES, ('-config', '-config-<n>', '-waivers', '-followup', '-writeback'))
         for branch, suffix in (('farmbot/farm-1-config', '-config'), ('farmbot/farm-1-config-2', '-config-<n>'),
                                ('farmbot/farm-1-config-10', '-config-<n>'), ('farmbot/farm-1-waivers', '-waivers'),
-                               ('farmbot/farm-1-followup', '-followup'), ('farmbot/farm-1', None),
+                               ('farmbot/farm-1-followup', '-followup'), ('farmbot/farm-1-writeback', '-writeback'),
+                               ('farmbot/farm-1-writeback-2', None), ('farmbot/farm-1', None),
                                ('farmbot/farm-1-config-1', None), ('farmbot/farm-1-config-02', None),
                                ('farmbot/farm-1-config-<n>', None), ('farmbot/farm-1-config-2-data', None),
                                ('farmbot/farm-1-configs', None), ('farmbot/farm-1-config-٢', None),
@@ -437,6 +438,29 @@ class SuffixBranchTests(unittest.TestCase):
         git('switch', '-q', 'farmbot/farm-1', cwd=path)
         with self.assertRaisesRegex(publication.PublicationError, 'exact repository, branch and HEAD'):
             self.verifier.verify_pr('Farm-Contract', 'job', 'FARM-1', url)
+
+    def test_writeback_publishes_from_contract_main_and_retains_exact_pr_identity(self):
+        path, branch = self.paths['Farm-Contract'], 'farmbot/farm-1-writeback'
+        git('switch', '-q', '-c', branch, 'origin/main', cwd=path)
+        head = self.commit('Farm-Contract', 'acceptance.txt', 'pending client merge', 'Archive measured acceptance')
+        self.assertEqual(self.verify('Farm-Contract')['head'], head)
+        url = 'https://github.com/Kuaiwa-Network/Farm-Contract/pull/32'
+        repo = {'full_name': 'Kuaiwa-Network/Farm-Contract'}
+        pr = {'html_url': url, 'state': 'open', 'draft': True, 'head': {'ref': branch, 'sha': head, 'repo': repo},
+              'base': {'ref': 'main', 'repo': repo}}
+        api = self.verifier.api
+        self.verifier.api = lambda endpoint, **kwargs: pr if endpoint.endswith('/pulls/32') else api(endpoint, **kwargs)
+        self.assertEqual(self.verifier.verify_pr('Farm-Contract', 'job', 'FARM-1', url), url)
+        git('switch', '-q', 'farmbot/farm-1', cwd=path)
+        with self.assertRaisesRegex(publication.PublicationError, 'exact repository, branch and HEAD'):
+            self.verifier.verify_pr('Farm-Contract', 'job', 'FARM-1', url)
+
+    def test_writeback_is_refused_in_another_repository(self):
+        path = self.paths['common']
+        git('switch', '-q', '-c', 'farmbot/farm-1-writeback', 'origin/main', cwd=path)
+        self.commit('common', 'acceptance.txt', 'wrong repository', 'Cannot publish')
+        with self.assertRaisesRegex(publication.PublicationError, 'only for.*Farm-Contract'):
+            self.verify('common')
 
     def test_only_this_issues_suffixes_pass_the_policy(self):
         path = self.paths['common']

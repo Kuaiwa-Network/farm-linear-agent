@@ -417,12 +417,12 @@ class ManifestResourceTests(LedgerBase):
     def rooted(self, item_id, root):
         self.ledger.connection.execute("UPDATE work_items SET root_repo=? WHERE id=?", (root, item_id))
 
-    def test_feature_lists_no_resource_so_its_worker_never_waits_for_unity(self):
+    def test_feature_requires_controller_client_entry_before_unity(self):
         item, token = self.claimed("feature")
         for root, commit_sha in ((None, None), ("common", None), ("Farm-Client", "b" * 40)):
             self.rooted(item, root)
             with self.subTest(root=root), self.assertRaisesRegex(
-                    LedgerError, "^unity_slot is not a resource of feature; its manifest lists none$"):
+                    LedgerError, "neutral or Farm-Client|controller-selected client baseline"):
                 self.ledger.await_resource(item, token, "unity_slot", "batch", skill=SKILLS["feature"],
                                            commit_sha=commit_sha)
         self.assertEqual((self.ledger.item(item)["state"], self.ledger.reservations()), ("running", []))
@@ -441,11 +441,13 @@ class ManifestResourceTests(LedgerBase):
         self.assertEqual(self.ledger.reservations(), [])
 
     def test_a_skill_with_an_initial_root_asks_for_unity_only_from_its_farm_client_root(self):
-        """current_root, not fix's rules: the NULL root of a skill with an initial root is that root, never a
-        neutral start. The fixture is feature with a Unity slot and a Farm-Client write, as Phase C may make it."""
-        unity = dataclasses.replace(SKILLS["feature"], resources=("unity_slot",),
-                                    writes=(*SKILLS["feature"].writes, "Farm-Client"))
-        item, token = self.claimed("feature")
+        """The initial root is never neutral; only controller-pinned Client entry permits its request."""
+        unity = SKILLS["feature"]
+        item = self.new_item(skill="feature", target=None)["id"]
+        self.rooted(item, "Farm-Client")
+        self.ledger.pin_feature_client(item, self.ledger.item(item)["generation"], PIN, branch="farmbot/farm-1")
+        self.rooted(item, None)
+        token = self.ledger.claim(item, worker_id="worker")["token"]
         for root in (None, "common"):
             self.rooted(item, root)
             for commit_sha in (None, "b" * 40):
@@ -1607,7 +1609,7 @@ class PlanTests(LedgerBase):
         self.ledger.set_worker(item["id"], 4321, "test")
         token = self.ledger.claim(item["id"], worker_id="w")["token"]
         for branch in ("farmbot/farm-1-config", "farmbot/farm-1-config-2", "farmbot/farm-1-waivers",
-                       "farmbot/farm-1-followup"):
+                       "farmbot/farm-1-followup", "farmbot/farm-1-writeback"):
             with self.subTest(branch=branch), self.assertRaisesRegex(
                     LedgerError, r"plan\.prs\.common: .* never as the issue branch"):
                 self.ledger.checkpoint(item["id"], token, {"plan": {"prs": {"common": [

@@ -214,13 +214,15 @@ after worker overrides; only an explicit environment grant supplies its configur
 branch `farmbot/<key>` or any `farmbot/<key>-<suffix>` of it, under the same rules. A job whose skill
 has an initial root also keeps named suffix branches, and its skill says when to make each:
 `farmbot/<key>-config` in common, `farmbot/<key>-waivers` in Farm-Contract and
-`farmbot/<key>-followup` in farm-hive. A Jenkins branch is never force-pushed, so a re-pin to a
+`farmbot/<key>-followup` in farm-hive, and `farmbot/<key>-writeback` in Farm-Contract. The exact
+writeback name/role is reserved for the contract acceptance/archive draft, never an issue branch or a
+writeback in another repository. A Jenkins branch is never force-pushed, so a re-pin to a
 farm-common commit that does not descend from the pushed `-config` tip takes the next unused
 `farmbot/<key>-config-<n>`, from `-config-2` on. Such a job's issue branch is never one of these
 names: when Linear suggests one, the controller uses `farmbot/<key>`. For such a job a `-config`
 branch, numbered or not, verifies only when its HEAD is already on an origin branch other than the
 issue's `-config` branches, because a human publishes its tip with `designer-source.pipeline`: fetch,
-check out the farm-common commit that was named, and commit nothing on it. The other two start from
+check out the farm-common commit that was named, and commit nothing on it. The other suffix branches start from
 the default branch and verify as the issue branch does, also after the issue branch's PR merged and
 its branch was deleted.
 
@@ -294,6 +296,14 @@ or ask for host intervention. A fresh worker receives the exact retried commit a
 `await-resource` refuses a resource your skill's `skill.json` does not list under `resources`, and a
 Unity request from any root but a neutral start or Farm-Client.
 
+For `feature`, the session and initial stages have no client pin. First Client-stage entry creates the
+owned branch from the controller's latest trusted main and records `target.commit_sha` (the immutable
+baseline) and `target.issue_branch`; retries retain both. Always supply `--commit FULL_SHA` for feature
+Unity verification. The CLI requires that exact branch, a clean current HEAD in this item's configured
+owned worktree, then rechecks the claim after Git. The reservation records the verification commit
+separately from the baseline. A plan, intake target or read-only typecheck reference grants no reservation.
+Fix's existing optional baseline request is unchanged.
+
 ## Notices
 
 A notice is an issue comment a job may need more than once: `--kind question` for a grouped question
@@ -339,7 +349,7 @@ handoff and requeues `finish`, and the fresh worker reads it.
 ## Plan
 
 A checkpoint may carry `plan`, an object for work that spans stages and days. Its keys are a subset of
-`stages`, `pause`, `change`, `ui`, `config`, `prs`, `closing`, `events` and `started`; values are any JSON,
+`stages`, `pause`, `change`, `ui`, `client`, `config`, `prs`, `closing`, `events` and `started`; values are any JSON,
 with strings of at most 2,000 characters, arrays of at most 50 entries and 16,000 serialized characters
 in all. Keep longer notes in files under STATE_DIR; a successor of cancelled work has a state
 directory of its own, so such notes stay with the item that wrote them. For example:

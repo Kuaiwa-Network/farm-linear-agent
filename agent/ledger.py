@@ -324,7 +324,7 @@ def _fingerprint(issue, own_bodies, own_prs=()):
     return hashlib.sha256(_json(material).encode("utf-8")).hexdigest()
 
 
-PLAN_KEYS = ("stages", "pause", "change", "ui", "config", "prs", "closing", "events", "started")
+PLAN_KEYS = ("stages", "pause", "change", "ui", "client", "config", "prs", "closing", "events", "started")
 
 
 def _validate_plan(value):
@@ -1513,6 +1513,39 @@ class Ledger:
             self._audit(item_id, "repository_handoff_complete", details={"to": target})
             return self._view(self._row(item_id))
 
+    def pin_feature_client(self, item_id, expected_generation, target, *, branch, issue_prefix="FARM"):
+        """Controller-only client-stage baseline, fenced after Git reads and before a launch.
+
+        Feature sessions keep no intake pin. Persist this item's baseline and exact issue branch before
+        creating its client worktree, so retries cannot silently select newer main. No worker CLI exposes this
+        transition; it creates neither a claim nor a resource reservation.
+        """
+        target = checked_target(target)
+        if target["repository"] != "Farm-Client":
+            raise LedgerError("feature client baseline requires Farm-Client")
+        with self._transaction():
+            row = self._row(item_id)
+            if (row["skill"] != "feature" or row["state"] != "queued" or row["root_repo"] != "Farm-Client"
+                    or row["next_root_repo"] is not None or row["worker_pid"] is not None
+                    or row["token"] is not None or row["generation"] != expected_generation):
+                raise LedgerError("feature client baseline requires the same queued client-stage generation")
+            self._refuse_withdrawn(row)
+            metadata = json.loads(self._issue_row(row["issue_id"])["metadata"])
+            if not _in_scope(metadata):
+                raise LedgerError("issue left scope before client baseline selection")
+            plan_issue_branches({"prs": {"Farm-Client": [{"role": "issue", "branch": branch}]}},
+                                metadata["identifier"], issue_prefix, reserved=True)
+            target["issue_branch"] = branch
+            previous = json.loads(row["target_json"]) if row["target_json"] else None
+            if previous is not None:
+                if previous != target:
+                    raise LedgerError("feature client baseline and issue branch are immutable")
+                return self._view(row)
+            self.connection.execute("UPDATE work_items SET target_json=?, updated_at=? WHERE id=?",
+                                    (_json(target), self.clock(), item_id))
+            self._audit(item_id, "feature_client_baseline", details=target)
+            return self._view(self._row(item_id))
+
     def _new_stage_allowances(self, row):
         """Caller owns the transaction. A new stage of a job whose skill starts at an initial root (a completed
         repository handoff, or a resume from a human gate) gets the automatic-retry allowances a job starts with
@@ -1524,6 +1557,17 @@ class Ledger:
         self.connection.execute("DELETE FROM resource_job_retries WHERE item_id=?", (row["id"],))
         self._audit(row["id"], "stage_allowances", "automatic-retry allowances reset for a new stage")
         return {"capacity_retries": 0, "publication_retries": 0}
+
+    def feature_client_branch(self, item_id, *, issue_prefix="FARM"):
+        """Revalidate controller metadata before selecting a feature verification checkout."""
+        row = self._row(item_id)
+        target = json.loads(row["target_json"]) if row["target_json"] else None
+        if (row["skill"] != "feature" or not target or target.get("repository") != "Farm-Client"
+                or not target.get("issue_branch")):
+            raise LedgerError("feature verification requires its controller-selected client baseline")
+        identifier = json.loads(self._issue_row(row["issue_id"])["metadata"])["identifier"]
+        return plan_issue_branches({"prs": {"Farm-Client": [{"role": "issue", "branch": target["issue_branch"]}]}},
+                                   identifier, issue_prefix, reserved=True)["Farm-Client"]
 
     def require_no_reservation(self, item_id):
         """A pause holds no process and no Unity slot (spec §5.2): release or withdraw the request first."""
@@ -1563,7 +1607,7 @@ class Ledger:
                                           "resource", "host", "commit_sha", "state", "attempts", "created_at",
                                           "acquired_at", "released_at", "release_reason")}
 
-    def await_resource(self, item_id, token, resource, mode, *, skill, commit_sha=None):
+    def await_resource(self, item_id, token, resource, mode, *, skill, commit_sha=None, issue_prefix="FARM"):
         """Park the claimed item until the pool grants `resource`.
 
         The ledger reads no manifests: `skill` is the item's loaded skill, which the worker CLI passes, as for
@@ -1588,6 +1632,13 @@ class Ledger:
             target = json.loads(row["target_json"]) if row["target_json"] else None
             if not target or not COMMIT_SHA.match(target.get("commit_sha") or ""):
                 raise LedgerError("a resource request needs a pinned commit; this item has none")
+            if row["skill"] == "feature":
+                if (target.get("repository") != "Farm-Client" or not target.get("issue_branch")
+                        or root != "Farm-Client"):
+                    raise LedgerError("feature verification requires its controller-selected client baseline")
+                if commit_sha is None:
+                    raise LedgerError("feature verification requires an explicit committed client HEAD")
+                self.feature_client_branch(item_id, issue_prefix=issue_prefix)
             if commit_sha is not None:
                 if not isinstance(commit_sha, str) or not COMMIT_SHA.fullmatch(commit_sha):
                     raise LedgerError("verification commit must be a full lowercase commit SHA")

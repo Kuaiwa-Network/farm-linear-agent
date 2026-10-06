@@ -26,7 +26,7 @@ from .worktrees import HOOKS_OFF, Worktrees
 # The words a job's plan may use for its stages and pauses (the Phase B plan's shared interfaces). Doctor copies
 # only these out of a worker-written plan, never its prose, question text or branch names.
 STAGE_LETTERS = ("A", "B", "C", "D", "E", "F", "G")
-PAUSE_KINDS = ("answers", "config_ready", "closing", "foreign_work", "stage_limit")
+PAUSE_KINDS = ("answers", "config_ready", "ui_ready", "closing", "foreign_work", "stage_limit")
 # When withdrawn work is late (withdrawn-work design §5.1 commit 6): the delegation's work outlives three status
 # intervals after a read found its card undelegated (two reads an interval apart withdraw it), a flagged worker
 # outlives its deadline by 5 minutes, a delegation waits 45 minutes for another session's worker, or a job waits

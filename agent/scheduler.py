@@ -4,12 +4,13 @@ import os
 import re
 import sqlite3
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import LARK_CLI_SKILLS
 from .dispatch import dispatch_message
 from .launcher import _read_worker_text
-from .ledger import LedgerError
+from .ledger import LedgerError, plan_issue_branches
 from .kw_ops import SERVER as KW_OPS_SERVER, resolve as resolve_kw_ops
 from .lark_cli import tools as lark_tools
 from .memory import publish_snapshot
@@ -28,7 +29,7 @@ class Scheduler:
                  max_concurrent=2, guidance_for=lambda item: "", claim_timeout=600, api=None,
                  slot_entries=None, preflight=None, control_ledger_factory=None, publication=None, codex_workers=None,
                  config_path=None, issue_prefix='FARM', bot_name='FarmBot', kw_ops=None, enabled_skills=None,
-                 lark_cli=None):
+                 lark_cli=None, default_server_environment="公共测试服"):
         self.publication = publication
         self.preflight = preflight
         self.control_ledger_factory = control_ledger_factory
@@ -48,6 +49,7 @@ class Scheduler:
         self.bot_name = bot_name
         self.kw_ops_config = dict(kw_ops or {})
         self.lark_cli = dict(lark_cli or {})
+        self.default_server_environment = default_server_environment
         # The loaded skills this host runs (spec §9.11); tick() refuses a queued item of any other loaded skill.
         # Without a set, every loaded skill but the opt-in ones, as skills.enabled_skills decides (P1).
         self.enabled_skills = ({name for name, skill in (skills or {}).items() if not skill.opt_in}
@@ -77,6 +79,33 @@ class Scheduler:
             recorded = self._recorded_branches(item) if skill.initial_root else {}
             for repo in skill.writes:
                 options = {"refresh": False} if item["publication_retries"] else {}
+                if skill.name == "feature" and repo == "Farm-Client":
+                    target = item.get("target")
+                    if (current_root(item.get("root_repo"), skill) != repo
+                            and not (target or {}).get("issue_branch")):
+                        continue
+                    if target is None:
+                        if current_root(item.get("root_repo"), skill) != repo:
+                            continue  # main may advance during server work; the client stage has not begun
+                        baseline = self.worktrees.stage_base(repo, item["id"], branch)
+                        item = self.ledger.pin_feature_client(item["id"], item["generation"], {
+                            "repository": repo, "requested_ref": "default", "commit_sha": baseline,
+                            "server_environment": self.default_server_environment,
+                            "selected_at": datetime.now(timezone.utc).isoformat()},
+                            branch=branch, issue_prefix=self.issue_prefix)
+                        target = item["target"]
+                    saved_branch = target.get("issue_branch")
+                    if (target.get("repository") != repo or not saved_branch
+                            or repo in recorded and recorded[repo] != saved_branch):
+                        raise LedgerError("client checkout must retain its controller-selected baseline and branch")
+                    # Reapply namespace/suffix checks to controller metadata, as for a saved plan.
+                    plan_issue_branches({"prs": {repo: [{"role": "issue", "branch": saved_branch}]}},
+                                        issue["identifier"], self.issue_prefix, reserved=True)
+                    if repo in recorded:
+                        options["recorded"] = True
+                    paths[repo] = self.worktrees.add_stage(repo, item["id"], saved_branch,
+                                                         target["commit_sha"], **options)
+                    continue
                 if repo in recorded:
                     paths[repo] = self.worktrees.add(repo, item["id"], recorded[repo], attach=True, **options)
                 else:
@@ -112,6 +141,7 @@ class Scheduler:
         current = self.ledger.item(item["id"])
         if current["state"] != "queued" or current["retry_not_before"] > self.ledger.clock():
             return None
+        item = current  # the queued root/generation may have changed since the scheduler read its queue
         skill = self.skills[item["skill"]]
         # Only Codex's workspace-write sandbox holds a staged attempt to its one writable root.
         if not runtime_can_launch(skill, self.runtime_name):
@@ -120,7 +150,14 @@ class Scheduler:
         write_repos = write_repositories(item, skill)
         issue = self.ledger.issue(item["issue_id"])
         paths = self._worktrees_for(skill, item, issue)
+        # Client preparation may persist this item's baseline, never the session's intake target.
+        item = self.ledger.item(item["id"])
+        if (item["state"] != "queued" or item["generation"] != current["generation"]
+                or item["root_repo"] != current["root_repo"] or item["next_root_repo"] is not None):
+            return None
         reads = self._reads_for(skill, item)
+        source_roots = [*(paths[repo] for repo in write_repos),
+                        *(part for repo in write_repos for part in self.worktrees.writable_parts(repo, paths[repo]))]
         repo_root = Path(self.skill_root).parent
         # Enforcement is tool injection (spec §7): what a worker can reach is decided here, never from a
         # repository-local .codex/config.toml. A reservation-bound server such as the Unity MCP is decided
@@ -167,6 +204,17 @@ class Scheduler:
         if kw_ops_grant.server is not None:
             servers[KW_OPS_SERVER] = kw_ops_grant.server
         tools = {KW_OPS_SERVER: kw_ops_grant.tools} if kw_ops_grant.tools is not None else {}
+        if skill.name == "feature" and root == "Farm-Client":
+            # A configured slot may supply read-only generated projects/DLLs even before a reservation. This
+            # exposes no Editor command or writable slot root, and the delivered typecheck validates readiness.
+            writable_roots = [Path(self.db_path).parent.resolve(), *(Path(p).resolve() for p in source_roots)]
+            references = [entry["folder"] for _, entry in sorted(self.slot_entries.items())
+                          if entry.get("repo") == "Farm-Client" and entry.get("folder")
+                          and Path(entry["folder"]).is_absolute()
+                          and not any(Path(entry["folder"]).resolve().is_relative_to(p)
+                                      or p.is_relative_to(Path(entry["folder"]).resolve()) for p in writable_roots)]
+            tools["client_typecheck"] = ({"reference_checkout": references[0]} if references else {
+                "status": "unavailable", "reason": "no configured Farm-Client reference outside worker write roots"})
         if skill.name in LARK_CLI_SKILLS:
             # A profile/home or a credential-free environment grant. Never copy app_id/secret_env into the prompt.
             tools["lark_cli"] = lark_tools(self.lark_cli, self.runtime_name, os.environ)
@@ -208,8 +256,6 @@ class Scheduler:
         pythonpath = os.pathsep.join(p for p in (str(repo_root), os.environ.get("PYTHONPATH", "")) if p)
         # A worktree's commits land in FarmBot's bare clone: the parts of it git writes for them are writable too,
         # never its config, hooks or info, which FarmBot's own git reads outside the sandbox (plan P10).
-        source_roots = [*(paths[repo] for repo in write_repos),
-                        *(part for repo in write_repos for part in self.worktrees.writable_parts(repo, paths[repo]))]
         # No slot folder or Unity host path is added to a worker's writable roots,
         # in either mode. The worker reads results XML in its own state directory, which
         # Launcher.spawn already makes writable, and writes nothing in the slot.

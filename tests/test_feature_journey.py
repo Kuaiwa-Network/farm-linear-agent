@@ -18,8 +18,8 @@ What each check needs from Phase B: routing, the acknowledgement and the missing
 `tools.lark_cli` (Task 10); `reads` (Task 6); the `stage` and `merge_request` notices (Task 9); re-attachment of a
 successor and of a retried job (Tasks 2 and 5); a conversation continuing a stopped Code job (Tasks 2 and 3); one
 exclusive attempt at a time (Task 7); a parked job cancelled after confirmation, and a running one checkpointing then withdrawing, and
-`fetch-issue`'s `delegated` (Task 8); an enqueued Code job without a target, and `await-resource` refused for a
-resource the manifest does not list (P11).
+`fetch-issue`'s `delegated` (Task 8); an enqueued Code job without an intake target, and Unity refused before
+Client entry. These historical server-stage journeys remain supported alongside the Phase C journeys.
 """
 import hashlib
 import hmac
@@ -368,7 +368,7 @@ class CodeJobJourneyTests(unittest.TestCase):
             *self.notice("question", "questions-1", QUESTIONS),
             *self.pause("question", "FarmBot 在 issue 评论里问了几个问题，请回答后在这里回复。")], "stage A's intake"))
 
-    def run_contract(self, item_id, *, first=False, then="common", comment_meanwhile=None):
+    def run_contract(self, item_id, *, first=False, then="common", comment_meanwhile=None, files=None):
         """Stage A's change: the later stages settled (with then="farm-hive" the change needs no config, so B and C
         are skipped and `stage-B` says so for both, §6.1), the contract commit and its draft PR, then the
         merge request that ends stage A and a handoff that does not wait for the merge (§6.2; P15).
@@ -382,7 +382,11 @@ class CodeJobJourneyTests(unittest.TestCase):
             steps += self.notice("stage", "stage-B", "阶段 B（配表声明）跳过：这次变更不需要新的配置表；"
                                                      "阶段 C（配置核对）随之跳过。")
         self.plan["prs"] = {"Farm-Contract": [self.entry("Farm-Contract", "issue", PRS["Farm-Contract"])]}
-        steps += [*self.fresh_base("Farm-Contract"),
+        steps += self.fresh_base("Farm-Contract")
+        for name, content in (files or {}).items():
+            steps += [["file", str(self.tree(item_id, "Farm-Contract") / name), content],
+                      ["git", "Farm-Contract", "add", name]]
+        steps += [
                   *self.commit_and_push("Farm-Contract", "FARM-1 合约：收获加成（openspec change harvest-bonus）"),
                   *self.save("a2", stage="contract", next_action="请 owner 合并合约 PR",
                              published=[PRS["Farm-Contract"]]),
@@ -1145,7 +1149,7 @@ class CodeJobJourneyTests(unittest.TestCase):
 
     def test_an_enqueued_code_job_pins_no_target_and_may_not_take_a_unity_slot(self):
         """P11: `enqueue` starts `feature` only on a Bot/Code card and pins it no Farm-Client target (P6); a worker's
-        `await-resource` for a resource the manifest does not list is refused before any other check, and the
+        `await-resource` from the initial Contract root is refused before a target can authorize it, and the
         refusal leaves its claim intact."""
         self.publish(self.card(id=THIRD, identifier="FARM-3", label="修改"))
         with self.assertRaisesRegex(RuntimeError, "Bot/Code"):
@@ -1166,8 +1170,8 @@ class CodeJobJourneyTests(unittest.TestCase):
         self.assert_reads(item, run, payload, self.origin_head("Farm-Contract", "main"))
         self.assertIsNone(payload["target"])
         text = refusal.read_text(encoding="utf-8")
-        self.assertIn("unity_slot", text)                                 # the manifest refuses it (P11) ...
-        self.assertNotIn("pinned commit", text)                           # ... before the missing target could
+        self.assertIn("Farm-Client", text)                               # the initial Contract root grants no Unity
+        self.assertEqual(payload["resource"], None)
         self.assertEqual(self.c.ledger.item(item)["state"], "awaiting_input")  # the claim outlived the refusal
         self.assertEqual([row for row in self.c.ledger.reservations() if row["item_id"] == item], [])
 
