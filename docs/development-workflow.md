@@ -111,6 +111,9 @@ What does not separate them:
   offline, with the fake worker, the stub Linear and local Git remotes for all five
   repositories.
 - [Mac/Windows CI](ci.md) runs the offline suite with Python 3.13 and records evidence.
+- [Optional native Windows Git authentication](windows-native-git.md) records the
+  restricted-worker TLS/helper-shell gap and a native callback recipe using the
+  existing GitHub CLI login. It changes no service defaults or production settings.
 - A development Unity slot and Windows desktop acceptance remain operational setup
   in the [rollout plan](superpowers/plans/2026-09-22-cross-platform-development-and-release.md).
 
