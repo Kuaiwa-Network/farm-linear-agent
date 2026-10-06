@@ -72,7 +72,7 @@ environment, not a service-start or production recipe. The
 now measures successful real-worker remote queries, push/publication and the
 requested stopping boundary using the initial callback candidate. The revised
 UTF-8 callback separately passed native remote queries and a fresh Contract
-fetch; its final full CI remains pending in that record.
+fetch; its final full CI passes on both platforms, and #141 is merged.
 
 `tests/test_windows_git_askpass.py` compiles a dummy native GitHub CLI in a
 temporary path with spaces/Unicode. Its seven Windows tests use no host login;

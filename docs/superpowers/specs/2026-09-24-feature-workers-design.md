@@ -1238,7 +1238,9 @@ This resolves genuine changed-contract/draft-PR/stage-limit acceptance for this
 scoped Windows development run. Removing delegation from that exact parked
 variant awaits its separately required approval. The optional callback's initial
 Windows CI console-encoding failure is reproduced and fixed with a native
-regression; its final full CI remains pending. See the
+regression; its final full CI passes 1,760 tests on each platform, all thirteen
+journeys and all seven native Windows Job tests. #141 merges as `0f97c794`,
+with candidate and merge trees identical. See the
 [measured acceptance record](../spikes/2026-10-06-windows-stage-a-acceptance.md).
 Production, later live stages and Phase C remain outside this check.
 

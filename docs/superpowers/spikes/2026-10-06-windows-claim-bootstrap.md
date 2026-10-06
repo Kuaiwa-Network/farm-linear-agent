@@ -123,7 +123,8 @@ complete foreign-work queries, native push/draft publication, all twelve gates
 passing, and the exact waiting/stage_limit pause with an empty Job. The source
 and initial failures above remain historical measurements. The optional callback
 also has a separately reproduced UTF-8 console regression and corrected native
-probe; final full CI and the parked-job withdrawal approval remain pending.
+probe; final full CI passes and #141 is merged. The parked-job withdrawal
+approval remains pending.
 
 ## Earlier bootstrap prerequisites (historical)
 

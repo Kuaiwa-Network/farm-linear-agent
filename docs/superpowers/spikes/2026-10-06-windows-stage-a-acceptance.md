@@ -151,7 +151,7 @@ CLI correctly refused. Candidate `e592c32` selects BOM-free UTF-8 at child
 creation, restores the callback's input encoding, and makes response decoding
 explicit. All seven focused native tests pass in 1.593 seconds, with zero skips
 and no host authentication. The added regression forces the failing console
-setting and checks input-encoding restoration. Final full CI is pending.
+setting and checks input-encoding restoration. The final full CI passes on both platforms, as recorded below.
 
 The updated callback's final no-model restricted probe passed every configured
 remote branch read and inherited selection, and a fresh owned bare Contract
@@ -161,14 +161,40 @@ unchanged runtime receipt. The tested updated helper SHA-256 is
 `8714b0336221d7716e83bf12f960ebbd4dd91fd24941f47ca75e683ee277f457`.
 It has not replaced the live development controller's already-selected binary.
 
+## Final tools merge and full CI
+
+[FarmBot #141](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/141)
+merged as `0f97c794901e6e4816ed8d2311dacf1da534f6a6`. The final candidate
+`e592c32` and merge share tree `ce2915ebe2a0ddf22174a6182dd52fe7a0ab2067`.
+The accepted [full CI run](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37423421444)
+tested synthetic merge `a71408616aadd9683a0170df310ad24a77108f77`.
+
+| Hosted platform | Python | Git | Git LFS | Tests | Failures/errors | Skips | Runner elapsed seconds |
+|---|---|---|---|---:|---|---:|---:|
+| Windows | 3.13.15 | 2.55.0.windows.5 | 3.7.1 | 1,760 | 0 / 0 | 69 | 1,653.577 |
+| macOS | 3.13.15 | 2.55.0 | 3.8.0 | 1,760 | 0 / 0 | 26 | 501.334 |
+
+Unittest itself reports 1,651.340 seconds on Windows and 500.411 seconds on
+macOS; the table includes runner/report overhead. All thirteen feature journeys
+passed on both platforms. All seven native Job Object tests and all seven native
+callback tests ran and passed on Windows. No native Windows check is inferred
+from a macOS skip. These are hosted results, separate from the measured live
+Windows development run. The failed initial CI artifacts, final UTF-8 logs,
+versions, durations and every platform skip are retained.
+
+The documentation record passed 75 skill/reference checks, zero skips, in
+0.482 seconds, plus link, privacy and whitespace checks. No full offline rerun
+is required for this subsequent documentation-only change.
+
 ## Remaining release prerequisites
 
 1. Obtain the separately required approval for Task 17's removal of delegation
    from this exact stage-limit pause, then measure cancellation, one completed
    session response, cleanup and retained draft/branch/recovery refs. The earlier
    cancelled first attempt and parked-question test are different variants.
-2. Complete and review #141's final full CI, merge the native tools fix, and
-   record the accepted release revision and tool identities.
+2. Verify the selected final tool identities and host diagnostics as part of
+   the separately approved production release; the tools source has merged
+   with passing full CI and identical candidate/merge trees.
 3. Settle the development test and restore chat/fix when the withdrawal check
    finishes. Production promotion, feature enablement and any live stage beyond A
    require their separate operational approval and final-host checks.
@@ -180,9 +206,10 @@ this stage-A test does not certify them. Phase C has not started.
 
 ## Full CI platform skips
 
-The initial #141 run preserves every skip below. #140 has the same 69 Windows
-skips and the same macOS list except the six callback tests. The revised
-callback adds one explicitly Windows-only regression; final CI remains pending.
+The final #141 run preserves every skip below. #140 has the same 69 Windows
+skips and the same macOS list except the seven callback tests. The initial
+#141 run has 25 macOS skips, omitting the added UTF-8 regression; its Windows
+skip map is identical to the final run. No Windows skip was added for the fix.
 
 ### windows-latest: 69 skips
 
@@ -258,7 +285,7 @@ callback adds one explicitly Windows-only regression; final CI remains pending.
 | `test_worktrees.ReadCheckoutTests.test_removal_never_acts_through_a_link` | POSIX permissions; Windows has the junction test |
 | `test_worktrees.ReattachTests.test_no_hook_or_fsmonitor_planted_in_the_clone_runs_while_re_attaching` | the planted hooks and fsmonitor are shell scripts |
 
-### macos-latest: 25 skips
+### macos-latest: 26 skips
 
 | Test | Platform reason |
 |---|---|
@@ -277,6 +304,7 @@ callback adds one explicitly Windows-only regression; final CI remains pending.
 | `test_windows_git_askpass.NativeGitAskpassTests.test_password_for_another_user_is_refused_without_output` | native Windows credential callback |
 | `test_windows_git_askpass.NativeGitAskpassTests.test_unavailable_or_wrong_executable_never_starts_credential_lookup` | native Windows credential callback |
 | `test_windows_git_askpass.NativeGitAskpassTests.test_username_and_password_are_only_the_requested_field` | native Windows credential callback |
+| `test_windows_git_askpass.NativeGitAskpassTests.test_utf8_console_does_not_add_a_bom_to_the_credential_request` | native Windows credential callback |
 | `test_windows_git_askpass.NativeGitAskpassTests.test_wrong_destination_or_prompt_never_starts_credential_lookup` | native Windows credential callback |
 | `test_windows_workers.WindowsWorkerTests.test_assignment_failure_never_runs_requested_command` | Windows Job Objects |
 | `test_windows_workers.WindowsWorkerTests.test_later_contained_attempt_cannot_certify_legacy_attempt_with_same_pid` | Windows Job Objects |

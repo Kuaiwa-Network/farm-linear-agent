@@ -1528,7 +1528,10 @@ The optional callback's initial full Windows CI exposes two positive subtest
 failures under a UTF-8 console; the BOM insertion reproduces locally. The revised
 candidate passes seven native protocol checks, all configured remote reads,
 inherited selection and a fresh owned Contract fetch while rejecting an invalid
-CA. Final full CI is pending. The parked-stage-limit undelegation check awaits
+CA. Final full CI passes 1,760 tests on both platforms (69 Windows / 26 macOS
+skips), all thirteen journeys and all seven native Windows Job tests. #141
+merges as `0f97c794`, with candidate and merge trees identical.
+The parked-stage-limit undelegation check awaits
 its separate required approval; the earlier cancelled attempt is not its proof.
 See the [complete measured stage-A record](../spikes/2026-10-06-windows-stage-a-acceptance.md).
 Task 17 remains partial at these boundaries; production and Phase C are unchanged.
