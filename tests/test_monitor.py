@@ -145,6 +145,9 @@ class PageTests(unittest.TestCase):
     def test_fix_reads_as_the_bot_label_people_use(self):
         self.assertIn('fix: "修改"', self.block("const SKILL = {"))
 
+    def test_ui_reads_as_the_bot_label_people_use(self):
+        self.assertIn('fgui: "UI"', self.block("const SKILL = {"))
+
     def test_every_outcome_has_a_label(self):
         self.assert_labelled("OUTCOME", OUTCOMES)
 

@@ -156,9 +156,9 @@ def enqueue(config, *, issue_ref, skill, commit=None, session=None):
                 if skill in loaded and loaded[skill].opt_in else "enabled_skills in the private config chooses them")
         raise RuntimeError(f"{skill} is not a skill this instance runs ({', '.join(sorted(enabled))}); {rule} "
                            "(spec §9.11)")
-    if skill == "feature" and commit is not None:
-        # Plan P6: the Farm-Client target a commit pins is a fix's reproduction baseline, and a feature job has none.
-        raise RuntimeError("--commit pins a fix's Farm-Client target, and a feature job takes none")
+    if skill in ("feature", "fgui") and commit is not None:
+        # Initial Code/UI authoring has no Client verification target.
+        raise RuntimeError(f"--commit pins a fix's Farm-Client target, and a {skill} job takes none")
     api = linear_api(config)
     paths = Paths(config)
     paths.config_dir.mkdir(parents=True, exist_ok=True)
@@ -181,8 +181,8 @@ def enqueue(config, *, issue_ref, skill, commit=None, session=None):
         session = session or f"local-{observed['id']}"
         ledger.ensure_session(session, observed["id"], delegated)
         target = None
-        if skill != "feature":
-            # A feature job gets no Farm-Client target and its session stores none, as for a delegation (plan P6).
+        if skill not in ("feature", "fgui"):
+            # Initial Code/UI work gets no Client target, as for a delegation.
             trees = Worktrees(paths.repos, paths.worktrees, config.repos)
             target = {"repository": "Farm-Client", "requested_ref": "default",
                       "commit_sha": commit or trees.resolve_commit("Farm-Client"),

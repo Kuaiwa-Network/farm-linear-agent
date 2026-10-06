@@ -26,7 +26,7 @@ from .worktrees import HOOKS_OFF, Worktrees
 # The words a job's plan may use for its stages and pauses (the Phase B plan's shared interfaces). Doctor copies
 # only these out of a worker-written plan, never its prose, question text or branch names.
 STAGE_LETTERS = ("A", "B", "C", "D", "E", "F", "G")
-PAUSE_KINDS = ("answers", "config_ready", "ui_ready", "closing", "foreign_work", "stage_limit")
+PAUSE_KINDS = ("answers", "config_ready", "ui_ready", "visual_approval", "closing", "foreign_work", "stage_limit")
 # When withdrawn work is late (withdrawn-work design §5.1 commit 6): the delegation's work outlives three status
 # intervals after a read found its card undelegated (two reads an interval apart withdraw it), a flagged worker
 # outlives its deadline by 5 minutes, a delegation waits 45 minutes for another session's worker, or a job waits
@@ -402,6 +402,42 @@ def feature_toolchain(config, paths):
             "optional_missing": [name for name in optional if not entries[name]["ok"]]}
 
 
+def fgui_toolchain(config, *, lark=None):
+    """Offline UI prerequisites only; no Editor/license, source write or Feishu request."""
+    env = _probe_environment(config)
+    entries = {}
+    for name, argv, required in (("python", [sys.executable, "--version"], ">=3.13"),
+                                 ("git_lfs", ["git-lfs", "version"], None)):
+        found, completed = _run(argv, env)
+        version = _version(completed)
+        entries[name] = {"found": found, "version": version, "required": required,
+                         "ok": found and _satisfies(version, required)}
+    # Isolated Python ignores ambient PYTHONPATH; probe the controller's own
+    # prepared environment and trusted source, never a worker/home override.
+    code = ("import hashlib,json,sys;sys.path.insert(0,sys.argv[1]);"
+            "from PIL import __version__ as v;from PIL import ImageFont;"
+            "from agent.ui_preview import Renderer;from agent.preview_upload import _plain_path;"
+            "from agent.uploads import _read_regular;f=Renderer._native_font();"
+            "_plain_path(f) if f else None;b=_read_regular(f,64<<20) if f else None;"
+            "ImageFont.truetype(__import__('io').BytesIO(b),30) if b else None;"
+            "print(json.dumps({'pillow':v,'font':{'name':f.name,'sha256':hashlib.sha256(b).hexdigest()} if b else None}))")
+    found, result = _run([sys.executable, "-I", "-B", "-c", code, str(ROOT)], env)
+    try:
+        payload = json.loads(result.stdout) if result and not result.returncode else {}
+        payload = payload if isinstance(payload, dict) else {}
+    except ValueError:
+        payload = {}
+    version, font = payload.get("pillow"), payload.get("font")
+    entries["pillow"] = {"found": found and isinstance(version, str), "version": version,
+                         "required": "12.3.0", "ok": version == "12.3.0"}
+    valid_font = (isinstance(font, dict) and isinstance(font.get("name"), str)
+                  and bool(re.fullmatch(r"[0-9a-f]{64}", str(font.get("sha256")))))
+    entries["cjk_font"] = {"found": valid_font, "ok": valid_font,
+                           "identity": {k: font[k] for k in ("name", "sha256")} if valid_font else None}
+    entries["lark_cli"] = lark if lark is not None else _lark_cli(config, env)
+    return {"entries": entries, "missing": sorted(name for name, entry in entries.items() if not entry["ok"])}
+
+
 def diagnose(config, *, now=None):
     report = _report(time.time() if now is None else now)
     paths = Paths(config)
@@ -473,6 +509,19 @@ def diagnose(config, *, now=None):
             _finding(report, "lark_cli_store_exposed", "The lark-cli store feature workers read keeps its master key in "
                      "a file and holds a user login, which every sandboxed worker can read; use a FarmBot-only "
                      "lark-cli home (docs/development-workflow.md).", user_logins=profile["user_logins"])
+    if "fgui" in (report["skills"]["enabled"] or []):
+        lark = report["tools"].get("feature", {}).get("entries", {}).get("lark_cli")
+        fgui = report["tools"]["fgui"] = fgui_toolchain(config, lark=lark)
+        if not config.lark_cli and "feature" not in (report["skills"]["enabled"] or []):
+            _finding(report, "lark_cli_unconfigured", "serve refuses to start: configure FarmBot's read-only "
+                     "lark-cli profile or explicit app_id/secret_env variant (docs/development-workflow.md).")
+        if fgui["missing"]:
+            _finding(report, "fgui_toolchain_incomplete", "Prepare native Python, pinned Pillow, a CJK font, Git LFS "
+                     "and the configured bot document reader before this host runs fgui.", tools=fgui["missing"])
+        profile = fgui["entries"]["lark_cli"]["profile"]
+        if not lark and profile["master_key_file"] and profile["user_logins"]:
+            _finding(report, "lark_cli_store_exposed", "The UI document-reader store holds a file master key and "
+                     "user login; use the supported FarmBot-only home/account boundary.", user_logins=profile["user_logins"])
     try:
         snapshot = _snapshot(paths.ledger)
     except (OSError, sqlite3.Error, ValueError) as exc:

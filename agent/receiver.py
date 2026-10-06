@@ -379,13 +379,13 @@ class Receiver:
                              label_groups=issue.get("label_groups") or (), reroute=reroute)
             elsewhere = self.ledger.active_item_for_issue(issue["id"])
             # Plan P6: the Farm-Client target is a fix's reproduction baseline. A session whose delegation starts
-            # feature work gets none, declined or not, and no later event in it adds one, such as a reply that
+            # feature/fgui work gets none, declined or not, and no later event in it adds one, such as a reply that
             # steers or resumes that work; nor does a mention in another session that is forwarded to a feature
             # job. No acknowledgement of such an event carries a target line.
             forwarded = decision.kind == "chat" and elsewhere is not None and elsewhere["session_id"] != session_id
-            feature_work = ((decision.kind == "work" and decision.skill == "feature")
-                            or any(entry["skill"] == "feature" for entry in history)
-                            or (forwarded and elsewhere["skill"] == "feature"))
+            feature_work = ((decision.kind == "work" and decision.skill in ("feature", "fgui"))
+                            or any(entry["skill"] in ("feature", "fgui") for entry in history)
+                            or (forwarded and elsewhere["skill"] in ("feature", "fgui")))
             return active, decision, elsewhere, feature_work, reroute
 
         routed = routing()
@@ -742,7 +742,7 @@ class Receiver:
                     # The thread's stored target, as a conversation's first repair takes it: nothing is pinned anew.
                     self.ledger.supersede(active["id"], ACTIVE_STATES if conversation else UNCLAIMED,
                                           session_id=thread, skill=skill, reason=IN_PLACE_REASON,
-                                          target=None if skill in ("chat", "feature") else session["target"],
+                                          target=None if skill in ("chat", "feature", "fgui") else session["target"],
                                           authority="delegation", episode=since)
                     self._say(thread, {"type": "thought", "body": IN_PLACE_NOTE.format(bot=self.bot_name) + "\n"
                                        + self._opening(decision, "")})

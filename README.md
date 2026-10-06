@@ -7,10 +7,12 @@ new UI. The Code worker runs only on a host that enables it; in this revision it
 feature from its Farm-Contract change through farm-common declarations, farm-hive and
 Farm-Client, with human UI-ready confirmation and committed-HEAD verification. It opens
 drafts and a Contract acceptance/archive draft; people review, merge and accept them.
-The UI authoring worker does not exist yet.
-Its development preview and image-upload tools are available; they do not add a
-loaded or enabled UI skill. See the [Phase D plan](docs/superpowers/plans/2026-10-06-feature-workers-phase-d.md)
-for the remaining worker and visual-approval implementation.
+The UI authoring worker (`fgui`) is also opt-in. It authors only farmgui, opens a
+draft and posts clearly labeled approximate previews for explicit human visual
+approval. Replies resume it; comments alone do not. Corrections require a fresh
+preview round. Licensed export, Farm-Client writes and Unity remain a separate
+Phase E step; an export request parks at that limit. See the
+[Phase D plan](docs/superpowers/plans/2026-10-06-feature-workers-phase-d.md).
 Without a Bot label a delegation opens a conversation. Capabilities are added as skills on
 a shared identity, ledger, worker runtime and desktop-resource locks: chat, QA, bug fixes
 and small changes, FGUI, then whole features.
@@ -165,11 +167,11 @@ not cover, stops `serve` and `enqueue`, and `doctor` reports `enabled_skills_inv
 routes only to enabled skills, `enqueue`, `request-repair` and `resume-work` refuse the others, and
 a queued job of a disabled skill fails with an error in its session. `doctor` reports the loaded
 and enabled skills, so an opt-in skill no list names is loaded and not enabled. A
-repository-staged skill such as `fix` or `feature` runs only on the `codex` runtime: with `claude`, `serve`
+repository-staged skill such as `fix`, `feature` or `fgui` runs only on the `codex` runtime: with `claude`, `serve`
 still starts with it enabled and queues its jobs, each job fails at launch, and `doctor` reports
 `skill_runtime_unsupported`.
 
-To let `feature` workers read the 策划案, name the lark-cli profile that holds FarmBot's own read-only
+To let `feature` or `fgui` workers read the 策划案, name the lark-cli profile that holds FarmBot's own read-only
 Feishu app and, on macOS, the FarmBot-only lark-cli home it lives in, then restart the drained
 receiver:
 
@@ -185,7 +187,7 @@ a host that enables `feature` without the block. Create the home and the profile
 `LARKSUITE_CLI_*ACCESS_TOKEN`, because lark-cli prefers credentials from the environment to
 `--profile`. FarmBot also removes `LARKSUITE_CLI_CONFIG_DIR` after worker overrides, preserving
 the configured store selection. An explicit `lark_cli: {"app_id": "cli_example", "secret_env": "FEATURE_FEISHU_SECRET"}`
-instead supplies bot credentials only to Codex `feature` workers, after these removals, with forced bot
+instead supplies bot credentials only to Codex `feature`/`fgui` workers, after these removals, with forced bot
 mode. It cannot be combined with profile/home. The secret value stays in the controller's environment;
 the worker's commands can read it. The source alias is removed from every worker, diagnostic and Unity
 child, and values are excluded from launch prompts and saved Codex settings. See the

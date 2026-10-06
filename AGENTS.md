@@ -32,7 +32,8 @@ keep runtime authority and behavior changes in those sources and their tests.
 - `agent/slots.py`, `agent/unity.py`, `agent/unity_mcp.py`, `agent/identity.py`: Unity
   resource ownership, Editor discovery, MCP and verification evidence.
 - `agent/__main__.py`, `agent/dispatch.py`, `skills/`, `references/`: worker-facing
-  CLI, launch context and instructions; `skills/feature` is the opt-in Code worker.
+  CLI, launch context and instructions; `skills/feature` is the opt-in Code worker,
+  and `skills/fgui` is the opt-in UI authoring worker.
 - `agent/skills.py`, `agent/stages.py`, `agent/uploads.py`, `agent/foreign_work.py`: skill
   manifests (opt-in and exclusive skills included) and per-host enablement, repository
   stages, Linear upload downloads and the foreign-work report.
@@ -42,7 +43,8 @@ keep runtime authority and behavior changes in those sources and their tests.
   the heartbeat `serve` writes for it, and the read-only ledger snapshots it
   shares with `doctor`.
 - `tests/`: unittest suite, fake CLI, local Git fixtures and mocked integrations;
-  `tests/test_feature_journey.py` drives Code jobs through the whole controller offline.
+  `tests/test_feature_journey.py` drives Code jobs through the whole controller offline;
+  `tests/test_fgui_journey.py` covers UI authoring, visual rounds and Stop/recovery.
 
 ## Development and production
 

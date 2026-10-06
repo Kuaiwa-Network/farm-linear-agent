@@ -172,13 +172,13 @@ def payload_of(message):
 
 class DispatchTests(unittest.TestCase):
     def test_feature_uses_the_controller_interpreter_and_native_host_commands(self):
-        for skill in ('feature', 'fix', 'chat'):
+        for skill in ('feature', 'fgui', 'fix', 'chat'):
             message = dispatch_message(item={'id': 'i', 'skill': skill},
                 issue={'identifier': 'FARM-1', 'url': 'u'},
                 skill_path=ROOT / 'skills' / skill / 'SKILL.md', worktrees={}, db_path='/db',
                 runtime='codex', guidance='', budget={'lease_seconds': 1, 'renew_minutes': 1})
             payload = payload_of(message)
-            if skill == 'feature':
+            if skill in ('feature', 'fgui'):
                 self.assertEqual(payload['execution'], {'platform': sys.platform, 'python': sys.executable})
                 self.assertEqual(payload['stage']['write_repositories'], [])
             else:
@@ -392,15 +392,30 @@ class SkillAuthorityTests(unittest.TestCase):
         self.assertNotIn("tools.kw_ops.access", part)  # D16: no operator-tool grant
         self.assertNotIn("FairyGUI", part)  # the export grant is fix's alone (D18 h)
 
+    def test_ui_authority_is_pinned_to_authoring_and_has_no_export_or_client_grant(self):
+        part = dispatch.FGUI_AUTHORITY
+        self.assertEqual(hashlib.sha256(part.encode("utf-8")).hexdigest(),
+                         "e7d4874810eb1667657b82b09736e8c799f55a6f84b8e6783ab866688ab3fd37")
+        self.assertIs(dispatch.SKILL_AUTHORITY["fgui"], part)
+        self.assertEqual(self.message({"id":"i", "skill":"fgui"}).split("\n\n", 1)[0],
+                         dispatch.COMMON_AUTHORITY + part + dispatch.AUTHORITY_REFERENCE)
+        self.assertNotIn("\n", part)
+        for phrase in ("writes only its farmgui worktree", "read-only integration context", "reserve Unity",
+                       "standing fix export grant does not apply", "never Bash/MSYS/WSL", "Phase E gap",
+                       "Comments alone do not resume", "named human Linear user", "tools.lark_cli.profile"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, part)
+        self.assertNotIn("tools.kw_ops.access", part)  # D16: no operator-tool grant
+
     def test_the_kw_ops_grant_is_per_skill_and_the_rest_is_common(self):
-        self.assertEqual(set(dispatch.SKILL_AUTHORITY), {"fix", "chat", "feature"})
+        self.assertEqual(set(dispatch.SKILL_AUTHORITY), {"fix", "chat", "feature", "fgui"})
         self.assertNotIn("kw_ops", dispatch.COMMON_AUTHORITY + dispatch.AUTHORITY_REFERENCE)
         for skill in ("fix", "chat"):
             with self.subTest(skill=skill):
                 self.assertIn("tools.kw_ops.access", dispatch.SKILL_AUTHORITY[skill])
 
     def test_a_skill_without_an_authority_entry_is_refused_when_the_payload_is_built(self):
-        for item in ({"id": "i", "skill": "fgui"}, {"id": "i"}):
+        for item in ({"id": "i", "skill": "uninstalled"}, {"id": "i"}):
             with self.subTest(item=item), self.assertRaisesRegex(ValueError, "no dispatch AUTHORITY"):
                 self.message(item)
 

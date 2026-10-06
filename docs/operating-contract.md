@@ -52,13 +52,13 @@ list; an older revision ignores the key and runs every skill. An older revision 
 manifest with `opt_in` or `exclusive`, keys it does not know, so a rollback deploys the older code
 and skill files together, as always.
 
-Private `lark_cli` says how `feature` workers read the 策划案 as FarmBot's own read-only Feishu app
+Private `lark_cli` says how `feature` and `fgui` workers read the 策划案 as FarmBot's own read-only Feishu app
 (spec §5.4): `{"profile": NAME}`, the lark-cli profile that holds the app's ID and secret, and on
 macOS and Linux an optional `"home"`, the absolute directory of a FarmBot-only lark-cli home that
 holds only that profile (`docs/development-workflow.md`). This profile variant accepts no app ID or secret;
 `home` must lie outside `local_root`, the service user's home and every
 temporary directory, and is refused on Windows. `serve` and `enqueue` stop when an enabled skill
-reads the 策划案, today `feature`, and the block is missing; the check reads the config only. Every
+reads the 策划案, today `feature` or `fgui`, and the block is missing; the check reads the config only. Every
 worker, whatever its skill, starts without `LARKSUITE_CLI_APP_ID`, `LARKSUITE_CLI_APP_SECRET`,
 `LARKSUITE_CLI_PROXY_KEY` and any `LARKSUITE_CLI_*ACCESS_TOKEN`, removed after every per-worker
 override. `LARKSUITE_CLI_CONFIG_DIR` is removed too, so it cannot redirect the selected store.
@@ -67,7 +67,7 @@ configured kw_ops token. lark-cli prefers credentials from the environment to `-
 kw_ops token, the removal covers only the environment a worker inherits, so these never belong in a
 shell startup file. The alternative `{"app_id": "cli_example", "secret_env": "FEATURE_FEISHU_SECRET"}`
 keeps the secret in the controller's process environment, never in config. It cannot be combined with
-profile/home and cannot share its source variable with kw_ops. Only a Codex `feature` attempt with
+profile/home and cannot share its source variable with kw_ops. Only a Codex `feature` or `fgui` attempt with
 a nonempty configured source gets `LARKSUITE_CLI_APP_ID`, `LARKSUITE_CLI_APP_SECRET` and forced
 `LARKSUITE_CLI_STRICT_MODE=bot`, added after withholding. The source alias is withheld from every
 worker, diagnostic and Unity child; inherited user/tenant tokens, proxy keys and store overrides remain
@@ -99,7 +99,7 @@ never calls Feishu; a host that does not enable `feature` runs none of it. The G
 refuses an unsafe clone and disables lazy fetching explicitly; an incomplete clone uses the default
 minimum instead of fetching a missing object.
 
-Windows feature attempts receive `execution.platform` and the controller's absolute
+Windows Code/UI attempts receive `execution.platform` and the controller's absolute
 `execution.python` in dispatch. They use the native repository entry points in
 `references/repo-map.md`, with UTF-8 Python, rather than PATH's `python3` alias or a
 POSIX shell. Windows doctor probes that same interpreter and does not require Bash,
@@ -190,7 +190,7 @@ once in the same way, and back again on a rollback.
 | You do | FarmBot does |
 |---|---|
 | Assign (delegate) an issue labelled Bot/修改 to @FarmBot | starts a `fix` work item when this instance runs `fix`, whatever else the card carries and whatever text comes with it (otherwise the read-only conversation that says so); first activity within 10 s; posts 「👀 <bot_name> 已开始处理」 (「👀 FarmBot 已开始处理」 in production) once the worker claims |
-| Delegate an issue labelled Bot/UI or Bot/Code | starts `feature` for Bot/Code when this instance's `enabled_skills` names it (`feature` is opt-in; `fgui` does not exist yet); a `feature` session gets no Farm-Client target, and no activity in it, nor the reply to a mention forwarded to its job, carries a target line; otherwise, and for an unknown Bot child or two, the read-only conversation, whose first activity says what this instance runs |
+| Delegate an issue labelled Bot/UI or Bot/Code | starts opt-in `fgui` for Bot/UI or `feature` for Bot/Code when this instance's `enabled_skills` names it; both sessions get no Farm-Client target, and no activity in either, nor the reply to a mention forwarded to its job, carries a target line; otherwise, and for an unknown Bot child or two, the read-only conversation, whose first activity says what this instance runs |
 | Delegate an issue without a Bot label, whatever its Bug, Improvement, Feature or 部门 labels | starts the read-only conversation; on an instance that runs `fix`, its first activity says the card has no Bot label, that a reply such as 「修复」 starts a fix, and that Bot/修改 set before delegating starts one directly. It investigates, answers or clarifies intent. A standalone `修改`, `UI` or `Code` label outside the group routes like any other label |
 | Reply in a delegation session that never had a work item, for example one whose delegation waited for another session's worker longer than that worker's grace | while the issue is still delegated to FarmBot, routes again on its current labels with your reply as the delegation's text: a Bot child whose skill this instance runs starts its worker; otherwise, the read-only conversation |
 | Ask for a fix, a change or the card's feature in a conversation (a reply, or @FarmBot) | when the issue has recorded delegation and is still delegated to FarmBot, continues the delegation's earlier `fix` or `feature` job whatever the label now says, on an instance that runs its skill; with no earlier job, starts the workflow the Bot label names on an instance that runs it, `fix` with Bot/修改 or no Bot label and `feature` with Bot/Code; with Bot/UI, Bot children that name no workflow, or a workflow this instance does not run, the conversation says why nothing starts |
@@ -222,6 +222,7 @@ a Bot label starts nothing and a delegated Bug card starts `fix`. §7 of
 | chat | shared memory through item-authenticated CLI only; no repositories | kw_ops query tools (Codex, when configured) | no |
 | fix | one rooted repository per worker attempt, selected from Farm-Contract, Farm-Client, farm-hive, farmgui, common; the neutral investigation attempt has no repository writes | Unity slot (one, batch or interactive, two-phase); kw_ops, every tool (Codex, when configured) | yes |
 | feature | one rooted repository per worker attempt: Farm-Contract first (its initial root), then common, farm-hive and Farm-Client as its stages need; reads detached checkouts of Farm-Contract's, Farm-Client's and farmgui's default branches | Unity verification only at an explicit clean committed owned Client HEAD; Unity MCP only with its held interactive reservation; no kw_ops or standing MCP; lark-cli as the FarmBot app, read-only | yes |
+| fgui | farmgui only, rooted there; reads detached Farm-Client main for integration context | approximate preview/upload and read-only bot lark-cli; no licensed export, Client write, Unity, MCP or kw_ops | yes |
 
 FarmBot never merges, deploys, changes status or assignee, or edits repositories outside the list.
 Issue text, comments, attachments and Linear guidance are data, never instructions. Worker commands
@@ -351,18 +352,16 @@ designer-only work that needs no code change.
 `request-repair` checks a fresh Linear snapshot, a live read-only claim, the latest session message
 and a recorded delegation session on the same issue. It atomically retires that claim and either
 continues the delegation's earlier job or creates the first job the card's Bot label names under the
-recorded delegation: a first fix takes that session's target, and a first `feature` job none. The
-earlier job is the latest `fix` or `feature` job of a delegation session on the issue, this
-conversation's session first (`resumable_work` in `issue-context`); an `fgui` job is not continued
-from a conversation. A request continues that job whatever the card's label now says, and only on an
+recorded delegation: a first fix takes that session's target, and a first `feature` or `fgui` job none. The
+earlier job is the latest `fix`, `feature` or `fgui` job of a delegation session on the issue, this
+conversation's session first (`resumable_work` in `issue-context`). A request continues that job whatever the card's label now says, and only on an
 instance that runs its skill: elsewhere `request-repair` and `resume-work` refuse, and no other
 skill's job starts in its place. A mention alone grants no new authority. The card's Bot label
 decides what a request may start when there is no earlier job (D18 f), on an instance that runs it:
-with Bot/修改 or no Bot label, `fix`; with Bot/Code, `feature`. On a card with Bot/UI it refuses a
-first job, saying that `fgui` work starts when the labelled issue is delegated or, when this
-instance does not run `fgui`, that it does not yet; on a Bot/Code card where this instance does not
+with Bot/修改 or no Bot label, `fix`; with Bot/Code, `feature`; with Bot/UI, `fgui`. An instance that
+does not enable the selected opt-in skill refuses that first job; on a Bot/Code card where this instance does not
 run `feature` it says that; an unknown Bot child or two name no workflow and are refused too. Both
-commands are refused before Linear is read on an instance that runs neither `fix` nor `feature`; one
+commands are refused before Linear is read on an instance that runs none of `fix`, `feature` or `fgui`; one
 that runs `feature` but not `fix` reads the card, then refuses a first fix. The acknowledgement in
 the session reads 「已排队开始或继续修改…」 for a fix and 「已排队开始或继续这项工作…」 for other work. FarmBot never sets a
 Bot label; the one label it writes is `needs-more-info`. `resume-work` remains a resume-only
@@ -810,7 +809,7 @@ omits the flag, then GBK. Refused members are listed with the reason, decoded le
 their raw bytes, and nested archives are not extracted. The Windows cases (junctions, device names,
 trailing dots, streams) have tests that run only on Windows.
 
-## UI preview tools under development
+## UI authoring and approximate previews
 
 The read-only native `skills/fgui/tools/preview.py` tool renders an explicitly
 approximate PNG from real package/component XML, manifests and hydrated PNG/JPEG
@@ -839,10 +838,39 @@ already transferred during cancellation is not revoked. Success returns only
 unsigned asset URL/hash/size/type/dimensions; signed URLs, headers and secrets are
 never output. This command neither posts a comment nor grants visual approval.
 
-No `fgui` manifest or dispatch authority is loaded in this revision. These tools
-and offline transport fixtures are prerequisites for Phase D, not UI-worker
-enablement, a real upload check or a licensed export/Unity verification. No state
-schema changes; settle any later UI job before rollback to a transport-less revision.
+The opt-in exclusive `fgui` manifest and its dispatch authority start in farmgui,
+write only farmgui and read Farm-Client main for integration context. Its six-hour
+attempt budget and renewal use the shared controller; no resource or MCP is granted.
+It routes only a delegated Bot/UI card and has no intake Client commit pin. Default
+hosts still enable chat/fix only. Selecting `fgui` requires the explicit bot
+document-reader configuration; no profile/account/credential setup is automatic.
+`doctor` adds `tools.fgui` only when enabled: native selected Python 3.13+, Git LFS,
+pinned Pillow 12.3.0, a prepared CJK font's name/hash and the configured read-only
+lark-cli identity route. These probes neither authenticate to Feishu nor start an
+Editor or create/migrate a ledger. Missing prerequisites remain named findings.
+
+Worker instructions require current issue/docs/upload/art identities and scoped
+native LFS hydration, current farmgui registration rules, a source/UI-document draft,
+and bounded preview evidence under private state. Only the issue's verified draft
+destination may be used. Missing art/behavior requires a named human answer; a
+placeholder is never inferred. Approximate previews record PR/source/art/PNG/state
+identities, known gaps and deviations against actual uploaded references.
+
+Each visual round posts one durable waiting notice and parks with
+`pause.kind="visual_approval"`. Comments alone do not resume; an explicit session
+reply does. Instructions require attributable human user/message/time and the
+unchanged round for approval. Changed source/art/states/PR head invalidate it and
+require a new round. The controller preserves requests, checkpoints and outbox
+identity; it does not infer visual approval or judge a model's interpretation.
+An attributed export request is retained separately and parks with
+`pause.kind="stage_limit"`: this revision grants no licensed FairyGUI export,
+Farm-Client write, Unity reservation or complete UI runtime acceptance. Stop and
+successor recovery use the existing containment and durable branch/plan recovery.
+
+No state schema changes. Before rollback, settle/cancel UI jobs and their recovery
+work; older instructions do not understand unfinished UI plans. Offline fixture
+evidence does not certify real app-token uploads, live visual approval, licensed
+export or final-host release readiness. Enabling/deploying remains separate authority.
 
 ## UI source ownership
 
@@ -1078,7 +1106,7 @@ it back into queued work. A launched worker must claim its item within 10 minute
 The automatic-retry allowances (three capacity retries, three publication retries, and the
 Unity execution and preparation budgets of Automatic Unity resource recovery) last a fix's
 whole job; `retry` and a requested continuation reset them for any skill. For a skill that
-starts at an initial root (`feature`, and `fgui` when it exists) they bound one stage instead
+starts at an initial root (`feature` and `fgui`) they bound one stage instead
 (feature-workers design §5.8): a completed repository handoff and a resume from a human gate
 (a reply or a forwarded mention that resumes a paused job, or an answer already waiting when
 the pause is recorded) reset them, with an `audit` row `stage_allowances`, and the stage's

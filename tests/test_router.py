@@ -179,9 +179,7 @@ class StartRequestTests(unittest.TestCase):
         self.assertEqual(start_refusal(["UI"], SKILLS),
                          "this issue carries Bot/UI, so it is fgui work, not a fix, and this instance does not run "
                          "fgui yet")
-        self.assertEqual(start_refusal(["UI"], FEATURES),
-                         "this issue carries Bot/UI, so it is fgui work, not a fix; fgui work starts only when an "
-                         "issue labelled Bot/UI is delegated")
+        self.assertIsNone(start_refusal(["UI"], FEATURES))
 
     def test_the_no_workflow_refusal_says_what_to_do(self):
         self.assertEqual(start_refusal(["Art"], SKILLS),
@@ -202,12 +200,11 @@ class StartRequestTests(unittest.TestCase):
                 self.assertEqual(start_skill(children), skill)
 
     def test_a_code_card_may_start_feature_where_this_instance_runs_it(self):
-        """Phase B: a conversation starts feature as D18 f planned; fgui still starts only on delegation."""
+        """Opt-in Code/UI conversations follow their own label and host enablement."""
         self.assertIsNone(start_refusal(["Code"], FEATURES))
         self.assertIsNone(start_refusal(["Code"], {"chat", "feature"}))
-        self.assertEqual(start_refusal(["UI"], FEATURES),
-                         "this issue carries Bot/UI, so it is fgui work, not a fix; fgui work starts only when an "
-                         "issue labelled Bot/UI is delegated")
+        self.assertIsNone(start_refusal(["UI"], FEATURES))
+        self.assertIsNone(start_refusal(["UI"], {"chat", "fgui"}))
 
     def test_without_fix_a_card_whose_label_names_fix_starts_nothing(self):
         """A host may run feature and not fix: a request there reads Linear, then refuses a first fix."""

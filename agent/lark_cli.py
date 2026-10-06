@@ -1,7 +1,7 @@
-"""Feature-only lark-cli credentials. Values travel only in a worker's process environment."""
+"""Opt-in Code/UI document-reader credentials; values stay in worker process environments."""
 import os
 
-SKILLS = ("feature",)
+SKILLS = ("feature", "fgui")
 APP_ID = "LARKSUITE_CLI_APP_ID"
 APP_SECRET = "LARKSUITE_CLI_APP_SECRET"
 STRICT_MODE = "LARKSUITE_CLI_STRICT_MODE"

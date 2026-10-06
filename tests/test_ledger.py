@@ -655,10 +655,11 @@ class SuccessorTests(LedgerBase):
         self.assertEqual(write_repositories(resumed, self.feature), ("Farm-Contract",))
         self.assertEqual(self.ledger.issue_context(feature["id"])["plan"], self.PLAN)
 
-    def test_an_fgui_job_is_not_continued_from_a_conversation(self):
-        self.ledger.cancel(self.job(skill="fgui")["id"], "Stop")
+    def test_a_conversation_finds_the_cancelled_ui_job_for_explicit_continuation(self):
+        ui = self.job(skill="fgui")
+        self.ledger.cancel(ui["id"], "Stop")
         chat, _ = self.conversation()
-        self.assertIsNone(self.ledger.issue_context(chat["id"])["resumable_work"])
+        self.assertEqual(self.ledger.issue_context(chat["id"])["resumable_work"]["id"], ui["id"])
 
 
 class StageAllowanceTests(LedgerBase):
