@@ -228,6 +228,90 @@ wrong origins. New native regressions cover the alias and those refusal
 boundaries without host credentials or new skips. The final candidate's full
 validation remains required; no running controller selection changes.
 
+### Final native acceptance and full offline validation
+
+The 8.3-alias fix is built with the actual supported builder at final commit
+`39a02ab56f2deaea22f66e0f3a8581bca0fc6d74`. The executable SHA-256 is
+`19400f7bd0fd824633219ee7f8d4e5ac38b5e9c1e7364d67448a09681cd7c06f`;
+the existing GCM binary remains unchanged. At **10:09:52 UTC**, the same approved
+1,024-byte object passes native LFS push and forced smudge download again, exact
+size/hash and restored cache, exit 0/0, **2.587 seconds** for commands and
+**3.559 seconds** overall. The server can acknowledge the already uploaded
+object; this repeat proves successful commands and verified forced download,
+not an assertion that fresh upload bytes were transmitted. At **10:09:56 UTC**,
+the same build's native GitHub read returns 31 heads, exit 0, **2.086 seconds**
+for the command and **3.060 seconds** overall. Both checks preserve policy, owned
+Job membership/empty cleanup, finished readers, runtime registration, protected
+Git files and clone trust. No new payload, credentials/settings, model turn,
+game publication or production action occurs.
+
+The local Windows suite ran once at implementation commit `39a02ab56f2deaea22f66e0f3a8581bca0fc6d74`,
+with the configured Python **3.13.16**, Git **2.54.0.windows.1** and LFS **3.7.1**.
+`PYTHONUTF8=1` precedes Python startup; inherited FarmBot/fake-worker/Git/token
+selectors are withheld. The recorded runner uses `-B`, unittest discovery of
+`tests` and verbosity 2, retains UTF-8 output, all test timings, revision and
+every skip id/reason privately, and makes no production access. A fresh temporary
+directory symlink check passes on this development PC before the suite.
+
+| Run | Tests | Duration including discovery | Failures/errors | Platform skips |
+|---|---:|---:|---:|---:|
+| Native development Windows | 1,778 | 911.161 s | 0/0 | 69 |
+| Hosted macOS CI | 1,778 | 515.262 s | 0/0 | 42 |
+| Hosted Windows CI | 1,778 | 2008.452 s | 0/0 | 69 |
+
+| Run | Python | Git | Git LFS |
+|---|---|---|---|
+| Native development Windows | 3.13.16 | 2.54.0.windows.1 | 3.7.1 |
+| Hosted macOS CI | 3.13.15 | 2.55.0 | 3.8.0 |
+| Hosted Windows CI | 3.13.15 | 2.55.0.windows.5 | 3.7.1 |
+
+Both Windows runs actually execute **all 13 feature journeys, all seven native
+Job Object tests and all 25 callback/origin checks**, without a skip in those
+groups. The new callback introduces **no Windows skip**. macOS skips the sixteen
+new native LFS tests with the explicit Windows platform reason and runs the two
+portable origin tests; its other 26 native Windows skips are existing ones.
+The focused native callback/skill-reference run passes **100 tests in 5.476 s**,
+zero failures/errors/skips. Local links, whitespace and known credentials,
+private paths and the private LFS endpoint are checked without exposing values.
+
+The [full CI run](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37447798856)
+tests PR merge ref `c6de9d043e32593a32c79f056e852ac9cde5cd9f`. Its tree equals
+the final local implementation/PR head
+`39a02ab56f2deaea22f66e0f3a8581bca0fc6d74`. [PR #147](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/147)
+merges as `efd3f03472311cb48d9a1ab3492384065d128dce`, with the candidate and
+actual merge trees equal. CI artifacts retain both hosted tool inventories, full UTF-8 logs, skip
+ids/reasons and timings. Local private receipts retain the independent host run
+and native transfer checks. Hosted results do not certify production readiness.
+
+Every native Windows platform-skip reason is recorded below; the private
+summary additionally preserves all **69 exact test ids**. These existing skips
+include platform/fixture reasons mentioning privilege even though this run's
+independent symlink capability check passes; no skip condition was changed.
+
+| Existing skip reason | Count |
+|---|---:|
+| FIFOs and O_NOFOLLOW symlink refusal are POSIX | 1 |
+| FIFOs are POSIX | 1 |
+| FIFOs in a directory are POSIX | 12 |
+| POSIX permissions; Windows has the junction test | 1 |
+| POSIX process group semantics | 1 |
+| POSIX process inspection | 3 |
+| POSIX self-exit evidence; Windows workers are proved by Job Objects | 4 |
+| POSIX service termination contract | 2 |
+| POSIX sessions and process groups | 8 |
+| POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py | 25 |
+| Windows has no O_NOFOLLOW; making a symlink there needs a privilege | 1 |
+| Windows refuses every lark_cli home | 1 |
+| Windows worker jobs contain children; tested in test_windows_workers | 1 |
+| macOS's Seatbelt, as Codex's | 1 |
+| making a symlink on Windows needs a privilege | 1 |
+| no FIFOs in a directory, and making a symlink needs a privilege | 1 |
+| the filter here is a shell script | 1 |
+| the hooks here are shell scripts | 1 |
+| the hooks, fsmonitor and filters here are shell scripts | 1 |
+| the macOS store's master key file | 1 |
+| the planted hooks and fsmonitor are shell scripts | 1 |
+
 ## Native headless client protocol export
 
 A separate private fixture uses Farm-Client

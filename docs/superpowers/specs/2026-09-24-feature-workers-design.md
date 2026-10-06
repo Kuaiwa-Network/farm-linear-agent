@@ -1269,6 +1269,17 @@ client/UI implementation and later live scope remain pending. The
 keeps those checks distinct from production promotion and later live stages.
 Production, later live stages and Phase C remain outside this check.
 
+The supported optional native LFS callback lands in #147 after a full native
+Windows run and both CI jobs pass 1,778 tests. Its actual built binary passes
+the approved transfer and a separate native GitHub read. Private origin/GCM
+pins, noninteractive server-only lookup and credential-store separation are
+covered without host credentials in the offline fixtures. FarmBot defaults
+and the running controller do not select this tool automatically. Later real
+client-worker publication and production acceptance remain pending. The
+[Phase C plan](../plans/2026-10-06-feature-workers-phase-c.md) sequences supported
+headless exports/metadata, client scope and Unity targets, E/F/G instructions
+and offline journeys; it is a plan, not implemented client/UI behavior.
+
 
 Found while writing this design:
 
