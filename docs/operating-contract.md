@@ -1096,6 +1096,17 @@ host and does not establish running-worker withdrawal or production readiness.
 The [measured record](superpowers/spikes/2026-10-03-native-windows-offline.md#windows-signed-intake-and-long-path-checkouts-2026-10-06)
 retains the scope and timing.
 
+Observed later on 2026-10-06 for the exact native Windows FARM-1435 stage-A
+limit: delegate removal cancelled the parked item in 65.183 seconds from
+request start, 62.995 from acknowledgement. Linear displayed the response once
+and the session Finished; a second read found no later post. Cleanup completed
+without errors, removed owned worktrees/read snapshots and retained exact
+Contract/common/hive recovery refs, the real draft PR, branch and notices.
+TestBot restarted with chat/fix only. The two-read confirmation was preserved;
+this is not a 60-second action-to-cancellation guarantee, running-worker test
+or production-readiness claim. See the
+[stage-limit cancellation record](superpowers/spikes/2026-10-06-windows-stage-a-acceptance.md#exact-parked-stage-limit-cancellation-2026-10-06).
+
 **A new delegation owns the card.** A delegation's `created` event, or a reply that routes a
 delegation session again, while the card is delegated here and work is active in another session:
 

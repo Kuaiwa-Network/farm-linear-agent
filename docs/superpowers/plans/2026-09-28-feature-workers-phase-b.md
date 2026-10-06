@@ -1531,8 +1531,18 @@ inherited selection and a fresh owned Contract fetch while rejecting an invalid
 CA. Final full CI passes 1,760 tests on both platforms (69 Windows / 26 macOS
 skips), all thirteen journeys and all seven native Windows Job tests. #141
 merges as `0f97c794`, with candidate and merge trees identical.
-The parked-stage-limit undelegation check awaits
-its separate required approval; the earlier cancelled attempt is not its proof.
+The operator subsequently approved the exact parked-stage-limit undelegation
+check. Clearing only TestBot's delegate cancelled the item in 65.183 seconds
+from request start (62.995 from acknowledgement). Linear showed the withdrawal
+response once and the session Finished; the second read found no later post.
+Cleanup removed owned worktrees/read snapshots with no errors and preserved
+all three exact recovery HEADs, the open Contract draft and its branch/notices.
+Doctor lists no unfinished item or pending cleanup for it. TestBot restarted
+with chat/fix only; the tunnel and private evidence were preserved.
+The literal 60-second expectation in the original check 4 was not met: the
+current implementation confirms removal with two reads at least one interval
+apart, plus API/poll overhead. This is a measured parked-job result, not a
+running-worker withdrawal or production-readiness claim.
 See the [complete measured stage-A record](../spikes/2026-10-06-windows-stage-a-acceptance.md).
 Task 17 remains partial at these boundaries; production and Phase C are unchanged.
 
