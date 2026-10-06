@@ -1,6 +1,7 @@
 """Native LFS authentication boundaries; dummy executables, never host credentials."""
 import hashlib
 import contextlib
+import ctypes
 import io
 import json
 import os
@@ -157,6 +158,40 @@ class NativeLfsAskpassTests(unittest.TestCase):
             with self.subTest(prompt=prompt):
                 result = self.call(prompt)
                 self.assertEqual((result.returncode, result.stdout, result.stderr), (0, expected, ""))
+
+    def test_native_short_directory_alias_names_the_same_pinned_executable(self):
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        short = kernel.GetShortPathNameW
+        short.argtypes = (ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32)
+        short.restype = ctypes.c_uint32
+        buffer = ctypes.create_unicode_buffer(32768)
+        size = short(str(self.root), buffer, len(buffer))
+        self.assertTrue(size and size < len(buffer), "Windows fixture needs a native short directory alias")
+        executable = Path(buffer.value) / self.gcm.name
+        self.assertEqual(executable.read_bytes(), self.gcm.read_bytes())
+        self.pin(executable=executable)
+        result = self.call("Username for 'http://lfs.example:8080': ")
+        self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "fixture-user\n", ""))
+
+    def test_reparse_pins_and_drive_relative_paths_are_refused_before_lookup(self):
+        original = self.root / "original-pin.lfs"
+        self.settings.rename(original)
+        try:
+            self.settings.symlink_to(original)
+            self.assert_refused(self.call("Username for 'http://lfs.example:8080': "))
+        finally:
+            self.settings.unlink(missing_ok=True)
+            original.rename(self.settings)
+        link = self.root / "linked-gcm-directory"
+        link.symlink_to(self.root, target_is_directory=True)
+        try:
+            self.pin(executable=link / self.gcm.name)
+            self.assert_refused(self.call("Username for 'http://lfs.example:8080': "))
+        finally:
+            link.unlink()
+        for executable in (str(self.gcm)[2:], self.gcm.drive + str(self.gcm)[3:]):
+            self.pin(executable=executable)
+            self.assert_refused(self.call("Username for 'http://lfs.example:8080': "))
 
     def test_scheme_host_port_and_prompt_are_checked_before_lookup(self):
         for prompt in ("Username for 'https://lfs.example:8080': ", "Username for 'http://other.example:8080': ",

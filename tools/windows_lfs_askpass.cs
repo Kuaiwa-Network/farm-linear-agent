@@ -29,12 +29,18 @@ public static class FarmBotNativeGitAndLfsAskpass {
         return false;
     }
 
-    private static bool OrdinaryPath(string path) {
-        if (!Path.IsPathRooted(path) || !String.Equals(Path.GetFullPath(path), path, StringComparison.OrdinalIgnoreCase))
-            return false;
-        for (string entry = path; entry != null; entry = Path.GetDirectoryName(entry))
-            if ((File.GetAttributes(entry) & FileAttributes.ReparsePoint) != 0) return false;
-        return true;
+    private static string OrdinaryPath(string path) {
+        // IsPathRooted alone accepts drive-relative C:foo and root-relative \foo.
+        bool driveAbsolute = path.Length >= 3 && Char.IsLetter(path[0]) && path[1] == ':' &&
+                             (path[2] == '\\' || path[2] == '/');
+        if (!driveAbsolute && !path.StartsWith("\\\\", StringComparison.Ordinal)) return null;
+        // Framework expands native 8.3 aliases here. Text equality would reject
+        // a legitimate pinned file in, for example, a short-form TEMP directory.
+        // Use the normalized path for every check AND the eventual execution.
+        string full = Path.GetFullPath(path);
+        for (string entry = full; entry != null; entry = Path.GetDirectoryName(entry))
+            if ((File.GetAttributes(entry) & FileAttributes.ReparsePoint) != 0) return null;
+        return full;
     }
 
     private static string Digest(string path) {
@@ -61,7 +67,8 @@ public static class FarmBotNativeGitAndLfsAskpass {
 
     private static int Lfs(string field, Uri requested) {
         var settings = Path.ChangeExtension(Assembly.GetExecutingAssembly().Location, ".lfs");
-        if (!File.Exists(settings) || !OrdinaryPath(settings) || new FileInfo(settings).Length > 16384) return 1;
+        settings = OrdinaryPath(settings);
+        if (settings == null || !File.Exists(settings) || new FileInfo(settings).Length > 16384) return 1;
         var lines = new UTF8Encoding(false, true).GetString(File.ReadAllBytes(settings)).Split('\n');
         if (lines.Length != 4 || lines[3].Length != 0) return 1;
         for (int i = 0; i < 3; i++) {
@@ -76,8 +83,8 @@ public static class FarmBotNativeGitAndLfsAskpass {
             requested.Scheme != allowed.Scheme || requested.Host != allowed.Host || requested.Port != allowed.Port ||
             requested.Query.Length != 0 || requested.Fragment.Length != 0 ||
             (field == "Username" && requested.UserInfo.Length != 0)) return 1;
-        var executable = lines[1];
-        if (!File.Exists(executable) || !OrdinaryPath(executable) ||
+        var executable = OrdinaryPath(lines[1]);
+        if (executable == null || !File.Exists(executable) ||
             !Path.GetFileName(executable).Equals("git-credential-manager.exe", StringComparison.OrdinalIgnoreCase) ||
             !Regex.IsMatch(lines[2], "\\A[0-9a-f]{64}\\z") || Digest(executable) != lines[2]) return 1;
         var info = new ProcessStartInfo(executable, "get") {

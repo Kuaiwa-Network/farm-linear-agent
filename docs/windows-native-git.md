@@ -109,7 +109,8 @@ against the authorized repository before building.
 
 The private `askpass.lfs` companion pins that origin, the absolute GCM executable
 and its SHA-256. The callback reads it beside its own executable, rejects reparse
-paths and a changed GCM binary, and checks the requested scheme/server/port and
+paths and a changed GCM binary, accepts native short-path aliases by normalizing
+the absolute path before validating and executing it, and checks the requested scheme/server/port and
 returned identity before emitting only the requested field. Environment variables
 cannot replace these LFS pins. Missing or malformed settings and lookup failures
 produce no credentials or diagnostics. GitHub prompts still use the existing

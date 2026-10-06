@@ -208,6 +208,26 @@ This validates the supported optional tool on this development PC. Selecting
 it for a later real client worker and completing that worker's publication
 acceptance remain pending; this is not production-host certification.
 
+The first full validation at `3fdef24` passes **1,776 tests in 919.191 seconds**
+on this development Windows PC, zero failures/errors, **69** existing platform
+skips; all thirteen journeys, seven native Job tests and 23 callback/origin
+checks execute. macOS CI passes **1,776 tests in 435.036 seconds**, **40**
+Windows-only skips. Hosted Windows CI at the matching PR merge tree runs
+**1,776 tests in 1,927.118 seconds**, with **17 failing subtest/test events**,
+zero errors and **69** skips. The new LFS helper refuses before starting GCM;
+other native Job tests and feature journeys run. These are preserved failures,
+not a passing Windows CI result, and #147 remains unmerged at this point.
+
+A focused local reproduction pins the same dummy executable through its
+native 8.3 directory alias: the old helper refuses it. .NET Framework expands
+that alias in `Path.GetFullPath`, so comparing the resulting text to the input
+incorrectly rejects a valid absolute pinned file. The fix normalizes the path
+and uses that same result for reparse checks, name/hash validation and execution;
+it still refuses reparse pins, drive/root-relative paths, changed binaries and
+wrong origins. New native regressions cover the alias and those refusal
+boundaries without host credentials or new skips. The final candidate's full
+validation remains required; no running controller selection changes.
+
 ## Native headless client protocol export
 
 A separate private fixture uses Farm-Client
