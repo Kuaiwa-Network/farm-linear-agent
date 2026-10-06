@@ -7016,3 +7016,146 @@ SHA-256 `259e242a7531abd8827c0c3ec44e099c8e1d46847438450b44637c95f08ea773`.
 Added links/anchors, added-text privacy patterns and `git diff --check` pass.
 Only the two verification documents change; the serving checkout stays pinned
 to the measured candidate.
+
+## Windows signed intake and long-path checkouts (2026-10-06)
+
+After the operator saves the Windows TestBot webhook, actual signed Linear
+delivery succeeds on `943540260247d0200561e75cd240784734bebbf3`. The selected
+FARM-1346 test preserves its human owner, `Todo` status, comments and game drafts.
+As recorded by the preceding host probes, this is the **production Windows
+host**, using a separate isolated development checkout and TestBot state; the
+production installation, config and ledger remain outside the test.
+Completed TestBot sessions are archived through Linear's reversible UI so a new
+delegation creates a fresh session; their history remains accessible. Linear
+also adds a FARM-1400 relationship when the scope comment links that existing
+implementation; that test-added relationship is removed afterwards. The original
+FARM-1419 relationship remains. No other issue is selected for work.
+
+The first signed intake creates exactly one target-free feature item. It fails
+before any Codex worker starts: Git reports `Filename too long` while checking
+out Farm-Client's default branch. A subsequent session reply creates one chat
+item, which fails at writable Farm-Client worktree preparation for the same
+reason. Their enqueue-to-failure intervals are **29.973 seconds** and **11.717
+seconds**. Both worker PIDs remain unset; this is a checkout failure, not a
+sandbox, Job Object or Feishu failure. All received webhook events settle.
+
+[PR #135](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/135), merged as
+`0c4ef5ee240141b26382964e2b433ef8b8f202e0` after both full CI jobs pass, uses candidate
+`df7f5a87bb539f890e26e87b1ab6a4ffe130e0ef`, adds Windows-only
+`-c core.longpaths=true` to the controller's Git calls. It changes no global or
+clone Git settings and preserves hooks/fsmonitor suppression, read-checkout LFS
+controls, clone validation and native worker containment. Windows already has
+long-path support enabled on this PC.
+
+| Native Windows measurement | Result | Duration |
+| --- | --- | --- |
+| New long-path regression using the previous Git helper | Both writable/read-only checkout modes fail with `Filename too long`; no skips | 1.799 s |
+| Worktree and feature-journey checks | 70 tests; six existing platform skips; one private observer bytes/text error, corrected in the focused rerun below | 281.949 s |
+| Affected journey after the observer correction | Pass; all 13 feature journeys have now passed; no application failure remains | 23.600 s |
+| Relevant documentation checks | 49 pass; zero failures/errors/skips | 0.301 s |
+| Real Farm-Client code-history checkouts in separate scratch state | 21,817 tracked files in each mode; all long tracked files present; no clone trust findings | 20.556 s |
+
+The six existing worktree skips are recorded without broadening them:
+
+- `ControllerGitTests.test_farmbots_git_in_a_worktree_follows_neither_of_its_pointers`: the filter here is a shell script.
+- `ControllerGitTests.test_farmbots_own_git_runs_no_hook_left_in_the_clone`: the hooks here are shell scripts.
+- `ControllerGitTests.test_within_those_parts_a_worker_commits_and_pushes_but_cannot_touch_the_config`: macOS's Seatbelt, as Codex's.
+- `ReadCheckoutTests.test_no_hook_fsmonitor_filter_or_setting_of_the_host_or_the_clone_runs`: the hooks, fsmonitor and filters here are shell scripts.
+- `ReadCheckoutTests.test_removal_never_acts_through_a_link`: POSIX permissions; Windows has the junction test.
+- `ReattachTests.test_no_hook_or_fsmonitor_planted_in_the_clone_runs_while_re_attaching`: the planted hooks and fsmonitor are shell scripts.
+
+The real checkout probe exercises **223 writable paths** over 260 characters
+(maximum **288**) and **313 read-checkout paths** over 260 characters (maximum
+**299**). It uses locally seeded code history and the configured official remote,
+with no runtime-state copy, worker, publication or live issue operation. Two
+private measurement-wrapper errors (an incorrect helper name and initially
+insufficient probe-path depth) are corrected before that successful measurement;
+they are not application regressions. Automatic approval review rejects removal
+of this task-created code-history scratch with `blocked by policy`; it is left
+intact with its measurement report and private diagnostic. This scratch is
+separate from the live worker's successfully removed worktrees below.
+
+An additional Git **2.54.0.windows.1** probe with an explicit global
+`core.longpaths=false` still fails even though command-scope configuration reports
+`true`. Both an empty inherited Git configuration and a private long-path-enabled
+configuration pass. The TestBot environment selects `NUL` for inherited global
+and system Git configuration. The fix is measured in that environment; it does
+not certify arbitrary host settings. No operator/global Git setting is changed.
+
+Before switching the development checkout to the corrected candidate, the agent
+verifies the old controller's recorded executable, command line, creation time
+and owner, the two failed jobs with no worker PID, zero heartbeat workers and
+settled webhooks. It stops only that quiescent development process using native
+`Stop-Process`; this is not reported as a graceful service shutdown. The tunnel,
+old logs, ledger, failed worktrees and ownership/recovery records are preserved.
+Read-only doctor on the corrected candidate reports only the two retained
+`job_failed` findings, no missing native feature tool and no pending cleanup
+(**0.816 seconds**). Those historical failures remain visible.
+
+The fresh retry creates one feature item with no target. Its first owner message
+contains only the stage-A contract scope, with no Farm-Client line; the signed
+prompt is delivered into that same active item. The actual Codex worker claims
+the job. Read-only native Job queries find the recorded gate among active Job
+members, and the execution log records **80 native `pwsh.exe` executions**. The
+prior checkout error is absent. The worker downloads the selected Feishu DOCX
+as the bot and the Linear attachment. Both are **41,658 bytes**, SHA-256
+`65cd121515f7fc30a61b94a362fe7de3e92f4e48d325cfa5dacb883722fc88dc`.
+This measures native drive-file and attachment reads, not a separate wiki/page
+markdown-fetch check. No document content or credential value is published here.
+
+The worker finds the existing FARM-1400 contract on main. With no attributed
+answer establishing a new behavior, it posts one new question notice and parks
+at stage A with `awaiting_input`: G1 asks the owner to choose audit/no change or a
+real delta; G2/G4 need the lead designer's configuration/text decisions; G3 needs
+the client's sharing/login decision; H1 asks for confirmation of protocol reuse.
+It makes no source change, publishes no game PR and does not hand off to common.
+This is successful native intake/source/question-gate evidence. The twelve
+contract gates and a genuine draft PR followed by the exact `waiting` /
+`stage_limit` pause are **not exercised** by this attempt. They remain pending
+human answers and an actual delta; no artificial change is used to obtain them.
+
+The operator-authorized withdrawal check uses this parked-question job, a variant
+allowed by Task 17 Step 4 item 4. Clearing TestBot in Linear at **02:14:47 UTC**
+settles to `cancelled` at **02:15:50.464 UTC**, approximately **63 seconds**. This
+slightly exceeds the literal default 60-second reconciliation interval; it is the
+measured webhook/polling latency, not a claim of a strict 60-second bound. The
+undelegation response appears **once** in the real session, which Linear shows as
+**complete**, unarchived. A second status read produces no later bot notice.
+Read-only verification finds no worker PID, an empty native Job, the selected
+writable/read worktree directories removed, the Farm-Contract recovery ref
+preserved and no pending cleanup. Existing comments, drafts and the two historical
+checkout failures remain. The card stays `Todo` with its human owner, `Code` and
+`needs-more-info`; it is not redelegated as part of this check.
+
+A local search of **249 private attempt files** and the fetched issue/comments
+finds **zero matches** for the known Feishu app ID/secret and TestBot Linear
+credentials. Only the selected bot secret is resolved in memory for this check;
+no value is printed or persisted. The selected lark-cli profile remains strict
+bot mode with **zero personal user logins**. No credential or app setting changes.
+
+The full offline [PR #135 CI record](2026-10-06-pr135-offline-ci.md) preserves every
+skip, versions, UTF-8 log hashes and per-test evidence. Windows runs **1,751 tests:
+1,682 pass, 69 platform skips, zero failures/errors**, in **1,624.886 seconds**.
+macOS runs **1,751: 1,732 pass, 19 platform skips, zero failures/errors**, in
+**593.685 seconds**. All 13 feature journeys pass on both; all seven native Windows
+Job tests actually run on Windows. CI's synthetic merge, the native candidate and
+the final squash merge have the identical tree
+`9c1399deb6026afb230e5e54dad2c1a7df7f111d`.
+
+After the selected worker is proved quiescent, only the development controller is
+stopped with its verified recorded process identity. TestBot's `enabled_skills`
+is restored to **`["chat", "fix"]`**, and that settled controller restarts on the
+merged revision `0c4ef5ee240141b26382964e2b433ef8b8f202e0`. Its heartbeat shows
+`serving`, zero workers and zero loop errors. The tunnel, private logs, failed
+history, profile backup and recovery evidence remain. Doctor still reports only
+the two historical `job_failed` findings and no pending cleanup. No production
+installation, config, ledger or service is inspected, changed or certified by
+this isolated TestBot check. Task 17 remains partial.
+
+Final documentation/reference validation uses the selected **Python 3.13.16**:
+`test_skills` passes **73 tests**, zero failures/errors/skips, in **0.391 seconds**.
+The private UTF-8 log has SHA-256
+`5072c57bb38b45ff04caaf00a07c9ea72e7c4c80a0a6df9825808ca41df4a5bd`.
+All six added relative links/anchors, Git whitespace and the public diff's
+known-credential/host-identity checks pass. The final record changes Markdown
+only; the full suite is not repeated for that documentation change.
