@@ -888,6 +888,30 @@ not establish Unity's interpretation of opaque component/animation/font payloads
 Installation, attributed export approval and actual Client/Unity verification
 remain separate Phase E work.
 
+`agent.fgui_install` prepares an immutable installation plan for an explicit
+changed-package subset of that snapshot. It reads only Client inputs during
+planning, requires hydrated selected artifacts, keeps existing metadata bytes/GUIDs,
+and creates new folder/TextScript/Texture/Audio importer metadata from complete
+live sibling templates with fresh GUIDs checked against all Client Assets metadata.
+Unknown metadata/artifact models, affected duplicate GUIDs, missing templates or
+existing metadata, file/directory replacements and stale inputs refuse planning.
+Only those packages are mirrored; stale files, orphan metadata and empty folders
+leave them. The watcher's safety limits remain 200 removed files and 80% of a
+package's existing files, including metadata; an excessive removal requires a
+scope ruling rather than silently leaving a partial mirror.
+
+Applying a prepared plan requires an explicit claim/Stop fence and a new private
+recovery root outside Client. Before the first Client mutation it rechecks selected
+bytes and the global GUID inventory and preserves old bytes with a durable journal.
+Every directory/file mutation is fenced; replacements use exclusive temporary files,
+stale deletions recheck old bytes, and directory removal refuses nonempty folders.
+Late destinations, unexpected files or global GUID drift refuse success. Interrupted
+work retains before bytes, completed operations and uncertain temporary artifacts;
+there is no automatic rollback or directory-atomic success claim. The caller must
+ensure exclusive ownership/quiescence of Client. These helpers are prepared
+foundations with no worker CLI or authority change; actual scoped export approval,
+controller Client entry, draft/delivery and Unity orchestration remain pending.
+
 ## UI source ownership
 
 For UI fixes and changes, inspect the relevant farmgui source before choosing an implementation.
