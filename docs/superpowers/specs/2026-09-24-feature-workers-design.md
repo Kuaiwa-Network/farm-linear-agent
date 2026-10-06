@@ -1235,8 +1235,14 @@ other writable repositories are unchanged. The worker parks exactly with A done,
 waiting/stage_limit, no PID and an empty Job; doctor and the Needs input session
 confirm it. Known credential scans match no run file, comment or PR text.
 This resolves genuine changed-contract/draft-PR/stage-limit acceptance for this
-scoped Windows development run. Removing delegation from that exact parked
-variant awaits its separately required approval. The optional callback's initial
+scoped Windows development run. The separately approved removal from that exact
+parked variant subsequently cancels the item in 65.183 seconds from request
+start (62.995 from acknowledgement), with one response and a Finished session.
+The second read finds no later post; all three exact recovery HEADs remain,
+owned worktrees/read snapshots are removed, cleanup has no errors and the
+draft/branch/notices remain. TestBot restarts with chat/fix only. The original
+plan's literal 60-second deadline is not met; the current two-read confirmation
+requires an interval plus API/poll overhead. The optional callback's initial
 Windows CI console-encoding failure is reproduced and fixed with a native
 regression; its final full CI passes 1,760 tests on each platform, all thirteen
 journeys and all seven native Windows Job tests. #141 merges as `0f97c794`,
@@ -1270,8 +1276,11 @@ The Phase B question about a session response after delegation removal was
 observed on 2026-10-03: Linear displayed the response once and completed the
 parked FARM-1419 session. This was one Mac observation, not a running-worker or
 Windows live check. A separate native Windows parked-question observation on
-2026-10-06 also displays the response once and completes the FARM-1346 session;
-running-worker withdrawal remains unmeasured. The Windows account choice was recorded on 2026-10-03;
+2026-10-06 also displays the response once and completes the FARM-1346 session.
+The separately approved native Windows FARM-1435 stage-limit variant likewise
+displays one response and a Finished session, preserving its real draft and
+exact recovery refs with completed cleanup. Running-worker withdrawal remains
+unmeasured. The Windows account choice was recorded on 2026-10-03;
 its remaining verification is:
 
 - For the operator, before `feature` runs on the Windows host: lark-cli keeps secrets per Windows

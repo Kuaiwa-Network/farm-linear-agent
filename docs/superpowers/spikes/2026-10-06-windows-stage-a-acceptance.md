@@ -116,20 +116,95 @@ G pending, a `stage_limit` event and
 `pause={kind: stage_limit, reason: waiting, notice: merge-contract}`.
 The worker ran `await-input --reason waiting`, with no handoff to another root.
 
-The item is `awaiting_input`, stage `stage-A-done`, with no worker PID or target,
+Before the separately approved cancellation check, the item was `awaiting_input`,
+stage `stage-A-done`, with no worker PID or target,
 and its native Job Object is empty. Heartbeat workers are zero and all six loop
 error counters are zero. Read-only `doctor` shows Farm-Contract root, A done,
 the waiting/stage-limit pause and draft #328. Its `attention` status contains
 only two retained historical `job_failed` findings; no missing feature tools or
 pending cleanup were reported. Doctor did not create a ledger.
 
-The local scan of 477 run files, 12 fetched issue comments and draft-PR text
+The local scan of 477 run files, initially 12 fetched issue comments and draft-PR text
 found zero occurrences of the known Feishu app ID/secret and development Linear
 credentials. The claim token appeared only in its designated file, with no
 public match. The existing Feishu profile remained strict bot mode with zero
 personal user logins. No credentials/profile/account settings were changed.
 Private UTF-8 logs, process/Job receipts, per-gate reports and the parked-session
 screenshot are retained locally; private paths and source text are not published.
+
+## Exact parked-stage-limit cancellation (2026-10-06)
+
+The operator explicitly approved the cancellation check in this development
+chat. Only TestBot's delegate was cleared through the Linear connector;
+the human assignee, Backlog state, Code label and issue description were retained.
+No reply or redelegation was sent to the parked session, and no successor started.
+
+| Observation | UTC / measured result |
+|---|---|
+| Delegate-removal request started | 07:14:57.008 |
+| Connector acknowledgement | 07:14:59.196 |
+| First status read marking delegation absent | 07:14:59.926 |
+| Item cancelled | 07:16:02.191 |
+| One session withdrawal response created | 07:16:03.106 |
+| Cleanup completed | 07:16:31.128 |
+| Request to cancellation | 65.183 seconds |
+| Acknowledgement to cancellation | 62.995 seconds |
+| First absent-delegate read to cancellation | 62.265 seconds |
+
+This does **not** meet the original Task 17 check 4's literal one-interval
+wall-clock expectation (`reconcile_seconds=60`). The current withdrawal
+contract and `Lifecycle._refresh` require two absent-delegate reads at least
+one interval apart, with API/read and polling overhead. The observed delay is
+consistent with that implementation, rather than a failed cancellation.
+The two-read confirmation, containment and ownership checks were preserved.
+The older task wording is historical; these measurements do not promise a
+60-second deadline from the operator's action.
+
+Linear displayed the exact `UNDELEGATED` response once in the selected session
+and marked it **Finished**. A second issue/comment read found the same thirteen
+comments, with exactly one new withdrawal response in this session and no
+subsequent post. The three prior stage/merge notices remain confirmed.
+The item remains cancelled after the development controller restart.
+
+Cleanup has `done=true`, no error, no worker PID or target, and an empty owned
+Job Object. The entire item worktree directory and its `.reads` directory are
+absent. Each owned repository's `refs/farmbot/recovery/<item id>` resolves to
+its exact pre-cleanup HEAD:
+
+| Repository | Recovery HEAD |
+|---|---|
+| Farm-Contract | `220e618d3cd736b6f8cc747576bca7e5a0ca413a` |
+| common | `b367febe20d6db65ebb386aa871bdb2671df9525` |
+| farm-hive | `6eff95c278ccdee1e9caeed862969bd0140198f8` |
+
+Read-only doctor reports no unfinished job or pending cleanup for this item,
+and no missing feature tools. Its `attention` status still consists only of
+the two previously recorded historical `job_failed` findings. The exact
+six-job quiescence guard verifies two historical failures, four cancellations,
+all webhook events done, every recorded native Job empty, zero cleanup errors
+and all item/read worktrees removed. It does not hide or delete those failures.
+
+Draft #328 remains open and draft at the same HEAD, with its published branch
+retained. The final credential scan includes thirteen comments and still has
+zero known credential or public claim-token matches across the 477 run files,
+comments and PR text. The session screenshot and UTF-8 private receipts are
+retained locally.
+
+After identity and quiescence verification, only the owned development
+controller was stopped. Only its `enabled_skills` changed to `chat`/`fix`;
+all other config fields are identical and backups/logs were preserved. The
+settled development controller restarted at `bc2ce9bf`, serving with zero
+workers and zero loop errors. The existing tunnel was preserved. Production
+configuration, state and service were not inspected or changed.
+
+The documentation follow-up passed the existing 50 lifecycle tests in 2.712
+seconds and 75 skill/reference tests in 0.396 seconds on native Windows
+Python 3.13.16, with zero failures, errors or skips. The lifecycle checks
+include the existing two-read interval and delegation-flap cases; no test,
+containment rule or withdrawal behavior was changed. All five changed files
+are documentation, their added local links and anchors resolve, whitespace
+checks pass, and the known-credential/private-path scan has zero matches.
+A full suite rerun is unnecessary for this documentation-only follow-up.
 
 ## Native callback CI follow-up
 
@@ -188,16 +263,16 @@ is required for this subsequent documentation-only change.
 
 ## Remaining release prerequisites
 
-1. Obtain the separately required approval for Task 17's removal of delegation
-   from this exact stage-limit pause, then measure cancellation, one completed
-   session response, cleanup and retained draft/branch/recovery refs. The earlier
-   cancelled first attempt and parked-question test are different variants.
-2. Verify the selected final tool identities and host diagnostics as part of
+1. Verify the selected final tool identities and host diagnostics as part of
    the separately approved production release; the tools source has merged
    with passing full CI and identical candidate/merge trees.
-3. Settle the development test and restore chat/fix when the withdrawal check
-   finishes. Production promotion, feature enablement and any live stage beyond A
-   require their separate operational approval and final-host checks.
+2. Obtain separate operational approval for production promotion and feature
+   enablement, confirming the intended Windows account/profile and release
+   recovery procedure. This development acceptance does not certify that host.
+3. Obtain a concrete approved real scope for later live common/config/hive stages
+   and run their remaining native worker generator checks. Running-worker
+   withdrawal remains unmeasured; this check cancelled a parked job with no PID.
+   Phase C/client work and the later UI worker are subsequent implementation work.
 
 Current-account DPAPI access is the operator's approved development choice;
 no separate HOME credential-isolation claim is made. No account was configured.

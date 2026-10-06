@@ -123,8 +123,12 @@ complete foreign-work queries, native push/draft publication, all twelve gates
 passing, and the exact waiting/stage_limit pause with an empty Job. The source
 and initial failures above remain historical measurements. The optional callback
 also has a separately reproduced UTF-8 console regression and corrected native
-probe; final full CI passes and #141 is merged. The parked-job withdrawal
-approval remains pending.
+probe; final full CI passes and #141 is merged. The subsequently approved exact
+parked-stage-limit withdrawal also completes: one Finished-session response,
+error-free cleanup, three exact recovery refs and the retained draft/branch.
+TestBot restarts with chat/fix only. The continuation record preserves the
+65.183-second measured timing and its distinction from the original plan's
+literal 60-second expectation.
 
 ## Earlier bootstrap prerequisites (historical)
 
