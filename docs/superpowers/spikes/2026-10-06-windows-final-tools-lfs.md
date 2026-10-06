@@ -365,6 +365,88 @@ sibling templates and fresh GUIDs as [§6.7](../specs/2026-09-24-feature-workers
 headless entry point and metadata installation remain Phase C implementation.
 No game source, branch, commit, PR or issue was changed by this fixture.
 
+## Supported client metadata and headless network export
+
+The feasibility fixture above is superseded by delivered Farm-Client tooling:
+[metadata PR #1421](https://github.com/Kuaiwa-Network/Farm-Client/pull/1421)
+merges as `79e6c1c68e2480d2f5877d1840b0373f22f0a952`; its tested final head is
+`1547fba46fbaf00c1d9cf75088e602f52553e367`.
+[Headless network PR #1422](https://github.com/Kuaiwa-Network/Farm-Client/pull/1422)
+merges as `e5ade51ee564563a1260136b954c7be4fbc208b6`; its final head is
+`00151d3aab67d2987894004bba565a599c78d23c`. Each merge tree equals its tested
+candidate. Development tooling merges do not change the running FarmBot.
+
+The shared generated-directory transaction creates missing metadata inside
+prepared replacements before installing assets, preserves existing metadata
+byte for byte, and rolls assets and metadata back together. Complete validated
+MonoImporter/TextScriptImporter sibling templates supply fresh unique GUIDs;
+invalid templates, duplicate GUIDs and reparse paths are refused. Existing
+Editor callers retain their defaults. The delivered .NET 8 network command
+links the actual exporter, validates an explicit clean contract commit before
+generation, and throws on unexpected Editor preferences/dialogs. Its protobuf
+DLL is checked against the committed LFS hash. No Unity Editor starts.
+
+Native development Windows full unit validation records these results. The
+ordinary checkout deliberately leaves unrelated game assets as LFS pointers;
+all existing skip IDs/reasons and UTF-8 logs remain in private receipts.
+
+| Client candidate | Discovered | Passed | Existing skips | Failures/errors | Test command duration |
+|---|---:|---:|---:|---:|---:|
+| #1421 final metadata implementation | 6,503 | 6,427 | 76 | 0/0 | 19.935 s |
+| #1422 network implementation | 6,513 | 6,437 | 76 | 0/0 | 64.101 s |
+
+Four pre-existing Windows exporter failures were reproduced against the clean
+baseline: shell-fixture argument/output behavior and native path expectations.
+The metadata PR replaces the Windows fixture with a directly compiled native
+executable and canonicalizes returned/expected paths. It adds no skip or weaker
+containment check. An earlier harness output location and CRLF-sensitive source
+assertions were corrected in the private fixture/ephemeral CI setup; these were
+test setup findings, not additional application regressions. macOS's system
+directory aliases are avoided by using physical test-work directories rather
+than weakening reparse checks.
+
+At **11:14:13 UTC**, the actual delivered CLI is tested in a fresh Codex
+**0.156.1** unelevated native command context with the FarmBot #148 gate,
+**network off**, explicit write roots and owned Windows Jobs. CLI/source
+candidate `7c1fc6fd7cf97218dece30c9afbea148c5b87416` has the same executable
+source as final #1422; the later commit changes CI only. The clean read-only
+contract input remains `29e6cfe1430a7c7313febc642f95db4ea6c3fb18`.
+
+| Delivered command check | Measured result |
+|---|---|
+| First / second real export | exit 0/0; 3.370 / 2.836 s |
+| Inputs and output | 60 proto inputs; 589 messages; 61 C# and 61 full metadata files |
+| Complete output maps | all 122 asset/metadata files identical across runs |
+| Metadata identity | 56 existing files byte-identical; five new files; GUIDs unique |
+| Generated C# and registry compilation | exit 0 |
+| Wrong explicit contract pin | exit 1; all outputs unchanged |
+| Worker commands / complete probe | 12.466 / 13.001 s |
+
+All copied tool sources and contract inputs remain unchanged. Native child
+ownership, effective policy, empty build/worker Jobs, finished RPC reader,
+clone trust and registered runtime evidence pass. The fixture starts neither
+Unity nor a model turn and configures no credentials or service. It commits no
+generated game assets. It tests the delivered network command, separately from
+the tooling PR publication.
+
+[Final #1422 CI](https://github.com/Kuaiwa-Network/Farm-Client/actions/runs/37455684974)
+passes the Linux full suite (**6,441 passed, one existing skip**, 22.2365 s),
+native Windows focused suite (**235 passed, one existing skip**, 19.1054 s),
+and macOS focused suite (**238 passed, one existing skip**, 10.6980 s). Both
+platform jobs build the actual delivered CLI and run its help command; review
+and triage checks pass. Host discovery varies with fixture dependencies, so
+these counts are not presented as identical to the private native full run.
+
+This completes Phase C's metadata foundation and supported network command on
+this development PC. Headless config generation, full native client typecheck,
+controller client stages, Unity verification and real client publication remain
+pending. These results do not certify the production Windows host.
+
+This record-only follow-up passes 75 skill/reference checks in 0.456 seconds,
+zero failures/errors/skips, plus added local links/anchors, whitespace and
+known-secret/private-path checks. Only two Markdown files change; executable
+code, tests and CI remain identical, so another full offline run is unnecessary.
+
 ## Remaining client/UI and release prerequisites
 
 1. D10's native real LFS push/download and headless proto feasibility checks
@@ -375,8 +457,10 @@ No game source, branch, commit, PR or issue was changed by this fixture.
 2. Obtain an approved real card/scope for remaining live common/config/hive
    stages and their native worker generators. Running-worker withdrawal is
    still unmeasured; the completed cancellation check used a parked job.
-3. Implement Phase C's client stages, durable headless entry point, complete
-   metadata installation, client validation and closing/write-back workflow.
+3. Complete Phase C's headless config command, native full client typecheck,
+   controller client stages, client validation and closing/write-back workflow.
+   The supported network command and shared complete metadata transaction are
+   delivered in client #1421/#1422; config integration remains pending.
    Later UI authoring/export, farmgui permission changes and scoped LFS asset
    hydration remain subsequent work under the design's phase order.
 4. Obtain separate production promotion/feature-enablement authorization,

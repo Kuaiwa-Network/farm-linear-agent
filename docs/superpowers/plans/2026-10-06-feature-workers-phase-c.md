@@ -29,6 +29,18 @@ The selected Stage A card remains cancelled and its game draft remains unmerged.
   No worker may merge game PRs, run Jenkins, alter designer values or start an
   Editor directly. FarmBot development PR merges do not change those grants.
 
+### Delivered entry tooling (2026-10-06)
+
+Farm-Client #1421/#1422 are merged with tested/merge trees equal. The complete
+metadata transaction and supported network CLI pass native Windows full unit
+checks, hosted macOS/Windows checks, and two real native exports at the pinned
+contract commit. All 61 C# outputs have full metadata, including five new GUIDs;
+both 122-file maps match, compilation passes and a wrong pin preserves outputs.
+The [measured record](../spikes/2026-10-06-windows-final-tools-lfs.md#supported-client-metadata-and-headless-network-export)
+contains exact commits, durations, skips and evidence boundaries. Headless config
+integration and native full client typecheck remain next in step 1. Steps 2–5
+are still implementation/acceptance work; no running bot is enabled or deployed.
+
 ## 1. Supported headless client export tools
 
 Work in an isolated Farm-Client development checkout after reading its current
