@@ -1514,21 +1514,27 @@ class Ledger:
             return self._view(self._row(item_id))
 
     def pin_feature_client(self, item_id, expected_generation, target, *, branch, issue_prefix="FARM"):
+        """Compatibility entry point for the existing Code-only controller call."""
+        if self._row(item_id)["skill"] != "feature":
+            raise LedgerError("feature client baseline requires a feature item")
+        return self.pin_staged_client(item_id, expected_generation, target, branch=branch, issue_prefix=issue_prefix)
+
+    def pin_staged_client(self, item_id, expected_generation, target, *, branch, issue_prefix="FARM"):
         """Controller-only client-stage baseline, fenced after Git reads and before a launch.
 
-        Feature sessions keep no intake pin. Persist this item's baseline and exact issue branch before
+        Code/UI sessions keep no intake pin. Persist this item's baseline and exact issue branch before
         creating its client worktree, so retries cannot silently select newer main. No worker CLI exposes this
         transition; it creates neither a claim nor a resource reservation.
         """
         target = checked_target(target)
         if target["repository"] != "Farm-Client":
-            raise LedgerError("feature client baseline requires Farm-Client")
+            raise LedgerError("staged client baseline requires Farm-Client")
         with self._transaction():
             row = self._row(item_id)
-            if (row["skill"] != "feature" or row["state"] != "queued" or row["root_repo"] != "Farm-Client"
+            if (row["skill"] not in ("feature", "fgui") or row["state"] != "queued" or row["root_repo"] != "Farm-Client"
                     or row["next_root_repo"] is not None or row["worker_pid"] is not None
                     or row["token"] is not None or row["generation"] != expected_generation):
-                raise LedgerError("feature client baseline requires the same queued client-stage generation")
+                raise LedgerError("staged client baseline requires the same queued client-stage generation")
             self._refuse_withdrawn(row)
             metadata = json.loads(self._issue_row(row["issue_id"])["metadata"])
             if not _in_scope(metadata):
@@ -1539,11 +1545,11 @@ class Ledger:
             previous = json.loads(row["target_json"]) if row["target_json"] else None
             if previous is not None:
                 if previous != target:
-                    raise LedgerError("feature client baseline and issue branch are immutable")
+                    raise LedgerError("staged client baseline and issue branch are immutable")
                 return self._view(row)
             self.connection.execute("UPDATE work_items SET target_json=?, updated_at=? WHERE id=?",
                                     (_json(target), self.clock(), item_id))
-            self._audit(item_id, "feature_client_baseline", details=target)
+            self._audit(item_id, row["skill"] + "_client_baseline", details=target)
             return self._view(self._row(item_id))
 
     def _new_stage_allowances(self, row):
@@ -1559,12 +1565,18 @@ class Ledger:
         return {"capacity_retries": 0, "publication_retries": 0}
 
     def feature_client_branch(self, item_id, *, issue_prefix="FARM"):
-        """Revalidate controller metadata before selecting a feature verification checkout."""
+        """Compatibility entry point retaining the Code-only caller boundary."""
+        if self._row(item_id)["skill"] != "feature":
+            raise LedgerError("feature verification requires a feature item")
+        return self.staged_client_branch(item_id, issue_prefix=issue_prefix)
+
+    def staged_client_branch(self, item_id, *, issue_prefix="FARM"):
+        """Revalidate controller metadata before selecting a Code/UI verification checkout."""
         row = self._row(item_id)
         target = json.loads(row["target_json"]) if row["target_json"] else None
-        if (row["skill"] != "feature" or not target or target.get("repository") != "Farm-Client"
+        if (row["skill"] not in ("feature", "fgui") or not target or target.get("repository") != "Farm-Client"
                 or not target.get("issue_branch")):
-            raise LedgerError("feature verification requires its controller-selected client baseline")
+            raise LedgerError("staged verification requires its controller-selected client baseline")
         identifier = json.loads(self._issue_row(row["issue_id"])["metadata"])["identifier"]
         return plan_issue_branches({"prs": {"Farm-Client": [{"role": "issue", "branch": target["issue_branch"]}]}},
                                    identifier, issue_prefix, reserved=True)["Farm-Client"]
@@ -1632,13 +1644,13 @@ class Ledger:
             target = json.loads(row["target_json"]) if row["target_json"] else None
             if not target or not COMMIT_SHA.match(target.get("commit_sha") or ""):
                 raise LedgerError("a resource request needs a pinned commit; this item has none")
-            if row["skill"] == "feature":
+            if row["skill"] in ("feature", "fgui"):
                 if (target.get("repository") != "Farm-Client" or not target.get("issue_branch")
                         or root != "Farm-Client"):
-                    raise LedgerError("feature verification requires its controller-selected client baseline")
+                    raise LedgerError("staged verification requires its controller-selected client baseline")
                 if commit_sha is None:
-                    raise LedgerError("feature verification requires an explicit committed client HEAD")
-                self.feature_client_branch(item_id, issue_prefix=issue_prefix)
+                    raise LedgerError("staged verification requires an explicit committed client HEAD")
+                self.staged_client_branch(item_id, issue_prefix=issue_prefix)
             if commit_sha is not None:
                 if not isinstance(commit_sha, str) or not COMMIT_SHA.fullmatch(commit_sha):
                     raise LedgerError("verification commit must be a full lowercase commit SHA")

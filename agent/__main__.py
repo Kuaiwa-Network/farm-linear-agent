@@ -705,8 +705,8 @@ def run(args, ledger, api_factory):
             if Path(args.db).resolve() != paths.ledger.resolve():
                 raise LedgerError("verification must use the configured host ledger")
             options = {}
-            if item["skill"] == "feature":
-                options["expected_branch"] = ledger.feature_client_branch(args.item, issue_prefix=config.issue_prefix)
+            if item["skill"] in ("feature", "fgui"):
+                options["expected_branch"] = ledger.staged_client_branch(args.item, issue_prefix=config.issue_prefix)
                 request_options["issue_prefix"] = config.issue_prefix
             Worktrees(paths.repos, paths.worktrees, config.repos).verification_commit(
                 "Farm-Client", args.item, args.commit, **options)

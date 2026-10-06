@@ -79,7 +79,7 @@ class Scheduler:
             recorded = self._recorded_branches(item) if skill.initial_root else {}
             for repo in skill.writes:
                 options = {"refresh": False} if item["publication_retries"] else {}
-                if skill.name == "feature" and repo == "Farm-Client":
+                if skill.name in ("feature", "fgui") and repo == "Farm-Client":
                     target = item.get("target")
                     if (current_root(item.get("root_repo"), skill) != repo
                             and not (target or {}).get("issue_branch")):
@@ -88,7 +88,7 @@ class Scheduler:
                         if current_root(item.get("root_repo"), skill) != repo:
                             continue  # main may advance during server work; the client stage has not begun
                         baseline = self.worktrees.stage_base(repo, item["id"], branch)
-                        item = self.ledger.pin_feature_client(item["id"], item["generation"], {
+                        item = self.ledger.pin_staged_client(item["id"], item["generation"], {
                             "repository": repo, "requested_ref": "default", "commit_sha": baseline,
                             "server_environment": self.default_server_environment,
                             "selected_at": datetime.now(timezone.utc).isoformat()},

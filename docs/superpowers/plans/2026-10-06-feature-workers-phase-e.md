@@ -333,3 +333,64 @@ attempts now resolve their canonical root, preserving all link/reparse/hardlink
 refusals and every native test. Raw UTF-8 evidence remains private; final corrected
 candidate verification follows. No application or process-containment code changes
 for this fixture repair.
+
+## Verified Client installation foundation (2026-10-07)
+
+[#158](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/158) is merged as
+`c52513aa84f3ebf414bb62a71b6b7a6740286e8c`, retaining candidate
+`fe759f75e550c40f9f746bbbbbb3159c1031c5a6`'s exact tested tree.
+
+| Run | Tests | Duration | Failures/errors | Existing platform skips |
+|---|---:|---:|---:|---:|
+| Development native Windows | 1,925 | 1,274.302 s | 0 / 0 | 69 |
+| Hosted macOS | 1,925 | 548.647 s | 0 / 0 | 42 |
+| Hosted Windows | 1,925 | 1,946.267 s | 0 / 0 | 69 |
+
+All skip IDs/reasons equal the established baseline. All 22 installer regressions,
+34 export checks, 22 Code journeys, 11 UI checks and 43 preview/transport checks
+run; all seven native Job Object tests run on both Windows hosts. Hosted synthetic
+commit `e94fe254eb6a28d60c76b615a695e588442ddc5b` has the exact candidate tree;
+[run 37535985656](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37535985656)
+passes both jobs. Python/Git/LFS selections and UTF-8/environment sanitization are
+the same as the export-foundation table above. This remains development/offline
+evidence; real Client installation, hydrated guards and Unity loading are pending.
+
+## Prepared approval, source identity and Client pin
+
+The shared controller Client pin now recognizes staged Code/UI jobs without
+changing the delivered UI manifest or authority. The Code-only compatibility
+methods retain their existing skill restriction. Future UI Client entry selects
+main once after the authoring attempt's quiescence and retains its exact issue
+branch/baseline through retries. The prepared approval helper binds real human
+messages/comments and timestamps to the unchanged full-source/review-image/round
+identity, including canonical same-issue messages from retired attempts; it never
+treats a plan or worker-written handoff as a human answer. Actual intent still
+needs the scoped worker's interpretation of the referenced message.
+
+The owned-source helper validates full committed index/file identity using trusted
+controller Git, native CRLF normalization and raw LFS pointers without executing
+clean filters. The actual source diff includes changed shared packages, leaves
+unrelated dependency exports private and retains non-package changes as evidence.
+Missing base history, deleted package manifests and non-package-only diffs refuse
+automatic export. No CLI, durable export receipt or Client/Unity grant is added.
+
+Development-PC calibration of exact farmgui
+`54a76b2a7110cdf8897144902f8490ed70df45bd` in a new disposable owned checkout
+checks **5,443 tracked files**, **682 LFS objects / 72,570,302 bytes** hydrated from
+the existing cache, and completes a full source snapshot in **98.970 s**. A second
+snapshot is identical; the original development source remains clean. The first
+private preparation tried fetching all historical refs from the partial clone and
+refused on unavailable historical objects. A fresh local shallow fixture fetches
+only the exact measured source tree; no existing promisor settings or application
+ownership checks are changed. Raw logs and private paths remain local.
+
+Focused source checks cover actual local Git, Unicode/spaces, empty placeholders,
+CRLF, changed/index/untracked input, unknown filters, scoped/unselected pointers,
+materialized LFS mismatch, links/hardlinks, budgets and concurrent mutations;
+diff checks include shared changes and cross-package rename paths. An early test
+fixture attempted overwriting Git's native hidden `.git` file and refused with
+PermissionError; the final fixture supplies the same corrupt-pointer read to the
+real ownership checker without changing native file attributes or adding a skip.
+Final candidate verification follows separately. Functional export/receipt/Client
+orchestration, the farmgui owner's export grant and real UI-card/Unity acceptance
+remain pending.
