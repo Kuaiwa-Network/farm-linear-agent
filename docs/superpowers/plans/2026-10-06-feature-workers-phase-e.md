@@ -322,3 +322,14 @@ exact-candidate full offline evidence follows separately; these helper
 calibrations do not enable the Phase E worker route or establish production-host
 readiness. Attributed UI export/Client orchestration, hydrated guards and actual
 Unity loading remain pending.
+
+The initial hosted macOS full run on candidate
+`118362abe371c6d5b342b2e7ba7a86463475e060` runs 1,957 tests in 649.564 s,
+with 21 failures, 9 errors and 53 platform skips (the established 42 plus 11 new
+native-Windows-only publisher checks). Its new publisher fixtures used the
+unresolved macOS temporary path, whose ancestor is a system symlink. The strict
+application link refusal is correct. Fixture setup and its per-subtest temporary
+attempts now resolve their canonical root, preserving all link/reparse/hardlink
+refusals and every native test. Raw UTF-8 evidence remains private; final corrected
+candidate verification follows. No application or process-containment code changes
+for this fixture repair.

@@ -22,7 +22,7 @@ class PublisherTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        self.root = Path(temporary.name).resolve()
         self.project = self.root / "source space 验证"; self.project.mkdir()
         (self.project / "settings").mkdir()
         (self.project / "assets/One").mkdir(parents=True)
@@ -158,7 +158,7 @@ class PublisherTests(unittest.TestCase):
         for data in ({"exit_code": 2, "job_empty": True, "job_assigned_before_export": True},
                      {"exit_code": 0, "job_empty": False}, {"exit_code": 0, "job_empty": True}):
             with self.subTest(data=data), tempfile.TemporaryDirectory() as tmp:
-                self.run = Path(tmp) / "attempt"
+                self.run = Path(tmp).resolve() / "attempt"
                 self.runner_mock.side_effect = lambda *args: data
                 with self.assertRaisesRegex(LedgerError, "quiescent successful"):
                     self.publish()
@@ -190,7 +190,7 @@ class PublisherTests(unittest.TestCase):
     def test_license_failure_missing_completion_invalid_utf8_and_log_bound_refused(self):
         for data in (b"Publish completed\nLicense required", b"not completed", b"\xff", b"x" * (publisher.MAX_LOG_BYTES + 1)):
             with self.subTest(size=len(data)), tempfile.TemporaryDirectory() as tmp:
-                self.run = Path(tmp) / "attempt"
+                self.run = Path(tmp).resolve() / "attempt"
                 def failed_log(*args):
                     result = self.export(*args); (args[2] / "publisher.log").write_bytes(data)
                     return result
@@ -226,7 +226,7 @@ class NativePublisherTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name) / "native space 验证"; self.root.mkdir()
+        self.root = Path(temporary.name).resolve() / "native space 验证"; self.root.mkdir()
         self.run = self.root / "run"; self.run.mkdir()
         self.script = self.root / "publisher.py"
         self.foreign = patch.object(publisher, "_foreign_editors", return_value=False)
