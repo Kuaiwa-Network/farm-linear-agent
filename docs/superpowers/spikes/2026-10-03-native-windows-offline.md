@@ -6737,7 +6737,7 @@ than retained raw; secrets and app IDs are not copied into the public record.
 the existing current-account profile for real bot document reads and a Word
 download/body-text conversion. This closes that scoped tool-access gap without
 certifying a model worker, service startup or every source's permissions.
-Remaining prerequisites are:
+Prerequisites at that checkpoint were (the next section narrows the current list):
 
 1. Scoped authenticated model-worker/worker-CLI/service/webhook acceptance,
    including unclaimed startup, live delivery, recovery and lifecycle checks.
@@ -6770,3 +6770,150 @@ documentation/reference tests, zero failures/errors/skips, in **0.357 seconds**
 `d406aea6fa9953301002864f83a60fec4fb54683fec2bd2c08e97374efffe6ec`.
 Added local links/anchors, whitespace, public-diff private-path/token checks
 and the native source/result/log audit pass. The change is documentation only.
+
+## Authenticated native worker and unclaimed startup (2026-10-06)
+
+**Candidate and scope:** separate Windows development PC, not production-host
+certification. The candidate is merged `main`
+`216b0983367bd43df6e958ae821f3180ca121e84`, tree
+`ee04f904d07963e1cc98635e5f410100c8a7db6b`; executable/test sources remain those
+of #128. CPython **3.13.16**, `PYTHONUTF8=1` before Python, configured native Codex
+**0.156.1** (SHA-256
+`70bcb05f9bf1a4e7306edd0cd1b57d02af3267ad02a34b26f45c8c4bb20a3301`),
+lark-cli **1.0.82** and explicit `unelevated` workspace-write sandbox. The actual
+Launcher command keeps `--approve-for-me`, memories disabled and the normal
+`gpt-6-sol` / `xhigh` settings. Only its executable selection is pinned to the
+previously verified native binary. No Bash/MSYS/WSL, service, live issue mutation,
+Git publication, credential/account/app setup or production state access occurs.
+
+**Real authenticated model worker:** normal `Launcher.spawn` copies the existing
+Codex login into the fresh per-attempt home. Secret contents are never inspected
+or printed. Dummy credentials select an explicit fresh local state root and a
+file-backed StubLinear fixture through the legacy test configuration; this is
+not an explicit live development-profile/controller initialization test. Existing
+FarmBot/Lark/Codex/provider selectors are removed before the fixture's exact
+selectors are supplied. Current `USERPROFILE`/`APPDATA` are preserved for Windows
+DPAPI; no `HOME` override is added. Strict bot identity is forced and the approved
+`farmbot` profile is used, with no environment credential variant.
+
+The model executes one reviewed native Python helper, rather than the complete
+feature workflow. Five actual `python -B -m agent --db ...` calls use the fixture's
+selected configuration, with no raw claim token in argv or output. Three scoped
+lark-cli commands use `--profile farmbot` and `--as bot`. The helper captures their
+payloads in memory and prints only sanitized results; the downloaded Word file
+stays in the owned state until audited cleanup.
+
+| Command | Exit | Seconds | Measured result |
+| --- | ---: | ---: | --- |
+| Worker CLI `claim` | 0 | 0.126 | Dummy item claimed; token saved privately |
+| Worker CLI `fetch-issue` | 0 | 0.119 | Stub delegated true, withdrawn false |
+| Worker CLI `issue-context` | 0 | 0.111 | Feature coordination returned |
+| Worker CLI `renew` | 0 | 0.113 | Fixture claim renewed |
+| Bot wiki resolution | 0 | 1.496 | Linked planning document resolved |
+| Bot document fetch | 0 | 1.608 | 43,431 JSON bytes, 42,552 Markdown bytes, 30 headings |
+| Bot Word download | 0 | 1.708 | Distinct readable attachment, 32,912 bytes |
+| Worker CLI `checkpoint` | 0 | 0.121 | Handoff saved; controller readback matches |
+
+Word SHA-256 remains
+`54025a62bf3039bc69f6e075fec2a340d9a0afd6a94ce2fd6484c9ee54a340e1`.
+Bounded native OOXML body extraction returns **17,492 UTF-8 bytes**, **295
+nonempty paragraphs / 19 tables**, SHA-256
+`e548f6a4e920330cb7716dfe1aa8b52f692d3113a58d69bded3af2d8dfa4853e`.
+Source bytes remain unchanged. This covers paragraph/table body text only; no
+legacy `.doc`, formatting, image or header conversion is claimed. All three
+successful API responses explicitly report bot identity. The first card's
+previously refused attachment is not retried or certified by this distinct file.
+
+The model's exact success response, exit 0 and the saved handoff are independently
+verified. The Launcher Job is empty, all observed members are dead,
+`Launcher.assert_quiescent` passes and no attempt remains running. Generated
+home/configuration, distrust of the working directory and explicit owned write
+roots are checked. Original login/profile-config metadata, registered runtime
+receipt and tracked checkout remain unchanged. Final report
+`native-authenticated-worker-0a209ad29d03`: **28.782 seconds** overall,
+**5.421 seconds** helper; no platform skips.
+
+**Failures retained:** pre-launch report `native-authenticated-worker-c56cfa436c34`
+(**0.706 seconds**) mistakenly requests the environment-credential grant in a
+profile-mode fixture; Launcher refuses before any worker starts. Correcting the
+private call uses the same profile-mode flag as Scheduler. Model reports
+`native-authenticated-worker-4513f6364647` (**23.747 seconds**) and
+`native-authenticated-worker-c44465222243` (**26.558 seconds**) stop on private
+helper assumptions about the wiki/document response envelope. Their CLI/bot reads
+succeed up to that point, but neither is counted as complete acceptance. The
+helper handles the observed response envelopes and the controller reads the
+checkpoint from `Ledger.item`, not an absent `issue-context.checkpoint` field.
+No application behavior, containment, ownership check, skip or approval mode is
+changed. Frozen source/logs and dummy ledger backups retain these attempts.
+
+**Native unclaimed startup:** a separate fully offline fixture uses the actual
+Scheduler, Lifecycle, Launcher, local Git origins/worktrees and a native
+`command/exec` child under the existing selected sandbox route (packaged Codex
+**0.160.0**); no model turn, login seed or real API call. The child deliberately
+never claims, writes dummy WIP and starts a contained descendant. Advancing only
+the fixture ledger clock by **601 seconds** exceeds the unchanged **600-second**
+claim timeout. The controller stops its owned attempt, marks it failed with
+`worker did not claim within the timeout`, emits one error activity to StubLinear
+and rejects a late claim. The original failure reason is independently checked
+in the read-only fixture audit table.
+
+All **10** protected writes are denied. Both enclosing and nested Jobs are empty,
+all observed members die, WIP/recovery references are verified before fixture
+worktree removal, and the unrelated control survives until its own Job cleanup.
+The complete dispatch prompt is received through EOF; generated write roots and
+network-off policy are checked. Final report
+`native-unclaimed-startup-fea17a1720b0`: **6.499 seconds** total,
+**5.237 seconds** case, **1.315 seconds** trigger-to-settled teardown; no skips.
+Reports `native-unclaimed-startup-71dad93e9476` (**7.840 seconds**) and
+`native-unclaimed-startup-c30948922563` (**6.261 seconds**) retain private observer
+assertions: they check for a consumed Launcher handle before the next scheduler
+poll. Jobs already settle and recovery completes; the final observer waits for
+both cleanup and handle consumption without changing the application.
+
+**Evidence and cleanup:** strict UTF-8 logs, frozen helper sources, sanitized
+results and dummy ledger backups remain private. Log pattern scans find no app
+ID, raw claim token, bearer value, JWT or account SID; this does not replace the
+operator's own secret-value review before live publication. Audit SHA-256
+`60050db2e2b8f80f80fd7ea51b844a83a0d930bfe9ca02e74daea5700d5a766c`.
+All four authenticated-worker scratch directories, including copied login seeds
+and the downloaded Word bytes, are removed after quiescence audit. Three dummy
+startup Git fixtures remain: the first deletion stops at a read-only Git object,
+and automatic approval review rejects the proposed native recursive cleanup as
+`blocked by policy`. No ACL repair or alternate deletion bypass follows. These
+fixtures have no login seed or active worker. Cleanup inventory SHA-256
+`6b10064984c2884d1f95ada8d75e4e511d24438004c33ed16bf275b720d43a5d`.
+No production cleanup occurs.
+
+**Current Phase B prerequisites:**
+
+1. Name an operator-selected Bot/Code card with an owner and readable planning
+   sources, and explicitly scope the TestBot candidate/profile/service change.
+   All required sources on that card must pass bot reads; the earlier file's
+   HTTP 403 remains unresolved for that source. Search permission is unnecessary
+   for the three runtime read commands.
+2. Run Task 17 Step 4 check 3 on TestBot: real webhook/session delivery, stage-A
+   intake, role-attributed questions and answers, native read checkouts/gates,
+   one contract draft PR and the requested waiting pause without onward handoff.
+3. Have the operator remove that delegation for check 4, then verify the real
+   session response, single cancellation, owned teardown and preserved history.
+4. Review private outputs/comments/PRs for secrets and restore the scoped TestBot
+   configuration after settling its workers. Review the measured evidence before
+   any separately authorized production enablement/deployment.
+
+The scoped model/worker-CLI and native unclaimed-startup gaps are closed. Real
+TestBot service/profile/webhook/session acceptance remains pending. Phase B's
+stage-A check requires no Unity Editor: `feature` has no Unity resource or
+Farm-Client write until Phase C, as its manifest and the plan's Scope state.
+Approved Common producer/publication provenance is a later-stage prerequisite
+when required, not a reason to delay the stage-A-only check. Broader Windows
+installation/Unity acceptance remains separate before production promotion of
+changes that require it. FARM-1346/FARM-1425 stay parked; Farm-Contract #318 and
+farm-hive #353 remain untouched unmerged test drafts. Task 17 remains partial;
+client/UI implementation follows Phase B.
+
+Documentation validation: the selected Python with `-B -m unittest discover -s
+tests -p test_skills.py -v` passes **73 tests**, zero failures/errors/skips, in
+**0.394 seconds**. Log SHA-256
+`7583cca44f46d76147dc4764c5c406ac0d1c3cdb1fe16ce04cc83a13c5541fad`. Relative links/anchors,
+added-text privacy patterns and `git diff --check` are checked. No executable
+behavior changes and no full-suite rerun is required for this record.

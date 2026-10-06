@@ -1349,6 +1349,44 @@ webhook acceptance or every source/format. See the
 Task 17 stays partial; no issue mutation, account/credential setup, app-setting
 change, production configuration/ledger read, service or deployment action occurs.
 
+**2026-10-06 authenticated Windows worker follow-up:** on the separate development
+PC checkout at `216b0983367bd43df6e958ae821f3180ca121e84` (tree
+`ee04f904d07963e1cc98635e5f410100c8a7db6b`), actual `Launcher.spawn` runs the
+configured native Codex **0.156.1**, normal `gpt-6-sol` / `xhigh` settings and
+explicit `unelevated` workspace-write sandbox. The normal Launcher seeds the
+existing Codex login into a fresh isolated home; no login or credential setup
+occurs. The real model executes a bounded native Python helper. All five actual
+worker CLI commands (`claim`, `fetch-issue`, `issue-context`, `renew`, `checkpoint`)
+exit 0 against fresh dummy Linear/ledger state. All three approved Feishu reads
+exit 0 as the bot using the current-account `farmbot` profile: wiki resolution,
+planning-document fetch and the distinct readable Word download. The document
+and Word/body measurements match the preceding record. Controller checkpoint
+readback and empty-Job/dead-member/quiescence checks pass. Total **28.782 seconds**;
+the helper takes **5.421 seconds**. The two preceding model attempts stop on
+private helper response-envelope assumptions, and a preceding pre-launch fixture
+error is retained; no application change or approval bypass repairs them.
+
+An additional fully offline native Scheduler/Launcher fixture deliberately
+never claims its item. Advancing only the test clock beyond the unchanged
+**600-second** claim deadline produces the expected failure, stops the owned
+worker/descendant, refuses a late claim, preserves WIP/recovery references and
+posts one error activity to StubLinear. All ten protected writes are denied and
+the unrelated control survives until its own cleanup. Final fixture **6.499
+seconds**, including **1.315 seconds** from trigger to settled teardown; two
+preceding observer assertions are retained. No real model/Linear call runs in
+this timeout fixture. See the [measured acceptance and current prerequisites](../spikes/2026-10-03-native-windows-offline.md#authenticated-native-worker-and-unclaimed-startup-2026-10-06).
+
+This closes the scoped model-worker/worker-CLI and native unclaimed-startup gaps,
+not the live TestBot service/webhook, stage-A questions/draft-PR/pause or removed
+delegation session-response checks. Those need a named operator-selected Code
+card and a scoped TestBot operational go-ahead. The first refused attachment is
+still unreadable; all required sources on that selected card must be checked.
+Unity is not a prerequisite of the Phase B stage-A check: `feature` has no Unity
+resource or Farm-Client write until Phase C. Approved Common producer/publication
+provenance remains a later-stage condition when required, not a prerequisite of
+the stage-A-only test. Broader Windows/production promotion keeps its own host
+acceptance and separate deployment authorization. Task 17 remains partial.
+
 ## Scope
 
 In Phase B (spec §13, item 2):
