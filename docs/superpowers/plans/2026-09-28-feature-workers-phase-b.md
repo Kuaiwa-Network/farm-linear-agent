@@ -1572,6 +1572,22 @@ later live scope and client/UI implementation remain pending. See the
 [final-tools/LFS record](../spikes/2026-10-06-windows-final-tools-lfs.md).
 
 
+**2026-10-06 supported native LFS callback:** #147 merges as
+`efd3f03472311cb48d9a1ab3492384065d128dce` after native development Windows and both-platform
+CI pass 1,778 tests, zero failures/errors. Local Windows takes
+911.161 seconds with 69 existing platform skips; all 13 feature
+journeys, seven native Job tests and 25 callback/origin checks execute. The
+optional supported build independently passes the approved 1 KiB LFS push/forced
+download and a GitHub read in the selected native worker, preserving Job/Git/
+runtime evidence. It pins one private LFS origin and existing GCM identity;
+GitHub-only defaults and the running chat/fix development controller stay unchanged.
+The [measured record](../spikes/2026-10-06-windows-final-tools-lfs.md) preserves
+versions, all skip reasons and exact evidence boundaries. A real later-stage
+card/scope, running-worker cancellation and final-host promotion remain pending;
+Task 17 remains partial. [The Phase C development plan](2026-10-06-feature-workers-phase-c.md)
+describes the next client implementation without claiming it is available.
+
+
 ## Scope
 
 In Phase B (spec §13, item 2):
