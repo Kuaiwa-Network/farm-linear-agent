@@ -274,10 +274,14 @@ is required for this subsequent documentation-only change.
    and run their remaining native worker generator checks. Running-worker
    withdrawal remains unmeasured; this check cancelled a parked job with no PID.
    Phase C/client work and the later UI worker are subsequent implementation work.
-4. Before Phase C, complete the actual internal-server LFS new-object upload
-   and headless native Farm-Client proto export. One bounded real LFS download
-   and an offline native upload/download calibration pass; the prepared 1 KiB
-   real upload awaits approval in the linked final-tools record.
+4. Before Phase C, complete the actual internal-server LFS new-object upload.
+   The approved 1 KiB native attempt exits 2 with an independently confirmed
+   HTTP 401/Basic upload-batch challenge; approved internal-server write
+   authentication is needed. Headless native client proto export now passes
+   twice without Unity: 60 protos, 61 identical C# outputs, 589 wire messages
+   and a passing .NET compile. Five new files need metadata during Phase C's
+   real export installation. See the linked final-tools record for the measured
+   proof and its fixture scope; no game branch or production setting changed.
 
 Current-account DPAPI access is the operator's approved development choice;
 no separate HOME credential-isolation claim is made. No account was configured.

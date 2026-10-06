@@ -1556,9 +1556,15 @@ Git callback probe passes all five repositories and Contract fetch in 15.002
 seconds while rejecting an unrelated CA and preserving ownership/runtime state.
 One real internal-server LFS asset read passes with exact 15,114-byte/hash
 verification. A 1 KiB loopback upload/download calibration also passes with
-protected Git files, clone trust and containment unchanged. The real new-object
-upload awaits its concrete operator approval; native headless client proto
-export and later client/UI work remain pending. See the
+protected Git files, clone trust and containment unchanged. The operator-approved
+real 1 KiB upload subsequently exits 2: its internal-server upload batch returns
+HTTP 401/Basic, with no usable internal LFS write authentication in the sanitized
+worker context; the GitHub-only callback correctly refuses that destination.
+Native headless Farm-Client export separately passes twice without Unity: 60
+protos, 61 identical C# outputs, 589 wire messages and a passing .NET compile.
+Existing metadata is preserved; five newly generated files need metadata in
+Phase C's real installation. Internal LFS write authentication, later live scope
+and client/UI implementation remain pending. See the
 [final-tools/LFS record](../spikes/2026-10-06-windows-final-tools-lfs.md).
 
 
