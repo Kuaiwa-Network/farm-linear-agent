@@ -912,6 +912,31 @@ ensure exclusive ownership/quiescence of Client. These helpers are prepared
 foundations with no worker CLI or authority change; actual scoped export approval,
 controller Client entry, draft/delivery and Unity orchestration remain pending.
 
+`agent.fgui_publisher.publish` prepares the native Windows execution helper without
+adding a worker command or licensed-export grant. The caller must establish owned
+clean source, scoped hydration, attributed approval/export authority and trusted
+Git, and supply both live claim/Stop and complete source-identity callbacks. The
+helper checks an explicit absolute executable plus four exact EXE/DLL hashes,
+Unity project/package identities and explicitly disabled code generation. It
+refuses watched `output/`, existing/overlapping staging and inherited FarmBot,
+model and Feishu credential selectors in the publisher environment. It neither
+selects configuration nor inspects or configures a license, credential or account.
+
+Execution uses native argument lists from the executable directory, fresh private
+staging/logs, a machine-wide Windows publisher mutex, refusal of existing/competing
+FairyGUI processes and a nested owned Job assigned before opening the native gate.
+The timeout is at most 180 seconds; logs are bounded to 4 MiB each. Stop, timeout,
+assignment failure or lingering descendants refuse success and terminate only the
+owned Job. A brief bounded drain handles delayed descendant accounting; observed
+Job emptiness is still required. A process snapshot is a refusal signal only,
+never authority to kill another Editor. Failure preserves private staging and
+process/attempt receipts; uncertain teardown never establishes quiescence.
+Success requires exit zero, empty containment, unchanged selected tool/full source
+identities, the selected completion count, no license-failure marker and the
+immutable exact export inventory. Client installation and Unity acceptance remain
+separate checks. This helper supports native Windows only and has no shell or
+permission-repair fallback.
+
 ## UI source ownership
 
 For UI fixes and changes, inspect the relevant farmgui source before choosing an implementation.
