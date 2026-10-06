@@ -1,8 +1,9 @@
 # Feature workers Phase C: client stages
 
 Prepared on 2026-10-06 as the next development work after the native Windows
-Phase B checks. This plan describes work to implement; it does not assert that
-client stages exist, authorize a live card, or promote/enable any running bot.
+Phase B checks. The implementation record below distinguishes delivered
+development behavior from remaining live acceptance. This plan does not
+authorize a live card or promote/enable any running bot.
 The operator has authorized continuing development and routine verified merges.
 The selected Stage A card remains cancelled and its game draft remains unmerged.
 
@@ -49,10 +50,27 @@ hosted macOS/Windows validation pass with no new skips. The
 [config/typecheck record](../spikes/2026-10-06-windows-final-tools-lfs.md#supported-headless-config-and-native-full-client-typecheck)
 contains measured versions, commits, counts, timings and remaining boundaries.
 
-**Step 1 is delivered on this development PC.** Steps 2–5 remain controller,
-instruction and acceptance work, starting with lazy client branch creation and
-its controller-validated stage baseline. No running bot is enabled or deployed;
-these results do not certify the production Windows host.
+**Steps 1–4 and step 5's offline implementation are delivered.** FarmBot
+[#151](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/151) merges as
+`b610a81c0ff9b3675d48536ecc4b24d84e37caef`, with the same tree as candidate
+`ab93eb58a30e91b06dcf5d8130f71a98501df703`. Lazy controller-selected Client
+baselines/branches, UI-ready gating, explicit owned-HEAD Unity requests,
+post-merge Client/server re-sync and Contract write-back now exist in the
+controller, authority and instructions. This is development behavior, not
+completed live E/F/G acceptance.
+
+The final candidate passes all **1,811** offline tests on native development
+Windows and hosted macOS/Windows: zero failures/errors, respectively **69 / 42 /
+69** unchanged platform skips. All **22** feature journeys run; both Windows
+runs execute all **seven** native Job Object tests. New journeys use local Git,
+scripted generator/archive helpers and fake Unity; they do not establish actual
+Client generators, Unity slot acceptance or production readiness. The
+[measured record](../spikes/2026-10-06-windows-final-tools-lfs.md#controller-client-stages-and-closing)
+contains exact revisions, durations, versions and evidence boundaries.
+
+Step 5's real later-stage acceptance and rollout remain pending. No running
+bot is enabled or deployed; these results do not certify the production
+Windows host. UI authoring/export remain the next separate development phases.
 
 ## 1. Supported headless client export tools
 
