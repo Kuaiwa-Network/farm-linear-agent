@@ -557,6 +557,82 @@ Controller client stages, UI-ready gating, committed-HEAD Unity verification,
 closing/write-back and real client publication remain implementation and
 acceptance work. Results on this PC do not certify the production Windows host.
 
+## Controller Client stages and Closing
+
+[FarmBot #151](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/151)
+merges as `b610a81c0ff9b3675d48536ecc4b24d84e37caef`; the final candidate is
+`ab93eb58a30e91b06dcf5d8130f71a98501df703`. Candidate, hosted merge-test
+`2cbd61fefe7e64fd99ad6bd81d8c7c4f740236dd` and actual merge have the identical
+tree `76dea195d11d595ad89186f6096f8f6e1c6eccef`. Both hosted jobs in
+[the final CI run](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37472698916)
+pass. The completed development branch is removed after explicit local/remote
+head checks; the isolated checkout is clean. The running TestBot checkout and
+its service/configuration are unchanged by this development merge.
+
+The controller now lazily selects and persists the Client stage's latest-main
+baseline and exact issue branch, fencing cancellation after Git reads. Retries
+and successors keep that baseline/branch and retained recovery commits. Feature
+Unity requests require the owned configured Client checkout's clean committed
+HEAD and explicit commit, recorded separately from the baseline. UI-ready
+confirmation rechecks actual main component/package/export evidence. Native
+export/typecheck instructions, post-merge same-main re-sync for both consumers
+and the exact Contract `-writeback` draft role are delivered together with the
+manifest, dispatch authority and operating contract. Clean reservation release
+keeps the worker claim until pool quiescence; unclean release retires it into
+existing controller recovery. There is no database migration or new UI
+authoring/export grant.
+
+The full native offline suite runs once on this **development Windows PC** with
+the selected Python and `PYTHONUTF8=1` set before launch. It uses the candidate's
+pinned CI unittest harness, equivalent to verbose discovery of all tests,
+with inherited FarmBot/fake-CLI selectors and GitHub token variables sanitized.
+A fresh temporary native symlink check passes. UTF-8 verbose logs, every skip
+ID/reason, per-test durations and version/revision inventories remain private;
+hosted artifacts retain the same evidence for each platform.
+
+| Final candidate run | Discovered | Failures/errors | Existing skips | Duration including discovery |
+|---|---:|---:|---:|---:|
+| Native development Windows | 1,811 | 0/0 | 69 | 1200.551 s |
+| Hosted macOS | 1,811 | 0/0 | 42 | 684.911 s |
+| Hosted Windows | 1,811 | 0/0 | 69 | 1527.775 s |
+
+Native Python is **3.13.16**, Git **2.54.0.windows.1**, LFS **3.7.1**.
+Hosted macOS uses Python **3.13.15**, Git **2.55.0**, LFS **3.8.0**;
+hosted Windows uses Python **3.13.15**, Git **2.55.0.windows.5**, LFS **3.7.1**.
+All **22** feature journeys run on each platform: the thirteen original Phase B
+journeys plus nine new Client journeys. Both Windows runs execute all **seven**
+native Job Object tests without skips. Every platform's exact skip IDs/reasons
+equal the previous 1,778-test baseline; no new skip is introduced. The complete
+native Windows skip-reason table above still applies, including its existing
+fixture privilege wording despite the passing independent symlink probe.
+
+The 33 new regressions cover controller pinning/scope, bounded Client evidence,
+CLI ownership/commit checks, real local-Git branch/baseline recovery, publication
+role restrictions, sanitized UI pauses and complete fake-worker journeys. They
+exercise UI/no-UI and client-only/config re-pin paths, wrong input preservation,
+merge/squash same-main re-sync, retry-safe archive/write-back delivery, stage
+limits, running-worker Stop recovery and unclean Unity containment. Initial
+integration failures expose missing Client plan support and incorrect
+clean-release/claim instructions; those are corrected with focused coverage.
+Outdated fixture expectations and a duplicate closing-notice fixture are also
+corrected. They are development findings, not missing host capabilities, and
+are retained in private logs rather than hidden with skips.
+
+These journeys use local Git remotes, scripted generator/archive helpers and
+fake Unity/MCP. They establish controller transitions and ownership/recovery
+behavior, not real E/F/G export, UI approval, Unity resource loading or OpenSpec
+archive acceptance. The separately measured real native tooling above remains
+valid for its exact inputs. Later end-to-end live acceptance and production-host
+release/recovery verification remain pending; this PC cannot certify another
+Windows host. The merge configures no account/credentials and performs no
+deployment, service restart or live card mutation.
+
+The controller-record follow-up passes **75** skill/reference tests in
+**0.438 s**, with zero failures, errors or skips, plus local links/anchors,
+privacy and whitespace checks. It changes only two Markdown records;
+application code, tests and workflow remain identical to the verified merge,
+so a repeated full offline run is unnecessary for this documentation change.
+
 ## Remaining client/UI and release prerequisites
 
 1. D10's native real LFS push/download and headless proto feasibility checks
@@ -567,12 +643,13 @@ acceptance work. Results on this PC do not certify the production Windows host.
 2. Obtain an approved real card/scope for remaining live common/config/hive
    stages and their native worker generators. Running-worker withdrawal is
    still unmeasured; the completed cancellation check used a parked job.
-3. Implement Phase C's controller client stages, UI-ready gate, reservation-based
-   Unity validation and closing/write-back workflow. Step 1's supported network,
-   config, complete metadata and native full typecheck tools are delivered in
-   client #1421–#1424; their measured development-PC results are recorded above.
-   Later UI authoring/export, farmgui permission changes and scoped LFS asset
-   hydration remain subsequent work under the design's phase order.
+3. Complete an approved real Phase C Client/Closing journey using the delivered
+   controller stages, exact native network/config inputs, UI evidence when
+   applicable, reservation-based Unity tests and actual write-back/archive
+   checks. Client #1421–#1424 and FarmBot #151 deliver the implementation and
+   offline evidence above. UI authoring/preview approval and then licensed
+   native UI export remain subsequent development phases, with narrow farmgui
+   rule amendments and scoped package/dependency LFS hydration.
 4. Obtain separate production promotion/feature-enablement authorization,
    confirm the final host's selected tool/account/profile identities, and
    complete its release and recovery acceptance. These isolated development
