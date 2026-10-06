@@ -224,7 +224,9 @@ every sandbox: fetches, new worktrees, the publication check at launch, cleanup'
 commits and the Unity slots' checkouts. Workers push by refspec and never change the clone's config,
 so `git push -u`, deleting a branch and a full `git gc` fail inside a worker, and git may print a
 harmless `packed-refs.lock` error after a commit or fetch that succeeded (the `fix` skill says so).
-Every git call FarmBot itself makes runs with hooks and fsmonitor off. In a job's worktree it names
+Every git call FarmBot itself makes runs with hooks and fsmonitor off. On Windows these calls also
+pass `core.longpaths=true` for nested repository files under the isolated state root; this changes
+neither host Git settings nor the clone config allowlist. In a job's worktree it names
 the clone and the worktree's entry itself, after checking that the worktree's `.git` file and the
 entry's `gitdir` and `commondir` still name each other and the clone: a pointer a worker rewrote is
 refused, never followed. FarmBot refuses a clone whose config holds keys it does not write (anything
