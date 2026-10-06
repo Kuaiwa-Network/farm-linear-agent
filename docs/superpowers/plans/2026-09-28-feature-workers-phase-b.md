@@ -1546,6 +1546,21 @@ running-worker withdrawal or production-readiness claim.
 See the [complete measured stage-A record](../spikes/2026-10-06-windows-stage-a-acceptance.md).
 Task 17 remains partial at these boundaries; production and Phase C are unchanged.
 
+**2026-10-06 final native tools and LFS follow-up:** merged #143 (`1a9b60a1`)
+differs from the full-CI-passing #141 source only in six Markdown files.
+Final callback executable/CLI identities and canonical source match their
+receipts; an initial strict source-byte mismatch is explained by checkout CRLF
+versus the LF build source, with no code change. Empty-root doctor has no missing
+feature tool and only the expected ledger-unreadable finding. A fresh native
+Git callback probe passes all five repositories and Contract fetch in 15.002
+seconds while rejecting an unrelated CA and preserving ownership/runtime state.
+One real internal-server LFS asset read passes with exact 15,114-byte/hash
+verification. A 1 KiB loopback upload/download calibration also passes with
+protected Git files, clone trust and containment unchanged. The real new-object
+upload awaits its concrete operator approval; native headless client proto
+export and later client/UI work remain pending. See the
+[final-tools/LFS record](../spikes/2026-10-06-windows-final-tools-lfs.md).
+
 
 ## Scope
 
