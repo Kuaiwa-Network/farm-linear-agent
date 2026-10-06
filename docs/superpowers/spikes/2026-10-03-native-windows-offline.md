@@ -6632,3 +6632,141 @@ stdout/result projections and all **four** strict UTF-8 logs (**16,325 bytes**),
 SHA-256 `183ed33190341dddba5a837ea67f5f5489f475e7c94ecd3ce7d89d6c0bc34dc2`.
 Added links/anchors, whitespace and private-path/token scans pass. Only the two
 verification documents change; application/test source remains unchanged.
+
+### Native bot document, attachment and Word reads (2026-10-06; partial)
+
+The operator authorizes the agent to find and select suitable Feishu references
+itself. Read-only discovery recovers the planning-document link from the
+previously selected FARM-1419 card and archived planning references in the
+separate development Contract checkout. The card is read only as a source of
+its existing link; no issue is resumed, delegated or modified. A Word file is
+selected from a resolved archived planning container's two file children.
+Document content, titles, URLs, object tokens and private paths remain private.
+
+**Source and execution:** merged FarmBot
+`8360e5e9a337c49595dd322eca5428dbf6202743`, tree
+`aa47fba2f2c39a4d067ae07db896d9b1845e5557`; executable/test bytes remain those
+of #128. The separate development checkout runs on the **production Windows
+host** with the operator-selected ordinary current account. Python **3.13.16**
+starts with `PYTHONUTF8=1`. The selected native Codex **0.156.1** image matches
+SHA-256 `70bcb05f9bf1a4e7306edd0cd1b57d02af3267ad02a34b26f45c8c4bb20a3301`;
+lark-cli **1.0.82** matches the release/executable hashes in the preceding
+preparation record. Real reads on Codex 0.160.0 are not measured here.
+
+Each native `app-server` `command/exec` check has a fresh empty Codex home and
+new scratch directory outside every checkout, exact assigned workspace/state
+write roots, explicit native **unelevated** mode and owned Job containment.
+Feishu reads enable network access; local Word conversion disables it.
+Inherited credential overrides, config-directory overrides and FarmBot
+selectors are withheld; the selected per-user profile environment is preserved
+without a lark-cli home or `HOME` override. Commands use
+`--profile farmbot` before the subcommand and explicit `--as bot`, with strict
+bot environment, remote metadata off and update notifications disabled.
+No secret value is inspected/exported, no alternate/personal identity is used
+and no Codex auth file or model turn is created. Successful Feishu JSON
+responses independently report `identity: bot`.
+
+**Discovery gaps and controls:** native `drive +search` exits **3** in
+**3.269 seconds** (**3.625** for its complete native check). The same bounded
+host search exits **3** in **1.359 seconds**, with Feishu code **99991672**
+and required scope **`search:docs:read`**. No permission change is made. The
+native bot's `wiki +space-list` succeeds but returns **zero spaces**,
+`has_more: false`; this is not evidence that known linked documents are
+unreadable. Resolving the recovered wiki links succeeds. These additional
+search/list commands are expressly authorized development discovery only;
+FarmBot workers retain the three reads in
+[the CLI reference](../../../references/worker-cli.md#lark-cli).
+Global search permission is **not a new release prerequisite** for a worker
+that receives its document link from the card.
+
+| Native check | Exit | CLI seconds | Complete check seconds | Measured output |
+| --- | --- | --- | --- | --- |
+| Resolve prior card's linked wiki document | 0 | 1.639 | 1.988 | `docx` object, bot identity |
+| Fetch that planning document as Markdown JSON | 0 | 1.725 | 2.094 | 43,431 JSON bytes; 42,552 Markdown bytes; 30 heading lines |
+| Download selected archived planning Word file | 0 | 1.799 | 2.172 | 32,912 file bytes; bot identity |
+| Convert that file's OOXML body text with native Python | 0 | 0.083 | 0.454 | 17,492 UTF-8 bytes; 295 nonempty paragraphs; 19 tables |
+
+The planning JSON SHA-256 is
+`457cf574608097f223ce34448b0d3fd9099e705a5cd2bb1f85ce95841691df18`.
+The downloaded Word file SHA-256 is
+`54025a62bf3039bc69f6e075fec2a340d9a0afd6a94ce2fd6484c9ee54a340e1`;
+the converted text SHA-256 is
+`e548f6a4e920330cb7716dfe1aa8b52f692d3113a58d69bded3af2d8dfa4853e`.
+The file token comes from a discovered `obj_type: file` node, not its wiki
+node token; download uses a relative output name inside the owned state.
+Conversion reads bounded `word/document.xml` without extracting archive paths
+or executing document content. Source bytes are unchanged, and Chinese text
+survives. This verifies body paragraph/table text extraction, not preservation
+of layout, styles, images, headers or legacy `.doc` conversion; it introduces
+no new runtime conversion implementation.
+
+**Original attachment refusal is retained:** the first planning document's
+own file link yields download exit **4** twice, in **1.507 / 1.518 seconds**
+(**1.859 / 1.883** for the native checks). The CLI initially classifies it as
+a network error; focused diagnostics identify **HTTP 403**, without DNS,
+TLS, timeout or connection-reset flags. The identical host bot command also
+returns HTTP 403/exit 4 in **1.477 seconds**, with no artifact. This is an
+observed resource-specific access refusal, not a sandbox-only failure; the
+provider's exact underlying permission/download-policy cause is unverified.
+It is neither bypassed with a personal identity nor repaired by changing
+permissions. The separately selected Word file's successful download does not
+certify this refused file or every attachment. The first card's document/file
+pair therefore remains only partially accepted.
+
+The archived planning container resolves successfully in **1.484 seconds**
+(**1.835** total). Its own document fetch succeeds with **189 JSON bytes** in
+**1.495 seconds** (**1.838** total), but it is an empty container, not a second
+substantive planning-document read. Listing its linked children succeeds in
+**1.600 seconds** (**1.968** total), returning **two file nodes** and no further
+page; one has a `.docx` filename and is the Word input above. No broad or
+unbounded wiki crawl occurs.
+
+**Containment and evidence:** all **11 native runs**, including refusals, have
+observed child membership, assignment before launch, exact effective policy,
+empty-Job cleanup, dead children and settled readers. All profile-config
+metadata and registered runtime receipts remain unchanged. The native checks
+total **21.667 seconds**, excluding the two host controls, local discovery and
+analysis. All **22** bound strict UTF-8 native logs (**92,417 bytes**), RPC exit
+codes, sanitized stdout projections, successful private response identities,
+download/text bytes and source hashes are independently audited. Audit SHA-256
+is `ac55bc415e42d689dccd7fbffeab86ec91ffd430755de8d3ad0f95ac6dddea31`.
+Failed CLI stderr is projected in memory to status/diagnostic metadata rather
+than retained raw; secrets and app IDs are not copied into the public record.
+
+**Current release prerequisites:** the selected native command route can use
+the existing current-account profile for real bot document reads and a Word
+download/body-text conversion. This closes that scoped tool-access gap without
+certifying a model worker, service startup or every source's permissions.
+Remaining prerequisites are:
+
+1. Scoped authenticated model-worker/worker-CLI/service/webhook acceptance,
+   including unclaimed startup, live delivery, recovery and lifecycle checks.
+2. On the selected live Code card, verify that the bot can read **all** required
+   document/file sources; the refused attachment above remains unreadable.
+   Confirm any conversion formats beyond the measured OOXML body extraction.
+3. Windows desktop Unity acceptance and approved Common producer/publication/
+   release provenance beyond local generation and gate comparisons.
+4. Private output/log/comment/PR review and scoped TestBot restoration, preserving
+   ownership/history/recovery evidence. FARM-1346/FARM-1425 remain parked;
+   Farm-Contract #318 and farm-hive #353 remain untouched unmerged test drafts.
+5. Review completed acceptance evidence and separately authorize production
+   feature enablement/deployment. Task 17 remains partial; client/UI work follows
+   Phase B. No production configuration/ledger read, account/credential setup,
+   app-setting change, service start/restart, issue mutation, Bash/MSYS/WSL use,
+   production enablement or deployment occurs.
+
+**Scratch and record validation:** after the artifact/hash audit and verified
+quiescence, all **12** new native/host-control scratch directories are removed.
+Every absolute target is checked inside the explicit development scratch base;
+reparse points are refused before any recursive removal. Temporary document
+payloads, downloaded/copied Word bytes and converted text are removed; frozen
+probe sources, sanitized results and private UTF-8 logs/audits remain retained.
+No production cleanup occurs. Private cleanup SHA-256 is
+`40fd906f8df3fa65359647525ff050131420f2212f9857fa736c1c15687db4b4`.
+The selected Python executable with
+`-B -m unittest discover -s tests -p test_skills.py -v` passes **73**
+documentation/reference tests, zero failures/errors/skips, in **0.357 seconds**
+(**0.475** including startup). Private UTF-8 log SHA-256 is
+`d406aea6fa9953301002864f83a60fec4fb54683fec2bd2c08e97374efffe6ec`.
+Added local links/anchors, whitespace, public-diff private-path/token checks
+and the native source/result/log audit pass. The change is documentation only.
