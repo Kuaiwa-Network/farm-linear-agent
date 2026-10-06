@@ -1253,9 +1253,14 @@ The 2026-10-06 final-tools follow-up at merged #143 verifies unchanged
 executable code, native callback source/binary identities, all required doctor
 tools and restricted Git transport. A bounded real internal-server LFS read
 and a local-loopback native upload/download calibration pass with preserved
-Git trust and Job containment. The prepared real-server 1 KiB new-object
-upload is still approval-pending; headless native Farm-Client proto export is
-also pending before Phase C. The
+Git trust and Job containment. The subsequently approved real 1 KiB upload
+exits 2 because the internal upload batch requires authentication (HTTP 401/Basic);
+the GitHub-only callback correctly refuses this separate destination. Native
+headless client proto export passes twice without Unity for pinned inputs:
+60 protos, 61 identical C# outputs, 589 wire messages and a passing .NET compile.
+Existing metadata remains intact; Phase C must install metadata for five new
+files and a durable headless entry point. D10 LFS push still needs approved
+native internal-server write authentication and a passing real transfer. The
 [measured LFS record](../spikes/2026-10-06-windows-final-tools-lfs.md)
 keeps those checks distinct from production promotion and later live stages.
 Production, later live stages and Phase C remain outside this check.
