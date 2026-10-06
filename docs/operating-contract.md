@@ -925,10 +925,16 @@ which stops nothing.
 In this revision a Code job ends after the server. The client stage (the UI-ready pause and Farm-Client, with the
 client's protocol and config exports), the client's closing steps and the write-back and archive of the contract
 change come with the next phase. A step the worker cannot run in its sandbox is named in the PR as not run, with its
-error; prepared Go cache access, protoc 35.1, `git status` in a read-only
-sibling worktree and the native Windows generators/gates have not been verified in a real worker sandbox. On a host that
-enables `feature`, `doctor` reports whether it has the toolchain its workers need; on any host it shows each
-unfinished Code job's root, stage states, pending pause and PR links (README, "AI/operator diagnostics").
+error. Host tool detection is separate from actual worker acceptance. On 2026-10-06,
+a scoped native Windows TestBot audit of unchanged Farm-Contract main runs all twelve
+gates: nine pass, while gates 3, 9 and 12 fail creating temporary directories; gate 3
+also refuses object alternates in the read-only snapshot. The [measured gate record](superpowers/spikes/2026-10-06-native-contract-gates.md)
+preserves each failure and coverage limit. The tooling fix/rerun and a genuine
+changed-contract draft-PR/stage-limit check remain pending. Earlier scoped generator
+and containment probes remain separate evidence, not production certification.
+On a host that enables `feature`, `doctor` reports whether it has the toolchain its
+workers need; on any host it shows each unfinished Code job's root, stage states,
+pending pause and PR links (README, "AI/operator diagnostics").
 
 Rolling back: before moving a host to a revision without `skills/feature`, cancel its unfinished `feature` items
 (Stop in Linear, or the operator's `cancel`), queued, running, parked or between stages alike; let their cleanup

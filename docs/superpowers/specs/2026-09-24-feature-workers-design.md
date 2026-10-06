@@ -1209,6 +1209,17 @@ only. The [Windows live record](../spikes/2026-10-03-native-windows-offline.md#w
 and [full CI evidence](../spikes/2026-10-06-pr135-offline-ci.md) give measured scope,
 every skip and revision/tree identity. Production is not promoted or certified.
 
+A subsequent scoped Windows TestBot audit on 2026-10-06 attempts all twelve
+gates on unchanged Farm-Contract main `71dadaed`. Nine pass; gates 3, 9 and 12
+fail, without skips. Gate 3's read-only object-alternates refusal is retained;
+its owned-worktree retry and gates 9/12 expose temporary-directory access
+failures consistent with the measured Python `0700` permission issue. See the
+[per-gate coverage and preserved evidence](../spikes/2026-10-06-native-contract-gates.md).
+The audit produces no game source change or PR. Its withdrawal, empty Job,
+source/recovery identity and cleanup are verified; TestBot returns to chat/fix
+only. The tooling fix/rerun and genuine changed-contract draft-PR/stage-limit
+acceptance remain pending, with product questions still unanswered.
+
 Found while writing this design:
 
 - Linear: whether GraphQL returns uploads as Markdown or `<linear-image>` and replies through
