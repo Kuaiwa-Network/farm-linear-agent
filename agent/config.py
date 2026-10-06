@@ -318,6 +318,18 @@ class StubLinear:
     def needs_more_info(self, issue_id):
         self._record("needs_more_info", issue_id=issue_id)
 
+    def upload_image(self, image, *, keepalive=None):
+        """Offline preview fixture; stores exact bytes and unsigned metadata, never a signed URL."""
+        if keepalive:
+            keepalive()
+        evidence = image.evidence()
+        destination = self.directory / ("preview-" + evidence["sha256"] + ".bin")
+        destination.write_bytes(image.data)
+        self._record("upload_image", **evidence)
+        if keepalive:
+            keepalive()
+        return {"asset_url": "https://uploads.linear.app/stub/" + evidence["sha256"], **evidence}
+
     def download_upload(self, url, destination, *, max_bytes, keepalive=None):
         """Serves `uploads/<last URL segment>` from the stub directory, stored as LinearAPI.download_upload does."""
         self._record("download_upload", url=url)

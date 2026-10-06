@@ -8,6 +8,9 @@ feature from its Farm-Contract change through farm-common declarations, farm-hiv
 Farm-Client, with human UI-ready confirmation and committed-HEAD verification. It opens
 drafts and a Contract acceptance/archive draft; people review, merge and accept them.
 The UI authoring worker does not exist yet.
+Its development preview and image-upload tools are available; they do not add a
+loaded or enabled UI skill. See the [Phase D plan](docs/superpowers/plans/2026-10-06-feature-workers-phase-d.md)
+for the remaining worker and visual-approval implementation.
 Without a Bot label a delegation opens a conversation. Capabilities are added as skills on
 a shared identity, ledger, worker runtime and desktop-resource locks: chat, QA, bug fixes
 and small changes, FGUI, then whole features.
@@ -81,6 +84,31 @@ tests with the TestBot app in the same Linear workspace, on real issues you choo
 and the real repositories.
 Start an explicit development profile from [this template](config/development.example.json).
 See [CI](docs/ci.md) for the Python 3.13 Mac/Windows checks and evidence artifacts.
+
+The full offline suite now also tests optional UI tools with pinned Pillow.
+Prepare it in a separate Python 3.13 development environment using that environment's
+Python executable (Windows: set `$env:PYTHONUTF8='1'` before starting Python):
+
+```text
+<selected-python> -m pip --isolated install --only-binary=:all: --require-hashes --no-deps --index-url https://pypi.org/simple -r requirements-ui.txt
+```
+
+The dependency file pins platform wheels and their hashes. Ordinary controller,
+chat, fix and Code imports do not require Pillow. Workers never install it during
+a job. A read-only approximate component preview uses native Python on either OS:
+
+```text
+<selected-python> -B skills/fgui/tools/preview.py --project-root <absolute-farmgui-root> --package <actual-package-id-or-name> --component <actual-resource-id> --output-root <new-absolute-private-directory>
+```
+
+The new output directory must be outside the source project. The tool writes
+`preview.png` and `report.json`, including source hashes, native font identity,
+states and gaps. `--controller NAME=PAGE` selects a recorded state; use
+`PACKAGE_ID/RESOURCE_ID:NAME=PAGE` for a nested component. Exit 0 means a rendered
+approximation, 2 means a PNG with explicit gaps, and 1 means refusal or a host
+dependency failure. Native CJK fonts are read locally; none is downloaded.
+These previews do not establish FairyGUI Editor, export or Unity acceptance.
+
 `serve --config` propagates the selected absolute config file to all worker attempts.
 An installed launchd service also preserves configuration selected through
 `FARMBOT_CONFIG`. Use an absolute `local_root`; changing the config filename alone

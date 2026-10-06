@@ -810,6 +810,40 @@ omits the flag, then GBK. Refused members are listed with the reason, decoded le
 their raw bytes, and nested archives are not extracted. The Windows cases (junctions, device names,
 trailing dots, streams) have tests that run only on Windows.
 
+## UI preview tools under development
+
+The read-only native `skills/fgui/tools/preview.py` tool renders an explicitly
+approximate PNG from real package/component XML, manifests and hydrated PNG/JPEG
+art. Optional Pillow is prepared from `requirements-ui.txt`; normal controller,
+fix/chat/Code imports remain independent of it. Input roots and resources reject
+traversal/reparse paths, duplicate identities, XML entities, cycles and excessive
+expansion. Actual image/component dimensions are the fallback; loader filling,
+nine-slice, controllers, text, Button overrides, static lists/progress and basic
+parent relations are rendered. Unsupported state/effects and unavailable art/CJK
+fonts are named gaps, not an Editor/runtime success. Animations and rich/automatic
+text layout are explicitly approximate. New outputs must be outside source roots;
+source/font hashes are rechecked before writing a bounded PNG/report. The report
+names package/component/state, input/tool/font identities and every known gap.
+
+`upload-image --item ITEM_ID --file FILE` is prepared transport for an explicitly
+enabled `fgui` claim in its farmgui authoring stage. It requires the configured
+ledger, a live claim and fresh open delegation. FILE must be a regular single-frame
+PNG/JPEG in the item's own configured run directory, with no links/reparse
+ancestors, hardlinks or traversal. It fully decodes a bounded immutable snapshot:
+20 MiB, 8192 pixels per side, 16 million pixels in total. It allocates through
+Linear's authenticated GraphQL API, then sends only those bytes to the returned
+HTTPS signed storage destination with the returned validated headers, with no
+redirects and no bearer token on PUT. The socket timeout is 30 seconds. Claim
+renewal/withdrawal checks fence allocation, PUT and returned success. An object
+already transferred during cancellation is not revoked. Success returns only
+unsigned asset URL/hash/size/type/dimensions; signed URLs, headers and secrets are
+never output. This command neither posts a comment nor grants visual approval.
+
+No `fgui` manifest or dispatch authority is loaded in this revision. These tools
+and offline transport fixtures are prerequisites for Phase D, not UI-worker
+enablement, a real upload check or a licensed export/Unity verification. No state
+schema changes; settle any later UI job before rollback to a transport-less revision.
+
 ## UI source ownership
 
 For UI fixes and changes, inspect the relevant farmgui source before choosing an implementation.
