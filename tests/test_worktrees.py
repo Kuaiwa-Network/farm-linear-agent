@@ -74,6 +74,37 @@ class WorktreeTests(unittest.TestCase):
         self.assertEqual(self.trees.head(path), git("rev-parse", "HEAD", cwd=self.origin))
         self.assertTrue((path / "README.md").exists())
 
+    def test_long_paths_checkout_in_writable_and_read_only_repositories(self):
+        """A short origin can contain paths longer than MAX_PATH in FarmBot's deeper item directories."""
+        relative = (Path("Packages") / "native path 材料" / ("pipeline-" + "x" * 45)
+                    / ("build-task-" + "y" * 45 + ".cs.meta"))
+        source = self.origin / relative
+        self.assertLess(len(str(source)), 260)
+        source.parent.mkdir(parents=True)
+        source.write_text("native long path\n", encoding="utf-8")
+        git("add", ".", cwd=self.origin)
+        git("commit", "-qm", "long path fixture", cwd=self.origin)
+        root = Path(self.tmp.name)
+        self.trees.worktrees_root = root / ("worktrees " + "a" * 45) / ("state " + "b" * 45)
+        host_config = root / "host.gitconfig"
+        # Match a sanitized Windows host: no inherited long-path opt-in or live Git configuration.
+        host_config.write_text("[user]\n\tname = Fixture host\n", encoding="utf-8")
+        with patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": str(host_config),
+                                     "GIT_CONFIG_SYSTEM": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}):
+            for readonly in (False, True):
+                with self.subTest(readonly=readonly):
+                    path = (self.trees.read_checkout("Farm-Client", "long-reader") if readonly else
+                            self.trees.add("Farm-Client", "long-writer", "farmbot/long-path"))
+                    self.assertGreater(len(str(path / relative)), 260)
+                    self.assertEqual((path / relative).read_text(encoding="utf-8"), "native long path\n")
+                    self.assertEqual(self.trees.head(path), git("rev-parse", "HEAD", cwd=self.origin))
+                    local = git("config", "--local", "--list", cwd=path)
+                    self.assertNotIn("core.longpaths=", local)
+            self.assertEqual(self.trees.clone_problems("Farm-Client"), [])
+            self.assertNotIn("core.longpaths=", git("config", "--local", "--list",
+                                                   cwd=self.trees.clone_path("Farm-Client")))
+        self.assertEqual(host_config.read_text(encoding="utf-8"), "[user]\n\tname = Fixture host\n")
+
     def test_existing_remote_branch_is_tracked_and_local_collision_gets_suffix(self):
         git("checkout", "-qb", "farmbot/farm-1", cwd=self.origin)
         (self.origin / "x.txt").write_text("x", encoding="utf-8")
@@ -876,6 +907,19 @@ class ControllerGitTests(unittest.TestCase):
     def setUp(self):
         WorktreeTests.setUp(self)
         self.marker = Path(self.tmp.name) / "ran.txt"
+
+    def test_native_long_path_option_preserves_hooks_fsmonitor_and_read_only_filters(self):
+        for platform in ("nt", "posix"):
+            with self.subTest(platform=platform):
+                with patch("agent.worktrees.os.name", platform), patch("agent.worktrees.subprocess.run") as run:
+                    run.return_value.returncode = 0
+                    run.return_value.stdout = "ok\n"
+                    self.assertEqual(agent.worktrees._git("status", cwd=self.tmp.name,
+                                                         config=agent.worktrees.READ_ONLY_GIT), "ok")
+                native = ("-c", "core.longpaths=true") if platform == "nt" else ()
+                self.assertEqual(run.call_args.args[0], ["git", *agent.worktrees.HOOKS_OFF, *native,
+                                                        *agent.worktrees.READ_ONLY_GIT, "status"])
+                self.assertEqual(run.call_args.kwargs["env"]["GIT_LFS_SKIP_SMUDGE"], "1")
 
     def script(self, name, body=""):
         path = Path(self.tmp.name) / "scripts" / name

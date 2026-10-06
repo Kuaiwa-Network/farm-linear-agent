@@ -77,7 +77,10 @@ class WorktreeError(RuntimeError):
 
 def _git(*args, cwd, env=GIT_ENV, timeout=600, config=()):
     """`config` is further `-c` settings placed before the subcommand, after HOOKS_OFF, which every call has."""
-    result = subprocess.run(["git", *HOOKS_OFF, *config, *args], cwd=str(cwd), capture_output=True, text=True,
+    # Farm-Client's nested paths exceed MAX_PATH under an isolated state root. Git for Windows needs this
+    # per-command setting even when Windows supports long paths; do not write host or trusted clone config.
+    native_config = ("-c", "core.longpaths=true") if os.name == "nt" else ()
+    result = subprocess.run(["git", *HOOKS_OFF, *native_config, *config, *args], cwd=str(cwd), capture_output=True, text=True,
                             timeout=timeout, env={**os.environ, **env})
     if result.returncode:
         raise WorktreeError(f"git {args[0]} failed: {result.stderr.strip()[:500]}")
