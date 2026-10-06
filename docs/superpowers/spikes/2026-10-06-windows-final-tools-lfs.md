@@ -706,6 +706,19 @@ scoped export validation and Client installation before separately approved live
 UI-card, hydrated Client/Unity and final-host release/recovery acceptance. No parked
 Code card or unmerged game test draft is used as UI acceptance.
 
+## Native UI publisher route verified (2026-10-07)
+
+The [Phase E measured record](../plans/2026-10-06-feature-workers-phase-e.md#as-executed-native-publisher-and-actual-worker-route-2026-10-07)
+supersedes the earlier missing executable/license input: the existing per-user
+publisher runs directly and through the actual isolated native Codex worker.
+Exports exit 0 in 5.124 s / 3.864 s; the worker attempt lasts 28.591 s. All 31
+artifacts are byte-identical, and owned Job membership and quiescence are verified.
+It preserves the first pre-export LFS-filter fixture failure and focused proof.
+Scoped hydration verifies 682 objects/72,570,302 bytes in 4.612 s. The record omits
+private paths, license/credential values and raw logs. The Windows worker-run
+route is feasible on this development PC; production-host, real UI-card,
+Client-install/guard and Unity acceptance remain pending.
+
 ## Remaining client/UI and release prerequisites
 
 1. D10's native real LFS push/download and headless proto feasibility checks
