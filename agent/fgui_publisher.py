@@ -213,7 +213,7 @@ def _log_bounds(run):
 
 def _windows_run(command, cwd, run, fence, timeout):
     """Assign before opening the gate; terminate only this nested Job on failure."""
-    from .windows_job import WindowsJob, active, process_ids
+    from .windows_job import WindowsJob, active, process_ids, CREATE_SUSPENDED
     if not _native_windows():
         raise LedgerError("this prepared publisher requires native Windows")
     with _WindowsLock() as lock:
@@ -221,7 +221,8 @@ def _windows_run(command, cwd, run, fence, timeout):
             raise LedgerError("an existing FairyGUI process prevents isolated batch export")
         fence()
         start = time.monotonic(); process = None; job = WindowsJob()
-        result = {"state": "running", "job": job.name, "job_assigned_before_export": False, "job_empty": False,
+        result = {"state": "running", "job": job.name, "job_assigned_before_export": False,
+                  "job_assigned_before_startup": False, "job_empty": False,
                   "abandoned_lock": lock.abandoned, "seconds": 0, "max_owned_processes": 0}
         try:
             gate = Path(__file__).with_name("windows_worker_gate.py")
@@ -229,7 +230,7 @@ def _windows_run(command, cwd, run, fence, timeout):
             with (run / "stdout.log").open("xb") as stdout, (run / "stderr.log").open("xb") as stderr:
                 process = subprocess.Popen([sys.executable, "-I", str(gate), str(run), *command],
                     cwd=cwd, env=_environment(), stdin=subprocess.PIPE, stdout=stdout, stderr=stderr,
-                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW)
+                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW | CREATE_SUSPENDED)
                 try:
                     job.assign(process)
                 except BaseException:
@@ -237,6 +238,8 @@ def _windows_run(command, cwd, run, fence, timeout):
                     raise
                 result["job_assigned_before_export"] = True
                 fence()  # Stop after assignment still cannot start the publisher.
+                job.resume(process)
+                result["job_assigned_before_startup"] = True
                 process.stdin.write(b"G"); process.stdin.flush(); process.stdin.close()
                 while True:
                     fence()
@@ -355,7 +358,8 @@ def publish(project, packages, executable, tool_pins, run, *, fence, verify_sour
         _tools(executable, tool_pins)
         if _source(project, packages) != required or _source_evidence(verify_source, required) != source:
             raise LedgerError("publisher source changed during export")
-        if process.get("exit_code") != 0 or not process.get("job_empty") or not process.get("job_assigned_before_export"):
+        if (process.get("exit_code") != 0 or not process.get("job_empty")
+                or not process.get("job_assigned_before_export") or not process.get("job_assigned_before_startup")):
             raise LedgerError("native publisher did not complete a quiescent successful export")
         log = _input(run / "publisher.log", MAX_LOG_BYTES)
         text = log.decode("utf-8", errors="strict")

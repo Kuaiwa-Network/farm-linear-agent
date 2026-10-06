@@ -560,7 +560,16 @@ worktrees. A live unverifiable PID, surviving descendants, unsettled reservation
 files and records a cleanup error. A dead parent alone does not prove detached children exited: an
 attempt without verified teardown evidence (including an interrupted launch or older attempt) also
 holds cleanup for operator investigation. Teardown evidence comes from a Stop or budget kill, from an
-empty Windows Job Object, or on macOS/POSIX from the reap of a worker that exited by itself. A POSIX
+empty Windows Job Object, or on macOS/POSIX from the reap of a worker that exited by itself.
+On Windows the selected Python gate is created suspended, assigned to the owned
+non-breakaway Job, then resumed through its verified initial thread before the
+existing input handshake opens. This also contains a Windows venv redirector's
+base interpreter from startup. A closed/unassigned Job, exited or foreign process
+object, ambiguous thread ownership, denied native operation or unexpected suspend
+count refuses startup; only owned creation/Job handles authorize cleanup. See the
+[measured redirector investigation](superpowers/spikes/2026-10-07-windows-python-redirector-containment.md).
+The selected interpreter, isolated home, native sandbox choice and POSIX startup
+remain the same; no permission-repair or uncontained fallback is added. A POSIX
 worker leads its own session and process group, whose IDs both equal its PID and stay reserved until
 FarmBot reaps it. Before that reap FarmBot terminates and records each live member of the session that
 its `ps` snapshot shows, after a Stop or budget kill as well as a self-exit. For a self-exit it writes
@@ -924,14 +933,17 @@ selects configuration nor inspects or configures a license, credential or accoun
 
 Execution uses native argument lists from the executable directory, fresh private
 staging/logs, a machine-wide Windows publisher mutex, refusal of existing/competing
-FairyGUI processes and a nested owned Job assigned before opening the native gate.
+FairyGUI processes and a nested owned Job. The selected Python gate is created
+suspended, assigned through its retained creation object and resumed through its
+verified initial thread before any redirector/gate startup or input handshake.
 The timeout is at most 180 seconds; logs are bounded to 4 MiB each. Stop, timeout,
 assignment failure or lingering descendants refuse success and terminate only the
 owned Job. A brief bounded drain handles delayed descendant accounting; observed
 Job emptiness is still required. A process snapshot is a refusal signal only,
 never authority to kill another Editor. Failure preserves private staging and
 process/attempt receipts; uncertain teardown never establishes quiescence.
-Success requires exit zero, empty containment, unchanged selected tool/full source
+Success requires proved assignment before startup/export, exit zero, empty
+containment, unchanged selected tool/full source
 identities, the selected completion count, no license-failure marker and the
 immutable exact export inventory. Client installation and Unity acceptance remain
 separate checks. This helper supports native Windows only and has no shell or

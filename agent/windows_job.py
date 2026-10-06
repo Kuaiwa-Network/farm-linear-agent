@@ -5,6 +5,7 @@ import time
 from uuid import uuid4
 
 k = C.WinDLL('kernel32', use_last_error=True)
+CREATE_SUSPENDED = 0x00000004  # WinBase.h; subprocess does not export this flag.
 
 
 def api(name, result, *args):
@@ -22,6 +23,11 @@ set_job = api('SetInformationJobObject', W.BOOL, W.HANDLE, C.c_int, C.c_void_p, 
 query_job = api('QueryInformationJobObject', W.BOOL, W.HANDLE, C.c_int, C.c_void_p, W.DWORD, C.c_void_p)
 assign_job = api('AssignProcessToJobObject', W.BOOL, W.HANDLE, W.HANDLE)
 terminate_job = api('TerminateJobObject', W.BOOL, W.HANDLE, W.UINT)
+in_job = api('IsProcessInJob', W.BOOL, W.HANDLE, W.HANDLE, C.POINTER(W.BOOL))
+process_id = api('GetProcessId', W.DWORD, W.HANDLE)
+open_thread = api('OpenThread', W.HANDLE, W.DWORD, W.BOOL, W.DWORD)
+thread_process_id = api('GetProcessIdOfThread', W.DWORD, W.HANDLE)
+resume_thread = api('ResumeThread', W.DWORD, W.HANDLE)
 
 
 class BasicLimits(C.Structure):
@@ -68,6 +74,36 @@ def process_ids(handle):
     raise RuntimeError('worker job process list exceeds supported size')
 
 
+def _initial_thread(pid):
+    """The sole initial thread of an owned process created suspended, never a PID kill authority."""
+    class Entry(C.Structure):
+        _fields_ = [('size', W.DWORD), ('usage', W.DWORD), ('tid', W.DWORD), ('owner', W.DWORD),
+                    ('base_priority', W.LONG), ('delta_priority', W.LONG), ('flags', W.DWORD)]
+    snapshot = api('CreateToolhelp32Snapshot', W.HANDLE, W.DWORD, W.DWORD)(4, 0)
+    if snapshot == C.c_void_p(-1).value:
+        raise C.WinError(C.get_last_error())
+    first = api('Thread32First', W.BOOL, W.HANDLE, C.POINTER(Entry))
+    next_entry = api('Thread32Next', W.BOOL, W.HANDLE, C.POINTER(Entry))
+    found = []
+    try:
+        entry = Entry(); entry.size = C.sizeof(entry)
+        more = first(snapshot, C.byref(entry))
+        if not more and C.get_last_error() != 18:  # ERROR_NO_MORE_FILES
+            raise C.WinError(C.get_last_error())
+        while more:
+            if entry.owner == pid:
+                found.append(entry.tid)
+            entry.size = C.sizeof(entry)
+            more = next_entry(snapshot, C.byref(entry))
+        if C.get_last_error() != 18:
+            raise C.WinError(C.get_last_error())
+    finally:
+        close(snapshot)
+    if len(found) != 1:
+        raise RuntimeError('suspended worker does not have one verified initial thread')
+    return found[0]
+
+
 def alive(pid):
     handle = open_process(0x100000, False, int(pid))  # SYNCHRONIZE
     if not handle:
@@ -94,6 +130,38 @@ class WindowsJob:
 
     def assign(self, process):
         checked(assign_job(self.handle, int(process._handle)))
+
+    def resume(self, process):
+        """Resume only our assigned, suspended creation object before opening its gate.
+
+        Python's Windows venv executable can launch a base interpreter before
+        post-spawn assignment; an input handshake cannot contain that startup.
+        CREATE_SUSPENDED keeps even the redirector inside this non-breakaway Job.
+        Thread ownership is checked on retained handles, and any ambiguity fails
+        closed. The caller terminates the owned Job/process on startup failure.
+        """
+        if not self.handle:
+            raise RuntimeError('worker startup requires a live owned Job')
+        handle = int(process._handle)
+        member = W.BOOL()
+        checked(in_job(handle, self.handle, C.byref(member)))
+        pid = checked(process_id(handle))
+        status = wait(handle, 0)
+        if status == 0xffffffff:
+            raise C.WinError(C.get_last_error())
+        if not member.value or pid != process.pid or status != 258:  # WAIT_TIMEOUT: live
+            raise RuntimeError('worker startup requires its live assigned creation object')
+        thread = checked(open_thread(0x0002 | 0x0800, False, _initial_thread(pid)))
+        try:
+            if checked(thread_process_id(thread)) != pid:
+                raise RuntimeError('suspended worker thread ownership changed')
+            previous = resume_thread(thread)
+            if previous == 0xffffffff:
+                raise C.WinError(C.get_last_error())
+            if previous != 1:
+                raise RuntimeError('worker initial thread was not suspended exactly once')
+        finally:
+            close(thread)
 
     def terminate_and_wait(self, timeout=5):
         # Accounting may hit zero just before the final process object is signalled.
