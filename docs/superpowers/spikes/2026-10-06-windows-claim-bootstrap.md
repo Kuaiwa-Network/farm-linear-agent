@@ -86,10 +86,39 @@ after cleanup and an unchanged runtime receipt. Private UTF-8 logs and sanitized
 summaries are retained locally. No Bash/MSYS generator fallback, certificate-check
 disablement, production change or account setup was used.
 
+## Native callback continuation
+
+The [optional native Windows callback](../../../tools/windows_git_askpass.cs)
+avoids the refused shell helper. It launches the existing native GitHub CLI
+directly, keeps its response in memory and returns only Git's requested field
+through the callback pipe. It does not install credentials or change account
+settings. Its six focused native tests passed in 1.205 seconds using a compiled
+dummy GitHub CLI, including wrong-destination/user rejection and failed/malformed
+lookup output suppression. No host credential was used by those tests.
+
+The final no-model command probe used the callback with OpenSSL and explicit
+`http.sslVerify=true`. All five configured repositories' read-only remote branch
+queries succeeded (148/182/107/263/31 branches respectively for client/Contract/
+common/hive/GUI). A valid, unrelated dummy CA was rejected with exit 128 and
+`unable to get local issuer certificate`. An earlier malformed CA fixture only
+proved trust-anchor loading failure; it was replaced for this certificate check.
+The final run completed in 11.350 seconds, with effective policy and native Job
+membership verified, no ACL mutation, an empty Job after cleanup, a finished
+reader and an unchanged runtime receipt. The helper was built under a path with
+spaces/Unicode and selected through a byte-verified whitespace-free native short
+path. Its helper/GitHub executable hashes were verified. No credential value was
+displayed, saved to disk or placed in a token environment variable.
+
+This resolves the measured read-only Git transport gap for the selected tools
+on this development PC. A callback build is optional and changes no FarmBot
+defaults. Actual worker fetch/push/publication and the genuine Contract stage-A
+check remain pending; production is unchanged. The earlier stopped-run evidence
+above remains valid. See the [build and selection recipe](../../windows-native-git.md).
+
 ## Remaining acceptance
 
-1. Resolve and verify native Windows authenticated Git transport inside the
-   selected worker, retaining certificate verification and credential privacy.
+1. Select the tested native callback only in the authorized development wrapper,
+   verify its frozen identities and measure real worker fetch/push/publication.
 2. Retry the already-approved FARM-1435 scope through genuine Contract changes,
    all twelve native gates, a registered real draft PR and `merge-contract`.
 3. Verify stage A `done`, a `stage_limit` event/pause and

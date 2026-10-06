@@ -1500,6 +1500,12 @@ The separate foreign-work read remains incomplete: restricted Git fails Schannel
 TLS, and command-local OpenSSL then reaches a refused helper `sh.exe`; direct
 native GitHub credential lookup succeeds. No ACL, Bash or insecure TLS workaround
 is applied. See the [measured bootstrap and transport gap](../spikes/2026-10-06-windows-claim-bootstrap.md).
+An optional native callback then passes all five restricted remote branch reads
+with certificate checking enabled, while an unrelated dummy CA is refused. Its
+six native credential-protocol tests use a dummy CLI and pass without host auth.
+No shell helper, stored-credential change or production selection is required;
+the callback is selected only through an explicitly prepared development wrapper.
+Real worker fetch/push/publication acceptance remains pending.
 The approved genuine-delta/draft-PR/stage-limit and parked-job undelegation checks
 remain pending. Task 17 is partial; production and Phase C are unchanged.
 

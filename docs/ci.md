@@ -12,6 +12,11 @@ step checks the hosted image's installed versions and fails if either is absent.
 It also checks directory symlink creation because symlink rejection tests protect
 filesystem ownership boundaries. Missing privilege is a runner setup failure.
 
+The native Windows Git askpass tests additionally use the image's installed
+`.NET Framework` C# compiler to build a dummy credential responder. They never
+read the host's GitHub login. A missing Windows compiler is a fixture capability
+failure; non-Windows hosts skip these native callback tests explicitly.
+
 The workflow requests only `contents: read`, does not reference secrets, and
 disables checkout credential persistence. It does not install or authenticate
 worker CLIs, launch a real Unity Editor, invoke live Linear, or deploy a service.
