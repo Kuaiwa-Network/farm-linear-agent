@@ -1069,6 +1069,15 @@ delegation from the parked FARM-1419 Code job cancelled it after two reads, in
 cleanup completed with owned-worktree recovery refs preserved. This observation
 does not verify running-worker withdrawal or native Windows live behavior.
 
+Observed separately on 2026-10-06 in an authorized native Windows TestBot check:
+removing delegation from the parked-question FARM-1346 Code job cancelled it in
+about 63 seconds. Linear displayed the response once and marked its session
+complete. The owned Job was empty; selected worktrees were removed and the
+recovery ref preserved. This used separate development state on the Windows
+host and does not establish running-worker withdrawal or production readiness.
+The [measured record](superpowers/spikes/2026-10-03-native-windows-offline.md#windows-signed-intake-and-long-path-checkouts-2026-10-06)
+retains the scope and timing.
+
 **A new delegation owns the card.** A delegation's `created` event, or a reply that routes a
 delegation session again, while the card is delegated here and work is active in another session:
 

@@ -1191,6 +1191,24 @@ remain pending. The
 both measured runs, every error/skip and the tool inventory; no production
 configuration or state was copied or changed.
 
+Checked on 2026-10-06 in a separately scoped native Windows TestBot attempt on
+FARM-1346, using candidate `df7f5a8` (merged in #135 as `0c4ef5e`): actual signed
+intake starts one target-free feature worker inside its owned Windows Job. It
+uses native PowerShell, reads the Feishu DOCX as the bot and the Linear upload
+(41,658 bytes each, identical SHA-256), and parks for attributed design answers
+after finding the existing FARM-1400 contract. No artificial source change, game
+PR or common handoff occurs. The parked-question withdrawal variant cancels in
+about 63 seconds; Linear displays one response and completes the session. Its
+Job is empty, worktrees are removed and the recovery ref remains. The local
+known-credential scan finds no match in 249 attempt files or fetched comments.
+Both full CI jobs pass 1,751 discovered tests, with all thirteen feature journeys
+on both and all seven native Job tests on Windows; platform skips remain
+explicit. The twelve live contract gates, genuine draft PR and exact stage-limit
+pause await human decisions and a real delta. TestBot is restored to chat/fix
+only. The [Windows live record](../spikes/2026-10-03-native-windows-offline.md#windows-signed-intake-and-long-path-checkouts-2026-10-06)
+and [full CI evidence](../spikes/2026-10-06-pr135-offline-ci.md) give measured scope,
+every skip and revision/tree identity. Production is not promoted or certified.
+
 Found while writing this design:
 
 - Linear: whether GraphQL returns uploads as Markdown or `<linear-image>` and replies through
@@ -1215,7 +1233,9 @@ Answered on 2026-09-25 and folded in above: D11 to D17, and how merges move the 
 The Phase B question about a session response after delegation removal was
 observed on 2026-10-03: Linear displayed the response once and completed the
 parked FARM-1419 session. This was one Mac observation, not a running-worker or
-Windows live check. The Windows account choice was recorded on 2026-10-03;
+Windows live check. A separate native Windows parked-question observation on
+2026-10-06 also displays the response once and completes the FARM-1346 session;
+running-worker withdrawal remains unmeasured. The Windows account choice was recorded on 2026-10-03;
 its remaining verification is:
 
 - For the operator, before `feature` runs on the Windows host: lark-cli keeps secrets per Windows
@@ -1230,9 +1250,11 @@ its remaining verification is:
   initial Windows inventory found lark-cli absent from the interactive account's PATH. The
   prepared development prefix now supplies its verified 1.0.82 binary. Local profile setup and
   offline host checks passed; all required feature entries pass in the fresh host doctor.
-  Worker credential compatibility remains unresolved, with detailed diagnostics retained
-  privately. These checks do not certify an isolated FarmBot worker or its credential path.
-  The operator must still verify credential delivery, actual read scopes and one document/attachment
-  in the native elevated worker context before enabling feature; profile presence or doctor's
-  source-presence check is insufficient. Actual Windows worker generators and real Feishu access
-  remain open; the current account choice does not authorize a sandbox downgrade or credential export.
+  The 2026-10-06 native feature attempt now verifies the selected profile's credential
+  resolution and an actual Feishu DOCX read inside the accepted unelevated worker
+  sandbox, with strict bot mode, no HOME override and no personal user login.
+  The environment-credential variant is not used by that live check. Native
+  generators and all twelve contract gates in a real change attempt, other source
+  types, running-worker withdrawal and separately authorized production promotion
+  remain outside its acceptance. The current account choice does not authorize
+  weaker containment, credential export or exposure of other user credentials.

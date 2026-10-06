@@ -1411,6 +1411,35 @@ before proposing a genuine delta; no change is fabricated solely to obtain a
 draft PR. Production state and app settings remain untouched, and production
 promotion retains separate authorization. Task 17 remains partial.
 
+**2026-10-06 Windows signed-intake continuation:** the operator saves TestBot's
+new webhook and actual signed Linear delivery is verified. Native intake creates
+one feature item with no target, but Farm-Client checkout fails with Git's
+`Filename too long` before any worker starts; a later chat attempt fails for the
+same reason. Windows-only per-command long-path support is merged in
+[PR #135](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/135), without
+host/clone configuration or containment changes. A real code-history probe
+checks out all 21,817 Farm-Client files, including 223 writable and 313 read-only
+paths over 260 characters. Worktree checks and all 13 feature journeys pass,
+with six existing platform skips and a corrected private observer error.
+The quiescent development controller is stopped with verified native process
+identity and restarted on candidate `df7f5a87bb539f890e26e87b1ab6a4ffe130e0ef`;
+old failure logs/state remain. A fresh target-free feature intake receives the
+stage-A-only first message, and a real native Codex worker claims it inside its
+Windows Job Object. It reads the real Feishu and Linear DOCX sources (41,658 bytes,
+identical SHA-256), finds the existing FARM-1400 contract, asks for attributed
+design answers and parks without an artificial source change, game PR or common
+handoff. Removing TestBot from that parked-question job cancels it in about
+63 seconds; the response appears once and Linear marks the session complete.
+Its native Job is empty, selected worktrees are gone and the recovery ref remains.
+Both full CI jobs pass 1,751 discovered tests, all 13 feature journeys on each and
+all seven native Windows Job tests on Windows; every skip is recorded. Candidate,
+CI synthetic merge and final merge have the same tree. TestBot is then settled on
+the merge with `enabled_skills: ["chat", "fix"]`; historical failures and private
+evidence are retained. The twelve live contract gates, a genuine draft PR and its
+exact `stage_limit` pause remain pending real human decisions and a delta. See the
+[signed-intake and checkout measurements](../spikes/2026-10-03-native-windows-offline.md#windows-signed-intake-and-long-path-checkouts-2026-10-06).
+Production remains outside this verification. Task 17 remains partial.
+
 ## Scope
 
 In Phase B (spec §13, item 2):
