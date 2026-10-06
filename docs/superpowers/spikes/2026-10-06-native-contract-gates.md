@@ -146,3 +146,137 @@ passes **73 tests**, zero failures/errors/skips, in **0.450 seconds**.
 The private UTF-8 test log SHA-256 is `2f6ccba8b87eae41290adcdc42ba819b70734c89946e5ec992ea91b38596f3e1`.
 Added relative links/anchors, whitespace and public-diff privacy checks
 pass. This record changes Markdown only; no full offline rerun is needed.
+
+## Candidate temporary-workspace fix and remaining native gap (2026-10-06)
+
+The subsequent tooling-only [Farm-Contract PR #327](https://github.com/Kuaiwa-Network/Farm-Contract/pull/327)
+is **draft and unmerged**. Its measured head is
+`a8f332fe2611e745a38ebb2f9021a10e90a91135`, tree
+`f29e0416764eff09def696090830a27fce1840ec`, against unchanged main
+`71dadaed8d111219e7170ab6712d97bbb28d8925`. No proto, OpenSpec or manifest
+content changes. This follow-up runs in separate disposable development
+checkouts on the same **production Windows host**, without accessing its
+production installation, config, ledger or service. It is offline tooling
+verification; it does not resume the withdrawn TestBot issue.
+
+The candidate uses a Contract-owned temporary-workspace helper: Windows
+creation inherits the already granted parent DACL; POSIX retains `0700`.
+Exclusive creation, ordinary ancestor/reparse refusal, pinned identity checks
+and conservative cleanup preserve ownership. Failed bodies and uncertain
+cleanup retain evidence. The three wrappers load the helper from an explicit
+sibling path under isolated Python. Existing gate criteria, startup self-tests,
+object-alternates refusal and process containment remain.
+
+Python **3.13.16**, Git **2.54.0.windows.1**, LFS **3.7.1**, buf **1.72.0** and
+OpenSpec **1.7.0** remain the selected native tools. `PYTHONUTF8=1` precedes
+explicit Python `-I -X utf8 -B`; gate shells are native `pwsh.exe`.
+Native focused commands are `python -I -X utf8 -B tools/test-native-temp.py`,
+`tools/test-check-spec-provenance.py`, `tools/test-check-openspec-validate.py`
+and `tools/test-check-breaking-waiver.py` (each latter script also follows the
+explicit selected Python and the same flags). They pass **19, 39, 49 and 55
+tests** respectively outside the sandbox, **162 total**, with zero runtime
+skips. Existing Windows exclusions for POSIX-only fixtures remain; these
+results do not turn excluded cases into Windows coverage. All **28** Windows,
+Linux and macOS [CI checks](https://github.com/Kuaiwa-Network/Farm-Contract/actions/runs/37413616291)
+complete successfully at the recorded head.
+
+### Actual contained results
+
+Fresh ordinary Git checkouts use the exact candidate source and immutable main
+baseline. All twelve gates pass outside the sandbox. Both actual offline
+`workspace-write`, **unelevated** workers execute all twelve, but only **11/12
+pass**: configured Codex **0.156.1** and packaged **0.160.0** both fail gate 3.
+Gates 9 and 12 now reach and pass their real assertions/upstream validation.
+The following durations include each native shell/command; they are not model,
+service or full worker durations.
+
+| Gate | Ordinary exit / seconds | Configured 0.156.1 exit / seconds | Packaged 0.160.0 exit / seconds |
+| --- | --- | --- | --- |
+| 1 | 0 / 0.637 | 0 / 0.478 | 0 / 0.489 |
+| 2 | 0 / 0.641 | 0 / 0.512 | 0 / 0.520 |
+| 3 | 0 / 4.884 | 1 / 4.345 | 1 / 3.239 |
+| 4 | 0 / 0.606 | 0 / 0.548 | 0 / 0.497 |
+| 5 | 0 / 0.686 | 0 / 0.604 | 0 / 0.573 |
+| 6 | 0 / 0.580 | 0 / 0.466 | 0 / 0.481 |
+| 7 | 0 / 0.622 | 0 / 0.555 | 0 / 0.514 |
+| 8 | 0 / 0.584 | 0 / 0.482 | 0 / 0.475 |
+| 9 | 0 / 0.619 | 0 / 0.497 | 0 / 0.501 |
+| 10 | 0 / 0.579 | 0 / 0.453 | 0 / 0.461 |
+| 11 | 0 / 0.569 | 0 / 0.448 | 0 / 0.456 |
+| 12 | 0 / 1.189 | 0 / 1.083 | 0 / 1.080 |
+
+Gate 3 now creates and accesses its owned temporary directory, then buf's
+`.git#branch=<verified-commit>` input invokes Git's local transport. Git's
+internal `sh.exe` fails to create its signal pipe with `WinError 5`; buf's
+unexpected exit is correctly refused as a transport failure, not interpreted
+as no breaking change. Short fixture paths and buf caches inside already
+granted TEMP do not resolve it. The initial cache-location failure and earlier
+fixture Git-path/separator setup failures remain in private logs; corrected
+runs supersede those setup errors without erasing them. No Bash script, WSL
+route, elevation, ACL repair, write-root expansion, stdlib monkeypatch or added
+skip is used to obtain a pass. Git's internal shell dependency still blocks the
+current gate-3 transport in the native sandbox.
+
+| Regression command | Configured exit / seconds | Packaged exit / seconds | Measured result |
+| --- | --- | --- | --- |
+| `test-native-temp.py` | 0 / 0.701 | 0 / 0.717 | 19 pass in both. |
+| `test-check-spec-provenance.py` | 0 / 8.615 | 0 / 8.253 | 39 pass in both. |
+| `test-check-openspec-validate.py` | 0 / 17.422 | 1 / 17.293 | 49 pass configured; packaged has one fixture-directory rename WinError 5. |
+| `test-check-breaking-waiver.py` | 1 / 46.929 | 1 / 45.776 | 55 run in each; ten failures each in real Git/buf transport cases. |
+
+The packaged OpenSpec fixture rename failure is retained as unresolved
+comparison evidence; passing gate 12 does not erase it or certify that CLI
+version's whole regression suite. The configured runtime passes the helper,
+provenance and OpenSpec regressions. Both breaking suites remain failed.
+
+Both workers keep exactly three predeclared write roots and disable networking;
+no authentication or model turn starts. Job queries observe all **16/16** gate
+and regression shells, plus the child and descendant, in the owned native Job.
+After settlement the Job is empty and the observed process identities are
+dead. Protected sibling write handles are denied and sentinel/source bytes
+remain unchanged. Job settlement reports no cleanup error. Failed breaking
+workspaces, five intentional provenance-selftest failure workspaces per
+attempt, caches and the packaged rename uncertainty remain preserved; no
+uncertain tree is recursively cleaned.
+
+### Evidence and next implementation step
+
+Commands, exits, durations and separate UTF-8 stdout/stderr SHA-256 records
+remain private. These hashes identify the final comparisons without publishing
+raw logs, account identities or local paths:
+
+| Evidence | SHA-256 |
+| --- | --- |
+| Completion | `e1f1fb104890919d128f45485143645cdf4357b3e60b8315a03831fbc83973fb` |
+| Evidence index | `2e4748cae639838fbbdb60e95afb122c9a8174170361513632cb308d73ec1a31` |
+| Ordinary native summary | `b63d6f58221cec18d24db94f140fe00b0fdc7f81f9d8faf058ab57ff0d2e9f07` |
+| Configured short-path summary | `bd7317865daf03f548f30ef52bf690b10632c84f5f22c99b23fca45c2a3706b5` |
+| Packaged comparison summary | `d6e60a1ab68b224399258491e3ad80e35307143a215c1ff54191ca6b56dadea8` |
+| Configured gate-3 stderr | `408217edc5f10dd5f22a106b83d78d1f54f067e6625f6a1795fabf7ac28cc6d4` |
+| Packaged gate-3 stderr | `ce20b5df06d932d5777ebe15600d68c983867ae3098b279a363ff58a92052f01` |
+| Configured breaking-regression stderr | `8b548bcbc9a260340ca6d11be7349cfe4c8371ba406ff367e08503c283fd26d7` |
+| Packaged OpenSpec-regression stderr | `0c25f52c7807d3d589828064af56277add304e4a642a088c92aab94a5a1ce413` |
+
+The proposed native fix is to materialize the already validated immutable Git
+baseline blobs in an owned temporary workspace, then give buf a directory or
+verified image input. The [official buf CLI](https://buf.build/docs/reference/cli/buf/breaking/)
+accepts those `--against` formats. This proposal has not been implemented or
+accepted. It must preserve exact baseline/configuration semantics, Git input
+guards and waiver criteria, and demonstrate real compatible/incompatible
+fixtures in the accepted configured native worker. The packaged fixture rename
+failure also needs focused investigation and an explicit disposition.
+
+Do not merge #327 on CI success alone. Complete the native gate-3 fix, affected
+regressions and all twelve contained gates first. Genuine changed-contract
+end-to-end acceptance, human-attributed G2/G3/G4/H1 answers, a real draft PR and
+the exact `waiting` / `stage_limit` pause remain pending. The settled TestBot
+remains chat/fix only. FARM-1425 and game test drafts stay parked. Production
+release verification/promotion needs its separate prerequisites and operational
+authorization; Phase C and the UI implementer remain unstarted.
+
+Candidate record validation: selected Python 3.13.16 `test_skills` passes
+**73 tests**, zero failures/errors/skips, in **0.496 seconds**.
+The private UTF-8 test log SHA-256 is `6c77dbcd2fe956856c01c2727c63db162ec5da4badde8dce3e97eb0c6018bf0e`.
+Added relative links/anchors, public-diff path/identity/credential-pattern checks
+and whitespace pass. This follow-up changes only Markdown; it does not rerun
+the full FarmBot suite or convert Contract CI into restricted-worker acceptance.
