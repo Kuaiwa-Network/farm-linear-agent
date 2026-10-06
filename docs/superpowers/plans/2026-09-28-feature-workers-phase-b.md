@@ -1469,6 +1469,23 @@ Complete native baseline-input adaptation and restricted acceptance before
 merging #327. Genuine changed-contract/draft-PR/stage-limit acceptance remains
 pending human decisions; Task 17 is still partial.
 
+**2026-10-06 merged native baseline transport:** Farm-Contract #327 merges as
+`29e6cfe1`, with final candidate `33afe846` and identical tree `271ed9ff`.
+Gate 3 now supplies an owned, byte-verified directory from raw immutable Git
+objects to buf; no Git transport/internal-shell fallback runs in the wrapper.
+Independent ordinary-host legacy diagnostics match. The unchanged replacement
+regression initially fails on Ubuntu inode reuse, then passes with retained
+baseline handles/descriptors. All 28 final CI checks pass. Ordinary and actual
+configured 0.156.1 unelevated workers pass 12/12; restricted focused suites pass
+19/39/49/62 tests, no runtime skips. Three roots, offline mode, 16/16 Job-owned
+shells, empty Job and unchanged/protected bytes remain verified. The packaged
+0.160.0 rename probe at an intermediate head passes 5+49 tests but does not
+explain the prior failure or certify the final candidate on that runtime.
+See the [final measurements and preserved failures](../spikes/2026-10-06-native-contract-gates.md#merged-native-baseline-transport-acceptance-2026-10-06).
+No game change, live issue resumption or production action occurs. Genuine
+changed-contract/draft-PR/stage-limit acceptance still needs approved scope and
+human decisions; Task 17 remains partial.
+
 ## Scope
 
 In Phase B (spec §13, item 2):
