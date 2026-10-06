@@ -359,3 +359,15 @@ native). Exact-candidate full suites and fresh real publisher/isolated-worker
 calibrations follow separately. Earlier passing process/export measurements do
 not certify the corrected route. No new skip, containment relaxation, alternate
 shell, runtime permission repair, live issue or production change is introduced.
+
+Fresh native calibration of the corrected code uses two new disposable sources
+at the same exact farmgui commit and all 682 scoped cached LFS objects per source.
+The direct publisher passes in **4.094 s** (**24.982 s** including verification).
+The actual isolated Codex 0.156.1 worker passes in **51.927 s**, including a
+**3.986 s** publisher run. Both prove assignment before Python startup and export;
+all 31 artifact hashes match the earlier measurements. Both nested and outer Jobs
+empty, observed worker members exit, and no attempt remains. Existing
+authentication-seed metadata and protected runtime registration receipts remain
+unchanged. Native unelevated execution needs no permission repair or alternate
+shell. This is developer helper evidence, with no worker authority expansion,
+actual Client install, Unity acceptance or production readiness claim.
