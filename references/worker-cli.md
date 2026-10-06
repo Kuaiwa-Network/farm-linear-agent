@@ -11,7 +11,7 @@ python3 -m agent --db DATABASE checkpoint --help
 | --- | --- |
 | `claim` | `--item ITEM_ID --worker-id WORKER_ID`; returns the claim token |
 | `fetch-issue`, `issue-context` | `--item ITEM_ID` only; no token flags |
-| `renew`, `checkpoint`, `pop-inbox`, `download-uploads`, `verify-publication`, `foreign-work`, `handoff-repository`, `revalidate`, `prepare-comment`, `post-comment`, `confirm-comment`, `prepare-notice`, `post-notice`, `activity`, `await-input`, `await-resource`, `finish` | `--item ITEM_ID --token-file STATE_DIR/token`, plus command-specific arguments from `--help` |
+| `renew`, `checkpoint`, `pop-inbox`, `download-uploads`, `upload-image`, `verify-publication`, `foreign-work`, `handoff-repository`, `revalidate`, `prepare-comment`, `post-comment`, `confirm-comment`, `prepare-notice`, `post-notice`, `activity`, `await-input`, `await-resource`, `finish` | `--item ITEM_ID --token-file STATE_DIR/token`, plus command-specific arguments from `--help` |
 | `request-repair` | Read-only profile only: claim-token arguments, `--message-id LATEST_MESSAGE_ID --summary-file STATE_DIR/repair-summary.md` |
 | `resume-work` | Legacy resume-only command: claim-token arguments and `--message-id LATEST_MESSAGE_ID`; cannot start a first repair |
 | `memory-list`, `memory-read`, `memory-save`, `memory-forget` | Same claim-token arguments; see `references/memory.md` |
@@ -148,6 +148,30 @@ name. A rerun fetches only new uploads, files that no longer match the manifest 
 failed. The claim is renewed before each download and every minute during one; a claim lost on the
 way ends that download and the ones after it, the manifest is still written, and the command
 fails. Run one at a time per directory. Never fetch `uploads.linear.app` another way.
+
+The prepared UI preview transport is limited to an `fgui` item in its farmgui
+authoring stage, explicitly enabled in the intended host config:
+
+```bash
+python3 -m agent --db DATABASE upload-image --item ITEM_ID --token-file STATE_DIR/token --file STATE_DIR/previews/round-1/preview.png
+```
+
+On Windows invoke the selected Python executable with the same argument list;
+the example's `python3` is the macOS spelling. `--file` must be an absolute,
+portable-named regular PNG/JPEG inside this item's configured `STATE_DIR`, with no
+parent traversal, links/reparse ancestors or hardlinks. The command requires
+prepared Pillow, full image decoding, at most 20 MiB, sides up to 8192 pixels and
+at most 16 million pixels. It renews the claim before file/API work, refreshes
+delegation, and fences the allocation and PUT against Stop/withdrawal.
+It uploads an immutable snapshot, not a later reread of a changed file.
+
+Successful JSON contains only `asset_url` (unsigned Linear URL), `sha256`, `size`,
+`content_type` and `pixels`. Signed storage URLs/headers and app tokens never
+reach the output; no redirect is followed and the bearer goes only to GraphQL.
+Loss of the claim after transfer produces a failure, leaving no success result;
+an already stored object cannot be recalled. This command posts no comment and
+records no visual approval. This revision ships transport tests/tools only: it
+does not yet load the `fgui` skill or authorize any worker to use it.
 
 ## Foreign work
 

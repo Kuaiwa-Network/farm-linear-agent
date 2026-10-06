@@ -545,6 +545,11 @@ class LinearAPI:
                 "attachments": sorted({strip_signed(n["url"]) for n in issue["attachments"]["nodes"]}),
                 "comments": comments, "detail_complete": True, "comments_complete": True}
 
+    def upload_image(self, image, *, keepalive=None, opener=None):
+        """UI preview upload: validated snapshot, signed PUT, no bearer/URL disclosure."""
+        from .preview_upload import upload_image
+        return upload_image(self.graphql, image, keepalive=keepalive or (lambda: None), opener=opener)
+
     def download_upload(self, url, destination, *, max_bytes, opener=None, timeout=UPLOAD_TIMEOUT,
                         deadline_seconds=UPLOAD_DEADLINE, keepalive=None):
         """Fetch one unsigned Linear upload into `destination` with the app's bearer token (spec §5.5).

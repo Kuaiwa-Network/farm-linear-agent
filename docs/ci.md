@@ -6,7 +6,11 @@
 Windows compatibility. Hosted runner images and the Python patch can change, so
 retain the versions recorded with each candidate's test evidence.
 
-The suite uses the standard library, temporary state, local Git repositories,
+The controller uses the standard library; optional UI preview/image tests also use
+Pillow, explicitly installed from the platform-wheel hashes in
+[requirements-ui.txt](../requirements-ui.txt) before discovery. No source builds,
+additional dependencies, worker-time installation or font downloads are allowed.
+The suite uses temporary state, local Git repositories,
 fake workers and fake Unity/MCP. Git and Git LFS must be on `PATH`; the dependency
 step checks the hosted image's installed versions and fails if either is absent.
 It also checks directory symlink creation because symlink rejection tests protect
@@ -22,7 +26,7 @@ failure; non-Windows hosts skip these native callback tests explicitly.
 The workflow requests only `contents: read`, does not reference secrets, and
 disables checkout credential persistence. It does not install or authenticate
 worker CLIs, launch a real Unity Editor, invoke live Linear, or deploy a service.
-GitHub's checkout, Python setup and artifact upload steps use the network; the
+GitHub's checkout, Python setup, pinned wheel preparation and artifact upload steps use the network; the
 test fixtures themselves are offline apart from local loopback listeners.
 Before discovery, the test step removes inherited `FARMBOT_*` and `FAKE_CLI_*`
 selectors and GitHub token environment variables. Fixtures supply their own

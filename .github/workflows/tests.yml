@@ -38,6 +38,16 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Prepare optional UI test dependency
+        shell: python
+        run: |
+          import subprocess
+          import sys
+          subprocess.run([sys.executable, "-m", "pip", "--isolated", "install",
+                          "--only-binary=:all:", "--require-hashes", "--no-deps",
+                          "--disable-pip-version-check", "--index-url", "https://pypi.org/simple",
+                          "-r", "requirements-ui.txt"], check=True)
+
       - name: Check fixture dependencies
         shell: python
         run: |

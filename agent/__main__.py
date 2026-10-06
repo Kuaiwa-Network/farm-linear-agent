@@ -57,6 +57,7 @@ def parser():
     cmd("verify-publication", "--item", "--repo", token=True)
     cmd("foreign-work", "--item", token=True)
     uploads = cmd("download-uploads", "--item", "--out", token=True)
+    cmd("upload-image", "--item", "--file", token=True)
     uploads.add_argument("--url", action="append",
                          help="one of the claimed issue's upload URLs, unsigned as issue-context shows it; repeatable; "
                               "default: every upload in its description and human comments")
@@ -570,6 +571,36 @@ def run(args, ledger, api_factory):
                 # own thread the acknowledgement is a thought, and the job speaks there next.
                 owe_closing(ledger, item, content, exc)
         return resumed
+    if c == "upload-image":
+        from .preview_upload import read_image
+        token = resolve_token(args)
+        ledger.renew(args.item, token)
+        item = ledger.item(args.item)
+        refuse_withdrawn(item)
+        config = load_config(secure_permissions=False)
+        paths = Paths(config)
+        if Path(args.db).resolve() != paths.ledger.resolve():
+            raise LedgerError("preview upload must use the configured host ledger")
+        if item["skill"] != "fgui" or item["root_repo"] not in (None, "farmgui"):
+            raise LedgerError("preview upload requires this job's farmgui authoring stage")
+        if "fgui" not in (config.enabled_skills or []):
+            raise LedgerError("preview upload requires explicit fgui enablement on this host")
+        image = read_image(args.file, paths.runs / args.item)
+        ledger.renew(args.item, token)
+        refuse_withdrawn(ledger.item(args.item))
+        api = api_factory()
+        issue = api.fetch_issue(item["issue_id"])
+        ledger.observe_issue(issue)
+        if (not api.app_user_id or issue.get("delegate_id") != api.app_user_id or issue.get("archived")
+                or issue.get("status_type") in TERMINAL_STATUS_TYPES):
+            raise LedgerError("issue must remain open and delegated to FarmBot")
+        def keepalive():
+            ledger.renew(args.item, token)
+            refuse_withdrawn(ledger.item(args.item))
+        keepalive()
+        result = api.upload_image(image, keepalive=keepalive)
+        keepalive()
+        return result
     if c == "download-uploads":
         from .uploads import download_issue_uploads, issue_uploads, output_directory
         token = resolve_token(args)
