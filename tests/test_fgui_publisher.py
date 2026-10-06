@@ -51,7 +51,8 @@ class PublisherTests(unittest.TestCase):
         (output / "One_fui.bytes").write_bytes(package_bytes())
         Image.new("RGBA", (2, 2), "red").save(output / "One_atlas0.png")
         (run / "publisher.log").write_text("Publish completed\n", encoding="utf-8")
-        return {"exit_code": 0, "job_assigned_before_export": True, "job_empty": True, "seconds": .01}
+        return {"exit_code": 0, "job_assigned_before_export": True, "job_assigned_before_startup": True,
+                "job_empty": True, "seconds": .01}
 
     def publish(self, **kwargs):
         values = dict(fence=self.fence, verify_source=self.source)
@@ -156,7 +157,9 @@ class PublisherTests(unittest.TestCase):
 
     def test_failed_process_and_uncertain_quiescence_never_validate_output(self):
         for data in ({"exit_code": 2, "job_empty": True, "job_assigned_before_export": True},
-                     {"exit_code": 0, "job_empty": False}, {"exit_code": 0, "job_empty": True}):
+                     {"exit_code": 0, "job_empty": False}, {"exit_code": 0, "job_empty": True},
+                     {"exit_code": 0, "job_empty": True, "job_assigned_before_export": True,
+                      "job_assigned_before_startup": False}):
             with self.subTest(data=data), tempfile.TemporaryDirectory() as tmp:
                 self.run = Path(tmp).resolve() / "attempt"
                 self.runner_mock.side_effect = lambda *args: data
@@ -252,8 +255,26 @@ class NativePublisherTests(unittest.TestCase):
         result = self.invoke('print("native export")\n')
         self.assertEqual(result["exit_code"], 0)
         self.assertTrue(result["job_assigned_before_export"])
+        self.assertTrue(result["job_assigned_before_startup"])
         self.assertEqual(self.receipt()["state"], "complete")
         self.assertIn("native export", (self.run / "stdout.log").read_text())
+
+    def test_native_delayed_assignment_precedes_redirector_and_gate_startup(self):
+        from agent.windows_job import WindowsJob
+        marker = self.root / "gate-started"
+        real_gate = Path(publisher.__file__).with_name("windows_worker_gate.py").read_text(encoding="utf-8")
+        (self.root / "windows_worker_gate.py").write_text(
+            'from pathlib import Path\n' + f'Path({str(marker)!r}).touch()\n' + real_gate, encoding="utf-8")
+        assign = WindowsJob.assign
+        def delayed(job, process):
+            time.sleep(.5)
+            self.assertFalse(marker.exists())
+            assign(job, process)
+        with patch.object(publisher, "__file__", str(self.root / "fgui_publisher.py")), \
+                patch.object(WindowsJob, "assign", delayed):
+            result = self.invoke('print("contained startup")\n')
+        self.assertTrue(result["job_assigned_before_startup"])
+        self.assertTrue(marker.exists()); self.assertEqual(self.receipt()["state"], "complete")
 
     def test_native_assignment_failure_never_runs_publisher(self):
         marker = self.root / "must-not-exist"

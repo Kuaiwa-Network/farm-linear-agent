@@ -933,14 +933,17 @@ selects configuration nor inspects or configures a license, credential or accoun
 
 Execution uses native argument lists from the executable directory, fresh private
 staging/logs, a machine-wide Windows publisher mutex, refusal of existing/competing
-FairyGUI processes and a nested owned Job assigned before opening the native gate.
+FairyGUI processes and a nested owned Job. The selected Python gate is created
+suspended, assigned through its retained creation object and resumed through its
+verified initial thread before any redirector/gate startup or input handshake.
 The timeout is at most 180 seconds; logs are bounded to 4 MiB each. Stop, timeout,
 assignment failure or lingering descendants refuse success and terminate only the
 owned Job. A brief bounded drain handles delayed descendant accounting; observed
 Job emptiness is still required. A process snapshot is a refusal signal only,
 never authority to kill another Editor. Failure preserves private staging and
 process/attempt receipts; uncertain teardown never establishes quiescence.
-Success requires exit zero, empty containment, unchanged selected tool/full source
+Success requires proved assignment before startup/export, exit zero, empty
+containment, unchanged selected tool/full source
 identities, the selected completion count, no license-failure marker and the
 immutable exact export inventory. Client installation and Unity acceptance remain
 separate checks. This helper supports native Windows only and has no shell or

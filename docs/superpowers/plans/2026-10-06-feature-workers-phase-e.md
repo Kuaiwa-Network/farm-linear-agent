@@ -333,3 +333,29 @@ attempts now resolve their canonical root, preserving all link/reparse/hardlink
 refusals and every native test. Raw UTF-8 evidence remains private; final corrected
 candidate verification follows. No application or process-containment code changes
 for this fixture repair.
+
+## Publisher suspended-start correction
+
+The initial and fixture-corrected development-PC Windows full runs each execute
+1,957 tests with zero assertion failures, one cleanup error and 69 existing
+platform skips, in 1,267.368 s and 1,280.574 s. Both errors are the existing
+launcher budget-kill test retaining a second worker's stderr log during temporary
+cleanup. All seven required native Job tests and all 11 then-current native
+publisher tests actually run. Focused repetitions alone do not establish a pass.
+
+The [separate native startup investigation](../spikes/2026-10-07-windows-python-redirector-containment.md)
+measures a selected Python venv redirector starting its base interpreter before
+parent Job assignment. Its fixture never opens the gate or executes a CLI. The
+shared launcher correction creates Python suspended, assigns the owned creation
+object and verifies/resumes its initial thread before startup and the handshake.
+The prepared publisher now uses the same sequence for its nested gate and requires
+separate assignment-before-startup and assignment-before-export evidence before
+accepting an inventory. A deliberately delayed assignment test proves no gate
+startup before assignment; a refusal test rejects missing startup evidence even
+when exit, quiescence and pre-export assignment otherwise pass.
+
+This correction adds one native publisher regression (33 publisher checks, 12
+native). Exact-candidate full suites and fresh real publisher/isolated-worker
+calibrations follow separately. Earlier passing process/export measurements do
+not certify the corrected route. No new skip, containment relaxation, alternate
+shell, runtime permission repair, live issue or production change is introduced.
