@@ -394,3 +394,41 @@ real ownership checker without changing native file attributes or adding a skip.
 Final candidate verification follows separately. Functional export/receipt/Client
 orchestration, the farmgui owner's export grant and real UI-card/Unity acceptance
 remain pending.
+
+## Publisher suspended-start correction
+
+The initial and fixture-corrected development-PC Windows full runs each execute
+1,957 tests with zero assertion failures, one cleanup error and 69 existing
+platform skips, in 1,267.368 s and 1,280.574 s. Both errors are the existing
+launcher budget-kill test retaining a second worker's stderr log during temporary
+cleanup. All seven required native Job tests and all 11 then-current native
+publisher tests actually run. Focused repetitions alone do not establish a pass.
+
+The [separate native startup investigation](../spikes/2026-10-07-windows-python-redirector-containment.md)
+measures a selected Python venv redirector starting its base interpreter before
+parent Job assignment. Its fixture never opens the gate or executes a CLI. The
+shared launcher correction creates Python suspended, assigns the owned creation
+object and verifies/resumes its initial thread before startup and the handshake.
+The prepared publisher now uses the same sequence for its nested gate and requires
+separate assignment-before-startup and assignment-before-export evidence before
+accepting an inventory. A deliberately delayed assignment test proves no gate
+startup before assignment; a refusal test rejects missing startup evidence even
+when exit, quiescence and pre-export assignment otherwise pass.
+
+This correction adds one native publisher regression (33 publisher checks, 12
+native). Exact-candidate full suites and fresh real publisher/isolated-worker
+calibrations follow separately. Earlier passing process/export measurements do
+not certify the corrected route. No new skip, containment relaxation, alternate
+shell, runtime permission repair, live issue or production change is introduced.
+
+Fresh native calibration of the corrected code uses two new disposable sources
+at the same exact farmgui commit and all 682 scoped cached LFS objects per source.
+The direct publisher passes in **4.094 s** (**24.982 s** including verification).
+The actual isolated Codex 0.156.1 worker passes in **51.927 s**, including a
+**3.986 s** publisher run. Both prove assignment before Python startup and export;
+all 31 artifact hashes match the earlier measurements. Both nested and outer Jobs
+empty, observed worker members exit, and no attempt remains. Existing
+authentication-seed metadata and protected runtime registration receipts remain
+unchanged. Native unelevated execution needs no permission repair or alternate
+shell. This is developer helper evidence, with no worker authority expansion,
+actual Client install, Unity acceptance or production readiness claim.
