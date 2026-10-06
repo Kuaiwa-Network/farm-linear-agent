@@ -31,9 +31,14 @@ class UiJobJourneyTests(unittest.TestCase):
         self.addCleanup(j.doCleanups)
         j.setUp()
         j.stop_controller(j.c)
+        # macOS TMPDIR may use /var -> /private/var. Use the canonical owned
+        # root rather than weakening the renderer/upload ancestor-link refusal.
+        j.root = j.root.resolve()
+        j.origins, j.stub, j.work = j.origins.resolve(), j.stub.resolve(), j.work.resolve()
         source = j.config.source_path
         config = json.loads(source.read_text(encoding="utf-8"))
         config["enabled_skills"] = ["chat", "fix", "fgui"]
+        config["local_root"] = str(j.root/"local")
         source.write_text(json.dumps(config), encoding="utf-8")
         j.config = load_config(source)
         j.start_controller()

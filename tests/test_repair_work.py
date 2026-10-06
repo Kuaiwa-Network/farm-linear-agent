@@ -305,9 +305,7 @@ class RepairWorkTests(LedgerBase):
                 self.assertEqual((self.ledger.item(chat["id"])["state"], self.ledger.queue()), ("running", []))
 
     def test_an_earlier_feature_or_fgui_job_does_not_open_a_first_fix(self):
-        """A conversation never continues an fgui job, and continues a feature job only where this instance runs
-        feature, so neither lifts the refusal here: the request would otherwise start a first fix on a UI or Code
-        card."""
+        """Neither disabled Code nor UI work lifts the host's first-fix refusal on those labelled cards."""
         for skill, label in (("feature", "Code"), ("fgui", "UI")):
             with self.subTest(skill=skill):
                 self.setUp()
@@ -357,8 +355,8 @@ class RepairWorkTests(LedgerBase):
     def test_a_configured_skill_the_checkout_lacks_stops_the_cli(self):
         chat, token = self.conversation()
         api = self.stub_api(issue(delegate_id=APP))
-        with patch("agent.__main__.load_config", return_value=Config("c", "s", "w", enabled_skills=["chat", "fix", "fgui"])):
-            with self.assertRaisesRegex(SkillError, "does not have: fgui"):
+        with patch("agent.__main__.load_config", return_value=Config("c", "s", "w", enabled_skills=["chat", "fix", "uninstalled"])):
+            with self.assertRaisesRegex(SkillError, "does not have: uninstalled"):
                 run(self.cli_request(chat, token), self.ledger, lambda: api)
         self.assertEqual((self.ledger.item(chat["id"])["state"], self.ledger.queue()), ("running", []))
 
@@ -490,8 +488,8 @@ class RepairWorkTests(LedgerBase):
     def test_the_ledger_starts_only_what_a_conversation_may_start_and_continues_whatever_it_finds(self):
         chat, token = self.conversation()
         message = self.ledger.issue_context(chat["id"])["session_messages"][-1]["id"]
-        with self.assertRaisesRegex(LedgerError, "a conversation starts only fix or feature work"):
-            self.ledger.request_repair(chat["id"], token, message, APP, "Make the panel.", start_skill="fgui")
+        with self.assertRaisesRegex(LedgerError, "a conversation starts only fix or feature or fgui work"):
+            self.ledger.request_repair(chat["id"], token, message, APP, "Make the panel.", start_skill="uninstalled")
         self.assertEqual(self.ledger.item(chat["id"])["state"], "running")
         self.ledger.cancel(chat["id"], "next case")
         previous = self.new_item(delegate_id=APP)

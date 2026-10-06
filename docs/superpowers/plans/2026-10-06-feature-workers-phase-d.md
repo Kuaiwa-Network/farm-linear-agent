@@ -231,6 +231,18 @@ HOME is not credential isolation. The supported dedicated store/account route an
 explicit Code/UI environment route retain their separate actual-worker/permission
 acceptance requirements. Final candidate/platform measurements follow execution.
 
+Initial worker CI found seven macOS failures at candidate
+`a774370edff0fa015e939651ac0c7b9e8bdbb302` (1,868 tests, 658.793 s, no errors,
+42 existing skips). Three UI journeys supplied macOS's symlinked temporary path
+to the strict renderer; the fixture now uses its canonical owned source/state
+root. The application path/link refusal remains intact. The monitor lacked the
+new UI skill label; it now shows `UI`, with a direct label regression. Three
+legacy tests still expected an uninstalled/noncontinuable UI skill and now test
+the actual enabled-UI behavior and a genuinely uninstalled name. All 64 focused
+journey/successor/conversation/monitor checks pass in 29.385 s, with no skips.
+This correction happened on 2026-10-07 (UTC+8). Corrected full platform runs are
+required before merging the worker; failed measurements and logs remain preserved.
+
 Remaining acceptance: an operator-selected TestBot UI card with actual document/art
 and app-token preview upload, human correction/approval, separately implemented
 Phase E licensed native export and Client/Unity checks, then final-host release and
