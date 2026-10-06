@@ -115,15 +115,18 @@ separately and cannot be inferred from those fixtures.
 
 ## Remaining release prerequisites
 
-1. Finish exact-candidate Phase D native/hosted verification and its measured record.
-2. Select the native FairyGUI executable and verify its paid export and worker route;
+Phase D implementation and exact-candidate native/hosted offline verification
+are complete; the [measured record](2026-10-06-feature-workers-phase-d.md#as-executed-verified-ui-authoring-worker-2026-10-07)
+distinguishes that result from live acceptance. Remaining prerequisites:
+
+1. Select the native FairyGUI executable and verify its paid export and worker route;
    implement any required controller-run route only after that decision is measured.
-3. Implement/export-test the scoped package validator, Client installation, UI
+2. Implement/export-test the scoped package validator, Client installation, UI
    approval/export boundary, controller pin, draft/delivery and recovery behavior.
-4. Run a separately approved TestBot UI card with actual documents/art, scoped LFS,
+3. Run a separately approved TestBot UI card with actual documents/art, scoped LFS,
    real app-token preview upload, named corrections/approval and licensed export.
-5. Verify hydrated Client guards and exact-commit Unity loading on the intended slot.
-6. Verify final production-host tools/runtime/account/permissions, release revision
+4. Verify hydrated Client guards and exact-commit Unity loading on the intended slot.
+5. Verify final production-host tools/runtime/account/permissions, release revision
    and recovery; separately authorize production enablement/deployment.
 
 No existing parked Code card or unmerged game test draft supplies UI acceptance.

@@ -248,3 +248,84 @@ and app-token preview upload, human correction/approval, separately implemented
 Phase E licensed native export and Client/Unity checks, then final-host release and
 recovery verification. No existing parked card, unmerged game test draft or Code
 job is resumed to obtain that evidence.
+
+## As executed: verified UI authoring worker (2026-10-07)
+
+[FarmBot #154](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/154) is merged as
+`1ad041327b2fb05b8855f58a50663fa99dd5f31f`. Its final executable candidate is
+`011815cad769e64110bde810edbb71b148e2f3e3`; candidate, hosted merge-test
+`27507a764ee7fe8a6073bda18cd6d32cb0b3b462` and actual merge share tree
+`6c07071f3ee94ae2b076e0df37a9132dd237156a`. Completed development branches are removed only after
+local/remote head checks, and both isolated development checkouts are clean.
+The running TestBot checkout and configuration remain unchanged.
+
+| Final worker run | Discovered | Failures/errors | Existing skips | Suite duration |
+|---|---:|---:|---:|---:|
+| Native development Windows | 1,869 | 0/0 | 69 | 1256.048 s |
+| Hosted macOS | 1,869 | 0/0 | 42 | 682.553 s |
+| Hosted Windows | 1,869 | 0/0 | 69 | 2023.806 s |
+
+All 22 Code feature journeys, eight UI scope/toolchain checks, three UI controller
+journeys and 43 preview/transport/CLI regressions run on each platform. Both
+Windows runs execute all seven native Job Object tests. Every skip ID/reason
+equals the preceding 1,854-test baseline: 69 on Windows, 42 on macOS. No skip or
+containment/ownership exception is added. The existing native Windows skip-reason
+table in the [Windows record](../spikes/2026-10-06-windows-final-tools-lfs.md)
+continues to apply.
+
+- Native development Windows: Python 3.13.16, git version 2.54.0.windows.1, git-lfs/3.7.1.
+- Hosted macOS: Python 3.13.15, git version 2.55.0, git-lfs/3.8.0.
+- Hosted Windows: Python 3.13.15, git version 2.55.0.windows.5, git-lfs/3.7.1.
+
+Native verification uses the explicitly selected Python with `PYTHONUTF8=1`
+before launch, a fresh passing symlink probe and the candidate's pinned offline
+workflow harness. Inherited FarmBot/fake-CLI selectors and GitHub token variables
+are sanitized. UTF-8 logs, every test/skip ID and reason, revision/version inventories
+and per-test durations remain private locally; the
+[completed hosted run](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37492479493)
+retains the corresponding platform evidence. This is a **development Windows PC**,
+not certification of the production Windows host.
+
+Initial candidate `a774370edff0fa015e939651ac0c7b9e8bdbb302` discovered
+1,868 tests. Native Windows completed in 1257.160 s with four failures, no errors
+and 69 existing skips; macOS completed in 658.793 s with seven failures, no errors
+and 42 existing skips. Initial hosted Windows was superseded/cancelled; its partial
+log is preserved and is not a completed suite. The actual application omission
+was the monitor's missing UI label. Three legacy tests still expected UI work to
+be unavailable. The three additional macOS journey failures used a symlinked
+temporary-path spelling; their fixture now passes its canonical owned root to
+the unchanged strict renderer. The 64 focused correction checks passed in
+29.385 s with no skips before the full corrected runs above. No failure is
+reclassified as a host gap or hidden behind a skip.
+
+This completes Phase D's offline implementation: explicit Bot/UI intake, farmgui
+authoring authority, native preview/upload transport, attributed visual rounds,
+durable notices and Stop/recovery. The journeys use local remotes and StubLinear;
+they do not establish real document access, app-token upload, model visual judgment,
+paid exporter execution or Unity loading. Only farmgui is writable, and a licensed
+export request still parks at the explicit Phase E `stage_limit`.
+
+Read-only UI doctor with dummy `doctor-only` values, explicit chat/fgui enablement,
+runtime Codex and a fresh empty scratch root measures Python 3.13.16, LFS 3.7.1,
+Pillow 12.3.0, hashed `msyh.ttc` and prepared native lark-cli 1.0.82. The named
+farmbot profile exists with zero other profiles/user logins and no Windows HOME.
+The prepared probe takes 0.432 s; only the expected `ledger_unreadable` finding
+remains, and scratch state stays empty. The ambient shell lacks lark-cli on PATH;
+selecting the integrity-checked native tool only for the verification process
+resolves that inventory gap. This does not establish real Feishu access or the
+production host's launch environment. The FairyGUI executable path and paid batch-license
+status remain missing operator inputs; PATH/uninstall inventory alone cannot
+exclude a portable installation. No Editor, account, credentials, application
+settings, production state or service is changed.
+
+Next is the [Phase E native export plan](2026-10-06-feature-workers-phase-e.md):
+measure the selected paid executable and owned Windows worker route, then implement
+scoped export validation and Client installation before separately approved live
+UI-card, hydrated Client/Unity and final-host release/recovery acceptance. No parked
+Code card or unmerged game test draft is used as UI acceptance.
+
+The documentation follow-up passes **75** skill/reference tests in
+**0.518 seconds**, with zero failures, errors or platform skips, plus
+local links/anchors, private-path/credential-pattern and whitespace checks. Only
+three Markdown records change; executable code, tests and workflow are identical
+to the verified merge, so no repeat full suite is required for this record.
