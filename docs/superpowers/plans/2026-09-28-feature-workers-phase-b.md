@@ -1327,6 +1327,28 @@ All live/release prerequisites remain pending; no credential/account setup,
 app-setting change, production state access, service start, live issue mutation,
 enablement or deployment occurs.
 
+**2026-10-06 real native bot read follow-up:** the operator authorizes autonomous
+reference selection. Read-only existing-card and archived repository references
+provide a planning document and a Word attachment. In the selected native
+Codex 0.156.1 `command/exec` route, with empty Codex homes and exact owned roots,
+the current-account `farmbot` profile resolves wiki links, fetches **43,431 JSON
+bytes / 30 Markdown headings**, and downloads a **32,912-byte** Word file as
+the bot. Native Python body-text conversion yields **17,492 UTF-8 bytes**,
+**295 nonempty paragraphs / 19 tables**, with unchanged input bytes and no
+conversion network access. All eleven native runs have verified empty-Job
+cleanup, dead children and settled readers; successful Feishu responses report
+bot identity, and profile metadata/runtime receipts remain unchanged.
+Discovery's missing `search:docs:read` permission and the first document's
+attachment HTTP 403 are retained with host controls; no personal identity or
+permission change bypasses them. Global search is not required by runtime
+workers, whose allowed reads remain unchanged. The distinct Word success does
+not certify the first refused attachment/card pair. This completes the scoped
+native bot document/download/body-text check, not real model-worker/service/
+webhook acceptance or every source/format. See the
+[measured results and remaining prerequisites](../spikes/2026-10-03-native-windows-offline.md#native-bot-document-attachment-and-word-reads-2026-10-06-partial).
+Task 17 stays partial; no issue mutation, account/credential setup, app-setting
+change, production configuration/ledger read, service or deployment action occurs.
+
 ## Scope
 
 In Phase B (spec §13, item 2):
