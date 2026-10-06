@@ -113,11 +113,60 @@ Effective workspace-write policy and the native child's Job membership pass.
 The Job is empty, reader finished, runtime registration unchanged, protected
 Git files unchanged and clone trust intact. No credential, profile, account,
 endpoint, service or production setting was configured or changed. The
-remaining manual step is an operator-approved native Windows authentication
-route with upload permission for this internal LFS server, including approval
-of its transport. Credentials must be entered privately, never in this chat
-or public Git history. Then rerun the exact fixed-object upload/download check;
-no GitHub helper expansion or Bash/MSYS route is part of that step.
+initial inference that a new login was needed was premature. The follow-up
+below finds an existing usable login under the account's actual Git credential
+lookup policy and completes the approved transfer. This first failure proves
+only the isolated GitHub-only callback cannot authenticate this LFS server;
+it does not establish a host credential gap.
+
+## Existing native Windows login: real LFS transfer passes
+
+The operator questioned whether Git itself could upload LFS. Read-only host
+configuration inspection identifies the already configured `manager` helper
+and native Git Credential Manager **2.7.3**. No credential setting is added.
+The initial noninteractive direct lookup includes the repository path and
+requires prompting. Host Git's actual `credential.useHttpPath=false` policy
+omits that path; the matching server-only lookup returns an existing username
+and password successfully. Values are consumed in memory, never printed or
+saved by the probe. Credential availability therefore depends on matching the
+configured lookup key; the failed path-qualified lookup was not proof that
+this account lacked the LFS login.
+
+A private native C# askpass fixture calls the verified `git-credential-manager.exe`
+directly with `get`, prompting disabled, and a UTF-8 credential-protocol request
+matching that host policy. It accepts only the configured LFS scheme, host and
+port, checks any returned origin fields, bounds output and emits only Git's
+requested field. Three wrong-destination/prompt checks return failure with no
+stdout/stderr, including github.com and an unrelated internal-server substitute.
+The production/development GitHub callback is neither changed nor broadened.
+
+| Native identity | SHA-256 |
+|---|---|
+| Existing Git Credential Manager executable | `b7f0e61535b7bab81ea11126ecf1e7ad4486426df69921a78a680dc40bae2c12` |
+| Private endpoint-scoped native callback | `ae083c02df93abff152487b2927a9eaee28277cc8b4eb2f2bb6a24fc79a6e1e9` |
+
+At **08:29:01 UTC**, the same approved **1,024-byte** object and unchanged
+committed internal LFS endpoint are tested in a fresh native Codex **0.156.1**
+unelevated command context at FarmBot #143. `git lfs push --object-id` exits
+**0**. After removing only the exact known local cache object, `git lfs smudge`
+redownloads it and exits **0**, with exactly **1,024 bytes**, SHA-256
+`7001b167c6e61e8db9be5568eb0f5e8a02231072e0648de8b9b7745e7bf3dc04`,
+and the restored cache matching. The two commands take **2.985 seconds**;
+the complete native probe takes **3.995 seconds**.
+
+Workspace-write/network grants, native Job membership, empty Job, finished
+reader, unchanged registered runtime receipt, unchanged protected Git files
+and clone trust all pass. No model turn, login, credential setup, account,
+profile, Git setting, endpoint, service or game GitHub branch/commit/PR is
+changed. The approved synthetic object may remain on the internal server;
+no server-side deletion was attempted. Private UTF-8 logs and sanitized receipts
+are retained. No Bash/MSYS/WSL route or credential value is part of the record.
+
+D10's real native LFS push/download feasibility check now passes for this
+selected account, endpoint, tool versions and scoped private callback. A
+durable endpoint-scoped native credential route still belongs to client-stage
+implementation before real client worker publication; this probe has not
+configured one on a running controller or certified production readiness.
 
 ## Native headless client protocol export
 
@@ -174,9 +223,10 @@ No game source, branch, commit, PR or issue was changed by this fixture.
 
 ## Remaining client/UI and release prerequisites
 
-1. Provide approved native Windows internal-LFS write authentication and
-   pass the real fixed 1 KiB upload/download. D10 LFS push is still open;
-   the native headless proto feasibility check above is now measured.
+1. D10's native real LFS push/download and headless proto feasibility checks
+   now pass. Implement and validate a durable endpoint-scoped native LFS
+   credential route for client workers; preserve existing GitHub destination
+   checks, credential handling and owned Git write-root boundaries.
 2. Obtain an approved real card/scope for remaining live common/config/hive
    stages and their native worker generators. Running-worker withdrawal is
    still unmeasured; the completed cancellation check used a parked job.
@@ -199,3 +249,8 @@ seconds**, zero failures, errors or platform skips, plus local link/anchor,
 known-credential/private-path and whitespace checks. Four Markdown files change;
 application code, tests and workflow remain identical to the verified candidate,
 so a full offline suite rerun is unnecessary for this record-only change.
+
+The existing-login documentation follow-up passes **75** skill/reference tests
+in **0.399 seconds**, zero failures, errors or platform skips, plus local
+link/anchor, whitespace and known-credential/private-path checks. Four Markdown
+files change; no executable behavior is changed by this record.

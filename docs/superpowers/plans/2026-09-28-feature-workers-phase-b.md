@@ -1563,8 +1563,12 @@ worker context; the GitHub-only callback correctly refuses that destination.
 Native headless Farm-Client export separately passes twice without Unity: 60
 protos, 61 identical C# outputs, 589 wire messages and a passing .NET compile.
 Existing metadata is preserved; five newly generated files need metadata in
-Phase C's real installation. Internal LFS write authentication, later live scope
-and client/UI implementation remain pending. See the
+Phase C's real installation. A follow-up matches the existing native Git
+Credential Manager's server-only lookup policy and passes the approved real
+1 KiB push and forced hash-checked download in 3.995 seconds, without login or
+credential/settings changes. The first failure did not prove missing host
+credentials. D10 feasibility checks pass; durable client-worker LFS integration,
+later live scope and client/UI implementation remain pending. See the
 [final-tools/LFS record](../spikes/2026-10-06-windows-final-tools-lfs.md).
 
 
