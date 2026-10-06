@@ -168,6 +168,46 @@ durable endpoint-scoped native credential route still belongs to client-stage
 implementation before real client worker publication; this probe has not
 configured one on a running controller or certified production readiness.
 
+## Supported optional native LFS callback
+
+The follow-up implements the optional endpoint-scoped route in
+[the native build tool](../../../tools/build_windows_git_askpass.py), with
+[selection and credential boundaries](../../windows-native-git.md). The
+GitHub-only default remains unchanged. Selecting the two new LFS build options
+pins one non-GitHub HTTP(S) origin and the existing native GCM executable/hash
+in a private companion outside worker write roots. LFS pins cannot be replaced
+by environment variables; GCM runs directly, noninteractively, with server-only
+lookup. No credential installation or running-controller selection occurs.
+
+At FarmBot implementation commit `3fdef24afb5c1904b628a8f9a3f56f3924396f6b`,
+the actual supported builder creates a fresh private optional build. Its
+executable SHA-256 is
+`cf93297cfd88bfc37c3c0e0715d0c5edbcdac216cd7694833b53891e6baee29a`;
+GCM remains the exact existing binary measured above. The whitespace-free
+selector and companion hash are checked privately. Three invalid destination/
+prompt checks fail with no stdout/stderr and no credential setup.
+
+At **09:23:30 UTC**, a fresh Codex **0.156.1** native unelevated command context
+uses that build and the exact approved object/unchanged internal endpoint.
+LFS push and forced download both exit **0**; the **1,024-byte** download and
+restored cache match the approved SHA-256. Commands take **2.590 seconds** and
+the complete probe **3.586 seconds**. At **09:24:59 UTC**, a separate native
+read-only GitHub query through the same build exits **0**, returning **31**
+branch heads in **2.052 seconds**, **2.991 seconds** for the complete probe.
+GitHub credentials remain on the GitHub route, separate from LFS credentials.
+
+Both probes verify explicit policy, child membership in the owned native Job,
+empty-Job cleanup, finished readers, unchanged registered runtime evidence,
+unchanged protected Git files and trusted clones. No model turn, new payload,
+game branch/commit/PR change, credential/account setup or production access
+occurs. At **09:24:58 UTC**, the settled development TestBot still serves
+chat/fix only, zero workers, zero loop errors and no pending cleanup. Its two
+historical failures and four cancelled jobs remain recorded.
+
+This validates the supported optional tool on this development PC. Selecting
+it for a later real client worker and completing that worker's publication
+acceptance remain pending; this is not production-host certification.
+
 ## Native headless client protocol export
 
 A separate private fixture uses Farm-Client
@@ -224,9 +264,10 @@ No game source, branch, commit, PR or issue was changed by this fixture.
 ## Remaining client/UI and release prerequisites
 
 1. D10's native real LFS push/download and headless proto feasibility checks
-   now pass. Implement and validate a durable endpoint-scoped native LFS
-   credential route for client workers; preserve existing GitHub destination
-   checks, credential handling and owned Git write-root boundaries.
+   now pass, and the supported optional endpoint-scoped LFS callback passes
+   native transfer and GitHub-read acceptance. Select a verified private build
+   for an authorized real client worker and complete its publication acceptance;
+   preserve GitHub destination checks, credentials and owned Git write roots.
 2. Obtain an approved real card/scope for remaining live common/config/hive
    stages and their native worker generators. Running-worker withdrawal is
    still unmeasured; the completed cancellation check used a parked job.

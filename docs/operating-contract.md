@@ -111,8 +111,8 @@ The optional [native Windows Git/LFS callback](windows-native-git.md) is built
 and selected separately; `serve` and `doctor` do not install or activate it.
 Its GitHub route remains HTTPS github.com only. An optional private companion
 pins one non-GitHub LFS origin and an existing native Git Credential Manager
-executable/hash for noninteractive server-only lookup. It changes no credential
-store, publication authority, worker write root or containment requirement.
+executable/hash for noninteractive server-only lookup. It installs no credentials
+and changes no publication authority, worker write root or containment requirement.
 
 Explicit profiles select `environment` (`development`, `production`, or `offline`)
 and a lowercase `instance_id`. Existing configs default to `legacy` for compatibility.
