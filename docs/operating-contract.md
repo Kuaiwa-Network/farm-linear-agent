@@ -872,6 +872,22 @@ work; older instructions do not understand unfinished UI plans. Offline fixture
 evidence does not certify real app-token uploads, live visual approval, licensed
 export or final-host release readiness. Enabling/deploying remains separate authority.
 
+The prepared `agent.fgui_export.snapshot_export` helper reads an explicit private
+staging root and selected package-name/manifest-ID map into immutable bytes. It
+accepts only the reviewed plain Unity v7 descriptor layout, checks bounded block,
+string, item, sprite and hit-test records, identities and dependency closure/cycles,
+and requires the exact declared atlas/sound/misc inventory. Atlas PNGs are fully
+decoded and their dimensions match the descriptor. Unknown container versions or
+disk-bearing types, LFS pointers, missing/orphan files, portable-name collisions,
+links/reparse paths, hardlinks, read-time changes and excessive inventories refuse
+acceptance. Limits are 100 packages, 1,000 files, 64 MiB per file, 16 MiB per
+descriptor, 512 MiB aggregate and 16 path levels. Inherited repeated resource names
+are reported as ambiguous; package/resource IDs remain unique. This read-only
+foundation runs no publisher, grants no export/Client write authority and does
+not establish Unity's interpretation of opaque component/animation/font payloads.
+Installation, attributed export approval and actual Client/Unity verification
+remain separate Phase E work.
+
 ## UI source ownership
 
 For UI fixes and changes, inspect the relevant farmgui source before choosing an implementation.
