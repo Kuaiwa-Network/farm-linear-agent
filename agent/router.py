@@ -12,8 +12,8 @@ BOT_GROUPS = (BOT_GROUP, "功能")
 BOT_SKILLS = {"修改": "fix", "UI": "fgui", "Code": "feature"}
 # The write skills a request in a conversation may start or continue (spec §9.4; D18 f): it continues the
 # delegation's earlier job whatever the card's label now says, and otherwise starts the job the label names. fgui
-# joins when its phase lands.
-CONVERSATION_SKILLS = ("fix", "feature")
+# is opt-in, like feature; a host that does not enable it still starts no UI work.
+CONVERSATION_SKILLS = ("fix", "feature", "fgui")
 
 
 @dataclass(frozen=True)
@@ -58,8 +58,8 @@ def start_refusal(children, available_skills):
     """Why a first start in a conversation starts nothing here, or None when it may start `start_skill(children)`.
 
     D18 f (design §4.4): the card's Bot label chooses the workflow, where this instance runs it and a conversation
-    may start it (CONVERSATION_SKILLS): no Bot child, or only 修改, `fix`; Code, `feature`. A first `fgui` job
-    cannot be started from a conversation yet, and an unknown child or two children name no workflow."""
+    may start it (CONVERSATION_SKILLS): no Bot child, or only 修改, `fix`; Code, `feature`; UI, `fgui`.
+    An unknown child or two children name no workflow."""
     skill = start_skill(children)
     if skill in CONVERSATION_SKILLS and skill in available_skills:
         return None

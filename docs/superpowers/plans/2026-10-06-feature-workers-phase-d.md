@@ -18,9 +18,12 @@ download, and the optional endpoint-scoped worker callback. This is useful
 development evidence, not proof of an arbitrary UI package's complete hydration
 or of the production Windows host.
 
-farmgui main is inspected at `5970bcf3fc42d2f1e0ae95f6a687b77953c6907c`.
-Its AGENTS.md and authoring rule 12 still reserve package registration for the
-Editor. Rule 12b forbids underscores in independently packed image IDs; rule
+At entry, farmgui main was inspected at `5970bcf3fc42d2f1e0ae95f6a687b77953c6907c`.
+Its AGENTS.md and authoring rule 12 reserved package registration for the
+Editor. [farmgui #141](https://github.com/Kuaiwa-Network/farmgui/pull/141) is now
+merged at `54a76b2a7110cdf8897144902f8490ed70df45bd`: authorized Bot/UI jobs may
+make only validated new registrations, preserving all existing IDs/settings and
+the Editor-rewrite warning. This grants no UI export. Rule 12b forbids underscores in independently packed image IDs; rule
 12c requires unique eight-character lowercase alphanumeric package IDs. The
 existing paid-CLI grant covers authorized fixes and small changes to existing
 UI. It does not implement a new UI worker's visual/export workflow.
@@ -169,5 +172,67 @@ required natural image sizes and loader aspect/alignment behavior. Both now have
 regression coverage. Loader recursion and pixel budgets remain hard refusals,
 rather than being caught as a missing-art placeholder. Every signed-upload test
 uses scripted GraphQL/PUT responses; no credential or real issue is used.
-The final foundation revision and complete native/hosted suite results are recorded
-after execution; earlier Client-stage measurements do not certify this new code.
+The preview foundation is merged as [FarmBot #153](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/153),
+merge `e57408d3be979599a52298d4532816d0e2ede03b`, candidate
+`11d32d8b3567196e1f391f2da83e4a6151021a3e`. Its candidate, hosted test merge
+`fc0c200bde04db6089bdaf7f5da2364727a8bd29` and actual merge have identical tree
+`d880587544e4551c81c9ca2a4ff3d21578f6ad1a`.
+
+| Foundation run | Discovered | Failures/errors | Existing skips | Suite duration |
+|---|---:|---:|---:|---:|
+| Native development Windows | 1,854 | 0/0 | 69 | 1225.647 s |
+| Hosted macOS | 1,854 | 0/0 | 42 | 651.613 s |
+| Hosted Windows | 1,854 | 0/0 | 69 | 1903.995 s |
+
+All 43 preview/transport/CLI regressions and 22 feature journeys ran on every
+platform. Both Windows runs executed all seven native Job Object tests. Every
+skip ID/reason equals the previous 1,811-test baseline; no skip was added.
+[Hosted UTF-8 logs, versions, skip reasons and per-test durations](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37484196079)
+are retained by CI; native equivalents remain private. Native tools were Python
+3.13.16/Git 2.54.0.windows.1/LFS 3.7.1; hosted macOS used Python 3.13.15/Git
+2.55.0/LFS 3.8.0, hosted Windows Python 3.13.15/Git 2.55.0.windows.5/LFS 3.7.1.
+The farmgui guidance merge and foundation merge leave running bots untouched;
+these measurements do not certify the later worker candidate or production host.
+
+## As executed: authoring worker candidate (2026-10-06)
+
+Steps 3–5 now have an isolated development candidate: the opt-in/exclusive `fgui`
+manifest and pinned dispatch authority, native execution identity, shared read-only
+bot document reader, UI intake without a Client pin, visual-round instructions and
+UI-document/approval templates. Defaults remain chat/fix. Only farmgui is writable;
+valid UI claims cannot hand off to Farm-Client or reserve Unity. Common, Code, fix
+and chat dispatch grants retain their pinned bytes. No schema or running-bot change.
+
+Real-controller fake-worker journeys use native Python/Git and the actual renderer
+and upload CLI against local origins and StubLinear. They cover art questions,
+comments that do not resume, explicit attributed replies, corrections with new
+source/pixel/head identities, durable notice retry across restart, distinct visual
+approval/export-request events, the authoring-only stage limit, active Stop and
+successor recovery of unpublished work. They test transport/orchestration and
+durable attribution, not a model's judgment, real GitHub publication or live visual
+acceptance. Independent publication/claim/containment boundaries remain in the suite.
+
+Read-only development-PC doctor ran with new empty scratch roots, dummy
+`doctor-only` client/webhook values, runtime Codex, explicit chat/fgui enablement
+and `lark_cli.profile=farmbot`, with no Windows HOME. In the ambient shell,
+`lark-cli` is absent from PATH. Selecting the previously prepared, release-integrity
+checked native lark-cli for that verification process resolves that gap: Python
+3.13.16, Git LFS 3.7.1, Pillow 12.3.0, `msyh.ttc` and lark-cli 1.0.82 all pass.
+The font SHA-256 is `d79c55e68b1131eea0cc1c47be4f572d964f28c682e143db2ad09c1e4cb07a3f`.
+The named profile exists, with zero other profiles or user logins. The prepared
+probe takes 0.432 seconds; only `ledger_unreadable` remains, expected for empty
+state. Both scratch roots remain empty. No production config/ledger, credentials,
+app settings, account, service, Editor or Feishu authentication is touched.
+
+This inventory checks the selected development environment, not the production
+Windows host or an actual UI worker's Feishu access. The default shell still needs
+an explicit prepared tool PATH at launch. Per-user Windows DPAPI is unchanged;
+HOME is not credential isolation. The supported dedicated store/account route and
+explicit Code/UI environment route retain their separate actual-worker/permission
+acceptance requirements. Final candidate/platform measurements follow execution.
+
+Remaining acceptance: an operator-selected TestBot UI card with actual document/art
+and app-token preview upload, human correction/approval, separately implemented
+Phase E licensed native export and Client/Unity checks, then final-host release and
+recovery verification. No existing parked card, unmerged game test draft or Code
+job is resumed to obtain that evidence.

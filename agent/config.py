@@ -26,7 +26,7 @@ _HOSTNAME = re.compile(r"(?=.{1,253}\Z)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.
 
 
 # lark-cli as FarmBot's own read-only Feishu app (spec §5.4, D12; P5). A lark-cli profile holds the app's ID and secret
-# in lark-cli's own store, or an explicit app_id/secret_env selects feature-only environment credentials.
+# in lark-cli's own store, or app_id/secret_env selects Code/UI document-reader environment credentials.
 # A subset of lark-cli's own profile names that stays one plain argv word: no leading "-", no space or shell syntax.
 _LARK_CLI_PROFILE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 _LARK_APP_ID = re.compile(r"cli_[A-Za-z0-9]{1,64}")

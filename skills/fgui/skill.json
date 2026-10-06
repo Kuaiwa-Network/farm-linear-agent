@@ -1,0 +1,15 @@
+{
+  "name": "fgui",
+  "trigger": ["delegation"],
+  "intents": ["label:Bot/UI"],
+  "writes": ["farmgui"],
+  "initial_root": "farmgui",
+  "staged": true,
+  "reads": ["Farm-Client"],
+  "resources": [],
+  "gates": ["answers", "visual_approval", "pr_review"],
+  "mcp": [],
+  "budget": {"lease_seconds": 2700, "max_hours": 6, "renew_minutes": 10},
+  "opt_in": true,
+  "exclusive": true
+}

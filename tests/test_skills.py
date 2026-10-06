@@ -114,7 +114,7 @@ class WorkerCliReferenceTests(unittest.TestCase):
 
 class ClaimTokenInstructionTests(unittest.TestCase):
     def test_every_claiming_skill_distinguishes_posix_mode_from_windows_acl(self):
-        for skill in ("chat", "fix", "feature"):
+        for skill in ("chat", "fix", "feature", "fgui"):
             with self.subTest(skill=skill):
                 text = (ROOT / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
                 self.assertIn("on POSIX use mode 0600; on Windows keep the inherited DACL", text)
@@ -278,7 +278,7 @@ class WithdrawalInstructionTests(unittest.TestCase):
 class SkillRegistryTests(unittest.TestCase):
     def test_repository_skills_load_with_expected_authority(self):
         skills = load_skills(ROOT / "skills")
-        self.assertEqual(set(skills), {"chat", "feature", "fix"})
+        self.assertEqual(set(skills), {"chat", "feature", "fix", "fgui"})
         self.assertEqual(skills["fix"].trigger, ("delegation",))
         self.assertIn("Farm-Client", skills["fix"].writes)
         self.assertEqual(skills["fix"].resources, ("unity_slot",))
@@ -427,8 +427,8 @@ class EnabledSkillsTests(unittest.TestCase):
             self.assertIsNone(load_config(path).enabled_skills)
 
     def test_an_unknown_name_or_a_missing_chat_is_a_configuration_error(self):
-        with self.assertRaisesRegex(SkillError, "does not have: fgui"):
-            enabled_skills(self.skills, ["chat", "fgui"], authority=self.authority)
+        with self.assertRaisesRegex(SkillError, "does not have: uninstalled"):
+            enabled_skills(self.skills, ["chat", "uninstalled"], authority=self.authority)
         for names in (["fix"], []):
             with self.subTest(names=names), self.assertRaisesRegex(SkillError, "must include chat"):
                 enabled_skills(self.skills, names, authority=self.authority)

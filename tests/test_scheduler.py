@@ -772,6 +772,23 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(self.launcher.spawned[-1][0], second["id"])  # its turn came before newer work
         self.assertEqual([row["id"] for row in self.ledger.queue()], [newer["id"]])  # which the cap now holds
 
+    def test_ui_and_code_share_the_exclusive_lane_while_a_fix_can_run_beside_them(self):
+        code = self.use_feature_skill()
+        self.scheduler.enabled_skills.add("fgui")
+        self.scheduler.max_concurrent = 2
+        ui = self.item(skill="fgui")
+        self.now += 1
+        pending = self.item(issue_id=OTHER, session="s2", identifier="FARM-2", skill=code.name)
+        self.now += 1
+        fix = self.item(issue_id=str(uuid4()), session="s3", identifier="FARM-3")
+        self.assertEqual(self.scheduler.tick()["launched"], 2)
+        self.assertEqual([spawned[0] for spawned in self.launcher.spawned], [ui["id"], fix["id"]])
+        self.assertEqual([row["id"] for row in self.ledger.queue()], [pending["id"]])
+        self.assertEqual(self.scheduler.tick()["launched"], 0)
+        self.scheduler.stop(ui["id"], "Linear stop")
+        self.assertEqual(self.scheduler.tick()["launched"], 1)
+        self.assertEqual(self.launcher.spawned[-1][0], pending["id"])
+
     def test_an_exclusive_job_between_two_stages_keeps_its_turn(self):
         exclusive = self.use_feature_skill()
         self.scheduler.max_concurrent = 2
@@ -1215,8 +1232,7 @@ class SchedulerTests(unittest.TestCase):
                          {"lark_cli": {"status": "unavailable", "reason": "lark_cli is not configured on this host"}})
 
     def test_no_worker_inherits_lark_cli_credentials_whatever_its_skill(self):
-        """P13: credentials exported where serve starts would override --profile, so fix, chat and feature workers
-        alike start without them; the feature worker still learns its profile from tools.lark_cli."""
+        """Profile Code/UI workers learn only their selected profile; no skill inherits ambient credentials."""
         # Braces are doubled: spawn formats every command part. Only the names are recorded.
         script = ("import json,os,pathlib,sys;sys.stdin.read();"
                   "pathlib.Path(sys.argv[1]).write_text(json.dumps(sorted(k for k in os.environ "
@@ -1226,9 +1242,11 @@ class SchedulerTests(unittest.TestCase):
         self.scheduler.launcher = launcher
         self.scheduler.runtime_name = "codex"
         staged = self.use_staged_skill()
+        self.scheduler.enabled_skills.add("fgui")
         self.scheduler.lark_cli = {"profile": "farmbot"}
         items = [self.item(), self.item(issue_id=OTHER, session="session-2", skill="chat"),
-                 self.item(issue_id="10000000-0000-4000-8000-000000000003", session="session-3", skill=staged.name)]
+                 self.item(issue_id="10000000-0000-4000-8000-000000000003", session="session-3", skill=staged.name),
+                 self.item(issue_id="10000000-0000-4000-8000-000000000004", session="session-4", skill="fgui")]
         credentials = {name: "dummy-lark-value" for name in (
             "LARKSUITE_CLI_APP_ID", "LARKSUITE_CLI_APP_SECRET", "LARKSUITE_CLI_PROXY_KEY",
             "LARKSUITE_CLI_USER_ACCESS_TOKEN", "LARKSUITE_CLI_TENANT_ACCESS_TOKEN")}
@@ -1239,10 +1257,10 @@ class SchedulerTests(unittest.TestCase):
                 self.assertEqual(json.loads((handle.run_dir / "last_message.txt").read_text(encoding="utf-8")),
                                  ["LARKSUITE_CLI_REMOTE_META"])
                 self.assertEqual(payload["tools"].get("lark_cli"),
-                                 {"profile": "farmbot"} if skill == staged.name else None)
+                                 {"profile": "farmbot"} if skill in (staged.name,"fgui") else None)
 
 
-    def test_configured_environment_credentials_are_granted_to_feature_only(self):
+    def test_configured_environment_credentials_are_granted_only_to_code_and_ui_document_readers(self):
         from test_lark_cli import BLOCK, SECRET
         script = ("import json,os,pathlib,sys;sys.stdin.read();"
                   "pathlib.Path(sys.argv[1]).write_text(json.dumps({{k:os.environ.get(k) for k in "
@@ -1254,19 +1272,22 @@ class SchedulerTests(unittest.TestCase):
         self.scheduler.runtime_name = "codex"
         self.scheduler.lark_cli = BLOCK
         staged = self.use_staged_skill()
+        self.scheduler.enabled_skills.add("fgui")
         items = [self.item(), self.item(issue_id=OTHER, session="s2", skill="chat"),
-                 self.item(issue_id="10000000-0000-4000-8000-000000000003", session="s3", skill=staged.name)]
+                 self.item(issue_id="10000000-0000-4000-8000-000000000003", session="s3", skill=staged.name),
+                 self.item(issue_id="10000000-0000-4000-8000-000000000004", session="s4", skill="fgui")]
         with patch.dict(os.environ, {BLOCK["secret_env"]: SECRET, "LARKSUITE_CLI_APP_SECRET": "ambient-secret"}):
             launched = {item["skill"]: self.launched(launcher, item) for item in items}
         for skill, (config, payload, handle) in launched.items():
             with self.subTest(skill=skill):
+                reader = skill in (staged.name, "fgui")
                 values = json.loads((handle.run_dir / "last_message.txt").read_text(encoding="utf-8"))
                 self.assertIsNone(values[BLOCK["secret_env"]])
-                self.assertEqual(values["LARKSUITE_CLI_APP_SECRET"], SECRET if skill == staged.name else None)
-                self.assertEqual(values["LARKSUITE_CLI_APP_ID"], BLOCK["app_id"] if skill == staged.name else None)
-                self.assertEqual(values["LARKSUITE_CLI_STRICT_MODE"], "bot" if skill == staged.name else None)
+                self.assertEqual(values["LARKSUITE_CLI_APP_SECRET"], SECRET if reader else None)
+                self.assertEqual(values["LARKSUITE_CLI_APP_ID"], BLOCK["app_id"] if reader else None)
+                self.assertEqual(values["LARKSUITE_CLI_STRICT_MODE"], "bot" if reader else None)
                 self.assertEqual(payload["tools"].get("lark_cli"),
-                                 {"authentication": "environment"} if skill == staged.name else None)
+                                 {"authentication": "environment"} if reader else None)
                 for value in (SECRET, BLOCK["app_id"]):
                     self.assertNotIn(value, json.dumps(payload))
                     self.assertNotIn(value, json.dumps(config))

@@ -167,7 +167,7 @@ class ServeTests(unittest.TestCase):
         self.assertEqual(service.scheduler.enabled_skills, {"chat"})
         self.assertEqual(service.skills, {"chat"})  # what the ready line reports
         # Still loaded, so the scheduler can refuse a queued fix instead of leaving it waiting.
-        self.assertEqual(set(service.scheduler.skills), {"chat", "feature", "fix"})
+        self.assertEqual(set(service.scheduler.skills), {"chat", "feature", "fix", "fgui"})
         # A config without the key runs every skill in the checkout but the opt-in ones.
         self.assertEqual((self.c.receiver.skills, self.c.scheduler.enabled_skills), ({"chat", "fix"}, {"chat", "fix"}))
 
@@ -216,8 +216,8 @@ class ServeTests(unittest.TestCase):
         root = Path(self.tmp.name) / "unknown-skill"
         config = Config(client_id="client", client_secret="s", webhook_secret="signing-secret", host="test",
                         runtime="fake", repos=self.c.config.repos, port=0, local_root=root,
-                        enabled_skills=["chat", "fgui"])
-        with self.assertRaisesRegex(SkillError, "does not have: fgui"):
+                        enabled_skills=["chat", "uninstalled"])
+        with self.assertRaisesRegex(SkillError, "does not have: uninstalled"):
             build(config)
         self.assertFalse((root / "agent" / "ledger.sqlite3").exists())
 
@@ -755,8 +755,8 @@ class EnqueueTests(unittest.TestCase):
 
     def test_enqueue_stops_on_a_configured_skill_the_checkout_lacks(self):
         """The contract: enqueue stops on a name the checkout lacks, before it creates a ledger."""
-        self.config.enabled_skills = ["chat", "fix", "fgui"]
-        with self.assertRaisesRegex(SkillError, "does not have: fgui"):
+        self.config.enabled_skills = ["chat", "fix", "uninstalled"]
+        with self.assertRaisesRegex(SkillError, "does not have: uninstalled"):
             enqueue(self.config, issue_ref=ISSUE, skill="fix", commit="a" * 40)
         self.assertFalse(Paths(self.config).ledger.exists())
 
@@ -809,6 +809,21 @@ class EnqueueTests(unittest.TestCase):
                 enqueue(self.config, issue_ref=ISSUE, skill="fix", commit="a" * 40)
         self.assertFalse(Paths(self.config).ledger.exists())
         self.assertFalse((self.stub / "calls.jsonl").exists())  # refused before Linear was asked anything
+
+    def test_ui_enqueue_is_label_scoped_and_has_no_client_pin_or_remote_resolution(self):
+        self.config.enabled_skills = ["chat", "fgui"]
+        self.config.lark_cli = {"profile": "farmbot"}
+        (self.stub/"issue.json").write_text(json.dumps(issue(delegate_id=APP, labels=["UI"],
+                                                          label_groups=[{"group": "Bot", "label": "UI"}])), encoding="utf-8")
+        with patch("agent.service.Worktrees.resolve_commit", side_effect=AssertionError("UI intake cannot pin Client")):
+            with self.assertRaisesRegex(RuntimeError, "a fgui job takes none"):
+                enqueue(self.config, issue_ref=ISSUE, skill="fgui", commit="a"*40)
+            self.assertFalse(Paths(self.config).ledger.exists())
+            item = enqueue(self.config, issue_ref=ISSUE, skill="fgui")
+        ledger = Ledger(Paths(self.config).ledger)
+        self.addCleanup(ledger.close)
+        self.assertEqual((item["skill"], item["target"], item["state"]), ("fgui", None, "queued"))
+        self.assertIsNone(ledger.session(item["session_id"])["target"])
 
 class LoopGuardTests(unittest.TestCase):
     def test_a_raising_loop_body_is_logged_and_the_loop_keeps_running(self):

@@ -62,12 +62,12 @@ state-changing tools are not.
    Use the latest message ID whose full conversation you have interpreted. The host checks
    fresh delegation, issue state, claim and recorded delegation provenance, and that this
    instance runs the workflow the request starts or continues. It continues the delegation's
-   earlier job, `resumable_work` in context (a fix, or a `feature` job), whatever the card's
+   earlier job, `resumable_work` in context (a fix, `feature` or `fgui` job), whatever the card's
    label now says; otherwise it starts the workflow the card's Bot label names, preserving
-   messages and your summary: with Bot/修改 or no Bot label, `fix`; with Bot/Code, `feature`,
-   on an instance that runs it. On a Bot/Code card a request to build the feature, such as
-   「开始做」, is such a request. On a card labelled Bot/UI, on Bot/Code where this instance
-   does not run `feature`, or on one whose Bot children name no workflow, it starts nothing
+   messages and your summary: with Bot/修改 or no Bot label, `fix`; with Bot/Code, `feature`;
+   with Bot/UI, `fgui`, on an instance that runs it. A request to build the labelled Code/UI
+   work, such as 「开始做」, is such a request. Where this instance does not run that workflow,
+   or on a card whose Bot children name no workflow, it starts nothing
    and its message says why. With `resumable_work` null, call it for any start request and
    relay a refusal. When `resumable_work` shows an earlier job, call it only if the person
    asks to continue that job, since any call continues it; answer a request for other work
