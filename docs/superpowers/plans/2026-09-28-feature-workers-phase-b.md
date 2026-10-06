@@ -1440,6 +1440,20 @@ exact `stage_limit` pause remain pending real human decisions and a delta. See t
 [signed-intake and checkout measurements](../spikes/2026-10-03-native-windows-offline.md#windows-signed-intake-and-long-path-checkouts-2026-10-06).
 Production remains outside this verification. Task 17 remains partial.
 
+**2026-10-06 native unchanged-contract audit:** a subsequent scoped FARM-1346
+TestBot attempt executes all twelve native gates on unchanged main `71dadaed`:
+nine pass, while gates 3/9/12 fail without skips. Gate 3 rejects object alternates
+in the read-only snapshot; its ordinary owned-worktree retry and gates 9/12 then
+hit Python temporary-directory `WinError 5`. The measured directory-mode issue
+requires a Farm-Contract tooling fix and actual restricted-worker regressions;
+the Git input guard and containment remain. No game source, PR or handoff is
+produced. Independent source/recovery verification passes; the audit is safely
+withdrawn and TestBot returns to chat/fix only. See the [twelve gate results](../spikes/2026-10-06-native-contract-gates.md).
+All twelve have now been attempted in a native worker, but only nine pass. A
+complete tooling rerun, human-attributed answers and a genuine changed-contract
+draft-PR/stage-limit check remain; production is outside this acceptance.
+Task 17 remains partial.
+
 ## Scope
 
 In Phase B (spec §13, item 2):

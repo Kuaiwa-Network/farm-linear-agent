@@ -7159,3 +7159,25 @@ The private UTF-8 log has SHA-256
 All six added relative links/anchors, Git whitespace and the public diff's
 known-credential/host-identity checks pass. The final record changes Markdown
 only; the full suite is not repeated for that documentation change.
+
+## Windows unchanged-contract gate audit (2026-10-06)
+
+A later explicitly scoped real TestBot attempt on FARM-1346 executes all twelve
+native contract gates on unchanged Farm-Contract main `71dadaed`: **nine pass;
+gates 3, 9 and 12 fail**, with no platform skip. Gate 3 first refuses the read-only
+snapshot's object alternates; its same-head owned-worktree retry and gates 9/12
+then fail creating Python temporary directories with `WinError 5`. This is
+consistent with the preceding native Python `0700`/inherited-permissions probe.
+Do not weaken that input guard or containment to pass. The three Farm-Contract
+tooling wrappers need owned temporary-workspace fixes and restricted-worker
+regressions. No source delta, game PR or consumer handoff occurs.
+
+Independent source/recovery checks confirm unchanged heads and clean worktrees.
+The completed audit is withdrawn, its native Job is empty, owned worktrees are
+removed and recovery/log evidence remains. The selected development TestBot is
+restored to chat/fix only on `0c4ef5e`; its heartbeat has zero workers/loop errors.
+Doctor retains only the two historical checkout failures and no pending cleanup.
+The production installation remains outside the test. The [complete gate record](2026-10-06-native-contract-gates.md)
+preserves every exit, duration, coverage limit and private UTF-8 log hash.
+Task 17 remains partial: a tooling rerun, attributed product answers, a genuine
+delta, draft PR and exact stage-limit pause are still required.
