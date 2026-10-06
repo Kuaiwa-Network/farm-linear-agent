@@ -82,3 +82,59 @@ The credential request uses UTF-8 without a byte-order marker, including under
 a UTF-8 Windows console; the callback restores its input encoding after creating
 the child process. This avoids corrupting the protocol's first key through the
 .NET Framework redirected writer's console-dependent default.
+
+## Optional endpoint-scoped native LFS authentication
+
+Git LFS can use a different server and credential store from GitHub. The
+[native LFS callback](../tools/windows_lfs_askpass.cs) adds one explicitly pinned
+HTTP(S) origin to the same optional build. It calls the selected existing native
+`git-credential-manager.exe get` directly with prompting disabled. It uses a
+server-only credential lookup, equivalent to `credential.useHttpPath=false`;
+it neither discovers other accounts nor falls back to interactive login.
+An existing path-specific credential requires a separate reviewed implementation.
+
+Select the origin and existing executable together when creating a new build:
+
+```powershell
+$env:PYTHONUTF8 = '1'
+& $python -B tools/build_windows_git_askpass.py --output-directory $nativeGitTools --lfs-origin $privateLfsOrigin --gcm-executable $nativeGcm
+```
+
+`$privateLfsOrigin` contains only the scheme, server and optional port from the
+authorized repository's committed LFS configuration, with no username, password,
+repository path, query or fragment. GitHub is refused as an LFS origin. HTTP is
+supported for an explicitly selected existing internal endpoint; this does not
+upgrade its transport confidentiality. Keep the endpoint private and verify it
+against the authorized repository before building.
+
+The private `askpass.lfs` companion pins that origin, the absolute GCM executable
+and its SHA-256. The callback reads it beside its own executable, rejects reparse
+paths and a changed GCM binary, accepts native short-path aliases by normalizing
+the absolute path before validating and executing it, and checks the requested scheme/server/port and
+returned identity before emitting only the requested field. Environment variables
+cannot replace these LFS pins. Missing or malformed settings and lookup failures
+produce no credentials or diagnostics. GitHub prompts still use the existing
+GitHub callback exclusively; a failed GitHub lookup cannot use GCM credentials.
+Omitting both new build options preserves the GitHub-only build.
+
+Keep the executable, companion and receipt outside worker write roots. Validate
+their recorded hashes and native CLI identities before selecting the build for a
+development controller. Rebuild into a new private directory after an authorized
+endpoint or GCM update; do not edit the companion to bypass a failed identity
+check. The companion and receipt contain private endpoint/path metadata, never
+credential values. The builder performs no lookup, authentication or credential
+installation, and changes no Git, account or service setting.
+
+Windows GCM uses this account's existing credential store. A separate HOME does
+not establish account isolation. This optional tool adds no filesystem grants,
+elevation or Job breakaway and is not selected automatically by FarmBot. Real
+worker LFS transfer and publication acceptance are still required for each
+selected account, endpoint, binary and worker policy. The
+[development measurement](superpowers/spikes/2026-10-06-windows-final-tools-lfs.md)
+records the earlier private callback's successful scoped 1 KiB transfer.
+
+`tests/test_windows_lfs_askpass.py` adds dummy-GCM native tests for origin and
+executable pins, quiet failures, UTF-8, server-only lookup, builder selection and
+credential-store separation. The fixtures never read host credentials. Native
+tests skip on non-Windows with their platform reason; origin validation runs on
+both platforms. A missing Windows compiler remains a capability failure.

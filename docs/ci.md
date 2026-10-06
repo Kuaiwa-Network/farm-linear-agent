@@ -14,7 +14,9 @@ filesystem ownership boundaries. Missing privilege is a runner setup failure.
 
 The native Windows Git askpass tests additionally use the image's installed
 `.NET Framework` C# compiler to build a dummy credential responder. They never
-read the host's GitHub login. A missing Windows compiler is a fixture capability
+read the host's GitHub or LFS login. The optional LFS callback tests also build a
+dummy native Git Credential Manager and check its private origin/binary pins;
+no installed GCM or credential store is used. A missing Windows compiler is a fixture capability
 failure; non-Windows hosts skip these native callback tests explicitly.
 
 The workflow requests only `contents: read`, does not reference secrets, and
