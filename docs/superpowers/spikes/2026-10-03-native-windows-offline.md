@@ -6884,7 +6884,7 @@ fixtures have no login seed or active worker. Cleanup inventory SHA-256
 `6b10064984c2884d1f95ada8d75e4e511d24438004c33ed16bf275b720d43a5d`.
 No production cleanup occurs.
 
-**Current Phase B prerequisites:**
+**Phase B prerequisites at the authenticated-worker record (updated below):**
 
 1. Name an operator-selected Bot/Code card with an owner and readable planning
    sources, and explicitly scope the TestBot candidate/profile/service change.
@@ -6917,3 +6917,102 @@ tests -p test_skills.py -v` passes **73 tests**, zero failures/errors/skips, in
 `7583cca44f46d76147dc4764c5c406ac0d1c3cdb1fe16ce04cc83a13c5541fad`. Relative links/anchors,
 added-text privacy patterns and `git diff --check` are checked. No executable
 behavior changes and no full-suite rerun is required for this record.
+
+## Windows TestBot initialization (2026-10-06)
+
+The operator confirms that previous TestBot live testing was on Mac and requests
+Windows setup. These measurements use the separate Windows development checkout
+at merged candidate `943540260247d0200561e75cd240784734bebbf3`. They do not certify
+production-host readiness. Both offline CI jobs for the preceding documentation
+PR [#133](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/133) complete
+successfully on macOS and Windows; no full-suite rerun accompanies this setup.
+
+The operator supplies the existing Linear TestBot app credentials through a
+local interactive prompt, with both secrets hidden. Read-only identity checks
+verify the pinned TestBot app and Kuaiwa AI workspace before creating a fresh
+private `development` profile. Its absolute state root is outside all checkouts;
+derived ledger, clones, worktrees, runs and Editor paths remain inside that root.
+No Mac runtime state is copied and no production configuration or ledger is read.
+No new account, personal Feishu login or Cloudflare authentication is configured.
+The current-account bot-only `farmbot` profile remains selected, with no Windows
+`lark_cli.home`.
+
+The profile explicitly selects native Codex **0.156.1**, `unelevated`,
+`gpt-6-sol` / `xhigh` for feature, `chat` / `fix` / `feature`, one concurrent
+worker and no Unity slots. Process-local environment sanitization removes
+inherited FarmBot configuration/stub/runtime selectors and integration tokens.
+`PYTHONUTF8=1` precedes Python startup. All required native feature tools pass:
+Go **1.26.6**, protoc **35.1**, buf **1.72.0**, Node **24.19.0**, OpenSpec **1.7.0**,
+Git LFS **3.7.1**, Python **3.13.16** and lark-cli **1.0.82**. Optional .NET SDK
+**8.0.423** also passes. Bash, MSYS and WSL are unused.
+
+| Measured step | Result | Duration |
+| --- | --- | --- |
+| Fresh-profile read-only doctor | `incomplete`; only `ledger_unreadable`; no ledger created, no missing feature tool | 0.621 s |
+| Native `agent.service.seed_clones` | All five local code seeds initialized; each clone passes the controller trust check; matching ownership marker verified; no ledger created | 41.196 s |
+| Serving-profile read-only doctor | `ok`; no findings, jobs or pending cleanup; feature enabled | 0.887 s |
+| External HTTPS endpoint check | Health response matches; unsigned `/webhook` returns `401` / `invalid signature` | 1.923 s |
+
+Windows TestBot serves the exact candidate with a fresh ledger, an OS-backed
+controller lock, zero workers and zero consecutive errors across all six loops.
+Private service logs decode strictly as UTF-8; stderr is empty at the readiness
+snapshot. A separately verified native cloudflared **2026.10.0** executable starts
+a temporary HTTP/2 quick tunnel, with automatic updates disabled, a fresh explicit
+empty tunnel config and no existing tunnel credential selection. The private
+endpoint is withheld from this public record. No installed system service,
+production restart or app-setting mutation is performed by the agent.
+
+Under the operator's explicit cleanup permission, only the old TestBot
+delegations on FARM-1346 and FARM-1425 are removed. Readback confirms their
+original owners and `Todo` / `Backlog` statuses. Comments, labels, previous
+ledgers, recovery history and game draft PRs are preserved. Linear omits an empty
+delegation field; the first verification assertion reports a mismatch after the
+successful FARM-1346 mutation. Read-only verification confirms removal without
+repeating it. This is a private observer correction, not an application change.
+
+FARM-1346 is selected for the Windows stage-A-only test. Its linked Feishu wiki
+file resolves and downloads as the bot through the native sandbox: **41,658
+bytes**, SHA-256
+`65cd121515f7fc30a61b94a362fe7de3e92f4e48d325cfa5dacb883722fc88dc`.
+Bounded native OOXML extraction returns **9,579 UTF-8 bytes**, **273 nonempty
+paragraphs / 16 tables**. The three runners total **4.539 seconds**; each exits
+zero, with settled owned Jobs and unchanged runtime/profile receipts. Downloaded
+payload/body files are removed after quiescence. No model turn or live issue job
+runs in this source preflight; all further sources encountered in live intake
+still need their own successful reads. Paragraph/table extraction does not
+certify other Word content or legacy `.doc` conversion.
+
+Sanitized setup audit SHA-256:
+`d6c99469a6c86b58d82a27bc402317645fcb0239fde4dd0abb325548211c91e1`.
+Credentials, app identifiers, host paths, process identities, tunnel hostname,
+raw documents and host logs remain private.
+
+**Remaining prerequisites:**
+
+1. Stop the settled Mac TestBot and have the operator save the new Windows URL
+   in the TestBot webhook setting only. Verify real signed Linear delivery;
+   an unsigned rejection does not verify the supplied signing secret.
+2. Delegate FARM-1346 from Linear UI with the stage-A-only request. Observe one
+   feature item, target-free acknowledgements, native read checkouts and source
+   intake. Resolve genuine owner/designer questions with attributed answers;
+   existing implementation may warrant reuse rather than a fabricated change.
+   Verify contract gates and a draft PR when a real delta warrants one, followed
+   by the requested waiting pause with no Common handoff.
+3. Remove that delegation for Task 17 Step 4 check 4. Verify the real session
+   response, single cancellation, owned teardown and preserved recovery history.
+4. Review private outputs/comments/PRs for secrets and settle the scoped TestBot
+   restoration. Production promotion retains separate host acceptance and
+   deployment authorization. Phase C client/UI work remains subsequent.
+
+At this snapshot no real Linear webhook or feature job has run on Windows.
+FARM-1425 remains outside the selected test; Farm-Contract #318 and farm-hive #353
+remain unmerged test drafts. Unity is not a prerequisite of the Phase B stage-A
+check. Task 17 remains partial.
+
+Documentation validation: selected native Python with `-B -m unittest discover
+-s tests -p test_skills.py -v` passes **73 tests**, zero failures/errors/skips,
+in **0.431 seconds** (**0.574 seconds** including process startup). UTF-8 log
+SHA-256 `259e242a7531abd8827c0c3ec44e099c8e1d46847438450b44637c95f08ea773`.
+Added links/anchors, added-text privacy patterns and `git diff --check` pass.
+Only the two verification documents change; the serving checkout stays pinned
+to the measured candidate.

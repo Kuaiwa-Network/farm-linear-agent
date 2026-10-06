@@ -1387,6 +1387,30 @@ provenance remains a later-stage condition when required, not a prerequisite of
 the stage-A-only test. Broader Windows/production promotion keeps its own host
 acceptance and separate deployment authorization. Task 17 remains partial.
 
+**2026-10-06 Windows TestBot initialization:** the operator confirms previous
+live tests were Mac-only, authorizes Windows TestBot setup and selects FARM-1346.
+Existing app credentials are entered locally; pinned TestBot/workspace identity
+is verified before creating a fresh development profile outside all checkouts.
+At candidate `943540260247d0200561e75cd240784734bebbf3`, native tools all pass,
+five code-history-seeded clones pass controller trust checks (**41.196 seconds**),
+and the running Windows TestBot's read-only doctor reports `ok`, zero jobs and no
+findings (**0.887 seconds**). No Mac runtime state is copied. The explicit
+`unelevated` current-account bot-profile setup uses no Bash/MSYS/WSL or Unity.
+A temporary native tunnel passes external HTTPS health and unsigned-webhook
+rejection (**1.923 seconds**). This does not verify real Linear delivery or the
+signing secret. Under explicit cleanup permission, old FARM-1346/FARM-1425
+TestBot delegations are removed while preserving owners, statuses, comments and
+drafts. FARM-1346's linked bot-readable Word source also passes the native source
+preflight. See the [Windows setup measurements and remaining prerequisites](../spikes/2026-10-03-native-windows-offline.md#windows-testbot-initialization-2026-10-06).
+
+The remaining manual step at this snapshot is stopping settled Mac TestBot and
+saving the new URL in the TestBot webhook setting only. Real stage-A intake,
+attributed answers, gates/draft-PR/waiting-pause acceptance and the real
+undelegation response remain pending. Existing contract code must be assessed
+before proposing a genuine delta; no change is fabricated solely to obtain a
+draft PR. Production state and app settings remain untouched, and production
+promotion retains separate authorization. Task 17 remains partial.
+
 ## Scope
 
 In Phase B (spec §13, item 2):
