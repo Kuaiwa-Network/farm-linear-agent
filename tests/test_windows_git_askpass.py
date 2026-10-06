@@ -28,6 +28,23 @@ public static class FakeGh {
 }
 '''
 
+UTF8_CONSOLE = r'''
+using System;
+using System.Text;
+public static class Utf8Console {
+    public static int Main(string[] args) {
+        Console.InputEncoding = Encoding.UTF8;
+        Console.OutputEncoding = Encoding.UTF8;
+        var original = Console.InputEncoding;
+        int result = FarmBotNativeGitAskpass.Main(args);
+        if (Console.InputEncoding.CodePage != original.CodePage ||
+            Convert.ToBase64String(Console.InputEncoding.GetPreamble()) !=
+            Convert.ToBase64String(original.GetPreamble())) return 2;
+        return result;
+    }
+}
+'''
+
 
 @unittest.skipUnless(os.name == "nt", "native Windows credential callback")
 class NativeGitAskpassTests(unittest.TestCase):
@@ -46,6 +63,12 @@ class NativeGitAskpassTests(unittest.TestCase):
         for source, output in ((ROOT / "tools/windows_git_askpass.cs", cls.helper), (fake, cls.gh)):
             subprocess.run([str(compiler), "/nologo", "/target:exe", "/out:" + str(output), str(source)],
                            capture_output=True, check=True, timeout=30)
+        cls.utf8_helper = cls.root / "utf8-askpass.exe"
+        console = cls.root / "utf8-console.cs"
+        console.write_text(UTF8_CONSOLE, encoding="utf-8")
+        subprocess.run([str(compiler), "/nologo", "/target:exe", "/main:Utf8Console",
+                        "/out:" + str(cls.utf8_helper), str(ROOT / "tools/windows_git_askpass.cs"), str(console)],
+                       capture_output=True, check=True, timeout=30)
 
     def setUp(self):
         self.marker = self.root / "dummy-started.txt"
@@ -67,6 +90,17 @@ class NativeGitAskpassTests(unittest.TestCase):
                                  ("Password for 'https://fixture-user@github.com': ", "dummy-only\n")):
             with self.subTest(prompt=prompt):
                 result = self.call(prompt)
+                self.assertEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, expected)
+                self.assertEqual(result.stderr, "")
+                self.assertTrue(self.marker.exists())
+
+    def test_utf8_console_does_not_add_a_bom_to_the_credential_request(self):
+        for prompt, expected in (("Username for 'https://github.com': ", "fixture-user\n"),
+                                 ("Password for 'https://fixture-user@github.com': ", "dummy-only\n")):
+            with self.subTest(prompt=prompt):
+                result = subprocess.run([str(self.utf8_helper), prompt], env=self.env, capture_output=True,
+                                        encoding="utf-8", timeout=20)
                 self.assertEqual(result.returncode, 0)
                 self.assertEqual(result.stdout, expected)
                 self.assertEqual(result.stderr, "")

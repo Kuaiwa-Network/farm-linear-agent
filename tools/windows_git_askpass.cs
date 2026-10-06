@@ -22,9 +22,21 @@ public static class FarmBotNativeGitAskpass {
                 !Path.GetFileName(exe).Equals("gh.exe", StringComparison.OrdinalIgnoreCase)) return 1;
             var info = new ProcessStartInfo(exe, "auth git-credential get") {
                 UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true,
-                RedirectStandardOutput = true, RedirectStandardError = true
+                RedirectStandardOutput = true, RedirectStandardError = true,
+                StandardOutputEncoding = new UTF8Encoding(false),
+                StandardErrorEncoding = new UTF8Encoding(false)
             };
-            using (var child = Process.Start(info)) {
+            // Framework has no StandardInputEncoding selector. Its redirected
+            // writer captures Console.InputEncoding when the process starts.
+            var originalInputEncoding = Console.InputEncoding;
+            Process child;
+            try {
+                Console.InputEncoding = new UTF8Encoding(false);
+                child = Process.Start(info);
+            } finally {
+                Console.InputEncoding = originalInputEncoding;
+            }
+            using (child) {
                 var output = child.StandardOutput.ReadToEndAsync();
                 var error = child.StandardError.ReadToEndAsync();
                 child.StandardInput.Write("protocol=https\nhost=github.com\n\n");

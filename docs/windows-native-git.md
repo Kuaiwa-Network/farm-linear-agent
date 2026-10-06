@@ -54,6 +54,10 @@ their own measured acceptance. The optional callback changes no FarmBot defaults
 and is not installed or selected by `serve` or `doctor`.
 
 `tests/test_windows_git_askpass.py` compiles a dummy native GitHub CLI in a
-temporary path with spaces/Unicode. Its six Windows tests use no host login;
+temporary path with spaces/Unicode. Its seven Windows tests use no host login;
 non-Windows runs skip them with the explicit platform reason. A missing Windows
 compiler fails the fixture as a host capability gap rather than passing a skip.
+The credential request uses UTF-8 without a byte-order marker, including under
+a UTF-8 Windows console; the callback restores its input encoding after creating
+the child process. This avoids corrupting the protocol's first key through the
+.NET Framework redirected writer's console-dependent default.
