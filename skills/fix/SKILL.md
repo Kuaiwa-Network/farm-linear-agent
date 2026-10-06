@@ -46,8 +46,9 @@ the repository map's config routing rule, and art the issue needs but does not c
    investigation needs them. In the neutral stage, inspect all worktrees read-only to locate the bug or
    the code the change touches.
 2. `python3 -m agent --db DATABASE claim --item ITEM_ID --worker-id WORKER_ID`. Write the returned token
-   to `STATE_DIR/token` with mode 0600 and never print it. Follow
-   `<repo_root>/references/worker-cli.md` for the command argument table and checkpoint JSON.
+   to `STATE_DIR/token`: on POSIX use mode 0600; on Windows keep the inherited DACL
+   and do not change ACLs. Never print it. Follow the claim-token storage procedure in
+   `<repo_root>/references/worker-cli.md`; that reference also gives the command argument table and checkpoint JSON.
    Claim-authenticated commands, including `post-comment` and `confirm-comment`, take
    `--item ITEM_ID --token-file STATE_DIR/token`. `fetch-issue` and `issue-context` take only
    `--item ITEM_ID`; they do not accept token flags. Never put `--token` on a command line:

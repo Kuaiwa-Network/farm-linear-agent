@@ -28,6 +28,24 @@ Neither `fetch-issue` nor `issue-context` accepts `--token-file`.
 Tokens never belong in argv as `--token` values.
 The argument table does not grant additional authority; use only your delegated item.
 
+## Claim-token storage
+
+Capture the claim response privately; never echo the token, put it in command arguments,
+or commit it. Create `STATE_DIR/token` as a new ordinary UTF-8 file in the owned state
+directory from the launch message. Exclusive creation must refuse an existing file or
+link: do not overwrite, delete or repair a stale token. The launcher archives the previous
+attempt's token before starting a fresh attempt. Stop and report a storage failure.
+
+On POSIX use mode 0600 at creation. With the configured Python executable,
+`os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)` followed by
+`os.fdopen(fd, "w", encoding="utf-8")` supplies exclusive creation and that mode;
+write the returned token without printing it. On Windows the same creation preserves
+the inherited DACL from the owned state directory; POSIX mode bits do not establish
+Windows ACL isolation. Do not run `icacls`, `Set-Acl` or permission-repair commands,
+disable inheritance, change ownership, elevate, or expand writable roots to store a
+token. These instructions preserve the existing Windows host permission boundary;
+they do not certify isolation from other users of the service account.
+
 `withdraw` reads the card afresh and ends your claim as cancelled when your work is withdrawn, the
 card is closed, or, for work the delegation authorised, the card is no longer delegated to this app.
 It posts the one notice that says so, and a later delegation continues the job from your
