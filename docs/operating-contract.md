@@ -929,8 +929,13 @@ error. Host tool detection is separate from actual worker acceptance. On 2026-10
 a scoped native Windows TestBot audit of unchanged Farm-Contract main runs all twelve
 gates: nine pass, while gates 3, 9 and 12 fail creating temporary directories; gate 3
 also refuses object alternates in the read-only snapshot. The [measured gate record](superpowers/spikes/2026-10-06-native-contract-gates.md)
-preserves each failure and coverage limit. The tooling fix/rerun and a genuine
-changed-contract draft-PR/stage-limit check remain pending. Earlier scoped generator
+preserves each failure and coverage limit. A subsequent unmerged tooling candidate
+passes all twelve gates outside the sandbox and 11/12 in two actual native
+unelevated workers: gate 3 still fails in buf's internal Git-shell transport.
+Its ten breaking-regression failures and the packaged runtime's additional
+OpenSpec fixture rename failure are preserved in the [candidate measurements](superpowers/spikes/2026-10-06-native-contract-gates.md#candidate-temporary-workspace-fix-and-remaining-native-gap-2026-10-06).
+The native fix/rerun and a genuine changed-contract draft-PR/stage-limit check
+remain pending. Earlier scoped generator
 and containment probes remain separate evidence, not production certification.
 On a host that enables `feature`, `doctor` reports whether it has the toolchain its
 workers need; on any host it shows each unfinished Code job's root, stage states,

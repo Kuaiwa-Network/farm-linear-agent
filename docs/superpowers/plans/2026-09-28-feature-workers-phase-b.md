@@ -1454,6 +1454,21 @@ complete tooling rerun, human-attributed answers and a genuine changed-contract
 draft-PR/stage-limit check remain; production is outside this acceptance.
 Task 17 remains partial.
 
+**2026-10-06 candidate temporary-workspace fix:** Farm-Contract #327 remains
+draft at `a8f332f`, against unchanged main `71dadaed`. Native focused regressions
+pass 162 tests outside the sandbox, with zero runtime skips; all 28 three-platform
+CI checks pass. Ordinary native gates pass 12/12. Actual configured 0.156.1 and
+packaged 0.160.0 unelevated workers pass 11/12: gates 9/12 are repaired in this
+candidate, but gate 3 reaches buf's Git transport and fails in internal `sh.exe`
+signal-pipe creation. Each restricted breaking suite has ten failures; packaged
+OpenSpec also has one fixture rename failure. All remain recorded. Three write
+roots, offline mode, 16/16 Job-owned shells, empty Job, unchanged source and
+denied protected writes are verified. No production change or new issue test
+occurs. See the [candidate results and native follow-up](../spikes/2026-10-06-native-contract-gates.md#candidate-temporary-workspace-fix-and-remaining-native-gap-2026-10-06).
+Complete native baseline-input adaptation and restricted acceptance before
+merging #327. Genuine changed-contract/draft-PR/stage-limit acceptance remains
+pending human decisions; Task 17 is still partial.
+
 ## Scope
 
 In Phase B (spec §13, item 2):
