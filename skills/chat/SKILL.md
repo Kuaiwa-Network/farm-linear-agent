@@ -21,9 +21,12 @@ of the test game environment, are available for investigation on the dispatch AU
 state-changing tools are not.
 
 1. Read the `contract` path from your launch message, this file, and
-   `<repo_root>/references/memory.md` for shared recall and its CLI.
+   `<repo_root>/references/memory.md` for shared recall and its CLI, and
+   `<repo_root>/references/worker-cli.md` for claim-token storage.
 2. Claim first: `python3 -m agent --db DATABASE claim --item ITEM_ID --worker-id WORKER_ID`. Write the
-   token to `STATE_DIR/token` with mode 0600 and pass `--item ITEM_ID --token-file STATE_DIR/token`
+   token to `STATE_DIR/token`: on POSIX use mode 0600; on Windows keep the inherited DACL
+   and do not change ACLs. Follow the claim-token storage procedure in `references/worker-cli.md`.
+   Pass `--item ITEM_ID --token-file STATE_DIR/token`
    on every later claim-authenticated call (`fetch-issue` and `issue-context` take only
    `--item ITEM_ID`): every worker command is scoped to your own item. Never put `--token` on a
    command line. Renew at least every `renew_minutes` minutes from your launch message with

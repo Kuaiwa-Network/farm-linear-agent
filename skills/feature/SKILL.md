@@ -67,7 +67,9 @@ their checkouts under `reads`, for the client half of stage A's gap list.
    and the `feature` sections of `references/comment-templates.md`, then the current root's own instructions
    (`AGENTS.md`, `CLAUDE.md` and the files your stage's section names).
 2. `python3 -m agent --db DATABASE claim --item ITEM_ID --worker-id WORKER_ID` (the configured Python on Windows).
-   Write the token to `STATE_DIR/token` with mode 0600 and never print it. Claim-authenticated commands take
+   Write the token to `STATE_DIR/token`: on POSIX use mode 0600; on Windows keep the inherited DACL
+   and do not change ACLs. Follow the claim-token storage procedure in `references/worker-cli.md`
+   and never print it. Claim-authenticated commands take
    `--item ITEM_ID --token-file STATE_DIR/token`; `fetch-issue` and `issue-context` take only `--item ITEM_ID`.
    Never put `--token` on a command line. If the claim fails, stop and exit 2. Then follow
    `<repo_root>/references/memory.md`.

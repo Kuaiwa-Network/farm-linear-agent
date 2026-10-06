@@ -112,6 +112,28 @@ class WorkerCliReferenceTests(unittest.TestCase):
                 self.assertRegex(section, rf"`(--kind )?{kind}`")
 
 
+class ClaimTokenInstructionTests(unittest.TestCase):
+    def test_every_claiming_skill_distinguishes_posix_mode_from_windows_acl(self):
+        for skill in ("chat", "fix", "feature"):
+            with self.subTest(skill=skill):
+                text = (ROOT / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
+                self.assertIn("on POSIX use mode 0600; on Windows keep the inherited DACL", text)
+                self.assertIn("do not change ACLs", text)
+                self.assertIn("claim-token storage procedure", text)
+                self.assertIn("references/worker-cli.md", text)
+                self.assertNotIn("with mode 0600", text)
+
+    def test_shared_storage_procedure_refuses_stale_tokens_and_permission_repair(self):
+        text = (ROOT / "references" / "worker-cli.md").read_text(encoding="utf-8")
+        storage = text.split("\n## Claim-token storage\n", 1)[1].split("\n`withdraw`", 1)[0]
+        for phrase in ("os.O_EXCL", "existing file or", "do not overwrite, delete or repair",
+                       "Stop and report a storage failure", "On POSIX use mode 0600",
+                       "inherited DACL", "Do not run `icacls`, `Set-Acl`",
+                       "change ownership, elevate, or expand writable roots", "never echo the token"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, storage)
+
+
 class CommentTemplateTests(unittest.TestCase):
     """Workers fill <bot_name> from their launch message. Rendered for FarmBot, the templates must read
     exactly as production's did before the name became configurable."""

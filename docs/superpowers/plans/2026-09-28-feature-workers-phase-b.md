@@ -1486,6 +1486,23 @@ No game change, live issue resumption or production action occurs. Genuine
 changed-contract/draft-PR/stage-limit acceptance still needs approved scope and
 human decisions; Task 17 remains partial.
 
+**2026-10-06 approved changed-Contract bootstrap:** the operator approves
+FARM-1435's existing gifting-ID contradiction for stage A only. Its first native
+TestBot attempt claims and writes the token successfully, then attempts unnecessary
+Windows ACL changes prompted by the skill's POSIX mode wording. Those changes
+fail; a later authenticated CLI call succeeds. The shared storage instructions
+now distinguish POSIX mode 0600 from inherited Windows DACLs, require exclusive
+creation and refuse permission repair. All 75 skill/reference checks and the
+native dummy-token primitive pass. The selected run is safely cancelled with an
+empty Job, completed cleanup and preserved recovery evidence; development
+`feature` enablement is removed and its settled controller stopped.
+The separate foreign-work read remains incomplete: restricted Git fails Schannel
+TLS, and command-local OpenSSL then reaches a refused helper `sh.exe`; direct
+native GitHub credential lookup succeeds. No ACL, Bash or insecure TLS workaround
+is applied. See the [measured bootstrap and transport gap](../spikes/2026-10-06-windows-claim-bootstrap.md).
+The approved genuine-delta/draft-PR/stage-limit and parked-job undelegation checks
+remain pending. Task 17 is partial; production and Phase C are unchanged.
+
 ## Scope
 
 In Phase B (spec §13, item 2):

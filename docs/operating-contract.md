@@ -18,6 +18,12 @@ The host loader secures the config's permissions on POSIX. Worker CLI and API
 consumers read it without changing permissions, so a selected config can live
 outside worker-writable state directories without granting write access to it.
 
+Workers create claim-token files exclusively in their owned state directory. Their
+instructions require mode 0600 on POSIX and preservation of the inherited DACL on
+Windows, without ACL repair, elevation or writable-root expansion. Windows mode bits
+do not certify account isolation. A token-storage failure stops the worker; it does
+not authorize overwriting or deleting a previous attempt's token.
+
 This pins file selection, not file contents. Restart a settled service after editing
 the file so the controller and its workers load the same settings. State location
 still comes from `local_root`; configure an absolute path for each installation.
