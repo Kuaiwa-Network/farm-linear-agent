@@ -263,9 +263,10 @@ is required for this subsequent documentation-only change.
 
 ## Remaining release prerequisites
 
-1. Verify the selected final tool identities and host diagnostics as part of
-   the separately approved production release; the tools source has merged
-   with passing full CI and identical candidate/merge trees.
+1. The [final development tool check](2026-10-06-windows-final-tools-lfs.md)
+   now verifies merged #143's unchanged code, final callback identities,
+   empty-root doctor and native Git transport. Confirm the selected identities
+   again as part of the separately approved production release.
 2. Obtain separate operational approval for production promotion and feature
    enablement, confirming the intended Windows account/profile and release
    recovery procedure. This development acceptance does not certify that host.
@@ -273,6 +274,10 @@ is required for this subsequent documentation-only change.
    and run their remaining native worker generator checks. Running-worker
    withdrawal remains unmeasured; this check cancelled a parked job with no PID.
    Phase C/client work and the later UI worker are subsequent implementation work.
+4. Before Phase C, complete the actual internal-server LFS new-object upload
+   and headless native Farm-Client proto export. One bounded real LFS download
+   and an offline native upload/download calibration pass; the prepared 1 KiB
+   real upload awaits approval in the linked final-tools record.
 
 Current-account DPAPI access is the operator's approved development choice;
 no separate HOME credential-isolation claim is made. No account was configured.

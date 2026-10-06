@@ -1248,6 +1248,16 @@ regression; its final full CI passes 1,760 tests on each platform, all thirteen
 journeys and all seven native Windows Job tests. #141 merges as `0f97c794`,
 with candidate and merge trees identical. See the
 [measured acceptance record](../spikes/2026-10-06-windows-stage-a-acceptance.md).
+
+The 2026-10-06 final-tools follow-up at merged #143 verifies unchanged
+executable code, native callback source/binary identities, all required doctor
+tools and restricted Git transport. A bounded real internal-server LFS read
+and a local-loopback native upload/download calibration pass with preserved
+Git trust and Job containment. The prepared real-server 1 KiB new-object
+upload is still approval-pending; headless native Farm-Client proto export is
+also pending before Phase C. The
+[measured LFS record](../spikes/2026-10-06-windows-final-tools-lfs.md)
+keeps those checks distinct from production promotion and later live stages.
 Production, later live stages and Phase C remain outside this check.
 
 
