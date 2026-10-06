@@ -1217,14 +1217,13 @@ failures consistent with the measured Python `0700` permission issue. See the
 [per-gate coverage and preserved evidence](../spikes/2026-10-06-native-contract-gates.md).
 The audit produces no game source change or PR. Its withdrawal, empty Job,
 source/recovery identity and cleanup are verified; TestBot returns to chat/fix
-only. The subsequent draft #327 fixes temporary access in its candidate:
-ordinary native gates pass 12/12, but actual configured/packaged unelevated
-workers pass 11/12, with gate 3 blocked by buf's internal Git-shell transport.
-Restricted breaking regressions and one packaged OpenSpec fixture rename also
-remain failed. The [candidate evidence](../spikes/2026-10-06-native-contract-gates.md#candidate-temporary-workspace-fix-and-remaining-native-gap-2026-10-06)
-preserves those limits and containment measurements. Native tooling acceptance
-and genuine changed-contract draft-PR/stage-limit acceptance remain pending,
-with product questions still unanswered.
+only. Subsequent Farm-Contract #327 fixes temporary access and native baseline
+transport, retaining Git/ownership/containment guards. Its final configured
+unelevated worker passes 12/12 gates and 169 regressions; all 28 CI checks pass,
+and the merge tree matches the accepted candidate. The [final evidence](../spikes/2026-10-06-native-contract-gates.md#merged-native-baseline-transport-acceptance-2026-10-06)
+preserves intermediate failures and the unresolved packaged-runtime rename
+comparison. Genuine changed-contract draft-PR/stage-limit acceptance remains
+pending, with product questions still unanswered.
 
 Found while writing this design:
 
