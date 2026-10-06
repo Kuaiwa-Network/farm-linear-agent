@@ -274,14 +274,15 @@ is required for this subsequent documentation-only change.
    and run their remaining native worker generator checks. Running-worker
    withdrawal remains unmeasured; this check cancelled a parked job with no PID.
    Phase C/client work and the later UI worker are subsequent implementation work.
-4. Before Phase C, complete the actual internal-server LFS new-object upload.
-   The approved 1 KiB native attempt exits 2 with an independently confirmed
-   HTTP 401/Basic upload-batch challenge; approved internal-server write
-   authentication is needed. Headless native client proto export now passes
-   twice without Unity: 60 protos, 61 identical C# outputs, 589 wire messages
-   and a passing .NET compile. Five new files need metadata during Phase C's
-   real export installation. See the linked final-tools record for the measured
-   proof and its fixture scope; no game branch or production setting changed.
+4. D10's real native LFS push/download and headless client proto checks now
+   pass. The first 1 KiB attempt exits 2/HTTP 401 with the GitHub-only callback;
+   a scoped native callback using the existing Git Credential Manager and the
+   correct server-only lookup key passes push and forced hash-checked download
+   in 3.995 seconds, with no new login or settings. Headless export passes twice
+   without Unity: 60 protos, 61 identical C# outputs, 589 wire messages and a
+   passing .NET compile. Phase C must implement a durable scoped credential
+   route, headless entry point and metadata for five new files. See the linked
+   final-tools record for these fixture limits; no production setting changed.
 
 Current-account DPAPI access is the operator's approved development choice;
 no separate HOME credential-isolation claim is made. No account was configured.

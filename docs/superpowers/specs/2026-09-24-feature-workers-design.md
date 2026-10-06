@@ -1259,8 +1259,12 @@ the GitHub-only callback correctly refuses this separate destination. Native
 headless client proto export passes twice without Unity for pinned inputs:
 60 protos, 61 identical C# outputs, 589 wire messages and a passing .NET compile.
 Existing metadata remains intact; Phase C must install metadata for five new
-files and a durable headless entry point. D10 LFS push still needs approved
-native internal-server write authentication and a passing real transfer. The
+files and a durable headless entry point. The follow-up uses the account's
+existing native Git Credential Manager with the correct server-only lookup key;
+the approved real 1 KiB push and forced hash-checked download pass in 3.995
+seconds with no new login or setting change. D10 native LFS/proto feasibility
+checks now pass. A durable endpoint-scoped client-worker credential route,
+client/UI implementation and later live scope remain pending. The
 [measured LFS record](../spikes/2026-10-06-windows-final-tools-lfs.md)
 keeps those checks distinct from production promotion and later live stages.
 Production, later live stages and Phase C remain outside this check.
