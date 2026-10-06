@@ -306,7 +306,7 @@ class CliTests(unittest.TestCase):
             with self.assertRaises((RuntimeError, ValueError)):
                 run(args, ledger, lambda: api)
 
-    def verification_fixture(self, skill="fix"):
+    def verification_fixture(self, skill="fix", *, client_stage=False):
         from agent.worktrees import Worktrees
         from test_worktrees import git
         origin = self.root / "origin"
@@ -321,11 +321,21 @@ class CliTests(unittest.TestCase):
         self.env["FARMBOT_CONFIG"] = self.json_file("config.json", {
             "client_id": "test", "client_secret": "test", "webhook_secret": "test",
             "local_root": str(local), "repos": {"Farm-Client": str(origin)}})
-        item = self.seeded_item(skill=skill, target={**PIN, "commit_sha": baseline})
-        if skill == "fix":
+        item = self.seeded_item(skill=skill, target=None if client_stage else {**PIN, "commit_sha": baseline})
+        if skill == "fix" or client_stage:
             self.root_item(item, "Farm-Client")
         trees = Worktrees(local / "repos", local / "worktrees", {"Farm-Client": str(origin)})
-        path = trees.add("Farm-Client", item, "farmbot/fix")
+        if client_stage:
+            from agent.ledger import Ledger
+            ledger = Ledger(self.db)
+            try:
+                ledger.pin_feature_client(item, ledger.item(item)["generation"], {**PIN, "commit_sha": baseline},
+                                          branch="farmbot/farm-1")
+            finally:
+                ledger.close()
+            path = trees.add_stage("Farm-Client", item, "farmbot/farm-1", baseline)
+        else:
+            path = trees.add("Farm-Client", item, "farmbot/fix")
         (path / "fix.cs").write_text("fixed")
         git("commit", "-qam", "fix", cwd=path)
         fixed = trees.head(path)
@@ -359,27 +369,68 @@ class CliTests(unittest.TestCase):
         self.assertEqual(self.run_cli("reservations"), [])
 
     def test_a_feature_worker_is_refused_unity_before_any_checkout_is_read(self):
-        """P11: the item's own manifest decides, even for a feature item with a Farm-Client pin, and it is read only
-        for the claim's holder."""
+        """A legacy target grants no Client-stage authority; stale claims are refused before Git reads."""
         from unittest.mock import patch
         from agent.__main__ import parser, run
+        from agent.config import load_config
         from agent.ledger import Ledger, LedgerError
         item, token, baseline, fixed, path = self.verification_fixture(skill="feature")
+        self.root_item(item, "Farm-Client")
         ledger = Ledger(self.db)
         self.addCleanup(ledger.close)
         stranger = ["--db", str(self.db), "await-resource", "--item", item, "--token", "not-a-claim",
                     "--resource", "unity_slot", "--mode", "batch"]
         with self.assertRaisesRegex(LedgerError, "^running claim and matching token required$"):
             run(parser().parse_args(stranger), ledger, lambda: None)  # the claim first, then the manifest
-        with patch("agent.worktrees.Worktrees.verification_commit") as read_checkout:
+        with patch("agent.__main__.load_config", return_value=load_config(self.env["FARMBOT_CONFIG"])), \
+                patch("agent.worktrees.Worktrees.verification_commit") as read_checkout:
             for extra in ([], ["--commit", fixed]):
                 args = parser().parse_args(["--db", str(self.db), "await-resource", "--item", item, "--token", token,
                                             "--resource", "unity_slot", "--mode", "batch", *extra])
                 with self.subTest(extra=extra), self.assertRaisesRegex(
-                        LedgerError, "unity_slot is not a resource of feature; its manifest lists none"):
+                        LedgerError, "controller-selected client baseline"):
                     run(args, ledger, lambda: None)
         read_checkout.assert_not_called()
         self.assertEqual((ledger.item(item)["state"], ledger.reservations()), ("running", []))
+
+    def test_feature_explicit_commit_requires_owned_branch_and_keeps_stage_baseline(self):
+        item, token, baseline, fixed, path = self.verification_fixture(skill="feature", client_stage=True)
+        from test_worktrees import git
+        git("switch", "-q", "-c", "farmbot/farm-1-other", cwd=path)
+        args = ("await-resource", "--item", item, "--token", token,
+                "--resource", "unity_slot", "--mode", "batch", "--commit", fixed)
+        self.assertIn("controller-recorded", self.run_cli(*args, success=False).stderr)
+        git("switch", "-q", "farmbot/farm-1", cwd=path)
+        self.assertIn("explicit committed", self.run_cli(*args[:-2], success=False).stderr)
+        (path / "untracked.txt").write_text("uncommitted", encoding="utf-8")
+        self.assertIn("clean", self.run_cli(*args, success=False).stderr)
+        (path / "untracked.txt").unlink()
+        self.assertIn("current worktree HEAD", self.run_cli(*args[:-1], baseline, success=False).stderr)
+        result = self.run_cli(*args)
+        self.assertEqual((result["target"]["commit_sha"], result["target"]["issue_branch"]),
+                         (baseline, "farmbot/farm-1"))
+        self.assertEqual(self.run_cli("reservations")[0]["commit_sha"], fixed)
+
+    def test_feature_commit_validation_rechecks_claim_after_concurrent_cancel(self):
+        from agent.__main__ import parser, run
+        from agent.config import load_config
+        from agent.ledger import Ledger, LedgerError
+        from unittest.mock import patch
+        item, token, baseline, fixed, path = self.verification_fixture(skill="feature", client_stage=True)
+        config = load_config(self.env["FARMBOT_CONFIG"])
+        ledger = Ledger(self.db)
+        self.addCleanup(ledger.close)
+        args = parser().parse_args(["--db", str(self.db), "await-resource", "--item", item, "--token", token,
+                                   "--resource", "unity_slot", "--mode", "batch", "--commit", fixed])
+        def cancelled(*_, **options):
+            self.assertEqual(options, {"expected_branch": "farmbot/farm-1"})
+            ledger.cancel(item, "withdrawn during Git reads")
+            return fixed
+        with patch("agent.__main__.load_config", return_value=config), \
+                patch("agent.worktrees.Worktrees.verification_commit", side_effect=cancelled):
+            with self.assertRaises(LedgerError):
+                run(args, ledger, lambda: None)
+        self.assertEqual((ledger.item(item)["state"], ledger.reservations()), ("cancelled", []))
 
     def test_neutral_fix_cannot_select_a_fix_commit(self):
         item, token, baseline, fixed, path = self.verification_fixture()

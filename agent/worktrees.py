@@ -339,6 +339,62 @@ class Worktrees:
         self._head_cache[repo] = (time.monotonic(), commit, None)
         return commit
 
+    def _stage_path(self, repo, item_id):
+        if repo not in self.remotes or not item_id or Path(item_id).name != item_id or item_id in (".", ".."):
+            raise WorktreeError("unsafe stage repository or item path")
+        self._managed_paths(item_id)  # refuse redirected roots/entries before constructing a new worktree
+        return self.worktrees_root.resolve() / item_id / repo
+
+    def stage_base(self, repo, item_id, branch):
+        """Select latest trusted main only on first entry, without creating an issue branch."""
+        path = self._stage_path(repo, item_id)
+        if path.exists():
+            raise WorktreeError("refusing an unpinned existing stage worktree")
+        clone = self.ensure_clone(repo)
+        _git("check-ref-format", "--branch", branch, cwd=clone)
+        baseline = self.resolve_commit(repo)
+        if self._ref_commit(clone, f"refs/heads/{branch}") or self._ref_commit(clone, f"refs/remotes/origin/{branch}"):
+            raise WorktreeError("refusing an existing issue branch without a controller stage baseline")
+        return baseline
+
+    def add_stage(self, repo, item_id, branch, baseline, *, refresh=True, recorded=False):
+        """Create/restore the exact recorded client branch at its durable baseline; never reset it to main."""
+        if not isinstance(baseline, str) or not self.COMMIT.fullmatch(baseline):
+            raise WorktreeError("stage baseline requires a full lowercase commit SHA")
+        path = self._stage_path(repo, item_id)
+        clone = self.ensure_clone(repo)
+        _git("check-ref-format", "--branch", branch, cwd=clone)
+        if refresh:
+            self.fetch(repo)
+        if _git("rev-parse", "--verify", "--end-of-options", baseline+"^{commit}", cwd=clone) != baseline:
+            raise WorktreeError("stage baseline is not an available commit")
+        if path.exists():
+            self.worktree_entry(repo, path)
+            if self.git_in(path, "symbolic-ref", "--quiet", "--short", "HEAD") != branch:
+                raise WorktreeError("stage worktree is no longer on its recorded issue branch")
+            self.git_in(path, "merge-base", "--is-ancestor", baseline, "HEAD")
+            return path
+        local = self._ref_commit(clone, f"refs/heads/{branch}")
+        remote = self._ref_commit(clone, f"refs/remotes/origin/{branch}")
+        recovery = self._recovery_commit(clone, self._recovery_ref(item_id))
+        if local and self._checked_out(clone, f"refs/heads/{branch}"):
+            raise WorktreeError("stage issue branch is held by another worktree")
+        if not local and not recovery and remote and not recorded:
+            raise WorktreeError("unexpected remote issue branch; recovery requires its recorded plan")
+        selected = local or recovery or remote or baseline
+        _git("merge-base", "--is-ancestor", baseline, selected, cwd=clone)
+        if recovery:
+            # Keep recovery evidence rather than restoring an older/different branch over retained work.
+            _git("merge-base", "--is-ancestor", recovery, selected, cwd=clone)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if local:
+            _git("worktree", "add", "--quiet", str(path), branch, cwd=clone)
+        else:
+            _git("worktree", "add", "--quiet", "-b", branch, str(path), selected, cwd=clone)
+        if remote:
+            _git("branch", "--quiet", f"--set-upstream-to=origin/{branch}", branch, cwd=clone)
+        return path
+
     def add(self, repo, item_id, branch, *, refresh=True, attach=False):
         """The item's write worktree of `repo` on `branch`; an existing one is returned as it is.
 
@@ -461,7 +517,7 @@ class Worktrees:
             return self.git_in(path, "rev-parse", "HEAD")
         return _git("rev-parse", "HEAD", cwd=path)
 
-    def verification_commit(self, repo, item_id, commit):
+    def verification_commit(self, repo, item_id, commit, *, expected_branch=None):
         """Validate a worker's immutable test input without fetching or changing files."""
         if not isinstance(commit, str) or not self.COMMIT.fullmatch(commit):
             raise WorktreeError("verification commit must be a full lowercase commit SHA")
@@ -473,6 +529,9 @@ class Worktrees:
             self.worktree_entry(repo, path)
         except WorktreeError as exc:
             raise WorktreeError(f"verification worktree does not belong to FarmBot's configured clone: {exc}") from exc
+        if (expected_branch is not None
+                and self.git_in(path, "symbolic-ref", "--quiet", "--short", "HEAD") != expected_branch):
+            raise WorktreeError("verification requires the controller-recorded client issue branch")
         if self.git_in(path, "rev-parse", "HEAD") != commit:
             raise WorktreeError("verification commit must equal the item's current worktree HEAD")
         if self.git_in(path, "status", "--porcelain", "--untracked-files=all"):

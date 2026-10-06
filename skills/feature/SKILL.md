@@ -1,6 +1,6 @@
 ---
 name: feature
-description: Carry one delegated Bot/Code feature card from its Farm-Contract change through farm-common declarations and config verification to the farm-hive server, one fresh worker per repository stage; ask people by name, open draft PRs, never merge; name the client work that remains.
+description: Carry one delegated Bot/Code card through contract, config, server and client stages with fresh scoped workers, human UI-ready confirmation and committed-HEAD verification; open draft PRs, never merge or deploy.
 ---
 
 # FarmBot feature worker
@@ -8,9 +8,9 @@ description: Carry one delegated Bot/Code feature card from its Farm-Contract ch
 This is FarmBot's Code worker, the `feature` skill; in Linear you speak as `bot_name` from your launch message.
 One job carries one delegated Bot/Code card through repository stages, over days, with a fresh worker for each
 stage: the Farm-Contract change (stage A), farm-common declarations (stage B), config verification once 策划
-report the config ready (stage C), the farm-hive server (stage D) and the closing steps (stage G), ending with a
-delivery that names the client work still to do. The client stages (E and F) and the contract write-back (回账)
-are not part of this job yet: never write Farm-Client or farmgui, and leave the OpenSpec change unarchived.
+report the config ready (stage C), the farm-hive server (stage D), UI-ready verification (stage E), the client
+(stage F) and closing (stage G). Never write or export farmgui UI. The feature's UI authoring/export is a human
+step this job waits for; existing package presence is never confirmation that it is finished.
 
 Your launch message holds `item_id`, the ledger `database`, the readable `worktrees` (Farm-Contract, common and
 farm-hive, each on this card's issue branch), `reads` (detached checkouts of Farm-Contract's, Farm-Client's and
@@ -19,7 +19,11 @@ farmgui's default branches, refreshed at every launch except a publication retry
 app and optional home, or an explicit environment authentication grant), `guidance`, bounded `prior_context`, `user_requests`, the FarmBot
 paths `repo_root`, `contract` and `references`, `bot_name` (write it wherever a template says `<bot_name>`) and
 `state_dir`, the one private directory you may write outside the current stage's writable worktree (STATE_DIR
-below). There is no `target`: this job pins no client build and holds no Unity resource. Only
+below). Before client entry `target` is null. On entry the controller creates Farm-Client's exact issue branch
+from the stage's latest trusted main and records its immutable baseline and `issue_branch` in `target`;
+retries and recovery retain them. Never create that worktree yourself, fabricate a target or reset its branch
+to newer main. The session has no intake client pin. Listing `unity_slot` permits a later request only;
+`resource` is null until a reservation is held. Only
 `stage.write_repositories` may be edited, committed or published in this attempt; every other path, `reads`
 included, is read-only.
 
@@ -58,8 +62,8 @@ from its conversation. It is one feature, as its 策划案 (the designers' docum
 it: new protocol messages, new config tables or new server behaviour. Stage A always runs, because the OpenSpec
 change it writes is where the job's gaps, rulings and downstream lists live; the change then settles which later
 stages have work. A stage without work is skipped, and the skip is recorded in the plan and posted as a `stage`
-notice. The feature's UI is another card: this job writes neither Farm-Client nor farmgui, and reads them only in
-their checkouts under `reads`, for the client half of stage A's gap list.
+notice. Read Farm-Client and farmgui only in their default-branch `reads` for stage A's gap list. Farm-Client
+becomes writable only in its own client attempt; farmgui remains read-only throughout.
 
 ## Intake (every attempt)
 
@@ -111,7 +115,7 @@ Each write repository in `worktrees` is on this job's issue branch for that repo
   another instance's work. A later attempt, and a successor of cancelled work, gets exactly these branches back from
   the controller, so never change a recorded name, and record one `issue` entry per repository: `checkpoint`
   refuses one that is not this card's `farmbot/<key>` or `farmbot/<key>-…` or a second one for a repository.
-  A suffix branch (`-config`, `-config-<n>`, `-waivers`, `-followup`) is never an `issue` entry: record it under
+  A suffix branch (`-config`, `-config-<n>`, `-waivers`, `-followup`, `-writeback`) is never an `issue` entry: record it under
   its own role, and `checkpoint` refuses it as `issue`.
 - **A re-attached branch** is FarmBot's clone's branch of that name: moved forward to `origin/BRANCH` when only the
   remote had new commits, and left as it was when it had commits of its own. At the start of each stage, in the root
@@ -132,9 +136,15 @@ Each write repository in `worktrees` is on this job's issue branch for that repo
 
 ## Where to continue
 
+For an older Phase B checkpoint without E/F, re-read the accepted change and authorized scope before
+adding their states from actual UI/client requirements. Preserve existing limits, notices and evidence;
+an old G/delivery never proves client verification or write-back. Do not reopen a cancelled or limited
+card's later stages without authorization. Save the complete updated plan before any handoff.
+
 A pending `pause` comes first: continue at "Pauses and resumes". Otherwise the next step is the first stage of A,
-B, C, D and G whose state is pending (a job with no plan starts at A), and each stage has its root: A
-Farm-Contract, B and C common, D farm-hive; the closing steps name theirs. A pending pause is answered in the
+B, C, D, E, F and G whose state is pending (a job with no plan starts at A), and each stage has its root: A
+Farm-Contract, B and C common, D farm-hive, E the current pre-client root, F Farm-Client; closing names its roots.
+A pending pause is answered in the
 root of the first pending stage too (a `config_ready` pause, with B done, in common). When `stage.root_repository`
 is not the root of what comes next, for example because `retry` or a continuation starts again at Farm-Contract,
 save a checkpoint with the plan and a fresh handoff, run `handoff-repository --to` that root and exit.
@@ -145,6 +155,8 @@ save a checkpoint with the plan and a fresh handoff, run `handoff-repository --t
 | B | common | "Stage B: farm-common declarations" |
 | C | common | "Config ready and stage C" |
 | D | farm-hive | "Stage D: farm-hive" |
+| E | current root, before client handoff | "UI ready and stage E" |
+| F | Farm-Client | "Stage F: Farm-Client" |
 | G | any root for the closing comment; each later closing step names its own | "Closing" |
 
 ## The plan
@@ -154,30 +166,37 @@ Keep the job's state in the checkpoint's `plan` (`references/worker-cli.md`, "Pl
 stay within 2,000 characters, arrays within 50 entries and the whole plan within 16,000 characters; longer notes go
 to files under STATE_DIR. This skill writes these keys:
 
-- `stages`: `{"A": S, "B": S, "C": S, "D": S, "G": S}`, each S `"pending"`, `"done"` or `"skipped: <reason>"`.
+- `stages`: `{"A": S, "B": S, "C": S, "D": S, "E": S, "F": S, "G": S}`, each S `"pending"`, `"done"` or `"skipped: <reason>"`.
 - `pause`: while parked, `{"kind": K, "reason": R, "notice": REQUEST_ID, "since": UTC_TIME}`, with K one of
-  `answers`, `config_ready`, `closing`, `foreign_work` and `stage_limit`, R `question` or `waiting`, and the time
+  `answers`, `config_ready`, `ui_ready`, `closing`, `foreign_work` and `stage_limit`, R `question` or `waiting`, and the time
   in ISO 8601 UTC; absent otherwise. Remove it at the first checkpoint after a resume that ends the pause.
 - `change`: `{"name": CHANGE_NAME, "path": "openspec/changes/CHANGE_NAME"}`.
-- `ui`: `{"has_ui": BOOL, "packages": [...], "components": [...]}`, from the change's UI section, for the client
-  stage that follows this job.
+- `ui`: `{"has_ui": BOOL, "packages": [...], "components": [...]}`, from the change's UI section.
+  `ui.ready_notice` records the waiting request id, exact body and named owner before publication; repeated
+  attempts reuse it. `ui.ready_event` names the explicit human confirmation; `ui.evidence` records both main
+  commits and the actual package/component/export paths checked, not private host paths.
+- `client`: the controller baseline/branch copied as evidence, exact contract and config input commits/digest,
+  the committed verification HEAD and each typecheck/unit/Unity outcome; never substitute this plan for `target`.
 - `config`: `{"declared": [{"file", "sheet", "header", "field", "type"}, ...], "ref", "sha", "jenkins_branch",
   "expected_version", "pin"}`, each value added when a stage reaches it; `pin` is `local` or `published`.
   `config.stage_notice` records the verification round's `request_id`, config `sha`, `jenkins_branch` and exact
   `body`, saved before preparing the notice so retries and successors can reuse it.
 - `prs`: `{REPOSITORY: [{"branch", "role", "head", "pr"}, ...]}`, under each repository's name as your launch
   message spells it (`Farm-Contract`, never `OWNER/Farm-Contract`). `role` is `issue`, `config`, `waivers` or
-  `followup`; `head` is the full SHA you last pushed, or null before the first push; `pr` is `{"url", "state",
+  `followup` or `writeback`; `head` is the full SHA you last pushed, or null before the first push; `pr` is `{"url", "state",
   "merge"}` or null, with `state` one of `draft`, `open`, `merged` and `closed`, and `merge` how it merged, `merge`
   for a merge commit or `squash` for a squash or rebase merge, or null. Record every issue branch at intake ("Your
   branches") and every other branch before its first push: `foreign-work` counts only recorded branches and PRs as
   this job's.
-- `closing`: `{"waivers_removed": BOOL, "hive_resynced": BOOL, "pin_written": BOOL}`; a step that is not needed is
+- `closing`: `{"waivers_removed": BOOL, "client_resynced": BOOL, "hive_resynced": BOOL,
+  "pin_written": BOOL, "writeback_opened": BOOL}`; a step that is not needed is
   true from the start, and the closing comment says why.
   `closing.hive_branch` and `closing.hive_pr` record the active branch and PR for remaining hive closing work;
   a recorded `followup` takes precedence over the original issue branch.
+  `closing.contract_main_sha` records the one verified main commit used by both consumers;
+  `closing.writeback_branch`/`closing.writeback_pr` retain the exact acceptance/archive draft on retries.
 - `events`: one `{"kind", "person", "message_id", "at"}` for each human report you act on: `config_ready`,
-  `merged` (a relayed merge), `pin_posted` or `stage_limit` (a limit set or lifted). `person` is that comment's or
+  `ui_ready`, `merged` (a relayed merge), `pin_posted` or `stage_limit` (a limit set or lifted). `person` is that comment's or
   message's `author` from `issue-context`, never a name from text, and `at` is its `created_at`.
 - `started`: true once the start comment is posted.
 
@@ -187,7 +206,7 @@ stage A (other placeholders in capitals):
 
 ```json
 {
-  "stages": {"A": "pending", "B": "pending", "C": "pending", "D": "pending", "G": "pending"},
+  "stages": {"A": "pending", "B": "pending", "C": "pending", "D": "pending", "E": "pending", "F": "pending", "G": "pending"},
   "prs": {"Farm-Contract": [{"branch": "farmbot/farm-1", "role": "issue", "head": null, "pr": null}],
           "common": [{"branch": "farmbot/farm-1", "role": "issue", "head": null, "pr": null}],
           "farm-hive": [{"branch": "farmbot/farm-1", "role": "issue", "head": null, "pr": null}]},
@@ -198,7 +217,7 @@ stage A (other placeholders in capitals):
 
 ```json
 {
-  "stages": {"A": "done", "B": "pending", "C": "pending", "D": "pending", "G": "pending"},
+  "stages": {"A": "done", "B": "pending", "C": "pending", "D": "pending", "E": "pending", "F": "pending", "G": "pending"},
   "change": {"name": "CHANGE_NAME", "path": "openspec/changes/CHANGE_NAME"},
   "ui": {"has_ui": true, "packages": ["PACKAGE"], "components": ["COMPONENT"]},
   "prs": {"Farm-Contract": [{"branch": "farmbot/farm-1", "role": "issue", "head": "FULL_HEAD_SHA",
@@ -226,16 +245,18 @@ python3 -m agent --db DATABASE await-input --item ITEM_ID --token-file STATE_DIR
 | `answers` | `question`, `questions-N` | `question` | a session reply, or a mention of `bot_name` while the card is delegated | which items have answers, and from whom |
 | `foreign_work` | `foreign_work`, `foreign-work-N` | `question` | the same | the answer (continue, stop, or build on theirs) and who gave it |
 | `config_ready` | `waiting`, `config-needed`, then `config-needed-N` | `waiting` | the same, once someone names a farm-common commit or branch on the card | "Config ready and stage C" |
+| `ui_ready` | `waiting`, `ui-needed`, then `ui-needed-N` | `waiting` | an explicit human session reply or mention after UI/export work | "UI ready and stage E" |
 | `closing` | `waiting`, `closing`, then `closing-N` | `waiting` | the same, after any human step the closing comment lists | "Closing", "Each resume" |
 | `stage_limit` | the notice that ended the stage ("A stage limit") | `waiting` | the same | "A stage limit" |
 
 Question and foreign-work rounds are numbered from 1 (`questions-1`, `foreign-work-1`): `issue-context.notices`
 lists your item's notices and `recovery.notices` those of the jobs it continues, so N is one more than the highest of
-that kind there. `config-needed` and `closing` start unnumbered, and each re-ask takes the next number from 2
-(`config-needed-2`, `closing-2`, …). After an interruption, rerun `post-notice` with the same request id instead of
+that kind there. `config-needed`, `ui-needed` and `closing` start unnumbered, and each re-ask takes the next number from 2
+(`config-needed-2`, `ui-needed-2`, `closing-2`, …). After an interruption, rerun `post-notice` with the same request id instead of
 preparing a new one; a new round needs a new id. Besides these, the job posts a `stage` notice only for a stage that
-is skipped (`stage-<letter>`) and, in stage C, for its pass (`stage-C`), and `merge_request` notices that ask the
-owner to merge a named PR (`merge-contract`, later `merge-waivers`): stage A ends with the `merge_request` notice
+is skipped (`stage-<letter>`), in stage C for its pass (`stage-C`), or for a completed D/E/F stage at its human
+limit. `merge_request` notices ask the owner to merge a named PR (`merge-contract`, later `merge-waivers` and
+`merge-writeback`): stage A ends with the `merge_request` notice
 `merge-contract`, never with a `stage` notice.
 
 ```bash
@@ -259,10 +280,11 @@ that sets or lifts a limit decides, and it binds this job only; record each in `
 stage it names is done, do not hand off to or start a later stage:
 
 - Add the limit's line from the template to the notice that ends that stage: `merge-contract` after A,
-  `config-needed` after B, `stage-C` after C (the saved stage-C notice id after a re-pin) and `closing` after D.
-- After A and C, save the checkpoint with `pause` `{"kind": "stage_limit", "reason": "waiting", "notice": REQUEST_ID,
+  `config-needed` after B, `stage-C` after C (the saved stage-C notice id after a re-pin), and `stage-D`, `stage-E`
+  or `stage-F` after that stage. Do not post Closing or ask for later UI work merely to park after D.
+- After A, C, D, E and F, save the checkpoint with `pause` `{"kind": "stage_limit", "reason": "waiting", "notice": REQUEST_ID,
   "since": UTC_TIME}`, REQUEST_ID being that notice's, run `await-input --reason waiting --question` with one line
-  that points to it, and exit. B and D end in their own pauses (`config_ready`, `closing`); keep them.
+  that points to it, and exit. B ends in its own `config_ready` pause; keep it.
 - On any resume while a limit stands, read the session messages first. Continue only when a message after the limit
   asks you to go on. Otherwise start no later stage, even when the resume satisfies another pause: record what it
   reported (for example a `config_ready` event), say in the session with `activity --type thought` that you stay
@@ -445,7 +467,8 @@ there. FarmBot adds:
    by another change's stale waivers on main is reported to that change's owner, not fixed.
 7. Settle the later stages in the plan: `change`; `ui` (`has_ui`, and the packages and components the change's UI
    section names); `stages.B` pending when 配表下游 declares anything, else `skipped: <reason>`; `stages.C` the same
-   as B; `stages.D` pending when the farm-hive 交棒 entry has server work, else skipped; `stages.G` pending. Post a
+   as B; `stages.D` pending when the farm-hive 交棒 entry has server work, else skipped; `stages.F` pending when the
+   Farm-Client 交棒 entry has client work, else skipped; E pending when `ui.has_ui`, else skipped; G pending. Post a
    `stage` notice from the `feature stage` template for each skipped stage: `stage-B` (which says that C is skipped
    with it) and `stage-D`.
 8. Commit, run "Other people's work" again, publish, and open the draft PR; its body names the change and its
@@ -536,7 +559,7 @@ committed together at a commit someone names; a branch is fine, and main is not 
    `stage-C` for the first verification round, then `stage-C-2`, `stage-C-3`, … for re-pins (the config commit,
    the Jenkins branch, the next stage, and the limit's line when a stage limit stops
    you after C). Save the checkpoint with a fresh handoff. When a stage limit stops you after C ("A stage limit"),
-   park there. Otherwise run `handoff-repository --to farm-hive`, or continue at "Closing" when stage D is
+   park there. Otherwise run `handoff-repository --to farm-hive`, or continue at "UI ready and stage E" when stage D is
    skipped.
 
 Choose the next unused numbered id across `issue-context.notices` and `recovery.notices` for each new re-pin
@@ -645,7 +668,8 @@ section. A contract change enters farm-hive at its plan: its behaviour is settle
    declarations PR and the config commit; the designer-data mechanism it used; its merge preconditions (after the
    contract PR merges and FarmBot pushes the re-sync, and after the published pin is written); the CI it expects;
    and the local results, every check not run included.
-9. Set `stages.D` to done, save the checkpoint, and continue at "Closing" in this attempt.
+9. Set `stages.D` to done, save the checkpoint, and continue at "UI ready and stage E" in this attempt. A limit
+   after D parks before E or any client handoff; put its line in the stage-D notice and retain `stage_limit`.
 
 ### The designer-data mechanism
 
@@ -659,31 +683,129 @@ skill's rules: a value you compute locally for the config SHA, a placeholder for
 a Jenkins branch at the config SHA that adds no commits, and published values only as a human posts them; name each
 step you could not match as a gap. Either way the hive PR body says which mechanism it used.
 
+## UI ready and stage E
+
+Remain rooted in the last stage with work (Farm-Contract/common when server work was skipped). Check the latest
+human stage limit before asking, inspecting exports or handing off. If `ui.has_ui` is false, record
+`stages.E: "skipped: no UI in the recorded change"`, post `stage-E`, and continue to F when it has work, otherwise
+Closing. Do not request UI work for a no-UI card.
+
+For UI, always ask once after server/config work: an existing package or component cannot establish readiness.
+Post a `waiting` notice `ui-needed` from `feature UI needed`, mentioning the named owner and listing the exact
+packages/components and client exports the accepted change requires. Save `ui.ready_notice` with its exact
+request id/body before preparing it; retries reuse both, and a new failed verification round uses `ui-needed-N`
+from 2. Set `pause` to `ui_ready`/`waiting`, checkpoint, `await-input --reason waiting`, and exit. Author or export
+no UI yourself. Never infer an answer from a repository, silence or a timer.
+
+On an explicit resume, find the named person's confirmation in session messages or human replies after that
+notice, attribute its author/message/time in `events` and `ui.ready_event`, then verify both refreshed defaults:
+the actual farmgui components in `reads["farmgui"]` and each required published package/component export in
+`reads["Farm-Client"]` under `Assets/GameRes/FairyRes/<Pkg>/`. Follow the repositories' own package descriptor,
+component ID and generated binding rules; inspect actual file contents, component identities and dependencies,
+not folder existence alone. Record the two full main commits and inspected repository-relative paths. A missing
+read checkout, LFS pointer instead of a required descriptor, wrong identity or absent client export is a measured
+gap: say what was inspected and ask in a new scoped `ui-needed-N` round, then park again. A reply requesting a
+different change is steering to resolve, not UI-ready confirmation.
+
+Only after human confirmation and both repository checks pass set E done, save the evidence/checkpoint and
+hand off to Farm-Client when F has work. A limit after E parks there before the handoff. When F has no work,
+record its skip and continue Closing; never create a client branch merely for a skipped stage.
+
+## Stage F: Farm-Client
+
+Root Farm-Client. Follow its own AGENTS/CLAUDE, the accepted change's client 交棒 and scenarios, and
+`references/repo-map.md`'s client tooling section. The controller's `target` is this stage's immutable main
+baseline, not the issue's intake commit or the revision that later tests will verify. Confirm your actual branch
+equals `target.issue_branch`; preserve it and any recovery work. Record it in `plan.prs.Farm-Client` only after
+"Other people's work" passes. Fetch and integrate main drift without resetting or force-pushing, and ask about
+newer designer data rather than reverting it. Respect all stage limits, withdrawal and current claim fences.
+
+A reservation-bound resume starts at step 8, without regenerating assets or changing the committed input.
+After a clean release, keep your current claim and continue at step 9 only when the saved verification names the same clean HEAD
+and unchanged input pins, all required checks passed, and the controller has settled the reservation. Otherwise
+repeat verification at a new committed HEAD. Persist `client.verification` (phase, HEAD, input pins, reservation
+id, result/evidence) before requesting, releasing or publishing, so retries cannot duplicate or invent evidence.
+
+1. Read the 策划案 again, the client requirements and scenario acceptance, and the recorded UI evidence. Verify
+   the sibling issue Contract worktree is clean, committed and at its recorded input HEAD; use its exact full SHA
+   for the initial draft. Do not confuse an unmerged issue SHA with main provenance.
+2. Use the delivered `tools/NetworkProtobufExport` .NET command with explicit `--project-root`, `--contract-root`,
+   native `--protoc` and `--expected-contract-commit`. Build/link the actual exporter, with the pinned hydrated
+   Google.Protobuf DLL, in private owned STATE_DIR outputs. It installs complete MonoImporter metadata atomically.
+   Never invoke Unity, imitate generation, hand-edit generated code, or append metadata after installation.
+3. When C ran, recreate/check the detached clean common snapshot at `config.sha` under STATE_DIR. Generate and
+   independently verify a fresh `unity-client` artifact with that commit and take its full source digest from
+   the verified manifest. Run `tools/ConfigProtobufExport` with explicit `--project-root`, `--common-root`,
+   `--expected-common-commit` and `--expected-source-digest`. Restore from the lock file using prepared packages
+   and explicit private NuGet configuration/home/caches. Windows common generation uses `gen-config.cmd` with
+   prepared pinned Go/protoc, readonly modules and owned caches; it never falls back to Bash/MSYS/WSL. Keep
+   `GOPROXY=off`/`GOSUMDB=off`; missing prepared tools/packages are host gaps. When B/C were skipped, retain the
+   current config and report that export as not required; invent no config pin.
+4. As part of step 3's preparation, update actual client readers/registry/count migrations for added/removed tables before export preflight, as
+   repository rules require; preserve complete old metadata/GUIDs and let the supported transaction create new
+   metadata and remove orphans. List every unrelated designer change brought by the full export. Fix only proven
+   data moves; suspected designer defects go to the owner and never become expected values.
+5. Implement client behavior and UI wiring from the requirements. Run the full native typecheck on Windows:
+   selected Python `tools/typecheck/hotupdate-typecheck.py --project-root CLIENT --reference-checkout REFERENCE
+   --output-root NEW_PRIVATE_OUTPUT --dotnet ABSOLUTE_DOTNET`, using only
+   `tools.client_typecheck.reference_checkout`. No `--no-tests` for the gate. macOS may retain its shell entry
+   with an explicit readonly reference. Missing matching Unity-generated projects or hydrated references are
+   BLOCKED host capabilities; never start Unity or inspect another personal checkout to obtain them.
+6. Run the repository's full .NET unit command with the verified `FARM_CONFIG_ARTIFACT_ROOT` when applicable.
+   Keep raw UTF-8 logs privately; record discovered/pass/failure/skip counts, every skip and input/tool identities.
+   Typecheck compiles both test assemblies without executing Unity tests; it cannot stand in for them.
+7. Commit intended code/generated artifacts, using Git LFS's existing clean filter for tracked binary data,
+   never raw bytes or credential setup. Check clean status including untracked files. Save the committed HEAD,
+   checkpoint and request `await-resource --resource unity_slot --mode batch --commit FULL_HEAD_SHA` (or
+   interactive when the required checks need it), then exit. The CLI validates this item's configured owned
+   worktree, exact controller-recorded branch and clean HEAD; ownership is checked again after Git. The
+   reservation records its tested commit separately from the baseline. Never request a resource before client
+   handoff or omit `--commit`, never start Unity directly, and never write the slot folder.
+8. On the reservation-bound resume, confirm `resource.commit` equals the saved client HEAD. Read the pool's
+   `batch_result`/results, or use only the held interactive Unity MCP per the fix verification rules. Run the
+   appropriate tests/PlayMode checks for changed behavior; retained results must name this reservation and commit.
+   A gap, failed setup/test or untested behavior is reported explicitly. Release the reservation with the actual
+   clean/unclean verdict and token procedure in `references/worker-cli.md`; save the results/checkpoint before
+   releasing. A clean release does not retire your worker claim: use read-only `slots`/`reservations` to wait for
+   the pool to park the released slot in `idle_closed` or `idle_open`, with no active reservation on it, before
+   step 9; report a held slot or missing quiescence as a gap. An unclean release retires the claim and queues
+   controller recovery: exit immediately and inspect retained recovery evidence on resume, never publish.
+   Never hand off or pause for a human while holding a reservation. Any code/input change requires
+   a new committed HEAD and new verification, not reuse of old evidence.
+9. Run "Other people's work" again, `verify-publication`, push and open/register the client draft only after the
+   local required checks pass. Its body lists exact unmerged Contract input, common commit/source digest, UI
+   package evidence, unrelated generated changes, verification HEAD/results/skips and merge preconditions.
+   A missing mandatory capability leaves a measured blocked result, not a successful stage-by-skip. Mark F done,
+   save the plan and continue Closing; a limit after F parks with the client draft and verification evidence.
+
 ## Closing
 
-Stage G finishes the contract and hive work of this job: the stale waivers, the re-sync to the merged contract and
-the published pin. The client stage and the contract write-back come later and are not asked for.
+After the last required stage, pause for the named human merge/publish steps. Workers never merge or run Jenkins.
+Closing handles waivers, both consumers' re-sync, the published server pin and the Contract acceptance/archive
+draft, one fresh worker per writable root. Keep all unmerged drafts and untested/human acceptance explicit.
 
 ### The closing comment
 
 When `issue-context.notices` (or `recovery.notices`) already lists the `closing` notice, the comment is out:
 continue at "Each resume", as an attempt that a closing step handed off to does (a handoff carries no pause).
 
-Once the last stage with work is done (normally D; C when D is skipped; A when B and D are), read each PR's state
+Once the last stage with work is done (normally F; an earlier stage only when later work is explicitly skipped), read each PR's state
 as "Each resume" step 2 says and leave out of the comment what is already done. Set the `closing` steps that are
 not needed to true (no config change: no pin). When stage D is skipped, set both `closing.hive_resynced` and
 `closing.pin_written` to true: there is no hive PR or hive pin work, even when B and C ran. Keep `config.sha`
 for the client stage and do not hand off to farm-hive for closing. Omit the hive PR, re-sync and Jenkins publish
 requests from the closing comment; the delivery says that server work was skipped and the config SHA remains
-for the client stage. Then post one `waiting` notice
+for the client stage. Set `closing.client_resynced` true only when F was skipped; otherwise it requires the
+post-merge export and verification below. `closing.writeback_opened` starts false. Then post one `waiting` notice
 `closing` from the `feature closing` template, set `pause` (`closing`, `waiting`, `closing`), save the checkpoint,
 run `await-input --reason waiting --question` pointing to the comment, and exit. The comment asks the owner to merge
 the contract PR and, if it is still open, the declarations PR. When stage C ran and stage D was not skipped,
 it asks someone to run the publish
 pipeline the hive PR used (`designer-source.pipeline` today) on `config.jenkins_branch` and paste the three pin lines
 it prints into the card, and it names the expected version. It says the hive PR merges only after the contract
-merge, the pushed re-sync and the published pin; it asks for no UI step; and it warns that moving the card to Done
-or Canceled first cancels the job. When a stage limit stops you after D, it carries the limit's line.
+merge, the pushed re-sync and the published pin; it asks for no UI step because E already handled readiness;
+it also names the client re-export/verification and separate writeback draft. It warns that moving the card to Done
+or Canceled first cancels the job. A stage limit parks before Closing as described in "A stage limit".
 
 ### Each resume
 
@@ -694,8 +816,9 @@ FarmBot learns of a merge only when told, and then checks GitHub; it polls nothi
    its `state` and `merge`: `merge` when its merge commit has two parents
    (`gh api repos/OWNER/REPO/commits/MERGE_SHA --jq '.parents | length'`), `squash` otherwise (a squash or a rebase
    merge, both of which leave the PR's head off the default branch).
-3. Do what has become possible, in root order: Farm-Contract (waiver removal), then farm-hive (the re-sync, then
-   the pin), omitting hive entirely when D was skipped. On every farm-hive closing attempt, follow "The active
+3. Do what has become possible, in root order: Farm-Contract (waiver removal), Farm-Client (post-merge export and
+   verification), farm-hive (the re-sync, then the pin), Farm-Contract (write-back). Omit client/hive when their
+   stages were skipped. On every farm-hive closing attempt, follow "The active
    closing branch" before either step. When the next step needs another root, save the plan and a fresh handoff, run `handoff-repository --to`
    that root and exit; the next attempt continues from the plan. A contract PR closed without merging is a
    question: reopen, revise or abandon.
@@ -712,7 +835,36 @@ those lines, run the twelve gates, record the branch (role `waivers`), publish, 
 checkpoint with the PR in `published_prs`) while this branch is still checked out, and post the `merge_request`
 notice `merge-waivers`. Then run `git switch -`, because the farm-hive attempt reads this worktree on its issue
 branch. If no such line is left, there is nothing to remove. Set `closing.waivers_removed`, save the
-plan, and continue with the next closing step, usually a handoff to farm-hive.
+plan, and continue with the next closing step, usually a handoff to Farm-Client.
+
+### One main input for both consumers
+
+After a human reports the Contract merge, verify GitHub's state/merge commit and merge versus squash history.
+From the refreshed `reads["Farm-Contract"]`, require `git merge-base --is-ancestor MERGE_SHA HEAD` before
+selecting the full HEAD as `closing.contract_main_sha`. A squash/rebase merge never makes the old issue HEAD
+main provenance. Save the selected SHA before any consumer re-sync; both consumers use this one SHA, not their
+independently refreshed default tips. When a read snapshot lacks that merge or selected object, park with the
+actual finding and request a new resume; never substitute the unmerged issue SHA.
+
+Make a clean detached snapshot under STATE_DIR at that SHA from the read-only Contract checkout using
+`git clone --shared --no-checkout READS_CONTRACT STATE_DIR/contract-main-FULL_SHA`, then
+`git -C STATE_DIR/contract-main-FULL_SHA checkout --detach FULL_SHA`. It registers no controller worktree and
+never writes the borrowed clone. Check clean status and exact HEAD before each export/sync. Recreate it in a
+successor's own STATE_DIR when absent. On later resumes, compare main's relevant protocol/manifest inputs;
+if they drift, revalidate a new verified main SHA and redo both consumers and their tests together, recording
+the new round rather than marking only one re-sync done. Never silently adopt newer designer configuration.
+
+### Client re-export after merge
+
+Root Farm-Client, when F ran and the Contract merge is verified. Select the original recorded issue branch/PR;
+if the client PR merged/closed before this work, park and ask how to review the remaining client change rather
+than pushing to a merged/deleted branch. Use the clean snapshot at `closing.contract_main_sha` in the delivered
+network command with the matching `--expected-contract-commit`, replacing the unmerged input. Retain the verified
+config pin, merge relevant client main drift without reset, and list every unrelated protocol change.
+Rerun full typecheck/unit and reservation-based Unity verification at the new committed HEAD using F's durable
+verification phases; stale pre-merge evidence cannot certify the new input. Update/push the same client draft,
+its exact main/config provenance and merge preconditions. Mark `closing.client_resynced` only after verification
+and publication pass. Save the plan before handing off to hive, or directly to write-back when D was skipped.
 
 ### Re-sync
 
@@ -727,12 +879,11 @@ Root farm-hive, once the contract PR merged. Replace the `-unreachable` snapshot
    checkpoint with the plan, post `closing-N` from the `feature still waiting` template saying that the merge is not
    yet in this launch's checkout of Farm-Contract main and asking for a reply, park, and exit. The next launch
    refreshes it, since a resumed launch is never a publication retry.
-3. If the contract PR merged with a merge commit and its head (`headRefOid`, the `head` recorded for Farm-Contract's
-   `issue` entry) is the HEAD of `../Farm-Contract`, this item's worktree, rerun `bash gen-msg-protos.sh`: the
-   contract commit becomes the bare SHA and only the manifest header changes. If that still leaves the manifest's
-   contract commit `-unreachable` (the item's Farm-Contract clone predates the merge), sync as in step 4.
-4. Otherwise (a squash or rebase merge, or others' commits on the branch), run it with `FARM_CONTRACT` set to
-   READS_CONTRACT. That diff carries the new pin and any drift, so also run `bash gen-registry.sh` and
+3. Follow "One main input for both consumers". For merge, squash and rebase histories alike, use the clean
+   snapshot at `closing.contract_main_sha`; verify it contains MERGE_SHA and exactly matches the recorded SHA.
+   Never select the issue HEAD merely because it became reachable after a merge.
+4. Run it with `FARM_CONTRACT` set to that snapshot. On Windows use the native Python sync's explicit
+   `--contract` argument. That diff carries the new pin and any drift, so also run `bash gen-registry.sh` and
    `bash ci/check_proto_registry.sh`, and register what the drift brought.
 5. Prove the result with `FARM_CONTRACT=CHECKOUT bash ci/check_contract_sync.sh`, CHECKOUT being the checkout you
    synced from, and `bash ci/check_msg_proto.sh` before the push. Push to the hive PR's branch and set
@@ -753,7 +904,10 @@ re-pin to that commit. When a named person answers to re-pin, record it in `even
 `config.sha` to that commit and `stages.C` to pending, clear `config.stage_notice`, and hand off to common:
 stage C runs a new verification round for it and publishes it
 on a new Jenkins branch when it does not descend from the pushed one ("The Jenkins branch"), and back in farm-hive
-you redo stage D's steps 4 and 5 for it before this step. Never pin it silently.
+you redo stage D's steps 4 and 5 for it before this step. Also invalidate the old config digest, pin and Client
+verification for that input, set F pending when it ran, and clear the affected closing flags. Re-export Client
+config, rerun its typecheck/unit/Unity checks at a new committed HEAD and update its existing draft before
+write-back or delivery; retain the controller baseline and unchanged verified UI evidence. Never pin it silently.
 
 ### A PR merged too early
 
@@ -784,13 +938,42 @@ never commit the remaining pin on the merged issue branch.
 4. Otherwise the issue PR is still open: select its recorded issue branch and PR. Save the active branch and PR
    in `closing` before editing. The re-sync, published pin and any re-pin's stage-D steps use this selection.
 
+### Contract write-back and archive
+
+Root Farm-Contract, after the Contract merge is verified, required client/server re-sync and pin work passed,
+and each consumer draft/evidence is recorded. Save a fresh handoff before entering this root. Fetch main and
+create the exact `farmbot/<key>-writeback` branch from `origin/main`, role `writeback`, never as an issue entry.
+Record `closing.writeback_branch` before its first publication. If recorded already, select/reuse that branch
+and its existing draft instead of creating another; missing refs or a merged/closed draft with remaining work
+require a scoped question. Integrate remote drift without reset or force-push.
+
+Read this change's tasks/scenarios and the repository's OpenSpec archive rules. Write acceptance links and exact
+tested commits/results; mark only measured tasks complete. Preserve 客户端侧要求, 待裁决, decision counts and
+explicit unmerged/unaccepted client/human steps. Do not turn an unresolved decision, platform skip or absent
+acceptance into a completed task. Archive only this issue's change using the installed pinned OpenSpec CLI and
+its supported native Windows command; inspect its help/version before use, install nothing, and never fall back
+to Bash/MSYS/WSL. Inspect the complete archive/spec/provenance diff and run all twelve Contract gates; unresolved
+archive/rollback or missing-tool findings retain recovery evidence and block publication.
+
+Follow the current Contract rules for the archive CLI's flat-spec gaps: stage a MODIFIED delta's flat spec as
+`openspec/specs/<name>/spec.md` before archive, flatten back to `openspec/specs/<name>.md`, and reattach the
+客户端侧要求 and 待裁决 tails word for word. Compare DECIDED, UNREVIEWED and CLIENT-PENDING counts before/after
+and point `tools/spec-provenance.tsv` to the archive directory. Record proto-bearing scenario acceptance links
+to the actual server/client tests or a specifically named presentation QA gap; never claim unrun smoke tests.
+
+Commit, "Other people's work", verify/push, open/register the writeback draft while it is checked out and post
+`merge-writeback` from `feature merge request`, mentioning the owner and remaining human preconditions. Save its
+head/URL and `closing.writeback_opened`, then return to the recorded Contract issue branch before a sibling reads
+that worktree. Every retry checks the saved head/draft and notice id instead of repeating archive or publication.
+The draft can remain unmerged at delivery; the worker never merges it or any consumer PR.
+
 ## Delivery
 
 When every `closing` step is true, post the delivery comment from the `feature delivery` template
 (`prepare-comment --kind delivery`, `post-comment`). It names every PR with its state, the merges still to do in
-order, the client work that remains (the change's Farm-Client 交棒 entry: the protocol re-export, the config export
-at the config commit, client code and UI wiring), that the OpenSpec change is not archived yet because its
-write-back waits for the client stage, and what was verified. Set `stages.G` to done, then finish delivered
+order, the client/config/main input and verification HEADs, UI evidence or skip reason, the writeback/archive
+draft and every human merge/acceptance or untested check still remaining. Local completion does not imply a
+production release. Set `stages.G` to done, then finish delivered
 ("Outcomes") with every PR this job opened in `prs`.
 
 ## Outcomes

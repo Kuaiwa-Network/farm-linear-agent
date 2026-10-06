@@ -662,6 +662,7 @@ def run(args, ledger, api_factory):
         if skill is None:
             raise LedgerError(f"a resource request requires the item's skill; {item['skill']} is not loaded here")
         require_listed_resource(skill, args.resource)
+        request_options = {}
         if args.commit is not None:
             from .worktrees import Worktrees
             if (item["skill"] not in WRITE_SKILLS or args.resource != "unity_slot"
@@ -672,11 +673,15 @@ def run(args, ledger, api_factory):
             paths = Paths(config)
             if Path(args.db).resolve() != paths.ledger.resolve():
                 raise LedgerError("verification must use the configured host ledger")
+            options = {}
+            if item["skill"] == "feature":
+                options["expected_branch"] = ledger.feature_client_branch(args.item, issue_prefix=config.issue_prefix)
+                request_options["issue_prefix"] = config.issue_prefix
             Worktrees(paths.repos, paths.worktrees, config.repos).verification_commit(
-                "Farm-Client", args.item, args.commit)
+                "Farm-Client", args.item, args.commit, **options)
         # Ownership is checked again after Git validation, fencing a concurrent stop/closure.
         return ledger.await_resource(args.item, token, args.resource, args.mode, skill=skill,
-                                     commit_sha=args.commit)
+                                     commit_sha=args.commit, **request_options)
     if c == "release-resource":
         # The worker's own verdict, not the pool's: the pool re-checks quiescence before acting on a slot
         # this worker may have wedged (spec §7). Both outcomes are verified against the reservation's own

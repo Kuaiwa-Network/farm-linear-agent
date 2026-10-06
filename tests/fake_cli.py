@@ -77,6 +77,13 @@ elif mode == "cli":
         if verb == "git":  # ["git", REPO, ARG, ...]: git ARG... in that repository's worktree
             git(*args)
             continue
+        if verb == "python":  # Native fixture helper, never a host generator or shell.
+            out = subprocess.run([sys.executable, *args], capture_output=True, text=True, encoding="utf-8",
+                                 errors="replace", cwd=os.environ["FAKE_CLI_REPO"])
+            if out.returncode:
+                write_last(f"cli-error:fixture helper: {out.stderr.strip()}")
+                sys.exit(4)
+            continue
         if verb == "file":  # ["file", PATH, TEXT]: TEXT with its placeholders filled, written to PATH
             Path(args[0]).parent.mkdir(parents=True, exist_ok=True)
             Path(args[0]).write_text(args[1], encoding="utf-8")

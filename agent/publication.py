@@ -41,7 +41,7 @@ def is_issue_branch(branch, identifier, issue_prefix='FARM'):
 # A re-pin that does not descend from the pushed tip takes the next unused number, never a force push (P12).
 CONFIG_SUFFIX = '-config'
 CONFIG_REPIN_SUFFIX = CONFIG_SUFFIX + '-<n>'
-SUFFIXES = (CONFIG_SUFFIX, CONFIG_REPIN_SUFFIX, '-waivers', '-followup')
+SUFFIXES = (CONFIG_SUFFIX, CONFIG_REPIN_SUFFIX, '-waivers', '-followup', '-writeback')
 _REPIN_NUMBER = re.compile(r'[2-9]|[1-9][0-9]+')
 
 
@@ -148,6 +148,8 @@ class PublicationVerifier:
         branch = actual_branch if branch is None else branch
         if not is_issue_branch(branch, identifier, self.issue_prefix) or actual_branch != branch:
             raise PublicationError("publication requires this issue's FarmBot feature branch")
+        if suffix_roles and suffix_of(branch, prefix) == '-writeback' and repo != 'Farm-Contract':
+            raise PublicationError('the -writeback role is only for this issue\'s Farm-Contract worktree')
         # The worker fetched before checking out the named commit. None of this issue's Jenkins branches can
         # vouch for a commit only they carry, even after an earlier push. Use the same hardened git as every check.
         if suffix_roles and suffix_of(branch, prefix) in (CONFIG_SUFFIX, CONFIG_REPIN_SUFFIX) and git(

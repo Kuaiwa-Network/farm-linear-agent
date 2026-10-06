@@ -50,8 +50,8 @@ documented generator run against a clean, manifest-valid source checkout.
 
 | Artifact in Farm-Client | Source of truth | Regeneration |
 | --- | --- | --- |
-| `Assets/Scripts/HotUpdate/Proto/Network/*.pb.cs` + `NetworkMessageRegistry.g.cs` | Farm-Contract `proto/` | Unity menu **Tools/Proto/导出 Protobuf 网络协议**; contract root from EditorPrefs `Farm.NetworkProtobuf.ContractRoot` or env `FARM_CONTRACT_ROOT` |
-| `Assets/Scripts/HotUpdate/Proto/Configs/*.pb.cs` and `Assets/GameRes/GameConfigs.pb/*` | farm-common designer tables via `designer/configgen` (Go) | Unity menu **Tools/Proto/导出全部 Protobuf 配置表** from a clean, manifest-valid farm-common checkout |
+| `Assets/Scripts/HotUpdate/Proto/Network/*.pb.cs` + `NetworkMessageRegistry.g.cs` | Farm-Contract `proto/` | Supported `tools/NetworkProtobufExport` headless command with an explicit clean committed Contract pin and full metadata; the existing Unity menu remains a human option |
+| `Assets/Scripts/HotUpdate/Proto/Configs/*.pb.cs` and `Assets/GameRes/GameConfigs.pb/*` | farm-common designer tables via `designer/configgen` (Go) | Supported `tools/ConfigProtobufExport` headless command with the independently verified common commit/source digest and full metadata; the existing Unity menu remains a human option |
 | `Assets/GameRes/FairyRes/<Pkg>/<Pkg>_fui.bytes` (+ atlases) | farmgui package XML source | Authorized FairyGUI Editor publish from the farmgui worktree; copy only the required fresh outputs |
 
 Config routing rule: if the client artifact disagrees with the farm-common
@@ -110,6 +110,9 @@ exact missing prerequisite and pause if the stage cannot proceed.
 | Backend designer digest before publication | Selected Python `config/pb/designer-digest.py --common ABSOLUTE_CONFIG_CHECKOUT --git ABSOLUTE_GIT --commit FULL_CONFIG_SHA` |
 | Backend config generation | Selected Python `config/pb/gen.py --common ABSOLUTE_COMMON --git ABSOLUTE_GIT --go ABSOLUTE_GO --protoc ABSOLUTE_PROTOC --gomodcache PREPARED_MODULE_CACHE --gocache OWNED_BUILD_CACHE` |
 | Backend independent designer/config gates | Selected Python `ci/check_designer_pin.py --common ABSOLUTE_COMMON --git ABSOLUTE_GIT`, `ci/check_pb_manifest.py --git ABSOLUTE_GIT`, and `ci/check_config_pb.py` with common/Git/Go/protoc/prepared-cache flags |
+| Client network export | Native dotnet builds/runs `tools/NetworkProtobufExport/Farm.NetworkProtobufExport.csproj`; run the DLL with `--project-root ABSOLUTE_CLIENT --contract-root ABSOLUTE_CONTRACT --protoc ABSOLUTE_PROTOC --expected-contract-commit FULL_CONTRACT_SHA` |
+| Client config export | Native dotnet builds/runs `tools/ConfigProtobufExport/Farm.ConfigProtobufExport.csproj`; run the DLL with `--project-root ABSOLUTE_CLIENT --common-root ABSOLUTE_COMMON --expected-common-commit FULL_CONFIG_SHA --expected-source-digest VERIFIED_ARTIFACT_DIGEST` |
+| Full client typecheck | Selected Python `tools/typecheck/hotupdate-typecheck.py --project-root ABSOLUTE_CLIENT --reference-checkout CONFIGURED_READONLY_REFERENCE --output-root NEW_PRIVATE_OUTPUT --dotnet ABSOLUTE_DOTNET`; all three assemblies, without `--no-tests` |
 
 Select ordinary absolute native executables from the already prepared host
 toolchain and check the repository's actual pins; use the tools' own `--help`
@@ -132,6 +135,38 @@ generator stages outputs before publication and preserves them on generation
 failure; it has no legacy `--cache` option. `--source` and the local `gen.bat`
 adapter remain UNPINNED and cannot substitute for the stage's pinned generation.
 Actual sandbox/cache access remains a host acceptance prerequisite.
+
+### Client-stage tooling and verification
+
+Read the client's delivered `tools/NetworkProtobufExport/README.md`,
+`tools/ConfigProtobufExport/README.md` and `tools/typecheck/README.md` before
+building. Use the pinned .NET SDK and hydrated/hash-checked protobuf library;
+restore the config command against its lock file from prepared package caches.
+Keep tool binaries, intermediates, private NuGet/dotnet homes and caches under
+STATE_DIR. Exporters link the actual repository implementations and replace
+complete generated directories with full metadata atomically. Never imitate
+generation, write a GUID-only metadata stub, or generate through Unity.
+
+The controller creates Farm-Client's issue branch only at client entry and
+records that stage's latest trusted default-branch baseline in the item, with
+its exact `issue_branch`; its Linear session retains no intake client pin.
+`tools.client_typecheck.reference_checkout` is a configured slot folder used
+read-only for existing matching Unity projects/DLLs. It neither reserves a slot
+nor grants writes or an Editor command. Missing or unhydrated reference inputs
+are a host capability gap; never discover another personal checkout or prepare
+it by starting Unity yourself. macOS may retain its existing shell typecheck;
+Windows uses the explicit Python entry above.
+
+Typecheck compiles production, EditMode and PlayMode assemblies; it does not
+execute those tests. Run client unit tests separately with a verified config
+artifact when relevant. Commit the intended client changes before requesting
+Unity with `await-resource --commit FULL_HEAD_SHA`. The CLI validates the item's
+owned clean worktree, exact recorded branch and HEAD; the ledger rechecks claim
+ownership after Git. The reservation records that verification commit separately
+from the immutable stage baseline. Use the existing batch result or the held
+interactive MCP, release the reservation and wait for controller quiescence;
+never start an Editor or write its folder. Report missing capabilities and
+untested checks accurately, with raw host logs/paths kept private.
 
 Stage A's root, and the closing steps' waiver removal. Follow the repository's own rules by path: `README.md` §一
 (the gap-first loop: three inputs, candidates and costs, confidence tiers, the client half of the gap list,

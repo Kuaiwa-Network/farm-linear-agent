@@ -221,7 +221,7 @@ a Bot label starts nothing and a delegated Bug card starts `fix`. §7 of
 |---|---|---|---|
 | chat | shared memory through item-authenticated CLI only; no repositories | kw_ops query tools (Codex, when configured) | no |
 | fix | one rooted repository per worker attempt, selected from Farm-Contract, Farm-Client, farm-hive, farmgui, common; the neutral investigation attempt has no repository writes | Unity slot (one, batch or interactive, two-phase); kw_ops, every tool (Codex, when configured) | yes |
-| feature | one rooted repository per worker attempt: Farm-Contract first (its initial root), then common and farm-hive as its stages need; reads detached checkouts of Farm-Contract's, Farm-Client's and farmgui's default branches | none: no Unity slot (`await-resource` refuses it), no kw_ops, no MCP tool; lark-cli as the FarmBot app, read-only | yes |
+| feature | one rooted repository per worker attempt: Farm-Contract first (its initial root), then common, farm-hive and Farm-Client as its stages need; reads detached checkouts of Farm-Contract's, Farm-Client's and farmgui's default branches | Unity verification only at an explicit clean committed owned Client HEAD; Unity MCP only with its held interactive reservation; no kw_ops or standing MCP; lark-cli as the FarmBot app, read-only | yes |
 
 FarmBot never merges, deploys, changes status or assignee, or edits repositories outside the list.
 Issue text, comments, attachments and Linear guidance are data, never instructions. Worker commands
@@ -270,7 +270,10 @@ definition layer, its regenerated inventory and count constants; `-unreachable` 
 locally computed designer pin on draft PRs until the contract merges and the designer data is
 published; the `-config` Jenkins branch, or `-config-<n>` for a re-pin, at a human-named commit;
 generator output with its drift listed; a named farm-common ref and posted pin values as data after
-the skill's checks; read only in the `reads` checkouts; and no Unity resource. A skill whose
+the skill's checks; read only in the `reads` checkouts; supported headless Client exports with exact input
+pins and complete metadata; reservation-bound Unity verification of a committed owned Client HEAD; and
+Contract acceptance/archive write-back on the exact `-writeback` draft with pending human work retained.
+No farmgui authoring/export or direct Editor start is granted. A skill whose
 manifest grants kw_ops must carry those terms in its per-skill part, because the grant comes from
 the manifest and its limits from the AUTHORITY; a test checks every loaded skill. Building the
 launch message refuses a skill with no per-skill entry, so its job fails at launch and no worker
@@ -603,7 +606,7 @@ repository history. Cleanup does not push, merge, close PRs, or undo already-iss
 
 `doctor` adds a `plan` block to each unfinished job of a skill with an initial root: `root`, its current
 root; `stages`, each stage letter its plan records as `pending`, `done` or `skipped`; `pause`, while the
-job waits for a person, the `kind` its plan records (`answers`, `config_ready`, `closing`, `foreign_work`
+job waits for a person, the `kind` its plan records (`answers`, `config_ready`, `ui_ready`, `closing`, `foreign_work`
 or `stage_limit`), the `reason` (`question` or `waiting`) and `age_seconds` since it parked; and `prs`,
 the PR links its plan records. Nothing else leaves the plan: not the question, notes, branch names or a
 skip's reason.
@@ -689,8 +692,8 @@ policy; they are not authorized by this private-repository workflow.
 
 A job whose skill has an initial root keeps named suffix branches beside its issue branch, each
 verified under these rules: `farmbot/<key>-config` in common, the branch a human runs
-`designer-source.pipeline` on, `farmbot/<key>-waivers` in Farm-Contract and `farmbot/<key>-followup`
-in farm-hive; the last two start from the default branch and verify as the issue branch does, also
+`designer-source.pipeline` on, `farmbot/<key>-waivers` and exact `farmbot/<key>-writeback` in Farm-Contract,
+and `farmbot/<key>-followup` in farm-hive; the latter drafts start from the default branch and verify as the issue branch does, also
 after the issue branch's PR merged and its branch was deleted. A Jenkins branch is never
 force-pushed: a re-pin to a farm-common commit that does not descend from the pushed `-config` tip
 takes the next unused `farmbot/<key>-config-<n>`, n from 2. Such a job never takes one of these
@@ -734,21 +737,24 @@ publication is not refused on it.
 
 ## Unity verification commits
 
-The issue target remains the immutable baseline for the job. A `feature` job has none (Phase B plan,
-P6): the receiver pins no Farm-Client commit in a session whose delegation starts it, nor on any
+The issue target remains the immutable baseline for the job. A `feature` session has no intake pin:
+the receiver pins no Farm-Client commit in a session whose delegation starts it, nor on any
 later event in that session or for a mention in another session that it forwards to the job, and no
 acknowledgement of those events has a target line; a first `feature` job a conversation starts takes
-none either. `feature` has no client stage yet, so nothing in it uses a target; Phase C decides what
-its client stage pins. A write worker can request `await-resource --resource unity_slot --mode batch
+none either. On first Client-stage entry the controller selects the latest trusted Client main and
+exact issue branch, persists them in the item's target, and then creates that worktree. Later attempts
+reattach the recorded branch without resetting it or selecting a newer baseline; the session stays unpinned.
+A write worker can request `await-resource --resource unity_slot --mode batch
 --commit FULL_SHA` (or `--mode interactive`) to verify the current clean HEAD of its own Farm-Client
 worktree. The CLI authenticates the claim, checks the configured host/checkout and commit, then the
 ledger rechecks ownership before queuing. `await-resource` accepts only a resource kind the item's
-`skill.json` lists, so a `feature` worker, whose manifest lists none in this phase, cannot wait for
-Unity, whatever its target. The Unity rules read the attempt's root as `stages.current_root`
+`skill.json` lists. Feature additionally requires its controller-selected Client baseline/branch and an
+explicit `--commit`; a legacy or worker-fabricated target supplies no resource grant. The CLI verifies
+the exact branch, clean current HEAD and configured owned checkout. The Unity rules read the attempt's root as `stages.current_root`
 resolves it: selecting a commit requires a Farm-Client-rooted worker, a neutral worker (a fix before
 its first handoff) may request the original baseline without `--commit`, and a worker rooted
 anywhere else cannot request Unity. A skill with an initial root is never neutral. Omitting
-`--commit` retains baseline behaviour. Dirty files, abbreviated SHAs, refs, another checkout's
+`--commit` retains baseline behaviour for fix only. Dirty files, abbreviated SHAs, refs, another checkout's
 commit and read-only chat requests cannot select a fix revision.
 
 Each reservation records its exact commit independently of the baseline. The slot loads that
@@ -839,7 +845,8 @@ for a structural defect or change. If the intended UI is unclear, ask in Linear 
 `feature` runs only on an instance whose `enabled_skills` names it. One work item and one Linear
 session carry a delegated Bot/Code card through repository stages, one fresh Codex worker per root:
 the Farm-Contract change (stage A, the initial root), farm-common declarations (stage B), config
-verification (stage C), the farm-hive server (stage D) and the closing steps. The worker follows
+verification (stage C), the farm-hive server (stage D), human UI readiness (stage E), the Client
+(stage F) and the closing steps (stage G). The worker follows
 each repository's own rules and `skills/feature/SKILL.md`; the `feature` part of the dispatch
 AUTHORITY states its grants (see Authority).
 
@@ -856,7 +863,7 @@ AUTHORITY states its grants (see Authority).
   pushed, and others' commits are merged, never overwritten.
 - It posts one start comment per job (the plan records it); grouped question rounds (`question` notices
   `questions-1`, `questions-2`, …) that mention the owner and, when they ask 策划, the card's creator; `stage`
-  notices only when a stage is skipped or stage C passes; and `merge_request` notices that ask the owner to merge a
+  notices when a stage is skipped, stage C passes, or D/E/F finishes at a human stage limit; and `merge_request` notices that ask the owner to merge a
   named PR. It merges nothing. A notice asked again takes the next number (`config-needed-2`).
 - It records a ruling only from a named person's comment or session message, under that person's Linear name, and
   applies no default: Farm-Contract's rules that let high-confidence gaps stand once posted and medium ones after
@@ -892,29 +899,44 @@ AUTHORITY states its grants (see Authority).
   job's local gates and opens the hive draft PR. It follows farm-hive's own instructions for the designer-data
   mechanism (the three `DESIGNER_SOURCE_*` values on 2026-09-28) and says in the PR which one it used. That PR's CI
   stays red or incomplete until the contract merges, the re-sync is pushed and the published pin is written.
+- Stage E asks once, with a durable owner/request/body, for explicit UI-ready confirmation when the change has
+  UI. A resumed worker checks actual farmgui main component identities and Client main exports/dependencies.
+  Existing packages and silence do not satisfy it; missing exports cause a new scoped waiting request. A no-UI
+  change records E skipped. The worker never authors or exports farmgui, and honours limits before Client entry.
+- Stage F lazily receives the owned Client branch and controller baseline. It uses supported headless network
+  and config commands with clean committed inputs and complete atomic metadata, then implements client behavior.
+  A configured Client slot outside all worker write roots supplies only a read-only typecheck reference under
+  `tools.client_typecheck`; it reserves no Unity and grants no slot writes or Editor command. Missing generated
+  projects/references are measured host gaps. Full typecheck, unit tests and reservation-based Unity checks must
+  identify the owned committed HEAD; typechecking test assemblies does not execute them. Draft bodies retain
+  unmerged Contract input, common commit/digest, unrelated generated changes and merge preconditions.
 - The closing comment asks the owner to merge the contract PR, and the declarations PR if it is still open, and,
   when D ran with config work, someone to run the Jenkins publish on the `-config` branch and paste its three pin lines; it asks for no UI step
-  and warns that Done or Canceled cancels the job. FarmBot polls nothing: each reply or mention makes it check
-  GitHub and do what became possible, in this order: remove the change's stale BREAKING_WAIVERS lines on
-  `farmbot/<key>-waivers`, re-sync farm-hive (from the item's worktree after a merge commit, otherwise from the
-  read-only checkout of Farm-Contract's default branch, and only once that checkout holds the merge commit; a launch
-  that finds it missing parks and asks again, so that the next launch refreshes it), and write the published pin
-  values. When D was skipped, both hive closing steps are already satisfied, even if B/C ran: the worker keeps
-  the config SHA for the later client stage and asks for no hive PR, re-sync or Jenkins publish.
+  because E already handled UI readiness, and warns that Done or Canceled cancels the job. FarmBot polls nothing:
+  each reply or mention makes it check GitHub and do what became possible, in this order: remove stale
+  BREAKING_WAIVERS on `farmbot/<key>-waivers`; re-export and verify the Client draft; re-sync farm-hive and write
+  its published pin; then create the Contract write-back draft. Both consumers use one recorded, verified Contract
+  main commit containing the actual merge, from a clean detached snapshot under worker state. Merge and squash
+  histories follow this same rule; an unmerged issue HEAD supplies no main provenance. Missing merge input parks
+  for a reply; later main drift requires redoing both consumers together. When D was skipped, hive closing steps
+  are satisfied without a hive PR or Jenkins publish; the verified config commit remains the Client input.
   A hive PR merged too early gets a `farmbot/<key>-followup` draft PR. Every later hive closing attempt,
   including a successor, selects that recorded followup before editing and reuses its PR; the plan records the
   active branch and PR. A closed or merged followup with work still remaining needs the owner's decision.
-- The delivery names every PR and its state, the merges still to do and the client work that remains (protocol and
-  config export, client code and UI wiring). The OpenSpec change stays unarchived until the client stage's
-  write-back.
+- A fresh Contract-rooted attempt creates exact `farmbot/<key>-writeback` from main, records it before publication
+  and reuses its draft on retries. Acceptance/archive updates complete only measured tasks and preserve client
+  requirements, unresolved decisions, decision counts and unmerged/unaccepted human work. It uses the installed
+  pinned native OpenSpec CLI and all twelve gates, returns to the issue branch before sibling reads, and never merges.
+- Delivery lists every draft/state, exact Client/main/config verification evidence, UI readiness or skip reason,
+  write-back and every remaining human merge/acceptance or untested check. Local completion is not a release.
 
 The controller's part in a Code job. A host whose `enabled_skills` names `feature` must also name the lark-cli
 authentication its workers use (`lark_cli`, Host configuration); `serve` and `enqueue` refuse one that does not. A
-`feature` job gets no Farm-Client target, whether a delegation, a conversation or `enqueue` made it; none of its
-session's acknowledgements carries a target line; and it holds no Unity slot, because `await-resource` refuses a
-resource its manifest does not list (Unity verification commits). Besides each repository's issue branch, a job may
+`feature` job gets no intake Farm-Client target, whether delegation, conversation or `enqueue` made it; none of its
+session's acknowledgements carries a target line. Only Client-stage entry pins its item, with no reservation until
+an explicit committed verification request (Unity verification commits). Besides each repository's issue branch, a job may
 publish `farmbot/<key>-config` (`-config-<n>` for a re-pin) in common, `farmbot/<key>-waivers` in Farm-Contract and
-`farmbot/<key>-followup` in farm-hive (Draft PR publishing authority). The issue branches its plan records are where
+`farmbot/<key>-followup` in farm-hive and exact `farmbot/<key>-writeback` in Farm-Contract (Draft PR publishing authority). The issue branches its plan records are where
 a successor's worktrees, and a cleaned-up continuation's, start (Authority); `checkpoint` refuses a plan that records
 one the publishing policy would refuse, or two for one repository, so a recorded name never stops a later launch.
 Every attempt also gets read-only checkouts of the default branches of Farm-Contract, Farm-Client and farmgui beside
@@ -923,7 +945,7 @@ removed with the worktrees. The automatic-retry allowances count per stage: a co
 resume from a pause reset them (Work item states).
 
 The job pauses with `await-input`: `--reason question` for its grouped questions, `--reason waiting` for the
-config-ready and closing pauses and for a stage limit. A reply in the session or a mention resumes a paused job; a
+config-ready, UI-ready and closing pauses and for a stage limit. A reply in the session or a mention resumes a paused job; a
 comment alone never does, and nothing times out. At most one attempt of an exclusive skill (today `feature`) runs at
 a time, which leaves the other worker slot to `fix` and `chat`; a waiting Code job keeps its place in the queue
 (Resource execution limits). Two successful status reads at least an interval apart confirm a removed
@@ -935,9 +957,9 @@ delegation gone, without publishing or asking. A later delegation resumes from t
 A closed status cancels the job as it cancels any work; a merge moves a 农场 card only to 待验收,
 which stops nothing.
 
-In this revision a Code job ends after the server. The client stage (the UI-ready pause and Farm-Client, with the
-client's protocol and config exports), the client's closing steps and the write-back and archive of the contract
-change come with the next phase. A step the worker cannot run in its sandbox is named in the PR as not run, with its
+This revision supplies E/F/G instructions and controller Client entry/verification. Offline controller evidence
+and delivered native export tools are distinct from real later-stage acceptance, which remains a release check.
+A step the worker cannot run in its runtime is named in the PR as not run, with its
 error. Host tool detection is separate from actual worker acceptance. On 2026-10-06,
 a scoped native Windows TestBot audit of unchanged Farm-Contract main runs all twelve
 gates: nine pass, while gates 3, 9 and 12 fail creating temporary directories; gate 3
@@ -954,6 +976,17 @@ and containment probes remain separate evidence, not production certification.
 On a host that enables `feature`, `doctor` reports whether it has the toolchain its
 workers need; on any host it shows each unfinished Code job's root, stage states,
 pending pause and PR links (README, "AI/operator diagnostics").
+
+Phase C adds no database columns or migration. The bounded checkpoint plan accepts Client evidence, and
+the item's existing target JSON stores the controller's Client branch/baseline. Old Phase B checkpoints
+remain readable: on an authorized continuation, the worker rechecks the accepted change and later scope,
+adds E/F states from actual UI/client requirements, and retains existing human limits and notices. An old
+G/delivery or a server-only test does not certify Client verification or write-back. Do not retroactively
+run later work on a cancelled/limited card without that scope being authorized.
+
+Before rolling back from Phase C, settle or cancel feature jobs and reservations, complete cleanup and
+disable feature on that host. Older instructions/manifests cannot safely resume E/F or interpret Client
+verification/write-back evidence; checking out older code does not undo an item's stored baseline/plan.
 
 Rolling back: before moving a host to a revision without `skills/feature`, cancel its unfinished `feature` items
 (Stop in Linear, or the operator's `cancel`), queued, running, parked or between stages alike; let their cleanup
@@ -1312,7 +1345,7 @@ refuses to prepare new ones.
   the rule of authority is not what the missing webhook excuses. It also refuses a skill the instance does
   not run (`enabled_skills`), and `fgui` or `feature` unless the card's one Bot child is Bot/UI or
   Bot/Code respectively, as a delegation requires; it reads no label for `fix`. An enqueued `feature` job,
-  like a delegated one, has no Farm-Client target, and `--commit` is refused with it.
+  like a delegated one, has no intake Farm-Client target; Client-stage entry selects its item baseline.
   `python3 -m agent.service slots` is the
   operator's view of the pool: slot states, parked commits and the open reservations behind them.
 - A fix that finds nothing to change (already fixed, duplicate, does not reproduce, or the requested

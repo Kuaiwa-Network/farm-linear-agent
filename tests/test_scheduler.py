@@ -554,7 +554,7 @@ class SchedulerTests(unittest.TestCase):
         contract = self.trees.root / item["id"] / "Farm-Contract"
         self.assertEqual(self.payload()["stage"], {"root_repository": "Farm-Contract",
                                                    "write_repositories": ["Farm-Contract"],
-                                                   "read_only_worktrees": ["common", "farm-hive", "Farm-Client"]})
+                                               "read_only_worktrees": ["common", "farm-hive"]})
         self.assertEqual(self.launcher.spawned[-1][4], str(contract))
         self.assertEqual(self.launcher.spawn_writable[1:],
                          [str(contract), *(str(part) for part in self.trees.writable_parts("Farm-Contract", contract))])

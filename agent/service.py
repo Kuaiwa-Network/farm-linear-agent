@@ -62,6 +62,7 @@ def build(config, runtime_override=None):
                           bot_name=config.expected_bot_name,
                           kw_ops=config.kw_ops,
                           lark_cli=config.lark_cli,
+                          default_server_environment=config.default_server_environment,
                           enabled_skills=set(enabled),
                           slot_entries={entry["id"]: entry for entry in entries},
                           guidance_for=lambda item: (ledger.session(item["session_id"]) or {}).get("guidance") or "",

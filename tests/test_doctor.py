@@ -632,6 +632,26 @@ class DoctorTests(unittest.TestCase):
         entry = next(entry for entry in report["jobs"] if entry["item_id"] == item["id"])
         self.assertEqual(entry["plan"]["pause"], {"kind": "stage_limit", "reason": "waiting", "age_seconds": 90})
 
+    def test_ui_ready_pause_is_visible_without_export_or_client_plan_details(self):
+        feature = opt_in_skill(Path(self.tmp.name) / "fixture-skills")
+        skills = {**load_skills(ROOT / "skills"), feature.name: feature}
+        self.ledger.observe_issue(issue(id=OTHER, identifier="FARM-2"))
+        self.ledger.ensure_session("session-2", OTHER, delegation=True)
+        item = self.ledger.create_work_item(issue_id=OTHER, session_id="session-2", skill=feature.name)
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        self.ledger.checkpoint(item["id"], token, {"plan": {
+            "stages": {"E": "pending", "F": "pending"}, "client": {"private": "private client evidence"},
+            "ui": {"evidence": "private UI paths"},
+            "pause": {"kind": "ui_ready", "reason": "waiting", "notice": "ui-needed", "since": "2026-09-28T00:00:00Z"}}})
+        self.ledger.await_input(item["id"], token, "private UI question", reason="waiting")
+        with patch("agent.doctor.load_skills", return_value=skills):
+            report = diagnose(self.config, now=1090)
+        entry = next(entry for entry in report["jobs"] if entry["item_id"] == item["id"])
+        self.assertEqual(entry["plan"]["pause"], {"kind": "ui_ready", "reason": "waiting", "age_seconds": 90})
+        self.assertEqual(entry["plan"]["stages"], {"E": "pending", "F": "pending"})
+        for private in ("private client evidence", "private UI paths", "private UI question", "ui-needed"):
+            self.assertNotIn(private, json.dumps(report))
+
     def test_a_plan_nested_past_the_recursion_limit_leaves_the_report_whole(self):
         """checkpoint bounds a plan's size and its lists' lengths, not its depth, and doctor reads what workers
         wrote: a plan nested deeper than Python recurses shows no PR links instead of failing the whole report."""

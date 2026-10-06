@@ -4,8 +4,10 @@ One Linear agent for the 农场 team. Delegate an issue to it for work, @mention
 talk. The issue's label from the Bot group says what work: Bot/修改 for a bug fix or a
 small change to existing code or UI, Bot/Code for a new feature's code and Bot/UI for its
 new UI. The Code worker runs only on a host that enables it; in this revision it takes a
-feature from its Farm-Contract change through farm-common declarations to the farm-hive
-server and names the client work still to do. The UI worker does not exist yet.
+feature from its Farm-Contract change through farm-common declarations, farm-hive and
+Farm-Client, with human UI-ready confirmation and committed-HEAD verification. It opens
+drafts and a Contract acceptance/archive draft; people review, merge and accept them.
+The UI authoring worker does not exist yet.
 Without a Bot label a delegation opens a conversation. Capabilities are added as skills on
 a shared identity, ledger, worker runtime and desktop-resource locks: chat, QA, bug fixes
 and small changes, FGUI, then whole features.

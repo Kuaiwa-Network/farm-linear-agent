@@ -21,6 +21,66 @@ def git(*args, cwd, allow_failure=False):
 
 
 class WorktreeTests(unittest.TestCase):
+    def test_stage_baseline_uses_latest_main_and_pinned_branch_survives_new_main(self):
+        initial = self.trees.head(self.origin)
+        (self.origin / "later.txt").write_text("main advanced while server worked\n", encoding="utf-8")
+        git("add", ".", cwd=self.origin)
+        git("commit", "-qm", "advance", cwd=self.origin)
+        baseline = self.trees.stage_base("Farm-Client", "item-1", "farmbot/farm-1")
+        self.assertNotEqual(initial, baseline)
+        self.assertEqual(baseline, self.trees.head(self.origin))
+        path = self.trees.add_stage("Farm-Client", "item-1", "farmbot/farm-1", baseline)
+        self.assertEqual(self.trees.head(path), baseline)
+        (path / "client.txt").write_text("owned client work\n", encoding="utf-8")
+        git("add", ".", cwd=path)
+        git("commit", "-qm", "client", cwd=path)
+        own = self.trees.head(path)
+        (self.origin / "later.txt").write_text("main advanced again\n", encoding="utf-8")
+        git("commit", "-qam", "advance again", cwd=self.origin)
+        self.assertEqual(self.trees.add_stage("Farm-Client", "item-1", "farmbot/farm-1", baseline), path)
+        self.assertEqual(self.trees.head(path), own)
+        self.assertEqual(git("symbolic-ref", "--short", "HEAD", cwd=path), "farmbot/farm-1")
+
+    def test_first_stage_selection_refuses_existing_issue_branch_or_unpinned_worktree(self):
+        git("branch", "farmbot/farm-1", cwd=self.origin)
+        with self.assertRaisesRegex(WorktreeError, "existing.*branch"):
+            self.trees.stage_base("Farm-Client", "item-1", "farmbot/farm-1")
+        path = self.trees.add("Farm-Client", "item-2", "farmbot/farm-2")
+        with self.assertRaisesRegex(WorktreeError, "unpinned"):
+            self.trees.stage_base("Farm-Client", "item-2", "farmbot/farm-2")
+        self.assertTrue(path.is_dir())
+
+    def test_client_recovery_preserves_owned_commit_and_never_resets_to_main(self):
+        baseline = self.trees.stage_base("Farm-Client", "item-1", "farmbot/farm-1")
+        path = self.trees.add_stage("Farm-Client", "item-1", "farmbot/farm-1", baseline)
+        (path / "client.txt").write_text("recovery work\n", encoding="utf-8")
+        evidence = self.trees.preserve("item-1")
+        self.assertFalse(evidence["errors"])
+        preserved = self.trees.head(path)
+        self.trees.remove_preserved("item-1", evidence)
+        (self.origin / "README.md").write_text("new main\n", encoding="utf-8")
+        git("commit", "-qam", "new main", cwd=self.origin)
+        restored = self.trees.add_stage("Farm-Client", "item-1", "farmbot/farm-1", baseline)
+        self.assertEqual(self.trees.head(restored), preserved)
+        self.assertEqual((restored / "client.txt").read_text(encoding="utf-8"), "recovery work\n")
+
+    def test_stage_and_verification_refuse_wrong_branch_without_resetting_it(self):
+        baseline = self.trees.stage_base("Farm-Client", "item-1", "farmbot/farm-1")
+        path = self.trees.add_stage("Farm-Client", "item-1", "farmbot/farm-1", baseline)
+        git("checkout", "-qb", "different", cwd=path)
+        with self.assertRaisesRegex(WorktreeError, "branch"):
+            self.trees.add_stage("Farm-Client", "item-1", "farmbot/farm-1", baseline)
+        with self.assertRaisesRegex(WorktreeError, "branch"):
+            self.trees.verification_commit("Farm-Client", "item-1", baseline, expected_branch="farmbot/farm-1")
+        self.assertEqual(git("symbolic-ref", "--short", "HEAD", cwd=path), "different")
+
+    def test_pinned_stage_without_refs_starts_at_saved_baseline_not_new_main(self):
+        baseline = self.trees.stage_base("Farm-Client", "item-1", "farmbot/farm-1")
+        (self.origin / "README.md").write_text("new main\n", encoding="utf-8")
+        git("commit", "-qam", "new main", cwd=self.origin)
+        path = self.trees.add_stage("Farm-Client", "item-1", "farmbot/farm-1", baseline)
+        self.assertEqual(self.trees.head(path), baseline)
+
     def test_verification_commit_must_be_clean_owned_worktree_head(self):
         path = self.trees.add("Farm-Client", "item-1", "farmbot/fix")
         baseline = self.trees.head(path)
