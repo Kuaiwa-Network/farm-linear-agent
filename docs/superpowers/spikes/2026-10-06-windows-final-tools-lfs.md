@@ -437,15 +437,125 @@ platform jobs build the actual delivered CLI and run its help command; review
 and triage checks pass. Host discovery varies with fixture dependencies, so
 these counts are not presented as identical to the private native full run.
 
-This completes Phase C's metadata foundation and supported network command on
-this development PC. Headless config generation, full native client typecheck,
-controller client stages, Unity verification and real client publication remain
-pending. These results do not certify the production Windows host.
+The network/metadata delivery above completes the first part of Phase C step 1.
+The following section records the subsequent config and full typecheck delivery;
+controller stages and later live acceptance remain pending. These development-PC
+results do not certify the production Windows host.
 
 This record-only follow-up passes 75 skill/reference checks in 0.456 seconds,
 zero failures/errors/skips, plus added local links/anchors, whitespace and
 known-secret/private-path checks. Only two Markdown files change; executable
 code, tests and CI remain identical, so another full offline run is unnecessary.
+
+## Supported headless config and native full client typecheck
+
+[Config PR #1423](https://github.com/Kuaiwa-Network/Farm-Client/pull/1423)
+merges as `99d00cf8037923a0a96ecd7bed522228b39332c1`; final candidate
+`1009fd8a4c5f2e20e2c989c460099d100e4e91b6` differs from its tested executable
+head `1ff969fb48207edc14715123e933e153751fb40d` only in guidance.
+[Native typecheck PR #1424](https://github.com/Kuaiwa-Network/Farm-Client/pull/1424)
+merges as `5ca9db4f4ef4ae7a21c50c7243429a6f537a29a8`; final candidate is
+`58ad936d9fed1d19eed86693e7f9eee7cca8d947`. Its executable code matches tested
+`e37fa3359bf4707c63b85d980c90319aa360d8b2`; the last commit clarifies only
+platform guidance. Both merge trees equal their
+verified candidates; completed development branches are removed with head
+checks. Neither delivery changes the running FarmBot or generated game assets.
+
+The config command links the actual exporter, validator and transactional
+installer. It requires explicit absolute client/common roots, a clean full
+common commit and the verified artifact's full source digest. Provenance is
+checked before preparing replacements. It preserves old metadata, creates
+complete TextScriptImporter/MonoImporter metadata inside the two staged
+directories and swaps or rolls them back together. Preferences/dialogs are
+refused. Windows uses the existing native common command, never Bash/MSYS/WSL.
+
+The full native client unit run discovers **6,528 tests: 6,452 passed, 76 existing
+skips, zero failures/errors**, in **19.132 s**. All skip IDs/reasons, UTF-8 logs
+and the meaningful initial missing-entry-point failure remain private. There
+is no added skip. Focused config validation passes 242 of 248 discovered tests
+with six existing skips in 11.810 s. The full suite's code matches the final
+config candidate; its last guidance commit needs no repeated full run.
+
+At **11:52:14 UTC**, the delivered config command passes in a fresh native
+Codex **0.156.1** unelevated, network-off, no-model command context with the
+FarmBot #149 worker gate. The common input is the clean read-only
+`b367febe20d6db65ebb386aa871bdb2671df9525`; the generated artifact's verified
+source digest is
+`d189a438d6c5a51a89079e485442af490f8e4cd9775fcdda92fbe1a4c8d95764`.
+The tools are .NET SDK **8.0.423**, protoc **35.1** and the prepared native
+Go **1.25.1** (binary SHA-256
+`a6450f128e096d51d24f786e0e72eca13d6b9c48f9a2bd1cc0de4913e53f566a`).
+Prepared modules/tool bytes are read-only; compilation caches are fresh and
+owned, with module network access disabled.
+
+| Delivered config check | Measured native Windows result |
+|---|---|
+| First / second real export | exit 0/0; 15.676 / 8.949 s |
+| Outputs | 101 tables/data files, 103 C# files, 204 complete metadata files |
+| Complete maps / identity | all 408 files identical; old metadata byte-identical; unique GUIDs |
+| Wrong common commit / source digest | exit 1/1; 7.031 / 6.923 s; all outputs unchanged |
+| Real generated types/readers/registry | compilation exit 0; all 101 tables load |
+| Commands / complete probe | 43.738 / 44.402 s |
+
+The initial private harness used an unsupported dotnet build flag and omitted
+two actual existing reader dependencies. Those harness faults and outputs are
+retained; the corrected fixture uses locked restore and the actual source
+files. They required no application relaxation. Final clone trust, source and
+tool immutability, native child ownership, empty Jobs, finished RPC reader and
+runtime registration checks pass. Unity, a model turn, credential setup and
+production configuration/ledger reads are absent.
+
+[Final #1423 CI](https://github.com/Kuaiwa-Network/Farm-Client/actions/runs/37459099449)
+passes Linux full tests (**6,456 passed, one existing skip**, 21.9883 s),
+macOS focused tests (**253 passed, one existing skip**, 7.3657 s), and
+Windows focused tests (**250 passed, one existing skip**, 15.9279 s).
+Both delivered export commands build and enter on the platform jobs. Host
+fixture discovery differs from the private full suite; these counts are
+reported separately.
+
+The native Python typecheck requires explicit client/reference/new output
+roots and a native dotnet executable. It borrows matching Unity **2022.3.62f3**,
+C# **9** / .NET Standard **2.1** references read-only and rebuilds source lists
+from the selected current client. Production compiles first; both test
+assemblies use this run's fresh production DLL. Fresh SDK projects use literal
+compiler properties and validated managed references/analyzers; unsupported
+imports, conditions, unhydrated DLLs, reparse paths and changed inputs fail.
+Directory.Build.props/targets imports are disabled on the command line before
+SDK evaluation. Feed-free restore, private outputs and disabled build servers
+keep the borrowed checkout unchanged. A partial DLL from a failed build cannot
+make a later test build pass.
+
+At **12:16:38 UTC**, the actual final typecheck passes in the same native
+network-off/no-model worker configuration. Its tool SHA-256 is
+`8ca8e08fc7535c5eb3142da8f42185d54681849f1820f44ed5c2f6b6b205830d`.
+
+| Assembly | Current source files | Managed references / analyzers | Exit / errors / warnings | Build duration |
+|---|---:|---:|---:|---:|
+| HotUpdate | 1,429 | 253 / 2 | 0 / 0 / 113 | 4.989 s |
+| HotUpdate.Tests | 365 | 227 / 2 | 0 / 0 / 0 | 1.659 s |
+| HotUpdate.PlayTests | 180 | 224 / 2 | 0 / 0 / 7 | 1.701 s |
+
+The build phase takes **9.562 s**, command **10.397 s** and complete probe
+**12.557 s**. Source/reference/tool hashes and borrowed Unity project files
+remain unchanged; effective worker policy, owned native child, empty Job,
+finished reader and runtime registration pass. No Unity Editor starts. These
+results compile the test assemblies; they do not execute EditMode/PlayMode
+tests or certify a Unity resource slot.
+
+Nine meaningful native Python boundary regressions pass locally in **0.337 s**
+with no skips. [Final #1424 CI](https://github.com/Kuaiwa-Network/Farm-Client/actions/runs/37463839934)
+passes Linux full tests (**6,456 passed, one existing skip**), macOS focused
+tests (**253 passed, one existing skip**) and Windows focused tests (**250
+passed, one existing skip**). Its nine Python tests pass on macOS in **0.063 s**
+and Windows in **0.336 s**, without skips; both export commands build and enter.
+Linux also passes four WeChat and seven WebGL platform tests. All local and CI
+logs, revision/tool identities and initial probe evidence remain private.
+
+This completes Phase C step 1 on this development PC: supported complete
+metadata, native network/config entry points and full native typecheck.
+Controller client stages, UI-ready gating, committed-HEAD Unity verification,
+closing/write-back and real client publication remain implementation and
+acceptance work. Results on this PC do not certify the production Windows host.
 
 ## Remaining client/UI and release prerequisites
 
@@ -457,10 +567,10 @@ code, tests and CI remain identical, so another full offline run is unnecessary.
 2. Obtain an approved real card/scope for remaining live common/config/hive
    stages and their native worker generators. Running-worker withdrawal is
    still unmeasured; the completed cancellation check used a parked job.
-3. Complete Phase C's headless config command, native full client typecheck,
-   controller client stages, client validation and closing/write-back workflow.
-   The supported network command and shared complete metadata transaction are
-   delivered in client #1421/#1422; config integration remains pending.
+3. Implement Phase C's controller client stages, UI-ready gate, reservation-based
+   Unity validation and closing/write-back workflow. Step 1's supported network,
+   config, complete metadata and native full typecheck tools are delivered in
+   client #1421–#1424; their measured development-PC results are recorded above.
    Later UI authoring/export, farmgui permission changes and scoped LFS asset
    hydration remain subsequent work under the design's phase order.
 4. Obtain separate production promotion/feature-enablement authorization,

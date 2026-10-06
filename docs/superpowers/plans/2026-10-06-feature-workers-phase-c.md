@@ -37,9 +37,22 @@ checks, hosted macOS/Windows checks, and two real native exports at the pinned
 contract commit. All 61 C# outputs have full metadata, including five new GUIDs;
 both 122-file maps match, compilation passes and a wrong pin preserves outputs.
 The [measured record](../spikes/2026-10-06-windows-final-tools-lfs.md#supported-client-metadata-and-headless-network-export)
-contains exact commits, durations, skips and evidence boundaries. Headless config
-integration and native full client typecheck remain next in step 1. Steps 2–5
-are still implementation/acceptance work; no running bot is enabled or deployed.
+contains exact commits, durations, skips and evidence boundaries.
+
+Farm-Client #1423/#1424 subsequently deliver the supported config command and
+native full typecheck, with verified candidate/merge trees equal. Two real config
+exports produce identical 408-file maps with complete metadata; all 101 real
+tables load, and wrong provenance preserves outputs. The final native typecheck
+compiles all 1,429 production, 365 EditMode and 180 PlayMode files with zero errors;
+it compiles the test assemblies without running Unity tests. Native Windows and
+hosted macOS/Windows validation pass with no new skips. The
+[config/typecheck record](../spikes/2026-10-06-windows-final-tools-lfs.md#supported-headless-config-and-native-full-client-typecheck)
+contains measured versions, commits, counts, timings and remaining boundaries.
+
+**Step 1 is delivered on this development PC.** Steps 2–5 remain controller,
+instruction and acceptance work, starting with lazy client branch creation and
+its controller-validated stage baseline. No running bot is enabled or deployed;
+these results do not certify the production Windows host.
 
 ## 1. Supported headless client export tools
 
