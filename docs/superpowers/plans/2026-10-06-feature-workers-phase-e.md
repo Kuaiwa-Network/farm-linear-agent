@@ -224,3 +224,27 @@ atlas dimensions and the three inherited Common resource-name ambiguities
 duplicate package/resource IDs or silently asserted unique name lookups. Runtime
 payload loading, scoped installation and approval/controller orchestration remain
 pending. Full candidate verification is recorded separately after completion.
+
+## Scoped installer foundation
+
+`agent.fgui_install` prepares immutable changed-package-only mirror plans and a
+claim/Stop-fenced apply helper with preserved before bytes and a durable private
+recovery journal. Existing importer metadata remains byte-identical; complete live
+sibling templates supply new folder, descriptor, atlas and sound metadata with
+fresh globally checked GUIDs. It retains the watcher's deletion caps and refuses
+unhydrated comparison inputs, stale plans, missing/malformed metadata, global GUID
+drift, filesystem hazards and unmodeled metadata types. Unchanged dependencies and
+unrelated packages are untouched. No CLI, UI manifest, licensed export grant,
+Client/Unity resource or live operation is enabled by this foundation.
+
+Read-only development-PC calibration of exact Farm-Client main
+`5ca9db4f4ef4ae7a21c50c7243429a6f537a29a8` finds **10,434 metadata files and 10,434
+unique GUIDs**, no duplicate GUID identity, and validates actual DefaultImporter,
+TextScriptImporter, TextureImporter and AudioImporter templates in **52.217 s**.
+The Client checkout stays clean. This does not install exports, run hydrated Client
+guards or start Unity. The focused synthetic checks exercise full metadata/GUID
+preservation, changed-only mirroring, nested/orphan cleanup, independent deletion
+limits, stale input, Stop and I/O failures with retained recovery. One intermediate
+22-test run had a fixture FileNotFoundError after a test method's cleanup was
+placed in its neighbor; the cleanup is restored to its own method, with no
+application check or skip change. Final focused/full evidence follows separately.
