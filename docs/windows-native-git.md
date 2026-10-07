@@ -138,3 +138,54 @@ executable pins, quiet failures, UTF-8, server-only lookup, builder selection an
 credential-store separation. The fixtures never read host credentials. Native
 tests skip on non-Windows with their platform reason; origin validation runs on
 both platforms. A missing Windows compiler remains a capability failure.
+
+## Optional native LFS content filter
+
+Clearing inherited/global Git configuration also removes Git LFS's content filter
+registration. A manual scoped LFS pull can then hydrate the correct original bytes
+while Git reports them as modified. Authentication and content filtering are
+separate requirements. Preserve the committed LFS pointer and verify its exact
+OID/size before recovering index stat information; never commit expanded originals
+as replacement Git blobs or ignore dirty files to obtain a passing source review.
+
+[Git's command launcher](https://github.com/git/git/blob/v2.54.0/run-command.c)
+routes filter command strings containing whitespace or shell characters through
+its helper shell. Even a short path containing `~` takes that route. The optional
+[native filter adapter](../tools/windows_lfs_filter.cs) has no command arguments;
+it launches only the existing hash-pinned `git-lfs.exe filter-process` with native
+process APIs and forwards binary streams without text conversion. Its child stays
+in the caller's Job. It does not configure credentials, endpoint, Git or accounts.
+
+Choose a new absolute private tools directory outside all checkout/state/worker
+write roots. Its path must contain no whitespace or Git shell characters; the
+builder refuses unsuitable paths rather than selecting a shell or short alias:
+
+```powershell
+$env:PYTHONUTF8 = '1'
+& $python -B tools/build_windows_lfs_filter.py --output-directory $nativeFilterTools --lfs-executable $existingNativeLfs
+```
+
+The private receipt records source/helper/selected-LFS/companion hashes. Verify
+all pins and ordinary paths before each authorized development controller start.
+Append these process-local settings to the already sanitized Git environment,
+using its next unused numeric indices and adjusted `GIT_CONFIG_COUNT`:
+
+```text
+filter.lfs.process=<receipt.filter_selector>
+filter.lfs.required=true
+```
+
+The selector is the adapter's full verified absolute path, with forward slashes,
+no arguments and no shell characters. Keep system/global Git configuration
+withheld, hooks/fsmonitor disabled, TLS verification and native credential callback
+selection intact. Do not run `git lfs install` or edit the clone's allowlist/config.
+Read-only controller checkouts retain their explicit disabled-filter overrides.
+
+After correcting a missing registration, ordinary index stat refresh may be
+needed for verified original hydrated files. Preserve real XML/source changes
+and confirm the indexed tree is unchanged. The native offline integration check
+exercises clean, local cached smudge and stat recovery with a genuine source edit;
+binary transport and suspended-start Job/drain checks use dummy native children.
+Windows runs all native checks; other platforms skip them explicitly. A missing
+compiler/Git LFS fails as a host gap. These fixtures do not certify a selected real
+worker, live publication, licensed UI export or production readiness.
