@@ -79,10 +79,12 @@ What does not separate them:
 - Never delegate the same issue to both bots.
 - Start a new build with an @mention on an undelegated issue. That takes the
   read-only conversation path and receives no publishing scope.
-- Delegate from the Linear UI; delegation set through the API creates no agent
-  session, although on a card TestBot already tracks it is still settled as a
-  delegation Linear opened no session for. In the @-autocomplete, pick TestBot, not
-  FarmBot.
+- Delegate from the Linear UI. On an explicitly authorized API delegation,
+  inspect the actual agent session before requesting another. The native Windows
+  TestBot trial on 2026-10-07 observes Linear opening one from API delegation;
+  earlier tests did not. If no session opens, the controller's documented
+  settlement still applies to a card TestBot tracks. In the @-autocomplete, pick
+  TestBot, not FarmBot. See the [measured UI trial](superpowers/plans/2026-10-06-feature-workers-phase-e.md#as-executed-native-testbot-intake-and-scope-stop-2026-10-07).
 - FarmBot never closes PRs or deletes remote branches. Close an unwanted draft PR
   and its branch yourself.
 - A Code job on a real card reaches three repositories and waits for days between
