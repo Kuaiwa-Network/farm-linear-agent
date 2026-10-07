@@ -35,6 +35,22 @@ public static class FakeLfs {
 }
 '''
 
+UTF8_CONSOLE = r'''
+using System;
+using System.Text;
+public static class Utf8Console {
+    public static int Main(string[] args) {
+        Console.InputEncoding = Encoding.UTF8;
+        Encoding original = Console.InputEncoding;
+        int result = FarmBotNativeLfsFilter.Main(args);
+        if (Console.InputEncoding.CodePage != original.CodePage ||
+            Convert.ToBase64String(Console.InputEncoding.GetPreamble()) !=
+            Convert.ToBase64String(original.GetPreamble())) return 2;
+        return result;
+    }
+}
+'''
+
 
 class FilterSelectorTests(unittest.TestCase):
     def test_absolute_native_path_supports_unicode_without_shell_characters(self):
@@ -87,7 +103,27 @@ class NativeLfsFilterTests(unittest.TestCase):
     def test_fragmented_binary_stream_is_preserved_without_text_conversion(self):
         data = bytes(range(256)) * 700 + b'\x00\xff\r\n\xe4\xb8\xad'
         result = self.call(data)
-        self.assertEqual((result.returncode, result.stdout, result.stderr), (0, data, b''))
+        self.assertEqual((result.returncode, result.stderr), (0, b''))
+        self.assert_binary_equal(result.stdout, data)
+
+    def assert_binary_equal(self, actual, expected):
+        # Exact equality, with bounded diagnostics instead of quadratic difflib
+        # formatting for large repetitive binary inputs after a mismatch.
+        self.assertTrue(actual == expected,
+                        'binary bytes differ: actual size={} sha256={}, expected size={} sha256={}'.format(
+                            len(actual), hashlib.sha256(actual).hexdigest(),
+                            len(expected), hashlib.sha256(expected).hexdigest()))
+
+    def test_utf8_console_adds_no_preamble_and_restores_input_encoding(self):
+        source = self.work / 'utf8.cs'; source.write_text(UTF8_CONSOLE, encoding='utf-8')
+        helper = self.work / 'utf8-filter.exe'
+        subprocess.run([str(self.compiler), '/nologo', '/target:exe', '/main:Utf8Console', '/out:' + str(helper),
+                        str(ROOT / 'tools/windows_lfs_filter.cs'), str(source)], capture_output=True, check=True, timeout=30)
+        self.pin(settings=helper.with_suffix('.lfs-filter'))
+        data = bytes(range(256)) * 700 + b'\x00\xff\r\n\xe4\xb8\xad'
+        result = self.call(data, helper=helper)
+        self.assertEqual((result.returncode, result.stderr), (0, b''))
+        self.assert_binary_equal(result.stdout, data)
 
     def test_child_failure_code_is_preserved(self):
         self.env['FILTER_FIXTURE_MODE'] = 'failed'

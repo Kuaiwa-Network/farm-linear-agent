@@ -155,6 +155,10 @@ its helper shell. Even a short path containing `~` takes that route. The optiona
 it launches only the existing hash-pinned `git-lfs.exe filter-process` with native
 process APIs and forwards binary streams without text conversion. Its child stays
 in the caller's Job. It does not configure credentials, endpoint, Git or accounts.
+The .NET Framework redirected stdin writer captures the console encoding at
+process creation. The adapter selects BOM-free UTF-8 for that creation only and
+restores the caller's full encoding before forwarding raw bytes; a UTF-8 console
+must not prepend a preamble to Git's binary packet protocol.
 
 Choose a new absolute private tools directory outside all checkout/state/worker
 write roots. Its path must contain no whitespace or Git shell characters; the

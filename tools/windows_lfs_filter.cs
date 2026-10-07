@@ -72,7 +72,18 @@ public static class FarmBotNativeLfsFilter
                 UseShellExecute = false, CreateNoWindow = true,
                 RedirectStandardInput = true, RedirectStandardOutput = true
             };
-            if (!child.Start()) return 1;
+            // Framework constructs its redirected stdin writer at Start and
+            // captures Console.InputEncoding. Its AutoFlush can emit a UTF-8
+            // preamble before our raw BaseStream forwarding even begins.
+            // Select a BOM-free writer only for creation, then restore the
+            // caller's complete encoding. Protocol bytes still bypass text IO.
+            Encoding originalInputEncoding = Console.InputEncoding;
+            try
+            {
+                Console.InputEncoding = new UTF8Encoding(false);
+                if (!child.Start()) return 1;
+            }
+            finally { Console.InputEncoding = originalInputEncoding; }
             Process ownedChild = child;
             int inputFailed = 0;
             Thread input = new Thread(delegate()
