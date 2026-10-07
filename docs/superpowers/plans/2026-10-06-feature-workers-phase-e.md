@@ -1286,3 +1286,64 @@ package loading and human runtime UI QA; scoped actual Feishu reads and broader
 Code/closing/write-back journeys; separately authorized production-host tool,
 runtime, permissions, release/recovery checks and enablement/deployment. These are
 development TestBot measurements, not production readiness or whole-card completion.
+
+## As executed: fresh independent item-1 visual round (2026-10-07)
+
+The named continuation recorded above is consumed as current session request 13.
+The worker retains the independent item and its actual source branch, without
+adopting historical drafts or using their approval. Its committed source head is
+`9bbfa75acfd9a860947cf5c5d1ca840b53aafb72`, directly based on verified farmgui
+main `1193f21008dea66823c721a0818bf6690c33376b`.
+
+The source diff contains exactly two Activities XML files and the item-1 UI
+document. `GiftGardenView/pagePlaqueText` receives a larger two-line text area;
+`GiftGardenPageBuyBtn/title` receives a larger single-line area. Logical font size
+42 and stable node names remain. Shrink behavior, artwork-matched text/stroke
+colors and centered button geometry are recorded in the UI document. No package
+ID, registration, image, publishing setting or consumer code changes. The worker
+checks current references, cycles, IDs and original art against their hashes.
+
+Actual mockup text measurements are recorded with their limits. The plaque-style
+check changes from failing on the original source to passing on the new source.
+Purchase text fill/stroke colors match the mockup measurement; the full purchase
+stroke boundary cannot be measured cleanly because its mask overlaps the basket
+and scan boundary. The runtime cause of the original missing plaque line remains
+unverified. These source checks do not establish a runtime fix.
+
+The native source renderer uses SourceHanSansSC-Bold. The full 1080x1920 panel
+reports four unsupported effect categories: group/grayscale/partial-fill,
+rotation/pivot/skew/blend transforms, sibling-target relations and `gearLook`.
+Its separate 180x185 purchase-button preview renders with no reported gaps and
+one approximation. The composite labels approximate previews beside actual
+uploaded references, and records glyph/geometry deviations. It is not an Editor
+capture or pixel/runtime acceptance.
+
+Fresh source draft [farmgui #144](https://github.com/Kuaiwa-Network/farmgui/pull/144)
+is verified open/draft at that exact head. The controller records round 1,
+review `898a303fceb74f9da17836255ef021ea`, source digest
+`97103d1c3cd0c063c368ac28988780aeea4e0eff6a3d49379ffc726677c46e63` and changed
+package map `Activities: fvyctcfd`. Its actual uploaded 2200x2040 composite binds
+SHA-256 `f4ba0110c9a8541771dea63ccb372a98ef486701aa8a90d55d26d5139a2adfac`;
+the supplemental 1500x1000 close-up binds
+`203d502d86f77770f2cf3ddbd24c68f94374cc233c1a9b3eca97a46a3d841f29`.
+Both private PNGs are rehashed against the actual upload records. Preview files,
+raw host logs and signed asset URLs remain private.
+
+The confirmed `visual-1` notice, comment
+`8c5613f4-a8af-4001-b008-20d4cd263f3b` at 14:03:49.569 UTC, names that exact
+head and uploaded composite. A subsequent 14:06:41 UTC read-only snapshot finds
+the same independent item parked at `awaiting_input/visual_review`,
+`pause.kind=visual_approval`, no worker PID and an empty native Job. No human
+approval/export events, Client target, certified export or installation exist at
+that checkpoint. The old source #143 and Client #1425 remain open/draft at their
+preserved heads. Normal controller evidence is used throughout.
+
+Fresh named visual approval and an explicit export request remain required for
+this unchanged round. No historical approval or controller export/install receipt
+is reused. Subsequent acceptance still requires the fresh controller-certified
+export, scoped Client installation and complete actual guards from corrected
+inputs; an owned native development Unity/MCP slot and reserved exact-commit
+loading; human runtime UI QA; scoped actual Feishu reads and broader Code/closing/
+write-back journeys; separately authorized production-host release/recovery
+checks and enablement/deployment. The real card remains open, item 2 remains
+pending, and these are development TestBot results.
