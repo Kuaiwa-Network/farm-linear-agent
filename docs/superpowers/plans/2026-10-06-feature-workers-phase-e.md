@@ -1592,3 +1592,64 @@ human visual/runtime QA and final two-draft delivery remain pending. Scoped
 Feishu integration and broader Code/closing/write-back journeys, plus separately
 authorized production-host release/recovery checks and deployment, remain release
 prerequisites. These are isolated development TestBot results on this Windows PC.
+
+## As executed (2026-10-08 Windows local; corrected Unity baseline)
+
+The operator merges [Client #1427](https://github.com/Kuaiwa-Network/Farm-Client/pull/1427).
+Read-only GitHub checks confirm merge
+`07bba0faf92faa986ba544373fe9ad31d3a85a64` and successful standalone unit and
+Windows/macOS generated-artifact platform checks. This supplies the independent
+exporter test compilation correction described above; it does not modify or
+repin any historical UI trial.
+
+Before development-slot maintenance, the controller's executable, creation
+identity, account ownership, selected listener and development configuration
+are verified. All historical jobs are terminal, cleanup is complete, worker
+Jobs are empty, and no active reservation or pending repair remains. There is
+no running Editor or selected MCP listener. Normal operator `recover-slot`
+clears the exhausted slot hold through the supported controller command.
+Historical repair records and immutable Client targets remain unchanged.
+
+The owned development slot is fetched and checked out at the verified corrected
+main, `07bba0faf92faa986ba544373fe9ad31d3a85a64`, after clone/config and worktree
+identity checks. It is tracked-clean and fully hydrated, with no remaining LFS
+pointers. The installed matching Unity 2022.3.62f3 Editor opens this project.
+Its first import exceeds the existing 120-second MCP startup deadline; that
+timeout and private log are preserved. No deadline, containment or successful
+job result is changed to conceal the cold-import limit. The already started
+owned Editor continues importing; a second Editor is not launched.
+
+After import, the existing local MCP endpoint becomes available. A separate
+read-only readiness check verifies the same owned Editor and project, waits for
+quiescence, finds zero Console errors and runs the actual C# identity probe.
+The aggregate result is `match`: exact corrected commit, stable clean source,
+`StandaloneWindows64`, play mode off and loaded `HotUpdate`, `AOTScripts`,
+`Nova.Runtime` and `MCPForUnity.Editor` assemblies. This check takes 6.378 seconds.
+It is measured native Windows host readiness, not a reserved UI package-loading
+certificate or runtime visual acceptance. All historical job targets are
+independently verified unchanged. Only the owned development slot is prepared;
+production resources and unrelated listeners remain untouched.
+
+Named operator scope comment `ae7072e4-0842-417a-9154-6f4a7c4ea9ce`, at
+23:12:47.887 UTC on 2026-10-07, requests a fresh independent FARM-1396 item-1
+trial. Historical [source #144](https://github.com/Kuaiwa-Network/farmgui/pull/144)
+at `9bbfa75acfd9a860947cf5c5d1ca840b53aafb72` supplies the exact approved XML
+design reference. Existing drafts, failed jobs, receipts and recovery evidence
+are preserved. The new trial must publish its own source draft and approximate
+preview, then obtain explicit approval of that fresh round and an export request.
+An older approval or receipt cannot certify the new trial.
+
+The normal development TestBot session `d5178014-5aaa-4eef-8f21-975a0268c464`
+creates independent item `c2765bc0-d61c-4883-9797-29f673e09620`. Read-only
+observation confirms the running source worker selects signed native Codex
+0.160.0 with `gpt-6.1-sol` / `xhigh`; the worker and all observed descendants
+belong to its native Windows Job. No historical item is resumed or repinned.
+
+Fresh visual approval, certified export/install/guards, reserved exact-commit
+Unity loading, quiescent release and final source/Client draft delivery remain
+pending at this checkpoint. Human runtime UI QA, item 2 and whole-card acceptance
+also remain pending. Scoped real Feishu reads, broader Code/closing/write-back
+journeys and separately authorized production-host dependency, runtime,
+permissions, release/recovery checks and deployment remain release prerequisites.
+These measurements come from the isolated development TestBot on this Windows
+PC; they do not certify a production installation.
