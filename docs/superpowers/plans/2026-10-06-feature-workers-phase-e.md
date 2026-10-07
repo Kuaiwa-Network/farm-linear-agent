@@ -1653,3 +1653,73 @@ journeys and separately authorized production-host dependency, runtime,
 permissions, release/recovery checks and deployment remain release prerequisites.
 These measurements come from the isolated development TestBot on this Windows
 PC; they do not certify a production installation.
+
+### Fresh corrected-baseline source draft and visual review
+
+The new worker first parks on its normal foreign-work collaboration check after
+verifying merged Client #1426/#1427. The existing operator authorization is
+relayed into this fresh session as comment
+`66098957-018e-4be7-a16d-45c25f674c91`, at 23:24:40.573 UTC on 2026-10-07.
+This is an explicit continuation on the independent branch using #144's design
+reference, not visual approval or an export request. The webhook resumes the
+same new item normally; the previous attempt's native Job is empty.
+
+[Source #145](https://github.com/Kuaiwa-Network/farmgui/pull/145) is an open
+draft at `5e47cb0830243954214355d9d526e0b19c1cdc30`, based on verified farmgui
+main `1193f21008dea66823c721a0818bf6690c33376b`. Independent read-only checks
+compare committed Git blobs and confirm both changed XML files exactly match
+historical #144. The only other changed file is the item-1 UI document. Package
+IDs, images, registration paths and publisher configuration remain unchanged.
+The full owned clean source snapshot, including hydrated selected dependencies,
+matches controller source digest
+`f1f1aca92a3ad8d063a1646b1bbacd7510e27f25df7923824f88f84cfb01139e`.
+
+The worker passes package cycle/export-reference, uniqueness, registration and
+targeted text checks, and validates the committed hashes/sizes of 1,503
+materialized resources. Initial ad hoc inventory parsing failures are retained;
+the successful native inventory and independent controller snapshot supply the
+actual source evidence. A reported image mismatch is separately checked against
+its raw committed LFS pointer: the materialized PNG has the expected 3,159,257
+bytes and matching SHA-256. No credential, Git configuration, source identity or
+containment check is weakened.
+
+Fresh controller review `49d905d86ab64e57bab91c7ff4a9cb7d` binds round 1 to
+that exact head and digest. It records changed map `Activities: fvyctcfd`;
+the unchanged selected dependency closure also contains Common, ItemIcons,
+CommonFx, PlayerCustomize and UILangTex. Actual confirmed visual notice
+`d393234e-76f1-4866-8f86-f356b0d05046` names the review's uploaded comparison
+and full source head. The retained 2208-by-2060 comparison PNG has SHA-256
+`0032a1cbb0662085a86a1a96e62c5c747556ccc556eb7b1799121500f89e4fdc`.
+The supplemental 1920-by-1360 three-column label comparison has SHA-256
+`97fbf95f7859a8961985da7e52dd00c5291277a1a16ccedce9debd4fd90c2c41`.
+Both actual PNGs are inspected. The first PNG PUT fails; a subsequent normal
+controlled upload succeeds, and only the actual successful assets are bound.
+
+The fresh approximate preview shows both target labels completely. Fill ink
+extends beyond the original art by 5/6/6/4 pixels (left/right/top/bottom) for
+the plaque and 13/10/6/1 pixels for the purchase label. Fill/stroke color distance
+for the purchase label is zero. Full white-stroke extent measurement still
+fails because it overlaps basket/flower art and touches the scan boundary; that
+gap remains explicit. The original plaque ink already fits inside the old
+source box, so the reported disappearing second line's runtime cause remains
+unverified. Neither approximate text check proves native clipping behavior.
+
+The full-view renderer returns gap/exit 2. Unsupported or approximate groups,
+gray/fill effects, rotation/pivot, sibling relations, gearLook, automatic text,
+instance properties and animation remain documented. Static crops, rewards,
+prices, search/back text and Hub footer differ from the art; the project default
+font also differs from the original drawing. These are retained preview limits,
+not passing FairyGUI Editor/Unity rendering or item-2 acceptance.
+
+The same independent item is now normally parked at
+`awaiting_input/visual_review`, with `pause.kind="visual_approval"`, no worker
+PID and all attempt Jobs empty. Independent checks revalidate the actual draft
+head, exact reference XML, owned source digest, PNG bytes and confirmed notice.
+Fresh named visual approval and an explicit export request remain required.
+No new export receipt, Client target/install, guard result or reserved loading
+proof exists. Historical evidence and drafts remain intact. After approval,
+normal certified export, corrected-baseline Client handoff/install, actual
+guards, reserved exact-commit loading and quiescent release must precede final
+two-draft delivery. Human runtime UI QA, scoped Feishu reads, broader release
+journeys and separately authorized production-host release/recovery/deployment
+remain pending as described above; item 2 and whole-card acceptance remain open.
