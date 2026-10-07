@@ -224,7 +224,9 @@ existing production data or copy its marker.
      install first, and `lark_cli_unconfigured` means `serve` would refuse the profile.
      Enabling `fgui` adds `tools.fgui`: the selected native Python, Git LFS,
      pinned Pillow, prepared CJK font identity and the shared bot document reader.
-     It does not probe licensed export/Unity or read the design document.
+     Its optional `tools.fgui.export` block verifies the four explicitly selected
+     native publisher hashes. It does not execute the exporter, verify a license,
+     start Unity or read the design document.
    - `python3 -m agent.service seed-clones --config /absolute/profile.json --from ~/WorkSpaces/Farm`
      creates `local_root`, `.controller.lock`, `environment.json` and the bare
      clones; there is no separate init command. Local checkouts that share history

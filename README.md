@@ -7,15 +7,17 @@ new UI. The Code worker runs only on a host that enables it; in this revision it
 feature from its Farm-Contract change through farm-common declarations, farm-hive and
 Farm-Client, with human UI-ready confirmation and committed-HEAD verification. It opens
 drafts and a Contract acceptance/archive draft; people review, merge and accept them.
-The UI authoring worker (`fgui`) is also opt-in. It authors only farmgui, opens a
+The UI worker (`fgui`) is also opt-in. It starts in farmgui, opens a source
 draft and posts clearly labeled approximate previews for explicit human visual
 approval. Replies resume it; comments alone do not. Corrections require a fresh
-preview round. Licensed export, Farm-Client writes and Unity remain a separate
-Phase E step; an export request parks at that limit. See the
-[Phase D plan](docs/superpowers/plans/2026-10-06-feature-workers-phase-d.md).
-The [Phase E record](docs/superpowers/plans/2026-10-06-feature-workers-phase-e.md)
-tracks verified export foundations and prepared controller receipt commands;
-the delivered UI manifest still has the authoring limit.
+preview round. An unchanged approved preview and explicit export request allow
+the configured licensed native Windows publisher to export the changed packages.
+The controller then permits a scoped Farm-Client stage, actual Client guards and
+reserved exact-commit Unity package loading before two-draft delivery. Missing
+host prerequisites park the work; package loading does not certify target-panel
+rendering or human visual/runtime acceptance. The
+[Phase E record](docs/superpowers/plans/2026-10-06-feature-workers-phase-e.md)
+records the verified offline implementation and remaining live/release checks.
 Without a Bot label a delegation opens a conversation. Capabilities are added as skills on
 a shared identity, ledger, worker runtime and desktop-resource locks: chat, QA, bug fixes
 and small changes, FGUI, then whole features.
