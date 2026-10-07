@@ -1,12 +1,15 @@
 """Prepared UI Client entry uses the existing controller-owned staged baseline."""
 from dataclasses import replace
 import json
+from pathlib import Path
 from unittest.mock import Mock
 import unittest
 
 from agent.ledger import LedgerError
 from agent.launcher import Finished
+from agent.worktrees import Worktrees
 import test_scheduler as fixtures
+from test_worktrees import git
 
 
 CLIENT = "Farm-Client"
@@ -79,6 +82,54 @@ class UiClientStageTests(unittest.TestCase):
         self.assertEqual(self.ledger.item(item["id"])["target"], first)
         self.trees.stage_base.assert_called_once()
 
+    def test_fresh_ui_branch_selects_corrected_main_without_touching_retained_job(self):
+        root = Path(self.fixture.tmp.name) / "two UI runs 农场"
+        remotes = {}
+        for name in ("farmgui", CLIENT):
+            origin = root / (name + " origin")
+            origin.mkdir(parents=True)
+            git("init", "-q", "-b", "main", cwd=origin)
+            (origin / "README.md").write_text("original baseline\n", encoding="utf-8")
+            git("add", ".", cwd=origin); git("commit", "-qm", "baseline", cwd=origin)
+            remotes[name] = str(origin)
+        trees = Worktrees(root / "repos", root / "worktrees", remotes)
+        self.scheduler.worktrees = trees
+        retained_source = trees.add("farmgui", "retained-ui", BRANCH)
+        old_baseline = trees.stage_base(CLIENT, "retained-ui", BRANCH)
+        retained_client = trees.add_stage(CLIENT, "retained-ui", BRANCH, old_baseline)
+        source_head = trees.head(retained_source)
+        client_origin = Path(remotes[CLIENT])
+        (client_origin / "guard-fix.txt").write_text("reviewed baseline correction\n", encoding="utf-8")
+        git("add", ".", cwd=client_origin); git("commit", "-qm", "baseline correction", cwd=client_origin)
+        corrected = trees.head(client_origin)
+
+        authored = self.scheduler._worktrees_for(self.skill, self.item, self.ledger.issue(fixtures.ISSUE))
+        fresh_branch = git("branch", "--show-current", cwd=authored["farmgui"])
+        self.assertNotEqual(fresh_branch, BRANCH)
+        token = self.claim()
+        self.ledger.checkpoint(self.item["id"], token, {"plan": {"prs": {"farmgui": [
+            {"role": "issue", "branch": fresh_branch}]}}, "handoff": {"facts": [], "hypotheses": [],
+            "checks": [], "repositories": [], "next_actions": ["Install certified UI into fresh Client"]}})
+        self.ledger.handoff_repository(self.item["id"], token, CLIENT, skill=self.skill)
+        self.ledger.complete_repository_handoff(self.item["id"], 101, skill=self.skill)
+        paths = self.scheduler._worktrees_for(self.skill, self.ledger.item(self.item["id"]),
+                                             self.ledger.issue(fixtures.ISSUE))
+        target = self.ledger.item(self.item["id"])["target"]
+        self.assertEqual((target["commit_sha"], target["issue_branch"]), (corrected, fresh_branch))
+        self.assertEqual(trees.head(paths[CLIENT]), corrected)
+        self.assertEqual(git("branch", "--show-current", cwd=paths[CLIENT]), fresh_branch)
+        self.assertIsNone(self.ledger.session(fixtures.SESSION)["target"])
+
+        (client_origin / "later.txt").write_text("main advances again\n", encoding="utf-8")
+        git("add", ".", cwd=client_origin); git("commit", "-qm", "advance again", cwd=client_origin)
+        again = self.scheduler._worktrees_for(self.skill, self.ledger.item(self.item["id"]),
+                                             self.ledger.issue(fixtures.ISSUE))
+        self.assertEqual(self.ledger.item(self.item["id"])["target"], target)
+        self.assertEqual(trees.head(again[CLIENT]), corrected)
+        self.assertEqual(trees.head(retained_client), old_baseline)
+        self.assertEqual(trees.head(retained_source), source_head)
+        self.assertEqual(git("branch", "--show-current", cwd=retained_client), BRANCH)
+
     def test_stop_during_selection_cannot_pin_or_create_client(self):
         item = self.at_client()
         def stopped(*args):
@@ -89,6 +140,27 @@ class UiClientStageTests(unittest.TestCase):
             self.scheduler._worktrees_for(self.skill, item, self.ledger.issue(fixtures.ISSUE))
         self.assertIsNone(self.ledger.item(item["id"])["target"])
         self.trees.add_stage.assert_not_called()
+
+    def test_retained_client_pin_wins_over_different_source_branch(self):
+        self.at_client()
+        target = self.pin()["target"]
+        self.ledger.connection.execute("UPDATE work_items SET checkpoint=? WHERE id=?", (json.dumps({"plan": {
+            "prs": {"farmgui": [{"role": "issue", "branch": BRANCH + "-fresh"}]}}}), self.item["id"]))
+        self.scheduler._worktrees_for(self.skill, self.ledger.item(self.item["id"]), self.ledger.issue(fixtures.ISSUE))
+        self.trees.stage_base.assert_not_called()
+        self.trees.add_stage.assert_called_once_with(CLIENT, self.item["id"], BRANCH, BASE)
+        self.assertEqual(self.ledger.item(self.item["id"])["target"], target)
+
+    def test_foreign_or_reserved_source_branch_refuses_first_client_selection(self):
+        self.at_client()
+        for branch in ("main", "farmbot/farm-2", BRANCH + "-config", BRANCH + "-writeback"):
+            self.ledger.connection.execute("UPDATE work_items SET checkpoint=? WHERE id=?", (json.dumps({"plan": {
+                "prs": {"farmgui": [{"role": "issue", "branch": branch}]}}}), self.item["id"]))
+            with self.subTest(branch=branch), self.assertRaises(LedgerError):
+                self.scheduler._worktrees_for(self.skill, self.ledger.item(self.item["id"]), self.ledger.issue(fixtures.ISSUE))
+        self.trees.stage_base.assert_not_called()
+        self.trees.add_stage.assert_not_called()
+        self.assertIsNone(self.ledger.item(self.item["id"])["target"])
 
     def test_source_stage_and_claimed_client_cannot_repin(self):
         with self.assertRaises(LedgerError):
