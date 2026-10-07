@@ -248,3 +248,126 @@ limits, stale input, Stop and I/O failures with retained recovery. One intermedi
 22-test run had a fixture FileNotFoundError after a test method's cleanup was
 placed in its neighbor; the cleanup is restored to its own method, with no
 application check or skip change. Final focused/full evidence follows separately.
+
+## Verified export foundation (2026-10-07)
+
+[#157](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/157) is merged as
+`ca5b46da7305359909fdca8f53fe4b9aed2879e0`, with the same tree as candidate
+`89005daab30e0a36296d14e491765e25356eb122`. Full offline verification:
+
+| Run | Tests | Duration | Failures/errors | Existing platform skips |
+|---|---:|---:|---:|---:|
+| Development native Windows | 1,903 | 1,261.581 s | 0 / 0 | 69 |
+| Hosted macOS | 1,903 | 603.435 s | 0 / 0 | 42 |
+| Hosted Windows | 1,903 | 1,677.912 s | 0 / 0 | 69 |
+
+All skip identities/reasons equal the established 1,869-test baseline; complete
+lists, versions, UTF-8 logs and per-test durations remain private. All 34 new export
+checks, 22 Code journeys, 11 UI checks and 43 preview/transport checks actually run.
+All seven native Job Object tests run on both Windows hosts. Hosted synthetic
+revision `7b24245b60b7ec633c3830a96bc8f74f05372131` has the candidate's exact tree;
+[run 37534175956](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37534175956)
+passes both jobs. Native Python is 3.13.16 with Git 2.54.0.windows.1/LFS 3.7.1;
+hosted Python is 3.13.15 with macOS Git 2.55.0/LFS 3.8.0 and Windows Git
+2.55.0.windows.5/LFS 3.7.1. All Windows Python starts use `PYTHONUTF8=1` and the
+pinned workflow's selector sanitization. This is development-PC evidence, with no
+production release or UI-card acceptance claim.
+
+## Native publisher execution foundation
+
+`agent.fgui_publisher` prepares explicit native tool/source selection, disabled
+code generation, fresh private staging and a bounded worker-run process helper.
+It uses a machine-wide publisher mutex and refuses existing/competing FairyGUI
+processes. Its native gate is assigned to an owned nested Job before execution;
+Stop/timeout/lingering descendants terminate only that Job and retain receipts.
+Success requires observed emptiness, unchanged tool/full source identities,
+completion and an immutable validated inventory. It adds no CLI, UI authority,
+host configuration, Client stage or Unity grant.
+
+Early focused tests preserved two diagnostic inconsistencies (duplicate-key JSON
+errors were normalized too broadly; an oversized log raised raw OSError). The
+helper now retains the specific duplicate-key refusal and normalizes bounded
+input errors. A repeated native nested-worker test then reproduced a real process
+accounting race: the gate can be signalled just before Windows reports the final
+descendant gone. The helper waits at most one second for observed emptiness;
+persistent children still refuse success and are reaped. A delayed-child regression
+and 20 focused repetitions of the nested-worker check pass after this correction.
+No containment, ownership check or application skip is weakened.
+
+The direct real-export calibration uses new disposable sources, exact farmgui
+`54a76b2a7110cdf8897144902f8490ed70df45bd`, the same five-package dependency
+closure and 682 verified LFS objects per source, hydrated from the existing native
+development object cache without another download. The first probe's full-source
+callback refused before startup because it used a nonempty-input hash helper for
+tracked empty placeholder files. The callback now hashes verified ordinary empty
+files as empty bytes; nonempty tool/project/settings/manifest checks remain.
+The corrected native helper exports in **4.066 s** (**12.556 s** including tool/source
+verification), with an empty owned Job and all 31 artifact hashes identical to the
+earlier measurements. No source settings, watched output, service, credentials,
+account, license setup, live issue, Client assets or Unity operation is changed.
+The actual configured Codex 0.156.1 worker then exports in **4.057 s** in a
+**44.505 s** whole attempt. The nested publisher Job is assigned before opening its
+gate (at most four owned processes); both nested and outer worker Jobs empty,
+observed members exit and Launcher certifies quiescence. All 31 artifact hashes
+again match. Existing authentication-seed metadata and protected runtime
+registration receipts remain unchanged. The first worker-fixture preparation
+refused before Launcher because a private probe indexed its seed-file mapping as
+a list; the corrected fresh fixture reads only its unchanged metadata. Neither
+preparation failure is a license/runtime/application failure or bypass.
+
+The focused native UI group runs **99 tests in 39.461 s**, including all 32 new
+publisher checks and 11 actual native containment/concurrency checks, with zero
+failures/errors/skips. Another 75 skill/reference tests pass in 0.456 s. Final
+exact-candidate full offline evidence follows separately; these helper
+calibrations do not enable the Phase E worker route or establish production-host
+readiness. Attributed UI export/Client orchestration, hydrated guards and actual
+Unity loading remain pending.
+
+The initial hosted macOS full run on candidate
+`118362abe371c6d5b342b2e7ba7a86463475e060` runs 1,957 tests in 649.564 s,
+with 21 failures, 9 errors and 53 platform skips (the established 42 plus 11 new
+native-Windows-only publisher checks). Its new publisher fixtures used the
+unresolved macOS temporary path, whose ancestor is a system symlink. The strict
+application link refusal is correct. Fixture setup and its per-subtest temporary
+attempts now resolve their canonical root, preserving all link/reparse/hardlink
+refusals and every native test. Raw UTF-8 evidence remains private; final corrected
+candidate verification follows. No application or process-containment code changes
+for this fixture repair.
+
+## Publisher suspended-start correction
+
+The initial and fixture-corrected development-PC Windows full runs each execute
+1,957 tests with zero assertion failures, one cleanup error and 69 existing
+platform skips, in 1,267.368 s and 1,280.574 s. Both errors are the existing
+launcher budget-kill test retaining a second worker's stderr log during temporary
+cleanup. All seven required native Job tests and all 11 then-current native
+publisher tests actually run. Focused repetitions alone do not establish a pass.
+
+The [separate native startup investigation](../spikes/2026-10-07-windows-python-redirector-containment.md)
+measures a selected Python venv redirector starting its base interpreter before
+parent Job assignment. Its fixture never opens the gate or executes a CLI. The
+shared launcher correction creates Python suspended, assigns the owned creation
+object and verifies/resumes its initial thread before startup and the handshake.
+The prepared publisher now uses the same sequence for its nested gate and requires
+separate assignment-before-startup and assignment-before-export evidence before
+accepting an inventory. A deliberately delayed assignment test proves no gate
+startup before assignment; a refusal test rejects missing startup evidence even
+when exit, quiescence and pre-export assignment otherwise pass.
+
+This correction adds one native publisher regression (33 publisher checks, 12
+native). Exact-candidate full suites and fresh real publisher/isolated-worker
+calibrations follow separately. Earlier passing process/export measurements do
+not certify the corrected route. No new skip, containment relaxation, alternate
+shell, runtime permission repair, live issue or production change is introduced.
+
+Fresh native calibration of the corrected code uses two new disposable sources
+at the same exact farmgui commit and all 682 scoped cached LFS objects per source.
+The direct publisher passes in **4.094 s** (**24.982 s** including verification).
+The actual isolated Codex 0.156.1 worker passes in **51.927 s**, including a
+**3.986 s** publisher run. Both prove assignment before Python startup and export;
+all 31 artifact hashes match the earlier measurements. Both nested and outer Jobs
+empty, observed worker members exit, and no attempt remains. Existing
+authentication-seed metadata and protected runtime registration receipts remain
+unchanged. Native unelevated execution needs no permission repair or alternate
+shell. This is developer helper evidence, with no worker authority expansion,
+actual Client install, Unity acceptance or production readiness claim.
