@@ -238,8 +238,14 @@ no TRX and executing neither guard. A later native contained restore succeeds
 from eleven SHA-512-verified public development package archives copied into the
 owned job area, in 2.345 seconds with an empty Job. Restore success does not
 certify guards. The named continuation requests a fresh actual guard run using
-that process-selected cache; measured outcomes and remaining checks are tracked
-in the [local Gitea follow-up](../plans/2026-10-06-feature-workers-phase-e.md#as-executed-operator-confirmed-local-gitea-route-2026-10-07).
+that process-selected cache. Both tests now execute: orphan-atlas passes, while
+dependency fails on `MonthlyPass -> CommonFx`. A focused negative control using
+the exact baseline guard and unchanged hash-verified MonthlyPass descriptor
+reproduces the same failure. The existing source embeds a CommonFx movieclip;
+reviewing that independent guard baseline belongs outside the Activities-only
+trial. No unrelated guard entry or asset is changed to obtain a pass. Measured
+outcomes and remaining checks are tracked in the
+[actual guard follow-up](../plans/2026-10-06-feature-workers-phase-e.md#actual-guards-and-pre-existing-monthlypass-failure).
 
 Reserved exact-commit Unity package loading remains separate. The development
 host still has no configured Unity slot, and its unrelated MCP listener is not

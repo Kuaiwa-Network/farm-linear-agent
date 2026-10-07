@@ -1047,3 +1047,50 @@ receipt, selecting the owned cache through `NUGET_PACKAGES` for the verification
 process. It requires the actual guarded CLI run, preserves both drafts and the
 original round-1 approval, and retains the dedicated Unity-slot gap. No service
 restart or configuration change is needed for this cache selection.
+
+### Actual guards and pre-existing MonthlyPass failure
+
+The resumed actual guarded CLI invocation completes after 94.295 seconds with a
+complete two-test TRX: `FguiOrphanAtlasGuardTests` passes, while
+`FguiDependencyGuardTests` fails on `MonthlyPass -> CommonFx`. Neither test is
+skipped or Inconclusive; there are no compiler error diagnostics. No passing
+controller guard receipt is recorded, and Unity loading cannot advance.
+
+Read-only comparison proves the MonthlyPass descriptor's LFS pointer is identical
+at pinned baseline `5ca9db4f4ef4ae7a21c50c7243429a6f537a29a8` and Client candidate
+`e6c48321bf0b2d32262594075618c5371e439b58`. The materialized 22,535 bytes match its
+committed SHA-256 `0665c0aa4c261ce678e4fb72da816fbe9165d3873819c5c755f2df026f6c7e13`.
+The MonthlyPass guard entry is unchanged (`Common` only); the candidate's guard
+diff changes only Activities and its reason comment.
+
+A separate native contained focused negative control compiles the exact baseline
+guard source and root-discovery helper against only that verified unchanged
+MonthlyPass descriptor. Its actual test reproduces the same failure. This is a
+focused baseline reproduction, not a full baseline Client suite or release
+evidence. Actual source inspection finds one existing CommonFx movieclip in
+`MonthlyPass/Components/MonthlyPassRewardCell.xml`, component name `n4`, resource
+`dy4c1`. No source, asset, guard entry or game PR is changed by this diagnosis.
+
+The failure is pre-existing in the pinned Client inputs and belongs outside the
+approved Activities-only trial. A proposed separate Client follow-up would
+review and document that existing structural dependency in the MonthlyPass
+guard entry, leaving the descriptor and UI behavior unchanged. It is not applied
+to the current trial or treated as a passing result; operator scope approval and
+ordinary game draft review are required before that follow-up. The current source
+and Client drafts, certified export/install receipts and original visual approval
+remain preserved.
+
+Remaining release prerequisites are now:
+
+- Resolve the independent MonthlyPass dependency-guard failure in its own
+  reviewed Client follow-up, then run both actual guards against the resulting
+  certified trial candidate without skips, Inconclusive results or bypasses.
+- Configure an owned development Unity slot and verify its native Editor/MCP
+  identity; run reserved exact-commit package loading, then human runtime UI QA.
+- Exercise actual Feishu document reads on a suitable scoped trial and finish
+  the remaining broader Code/closing/write-back acceptance journeys.
+- Complete separately authorized final production-host tools/runtime/permissions,
+  release and recovery checks before production enablement or deployment.
+
+This is a development PC result. Production readiness, whole-card completion,
+item 2 and game PR merges are not certified or authorized by these measurements.
