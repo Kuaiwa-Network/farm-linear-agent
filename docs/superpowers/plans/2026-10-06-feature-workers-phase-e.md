@@ -707,3 +707,127 @@ Switching the selected trial and withdrawing the parked FARM-1408 UI attempt nee
 the operator's decision. Existing parked Code cards and game test drafts remain
 untouched. Actual source preview/upload/visual approval/export, hydrated Client
 guards, exact-commit Unity loading and final-host release checks remain required.
+
+## As executed: settled withdrawal and bounded text trial (2026-10-07)
+
+The operator approves withdrawing the parked FARM-1408 UI attempt and selecting
+[FARM-1396 — 礼包花圃ui](https://linear.app/kuaiwagames/issue/FARM-1396/礼包花圃ui),
+item 1 only. FARM-1408 returns to its original Todo state and Improvement label,
+with no delegate. The controller's normal withdrawal settles both UI items as
+cancelled, removes their owned worktrees/read checkouts and clears all recorded
+native Job members. There are no workers, queued reservations or pending cleanup
+at this fence. Historical failure records remain preserved; no runtime color
+repair, manual ledger change or production cleanup occurs.
+
+FARM-1396 receives Bot/UI and delegation to the intended development TestBot,
+retaining its Bug label, Todo state, assignee and original description. The named
+operator's scope comment permits only the existing “本页礼包” and “整页购买” text
+correction using this card's original art/screenshots. Item 2, effect layering,
+remains pending. This operational approval does not approve a future visual
+round or request export, and partial item-1 delivery cannot close the whole card.
+
+The API delegation itself opens exactly one observed TestBot root session; no
+additional session-creation mutation is sent. Its signed intake starts one native
+authoring attempt at farmgui main `1193f21008dea66823c721a0818bf6690c33376b`.
+The worker and all three observed descendants are members of its named Windows
+Job. The runtime checkout remains frozen at
+`70716fc53a9cf8d2111cb2233b254a2b4155cfec`; configuration, ownership and production
+remain unchanged. The actual download manifest and downloaded bytes verify:
+
+| Input | Bytes | SHA-256 | Dimensions |
+|---|---:|---|---|
+| 弹窗005.png | 2651212 | `3cfff1280936059eea7488ede4cdc6b551ea28454bef39390a89034585170f18` | 1080 × 1920 |
+| image.png | 694794 | `7437b0bf4ec20e8dfe92eb4d78ade4478cd5e85d8ef38b6c54978dea5ad99b3e` | 501 × 781 |
+| image-2.png | 428855 | `688a2422fe9b4d515e1d343ca13188e2c1f831da4cff169f1ea3273f6d4360b5` | 367 × 562 |
+
+The third image belongs to the deferred item; downloading it does not expand the
+approved scope. The real TestBot start notice explicitly retains that deferral.
+Read-only Windows inventory finds the registered Unity 2022.3.62f3 executable
+(file version 2022.3.62.9860879), matching Client's required Editor revision.
+No Editor is running at inventory time and no development Unity slot is yet
+configured. Presence/version alone proves neither license, project import, MCP
+identity nor loading acceptance.
+
+The actual worker commits only the two Activities XML text layouts and
+`docs/farm-1396-gift-garden-ui.md`, source head
+`070c0f82bce1798bf817256e1ec5db6b528531f6`. Native text measurement/checks pass;
+IDs, component names, artwork and binding/gameplay scope remain unchanged.
+It generates an approximate static preview and the original-art comparison.
+The resumed worker verifies publication and opens
+[farmgui draft #143](https://github.com/Kuaiwa-Network/farmgui/pull/143) at that exact
+source HEAD. Two real app-token PNG uploads succeed. The controller records
+review `82b81f5d6de74f0d9684e4f17a87c1fa`, round 1, matching source/draft identity,
+changed package Activities (`fvyctcfd`) and the actual comparison image:
+4,056,354 bytes, SHA-256
+`cf61527c9a09bf37284ad13f5584b2962d85a02e607f324063e45a5c33e6a54f`.
+Its selected export closure is Activities, Common, CommonFx, ItemIcons,
+PlayerCustomize and UILangTex. The confirmed `visual-1` notice names that current
+image and source HEAD. These are actual source/publication/upload/review results,
+not human visual or export acceptance.
+
+The sanitized development wrapper's missing LFS filter registration makes its
+hydrated dependency originals appear dirty. The operator requests a checkpoint
+and pause before publication; both resulting worker attempts settle with empty
+native Jobs, preserving the source commit. The controller is stopped only after
+fresh quiescence and owned process/listener checks. All 1,031 original files
+(188,942,783 bytes) independently match the committed LFS SHA-256/size. A verified
+native zero-argument content filter and explicit verified-path index refresh
+restore clean status without changing HEAD, the indexed tree or original bytes.
+The [native filter record](../spikes/2026-10-07-windows-native-lfs-filter.md)
+preserves both recovery refusals and distinguishes this host gap from source
+damage. It adds no Bash/MSYS/WSL/MXC, global/clone configuration or worker grants.
+
+The same frozen development runtime restarts with the verified optional filter;
+only its process environment changes. A named operator reply explicitly resumes
+the existing FARM-1396 item/session, retaining item 2 as pending and withholding
+visual approval/export. The resumed worker and all observed descendants belong
+to its named native Job. It then parks in `awaiting_input` / `visual_approval`;
+the PID clears and every recorded Job is empty, with no pending webhook/cleanup,
+reservation or heartbeat worker. No export record or Client draft exists.
+The comparison explicitly labels static placeholders/system-font differences
+and unsupported effects/relations/transitions; it is neither FairyGUI nor Unity
+output. Both requested phrases are visible in this approximation, but runtime
+clipping must still be checked after export. Item 2 remains pending.
+
+The optional native filter's first full local run exposes a UTF-8 BOM regression
+and slow binary failure formatting, recorded separately. The corrected adapter
+passes 15 focused and 38 sequence checks and is selected only after a fresh
+settled-development restart fence. Its corrected full runs then pass 2,114 tests
+on the development PC (1680.382 seconds, 69 skips), hosted macOS (741.446 seconds,
+73 skips) and hosted Windows (2216.710 seconds, 69 skips), all with zero
+failures/errors and verified equal candidate trees. Both Windows runs execute
+all thirteen native filter checks; established platform skip IDs/reasons are
+unchanged. PR #167 merges at `7604de5dfb7f5889f0f0613196e3a1a26f308a92` with
+that tested tree. The initial incomplete run remains separate evidence.
+
+### Actual round-1 approval and refused export certification
+
+At 06:24:04.670 UTC, 马张力 posts actual reply
+`575cf37e-a5e5-4eb4-b084-f6fa8a17ae5f` under the existing session root, explicitly
+approving round 1 and requesting export. Its signed session event becomes actual
+stored message 8 with the same named author and body. The fourth native attempt
+consumes it and saves separate `visual_approved` and `export_requested` events
+bound to the unchanged review/head/source digest/preview hash. No duplicate
+approval or session is sent.
+
+The selected native publisher completes six approved/dependency packages and
+50 private artifacts, with exit zero, proved assignment before startup/export
+and an empty owned Job. Read-only revalidation confirms unchanged staged bytes,
+source head and complete file-hash map. The controller nevertheless refuses
+`UI export receipt cannot certify stale source or uncertain process ownership`:
+the publisher hashes the complete `{head, files}` identity while approval and
+controller receipt checks hash `files` and bind the full commit separately.
+This is a controller integration regression, not an absent license, missing host
+capability or stale approval. Helper staging is retained for diagnosis and is
+never substituted for a certified receipt.
+
+The confirmed `export-stage-limit-1` notice is
+`04a569cd-4fab-4e72-bb21-5985a0b9dd79`. The same item/session parks in
+`awaiting_input` / `export_stage_limit`, its PID clears, all recorded native Jobs
+are empty, and there are no pending webhooks, cleanup, reservations or heartbeat
+workers. No controller export record, Client handoff/change or Unity result exists.
+The approved round is preserved while a separate controller correction receives
+regression verification; a fresh controlled export must follow. Actual Client
+guards, exact-commit Unity loading, runtime UI QA and separately authorized
+production-host release checks remain pending. Item 2 remains pending and no
+game draft is merged.
