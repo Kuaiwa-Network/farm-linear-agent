@@ -1,0 +1,100 @@
+// Bounded package identities are injected by FarmBot, never worker C# source.
+var expected = new System.Collections.Generic.Dictionary<string, string>
+{
+/* FARM_PACKAGE_IDENTITIES */
+};
+var hashes = new System.Collections.Generic.Dictionary<string, string>
+{
+/* FARM_DESCRIPTOR_HASHES */
+};
+var descriptors = new System.Collections.Generic.Dictionary<string, byte[]>();
+var observedHashes = new System.Collections.Generic.Dictionary<string, string>();
+if (UnityEngine.Application.isPlaying || UnityEditor.EditorApplication.isPlayingOrWillChangePlaymode
+    || UnityEditor.EditorApplication.isCompiling || UnityEditor.EditorApplication.isUpdating)
+    throw new System.Exception("UI loading requires idle Edit Mode");
+foreach (var pair in expected)
+{
+    string prefix = "Assets/GameRes/FairyRes/" + pair.Key + "/" + pair.Key;
+    if (FairyGUI.UIPackage.GetById(pair.Value) != null || FairyGUI.UIPackage.GetByName(pair.Key) != null
+        || FairyGUI.UIPackage.GetById(prefix) != null)
+        throw new System.Exception("UI probe cannot reuse or replace an already registered package");
+    var descriptor = UnityEditor.AssetDatabase.LoadAssetAtPath<UnityEngine.TextAsset>(prefix + "_fui.bytes");
+    if (descriptor == null || descriptor.bytes.Length == 0 || descriptor.bytes.Length > 16 * 1024 * 1024)
+        throw new System.Exception("UI descriptor is missing, unhydrated or oversized");
+    var header = new FairyGUI.Utils.ByteBuffer(descriptor.bytes);
+    if (header.ReadUint() != 0x46475549 || header.ReadInt() != 7 || header.ReadBool()
+        || header.ReadString() != pair.Value || header.ReadString() != pair.Key)
+        throw new System.Exception("UI descriptor header must match before any registry mutation");
+    using (var sha = System.Security.Cryptography.SHA256.Create())
+    {
+        string hash = System.BitConverter.ToString(sha.ComputeHash(descriptor.bytes)).Replace("-", "").ToLowerInvariant();
+        if (!hashes.ContainsKey(pair.Key) || hashes[pair.Key] != hash)
+            throw new System.Exception("Imported UI descriptor differs from the exact committed Client bytes");
+        observedHashes.Add(pair.Key, hash);
+    }
+    descriptors.Add(pair.Key, descriptor.bytes);
+}
+var owned = new System.Collections.Generic.List<FairyGUI.UIPackage>();
+var observed = new System.Collections.Generic.List<object>();
+try
+{
+    foreach (var pair in expected)
+    {
+        string prefix = "Assets/GameRes/FairyRes/" + pair.Key + "/" + pair.Key;
+        FairyGUI.UIPackage.LoadResource loader = (string name, string extension, System.Type type, out FairyGUI.DestroyMethod method) =>
+        {
+            // AssetDatabase objects may be shared by the reserved Editor. The
+            // probe owns package wrappers, never destruction of imported assets.
+            method = FairyGUI.DestroyMethod.None;
+            return UnityEditor.AssetDatabase.LoadAssetAtPath(name + extension, type);
+        };
+        var package = FairyGUI.UIPackage.AddPackage(descriptors[pair.Key], prefix, loader);
+        if (package == null) throw new System.Exception("UI package did not load");
+        owned.Add(package);
+        if (package.id != pair.Value || package.name != pair.Key)
+            throw new System.Exception("Loaded UI package identity differs from certified export");
+    }
+    foreach (var package in owned)
+    {
+        var items = package.GetItems();
+        if (items.Count == 0 || items.Count > 10000) throw new System.Exception("UI package item count exceeds bound");
+        int diskAssets = 0;
+        foreach (var item in items)
+        {
+            var asset = item.Load();
+            if (item.type == FairyGUI.PackageItemType.Atlas || item.type == FairyGUI.PackageItemType.Sound
+                || item.type == FairyGUI.PackageItemType.Misc)
+            {
+                if (asset == null) throw new System.Exception("UI descriptor-declared asset did not load in Unity");
+                System.Type resourceType = item.type == FairyGUI.PackageItemType.Atlas ? typeof(UnityEngine.Texture2D)
+                    : item.type == FairyGUI.PackageItemType.Sound ? typeof(UnityEngine.AudioClip) : typeof(UnityEngine.TextAsset);
+                if (UnityEditor.AssetDatabase.LoadAssetAtPath(item.file, resourceType) == null)
+                    throw new System.Exception("UI declared disk asset is missing or imported with the wrong type");
+                if (item.type == FairyGUI.PackageItemType.Atlas && (item.texture == null || item.texture.nativeTexture == null))
+                    throw new System.Exception("UI atlas has no actual native texture");
+                if (item.type == FairyGUI.PackageItemType.Sound && (item.audioClip == null || item.audioClip.nativeClip == null))
+                    throw new System.Exception("UI sound has no actual native audio clip");
+                diskAssets++;
+            }
+        }
+        observed.Add(new System.Collections.Generic.Dictionary<string, object>
+        {
+            {"name", package.name}, {"id", package.id}, {"items", items.Count}, {"disk_assets", diskAssets},
+            {"descriptor_sha256", observedHashes[package.name]}
+        });
+    }
+}
+finally
+{
+    for (int i = owned.Count - 1; i >= 0; i--)
+    {
+        var package = owned[i];
+        if (!object.ReferenceEquals(FairyGUI.UIPackage.GetById(package.id), package))
+            throw new System.Exception("UI probe package ownership changed; preserve Editor recovery evidence");
+        FairyGUI.UIPackage.RemovePackage(package.id);
+    }
+}
+return new System.Collections.Generic.Dictionary<string, object>
+{
+    {"packages", observed}, {"cleanup_complete", true}
+};

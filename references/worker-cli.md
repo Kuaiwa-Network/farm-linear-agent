@@ -170,9 +170,77 @@ Successful JSON contains only `asset_url` (unsigned Linear URL), `sha256`, `size
 reach the output; no redirect is followed and the bearer goes only to GraphQL.
 Loss of the claim after transfer produces a failure, leaving no success result;
 an already stored object cannot be recalled. This command posts no comment and
-records no visual approval. The opt-in `fgui` authoring skill uses it only within
-its own claim, after validating actual preview/source/art identities; its manifest
-grants no licensed export or Client write.
+records no visual approval. The opt-in `fgui` skill uses it only within
+its own farmgui claim, after validating actual preview/source/art identities.
+Export and Client entry require the separate controller review/approval/receipt
+checks below; an upload alone grants neither.
+
+## Certified UI export and delivery
+
+These commands require the intended configured ledger, a live explicitly enabled
+`fgui` claim and the matching repository stage. On Windows use `execution.python`
+with `PYTHONUTF8=1`, native argument lists and no Bash/MSYS/WSL. The spelling below
+uses the selected executable on either host. Each command also takes
+`--item ITEM_ID --token-file STATE_DIR/token`, after `--db DATABASE`:
+
+```text
+<selected-python> -B -m agent --db DATABASE review-ui --item ITEM_ID --token-file STATE_DIR/token --preview ABSOLUTE_PNG --asset-url UNSIGNED_URL --packages ABSOLUTE_JSON --round N
+<selected-python> -B -m agent --db DATABASE export-ui --item ITEM_ID --token-file STATE_DIR/token --review-id REVIEW_ID --preview ABSOLUTE_PNG
+<selected-python> -B -m agent --db DATABASE install-ui --item ITEM_ID --token-file STATE_DIR/token --receipt-id RECEIPT_ID
+<selected-python> -B -m agent --db DATABASE verify-ui --item ITEM_ID --token-file STATE_DIR/token --receipt-id RECEIPT_ID --commit FULL_SHA
+<selected-python> -B -m agent --db DATABASE verify-ui-guards --item ITEM_ID --token-file STATE_DIR/token --receipt-id RECEIPT_ID
+<selected-python> -B -m agent --db DATABASE verify-ui-loading --item ITEM_ID --token-file STATE_DIR/token --receipt-id RECEIPT_ID
+```
+
+`review-ui` runs in farmgui after the actual PNG upload and exact source draft
+checkpoint. The bounded ordinary UTF-8 JSON file is inside this item's state and
+maps selected package names to actual IDs, including every changed/shared package
+and its export dependency closure. Retain the returned controller `review_id`,
+`round`, `head`, `source_digest`, `preview_sha256`, `asset_url`, `changed_packages`
+and `selected_packages`. In `plan.ui`, store the exact review identity and use
+`packages` as the list of actually changed package names, not the full unchanged
+dependency closure. Confirm the `visual-N` notice naming the asset URL and full
+HEAD before asking for approval, then park with `await-input`.
+
+On explicit continuation, `plan.events` contains separate `visual_approved` and
+`export_requested` events. Each carries the review's exact `round`, `head`,
+`source_digest`, `preview_sha256`, actual `author: {id, name}`, `created_at` and
+exactly one of integer `message_id` or string `comment_id`. Reference only an
+actual attributable unquoted human request from current same-issue context. The
+export request is at or after visual approval; one explicit message can contain
+both intents. The controller checks provenance and ordering; the worker must
+interpret the actual human text. New source/art/image/round invalidates the old
+events. Do not manufacture permission from a quote, bot marker or description.
+
+`export-ui` requires explicit native `fgui_export` selection and the retained PNG;
+it records immutable successful export authority and inventory in controller
+audit state. Save its `receipt_id`/`receipt_sha256` in `plan.ui`, checkpoint and hand
+off to Farm-Client. Missing selection/license/host capability is a named stage
+limit, not permission to invoke the paid CLI directly or configure the host.
+
+In Client, `install-ui` uses only certified changed-package bytes and stable
+metadata on the controller's original baseline/branch. Preserve interrupted
+journals/backups. Only exact changed-package dependency entries with new-edge
+reasons may be edited; no gameplay or generated bindings. Commit and `verify-ui`
+the exact full head. Hydrate guard inputs with the owned native Git/LFS route,
+then `verify-ui-guards`; both actual named methods must pass in complete TRX.
+Skipped or Inconclusive is pending.
+
+Checkpoint and request `await-resource --resource unity_slot --mode interactive
+--commit FULL_SHA`, then exit. On the reserved claimed attempt,
+`verify-ui-loading` uses the controller's fixed probe and pinned MCP session at
+that exact commit. It establishes actual package/asset loading and probe-owned
+cleanup, not target-panel rendering, gameplay or human visual acceptance. Release
+through existing reservation-token/quiescence rules; uncertain release queues
+recovery and requires exit.
+
+Publish only this issue's scoped Client draft through `verify-publication`, save
+its exact issue-role entry in `plan.prs.Farm-Client`, and retain the source draft.
+After a confirmed delivery comment, `finish --outcome delivered` takes ordinary
+finish evidence with exactly both draft URLs. It rechecks current controller
+receipts, guards, loading, clean release and actual source/Client draft heads,
+then injects the delivery identity. Worker JSON cannot certify those checks.
+Human merges, approved live-card acceptance and release remain separate steps.
 
 ## Foreign work
 
@@ -299,12 +367,13 @@ handoff is saved; do not remove `handoff` to bypass the repair. If saving cannot
 succeed, retain the local JSON, report the exact error, and do not claim it was saved.
 
 A staged skill switches repositories between attempts only within its manifest's writes.
-The authoring-only `fgui` manifest permits farmgui alone; it cannot hand off to Farm-Client.
-Prepared `review-ui`, `export-ui`, `install-ui` and `verify-ui` commands require a
-future manifest grant and refuse under this authoring-only manifest. Their
-controller receipts, optional `fgui_export` selection and scope proofs are
-documented in the [operating contract](../docs/operating-contract.md); they do not
-grant Unity loading, draft delivery or production readiness.
+The opt-in `fgui` manifest starts in farmgui and permits only a certified handoff
+to this issue's Farm-Client branch. Its `unity_slot` route requires current guard
+proof and an explicit committed Client head. An older authoring-only manifest
+still refuses these commands. The [operating contract](../docs/operating-contract.md)
+defines the native publisher selection, immutable receipts, scoped installation,
+actual guard/loading checks and two-draft delivery fences. None certifies
+production readiness or enables a host automatically.
 Save a fresh `handoff`
 with facts, checks, repository heads, published PRs and next actions, then run:
 

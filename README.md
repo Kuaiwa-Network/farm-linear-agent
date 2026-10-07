@@ -114,6 +114,15 @@ approximation, 2 means a PNG with explicit gaps, and 1 means refusal or a host
 dependency failure. Native CJK fonts are read locally; none is downloaded.
 These previews do not establish FairyGUI Editor, export or Unity acceptance.
 
+The opt-in UI worker can continue after actual named visual approval and an
+explicit export request through the [certified UI commands](references/worker-cli.md#certified-ui-export-and-delivery).
+It uses an explicitly selected native Windows publisher, scoped Client assets
+and metadata, the actual hydrated dependency/orphan guards and exact-commit Unity
+package loading, then publishes two drafts for human review. Missing publisher
+selection leaves authoring available and export pending. Defaults still enable
+chat/fix only; this implementation does not enable or deploy a host. Package
+loading does not establish designed-panel behavior or human visual acceptance.
+
 `serve --config` propagates the selected absolute config file to all worker attempts.
 An installed launchd service also preserves configuration selected through
 `FARMBOT_CONFIG`. Use an absolute `local_root`; changing the config filename alone

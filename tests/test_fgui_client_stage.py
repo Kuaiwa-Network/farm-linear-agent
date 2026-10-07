@@ -19,8 +19,8 @@ class UiClientStageTests(unittest.TestCase):
         fixture = self.fixture = fixtures.SchedulerTests()
         fixture.setUp(); self.addCleanup(fixture.doCleanups)
         self.ledger, self.scheduler, self.trees = fixture.ledger, fixture.scheduler, fixture.trees
-        # A future manifest fixture only; the delivered authoring manifest stays
-        # unchanged until its approval/export boundary and authority are ready.
+        # Explicitly scoped staged fixture; controller pinning is tested without
+        # invoking a licensed publisher, real Client repository or Unity Editor.
         self.skill = replace(fixtures.SKILLS["fgui"], writes=("farmgui", CLIENT), resources=("unity_slot",))
         self.scheduler.skills = {**fixtures.SKILLS, "fgui": self.skill}
         self.scheduler.enabled_skills.add("fgui")
