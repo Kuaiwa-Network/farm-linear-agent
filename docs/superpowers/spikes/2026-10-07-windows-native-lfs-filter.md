@@ -207,9 +207,27 @@ staging, but the controller refuses its receipt because the publisher and
 approval use different source-digest formats. The failed certification is an
 application regression; it neither invalidates the verified native filter nor
 authorizes using uncertified staging. The separate controller correction and a
-fresh certified export remain pending. Scoped Client install/metadata,
-hydrated dependency/orphan guards and reserved
-exact-commit Unity package loading remain separate checks. Human runtime UI QA
+fresh certified export are now complete, as recorded in the
+[bounded trial follow-up](../plans/2026-10-06-feature-workers-phase-e.md#corrected-receipt-and-actual-client-handoff).
+PR #169 merges with equal tested/merged trees and completed 2,115-test offline
+runs on the native development PC and hosted macOS/Windows (zero failures/errors,
+unchanged Windows 69/macOS 73 skips). The actual current-round approval produces
+an immutable receipt for six packages and 50 artifacts, and the same job reaches
+the controller-pinned Client baseline.
+
+Client install now refuses before writes because fifteen Activities LFS pointers
+remain unhydrated. Its committed LFS service is separate from GitHub and uses
+HTTP. An existing Windows credential entry is present, but the selected callback
+serves GitHub and the existing native Git Credential Manager refuses the
+unencrypted endpoint. Both checked development caches lack the required objects.
+No credential values, settings or unsafe-remote override are changed. The job
+and certified receipt are retained while the team's supported secure Client LFS
+route is established. This host access gap does not invalidate the native
+filter's verified binary/containment behavior.
+
+Scoped Client install/metadata, actual hydrated dependency/orphan guards and
+reserved exact-commit Unity package loading remain separate checks. The
+development host still has no configured Unity slot. Human runtime UI QA
 is broader than package loading. Production-host tool/runtime/account/permission
 and release/recovery checks, plus separate enablement/deployment authorization,
 remain required. No production operation or game PR merge is performed here.
