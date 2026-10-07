@@ -113,6 +113,12 @@ Its GitHub route remains HTTPS github.com only. An optional private companion
 pins one non-GitHub LFS origin and an existing native Git Credential Manager
 executable/hash for noninteractive server-only lookup. It installs no credentials
 and changes no publication authority, worker write root or containment requirement.
+The optional native LFS content-filter adapter in that reference is independently
+selected in the sanitized controller's process environment. It invokes only a
+hash-pinned existing native Git LFS executable with binary protocol streams and no
+helper shell, global/clone configuration change or credential setup. It adds no
+worker authority or default activation; original hydrated bytes and clean source
+identity still require verification.
 
 Explicit profiles select `environment` (`development`, `production`, or `offline`)
 and a lowercase `instance_id`. Existing configs default to `legacy` for compatibility.
