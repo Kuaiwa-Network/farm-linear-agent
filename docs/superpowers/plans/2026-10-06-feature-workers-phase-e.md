@@ -831,3 +831,123 @@ regression verification; a fresh controlled export must follow. Actual Client
 guards, exact-commit Unity loading, runtime UI QA and separately authorized
 production-host release checks remain pending. Item 2 remains pending and no
 game draft is merged.
+
+### Corrected receipt and actual Client handoff
+
+[PR #169](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/169) makes the
+native publisher use the same canonical file-map digest as the approved review
+and immutable controller receipt. The full source commit remains a separate
+exact-match authority field. Before/after source checks, current input/claim,
+delegation/Stop checks and native Job ownership are preserved. A regression
+executes the real publisher validation through the controller receipt boundary;
+only the licensed native process is mocked in this offline check. Against the
+old publisher it reproduces the exact live refused-receipt error. All 100 focused
+publisher/workflow/record/approval/source checks pass in 82.329 seconds with no
+failures, errors or skips, including all twelve native publisher checks.
+
+The corrected candidate `39140414f1f9be510bce5735079e8f18aa110f6b` completes a
+fresh full offline discovery on the native development PC and both hosted
+platforms. Each invocation starts with Python UTF-8 and sanitized inherited
+selectors/credentials; complete UTF-8 logs, revisions, versions, per-test timings
+and every skip ID/reason are retained privately:
+
+| Host | Tests | Duration | Failures / errors | Skips |
+|---|---:|---:|---:|---:|
+| Native Windows development PC | 2115 | 1709.707 s | 0 / 0 | 69 |
+| Hosted macOS | 2115 | 727.443 s | 0 / 0 | 73 |
+| Hosted Windows | 2115 | 2337.487 s | 0 / 0 | 69 |
+
+The [hosted run](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37583390863)
+identifies synthetic revision `740797cea6f85324794b9012984c821830d28859`. Its tree,
+the candidate tree and merged tree all equal
+`8b314ea711a90e44b08683e9f1f50f873274659c`. PR #169 merges as
+`5a23e700683c4039329447c6acc85cf4e50a44e2`; its verified topic branch is retired.
+Every established skip ID/reason is unchanged from the corrected #167 runs.
+Both Windows runs execute all thirteen native filter, ten shared Job, twelve
+publisher and three guard-process checks. The new publisher-to-controller
+receipt regression runs on all three hosts. Development Python/Git/LFS are
+3.13.16 / 2.54.0.windows.1 / 3.7.1; hosted Python is 3.13.15, with macOS Git/LFS
+2.55.0 / 3.8.0 and Windows Git/LFS 2.55.0.windows.5 / 3.7.1. No new skip or
+weakened check obtains this pass.
+
+After the focused checks, a fresh settled-development fence verifies cleared
+worker PIDs, empty recorded Jobs and no pending webhook/cleanup, reservations
+or heartbeat workers. Exact executable/command, current owner, creation time,
+ancestry and the sole development listener identify the controller being stopped.
+Only that development controller restarts with the frozen corrected candidate;
+the private config, native filter and original approval/source identity remain
+unchanged. The full suite completes afterward as recorded above. This is a
+development-PC trial, not production deployment or production-host certification.
+
+At 06:54:19.337 UTC, the named operator's operational continuation comment
+`a3936c6c-0ae4-4928-97c5-08f5605c7f2a` resumes the same item/session for a fresh
+controlled export. It retains item 1, already approved round 1 and the explicit
+export request; it does not approve another preview. The fifth native attempt
+produces controller receipt `0507c57b9c3742579446775e06dbd0a7`, receipt SHA-256
+`c76829249415ff3eaff931523526f2223eb1cc96b9f8597f84033e420c3078fa`.
+Read-only revalidation verifies its immutable audit checksum, original approval
+message 8, unchanged review/source head/digest, all six packages and 50 staged
+artifacts, exit zero, assignment before startup/export and an empty owned Job.
+The earlier refused staging is retained separately and never installed.
+
+The same job hands off to Farm-Client. The controller pins actual Client baseline
+`5ca9db4f4ef4ae7a21c50c7243429a6f537a29a8` and launches the sixth native worker.
+Its scoped Activities LFS pull cannot obtain credentials for Client's separate
+LFS endpoint through the selected GitHub-only native callback. Fifteen Activities
+files remain canonical LFS pointers; `install-ui` refuses before writing. There
+is no installation receipt, Client commit/draft, actual dependency/orphan guard
+result or Unity result. Source draft #143 and the certified export remain intact.
+
+The confirmed `client-lfs-stage-limit-1` notice is
+`9474f507-1403-45b5-9a80-2e827fd9aa15` at 07:12:50.598 UTC. The job parks in
+`awaiting_input` / `client_lfs_stage_limit`, rooted in Farm-Client. A fresh
+read-only snapshot finds all worker PIDs clear, all recorded native Jobs empty
+and no pending webhook/cleanup, reservations, heartbeat workers or other
+unfinished jobs. The selected Client target is retained. The older source-stage
+quiescence helper's requirement for a null target does not apply to this Client
+handoff; its refusal is not evidence of a live worker or permission to clear the
+target. Historical jobs, approval and export evidence are preserved.
+
+### Measured Client access and remaining acceptance
+
+Read-only inspection of Client's committed `.lfsconfig` finds a separate HTTP
+LFS endpoint without embedded credentials. Windows Credential Manager has an
+entry for one of its standard target names; presence alone does not establish
+validity or availability to the selected callback. No credential values are
+printed or saved. Existing native Git Credential Manager 2.7.3 refuses a bounded
+noninteractive retrieval because that endpoint uses unencrypted HTTP. These
+findings distinguish the host's transport/authentication route from an
+application regression. No helper setting, endpoint, credential or unsafe-remote
+override is changed.
+
+Two explicit development LFS caches are checked against all fifteen scoped
+pointer hashes/sizes: the independent Client development checkout's shared Git
+directory, verified inside the development parent, and the owned TestBot Client
+clone, verified through its clone/config boundary. Neither contains those
+objects. No object is copied, no remote request is made by this cache inventory,
+and no production state/cache is read. A team-supported secure Client LFS access
+route is now required before the existing job can resume its certified install.
+
+Native Unity readiness remains a separate host gap: the configured development
+slot count is zero, the required 2022.3.62f3 executable exists, no Editor is
+running and native uv 0.12.14 is present. One existing MCP listener has no verified
+development ownership/identity; it is not queried or used as this job's evidence.
+No Editor, account, license or app setting is configured by this inspection.
+
+The remaining prerequisites are:
+
+- Establish the team's supported secure Client LFS route on this account, then
+  resume the same scoped job and verify actual hydrated inputs.
+- Complete controller-certified scoped Client install/metadata, commit/draft and
+  the actual dependency/orphan guards at that exact candidate.
+- Prepare a dedicated development Unity slot, verify its MCP/Editor identity and
+  run reserved exact-commit package loading, followed by human runtime UI QA.
+- Verify actual Feishu document reads when a trial requires them; this uploaded-art
+  card does not exercise that integration. Finish the remaining broader live
+  Code/closing/write-back journeys before claiming the whole feature release.
+- Perform separately authorized final production-host tools/runtime/permissions,
+  release and recovery checks before production enablement/deployment.
+
+Item 2, parked Code cards and unmerged game test drafts remain pending. Game draft
+#143 is not merged. This documentation update changes no executable behavior and
+does not require another full suite run.
