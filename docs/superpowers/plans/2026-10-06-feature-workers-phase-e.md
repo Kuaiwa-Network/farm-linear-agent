@@ -1502,3 +1502,93 @@ production-host tool/runtime/permissions and dependency restore/cache readiness,
 release/recovery checks and deployment.
 These are development TestBot results. Item 2 and whole-card acceptance remain
 pending, and production readiness is not certified.
+
+## As executed (2026-10-07 UTC / 2026-10-08 Windows local; Unity preparation)
+
+The operator authorizes completing the remaining development checks, including
+the pending account-wide Unity MCP auto-registration decision. The selected
+`MCPForUnity.AutoRegisterEnabled` preference is explicitly disabled before
+starting an Editor. Other selected transport preferences already use local HTTP
+port 9090; they are not changed. This prevents the pinned plugin's interactive
+startup helper from rewriting installed client configurations. The previous
+preference state and development configuration are retained privately.
+
+The settled development TestBot alone is restarted after verifying its executable,
+creation identity, owner, listener and empty worker Jobs. A separate prepared
+runtime selector keeps frozen source `a7c335bf64ad5c8954142622b79f26baea333f62`,
+signed native Codex 0.160.0 and `gpt-6.1-sol` / `xhigh`. The only host-config change
+is one owned development Client Unity slot with the installed matching
+2022.3.62f3 Editor and existing local MCP port. An initial private restart helper
+fails at a Windows file-replacement API parameter before applying configuration;
+the original config and backup remain intact. A fenced continuation uses native
+literal-path file replacement and verifies the new config and process ancestry.
+This helper failure is not a Client or FarmBot application regression.
+
+Normal slot preparation hydrates the Client and assigns the existing exact-commit
+reservation for `218ef7a805b072b3b87cb1b0b4f207e2a1901b12`. Unity opens the owned
+project and starts its first Library import. Compilation reports two distinct
+`CS0234` errors in `NetworkProtobufExporterTests`: `Farm.Tools.NetworkProtobuf`
+is outside Unity's Assets compilation, and the test assembly lacks a direct
+reference to `Farm.GeneratedArtifacts.Editor`. The metadata implementation is
+present in that separate Editor assembly; its source is not missing. Both
+affected test inputs are byte-identical at pinned baseline
+`e9988b2d64a5fa5765496d37ec777492df66a278` and the UI candidate. They are not
+introduced by the two-file UI change.
+
+MCP does not become usable within the controller's existing startup deadline.
+The normal controller fences resource ownership, preserves recovery diagnostics
+and holds the slot. The job remains at `awaiting_resource/waiting_for_recovery`
+with no worker PID; every prior worker Job remains empty. Automatic setup/editor
+repair retains its persisted budgets. No timer releases the hold, no successful
+loading proof is manufactured, and the pinned Client target is not changed.
+Private Editor logs and actual Unity compiler response inputs are retained.
+
+The three normal Editor repair attempts subsequently exhaust with the same MCP
+startup timeout. The controller marks this item
+`failed/verification-infrastructure-failed`; terminal cleanup completes without
+error and preserves committed work and recovery records. No worker remains.
+After verifying exhausted repairs, no active reservation, exact project path,
+installed executable hash, controller ancestry, process creation and account
+ownership, operator maintenance closes only the owned development Editor.
+Its final log is retained, the selected MCP port is free, and the slot remains
+held. No ledger write clears the hold or resets repair budgets. A failed trial is
+not presented as successful UI delivery.
+
+An independent Client development checkout starts from the verified current main,
+also `e9988b2d64a5fa5765496d37ec777492df66a278`, on
+`codex/unity-network-exporter-test-compile`.
+[Client #1427](https://github.com/Kuaiwa-Network/Farm-Client/pull/1427) is an open
+draft at `3cf42c00dd3c97037cdf94c440c4786d0a6ba2dc`. It adds the missing direct
+assembly reference and a test-only import-free adapter for Unity. The standalone
+gate continues exercising the actual CLI adapter. The metadata test executes on
+both routes, and a new shared regression verifies that preferences and dialogs
+remain unavailable. No test is removed or skipped and exporter runtime behavior
+is unchanged.
+
+Native Windows validation replays the actual Unity 2022.3.62f3 compiler response
+file: the unchanged baseline reproduces both `CS0234` errors in 0.517 seconds;
+the corrected test assembly compiles with zero errors in 0.577 seconds. This is
+actual compiler validation, not an executed Unity EditMode suite or a UI loading
+certificate. Focused standalone network-exporter, generated-artifact and headless
+argument tests pass 162 executed tests in 12.735 seconds, with zero failures or
+errors. Five existing POSIX process tests are `NotExecuted` on Windows:
+`TimeoutBoundsPartialOutputOfChattyProcess`,
+`RunDrainsBothFullPipesAndBoundsOutput`,
+`RunPropagatesExplicitEnvironmentOverride`,
+`TimeoutKillsEntireUnixProcessTree` and `RunPreservesLinuxExecutablePathToken`.
+All compiler/test processes are suspended before native Job assignment and all
+Jobs are empty at completion. The new adapter-boundary test passes; retained TRX
+SHA-256 is `f38416018200e1ce87d5138c939f3d6f12a704525211712be1cb9e804e338646`.
+The draft's exact head also has successful hosted standalone unit tests,
+generated-artifact platform tests on Windows and macOS, and PR-triage script
+tests. Those checks do not run the live Unity loading gate.
+
+The independent fix does not alter the current UI candidate, certified export,
+installation, guards, immutable Client pin or historical drafts. Game review and
+merge remain human decisions. Even a later main merge does not silently repin this
+item: subsequent UI verification must start from an explicitly selected corrected
+baseline with the required fresh approvals. Actual reserved Unity/MCP loading,
+human visual/runtime QA and final two-draft delivery remain pending. Scoped
+Feishu integration and broader Code/closing/write-back journeys, plus separately
+authorized production-host release/recovery checks and deployment, remain release
+prerequisites. These are isolated development TestBot results on this Windows PC.
