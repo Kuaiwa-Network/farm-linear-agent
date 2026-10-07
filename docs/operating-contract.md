@@ -1005,7 +1005,11 @@ The controller's Client baseline mechanism supports the scoped UI Client stage w
 the same immutable main/issue-branch selection and generation/claim/Stop fences as
 Code. Its existing Code-only entry points remain restricted to Code. UI intake and
 authoring stay unpinned; Client entry requires the actual retained controller
-export before handoff. These helpers alone supply no export or runtime grant.
+export before handoff. First Client entry uses the issue branch recorded for farmgui
+in the validated plan, including a fresh branch when an older UI run retains the
+canonical name. An existing Client target keeps its recorded baseline and branch;
+it is never repinned from the source plan. These helpers alone supply no export or
+runtime grant.
 
 `review-ui`, `export-ui`, `install-ui` and `verify-ui` require an explicitly enabled
 UI job and the scoped Client/Unity manifest. The UI worker starts in farmgui and

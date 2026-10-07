@@ -77,6 +77,11 @@ class Scheduler:
             # P4: a job with an initial root goes back to the issue branch its plan, or its nearest predecessor's,
             # records for a repository (spec §5.7). fix has no initial root and keeps today's branches.
             recorded = self._recorded_branches(item) if skill.initial_root else {}
+            if skill.name == "fgui":
+                # A retained older UI run may own the canonical branch. Carry the
+                # validated source branch into first Client entry; an existing
+                # controller-selected Client target below remains authoritative.
+                branch = recorded.get(skill.initial_root, branch)
             for repo in skill.writes:
                 options = {"refresh": False} if item["publication_retries"] else {}
                 if skill.name in ("feature", "fgui") and repo == "Farm-Client":
