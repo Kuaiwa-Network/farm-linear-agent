@@ -58,6 +58,12 @@ def parser():
     cmd("foreign-work", "--item", token=True)
     uploads = cmd("download-uploads", "--item", "--out", token=True)
     cmd("upload-image", "--item", "--file", token=True)
+    review_ui = cmd("review-ui", "--item", "--preview", "--asset-url", "--packages", token=True)
+    review_ui.add_argument("--round", type=int, required=True)
+    cmd("export-ui", "--item", "--review-id", "--preview", token=True)
+    cmd("install-ui", "--item", "--receipt-id", token=True)
+    verify_ui = cmd("verify-ui", "--item", "--receipt-id", token=True)
+    verify_ui.add_argument("--commit", required=True)
     uploads.add_argument("--url", action="append",
                          help="one of the claimed issue's upload URLs, unsigned as issue-context shows it; repeatable; "
                               "default: every upload in its description and human comments")
@@ -471,6 +477,11 @@ def run(args, ledger, api_factory):
             raise LedgerError("repository handoff must use the configured host ledger")
         if args.to not in config.repos:
             raise LedgerError(f"target repository is not configured for this {skill.name} worker")
+        if item["skill"] == "fgui" and args.to == "Farm-Client":
+            from .fgui_workflow import UiWorkflow
+            plan = ledger.issue_context(args.item).get("plan") or {}
+            receipt = (plan.get("ui") or {}).get("receipt_id")
+            UiWorkflow(ledger, args.item, token, config, skill, api_factory).retained_export(receipt)
         api = api_factory()
         issue = api.fetch_issue(item["issue_id"])
         ledger.observe_issue(issue)
@@ -571,6 +582,29 @@ def run(args, ledger, api_factory):
                 # own thread the acknowledgement is a thought, and the job speaks there next.
                 owe_closing(ledger, item, content, exc)
         return resumed
+    if c in ("review-ui", "export-ui", "install-ui", "verify-ui"):
+        token = resolve_token(args)
+        ledger.renew(args.item, token)
+        config = load_config(secure_permissions=False)
+        paths = Paths(config)
+        if Path(args.db).resolve() != paths.ledger.resolve():
+            raise LedgerError("UI export must use the configured host ledger")
+        from .config import ROOT
+        from .skills import load_skills
+        from .fgui_workflow import UiWorkflow, read_packages
+        skill = load_skills(ROOT / "skills").get(ledger.item(args.item)["skill"])
+        workflow = UiWorkflow(ledger, args.item, token, config, skill, api_factory,
+                              stage="Farm-Client" if c in ("install-ui", "verify-ui") else "farmgui")
+        if c == "install-ui":
+            from .fgui_client import install
+            return install(workflow, args.receipt_id)
+        if c == "verify-ui":
+            from .fgui_scope import verify_candidate
+            return verify_candidate(workflow, args.receipt_id, expected_commit=args.commit)
+        if c == "review-ui":
+            return workflow.review(packages=read_packages(args.packages, paths.runs / args.item),
+                                   preview=args.preview, asset_url=args.asset_url, round=args.round)
+        return workflow.export(review_id=args.review_id, preview=args.preview)
     if c == "upload-image":
         from .preview_upload import read_image
         token = resolve_token(args)
@@ -600,6 +634,8 @@ def run(args, ledger, api_factory):
         keepalive()
         result = api.upload_image(image, keepalive=keepalive)
         keepalive()
+        from .fgui_records import record_preview
+        record_preview(ledger, args.item, token, image, result)
         return result
     if c == "download-uploads":
         from .uploads import download_issue_uploads, issue_uploads, output_directory

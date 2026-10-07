@@ -300,6 +300,11 @@ succeed, retain the local JSON, report the exact error, and do not claim it was 
 
 A staged skill switches repositories between attempts only within its manifest's writes.
 The authoring-only `fgui` manifest permits farmgui alone; it cannot hand off to Farm-Client.
+Prepared `review-ui`, `export-ui`, `install-ui` and `verify-ui` commands require a
+future manifest grant and refuse under this authoring-only manifest. Their
+controller receipts, optional `fgui_export` selection and scope proofs are
+documented in the [operating contract](../docs/operating-contract.md); they do not
+grant Unity loading, draft delivery or production readiness.
 Save a fresh `handoff`
 with facts, checks, repository heads, published PRs and next actions, then run:
 
