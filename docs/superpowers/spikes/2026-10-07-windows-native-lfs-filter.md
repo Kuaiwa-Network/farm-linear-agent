@@ -215,19 +215,35 @@ unchanged Windows 69/macOS 73 skips). The actual current-round approval produces
 an immutable receipt for six packages and 50 artifacts, and the same job reaches
 the controller-pinned Client baseline.
 
-Client install now refuses before writes because fifteen Activities LFS pointers
-remain unhydrated. Its committed LFS service is separate from GitHub and uses
-HTTP. An existing Windows credential entry is present, but the selected callback
-serves GitHub and the existing native Git Credential Manager refuses the
-unencrypted endpoint. Both checked development caches lack the required objects.
-No credential values, settings or unsafe-remote override are changed. The job
-and certified receipt are retained while the team's supported secure Client LFS
-route is established. This host access gap does not invalidate the native
-filter's verified binary/containment behavior.
+At the next measured pause, Client install refuses before writes because fifteen
+Activities LFS pointers remain unhydrated. The separate committed LFS service
+uses HTTP; the selected callback serves GitHub and native Git Credential Manager
+refuses that transport by default. Both checked development caches lack the
+objects. These historical findings do not invalidate the native filter's verified
+binary/containment behavior.
 
-Scoped Client install/metadata, actual hydrated dependency/orphan guards and
-reserved exact-commit Unity package loading remain separate checks. The
-development host still has no configured Unity slot. Human runtime UI QA
-is broader than package loading. Production-host tool/runtime/account/permission
-and release/recovery checks, plus separate enablement/deployment authorization,
-remain required. No production operation or game PR merge is performed here.
+The operator subsequently confirms the existing local Gitea HTTP service. An
+already-tested native dual callback selects the existing Windows credentials,
+with a process policy scoped to that exact origin. No HTTPS migration, new
+credentials, account or global/clone configuration is needed. All eighteen native
+callback tests and three wrong-destination probes pass. The actual scoped LFS
+pull succeeds in 2.558 seconds. Controller-certified Activities installation
+contains 31 files, including sixteen metadata files; a separate read-only check
+rehashes the installed inventory and global GUID digest. The scoped Client draft
+is [#1425](https://github.com/Kuaiwa-Network/Farm-Client/pull/1425), head
+`e6c48321bf0b2d32262594075618c5371e439b58`.
+
+The first actual guard attempt stops during NuGet restore (`NU1301`), producing
+no TRX and executing neither guard. A later native contained restore succeeds
+from eleven SHA-512-verified public development package archives copied into the
+owned job area, in 2.345 seconds with an empty Job. Restore success does not
+certify guards. The named continuation requests a fresh actual guard run using
+that process-selected cache; measured outcomes and remaining checks are tracked
+in the [local Gitea follow-up](../plans/2026-10-06-feature-workers-phase-e.md#as-executed-operator-confirmed-local-gitea-route-2026-10-07).
+
+Reserved exact-commit Unity package loading remains separate. The development
+host still has no configured Unity slot, and its unrelated MCP listener is not
+used. Human runtime UI QA is broader than package loading. Production-host
+tool/runtime/account/permission and release/recovery checks, plus separate
+enablement/deployment authorization, remain required. No production operation
+or game PR merge is performed here.
