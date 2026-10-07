@@ -951,3 +951,146 @@ The remaining prerequisites are:
 Item 2, parked Code cards and unmerged game test drafts remain pending. Game draft
 #143 is not merged. This documentation update changes no executable behavior and
 does not require another full suite run.
+
+## As executed: operator-confirmed local Gitea route (2026-10-07)
+
+The operator clarifies that the existing separate LFS service is local Gitea
+over HTTP. FarmBot does not require an HTTPS migration. The earlier refusal is
+Git Credential Manager's default unsafe-remote policy, combined with the private
+development wrapper selecting only the GitHub callback. A normal GitHub commit
+push does not test Gitea LFS access; downloading or publishing new LFS objects
+uses that separate service, including when the existing bug fixer needs them.
+
+A bounded noninteractive lookup for only that operator-confirmed origin, using
+the existing native GCM executable and Windows store, finds both existing
+credential fields in 0.160 seconds. Credential values are neither saved nor
+printed, and no credential/profile/account or global/clone setting is configured.
+The already-tested `build_windows_git_askpass.py` dual-callback route is built in
+a new private tools directory outside worker writes. Its adjacent private
+settings pin the exact HTTP origin and native GCM executable hash. GitHub retains
+its existing gh route and cannot fall back to Gitea; unrelated destinations are
+refused. Three wrong-destination probes and all eighteen native LFS callback
+checks pass (3.804 seconds, zero failures/errors/skips).
+
+The development process receives URL-scoped `credential.<origin>.allowUnsafeRemotes`,
+`provider` and `allowWindowsAuth` selections for only that origin. No global
+`GCM_ALLOW_UNSAFE_REMOTES` environment override is selected. Inherited GCM
+overrides are withheld, interactivity and secret tracing are disabled, and the
+helper/settings/source/gh/GCM hashes are rechecked before selection. This reuses
+existing native tools and runtime code; it does not introduce Bash/MSYS/WSL/MXC,
+credential setup, a new account or a production setting.
+The [GCM configuration reference](https://github.com/git-ecosystem/git-credential-manager/blob/main/docs/configuration.md)
+documents URL-specific credential policy and its default HTTP refusal.
+
+A fresh Client-stage read-only fence verifies the retained exact baseline and
+branch, clean Client status, immutable export/original approval, owned clones,
+cleared worker PIDs, empty Jobs and no pending webhook/cleanup, reservations or
+heartbeat workers. Exact old controller executable/command, owner, creation time
+and sole development listener are checked before stopping it. Only that settled
+development controller restarts with the selected dual callback. The frozen
+runtime revision and private config remain unchanged; the new process's
+owner/ancestry/listener match and health returns 200. This response proves only
+that its HTTP handler answers.
+
+At 07:54:12.936 UTC, the named operator's continuation comment
+`51f922c7-dce5-490a-93b3-923fdf52fc4c` resumes only the existing item-1 Client stage
+and existing certified receipt. The seventh native worker and all three observed
+descendants are members of its named Job. Actual LFS hydration, certified Client
+install/guards and development Unity acceptance are measured separately below;
+credential availability or a callback fixture cannot certify them.
+
+The actual scoped LFS pull succeeds in 2.558 seconds through the existing local
+Gitea route. The first installer invocation refuses a dirty baseline; a later
+invocation passes the same clean-baseline gate and records controller installation
+`0c4a302d81ce4036b0f399588d5449de`, SHA-256
+`8754ffb3641862130df501207cf05bc6461b720770730dd20ada19d9078754a2`.
+It installs only Activities: 31 files including sixteen metadata files. A
+separate read-only check rehashes the installed inventory and revalidates the
+global metadata GUID digest against that immutable receipt. No first-install,
+ownership or metadata check is bypassed. The committed Client candidate also
+passes the controller's complete scope check; actual guards/publication and
+Unity loading are separate outcomes.
+
+### Actual Client draft and NuGet preparation
+
+The worker publishes and records Client draft
+[#1425](https://github.com/Kuaiwa-Network/Farm-Client/pull/1425), head
+`e6c48321bf0b2d32262594075618c5371e439b58`, beside the unchanged source draft
+[#143](https://github.com/Kuaiwa-Network/farmgui/pull/143). Both are independently
+checked open and draft at those exact heads. Neither game PR is merged.
+
+The first `verify-ui-guards` invocation stops after 111.018 seconds during
+NuGet restore: five `NU1301` diagnostics, no TRX and neither guard executed.
+The job parks in `awaiting_input` / `client_guard_stage_limit`. A fresh read-only
+snapshot finds cleared worker PIDs, empty recorded Jobs and no pending
+webhook/cleanup, reservations, heartbeat workers or other unfinished job.
+The immutable source/export/installation receipts and pinned Client target
+remain intact. This is a host dependency-access gap, not a measured guard pass
+or an established UI regression. The
+[NuGet diagnostic reference](https://learn.microsoft.com/en-us/nuget/reference/errors-and-warnings/nu1301)
+describes this restore-stage source failure.
+
+A separate native Python HTTPS read obtains the valid public NuGet index with
+HTTP 200 in 1.115 seconds; it does not prove the worker's .NET transport works.
+All five pinned direct Client packages are present and SHA-512-valid in the
+earlier isolated development cache. Eleven public package archives, including
+the cached dependencies, are independently checked and copied into a new owned
+job run directory. A fresh native contained restore of the actual Client unit
+project, using only that local feed and package cache, succeeds in 2.345 seconds.
+Its Job is assigned before startup and empty on completion. No credentials,
+global NuGet/TLS setting or tracked Client file changes. This preparation does
+not write a controller guard receipt or substitute for executing both tests.
+
+At 08:28:20.347 UTC, named operator comment
+`fcf3f476-e472-4344-bbee-ecafa005d108` resumes this exact item-1 candidate and
+receipt, selecting the owned cache through `NUGET_PACKAGES` for the verification
+process. It requires the actual guarded CLI run, preserves both drafts and the
+original round-1 approval, and retains the dedicated Unity-slot gap. No service
+restart or configuration change is needed for this cache selection.
+
+### Actual guards and pre-existing MonthlyPass failure
+
+The resumed actual guarded CLI invocation completes after 94.295 seconds with a
+complete two-test TRX: `FguiOrphanAtlasGuardTests` passes, while
+`FguiDependencyGuardTests` fails on `MonthlyPass -> CommonFx`. Neither test is
+skipped or Inconclusive; there are no compiler error diagnostics. No passing
+controller guard receipt is recorded, and Unity loading cannot advance.
+
+Read-only comparison proves the MonthlyPass descriptor's LFS pointer is identical
+at pinned baseline `5ca9db4f4ef4ae7a21c50c7243429a6f537a29a8` and Client candidate
+`e6c48321bf0b2d32262594075618c5371e439b58`. The materialized 22,535 bytes match its
+committed SHA-256 `0665c0aa4c261ce678e4fb72da816fbe9165d3873819c5c755f2df026f6c7e13`.
+The MonthlyPass guard entry is unchanged (`Common` only); the candidate's guard
+diff changes only Activities and its reason comment.
+
+A separate native contained focused negative control compiles the exact baseline
+guard source and root-discovery helper against only that verified unchanged
+MonthlyPass descriptor. Its actual test reproduces the same failure. This is a
+focused baseline reproduction, not a full baseline Client suite or release
+evidence. Actual source inspection finds one existing CommonFx movieclip in
+`MonthlyPass/Components/MonthlyPassRewardCell.xml`, component name `n4`, resource
+`dy4c1`. No source, asset, guard entry or game PR is changed by this diagnosis.
+
+The failure is pre-existing in the pinned Client inputs and belongs outside the
+approved Activities-only trial. A proposed separate Client follow-up would
+review and document that existing structural dependency in the MonthlyPass
+guard entry, leaving the descriptor and UI behavior unchanged. It is not applied
+to the current trial or treated as a passing result; operator scope approval and
+ordinary game draft review are required before that follow-up. The current source
+and Client drafts, certified export/install receipts and original visual approval
+remain preserved.
+
+Remaining release prerequisites are now:
+
+- Resolve the independent MonthlyPass dependency-guard failure in its own
+  reviewed Client follow-up, then run both actual guards against the resulting
+  certified trial candidate without skips, Inconclusive results or bypasses.
+- Configure an owned development Unity slot and verify its native Editor/MCP
+  identity; run reserved exact-commit package loading, then human runtime UI QA.
+- Exercise actual Feishu document reads on a suitable scoped trial and finish
+  the remaining broader Code/closing/write-back acceptance journeys.
+- Complete separately authorized final production-host tools/runtime/permissions,
+  release and recovery checks before production enablement or deployment.
+
+This is a development PC result. Production readiness, whole-card completion,
+item 2 and game PR merges are not certified or authorized by these measurements.
