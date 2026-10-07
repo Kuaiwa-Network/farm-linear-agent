@@ -122,14 +122,10 @@ Phase D implementation and exact-candidate native/hosted offline verification
 are complete; the [measured record](2026-10-06-feature-workers-phase-d.md#as-executed-verified-ui-authoring-worker-2026-10-07)
 distinguishes that result from live acceptance. Remaining prerequisites:
 
-1. Complete exact-candidate native Windows and hosted macOS/Windows verification
-   of the scoped worker activation, actual guards, reserved package loading and
-   two-draft delivery gates. Validator/installer/publisher/approval/controller-pin
-   foundations and real developer helper feasibility checks are already measured.
-2. Run a separately approved TestBot UI card with actual documents/art, scoped LFS,
+1. Run a separately approved TestBot UI card with actual documents/art, scoped LFS,
    real app-token preview upload, named corrections/approval and licensed export.
-3. Verify hydrated Client guards and exact-commit Unity loading on the intended slot.
-4. Verify final production-host tools/runtime/account/permissions, release revision
+2. Verify hydrated Client guards and exact-commit Unity loading on the intended slot.
+3. Verify final production-host tools/runtime/account/permissions, release revision
    and recovery; separately authorize production enablement/deployment.
 
 No existing parked Code card or unmerged game test draft supplies UI acceptance.
@@ -529,7 +525,7 @@ readiness, a real UI card, actual Client guards or Unity loading. No running bot
 production configuration/state, live issue, credentials, app preferences or
 license setup is changed.
 
-## Prepared scoped UI activation and delivery verification
+## Verified scoped UI activation and delivery verification
 
 The scoped manifest now grants farmgui and Farm-Client, initially farmgui, plus
 `unity_slot`. Actual attempt write roots remain exactly the active stage, and
@@ -576,7 +572,7 @@ actual signature; a real owned-Git/scripted-metadata verifier regression catches
 foreign or changed draft heads. Fixture configuration is corrected for the CLI's
 real configured-repository check. The authoring journey's stage assertion remains
 farmgui only, despite the wider manifest. No scope, ownership, containment or
-skip is weakened. Final exact-candidate full verification follows separately.
+skip is weakened. Final exact-candidate full verification is recorded below.
 
 Farmgui's conditional owner grant merges as
 `1193f21008dea66823c721a0818bf6690c33376b` in
@@ -584,3 +580,54 @@ Farmgui's conditional owner grant merges as
 files preserve the standing fix grant. Native registration/resource/ID/cycle lint
 and its relative link/whitespace checks pass. No actual source package, Client
 asset, game draft, live card, bot configuration or production state changes.
+
+## As executed: verified scoped UI delivery route (2026-10-07)
+
+[#163](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/163) merges as
+`06234234b6084b6ae7340158a3679bd8c5a805e6`, retaining the exact tested tree of candidate
+`e61bed6064bb437b36457eff248c7e9859217c5f`. Its source/Client grant is opt-in, and actual
+attempt roots remain scoped to one active repository. No default host enablement,
+running TestBot, production configuration/state, real issue or game draft changes.
+
+| Run | Tests | Duration | Failures/errors | Platform skips |
+|---|---:|---:|---:|---:|
+| native-final | 2099 | 1670.912 s | 0 / 0 | 69 |
+| ci-macos | 2099 | 776.105 s | 0 / 0 | 60 |
+| ci-windows | 2099 | 2250.091 s | 0 / 0 | 69 |
+
+Hosted synthetic commit `5a65a36a1dfaf36089a79d959236f7be6a9b215f` has the exact
+candidate tree. [Run 37554351140](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37554351140)
+passes both jobs. All 26 new boundary tests run on both Windows hosts, including
+all three native guard containment checks; all ten shared native Job and twelve
+native publisher checks also run. macOS runs 23 portable additions and skips only
+the three new native guard tests in addition to its 57 established skips. Every
+established skip ID/reason is unchanged: Windows retains exactly 69; macOS totals
+60. The new skips are:
+
+- `test_fgui_guards.NativeGuardProcessTests.test_selected_python_redirector_runs_only_after_assignment_and_drains_job`: native Windows UI guard Job Objects.
+- `test_fgui_guards.NativeGuardProcessTests.test_stop_before_resume_never_starts_process`: native Windows UI guard Job Objects.
+- `test_fgui_guards.NativeGuardProcessTests.test_timeout_reaps_owned_python_tree_and_retains_logs`: native Windows UI guard Job Objects.
+
+All 22 Code journeys, 11 authoring UI checks, 45 preview/transport checks, 34
+export checks, 22 installer checks and all 61 receipt/scope additions remain
+actual checks. Development Python/Git/LFS are 3.13.16, 2.54.0.windows.1 and 3.7.1;
+hosted Python is 3.13.15, macOS Git/LFS 2.55.0/3.8.0 and Windows Git/LFS
+2.55.0.windows.5/3.7.1. Fresh native symlink checks, UTF-8 and inherited
+selector/token sanitization precede full discovery. Complete UTF-8 logs, every
+skip ID/reason, selected revisions and per-test timings remain private.
+
+This is development-PC/offline evidence. Publisher, actual guard-result and MCP
+fixtures remain scripted, and package loading alone cannot establish target-panel
+rendering, gameplay or human visual/runtime acceptance. Approved live UI work with
+actual documents/art, app-token upload, named corrections/approval/export, hydrated
+Client guards and exact-commit Unity loading remains required. Final production
+host tool/runtime/permission checks and enablement/deployment need separate
+operational authorization; another checkout or PC does not certify that host.
+
+The runtime implementation and owner export grant are complete and verified
+offline. No existing parked Code card, unmerged game test draft, source preview
+or fixture result supplies the remaining live UI acceptance. No schema migration
+or automatic credential/profile/state cleanup is introduced. Preserve audit and
+interrupted installer evidence; settle in-flight UI work before an authorized
+rollback. This follow-up changes only this verification record: its code blobs
+remain byte-identical to the independently verified runtime candidate.
