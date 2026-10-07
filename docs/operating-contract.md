@@ -39,8 +39,12 @@ worker home. Missing, malformed or unusable metadata retains the `gpt-6.1-sol`
 release baseline, and selection never downgrades below it or switches model
 families or reduces the requested effort. The host's Codex catalog refresh controls
 when newer versions become selectable; a stale catalog can delay an upgrade.
-FarmBot performs no discovery model call or catalog refresh itself. Private
-`codex_workers` entries override either setting per skill; unspecified settings
+FarmBot performs no discovery model call or catalog refresh itself. Catalog
+selection does not establish model access: the host account and selected native
+Codex client must support the resolved model. A newer desktop client's catalog
+does not certify an older pinned bot CLI. Release verification checks that CLI
+version and a bounded real model start; it does not silently downgrade the
+chosen model. Private `codex_workers` entries override either setting per skill; unspecified settings
 retain the FarmBot default. An explicit model identifier pins that skill, while
 `"model": "latest-sol"` restores selection. Only the resolved concrete model and
 effort are written into each new or
