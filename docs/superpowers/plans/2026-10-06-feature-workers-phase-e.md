@@ -1163,3 +1163,126 @@ loading, human runtime visual QA, real Feishu document reads and the broader
 Code/closing/write-back journeys. Production-host release/recovery checks and
 separate enablement/deployment authorization remain required. These are measured
 development-PC results, not production-host certification.
+
+## As executed: corrected-baseline trial preparation and native Sol client (2026-10-07)
+
+Client follow-up [#1426](https://github.com/Kuaiwa-Network/Farm-Client/pull/1426)
+is independently checked merged, at `e9988b2d64a5fa5765496d37ec777492df66a278`.
+The original Activities trial remains pinned to its earlier Client baseline;
+that merge does not repin the item or give it a passing controller guard receipt.
+
+Named operator comment `892906a8-8753-4c32-9030-5d1fbfd562c4`, at
+12:43:29.781 UTC, requests only truthful blocker settlement of the obsolete-baseline
+attempt. The worker posts the real blocker and finishes `blocked` through the normal
+claim/checkpoint/confirmed-comment path. Its first finish is refused by the existing
+comment/input fence; a fresh issue read and normal completion settle it without
+loosening that fence. The real card remains open and item 2 remains pending.
+
+A subsequent read-only snapshot verifies completed cleanup, unchanged target,
+cleared worker PIDs, empty recorded Jobs and zero unfinished jobs, pending webhooks,
+cleanup, reservations or heartbeat workers. The exact historical source head
+`070c0f82bce1798bf817256e1ec5db6b528531f6` and Client head
+`e6c48321bf0b2d32262594075618c5371e439b58` are retained in controller recovery refs
+and immutable recovery-history snapshots. The historical export staging bytes are
+rehashed against the original controller receipt; the installation receipt hash
+is unchanged. Both original game drafts remain open and draft. No guard pass,
+baseline replacement or borrowed approval is recorded.
+
+Preparing an independent same-card run exposes a scheduler branch gap. When the
+old run retains the canonical branch, source authoring receives a fresh issue
+branch, but first Client entry still requests the old canonical name and is
+correctly refused by the existing-branch guard. The real-Git regression fails
+on the original code with that refusal (one test, 3.672 seconds). FarmBot
+[#174](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/174) carries the
+validated plan's actual farmgui branch into first Client entry. An existing Client
+pin remains authoritative; foreign/reserved source branches still refuse before
+selection. It changes no baseline, ownership, scope or containment guard.
+
+The native focused run passes 528 offline tests in 362.307 seconds, with zero
+failures/errors and seven existing platform skips. Fixtures cover preserved older
+source/Client branches, corrected trusted main, later main movement, immutable
+existing pins and invalid source branches, including space/Unicode paths.
+The frozen candidate is `a7c335bf64ad5c8954142622b79f26baea333f62`, tree
+`95359602161662075282b62b2111000f603ad62d`. Hosted full suites pass on both
+platforms: Windows 2,126 tests in
+2,442.709 seconds with 69 existing platform skips; macOS 2,126 tests in
+821.120 seconds with 73 existing platform skips. Both have zero failures/errors,
+all 13 feature journeys and all 13 Client-stage tests run, and Windows executes
+all 10 native Job Object tests. Every skip ID/reason matches the preceding
+verified candidate. The hosted merge trees match the frozen tree. PR #174 is
+merged as `e573f322a3b4d005070cb16d3cff0a3bf0abc974`, with that same tested tree.
+Logs, Python/Git/LFS versions and every platform skip remain
+private; those offline results do not certify this live trial.
+
+After the settled development controller's exact executable, command, creation,
+owner and sole development listener are checked, it switches to that frozen
+development candidate. Private configuration and state ownership remain unchanged;
+no production installation or configuration is selected. Read-only doctor reports
+no missing UI tools, ready native export, the intended `gpt-6.1-sol` / `xhigh`
+model selection and zero configured Unity slots. Historical failed/blocked jobs
+remain findings. HTTP health 200 verifies only the development HTTP handler.
+
+Named operator comment `67158fe3-e9e1-47c7-859c-a4bb659bdeea`, at
+13:03:40.213 UTC, scopes a separate fresh item-1 preview and requires its own
+approval/export request. A real TestBot session is created once, with a durable
+attempt marker; its signed webhook creates independent item
+`1f245123-4892-4246-a059-5313e844c685`, with no predecessor or Client intake pin.
+
+### Actual model startup refusal and current native client
+
+The first fresh attempt selects `gpt-6.1-sol` / `xhigh`, but exits before any task
+command with HTTP 400: that model is unsupported for the selected Codex ChatGPT
+client. Its Job is empty and it records no preview, review, export or installation.
+The configured source catalog is from CLI 0.160.0 and lists GPT-6.1 Sol; the pinned
+bot CLI 0.156.1 refreshes its own catalog without that model. This measured client
+version mismatch is distinct from an application guard failure or a proven lack
+of account access. The earlier offline model/config tests do not establish a live
+model start. [OpenAI Docs](https://learn.chatgpt.com/docs/models) states that model
+availability depends on client, sign-in method and rollout.
+
+The already installed native CLI 0.160.0 has a valid Authenticode signature and
+SHA-256 `37762753b554982eef1c109303d1be652b6397f1479e844794353a85650199c6`.
+A separate contained model-only probe, with an empty work directory and no task
+tools, returns `MODEL_READY` using GPT-6.1 Sol / xhigh in 16.273 seconds, exit 0.
+Actual worker Job membership is checked, the Job is empty at completion and the
+work directory is unchanged. No credential, account, global CLI setting or
+installation is added.
+
+Fresh quiescence/preservation and exact development-controller identity checks
+precede selecting that signed installed CLI through the development process
+environment. Frozen FarmBot source and private configuration remain unchanged;
+new controller owner/ancestry/listener and HTTP health are verified. The normal
+operator `retry` command advances only the fresh startup-failed item's generation
+to 1. It does not resume the original blocked trial or reuse historical review
+authority. Its second actual worker config retains GPT-6.1 Sol / xhigh; observed
+worker/descendants are members of its native Job. That worker claims the item
+and reads its real source/uploads. It then
+parks normally because its foreign-work scan finds the merged Client #1426
+and the new session has no direct continue/stop/adopt answer. Its source is
+clean, it has no preview/review/export/install records, its PID clears and its
+Job is empty. The worker posts actual notice `foreign-work-1`; this is a normal
+human-choice gate, not a toolchain failure.
+
+The operator's instruction to continue is relayed as named session reply
+`32d10b30-47e5-49b5-b678-21f54fb9ca5c`, at 13:29:40.589 UTC. It chooses
+the independent item-1 draft/preview, acknowledges merged #1426 as later Client
+baseline context and preserves both historical drafts. It explicitly supplies
+neither visual approval nor an export request. The signed continuation resumes
+the same fresh item normally; its next attempt again selects GPT-6.1 Sol / xhigh
+and has verified worker/observed-descendant Job membership. At this checkpoint,
+preview/review completion remains pending and is not inferred from the
+model-only probe or the foreign-work choice.
+
+The latest-Sol policy reads configured-source metadata, but a catalog produced by
+a newer desktop client cannot certify an older pinned bot CLI. Model promotion
+requires checking the selected native client and a bounded real model start;
+desktop updates alone do not upgrade that pinned runtime. Future client/model
+availability remains a release check.
+
+Remaining release prerequisites: the fresh trial's actual preview approval and
+export, installation and complete controller-certified guards from corrected
+Client inputs; an owned native development Unity/MCP slot, reserved exact-commit
+package loading and human runtime UI QA; scoped actual Feishu reads and broader
+Code/closing/write-back journeys; separately authorized production-host tool,
+runtime, permissions, release/recovery checks and enablement/deployment. These are
+development TestBot measurements, not production readiness or whole-card completion.

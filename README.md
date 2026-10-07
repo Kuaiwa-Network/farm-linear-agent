@@ -153,8 +153,12 @@ Each new or resumed worker receives the default settings, merged with any
 per-skill override, in its isolated Codex home. Claude workers are unaffected.
 An explicit `"model": "gpt-6.1-sol"` pins that skill; `"model": "latest-sol"`
 restores automatic selection. A reasoning-only override still follows Sol upgrades.
-The model must be available to the host's account. This setting does
-not change `max_concurrent` or the number of configured Unity slots.
+The model must be supported by the host's account and the selected native Codex
+client. A catalog refreshed by a newer desktop client does not establish that
+an older pinned bot CLI can start that model. Release verification checks the
+selected CLI version and a bounded real model start; desktop updates alone do
+not upgrade a separately pinned bot CLI. This setting does not change
+`max_concurrent` or the number of configured Unity slots.
 
 To give workers kw_ops, the test environment's GM backend, add its location to the private config
 and put the token only in the controller's environment:
