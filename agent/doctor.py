@@ -435,7 +435,9 @@ def fgui_toolchain(config, *, lark=None):
     entries["cjk_font"] = {"found": valid_font, "ok": valid_font,
                            "identity": {k: font[k] for k in ("name", "sha256")} if valid_font else None}
     entries["lark_cli"] = lark if lark is not None else _lark_cli(config, env)
-    return {"entries": entries, "missing": sorted(name for name, entry in entries.items() if not entry["ok"])}
+    from .fgui_settings import publisher_diagnostic
+    return {"entries": entries, "missing": sorted(name for name, entry in entries.items() if not entry["ok"]),
+            "export": publisher_diagnostic(config.fgui_export)}
 
 
 def diagnose(config, *, now=None):

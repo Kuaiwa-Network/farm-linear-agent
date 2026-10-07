@@ -76,6 +76,37 @@ class PreviewCliTests(unittest.TestCase):
         calls = [json.loads(s) for s in (self.api.directory / "calls.jsonl").read_text(encoding="utf-8").splitlines()]
         self.assertEqual([s["method"] for s in calls], ["fetch_issue", "upload_image"])
         self.assertNotIn(self.token, json.dumps(result))
+        from agent.fgui_records import published_preview
+        proof = published_preview(self.ledger, self.item["id"], result["sha256"], result["asset_url"],
+                                  before=self.ledger.clock())
+        self.assertEqual(proof["sha256"], result["sha256"])
+        self.assertEqual(proof["pixels"], result["pixels"])
+        self.assertNotIn(self.token, json.dumps(proof))
+
+    def test_planned_wrong_issue_or_late_preview_cannot_supply_export_review_proof(self):
+        from agent.fgui_records import published_preview
+        result = self.upload()
+        with self.assertRaisesRegex(LedgerError, "earlier same-issue"):
+            published_preview(self.ledger, self.item["id"], result["sha256"], result["asset_url"], before=0)
+        with self.assertRaisesRegex(LedgerError, "earlier same-issue"):
+            published_preview(self.ledger, self.item["id"], "a" * 64, result["asset_url"], before=self.ledger.clock())
+        from test_ledger import OTHER
+        self.ledger.observe_issue(issue(id=OTHER))
+        self.ledger.ensure_session("other-ui-session", OTHER, delegation=True)
+        other = self.ledger.create_work_item(issue_id=OTHER, session_id="other-ui-session", skill="fgui")
+        with self.assertRaisesRegex(LedgerError, "earlier same-issue"):
+            published_preview(self.ledger, other["id"], result["sha256"], result["asset_url"], before=self.ledger.clock())
+
+    def test_transfer_evidence_must_match_the_immutable_image_before_recording(self):
+        original = self.api.upload_image
+        def different(*args, **kwargs):
+            return {**original(*args, **kwargs), "sha256": "a" * 64}
+        self.api.upload_image = different
+        with self.assertRaisesRegex(LedgerError, "immutable image"):
+            self.upload()
+        self.assertEqual(len(self.stored_uploads()), 1)
+        self.assertIsNone(self.ledger.connection.execute(
+            "SELECT 1 FROM audit WHERE item_id=? AND kind='fgui_preview_uploaded'", (self.item["id"],)).fetchone())
 
     def test_wrong_or_cancelled_claim_refuses_before_disk_or_api(self):
         self.args.token = "not-this-claim"
@@ -160,6 +191,8 @@ class PreviewCliTests(unittest.TestCase):
             self.upload()
         self.assertEqual(len(self.stored_uploads()), 1)
         self.assertEqual(self.ledger.item(self.item["id"])["state"], "cancelled")
+        self.assertIsNone(self.ledger.connection.execute(
+            "SELECT 1 FROM audit WHERE item_id=? AND kind='fgui_preview_uploaded'", (self.item["id"],)).fetchone())
 
 
 if __name__ == "__main__":

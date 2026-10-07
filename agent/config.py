@@ -104,6 +104,8 @@ class Config:
     kw_ops: dict = field(default_factory=dict)
     # A profile with optional home, or {"app_id": ID, "secret_env": NAME}. Never an app secret value.
     lark_cli: dict = field(default_factory=dict)
+    # Optional native UI publisher selection; never selects a tool automatically.
+    fgui_export: dict = field(default_factory=dict)
     # Names of the skills this instance runs (spec §9.11); None runs every skill in the checkout's skills/ but the
     # opt-in ones (Phase B plan, P1).
     enabled_skills: list | None = None
@@ -156,6 +158,9 @@ class Config:
                 raise ValueError("invalid codex worker reasoning_effort")
         validate_kw_ops_config(self.kw_ops)
         validate_lark_cli(self.lark_cli, self.local_root)
+        if self.fgui_export != {}:
+            from .fgui_settings import validate_settings
+            validate_settings(self.fgui_export)
         if self.lark_cli.get("secret_env") and self.lark_cli["secret_env"] == self.kw_ops.get("token_env"):
             raise ValueError("lark_cli secret_env must differ from kw_ops token_env")
         if self.enabled_skills is not None and (

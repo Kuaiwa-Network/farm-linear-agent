@@ -13,6 +13,9 @@ approval. Replies resume it; comments alone do not. Corrections require a fresh
 preview round. Licensed export, Farm-Client writes and Unity remain a separate
 Phase E step; an export request parks at that limit. See the
 [Phase D plan](docs/superpowers/plans/2026-10-06-feature-workers-phase-d.md).
+The [Phase E record](docs/superpowers/plans/2026-10-06-feature-workers-phase-e.md)
+tracks verified export foundations and prepared controller receipt commands;
+the delivered UI manifest still has the authoring limit.
 Without a Bot label a delegation opens a conversation. Capabilities are added as skills on
 a shared identity, ledger, worker runtime and desktop-resource locks: chat, QA, bug fixes
 and small changes, FGUI, then whole features.

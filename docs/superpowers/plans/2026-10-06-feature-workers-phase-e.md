@@ -134,6 +134,72 @@ distinguishes that result from live acceptance. Remaining prerequisites:
 
 No existing parked Code card or unmerged game test draft supplies UI acceptance.
 
+## As executed: suspended startup and export foundations (2026-10-07)
+
+[#161](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/161) merges as
+`4f94b017d7327084f35d783cfae536696259a12a`,
+[#159](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/159) as
+`4d5669c679f8aee6069be30b8da33f49930de918`, and
+[#160](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/160) as
+`f622a44223189932268bfae6ac0f90c128b78cee`. Their actual merge trees match
+the tested candidates. These are development foundations; no running bot,
+production configuration, live card, account or game test draft is changed.
+
+The selected Windows virtual-environment Python is a redirector. Starting it
+before assignment could create a base-interpreter descendant outside FarmBot's
+Job; assignment is not retroactive. The launcher and publisher now create it
+suspended, assign it using the retained creation handle, verify and resume its
+one retained initial thread, then permit the existing gate handshake. Assignment,
+resume or identity failures refuse startup and reap only verified owned processes.
+No containment, ownership requirement or skip is relaxed. The initial two
+publisher native full suites had one budget-kill stderr cleanup error each,
+with zero assertion failures; those failures remain historical evidence.
+
+| Candidate/run | Tests | Duration | Failures/errors | Platform skips |
+|---|---:|---:|---:|---:|
+| #161 development native Windows | 1,928 | 1,266.419 s | 0 / 0 | 69 |
+| #161 hosted macOS | 1,928 | 654.033 s | 0 / 0 | 45 |
+| #161 hosted Windows | 1,928 | 1,919.119 s | 0 / 0 | 69 |
+| #159 hosted macOS | 1,961 | 609.415 s | 0 / 0 | 57 |
+| #159 hosted Windows | 1,961 | 1,586.372 s | 0 / 0 | 69 |
+| #160 development native Windows | 2,012 | 1,319.198 s | 0 / 0 | 69 |
+| #160 hosted macOS | 2,012 | 552.612 s | 0 / 0 | 57 |
+| #160 hosted Windows | 2,012 | 1,881.377 s | 0 / 0 | 69 |
+
+Exact candidates are #161 `c1ac10e562d990df7fa022da2a4a2fa6c0b7a5be`,
+#159 `de57c6a88061d739e1998bcf741c81d27fd48cdb`, and
+#160 `49b86138b0a4866dfb7396e01e6025ebd3100943`.
+Hosted runs [37545279577](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37545279577),
+[37546311907](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37546311907)
+and [37546463809](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37546463809)
+verify synthetic trees equal their candidate trees. #159's local evidence is
+the #160 combined 2,012-test superset, with byte-identical publisher, validator,
+installer, launcher, gate and native publisher test blobs; it is not a separate
+local 1,961-test run. All ten native Job checks and twelve native publisher checks
+actually run on both Windows hosts. Windows retains the established 69 skip
+IDs/reasons; macOS adds three native Job and twelve native publisher skips to its
+established 42. All 51 source/approval/controller-pin checks run in #160, along
+with 22 Code journeys, 11 UI checks, 43 preview/transport, 34 export and 22 installer
+checks. Complete UTF-8 logs, per-test duration and every skip remain private.
+
+Development tools are Python 3.13.16, Git 2.54.0.windows.1 and Git LFS 3.7.1;
+hosted Python is 3.13.15, macOS Git 2.55.0/LFS 3.8.0 and Windows Git
+2.55.0.windows.5/LFS 3.7.1. Fresh symlink capability and inherited-selector/token
+sanitization are verified before full runs. The corrected publisher also exports
+the same 31 calibrated artifacts directly in 4.094 s and from an actual native
+isolated Codex worker in 3.986 s (51.927 s whole worker). Pre-startup/pre-export
+Job proofs, nested/outer Job emptiness and unchanged runtime-registration and
+authentication-seed metadata are recorded. This development PC's results do not
+certify production-host readiness, hydrated Client guards or Unity loading.
+
+Prepared controller review/export/install/scope commands retain the delivered
+authoring-only manifest. They are tested using future-grant fixtures, not enabled
+for a live job. The actual Client dependency guard's 39 literal package entries
+parse unchanged; no real Client file is written by that calibration. Remaining
+work includes functional resource/draft/delivery gates, owner export permission,
+worker instructions, approved live UI acceptance, real hydrated guards and
+exact-commit Unity loading, followed by separately authorized release.
+
 ## As executed: native publisher and actual worker route (2026-10-07)
 
 This is the **development Windows PC**. These probes establish batch execution

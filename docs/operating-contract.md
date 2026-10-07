@@ -977,8 +977,44 @@ The controller's Client baseline mechanism supports a future UI Client stage wit
 the same immutable main/issue-branch selection and generation/claim/Stop fences as
 Code. Its existing Code-only entry points remain restricted to Code. UI intake and
 authoring stay unpinned; the current manifest grants no Client handoff or Unity
-resource. No export CLI, receipt handoff or host configuration is enabled by these
-preparatory helpers.
+resource. These helpers alone supply no export or runtime grant.
+
+The prepared `review-ui`, `export-ui`, `install-ui` and `verify-ui` commands require
+an explicitly enabled UI job and a manifest granting the future Client/Unity
+stage. The delivered authoring manifest deliberately lacks that grant, so these
+commands refuse execution here. Functional Unity, draft/delivery gates, worker
+instructions and the farmgui owner grant remain separate implementation work.
+
+`upload-image` now records the actual immutable transfer in controller audit
+state after its final claim fence. Prepared review/export records also live in
+that state, outside worker checkpoint authority; no database migration is added.
+A review binds the real same-issue image upload, owned clean farmgui draft/head,
+full materialized source digest, actual changed package IDs and numbered round.
+Export additionally requires a confirmed visual notice naming the asset and HEAD,
+and separately attributed current human visual approval and export request.
+Canonical inbox timestamp precision is retained for same-second ordering.
+Stop, withdrawal, new input, altered source/image or uncertain publisher ownership
+cannot produce a success receipt. Staging and interrupted recovery remain private.
+
+The prepared Client handoff requires its real controller export receipt. Installation
+uses the immutable controller baseline/branch and the exact staging inventory,
+touches only changed packages and preserves the installer's per-write claim
+fences and journal. A second approved round may build on clean committed certified
+output at the same baseline; an unrelated Client commit or uncertified interrupted
+write refuses continuation. New packages require Common. `verify-ui` checks the
+clean exact committed candidate, installed bytes/GUIDs and entire baseline diff.
+Only certified outputs/metadata and literal changed-package dependency-guard
+entries with reasons may change. This scope proof does not establish hydrated
+dotnet guard success or Unity loading.
+
+Optional private `fgui_export` selects an absolute native `FairyGUI-Editor.exe`,
+exact SHA-256 pins for it, `UnityPlayer.dll`, `GameAssembly.dll` and `baselib.dll`,
+and an optional positive finite timeout of at most 180 seconds. No discovery,
+credential, license or preference configuration occurs. `tools.fgui.export` in
+doctor separately reports sanitized selected-binary findings without executing
+the publisher; missing selection does not disable authoring. An older release
+rejects this new config key: remove it from that release's private config as part
+of an authorized rollback, rather than assuming a code checkout reverses config.
 
 ## UI source ownership
 
