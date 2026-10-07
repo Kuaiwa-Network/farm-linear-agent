@@ -631,3 +631,79 @@ or automatic credential/profile/state cleanup is introduced. Preserve audit and
 interrupted installer evidence; settle in-flight UI work before an authorized
 rollback. This follow-up changes only this verification record: its code blobs
 remain byte-identical to the independently verified runtime candidate.
+
+## As executed: native TestBot intake and scope stop (2026-10-07)
+
+The operator approves one development Windows UI trial on
+[FARM-1408 — 上架UI](https://linear.app/kuaiwagames/issue/FARM-1408/上架ui).
+The intended TestBot is settled before its update: six historical jobs are terminal
+(two failed, four cancelled), with no workers, pending webhook/cleanup, reservations
+or live recorded Job members. Its explicit development identity, unchanged owned
+state root and configured publishing destinations are verified; its existing
+private config is backed up. TestBot runs the exact verified runtime tree at
+`70716fc53a9cf8d2111cb2233b254a2b4155cfec`, using the prepared native Python/Pillow
+environment and enabling chat/fix/fgui; Code remains disabled. No production
+config/state/service, credentials, license, account or app settings are changed.
+
+Sanitized UI doctor finds no missing tools: Python 3.13.16, Pillow 12.3.0,
+Git LFS 3.7.1, the prepared CJK font and existing bot-only lark-cli 1.0.82 profile
+(no other profiles or user logins). All four explicitly selected native publisher
+hashes match. This neither executes the publisher nor certifies its license.
+There is still no configured development Unity slot; real Client/loading
+acceptance remains pending. The two established failed-job findings are retained.
+
+The selected card receives Bot/UI, delegation to TestBot and a human-attributed
+trial-scope comment with the project's existing planning-file link. A real TestBot
+agent session and its signed webhook start the native authoring worker. The worker
+and all three observed descendants belong to its named Windows Job. Doctor's
+ordinary PID probe reports `platform_not_supported` on Windows; the separate native
+Job query supplies containment evidence without weakening any ownership check.
+
+The worker's real `download-uploads` retrieves and verifies both selected inputs:
+
+| Input | Bytes | SHA-256 | Dimensions |
+|---|---:|---|---|
+| 餐厅经营_系统策划案.md | 43592 | `d4537007ed3866da2cae4896eb063ebc2ecf827ad5f661e53d8c3596fe1bf7b3` | — |
+| image.png | 636957 | `7140b8004d67be153e5721edb5e3007e588c4319372f346bc81c3e896baeef95` | 503 × 862 |
+
+Foreign-work inspection finds no competing issue publication. The source worktree
+is clean at farmgui main `1193f21008dea66823c721a0818bf6690c33376b`; read-only Client
+context is `5ca9db4f4ef4ae7a21c50c7243429a6f537a29a8`. The screenshot's marked
+“还没有可上架的菜肴，先去制作吧” is `emptyFoodText`, created by
+`assets/Scripts/HotUpdate/Features/Shelf/RestaurantViewCookingPrompt.cs`, with
+explicit brown `Color(0.35f, 0.23f, 0.18f)`. There is no corresponding source text
+node in farmgui's `CakeShelf/RestaurantView`. A source-only edit cannot fulfill
+this request, and the UI Client grant does not permit a C# color patch.
+
+The worker posts a durable scope question and parks in `awaiting_input` /
+`scope_question`. Its worker PID clears, its recorded Job is empty, the heartbeat
+has no workers and there is no pending cleanup. No source change, preview,
+app-token image upload, PR, licensed export, Client install, actual Client guard
+or Unity probe is produced. This demonstrates real native intake and an effective
+scope stop, not live UI delivery or production readiness. A small runtime color
+fix belongs to the existing bug fixer (`Bot/修改`); the worker's suggested separate
+Code task is not necessary for this defect. No label change or separate repair
+is performed without the operator's next decision.
+
+This trial also reveals a changed provider behavior: the authorized API delegation
+itself opens a real Linear agent session. Relying on the old “API creates no
+session” documentation, the development agent explicitly opens a second session.
+The controller cancels/supersedes the earlier queued UI item, settles its cleanup
+and runs exactly one successor; both session threads retain the visible transfer
+record. Inspect the actual session before another creation request; this observation
+does not guarantee every API delegation opens one on every workspace or app.
+
+The next proposed bounded trial is
+[FARM-1396 — 礼包花圃ui](https://linear.app/kuaiwagames/issue/FARM-1396/礼包花圃ui),
+item 1 only. Read-only source inspection finds the actual authored text nodes:
+`Activities/Panels/GiftGardenView.xml` has `pagePlaqueText` (“本页礼包”), and
+`Activities/Components/GiftGardenPageBuyBtn.xml` has `title` (“整页购买”). The
+current authoring rules already identify the latter's 160 × 40 frame / 42-point
+text clipping. The issue has an uploaded target artwork and runtime reference
+screenshots and is Todo, undelegated and assigned to the approving operator.
+Its second effect-layering item is outside this proposed first trial. This is a
+proposal only: FARM-1396 has not been relabeled, delegated, commented on or worked.
+Switching the selected trial and withdrawing the parked FARM-1408 UI attempt need
+the operator's decision. Existing parked Code cards and game test drafts remain
+untouched. Actual source preview/upload/visual approval/export, hydrated Client
+guards, exact-commit Unity loading and final-host release checks remain required.

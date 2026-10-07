@@ -64,7 +64,9 @@ Before the first `serve` on a new host: point the Linear app's webhook at a tunn
 (`cloudflared tunnel --url http://127.0.0.1:8765`), run `python3 -m agent.service seed-clones --from ~/WorkSpaces/Farm`
 so the bare clones exist before the first launch instead of being fetched inside a scheduler tick, and on a
 python.org Python make sure `etc/openssl/cert.pem` exists (symlink `/etc/ssl/cert.pem`). Delegate from the
-Linear UI; delegating through the API creates no agent session. Live record:
+Linear UI. For an explicitly authorized API delegation, inspect whether Linear
+has opened a real agent session before requesting another: the native TestBot
+trial records one created by API delegation. Live record:
 `docs/superpowers/spikes/2026-09-18-mac-live-smoke.md`.
 
 To keep FarmBot running across reboots on macOS:
