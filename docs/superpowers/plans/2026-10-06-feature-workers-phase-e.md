@@ -789,13 +789,45 @@ and unsupported effects/relations/transitions; it is neither FairyGUI nor Unity
 output. Both requested phrases are visible in this approximation, but runtime
 clipping must still be checked after export. Item 2 remains pending.
 
-The operator now needs to review this unchanged first round and, if acceptable,
-give a real named visual confirmation and explicit export request in the session.
-Licensed export, actual Client guards and exact-commit Unity loading remain
-pending, as do runtime UI QA and separately authorized production-host release
-checks. The optional native filter's first full local run exposes a UTF-8 BOM
-regression and slow binary failure formatting, recorded separately. The corrected
-adapter passes 15 focused and 38 sequence checks and is selected only after a
-fresh settled-development restart fence. Its new full local/hosted checks are
-pending, and its code PR remains draft. These live results do not turn an
-incomplete suite into a passing release check. No game draft is merged.
+The optional native filter's first full local run exposes a UTF-8 BOM regression
+and slow binary failure formatting, recorded separately. The corrected adapter
+passes 15 focused and 38 sequence checks and is selected only after a fresh
+settled-development restart fence. Its corrected full runs then pass 2,114 tests
+on the development PC (1680.382 seconds, 69 skips), hosted macOS (741.446 seconds,
+73 skips) and hosted Windows (2216.710 seconds, 69 skips), all with zero
+failures/errors and verified equal candidate trees. Both Windows runs execute
+all thirteen native filter checks; established platform skip IDs/reasons are
+unchanged. PR #167 merges at `7604de5dfb7f5889f0f0613196e3a1a26f308a92` with
+that tested tree. The initial incomplete run remains separate evidence.
+
+### Actual round-1 approval and refused export certification
+
+At 06:24:04.670 UTC, 马张力 posts actual reply
+`575cf37e-a5e5-4eb4-b084-f6fa8a17ae5f` under the existing session root, explicitly
+approving round 1 and requesting export. Its signed session event becomes actual
+stored message 8 with the same named author and body. The fourth native attempt
+consumes it and saves separate `visual_approved` and `export_requested` events
+bound to the unchanged review/head/source digest/preview hash. No duplicate
+approval or session is sent.
+
+The selected native publisher completes six approved/dependency packages and
+50 private artifacts, with exit zero, proved assignment before startup/export
+and an empty owned Job. Read-only revalidation confirms unchanged staged bytes,
+source head and complete file-hash map. The controller nevertheless refuses
+`UI export receipt cannot certify stale source or uncertain process ownership`:
+the publisher hashes the complete `{head, files}` identity while approval and
+controller receipt checks hash `files` and bind the full commit separately.
+This is a controller integration regression, not an absent license, missing host
+capability or stale approval. Helper staging is retained for diagnosis and is
+never substituted for a certified receipt.
+
+The confirmed `export-stage-limit-1` notice is
+`04a569cd-4fab-4e72-bb21-5985a0b9dd79`. The same item/session parks in
+`awaiting_input` / `export_stage_limit`, its PID clears, all recorded native Jobs
+are empty, and there are no pending webhooks, cleanup, reservations or heartbeat
+workers. No controller export record, Client handoff/change or Unity result exists.
+The approved round is preserved while a separate controller correction receives
+regression verification; a fresh controlled export must follow. Actual Client
+guards, exact-commit Unity loading, runtime UI QA and separately authorized
+production-host release checks remain pending. Item 2 remains pending and no
+game draft is merged.

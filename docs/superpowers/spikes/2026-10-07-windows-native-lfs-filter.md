@@ -106,11 +106,38 @@ All 15 corrected focused checks pass in 3.610 seconds, zero failures/errors/skip
 The previously failing callback/filter sequence also passes all 38 checks in
 10.586 seconds, with no timeout and an empty owned Job. Its old-source negative
 control fails as expected in 0.708 seconds. The corrected candidate is frozen
-for a fresh full native run; its
+for a fresh full native run; at this record's initial preparation its
 [new hosted run](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37578787871)
 is also pending. The old hosted Windows run is superseded/cancelled, retaining
 the completed initial macOS artifact; it is not Windows pass evidence. PR #167
 remains draft until the corrected full native and hosted checks complete.
+
+### Completed corrected verification
+
+The frozen corrected candidate completes the pinned full offline suite on the
+native development PC and both hosted platforms, with complete UTF-8 logs,
+per-test timings, versions and every platform skip retained:
+
+| Host | Tests | Duration | Failures / errors | Skips |
+|---|---:|---:|---:|---:|
+| Native Windows development PC | 2114 | 1680.382 s | 0 / 0 | 69 |
+| Hosted macOS | 2114 | 741.446 s | 0 / 0 | 73 |
+| Hosted Windows | 2114 | 2216.710 s | 0 / 0 | 69 |
+
+Both hosted artifacts identify synthetic revision
+`06b105d6a5dff7904651d1c0e3ffea93b54cc7be`, whose tree equals the candidate tree
+`6ca48e35e8025b7e4f922d8f941e1b75dde116a3`. Both Windows runs execute all thirteen
+native adapter checks, ten shared Windows Job checks, twelve native publisher
+checks and three native guard-process checks. All 69 established Windows skip
+IDs/reasons are unchanged. macOS retains its 60 established skips and adds only
+the thirteen native adapter checks; both portable filter checks run everywhere.
+The initial incomplete/failing run remains separate evidence.
+
+[PR #167](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/167) merges as
+`7604de5dfb7f5889f0f0613196e3a1a26f308a92`; its tree exactly matches the tested
+candidate. The verified topic branch is retired. The running development core
+remains frozen at `70716fc53a9cf8d2111cb2233b254a2b4155cfec`; no production
+deployment or game PR merge is performed.
 
 ## Actual development source recovery
 
@@ -172,11 +199,16 @@ activation or a completed full-suite release claim.
 
 ## Remaining release checks
 
-The bounded UI trial now measures a real source draft, app-token uploads and
-controller-verified current-source review. These do not replace completion of
-the native filter's failed/stalled full-run diagnostics. Human visual approval and an explicit
-export request must refer to the actual current review. Actual licensed export,
-scoped Client install/metadata, hydrated dependency/orphan guards and reserved
+The native filter's corrected full local/hosted verification is complete. The
+bounded UI trial also measures a real source draft, app-token uploads and
+controller-verified current-source review. A real named session reply approves
+that unchanged round and requests export. Native publishing completes in private
+staging, but the controller refuses its receipt because the publisher and
+approval use different source-digest formats. The failed certification is an
+application regression; it neither invalidates the verified native filter nor
+authorizes using uncertified staging. The separate controller correction and a
+fresh certified export remain pending. Scoped Client install/metadata,
+hydrated dependency/orphan guards and reserved
 exact-commit Unity package loading remain separate checks. Human runtime UI QA
 is broader than package loading. Production-host tool/runtime/account/permission
 and release/recovery checks, plus separate enablement/deployment authorization,
