@@ -1347,3 +1347,158 @@ loading; human runtime UI QA; scoped actual Feishu reads and broader Code/closin
 write-back journeys; separately authorized production-host release/recovery
 checks and enablement/deployment. The real card remains open, item 2 remains
 pending, and these are development TestBot results.
+
+## As executed: fresh item-1 approval, export and Client handoff (2026-10-07 UTC)
+
+The operator explicitly approves the fresh round and requests export. Named
+session reply `99b7ce33-0339-444c-8387-43780a278232`, at 15:42:23.031 UTC,
+binds source draft #144's unchanged head, review, source digest, composite hash
+and Activities package identity recorded above. It accepts the approximate
+preview's documented limits; runtime visual acceptance and item 2 remain pending.
+Linear's signed continuation is stored as session message 14, with the same
+named human author. Linear expands the issue and historical Client PR references
+into links. Those exact link-only changes and terminal whitespace are checked
+against the original reply; the controller's approval/request hashes match the
+actual canonical stored message. No historical approval is reused.
+
+The resumed worker uses the signed native Codex 0.160.0 with
+`gpt-6.1-sol` / `xhigh`. Worker and observed descendants belong to their native
+Job. Normal `export-ui` completes in 5.621 seconds, exit 0, with publisher Job
+assignment before startup/export and an empty Job at completion. Controller
+receipt `a052dbe4aa1a4787a2f9240b90aa0064` binds round 1 and source head
+`9bbfa75acfd9a860947cf5c5d1ca840b53aafb72`; its immutable SHA-256 is
+`9f0c66839f33364b696f815b72dc8a4de99036e5f4f9c2a353c840f5a1875214`.
+All 50 retained artifacts across six exported dependency packages are rehashed
+against the controller inventory. Only changed Activities is authorized for
+Client installation.
+
+The normal controller handoff pins Client baseline
+`e9988b2d64a5fa5765496d37ec777492df66a278`, the actual merge of corrected
+dependency-guard [Client #1426](https://github.com/Kuaiwa-Network/Farm-Client/pull/1426),
+once at 15:57:07.443855 UTC. It carries the validated fresh source branch
+`farmbot/farm-1396-1f245123-4892-4246-a059-5313e844c685-2`, exercising the
+merged #174 handoff correction. The independent item enters a new Client
+attempt normally; the historical blocked item and its drafts remain preserved.
+Existing pins are not reset to a later main.
+
+### Measured installation interruption and settled development recovery
+
+The first `install-ui` refuses unhydrated selected-package inputs. Native LFS
+pull/checkout leave those baseline files as pointers on this host; direct native
+smudge returns bytes matching their committed OIDs and sizes. After scoped
+hydration and validated Git stat refresh, the owned baseline is clean without
+changing its index tree, branch or commit. No credential, global Git setting or
+trusted clone configuration is repaired to obtain this result.
+
+A subsequent normal installation applies the single changed
+`Activities/Activities_fui.bytes` descriptor, then reports
+`PublicationUnavailable: GitHub verification timed out` before recording its
+success certificate. Another controller attempt also reports that timeout.
+The helper's complete journal records one write and no deletes/directory changes;
+it retains 31 original backups, totaling 27,514,274 bytes, all matching their
+journal hashes. The new descriptor is 66,742 bytes, SHA-256
+`4d7382c86561647d3fdb377d21aa8a0ff62b7906d0d27fe2843f82730a938969`, matching
+the certified staging inventory. A complete helper journal is not a controller
+installation record. No guard or Unity proof is recorded.
+
+The worker parks normally at `awaiting_input/client_installation_gap`, with
+`pause.kind=stage_limit`, no worker PID and an empty native Job. The controller
+preserves the uncertified write and recovery evidence. Four focused native
+offline tests of dirty-first-install refusal and interrupted-write preservation
+pass in 12.478 seconds, with zero failures/errors/skips. An initial test harness
+imports the old checkout and produces four import errors; its logs are retained
+separately. The corrected fresh interpreter verifies current source imports.
+Those harness errors are not application regressions or live guard results.
+
+Once GitHub reads work again, source #144 is reverified open/draft at its unchanged
+head. Settled operator recovery verifies the owned clone/worktree, sole changed
+file, original Git/LFS identity, current certified export bytes and empty worker
+Jobs. It restores only the development descriptor to its actual pinned baseline:
+66,779 bytes, SHA-256
+`25b8a80f04dad313720e579335811f21f630be950fca3bf4136d1ee30f95181f`.
+The owned Client becomes clean at the same baseline and branch. Before/after
+descriptor bytes, every original journal/backup and the failure logs remain
+private and intact; private configuration and ledger records are unchanged.
+No journal is promoted to a success certificate and no source approval changes.
+
+Named session reply `cb3754cf-70c0-44ab-863a-03a47a1d1501`, at
+16:28:27.666 UTC, requests a normal same-item installation/guard retry from that
+verified clean baseline. It preserves the fresh approved round, receipt and
+historical drafts. This continuation supplies no Unity startup, app-settings,
+credential, game-merge or production grant. A new controller installation record
+and actual complete guard results remain required.
+
+The normal resumed worker subsequently records fresh installation
+`07e4aa8ee7084d7db7473e95d245498a`, immutable SHA-256
+`4352aa1aef8c0e49b1add17917ddbd2b38117a65c19df2ad18f25caed2d17e7e`.
+The read-only observer verifies that checksum and its binding to the same fresh
+export, source head, baseline and branch. It certifies only Activities: 31 files,
+including 16 metadata files. The failed journal remains separate and intact;
+normal installation, rather than manual promotion of its journal, supplies the
+actual success record. Exact committed scope and complete actual guards are
+still required at this checkpoint.
+
+The worker commits Client candidate
+`218ef7a805b072b3b87cb1b0b4f207e2a1901b12`. Controller scope verification
+accepts exactly two changed files: the Activities descriptor and that package's
+literal dependency-guard entry. Read-only checks revalidate all installed bytes
+and the global metadata GUID inventory against the immutable installation.
+
+The first actual guard command fails during public NuGet restore with `NU1301`;
+no test or TRX executes in that attempt. A separate read-only public feed request
+returns HTTP 200, identifying a selected-process dependency-access gap rather
+than an executed application guard failure. The worker verifies 11 existing
+cache archives against package versions, SHA-512 and ZIP integrity, and selects
+that existing cache only for the controller subprocess. Independent read-only
+checks revalidate all 11 archives, totaling 23,422,747 bytes. No dependency,
+credential or persistent NuGet/app setting is installed or changed.
+
+The subsequent normal `verify-ui-guards` records both actual repository methods
+as Passed: `FguiDependencyGuardTests.No_unsanctioned_published_dependency_edges`
+and `FguiOrphanAtlasGuardTests.Package_dirs_hold_exactly_the_files_their_descriptors_declare`.
+The native run exits 0 in 12.041 seconds, with suspended-before-startup Job
+assignment and an empty Job at completion. Complete retained TRX has exactly
+two executed/passed results and zero failures, errors, skips or Inconclusive
+results; SHA-256 is
+`701856677b54cb880b3cdf56a3711c46ab8febfd8e77ec1a63bc3c58781bf7c3`.
+Controller guard proof SHA-256
+`79eb31c8fecdda512efbf4095b5e3e60c1e0a93f2aaab76208a5111ad5e9688d`
+binds that exact candidate, source head, installation and fresh export receipt.
+The actual TRX bytes/results and immutable proof checksum are independently
+revalidated. Earlier restore and installation failures remain private measured
+evidence; their results are not promoted into this successful run.
+
+At 16:57:25 UTC, a read-only snapshot finds the same item normally parked at
+`awaiting_resource/unity_resource`, with no worker PID and an empty native Job.
+Interactive reservation `53069eda-dd9f-49cd-aa8d-bc140882c26d` is queued for exact
+candidate `218ef7a805b072b3b87cb1b0b4f207e2a1901b12`, with no resource assigned.
+No Unity loading proof exists. The current development instance still has zero
+configured slots, and the app-preference decision below remains pending.
+
+### Native Unity preparation findings, without starting an Editor
+
+Read-only host checks find Unity 2022.3.62f3 installed, matching the Client project,
+and no running Unity Editor. Default port 8080 belongs to an unrelated Java
+process; it is neither contacted as MCP nor stopped. Existing selected Unity MCP
+settings already use local HTTP port 9090 with auto-start enabled, and that port
+has no listener. Development configuration still has zero Unity slots.
+
+The Client's pinned MCP package is commit
+`30d22075093d1d35dfb0091c1c7550e9ad948577`. Five relevant downloaded source blobs
+are verified against that exact Git tree. Its
+[startup registration helper](https://github.com/CoplayDev/unity-mcp/blob/30d22075093d1d35dfb0091c1c7550e9ad948577/MCPForUnity/Editor/Services/StartupConfigRewrite.cs)
+can rewrite installed client configurations when auto-registration is enabled;
+the current account has neither an explicit disable nor a configuration lock.
+A private plan proposes an owned development Client slot on existing port 9090
+and disabling `MCPForUnity.AutoRegisterEnabled` first. That preference applies
+to the Windows account's Editors, so the operator's earlier no-app-settings-change
+boundary requires an explicit decision. The plan is not executed: no preference,
+slot configuration, Editor, MCP connection, account or credential is changed.
+
+Remaining release prerequisites are the app-preference decision and an owned
+native Unity/MCP slot, reserved exact-commit loading and human runtime UI QA; scoped real Feishu
+reads and broader Code/closing/write-back journeys; separately authorized
+production-host tool/runtime/permissions and dependency restore/cache readiness,
+release/recovery checks and deployment.
+These are development TestBot results. Item 2 and whole-card acceptance remain
+pending, and production readiness is not certified.
