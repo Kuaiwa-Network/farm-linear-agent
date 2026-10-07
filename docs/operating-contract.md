@@ -756,7 +756,7 @@ A write worker can request `await-resource --resource unity_slot --mode batch
 --commit FULL_SHA` (or `--mode interactive`) to verify the current clean HEAD of its own Farm-Client
 worktree. The CLI authenticates the claim, checks the configured host/checkout and commit, then the
 ledger rechecks ownership before queuing. `await-resource` accepts only a resource kind the item's
-`skill.json` lists. Feature additionally requires its controller-selected Client baseline/branch and an
+`skill.json` lists. Staged Code/UI verification additionally requires its controller-selected Client baseline/branch and an
 explicit `--commit`; a legacy or worker-fabricated target supplies no resource grant. The CLI verifies
 the exact branch, clean current HEAD and configured owned checkout. The Unity rules read the attempt's root as `stages.current_root`
 resolves it: selecting a commit requires a Farm-Client-rooted worker, a neutral worker (a fix before
@@ -948,6 +948,37 @@ identities, the selected completion count, no license-failure marker and the
 immutable exact export inventory. Client installation and Unity acceptance remain
 separate checks. This helper supports native Windows only and has no shell or
 permission-repair fallback.
+
+The prepared `agent.fgui_source` and `agent.fgui_approval` helpers ground a future
+export command without widening the delivered UI authoring manifest. Source
+identity requires the exact owned issue branch/full commit, matching committed
+index, no untracked changes and a stable bounded hash map of every tracked file.
+Git reads retain clone/config/entry checks, disable hooks/fsmonitor and LFS clean
+programs, and use native text normalization. Unknown filters, links, hardlinks,
+case collisions, malformed pointers and mismatched materialized LFS bytes refuse
+success. Selected package/dependency pointers must be hydrated; unrelated LFS
+inputs may remain verified pointers. The changed set comes from the committed
+source diff against a caller-verified current main, including shared packages;
+other source paths remain explicit evidence. Missing history, removed package
+manifests and a diff without a package remain pending for fetch/scope resolution.
+
+Approval authority binds the current source commit, full byte digest, retained
+review-image hash, round and every actually changed package to distinct
+`visual_approved` and `export_requested` events. Each event must match an actual
+named human session message (including canonical stored messages from the same
+issue's retired attempts) or a human comment in the complete current inventory,
+including its timestamp. The export request must be at or after approval; stale events, bots, quotes,
+fabricated attribution and missing evidence supply no grant. Understanding the
+person's explicit intent remains the scoped worker's duty, not a text heuristic
+in this helper. Controller integration must verify the actual draft, source,
+retained image and current delegation before using this prepared authority.
+
+The controller's Client baseline mechanism supports a future UI Client stage with
+the same immutable main/issue-branch selection and generation/claim/Stop fences as
+Code. Its existing Code-only entry points remain restricted to Code. UI intake and
+authoring stay unpinned; the current manifest grants no Client handoff or Unity
+resource. No export CLI, receipt handoff or host configuration is enabled by these
+preparatory helpers.
 
 ## UI source ownership
 
