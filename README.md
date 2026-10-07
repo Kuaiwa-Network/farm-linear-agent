@@ -132,7 +132,14 @@ An installed launchd service also preserves configuration selected through
 `FARMBOT_CONFIG`. Use an absolute `local_root`; changing the config filename alone
 does not move its state. Restart a settled service after editing configuration.
 
-Codex `chat` and `fix` workers default to `gpt-6-sol` with `xhigh` reasoning.
+All Codex workers (`chat`, `fix`, `feature` and `fgui`) default to `latest-sol`
+with `xhigh` (extra-high) reasoning. FarmBot resolves this policy before each new
+or resumed attempt to the newest stable `gpt-<version>-sol` supporting that effort
+in the configured Codex auth home's `models_cache.json`. The current release
+baseline is `gpt-6.1-sol`; absent or unusable catalogs retain that baseline.
+Future upgrades follow Codex's catalog refresh, so a stale cache can delay an
+upgrade. FarmBot does not refresh the catalog itself or start a model session to
+discover models. `latest-sol` is a FarmBot policy, not a Codex model identifier.
 For a host-specific override, add `codex_workers` to private
 `.local/agent/config.json` and restart the drained receiver:
 
@@ -144,6 +151,8 @@ For a host-specific override, add `codex_workers` to private
 
 Each new or resumed worker receives the default settings, merged with any
 per-skill override, in its isolated Codex home. Claude workers are unaffected.
+An explicit `"model": "gpt-6.1-sol"` pins that skill; `"model": "latest-sol"`
+restores automatic selection. A reasoning-only override still follows Sol upgrades.
 The model must be available to the host's account. This setting does
 not change `max_concurrent` or the number of configured Unity slots.
 

@@ -3,6 +3,7 @@ from collections import namedtuple
 import io
 import json
 import os
+import re
 import shutil
 import signal
 import stat
@@ -33,6 +34,8 @@ _WORKER_FILE_LIMIT = 1 << 20
 # state directory is a symlink. Windows has neither flag nor FIFOs in a directory, and needs O_BINARY for bytes.
 _WORKER_FILE_FLAGS = (os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0)
                       | getattr(os, "O_BINARY", 0))
+_DEFAULT_SOL_MODEL = "gpt-6.1-sol"
+_SOL_MODEL = re.compile(r"gpt-([1-9][0-9]{0,2})(?:\.(0|[1-9][0-9]{0,2}))?-sol")
 
 
 def _read_worker_file(path, tail=None):
@@ -61,6 +64,48 @@ def _read_worker_file(path, tail=None):
 def _read_worker_text(path):
     """_read_worker_file decoded as Path.read_text(encoding="utf-8") decodes: strict UTF-8, universal newlines."""
     return io.TextIOWrapper(io.BytesIO(_read_worker_file(path)), encoding="utf-8").read()
+
+
+def _codex_model_settings(settings, seed_files):
+    """Resolve FarmBot's latest-sol policy from the configured auth home's model metadata.
+
+    Explicit model pins bypass selection. The bounded cache read neither opens auth.json
+    nor follows inherited CODEX_HOME, worker overrides or repository configuration.
+    Codex refreshes this cache; an absent/unusable catalog retains the release baseline.
+    """
+    selected = dict(settings or {})
+    if selected.get("model") != "latest-sol":
+        return selected
+    selected["model"] = _DEFAULT_SOL_MODEL
+    selected.setdefault("reasoning_effort", "xhigh")
+    homes = [Path(source).parent for source, target in seed_files.items() if target == "auth.json"]
+    if len(homes) != 1:
+        return selected
+    try:
+        catalog = json.loads(_read_worker_text(homes[0] / "models_cache.json"))
+    except (OSError, ValueError, RecursionError):
+        return selected
+    models = catalog.get("models") if isinstance(catalog, dict) else None
+    if not isinstance(models, list):
+        return selected
+    newest = (6, 1)
+    for entry in models:
+        if not isinstance(entry, dict) or entry.get("visibility") != "list" or entry.get("hidden") is True:
+            continue
+        slug = entry.get("slug")
+        match = _SOL_MODEL.fullmatch(slug) if isinstance(slug, str) else None
+        if match is None:
+            continue
+        efforts = entry.get("supported_reasoning_levels")
+        if not isinstance(efforts, list) or not any(
+                isinstance(level, dict) and level.get("effort") == selected["reasoning_effort"]
+                for level in efforts):
+            continue
+        version = (int(match[1]), int(match[2] or 0))
+        if version > newest:
+            newest = version
+            selected["model"] = slug
+    return selected
 
 
 def _write_worker_file(path, text, *, mode=0o666, sync=False):
@@ -209,6 +254,8 @@ class Launcher:
               model_settings=None, withheld_env=(), lark_cli_access=False):
         # Read only the controller's configured source, before overrides; fail before creating an attempt.
         lark_env = worker_credentials(self.lark_cli, self.runtime.name, os.environ) if lark_cli_access else {}
+        if self.runtime.name == "codex":
+            model_settings = _codex_model_settings(model_settings, self.runtime.seed_files)
         # A fresh worker is also a new attempt after an operator retry. Stop fences from
         # its previous attempt must not prevent this worker requesting another batch.
         with self._unsandboxed_lock:

@@ -21,7 +21,7 @@ from .withdrawal import NOTICE_REASONS, notice as withdrawal_notice
 TERMINAL = ("delivered", "blocked", "cancelled", "failed")
 WAITING = ("awaiting_input", "awaiting_resource")
 READ_REPO = "Farm-Client"
-DEFAULT_CODEX_MODEL_SETTINGS = {"model": "gpt-6-sol", "reasoning_effort": "xhigh"}
+DEFAULT_CODEX_MODEL_SETTINGS = {"model": "latest-sol", "reasoning_effort": "xhigh"}
 
 
 class Scheduler:
