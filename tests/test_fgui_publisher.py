@@ -14,6 +14,7 @@ import uuid
 from PIL import Image
 
 from agent import fgui_publisher as publisher
+from agent.fgui_approval import source_digest
 from agent.ledger import LedgerError
 from test_fgui_export import package_bytes
 
@@ -73,6 +74,7 @@ class PublisherTests(unittest.TestCase):
             "-logFile", str(self.run / "publisher.log")])
         self.assertEqual((cwd, run, timeout), (self.tools, self.run, 180))
         self.assertEqual(result.source_head, "a" * 40)
+        self.assertEqual(result.source_digest, source_digest(self.source()["files"]))
         self.assertEqual(len(result.snapshot.artifacts), 2)
         self.assertGreaterEqual(self.fences, 4)
         evidence = result.evidence()
