@@ -1094,3 +1094,72 @@ Remaining release prerequisites are now:
 
 This is a development PC result. Production readiness, whole-card completion,
 item 2 and game PR merges are not certified or authorized by these measurements.
+
+## As executed: independent MonthlyPass guard follow-up (2026-10-07)
+
+After the separate follow-up is proposed, the operator says to continue. The
+Client's current GitHub main is checked before preparing a separate development
+checkout and `codex/monthlypass-existing-commonfx` branch from
+`5ca9db4f4ef4ae7a21c50c7243429a6f537a29a8`. Root `AGENTS.md` directs reading the
+Client's complete `CLAUDE.md`; there are no nested test instructions. The parked
+TestBot worktree and original trial's source/assets/receipts are untouched.
+
+The independent Client change modifies only
+`tests/Farm.Tests.Unit/FguiDependencyGuardTests.cs`: record `CommonFx` beside
+`Common` for MonthlyPass, with a concrete reason identifying the existing
+`MonthlyPassRewardCell` movieclip `dy4c1` / `n4` and its package lifetime. Guard
+implementation and every other entry remain unchanged. The descriptor and
+source are not republished. This records the baseline's existing structural
+dependency; it is not a new asset or a runtime UI behavior change.
+
+The new checkout's scoped native LFS pull fetches objects but reports that
+checkout is skipped because no persistent LFS registration exists. No install,
+global/clone Git setting or shell workaround is selected. Each materialized file
+is checked against its committed pointer's SHA-256 and size: 694 files,
+596,934,071 bytes. After a filtered diff proves no content change, a NUL-delimited
+explicit verified-path index stat refresh preserves the indexed tree and HEAD;
+native-filtered status is clean. These are this separate development checkout's
+own cache and files, not production state.
+
+Candidate `47ee09f1caf91409974aa4dd276322b6242ac172` runs both actual repository
+guards from the complete Client unit project, using the prepared job-local public
+package cache. All 64 package descriptors contain materialized FGUI data.
+
+| Native Windows check | Measured outcome |
+|---|---|
+| Restore from verified public development feed | Exit 0, 0.928 seconds |
+| Actual dependency and orphan-atlas guards | 2 passed, 6.232 seconds |
+| Failed/error/skipped/Inconclusive results | 0 / 0 / 0 / 0 |
+| Owned native processes | Job assigned before startup; empty on completion |
+| Scoped diff and whitespace | One test file only; checks pass |
+
+Complete UTF-8 logs, passing TRX hash, pointer inventory and process measurements
+remain private. The prior exact-baseline negative control reproduces the failure;
+this candidate's actual hydrated positive run passes. Hosted Client CI uses LFS
+pointers, so its skipped FGUI results cannot replace this native evidence.
+
+The independent game change is published as draft
+[#1426](https://github.com/Kuaiwa-Network/Farm-Client/pull/1426), at that exact head
+and baseline. No game PR is merged. Original Client draft
+[#1425](https://github.com/Kuaiwa-Network/Farm-Client/pull/1425) and source draft
+[#143](https://github.com/Kuaiwa-Network/farmgui/pull/143) remain intact. A fresh
+read-only development snapshot confirms the original job remains parked with no
+worker PIDs, pending webhooks/cleanup, reservations or heartbeat workers, and all
+recorded Jobs empty.
+
+This independent pass does not create a guard receipt for the parked Activities
+job. Its pinned baseline still lacks the MonthlyPass entry. The controller's
+`dependency_guard_change` permits edits only for the certified export's changed
+packages, and `assert_installed` binds installation to the selected baseline;
+inserting this unrelated entry into that job or replacing its target would fail
+those checks. Human review/merge of the independent game follow-up must precede
+planning verification from a corrected baseline. Existing drafts and historical
+proofs must be preserved through that continuation; no reset, ledger relabel or
+passing-proof substitution is performed.
+
+Remaining acceptance is the original trial's complete controller-certified guard
+run from corrected inputs, owned native Unity/MCP slot and exact-commit package
+loading, human runtime visual QA, real Feishu document reads and the broader
+Code/closing/write-back journeys. Production-host release/recovery checks and
+separate enablement/deployment authorization remain required. These are measured
+development-PC results, not production-host certification.
