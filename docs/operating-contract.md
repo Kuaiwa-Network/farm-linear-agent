@@ -981,6 +981,14 @@ person's explicit intent remains the scoped worker's duty, not a text heuristic
 in this helper. Controller integration verifies the actual draft, source,
 retained image and current delegation before using this authority.
 
+The review, publisher result and immutable controller export receipt use the same
+canonical SHA-256 of the complete tracked-file hash map. The exact full source
+commit is bound separately; hashing the combined `{head, files}` object does not
+match that digest and cannot certify a receipt. Full before/after source-identity,
+claim and native process-ownership checks remain required. Earlier helper-only
+attempt evidence is retained for diagnosis and cannot replace a fresh successful
+controller export; this correction adds no ledger migration or approval grant.
+
 The controller's Client baseline mechanism supports the scoped UI Client stage with
 the same immutable main/issue-branch selection and generation/claim/Stop fences as
 Code. Its existing Code-only entry points remain restricted to Code. UI intake and

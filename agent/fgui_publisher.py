@@ -17,6 +17,7 @@ import time
 import uuid
 import xml.etree.ElementTree as ET
 
+from .fgui_approval import source_digest
 from .fgui_export import _package, snapshot_export
 from .ledger import LedgerError
 from .preview_upload import _plain_path
@@ -368,7 +369,7 @@ def publish(project, packages, executable, tool_pins, run, *, fence, verify_sour
             raise LedgerError("publisher log does not establish completion of the selected package set")
         snapshot = snapshot_export(staging, packages)
         fence()
-        digest = hashlib.sha256(json.dumps(source, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+        digest = source_digest(source["files"])
         result = PublishResult(snapshot, source["head"], digest, tuple(sorted(tool_pins.items())),
                                tuple(sorted(process.items())), hashlib.sha256(log).hexdigest())
         evidence.update({"state": "complete", "result": result.evidence()}); _record(run, evidence)

@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 
 from PIL import Image
 
+from agent import fgui_publisher
 from agent.fgui_approval import source_digest
 from agent.fgui_export import snapshot_export
 from agent.fgui_publisher import PublishResult, TOOL_FILES
@@ -119,6 +120,41 @@ class UiWorkflowTests(unittest.TestCase):
         self.approve(review)
         result = self.cli("export-ui", "--preview", self.preview, "--review-id", review["review_id"])
         self.assertEqual(export_record(self.ledger, self.item, result["receipt_id"])["source_pr"], self.url)
+
+    def test_real_publisher_result_certifies_the_same_reviewed_source_digest(self):
+        # Keep the real publisher-to-ledger boundary; replace only the licensed
+        # native process with a deterministic local export.
+        (self.path / "FGUIProject.fairy").write_text('<projectDescription type="Unity"/>', encoding="utf-8")
+        (self.path / "settings").mkdir()
+        (self.path / "settings/Publish.json").write_text(
+            '{"codeGeneration":{"allowGenCode":false}}', encoding="utf-8")
+        self.commit(self.path); self.head = self.git(self.path, "rev-parse", "HEAD")
+        self.plan["prs"]["farmgui"][0]["head"] = self.head; self.save_plan()
+        tools = self.root / "pinned publisher space 验证"; tools.mkdir()
+        for name in TOOL_FILES:
+            (tools / name).write_bytes(b"local fixture " + name.encode("utf-8"))
+        self.config.fgui_export = {"executable": str(tools / TOOL_FILES[0]),
+            "tool_sha256": {name: hashlib.sha256((tools / name).read_bytes()).hexdigest() for name in TOOL_FILES}}
+        review = self.review(); self.approve(review)
+        self.publisher.side_effect = fgui_publisher.publish
+
+        def native_export(command, cwd, run, fence, timeout):
+            fence()
+            output = Path(command[command.index("-o") + 1])
+            (output / "One_fui.bytes").write_bytes(package_bytes())
+            Image.new("RGBA", (2, 2), "blue").save(output / "One_atlas0.png")
+            (run / "publisher.log").write_text("Publish completed\n", encoding="utf-8")
+            return {"exit_code": 0, "job_empty": True,
+                    "job_assigned_before_startup": True, "job_assigned_before_export": True}
+
+        with patch.object(fgui_publisher, "_native_windows", return_value=True), \
+                patch.object(fgui_publisher, "_windows_run", side_effect=native_export):
+            proof = self.export(review)
+        self.assertEqual(proof["authority"]["source_digest"], review["source_digest"])
+        self.assertEqual(proof["publisher"]["source_digest"], review["source_digest"])
+        self.assertEqual(proof["publisher"]["source_head"], review["head"])
+        self.assertEqual(export_record(self.ledger, self.item, proof["receipt_id"])["receipt_sha256"],
+                         proof["receipt_sha256"])
 
     def test_older_authoring_manifest_refuses_phase_e_cli_before_github(self):
         self.skill = replace(load_skills(ROOT / "skills")["fgui"], writes=("farmgui",), resources=())
