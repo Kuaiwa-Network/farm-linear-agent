@@ -392,17 +392,19 @@ class SkillAuthorityTests(unittest.TestCase):
         self.assertNotIn("tools.kw_ops.access", part)  # D16: no operator-tool grant
         self.assertNotIn("FairyGUI", part)  # the export grant is fix's alone (D18 h)
 
-    def test_ui_authority_is_pinned_to_authoring_and_has_no_export_or_client_grant(self):
+    def test_ui_authority_is_pinned_to_certified_export_client_and_unity_loading(self):
         part = dispatch.FGUI_AUTHORITY
         self.assertEqual(hashlib.sha256(part.encode("utf-8")).hexdigest(),
-                         "e7d4874810eb1667657b82b09736e8c799f55a6f84b8e6783ab866688ab3fd37")
+                         "62bc3985391d523e2ea01986713acd14c648f371257325dc7a0da0716eaa13a9")
         self.assertIs(dispatch.SKILL_AUTHORITY["fgui"], part)
         self.assertEqual(self.message({"id":"i", "skill":"fgui"}).split("\n\n", 1)[0],
                          dispatch.COMMON_AUTHORITY + part + dispatch.AUTHORITY_REFERENCE)
         self.assertNotIn("\n", part)
-        for phrase in ("writes only its farmgui worktree", "read-only integration context", "reserve Unity",
-                       "standing fix export grant does not apply", "never Bash/MSYS/WSL", "Phase E gap",
-                       "Comments alone do not resume", "named human Linear user", "tools.lark_cli.profile"):
+        for phrase in ("starting in its farmgui worktree", "read-only integration context", "review-ui",
+                       "export-ui", "install-ui", "verify-ui-guards", "verify-ui-loading", "unity_slot interactive",
+                       "standing fix export grant does not apply", "never Bash/MSYS/WSL", "stage_limit gap",
+                       "Comments alone do not resume", "named human Linear user", "tools.lark_cli.profile",
+                       "never gameplay, generated bindings", "never claim rollback", "exactly both verified drafts"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, part)
         self.assertNotIn("tools.kw_ops.access", part)  # D16: no operator-tool grant

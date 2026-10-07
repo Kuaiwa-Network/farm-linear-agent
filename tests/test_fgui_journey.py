@@ -133,7 +133,7 @@ class UiJobJourneyTests(unittest.TestCase):
         self.assertNotIn(j.reads(item,"Farm-Client").resolve(), j.writable(run))
         self.assertEqual(j.c.ledger.reservations(), [])
 
-    def test_intake_visual_correction_and_named_approval_stop_at_the_export_limit(self):
+    def test_intake_correction_and_named_approval_park_for_unconfigured_native_publisher(self):
         j = self.j
         item = j.delegate()
         self.assertEqual(j.c.ledger.item(item)["skill"], "fgui")
@@ -174,10 +174,10 @@ class UiJobJourneyTests(unittest.TestCase):
                     "head": j.plan["ui"]["head"], "author": DESIGNER, "message_id": message["id"],
                     "created_at": message["created_at"]}
         j.plan["events"].extend([{**approved,"kind":"visual_approved"}, {**approved,"kind":"export_requested"}])
-        j.plan["pause"] = {"kind":"stage_limit", "question":"Phase E export is unavailable."}
+        j.plan["pause"] = {"kind":"stage_limit", "question":"Native UI publisher is not configured."}
         run, payload = j.attempt(item, [*j.intake(),
-            *j.save("accepted", stage="ui_visual", next_action="Phase E licensed export remains pending", published=[PR]),
-            *j.pause("waiting", "Authoring accepted; Phase E export and Client/Unity checks remain pending.")], "UI approval")
+            *j.save("accepted", stage="ui_visual", next_action="Configure the native publisher outside a worker job", published=[PR]),
+            *j.pause("waiting", "Authoring accepted; selected native publisher and Client/Unity checks remain pending.")], "UI approval")
         self.park(item)
         self.assert_scope(item, run, payload)
         self.assertEqual(payload["user_requests"][-1]["author"], DESIGNER)

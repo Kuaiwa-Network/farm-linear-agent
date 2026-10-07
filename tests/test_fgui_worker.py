@@ -1,5 +1,6 @@
 """Opt-in UI authority, repository/resource fences and offline host diagnostics."""
 import copy
+from dataclasses import replace
 import json
 import os
 from pathlib import Path
@@ -24,10 +25,10 @@ LARK = {"found": True, "version": "1.0.82", "required": None, "ok": True,
 
 
 class FguiScopeTests(unittest.TestCase):
-    def test_authoring_is_opt_in_exclusive_rooted_and_has_no_client_or_resource_grant(self):
+    def test_ui_is_opt_in_exclusive_rooted_with_scoped_client_and_unity_grants(self):
         ui = SKILLS["fgui"]
-        self.assertEqual((ui.writes, ui.initial_root, ui.reads), (("farmgui",), "farmgui", ("Farm-Client",)))
-        self.assertEqual((ui.resources, ui.mcp), ((), ()))
+        self.assertEqual((ui.writes, ui.initial_root, ui.reads), (("farmgui", "Farm-Client"), "farmgui", ("Farm-Client",)))
+        self.assertEqual((ui.resources, ui.mcp), (("unity_slot",), ()))
         self.assertTrue(ui.opt_in and ui.exclusive and ui.staged)
         self.assertEqual(ui.budget, {"lease_seconds": 2700, "max_hours": 6, "renew_minutes": 10})
         self.assertEqual(set(enabled_skills(SKILLS, None, authority=dispatch.SKILL_AUTHORITY)), {"chat", "fix"})
@@ -44,7 +45,7 @@ class FguiScopeTests(unittest.TestCase):
         config.lark_cli = {}
         require_lark_cli(config, {"chat", "fix"})
 
-    def test_fgui_cannot_handoff_to_client_or_reserve_unity_even_with_a_valid_claim(self):
+    def test_older_authoring_manifest_retains_its_handoff_and_resource_refusals(self):
         tmp = self.enterContext(tempfile.TemporaryDirectory())
         ledger = Ledger(Path(tmp)/"ledger.sqlite3")
         self.addCleanup(ledger.close)
@@ -52,20 +53,23 @@ class FguiScopeTests(unittest.TestCase):
         ledger.ensure_session(SESSION, ISSUE, delegation=True)
         item = ledger.create_work_item(issue_id=ISSUE, session_id=SESSION, skill="fgui")
         token = ledger.claim(item["id"], worker_id="ui-scope")["token"]
+        authoring = replace(SKILLS["fgui"], writes=("farmgui",), resources=())
         with self.assertRaisesRegex(LedgerError, "not a fgui target"):
-            ledger.handoff_repository(item["id"], token, "Farm-Client", skill=SKILLS["fgui"])
+            ledger.handoff_repository(item["id"], token, "Farm-Client", skill=authoring)
         with self.assertRaisesRegex(LedgerError, "not a resource of fgui"):
-            ledger.await_resource(item["id"], token, "unity_slot", "batch", skill=SKILLS["fgui"])
+            ledger.await_resource(item["id"], token, "unity_slot", "batch", skill=authoring)
         self.assertEqual(ledger.item(item["id"])["state"], "running")
         self.assertIsNone(ledger.item(item["id"])["next_root_repo"])
         self.assertEqual(ledger.reservations(), [])
 
-    def test_instructions_require_fresh_rounds_human_attribution_and_the_authoring_limit(self):
+    def test_instructions_require_fresh_rounds_attribution_and_certified_ui_delivery(self):
         text = " ".join(SKILLS["fgui"].skill_md.read_text(encoding="utf-8").split())
         for phrase in ("comments alone do not", "named human", "invalidate approval", "visual_approved",
-                       "export_requested", "Phase E is unavailable", 'pause.kind="stage_limit"',
-                       "no resource or MCP grant", "no package cycles", "publish nothing and ask nothing",
-                       "same id and exact body", "Never invent a name", "prepared"):
+                       "export_requested", "review-ui", "export-ui", "install-ui", "verify-ui",
+                       "verify-ui-guards", "verify-ui-loading", 'pause.kind="stage_limit"',
+                       "native publisher is not explicitly configured", "no package cycles", "publish nothing and ask nothing",
+                       "same id and exact body", "Never invent a name", "prepared", "exactly both current",
+                       "never guess a rollback", "pinned MCP session"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase.casefold(), text.casefold())
         self.assertNotIn("--type elicitation", text)

@@ -33,7 +33,7 @@ keep runtime authority and behavior changes in those sources and their tests.
   resource ownership, Editor discovery, MCP and verification evidence.
 - `agent/__main__.py`, `agent/dispatch.py`, `skills/`, `references/`: worker-facing
   CLI, launch context and instructions; `skills/feature` is the opt-in Code worker,
-  and `skills/fgui` is the opt-in UI authoring worker.
+  and `skills/fgui` is the opt-in UI worker with certified export/Client gates.
 - `agent/skills.py`, `agent/stages.py`, `agent/uploads.py`, `agent/foreign_work.py`: skill
   manifests (opt-in and exclusive skills included) and per-host enablement, repository
   stages, Linear upload downloads and the foreign-work report.

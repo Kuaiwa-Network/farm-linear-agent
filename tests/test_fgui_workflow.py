@@ -120,8 +120,8 @@ class UiWorkflowTests(unittest.TestCase):
         result = self.cli("export-ui", "--preview", self.preview, "--review-id", review["review_id"])
         self.assertEqual(export_record(self.ledger, self.item, result["receipt_id"])["source_pr"], self.url)
 
-    def test_delivered_authoring_manifest_refuses_phase_e_cli_before_github(self):
-        self.skill = load_skills(ROOT / "skills")["fgui"]
+    def test_older_authoring_manifest_refuses_phase_e_cli_before_github(self):
+        self.skill = replace(load_skills(ROOT / "skills")["fgui"], writes=("farmgui",), resources=())
         with self.assertRaisesRegex(LedgerError, "Phase E"):
             self.cli("export-ui", "--preview", self.preview, "--review-id", "a" * 32)
         self.verifier.verify.assert_not_called(); self.publisher.assert_not_called()

@@ -2728,6 +2728,14 @@ class Ledger:
             self.require_valid_checkpoint(item_id, token)
             row = self._owned(item_id, token)
             chat = row["skill"] == "chat"
+            if row["skill"] == "fgui" and outcome == "delivered" and not evidence.get("no_change"):
+                proofs = [json.loads(proof["details"]) for proof in self.connection.execute(
+                    "SELECT details FROM audit WHERE item_id=? AND kind='fgui_delivery_verified'", (item_id,))]
+                if not any(proof.get("delivery_id") == evidence.get("ui_delivery_id")
+                           and proof.get("generation") == row["generation"]
+                           and proof.get("fingerprint") == row["claimed_fingerprint"]
+                           and proof.get("prs") == sorted(evidence.get("prs") or []) for proof in proofs):
+                    raise LedgerError("full UI delivery requires current controller verification of both drafts, guards and Unity loading")
             if chat and outcome == "delivered":
                 _text(evidence.get("verification"), "verification")
                 if evidence.get("comment_action_id") is not None or evidence.get("prs"):

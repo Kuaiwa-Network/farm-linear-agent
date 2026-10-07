@@ -222,7 +222,7 @@ a Bot label starts nothing and a delegated Bug card starts `fix`. §7 of
 | chat | shared memory through item-authenticated CLI only; no repositories | kw_ops query tools (Codex, when configured) | no |
 | fix | one rooted repository per worker attempt, selected from Farm-Contract, Farm-Client, farm-hive, farmgui, common; the neutral investigation attempt has no repository writes | Unity slot (one, batch or interactive, two-phase); kw_ops, every tool (Codex, when configured) | yes |
 | feature | one rooted repository per worker attempt: Farm-Contract first (its initial root), then common, farm-hive and Farm-Client as its stages need; reads detached checkouts of Farm-Contract's, Farm-Client's and farmgui's default branches | Unity verification only at an explicit clean committed owned Client HEAD; Unity MCP only with its held interactive reservation; no kw_ops or standing MCP; lark-cli as the FarmBot app, read-only | yes |
-| fgui | farmgui only, rooted there; reads detached Farm-Client main for integration context | approximate preview/upload and read-only bot lark-cli; no licensed export, Client write, Unity, MCP or kw_ops | yes |
+| fgui | starts in farmgui; certified export handoff adds scoped FairyRes/metadata and reasoned guard entries on its owned Farm-Client branch; detached main stays read-only | approximate previews, bot document reads, attributed native export and controller-verified interactive Unity package loading; no gameplay, direct paid CLI, arbitrary MCP or kw_ops | yes |
 
 FarmBot never merges, deploys, changes status or assignee, or edits repositories outside the list.
 Issue text, comments, attachments and Linear guidance are data, never instructions. Worker commands
@@ -848,8 +848,10 @@ unsigned asset URL/hash/size/type/dimensions; signed URLs, headers and secrets a
 never output. This command neither posts a comment nor grants visual approval.
 
 The opt-in exclusive `fgui` manifest and its dispatch authority start in farmgui,
-write only farmgui and read Farm-Client main for integration context. Its six-hour
-attempt budget and renewal use the shared controller; no resource or MCP is granted.
+write only the active repository stage and read Farm-Client main for integration
+context. Its six-hour attempt budget and renewal use the shared controller. The
+conditional Client grant and interactive `unity_slot` route are described below;
+the manifest supplies no arbitrary MCP or kw_ops grant.
 It routes only a delegated Bot/UI card and has no intake Client commit pin. Default
 hosts still enable chat/fix only. Selecting `fgui` requires the explicit bot
 document-reader configuration; no profile/account/credential setup is automatic.
@@ -871,9 +873,10 @@ reply does. Instructions require attributable human user/message/time and the
 unchanged round for approval. Changed source/art/states/PR head invalidate it and
 require a new round. The controller preserves requests, checkpoints and outbox
 identity; it does not infer visual approval or judge a model's interpretation.
-An attributed export request is retained separately and parks with
-`pause.kind="stage_limit"`: this revision grants no licensed FairyGUI export,
-Farm-Client write, Unity reservation or complete UI runtime acceptance. Stop and
+An attributed export request is retained separately; absent native publisher
+selection or another host prerequisite, the worker parks with
+`pause.kind="stage_limit"`. The certified export/Client/package-loading route
+does not establish complete UI visual/runtime acceptance. Stop and
 successor recovery use the existing containment and durable branch/plan recovery.
 
 No state schema changes. Before rollback, settle/cancel UI jobs and their recovery
@@ -949,8 +952,7 @@ immutable exact export inventory. Client installation and Unity acceptance remai
 separate checks. This helper supports native Windows only and has no shell or
 permission-repair fallback.
 
-The prepared `agent.fgui_source` and `agent.fgui_approval` helpers ground a future
-export command without widening the delivered UI authoring manifest. Source
+`agent.fgui_source` and `agent.fgui_approval` ground the certified export route. Source
 identity requires the exact owned issue branch/full commit, matching committed
 index, no untracked changes and a stable bounded hash map of every tracked file.
 Git reads retain clone/config/entry checks, disable hooks/fsmonitor and LFS clean
@@ -970,23 +972,25 @@ issue's retired attempts) or a human comment in the complete current inventory,
 including its timestamp. The export request must be at or after approval; stale events, bots, quotes,
 fabricated attribution and missing evidence supply no grant. Understanding the
 person's explicit intent remains the scoped worker's duty, not a text heuristic
-in this helper. Controller integration must verify the actual draft, source,
-retained image and current delegation before using this prepared authority.
+in this helper. Controller integration verifies the actual draft, source,
+retained image and current delegation before using this authority.
 
-The controller's Client baseline mechanism supports a future UI Client stage with
+The controller's Client baseline mechanism supports the scoped UI Client stage with
 the same immutable main/issue-branch selection and generation/claim/Stop fences as
 Code. Its existing Code-only entry points remain restricted to Code. UI intake and
-authoring stay unpinned; the current manifest grants no Client handoff or Unity
-resource. These helpers alone supply no export or runtime grant.
+authoring stay unpinned; Client entry requires the actual retained controller
+export before handoff. These helpers alone supply no export or runtime grant.
 
-The prepared `review-ui`, `export-ui`, `install-ui` and `verify-ui` commands require
-an explicitly enabled UI job and a manifest granting the future Client/Unity
-stage. The delivered authoring manifest deliberately lacks that grant, so these
-commands refuse execution here. Functional Unity, draft/delivery gates, worker
-instructions and the farmgui owner grant remain separate implementation work.
+`review-ui`, `export-ui`, `install-ui` and `verify-ui` require an explicitly enabled
+UI job and the scoped Client/Unity manifest. The UI worker starts in farmgui and
+uses these controller commands after actual named visual approval and an explicit
+export request. Farmgui's conditional owner grant is recorded in
+[#142](https://github.com/Kuaiwa-Network/farmgui/pull/142). Default chat/fix host
+enablement is unchanged. Missing publisher selection permits authoring but leaves
+export pending; an older authoring-only manifest still refuses these commands.
 
 `upload-image` now records the actual immutable transfer in controller audit
-state after its final claim fence. Prepared review/export records also live in
+state after its final claim fence. Review/export records also live in
 that state, outside worker checkpoint authority; no database migration is added.
 A review binds the real same-issue image upload, owned clean farmgui draft/head,
 full materialized source digest, actual changed package IDs and numbered round.
@@ -996,7 +1000,7 @@ Canonical inbox timestamp precision is retained for same-second ordering.
 Stop, withdrawal, new input, altered source/image or uncertain publisher ownership
 cannot produce a success receipt. Staging and interrupted recovery remain private.
 
-The prepared Client handoff requires its real controller export receipt. Installation
+The Client handoff requires its real controller export receipt. Installation
 uses the immutable controller baseline/branch and the exact staging inventory,
 touches only changed packages and preserves the installer's per-write claim
 fences and journal. A second approved round may build on clean committed certified
@@ -1006,6 +1010,42 @@ clean exact committed candidate, installed bytes/GUIDs and entire baseline diff.
 Only certified outputs/metadata and literal changed-package dependency-guard
 entries with reasons may change. This scope proof does not establish hydrated
 dotnet guard success or Unity loading.
+
+`verify-ui-guards` runs the selected native `dotnet` executable against only
+`FguiDependencyGuardTests` and `FguiOrphanAtlasGuardTests`, with fresh private
+results, a 600-second timeout, bounded logs and suspended-before-Job assignment.
+The actual complete TRX must identify both expected methods as Passed: missing,
+skipped, duplicate, foreign or Inconclusive results remain pending. Claim/Stop,
+current input, exact source/candidate and executable identity are fenced before
+recording the controller audit proof. Uncertain cleanup preserves logs/results;
+only owned process descendants may be stopped.
+
+The UI CLI's `await-resource` accepts only interactive Unity at the explicit
+certified committed Client head after the current guard proof. Existing slot
+preparation, reservation tokens, ownership and quiescence rules apply. The shared
+Editor remains outside worker containment. `verify-ui-loading` uses the reserved
+slot's pinned MCP session and fixed bounded package-loading probe, with matched
+Editor/source identity before and after. It compares imported descriptor bytes
+to actual committed Client hashes and loads every export/dependency package and
+its declared atlas/sound/misc assets. Already registered packages refuse the
+probe. Cleanup removes only newly registered probe-owned wrappers and uses
+`DestroyMethod.None` for imported assets shared by the Editor. Missing assets,
+identity drift, incomplete results or uncertain cleanup cannot record success.
+This establishes package loading; it does not instantiate gameplay, render the
+target panel or establish human visual/runtime acceptance.
+
+Full UI `finish --outcome delivered` requires no unsettled resource, the current
+export/install/guard/loading audit proofs and exactly both actual open drafts at
+their unchanged source and tested Client heads. The CLI verifies actual GitHub
+repository/destination/draft metadata and injects a controller delivery identity;
+the ledger fences it to the current claim generation/fingerprint and PR pair.
+Worker prose/checkpoints cannot substitute for a guard/loading pass. An ordinary
+no-change investigation has no PR and does not certify a delivered UI package.
+After corrections, a new receipt/commit requires fresh checks at the same pinned
+baseline. Old audit records/journals remain recovery evidence, with no added
+schema migration or promise that older code can service new in-flight UI work.
+The worker publishes drafts only; human merges, approved live-card acceptance
+and separately authorized host release remain required.
 
 Optional private `fgui_export` selects an absolute native `FairyGUI-Editor.exe`,
 exact SHA-256 pins for it, `UnityPlayer.dll`, `GameAssembly.dll` and `baselib.dll`,

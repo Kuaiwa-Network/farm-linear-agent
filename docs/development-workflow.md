@@ -111,11 +111,15 @@ What does not separate them:
   offline, with the fake worker, the stub Linear and local Git remotes for all five
   repositories.
 - The UI worker (`fgui`) is separately opt-in and exclusive. It authors farmgui
-  and posts approximate previews for named human visual approval; it has no
-  Client write, licensed export or Unity grant. Its `lark_cli` routes match Code's.
+  and posts approximate previews for named human visual approval. Actual approval
+  and an explicit export request permit the configured native certified publisher,
+  scoped Client assets/metadata and reasoned dependency entries, then actual guard
+  and interactive Unity package-loading checks. Its `lark_cli` routes match Code's.
   `tests/test_fgui_journey.py` tests real-controller intake, corrections, explicit
   continuation, preview retries and Stop/recovery with native tools and local fixtures.
-  A scripted worker does not certify real visual judgment or live app-token upload.
+  Scripted publisher/Editor fixtures do not certify real visual judgment, licensed
+  export, live app-token upload, actual Client guards or Unity acceptance. A newly
+  approved TestBot UI card and separately authorized final-host release remain.
 - [Mac/Windows CI](ci.md) runs the offline suite with Python 3.13 and records evidence.
 - [Optional native Windows Git authentication](windows-native-git.md) records the
   restricted-worker TLS/helper-shell gap and a native callback recipe using the

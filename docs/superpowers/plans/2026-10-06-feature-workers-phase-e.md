@@ -7,11 +7,12 @@ deployment, live-card work, licensed-app setup or Unity operation.
 
 ## Entry and execution decision
 
-Phase D's authoring worker records human visual approval and export requests but
-parks at `stage_limit`. Its manifest writes farmgui alone and has no resource/MCP.
-The current farmgui guidance also withholds the fix worker's standing export grant
-from new UI authoring. None of those fences should be relaxed before this stage's
-implementation and relevant Windows checks.
+At Phase E entry, Phase D's authoring worker records human visual approval and
+export requests but parks at `stage_limit`. Its manifest writes farmgui alone and
+has no resource/MCP. Farmgui's guidance then withholds the fix worker's standing
+export grant from new UI authoring. The conditional owner grant now merges in
+[#142](https://github.com/Kuaiwa-Network/farmgui/pull/142); the scoped worker route
+below must still pass its final exact-candidate Windows checks before merge.
 
 The initial PATH/uninstall inventory missed the per-user `FairyGUI-Editor.exe`
 installation. The development-PC native and actual isolated-worker checks below
@@ -66,7 +67,7 @@ or erase recovery evidence to obtain a pass.
 
 ## Client handoff and installation
 
-The future manifest adds only authorized FairyGUI export output, its `.meta` files
+The scoped manifest adds only authorized FairyGUI export output, its `.meta` files
 and justified dependency-guard entries to the Client-rooted stage. It grants no
 Client gameplay/UI binding code; that remains the Code worker's task.
 
@@ -121,15 +122,14 @@ Phase D implementation and exact-candidate native/hosted offline verification
 are complete; the [measured record](2026-10-06-feature-workers-phase-d.md#as-executed-verified-ui-authoring-worker-2026-10-07)
 distinguishes that result from live acceptance. Remaining prerequisites:
 
-1. Implement the reviewed native worker-run export route using the measured
-   executable selection, fresh staging, timeout/concurrency and Stop fences below;
-   the isolated development-PC feasibility checks are complete.
-2. Implement/export-test the scoped package validator, Client installation, UI
-   approval/export boundary, controller pin, draft/delivery and recovery behavior.
-3. Run a separately approved TestBot UI card with actual documents/art, scoped LFS,
+1. Complete exact-candidate native Windows and hosted macOS/Windows verification
+   of the scoped worker activation, actual guards, reserved package loading and
+   two-draft delivery gates. Validator/installer/publisher/approval/controller-pin
+   foundations and real developer helper feasibility checks are already measured.
+2. Run a separately approved TestBot UI card with actual documents/art, scoped LFS,
    real app-token preview upload, named corrections/approval and licensed export.
-4. Verify hydrated Client guards and exact-commit Unity loading on the intended slot.
-5. Verify final production-host tools/runtime/account/permissions, release revision
+3. Verify hydrated Client guards and exact-commit Unity loading on the intended slot.
+4. Verify final production-host tools/runtime/account/permissions, release revision
    and recovery; separately authorize production enablement/deployment.
 
 No existing parked Code card or unmerged game test draft supplies UI acceptance.
@@ -192,13 +192,13 @@ Job proofs, nested/outer Job emptiness and unchanged runtime-registration and
 authentication-seed metadata are recorded. This development PC's results do not
 certify production-host readiness, hydrated Client guards or Unity loading.
 
-Prepared controller review/export/install/scope commands retain the delivered
-authoring-only manifest. They are tested using future-grant fixtures, not enabled
-for a live job. The actual Client dependency guard's 39 literal package entries
-parse unchanged; no real Client file is written by that calibration. Remaining
-work includes functional resource/draft/delivery gates, owner export permission,
-worker instructions, approved live UI acceptance, real hydrated guards and
-exact-commit Unity loading, followed by separately authorized release.
+At those foundation candidates, prepared controller review/export/install/scope
+commands retain the authoring-only manifest and use future-grant fixtures. The
+actual Client dependency guard's 39 literal package entries parse unchanged; no
+real Client file is written by that calibration. The later conditional owner
+grant and scoped activation are recorded separately; approved live UI acceptance,
+real hydrated guards and exact-commit Unity loading, followed by separately
+authorized release, remain distinct prerequisites.
 
 ## As executed: native publisher and actual worker route (2026-10-07)
 
@@ -498,3 +498,89 @@ authentication-seed metadata and protected runtime registration receipts remain
 unchanged. Native unelevated execution needs no permission repair or alternate
 shell. This is developer helper evidence, with no worker authority expansion,
 actual Client install, Unity acceptance or production readiness claim.
+
+## As executed: durable receipts and scoped Client route (2026-10-07)
+
+[#162](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/162) merges as
+`bf9a61995ca88086a239dd3e058cd701573890d4`, with the exact tested tree of candidate
+`4303702a46fa06ee3f96622ddf143ea9bba6e721`. Its manifest remains authoring-only; the
+scoped guard/loading/delivery activation follows separately.
+
+| Run | Tests | Duration | Failures/errors | Platform skips |
+|---|---:|---:|---:|---:|
+| native-final | 2073 | 1519.764 s | 0 / 0 | 69 |
+| ci-macos | 2073 | 673.645 s | 0 / 0 | 57 |
+| ci-windows | 2073 | 2196.510 s | 0 / 0 | 69 |
+
+All 61 new boundary checks run on all three hosts; all ten native Job and twelve
+native publisher checks run on both Windows hosts. Every platform skip ID/reason
+equals #160: 69 Windows, 57 macOS. The measured discovery total is 2,073; the
+private initial estimate counted two preview CLI additions twice and was corrected
+without changing the tested candidate. Hosted synthetic commit
+`6343b573ba7be543951089dea8ba49d50985c6a2` has the exact candidate tree, and
+[run 37550685083](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37550685083)
+passes both jobs. Versions, UTF-8/environment sanitization and fresh symlink checks
+follow the foundation record above; complete UTF-8 logs, per-test timings and all
+skips stay private. The actual Client guard parser calibration preserves all 39
+literal entries unchanged.
+
+These are development-PC/offline results. They do not certify production-host
+readiness, a real UI card, actual Client guards or Unity loading. No running bot,
+production configuration/state, live issue, credentials, app preferences or
+license setup is changed.
+
+## Prepared scoped UI activation and delivery verification
+
+The scoped manifest now grants farmgui and Farm-Client, initially farmgui, plus
+`unity_slot`. Actual attempt write roots remain exactly the active stage, and
+detached Client main remains read-only. The pinned dispatch authority and worker
+instructions require actual controller review/export/install identities, fresh
+named human events, all changed/shared packages, immutable Client baseline and
+exact scope, actual hydrated guards, reserved package loading and both verified
+drafts. A missing configured native publisher still parks at a named stage limit.
+No direct paid CLI, arbitrary MCP, gameplay/bindings, kw_ops, Bash/MSYS/WSL or
+production operation is granted.
+
+The new guard command uses native suspended Job assignment, fresh bounded private
+TRX/logs, fixed filters, claim/Stop/tool/source fences and only the two actual
+Client methods. Skipped, foreign, incomplete or Inconclusive is pending. The
+reserved Unity command uses the existing pinned MCP identity route and fixed
+probe. Imported descriptors must hash to committed Client bytes; every selected
+package and declared atlas/sound/misc asset must load. Already registered package
+IDs/names/path aliases refuse before registry mutation. Only probe-owned wrappers
+are removed, with imported Unity assets retained for other users of the Editor.
+This package-loading proof does not establish designed-panel rendering, gameplay
+behavior or human visual/runtime acceptance.
+
+Delivery requires current trusted receipt/installation/guard/loading records,
+resource release and exactly the actual source/Client drafts at their unchanged
+heads, verified through the real publication API and owned Git boundary. The CLI
+injects a current controller delivery identity; a plan or finish paragraph cannot
+fabricate success. Existing no-change investigations carry no PR and do not
+certify a UI package. No schema migration is added; retain journals/audit records
+and settle in-flight UI work before an authorized rollback.
+
+Focused native development checks pass 10 new guard tests (three actual native
+Job checks), eight loading tests and eight delivery tests, plus 71 existing CLI,
+229 ledger, 75 skill, 25 dispatch and 11 authoring UI checks. Actual durable
+handoffs, local Git, immutable export/install records, real CLI parsing/dispatch,
+reserved ledger state and confirmed stub delivery comments are exercised.
+Publisher processes, guard TRX, MCP loading and GitHub metadata in these fixtures
+remain scripted; they do not certify a real UI card, paid export, actual Client
+guards or Unity execution. The additional native guard tests are explicit macOS
+platform skips and must actually run on both Windows hosts.
+
+During integration, the first delivery implementation called the publication
+verifier with the wrong API shape, hidden by a permissive mock. It now uses the
+actual signature; a real owned-Git/scripted-metadata verifier regression catches
+foreign or changed draft heads. Fixture configuration is corrected for the CLI's
+real configured-repository check. The authoring journey's stage assertion remains
+farmgui only, despite the wider manifest. No scope, ownership, containment or
+skip is weakened. Final exact-candidate full verification follows separately.
+
+Farmgui's conditional owner grant merges as
+`1193f21008dea66823c721a0818bf6690c33376b` in
+[#142](https://github.com/Kuaiwa-Network/farmgui/pull/142); its two documentation
+files preserve the standing fix grant. Native registration/resource/ID/cycle lint
+and its relative link/whitespace checks pass. No actual source package, Client
+asset, game draft, live card, bot configuration or production state changes.

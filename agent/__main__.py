@@ -64,6 +64,8 @@ def parser():
     cmd("install-ui", "--item", "--receipt-id", token=True)
     verify_ui = cmd("verify-ui", "--item", "--receipt-id", token=True)
     verify_ui.add_argument("--commit", required=True)
+    cmd("verify-ui-loading", "--item", "--receipt-id", token=True)
+    cmd("verify-ui-guards", "--item", "--receipt-id", token=True)
     uploads.add_argument("--url", action="append",
                          help="one of the claimed issue's upload URLs, unsigned as issue-context shows it; repeatable; "
                               "default: every upload in its description and human comments")
@@ -582,7 +584,7 @@ def run(args, ledger, api_factory):
                 # own thread the acknowledgement is a thought, and the job speaks there next.
                 owe_closing(ledger, item, content, exc)
         return resumed
-    if c in ("review-ui", "export-ui", "install-ui", "verify-ui"):
+    if c in ("review-ui", "export-ui", "install-ui", "verify-ui", "verify-ui-loading", "verify-ui-guards"):
         token = resolve_token(args)
         ledger.renew(args.item, token)
         config = load_config(secure_permissions=False)
@@ -594,13 +596,19 @@ def run(args, ledger, api_factory):
         from .fgui_workflow import UiWorkflow, read_packages
         skill = load_skills(ROOT / "skills").get(ledger.item(args.item)["skill"])
         workflow = UiWorkflow(ledger, args.item, token, config, skill, api_factory,
-                              stage="Farm-Client" if c in ("install-ui", "verify-ui") else "farmgui")
+                              stage="farmgui" if c in ("review-ui", "export-ui") else "Farm-Client")
         if c == "install-ui":
             from .fgui_client import install
             return install(workflow, args.receipt_id)
         if c == "verify-ui":
             from .fgui_scope import verify_candidate
             return verify_candidate(workflow, args.receipt_id, expected_commit=args.commit)
+        if c == "verify-ui-loading":
+            from .fgui_unity import verify_loading
+            return verify_loading(workflow, args.receipt_id)
+        if c == "verify-ui-guards":
+            from .fgui_guards import verify_guards
+            return verify_guards(workflow, args.receipt_id)
         if c == "review-ui":
             return workflow.review(packages=read_packages(args.packages, paths.runs / args.item),
                                    preview=args.preview, asset_url=args.asset_url, round=args.round)
@@ -744,6 +752,18 @@ def run(args, ledger, api_factory):
             if item["skill"] in ("feature", "fgui"):
                 options["expected_branch"] = ledger.staged_client_branch(args.item, issue_prefix=config.issue_prefix)
                 request_options["issue_prefix"] = config.issue_prefix
+            if item["skill"] == "fgui":
+                if args.mode != "interactive":
+                    raise LedgerError("UI package loading requires an interactive Unity reservation")
+                from .fgui_workflow import UiWorkflow
+                from .fgui_scope import verify_candidate
+                from .fgui_delivery import verification_record
+                from .fgui_client import installation_record
+                workflow = UiWorkflow(ledger, args.item, token, config, skill, api_factory, stage="Farm-Client")
+                receipt = ((ledger.issue_context(args.item).get("plan") or {}).get("ui") or {}).get("receipt_id")
+                scope = verify_candidate(workflow, receipt, expected_commit=args.commit)
+                installed = installation_record(ledger, args.item, receipt)
+                verification_record(workflow, "fgui_guards_complete", "guards_sha256", receipt, scope, installed)
             Worktrees(paths.repos, paths.worktrees, config.repos).verification_commit(
                 "Farm-Client", args.item, args.commit, **options)
         # Ownership is checked again after Git validation, fencing a concurrent stop/closure.
@@ -797,11 +817,25 @@ def run(args, ledger, api_factory):
     if c == "recover-slot":
         return ledger.recover_slot(args.slot, args.reason)
     if c == "finish":
+        token = resolve_token(args)
+        ledger.renew(args.item, token)
         evidence = read_json(args.input)
-        if isinstance(evidence, dict):
-            check_pr_targets(evidence.get("prs"))
+        if not isinstance(evidence, dict):
+            raise LedgerError("finish input must be an object")
+        check_pr_targets(evidence.get("prs"))
         item = ledger.item(args.item)
-        view = ledger.finish(args.item, resolve_token(args), args.outcome, evidence)
+        if item["skill"] == "fgui" and args.outcome == "delivered" and not evidence.get("no_change"):
+            from .fgui_workflow import UiWorkflow
+            from .fgui_delivery import verify_delivery
+            from .config import ROOT
+            from .skills import load_skills
+            config = load_config(secure_permissions=False)
+            if Path(args.db).resolve() != Paths(config).ledger.resolve():
+                raise LedgerError("UI delivery must use the configured host ledger")
+            workflow = UiWorkflow(ledger, args.item, token, config, load_skills(ROOT / "skills").get("fgui"),
+                                  api_factory, stage="Farm-Client")
+            evidence["ui_delivery_id"] = verify_delivery(workflow, evidence.get("prs"))["delivery_id"]
+        view = ledger.finish(args.item, token, args.outcome, evidence)
         complete_session(ledger, api_factory, item, args.outcome, evidence)
         return view
     if c == "cancel":
