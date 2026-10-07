@@ -29,9 +29,21 @@ the file so the controller and its workers load the same settings. State locatio
 still comes from `local_root`; configure an absolute path for each installation.
 These rules do not by themselves restrict credentials, repositories or live issues.
 
-Codex workers default to `gpt-6-sol` at `xhigh` reasoning. Private
+Codex workers default to FarmBot's `latest-sol` policy at `xhigh` reasoning. Before
+each new or resumed attempt, the launcher selects the highest numeric stable
+`gpt-<version>-sol` advertised for listing and supporting the requested effort in
+`models_cache.json` alongside its configured source `auth.json`. It reads only
+bounded model metadata there, independent of inherited `CODEX_HOME`, repository
+settings and worker environment overrides; it does not copy the catalog into the
+worker home. Missing, malformed or unusable metadata retains the `gpt-6.1-sol`
+release baseline, and selection never downgrades below it or switches model
+families or reduces the requested effort. The host's Codex catalog refresh controls
+when newer versions become selectable; a stale catalog can delay an upgrade.
+FarmBot performs no discovery model call or catalog refresh itself. Private
 `codex_workers` entries override either setting per skill; unspecified settings
-retain the FarmBot default. The selected settings are written into each new or
+retain the FarmBot default. An explicit model identifier pins that skill, while
+`"model": "latest-sol"` restores selection. Only the resolved concrete model and
+effort are written into each new or
 resumed worker's isolated Codex home. Claude workers do not use these settings.
 
 Private `enabled_skills` lists the skills an instance runs, from those in its checkout's `skills/`;
