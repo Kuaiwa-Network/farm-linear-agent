@@ -3015,3 +3015,89 @@ The development contract's new-project/no-legacy-production-data assumption
 is unchanged; this source investigation adds no invented historical game-data
 migration requirement. Production, private runtime/configuration, credentials,
 accounts and parked issues are unchanged.
+
+### Frozen first-recharge and combined maintenance checks (2026-10-08 Windows local)
+
+The selected [backend follow-up #367](https://github.com/Kuaiwa-Network/farm-hive/pull/367)
+is published at `f834799e54d113b341a2d1a6576b4d5a07a4fd6c` and remains a draft.
+It adds shared recharge total/first/last records and first-recharge dispatch
+before reentrant events, with voucher purchase, paid frozen delivery and gifting
+using the existing Go record component. The gift regression exercises configured
+Activity 13/first-charge state and sign activation on the sender, no matching
+receiver progress, retained first time after reload, replay and overflow rollback.
+It also contains the delayed-mail retention and multi-item/frozen-blessing fixes.
+These changes do not establish complete VIP-growth handling or release readiness.
+
+Independent verification freezes a fresh separate development checkout at that
+exact published commit and runs
+`go test -p 1 -race -timeout 300s -json -count=1 -run '^(TestRechargeRecordsPrecedeReentrantEvents|TestBuyAndPaidDeliveryShareFirstRechargeAfterReload|TestBuyRechargeRecordOverflowPrecedesCost|TestRealGardenGift.*|TestLoginDuplicateKicksOld|TestReloginReadsBack|TestNewModulesLoadedOnRealBootPath)$' ./modules/shop ./config ./server`.
+Native Windows, Go 1.25.1, the pinned native compiler and original offline
+module pins produce 35 passing, zero failing and zero skipped test/subtest
+outcomes across 18 top-level tests in 64.670 seconds. The eight explicitly
+selected first-recharge, rollback and login tests all run. The UTF-8 Go JSON
+log has SHA-256
+`8acf2c443856dd7b275514e20f150236ca0201ce0428e07b43ef9e4a9618553e`.
+The checkout stays clean and every tracked-file fingerprint stays unchanged.
+This is a local-store regression selection, not real Mongo execution or the
+complete 29-scenario acceptance.
+
+A separate, private development branch combines that frozen application
+candidate with the full verified commit ranges of maintenance drafts
+[#368](https://github.com/Kuaiwa-Network/farm-hive/pull/368) and
+[#369](https://github.com/Kuaiwa-Network/farm-hive/pull/369).
+The local combined head is `985dd69bc40eddc862b78918af89f0740c0a576e`.
+Its 12-file difference contains CI/scanner/fixtures, the configured Food reward
+test and Food design record only; application code, module pins and generated
+configuration match `f834799e`. No game PR is merged, the private branch is not
+published, and the active worker tree is untouched.
+
+On this combination, the full `./ci/cmd/txncallsites` package with native `-race`
+passes 11/0/0 in 28.633 seconds; its Go JSON log SHA-256 is
+`c3df48d3adb106869d53c87ad8e8529233156ebd320161d38d1390dfaa371722`.
+The preceding shared recharge/gift/login selection plus
+`TestE2ERealFoodFirstRewardAdapted` passes 38/0/0 across 19 top-level tests
+in 62.524 seconds, with log SHA-256
+`38f6c27b880f2e82c39b964c011421d0a53d3de1f0eca7e8e0f5341f91b3904a`.
+Tracked fingerprints remain unchanged and the checkout stays clean. All native
+owned Jobs settle and retain the verified 8 GiB memory guard. These combined
+checks add no claim that the canonical Bash harness or hosted backend CI ran.
+
+The first private combination attempt selected only the final commit of the
+two-commit Food draft, omitting its prerequisite test commit and producing a
+documentation cherry-pick conflict before tests. This was a verification-helper
+preparation error, not an application regression. The conflict evidence is
+preserved, the identified private cherry-pick is aborted to a clean state,
+and the corrected fresh combination applies both Food commits before the
+measurements above. No active source or production state is changed.
+
+Review identifies an additional direction correction in `f834799e`: its
+historical-player/recharge-history release-input branch, test and documentation
+conflict with farm-hive's explicit new-project/no-production-data development
+premise. The measured selection includes that historical-input test; its pass
+does not approve the extra release condition. Verified maintainer notice
+`4765c32c-8e82-4834-b32c-504c8345426d` requests removal of the invented historical
+compatibility requirement while preserving overflow, corrupt-record,
+idempotency, actor/revision and atomic rollback checks. Correction and
+exact-commit revalidation remain pending; no historical player data is read,
+backfilled or cleaned.
+
+Pinned accepted Contract #329 merge
+`4476168c2c63a639f67d7533f319522157c09949` requires amount-based VIP growth in
+the gifting scenario. Its existing privilege specification, the inspected
+native Go consumers/configuration, legacy privilege implementation and client
+projection instead describe monthly-card validity/benefits. The recorded
+`dim_vip_level` value is a 0/1 active-privilege value, not monetary progress.
+The operator is asked to resolve this concrete requirement difference; no
+growth field is guessed and no requirement is silently removed.
+
+The selected original approval `5c25aa58-ef88-4cc7-88f8-017b0d8edfee` explicitly
+retains human game-PR merging. The prepared maintenance combination is now
+reviewable, and approval to integrate only #368/#369 into the feature draft
+branch is requested separately. VIP clarification, that integration approval,
+the source direction correction and exact-candidate checks are pending.
+Common archive publication remains deferred as instructed; its provenance and
+hosted-CI release gate remains open. Real-service acceptance, complete scenario
+coverage, UI-ready, Client/closing, game main merges and production-host
+qualification remain separate release prerequisites. The running runtime,
+private configuration, credentials/accounts, production and parked issues
+remain unchanged.
