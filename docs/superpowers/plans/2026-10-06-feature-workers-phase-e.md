@@ -2313,3 +2313,86 @@ farm-hive/Client scenario acceptance, named UI readiness, closing/recovery and
 intended production-host qualification remain. No Jenkins/configuration
 publication, production deployment, account, credential or production resource
 change occurs. FARM-1346/FARM-1425 remain parked.
+
+### Named Common source and native configuration verification (2026-10-08 Windows local)
+
+The operator reports "merged. Configuration ready on common main" in this chat.
+Independent current GitHub reads verify
+[common #162](https://github.com/Kuaiwa-Network/common/pull/162) merged at
+05:57:06 UTC, with unchanged tested head
+`936f50c8c3e20cd28c76445a7dc2789f1cb02f7c` and actual merge
+`93b0d17793381b9acbb4be23759978bf788654d6`. The tested and merged trees are
+equal; both hosted checks remain successful. The authenticated operator's
+existing-thread reply `5eadedbb-d973-408f-befc-dfc65c2d9dfe`, created at
+06:02:40.045 UTC, faithfully relays that named `main` source. A real signed
+prompt is accepted and processed into the original work item's inbox, with the
+expected human author. No synthetic webhook, new session or manual ledger edit
+is used.
+
+The fresh Common worker resolves `main` to the full merge SHA above. Its root
+and all observed descendants belong to its native Windows Job Object; the
+three predecessor Jobs are empty. The isolated model remains `gpt-6.1-sol` /
+`xhigh`. Its retained SpreadsheetML observations establish the exact four
+declared mail headers, no new undeclared mail headers, nonempty mail templates
+1201/1202/1203 with the `name` parameter, store 26 and the existing
+`voucher_Intimacy` row. The existing typo in 1202's internal designer name is
+reported, left unchanged and not asserted as an intended design value.
+
+Earlier local-clone command attempts fail with Git revision/remote diagnostics.
+The native worker then creates its own detached checkout using a private Git
+repository borrowing the trusted Common clone's object directory. Independent
+reads verify all eight recorded native steps pass, the alternates path names
+that exact trusted object directory, HEAD is the selected full SHA and status
+is clean. The borrowed clone's configuration and hooks remain outside worker
+write authority. An independent development scratch probe also performs a
+native local shared clone and detached checkout successfully in 4.769 seconds,
+without remote access or live-state writes. The failed worker command logs are
+retained; the precise cause of those earlier command failures is not
+established, and the independent probe does not certify the failed route.
+No Bash/MSYS/WSL fallback or weakened ownership/containment check is used.
+
+Retained UTF-8 result logs establish the following checks at the selected SHA:
+
+| Native configuration check | Result | Seconds |
+|---|---|---:|
+| `gen-config.cmd generate --profile unity-client` | Exit 0 | 9.195 |
+| `gen-config.cmd generate --profile farm-hive --profile unity-client` | Exit 0 | 10.206 |
+| Client-only artifact verification | Exit 0 | 3.341 |
+| Combined artifact verification | Exit 0 | 3.309 |
+| Source-digest tests at the selected SHA | Exit 0, four existing platform skips | 1.386 |
+
+The four generator/verifier checks record no platform skip. Both manifests identify
+`93b0d17793381b9acbb4be23759978bf788654d6` with `dirty=false`; they contain
+412 Client-only and 600 combined artifacts. Independent reads check every
+artifact's size and SHA-256 and the generated Client MailInfo fields `id`,
+`title`, `content` and `paramList`; the Client projections are byte-identical.
+The source-digest rerun records exactly
+`TestProductionSourceDigestMatchesExactPackerPipeline`,
+`TestSourceDigestRejectsUnsafeTrees/newline_name`,
+`TestSourceDigestRejectsUnsafeTrees/backslash_name` and
+`TestSourceDigestRejectsUnsafeTrees/fifo` as skipped. Their platform reasons
+remain those recorded in stage B; no new skip is added. This is measured configuration generation
+on the development PC, not production-host qualification, backend acceptance
+or a published configuration archive. The earlier source-digest platform skips
+remain the separate stage-B findings above.
+
+The worker records the named source event, `config.ref=main`, the full resolved
+SHA, `config.pin=local`, expected version `2026-10-08.93b0d17` and the source
+branch [farmbot/farm-1419-config](https://github.com/Kuaiwa-Network/common/tree/farmbot/farm-1419-config).
+An independent GitHub ref read verifies that branch points to exactly the
+selected SHA without an additional commit. Stage-C notice
+`b1637350-d942-4780-a73f-b75ffe051bf7` is posted at 06:26:02.248 UTC. A/B/C
+are done, the source report is consumed, and the controller completes the
+handoff of the original item to `farm-hive`. At that observation the item is
+queued and all four predecessor Jobs are empty. The fresh heartbeat and six
+zero-error loops are controller health evidence, not backend acceptance.
+
+No Jenkins job or configuration archive is published. The actual published
+version, content digest and archive checksum remain a human closing gate;
+the shorter expected-version hash is not substituted for those values.
+Backend consumer/scenario checks, named UI readiness, Client and closing
+verification remain pending. The separately selected document-driven UI
+journey and intended production-host qualification also remain pending,
+including the prerelease CLI and cold Unity startup findings above. The frozen
+TestBot runtime, development configuration, production installation and parked
+FARM-1346/FARM-1425 are unchanged.
