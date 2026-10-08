@@ -2660,3 +2660,69 @@ publication and game PR merges retain their gates, followed by Client and
 closing verification. These remain development-PC measurements; production
 qualification and deployment are not certified, and no production, runtime
 configuration, account or parked-issue change is made.
+
+### Gift transaction foundation and integration review (2026-10-08 Windows local)
+
+The worker commits the transaction foundation at
+`aca44391a071ebf7af6f4fb737e80cb01700f3a7`. It adds memory and Mongo storage
+boundaries, durable request/payload receipts, recipient creation sequences,
+relationship checks and player revision guards. The Mongo implementation uses
+one session for the order, both players and intimacy. This source review and
+passing memory tests do not prove actual Mongo execution, server wiring or
+the complete economic transaction.
+
+The retained native worker checks include build and vet exits 0 in 18.677 and
+14.874 seconds. The first cross-call invocation exits 1 in 0.054 seconds with
+a path error; its corrected invocation exits 0 in 7.318 seconds. The store
+race check passes in 9.807 seconds before commit and 9.627 seconds at the
+committed foundation. Pre-commit result labels identify the prior HEAD, not
+an immutable snapshot of the changed files.
+
+Independent verification freezes a separate development checkout at the exact
+foundation commit. With prepared native Go/compiler inputs, network access
+disabled, private scratch and an owned Windows Job, it runs
+`go test -race -json -count=1 ./modules/gardengift ./modules/friend/friendstore ./internal/playerrevision`.
+Go exits 0 in 16.649 seconds and its Job settles. The JSON stream reports
+218 passing, zero failing and 92 skipped test/subtest outcomes. Every test in
+the new `gardengift` package runs and passes, including memory rollback,
+replay, competing qualification/spend, old-writer fencing and corrupt sequence
+checks. All 92 test skips report unset `MONGO_URI`; their names and reasons
+are preserved privately. Real database integration remains untested.
+
+The helper-only `internal/playerrevision` package has no test files. Go reports
+a package skip for that reason, separately from the 92 test skips. The initial
+independent wrapper fails its assertion that all three package outcomes must
+be `pass`, despite Go exiting 0. Its original receipt is retained. A separate
+observation classifies this result and verifies the tested checkout is clean;
+no application test, skip or containment check changes and no suite rerun is
+used to obtain a different result. The UTF-8 Go JSON log has SHA-256
+`0e5be9b91cb9fde53e554b132bb7e993095fee981491ca3e288e0f775e84f8b9`.
+
+Static integration review identifies a compatibility requirement before the
+new store replaces the player store. Existing `invitegift` code calls the
+persist pool's `MonotonicUpdate` RPC. The pinned framework rejects a store
+without `persist.MonotonicUpdater`; ordinary `MergedUpdate` is not an allowed
+fallback. At this foundation commit, the new memory and Mongo stores lack
+that optional interface. The genuine developer report
+`f03e588a-c5d4-45fb-b081-c98516eb9bfd`, created at 09:00:25.213 UTC in the
+original thread, requests preservation and regression coverage of those
+existing atomic max/set semantics during server wiring. It also requests
+an explicit migration and recovery plan for existing player records: the
+new revision/sequence fields are only initialized on newly inserted records.
+The report supplies technical findings, not new human design or merge authority.
+No migration, field repair, epoch reclamation or production data change is run.
+
+A read-only comparison also confirms the food conflict crosses the configuration
+update: backend main `feee46cbb1336efeb1019638638e11fd7bd76ff0` still contains
+`COIN(1)` times 5 for Food `20005`, while the selected Common-derived candidate
+has an empty first reward. The existing assertions match the old consumer
+data. The intended designer value remains under clarification; the agent
+does not change either value or weaken the tests.
+
+The same selected item/session remains in stage D, continuing shop effects and
+actor integration. The new foundation alone does not certify four handlers,
+all 29 business scenarios, real Mongo coverage, backend CI or stage-D acceptance.
+Named human publication, UI-ready and game merge gates, Client/closing checks
+and production qualification remain pending. These are development measurements;
+the frozen runtime, configuration, production installation and parked issues
+remain unchanged.
