@@ -2726,3 +2726,72 @@ Named human publication, UI-ready and game merge gates, Client/closing checks
 and production qualification remain pending. These are development measurements;
 the frozen runtime, configuration, production installation and parked issues
 remain unchanged.
+
+### Gift core and player-host checks; missing statistic mappings (2026-10-08 Windows local)
+
+The worker commits real shop-factory staging at
+`f6a926d9b1f871c77faf2ea8ad290901aef9acb6`, then the gift-effect core at
+`afe6c0e4cd4a049ec367838d2f50b963cb366b71`. At
+`fc1475ec675be341b13280c91a74a031a3dbcbc2`, it restores the player store's
+existing monotonic-write surface and adds malformed-update and no-automatic-repair
+regressions. The earlier integration review therefore identifies a gap that is
+addressed in this later candidate, not an unresolved missing method at that head.
+The original failed regression results are retained. These changes do not
+perform player-data migration or establish production readiness.
+
+The shared player-host integration is committed on the recorded
+`farmbot/farm-1419-followup` branch at
+`6fd4919277ee05bf671f379fe8c61eeca0141f4f`. It binds ordinary writes to the
+loaded player revision, refreshes authoritative state without reclaiming the
+login epoch and discards old turns when their writes are fenced. An authoritative
+read runs before each guarded turn; the reload callback is used when the
+revision changes. Server assembly and the callback's affected-component scope
+still require final verification. Neither branch has a backend PR recorded at
+this checkpoint; game review and merges retain their human gate.
+
+The first host fixture run fails compilation; the next run reports two rejected
+gift transactions and a secondary actor timeout. The corrected fixture's focused
+race check exits 0 in 6.796 seconds, and the full user-package race check exits 0
+in 8.300 seconds. Vet exits 0 in 0.549 seconds. The first host cross-call check
+fails in 10.245 seconds; its corrected check passes in 9.547 seconds. Failed
+attempts remain preserved, with no new skip or weakened transaction validation.
+
+Three independent native Windows race checks freeze separate development
+checkouts at their exact commits, with sanitized child environments, module
+network access disabled and owned Jobs that settle. Later checks reuse only an
+earlier independent build cache; `-count=1` still runs the tests. The verified
+checkouts remain clean:
+
+| Exact candidate | Packages checked | Passing / failing / skipped test/subtest outcomes | Race seconds |
+|---|---|---|---:|
+| `f6a926d9b1f871c77faf2ea8ad290901aef9acb6` | shop, gardengift, friendstore, playerrevision | 365 / 0 / 92 | 53.885 |
+| `fc1475ec675be341b13280c91a74a031a3dbcbc2` | above, mail and invitegift | 567 / 0 / 93 | 11.041 |
+| `6fd4919277ee05bf671f379fe8c61eeca0141f4f` | above and user | 708 / 0 / 94 | 11.775 |
+
+All recorded test skips report unset `MONGO_URI`; their exact names and reasons
+are retained privately. The helper-only `playerrevision` package separately has
+no test files and is not standalone execution coverage. Source hashes, UTF-8
+logs and original receipts are preserved. The latest race JSON log has SHA-256
+`55ed3eb4e761bff86d752c33ce04c0c6c41e9c7e996082e9bd06cc7b199c0f1b`.
+Passing these focused checks does not replace real Mongo, full backend CI,
+four-handler assembly or the complete 29-scenario acceptance.
+
+The authenticated TestBot notice `a612b039-d95d-4f42-b4d4-3964321cab65`, created
+at 09:52:48.820 UTC in the original thread, identifies missing authoritative
+statistic mappings. The frozen contract requires VIP growth and first-top-up
+progress to advance by `N * 100` cents. The selected configuration's
+`event_after_recharge` / GlobalFuncInfo `4005` only advances cumulative recharge
+through STAT `9001`. The existing VIP projection reads `privilege.expires.1`,
+an expiry timestamp; first-top-up eligibility flags do not identify the required
+growth/progress event chain. The worker asks the owner and designer for the
+authoritative fields, units and entry points, or the missing named configuration
+or contract definitions. It does not infer monetary progress from expiry,
+invent thresholds or reopen the already-decided cents unit.
+
+Independent implementation continues while those mappings and the Food `20005`
+reward value remain under clarification. Stage D remains pending; the three
+statistics, complete business coverage, server assembly and real service-backed
+acceptance are not certified. Named publication, UI-ready and game merge gates,
+Client/closing, schema migration/recovery planning and production qualification
+remain pending. The runtime and development configuration remain frozen; no
+production, credential, account or parked-issue changes are made.
