@@ -2176,3 +2176,33 @@ lifetime require explicit release planning; a healthy replacement proxy is not
 an end-to-end webhook or production readiness certificate. FARM-1346/FARM-1425
 remain parked, and production deployment, settings, credentials and accounts
 remain unchanged.
+
+### Claim-fenced Windows Code resumption (2026-10-08 Windows local)
+
+The operator confirms in this chat that only TestBot development's webhook URL
+has been updated to the replacement endpoint. The URL remains private. This is
+an operator confirmation of the app-setting step, not a measured new signed
+delivery: at the post-recovery observation, this session still has only its
+original completed inbound event. A genuine subsequent session event must prove
+the replacement route; no synthetic event or replacement session is created.
+
+The original claim lease expires at 2026-10-08 04:14:22.539 UTC. Read-only audit
+and process observation then confirm the controller's normal recovery requeues
+the same work item because its worker is gone. A new native attempt claims it
+at 04:15:53.132 UTC. Its predecessor Job is empty; the new root and all five
+observed descendants belong to the new owned Job. The isolated worker settings
+remain `gpt-6.1-sol` / `xhigh`. No lease, token, checkpoint or ledger row is
+manually edited. The original session, Contract checkpoint and exact
+[Farm-Contract #329](https://github.com/Kuaiwa-Network/Farm-Contract/pull/329)
+head `8d7d26d280be8877b7987c7bf28414f334324f4b` are retained.
+
+The development configuration and frozen runtime remain unchanged. The serving
+heartbeat is fresh and all six controller loops report zero consecutive errors;
+no cleanup error is present. This establishes normal claim-fenced recovery and
+a newly claimed native worker at `contract`, not completion of stage A or the
+remaining feature acceptance. The replacement CLI's prerelease qualification
+and production-host limitations recorded above still apply. Contract #329
+remains an open draft with human review/merge required by the operator's approved
+scope. Common/configuration, server, the explicit UI-ready gate, Client and
+closing/recovery verification remain pending. FARM-1346/FARM-1425 stay parked;
+production deployment and production resource changes remain unauthorized.
