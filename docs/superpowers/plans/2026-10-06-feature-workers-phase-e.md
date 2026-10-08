@@ -2843,3 +2843,89 @@ remain release prerequisites. Human configuration publication, UI-ready and
 game PR merges, Client/closing and production-host qualification retain their
 gates. These measurements are from the development PC; the active runtime,
 production, credentials and parked issues are unchanged.
+
+### Operator reward correction and transaction-scanner maintenance (2026-10-08 Windows local)
+
+The operator confirms that gifting consumes vouchers and should reuse the
+existing VIP-growth and first-top-up handling. This is a behavior clarification,
+not a newly supplied field mapping or proof that the selected Go implementation
+already has the required integration. The worker must locate and verify the
+existing path rather than invent new counters or ask the operator to identify
+implementation symbols without first inspecting the code.
+
+The latest operator correction, original-thread comment
+`7af3565b-1334-40f4-9c30-42386010ea59`, supersedes the earlier interpretation that
+Food `20005` must permanently have no first reward: first rewards are driven by
+configuration. Commit `5cc7a2cd83804744313d8fb891bd29856cedc860` deletes the
+obsolete fixed `COIN(1) * 5` assertions and redundant real-row reward test. It
+changes neither designer configuration nor reward implementation. Existing
+Food fixtures cover configured rewards, empty rewards and repeated creation.
+The Food decision is resolved; checking the actual gifting progress path remains
+implementation work.
+
+Independent verification freezes a separate clean development checkout at
+that exact commit and runs
+`go test -p 1 -race -timeout 300s -json -count=1 -run '^(TestE2ERealFoodMakeFlow|TestClaimableFirstRewardMatrix|TestMakeFirstRewardOncePerID|TestMakeFirstRewardFailureSkipsFlagNotMake)$' ./modules/food ./config`.
+Native Windows, Go 1.25.1, the pinned native compiler and original offline module
+pins produce 10 passing, zero failing and zero skipped test/subtest outcomes
+in 48.652 seconds. All four named top-level tests run. The owned Job settles,
+the checkout stays clean and every tracked-file fingerprint stays unchanged.
+The UTF-8 Go JSON log has SHA-256
+`32717ed3f3c1d8be88998ff46b9ee998bfc450d0ee2bb8f57804d972d7f06135`.
+The worker's separate full Food and config package checks exit 0 in 67.770 and
+60.701 seconds; these are worker receipts, not additional independent coverage.
+
+The published backend drafts are [farm-hive #366](https://github.com/Kuaiwa-Network/farm-hive/pull/366)
+at `fc1475ec675be341b13280c91a74a031a3dbcbc2` and
+[#367](https://github.com/Kuaiwa-Network/farm-hive/pull/367) at the Food correction
+above. A separate development checkout freezes the previously published
+follow-up `cea5b2a93717018d85f9cecacc32584db40523b2` for CI maintenance. The initial
+regression check exits 1 in 39.557 seconds: actual gift transaction entry points
+are absent from the admission list, and identically typed driver-handle
+comparisons are incorrectly classified as erasure. Existing nil comparison
+support is preserved.
+
+The independently prepared [CI-only draft #368](https://github.com/Kuaiwa-Network/farm-hive/pull/368),
+commit `4bbe377a3afc5fc6d6370d6e173d563130bbeac2`, targets the selected follow-up
+branch and changes nine CI/scanner/fixture files. It admits only the actual
+`Transact` and `AppendGardenGift` transaction entry points and allows `==`/`!=`
+when both operands have exactly the same driver-handle static type. Comparisons
+through `any`, a local interface or a variable shadowing `nil` remain rejected;
+application code, module pins, configuration and the active worker worktree are
+untouched.
+
+The full scanner package with `-race` passes 11/0/0 test/subtest outcomes in
+22.203 seconds. The native scanner executable's `--selftest` exits 0 in
+5.139 seconds, preserving exact 0/1/2 exit-code fixtures. Three native degradation
+injections deliberately permit erased comparisons, append an unused admission,
+and remove the two new admissions. They produce the intended assertion failures
+in 3.250, 5.459 and 5.530 seconds; no compile failure is substituted for a
+meaningful rejection. Every tracked source file is restored byte-for-byte after
+each injection. The full scanner rerun passes 11/0/0 in 19.646 seconds, with
+UTF-8 log SHA-256
+`779a303fca6bb669c82370706e9d24dde445e2a4767405ca22954a9fea16b8f7`.
+Native owned Jobs retain kill-on-close containment, use an 8 GiB memory limit
+verified by API readback and settle. No Bash, MSYS, WSL or MXC is used; the
+canonical Bash degradation harness remains unrun on this Windows host.
+
+The actual hosted failure is earlier than the transaction gate. The newly
+read #367 run `37773237390` at `5cc7a2cd` and #368 run `37773520038` at
+`4bbe377a` both fail downloading the selected designer archive with HTTP 404.
+Both select provisional version `2026-10-08.93b0d17`; neither reaches business
+CI. Earlier #366 and #367 runs fail at the same download step. Merging Common
+`93b0d17793381b9acbb4be23759978bf788654d6` does not publish an archive. The
+configuration publisher must provide the actual published version, content
+digest and archive SHA-256. No Jenkins/configuration publication or weakened
+provenance check is performed. Source-level cross-platform checks that pass do
+not certify the complete backend CI.
+
+Stage D remains pending: verified voucher progress integration, complete
+29-scenario coverage, required real-service execution and successful backend
+CI are still needed. The farm-hive development contract describes a new project
+without legacy production data and forbids invented historical-data repairs;
+this verification adds no legacy game-data migration requirement. FarmBot's
+own state recovery and host qualification remain separate. Named configuration
+publication, UI-ready, game PR human merges, Client/closing and production-host
+qualification retain their gates. These results measure the development PC,
+not production readiness. The running runtime and private configuration remain
+frozen; no production, credential/account or parked-issue changes are made.
