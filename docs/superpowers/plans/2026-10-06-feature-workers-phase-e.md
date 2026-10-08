@@ -3669,3 +3669,65 @@ UI-ready/client integration and separate production-host qualification.
 These development-PC results do not certify production readiness. No
 production service/configuration, credential/account, player data, parked
 issue, publication job or webhook/app setting is changed.
+
+
+### Data-drive gift-surface rerun and completed CI snapshot (2026-10-09)
+
+After the preceding record, the selected TestBot resumes its normal
+continuation. Its `hive1431-gift-surfaces` check at exact consumer `15ea9ff2`
+fails compilation in 24.615 s because the system drive runs out of space:
+`compile: writing output ... There is not enough space on the disk`.
+No test assertion runs (0 pass / 0 fail / 0 skip test outcomes); the failing
+package/build event is not an application regression or a successful test.
+Its original UTF-8 log is retained, SHA-256
+`2bdb18bfb6de30f4e37e1cd795c777f87ac61b39ee4133a3fcb9bb0044c31f78`.
+The checkout is clean, source fingerprints unchanged and owned Job settled.
+
+The maintainer independently repeats the same eight-package selection at
+`15ea9ff29bc355062952ace0ec63c85d0b61b7aa` using only owned data-drive
+command-local TMP/TEMP/GOCACHE, fixed offline dependencies and the four
+owned Docker service inputs with required flags set. The selected command is
+`go test -p 1 -race -json -count=1 -timeout 300s -run
+'Gift|GardenGift|Monotonic|Revision' ./modules/gardengift
+./modules/friendgardengifting ./modules/shop ./modules/mail
+./modules/friendchat ./modules/friend/friendstore ./user ./config`.
+Package build concurrency is reduced with `-p 1`; test assertions and internal
+concurrency are unchanged. Result: **113 passed / 0 failed / 0 skipped**
+test/subtest outcomes across 76 top-level tests, 56.514 s; all eight packages
+pass. UTF-8 stdout SHA-256 is
+`3457553ab5d9421f6fb17a41286e56f398c5648eed737c315960b60345e93c1c`,
+stderr is empty with the previously recorded empty-log hash. The native
+8 GiB owned Job settles, files are unchanged and the checkout remains clean.
+This is the original candidate, without #371's test-harness overlay. The
+selection includes memory/unit fixtures; service inputs being available does
+not make every passing case a real Mongo transaction or complete all 29
+scenarios. The earlier combined six-service 18/0/0 remains separate.
+
+Final checks confirm all four retained containers' actual protocol health,
+Mongo primary, exact ownership, named volumes and loopback-only published
+bindings. A first final `mongosh` probe omits the custom test port and fails
+at its default port; the corrected explicit-port probe passes. That probe
+mistake is retained and does not count as an application test failure. The
+system drive has approximately 0.7 GiB free; only the maintainer's newly
+created CI log is copied, hash-checked and removed from its own workspace to
+preserve it on the owned data drive. No production/shared files or caches
+are removed and no running configuration/account is changed.
+
+[#371 CI](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37859968354)
+now completes: **build SUCCESS**, **windows-devctl FAILURE without starting**.
+The verified GitHub billing/spending-limit annotation still requires an
+account or organization administrator. Build-log SHA-256 is
+`7ac5ac8f363a3b9ee54e57364563aa4066c2eb9096461fcad1bd4e1e2bc883af`.
+Build success is not an assertion that the hosted Windows gate executed.
+The earlier #367 designer-package 404 applies to its separate feature pin
+and is not cleared by the #371 main-based build. No gate is waived and #371
+remains a separate draft pending integration; no game-main merge is made.
+
+Verified selected-thread notices `b63cd300-7e2e-4e02-ae93-6fa2d4a7a6d0`
+and `201621b0-8180-4935-aa84-287f16f1e095` supply the disk classification,
+command-local data-drive recommendation, completed CI snapshot and exact
+113/0/0 result. The TestBot continues through its normal controller, without
+manual worker-tree, ledger or checkpoint edits. Complete current scenario
+acceptance, deferred Common publication/provenance, hosted Windows CI,
+review splitting and game-main gates, client/UI and production-host
+qualification remain independently outstanding.
