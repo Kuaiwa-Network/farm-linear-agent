@@ -2244,3 +2244,72 @@ and game-merge gates still apply. The separately selected document-driven UI
 journey and intended production-host release/recovery checks remain pending.
 FARM-1346/FARM-1425 remain parked; production deployment, credentials, accounts,
 player data and production resources are unchanged.
+
+### Native Windows Common declarations and configuration gate (2026-10-08 Windows local)
+
+The Common-rooted worker completes stage B and publishes the draft
+[common #162](https://github.com/Kuaiwa-Network/common/pull/162) at
+`936f50c8c3e20cd28c76445a7dc2789f1cb02f7c`, based on
+`5c4329da7c54e0d39c091ab75ce26a00ae0c007c`. Independent diff review confirms
+five changed files: MailInfo's existing export registration becomes `all`, its
+generated inventory table row changes accordingly, and three required artifact
+count sites update. The four existing fields are `id:uint32`, `title:string`,
+`content:string` and `paramList:string[]`; no designer data row or global value
+changes. The owned clone trust check passes and the committed worktree is clean.
+
+Retained UTF-8 worker logs and JSON results establish these native Windows checks:
+
+| Check | Measured result | Seconds |
+|---|---|---:|
+| Source-digest tests | Exit 0, with the four existing platform skips below | 13.950 |
+| `gen-config.cmd inventory` | Exit 0; only the MailInfo table export row differs | 16.062 |
+| Clean-commit double-profile generation | Exit 0; manifest commit equals the candidate, `dirty=false` | 10.545 |
+| Generated artifact verification | Exit 0 | 3.560 |
+| Production counts, repeatability and projection equality | Initial exit 1; focused same-head retry with a shorter private temporary parent exits 0 | 7.222 / 39.504 |
+
+The clean artifact contains 600 manifest entries: server 188 and Client 412.
+Independent physical counts match 46 server data/debug files, 48 server
+schema/Go files, 102 Client data/debug files and 104 Client schema/C# files.
+MailInfo's four Client fields are present. An earlier dirty-input generation
+also succeeds but is retained separately, not used as the clean candidate proof.
+
+All native source-digest platform skips are recorded by name:
+`TestProductionSourceDigestMatchesExactPackerPipeline`,
+`TestSourceDigestRejectsUnsafeTrees/newline_name`,
+`TestSourceDigestRejectsUnsafeTrees/backslash_name` and
+`TestSourceDigestRejectsUnsafeTrees/fifo`. The first covers the Linux shell
+packer; the remaining cases use names or filesystem objects unsupported by the
+Windows test path. No new skip is added. Native production-count execution has
+no skip or empty-test warning. The failed attempt reports native Go startup's
+"The directory name is invalid." The shorter-temporary-parent retry runs the
+same committed test successfully; the exact underlying host/path limit is not
+established. Both logs remain preserved. No assertion or containment check is
+weakened to obtain the focused pass.
+
+The macOS/Linux-only `check-config-artifact.sh` is not run on this Windows PC.
+Current GitHub verification at the unchanged candidate confirms both existing
+checks pass: `linux-acceptance` and `windows-language-regression`. The Linux
+result supplies the applicable hosted acceptance evidence; it does not turn
+the skipped local shell integration into native Windows execution. These are
+development-PC results, not certification of the production installation or
+its selected paths and tools.
+
+The real `config-needed` comment `36a41a33-1713-4973-9e5c-0cf686d4df12`
+is delivered to FARM-1419. It requests human naming review/merge and a named
+configuration commit or branch containing the declarations and valid designer
+data. The observed job is `awaiting_input` at `config_ready`, with A/B done and
+C through G pending. All three attempts for this item have empty native Jobs;
+the worker PID is cleared, the heartbeat is fresh and all six loops have zero
+consecutive errors. The original session and checkpoint remain intact.
+The declaration HEAD is not self-approved as a configuration or production pin.
+
+Read-only dependency checks also find the tracked designer-source reports
+[FARM-1436](https://linear.app/kuaiwagames/issue/FARM-1436) and
+[FARM-1440](https://linear.app/kuaiwagames/issue/FARM-1440) still in Backlog,
+and [FARM-1437](https://linear.app/kuaiwagames/issue/FARM-1437) awaiting acceptance.
+These are dependency status observations, not current-run backend test results;
+none of those cards is started or changed. Configuration-source verification,
+farm-hive/Client scenario acceptance, named UI readiness, closing/recovery and
+intended production-host qualification remain. No Jenkins/configuration
+publication, production deployment, account, credential or production resource
+change occurs. FARM-1346/FARM-1425 remain parked.
