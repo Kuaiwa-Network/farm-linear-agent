@@ -137,7 +137,9 @@ pending checkpoints below describe their state when recorded. Remaining gates:
    generators, running-worker withdrawal, Client/closing Unity tests and the real
    Contract gates, merge/squash resynchronization, write-back and archive. The
    [Phase C plan](2026-10-06-feature-workers-phase-c.md) distinguishes implemented
-   offline behavior from this pending live journey; parked cards stay parked.
+   offline behavior from this pending live journey. The approved FARM-1419 native
+   Windows journey has started below; later-stage acceptance is still pending,
+   and parked cards stay parked.
 3. Intended production-host tools, licensed exporter, native runtime, selected
    account/profile/permissions, Git/LFS, dependency restore/cache, cold Editor
    startup and release/recovery acceptance, followed by separate authorization for
@@ -2031,3 +2033,66 @@ is started and no designer value, player data or production integration is chang
 FARM-1346 and FARM-1425 remain parked. The existing development runtime/profile
 is not changed by this preflight; production-host certification and separately
 authorized enablement/deployment remain pending.
+
+### Approved native Windows Code intake (2026-10-08 Windows local)
+
+The operator explicitly approves FARM-1419's remaining Code workflow in this chat,
+expanding this card's historical stage-A-only trial. The authenticated operator's
+Linear comment `5c25aa58-ef88-4cc7-88f8-017b0d8edfee` records that scope at
+2026-10-08 03:07:00 UTC. This is a live acceptance test on the development Windows
+PC: real issue sessions, changes and draft PRs are possible. Ordinary human
+design/configuration, UI-ready and game-merge gates remain. Code does not author
+or export farmgui; no other issue, designer-value mutation, configuration
+publication, player-data operation or production change is authorized.
+
+Read-only verification confirms
+[Farm-Contract #328](https://github.com/Kuaiwa-Network/Farm-Contract/pull/328)
+merged at 2026-10-08 02:57:55 UTC as
+`a9b444337721125b75067d635a4b0f816ee60cc3`. Its tested head remains
+`220e618d3cd736b6f8cc747576bca7e5a0ca413a`, with all 28 hosted checks successful.
+The complete tested-head, merge and current-main trees are independently equal
+at this checkpoint. Historical certificates and candidate pins are preserved.
+
+Before the settled development restart, all 11 existing jobs are terminal:
+three failed, six cancelled, one blocked and one delivered. All 25 recorded
+native worker Jobs are empty; worker PIDs, pending webhook events, pending
+cleanup, open reservations and heartbeat workers are absent. Historical failures
+remain recorded. No production ledger is inspected and no Mac state is copied.
+
+The existing frozen runtime `a7c335bf64ad5c8954142622b79f26baea333f62` remains
+unchanged. Only development configuration gains `feature` alongside `chat`,
+`fix` and `fgui`, and drops its obsolete feature-specific GPT-6 override to
+inherit the already approved `latest-sol` / `xhigh` policy. The old private
+configuration, wrappers, process receipt and logs are retained; new wrappers
+pin the same source, signed native Codex 0.160.0 and new configuration hash.
+Only the verified owned development controller is stopped. Its replacement's
+interpreter, process creation identity, account ownership, bootstrap ancestry
+and port are checked. The shared development Unity Editor remains outside worker
+containment; no account, credential or app-setting change occurs.
+
+After restart, read-only doctor reports no missing feature or UI tools, verifies
+the native publisher and resolves the next Code model to `gpt-6.1-sol` with
+`xhigh`. Its remaining findings are the three historical failed jobs and one
+historical blocked job. HTTP health is 200, the heartbeat is fresh and serving,
+and all six controller loops have zero consecutive errors; readiness is not
+inferred from health alone.
+
+Only [FARM-1419](https://linear.app/kuaiwagames/issue/FARM-1419) is delegated to
+TestBot. API delegation opens no new session in the bounded before/after read,
+so one durably recorded, real issue session is created through Linear's API:
+`e542954f-2f67-445f-abd0-da1b57cf9560`. The signed webhook creates native
+Windows work item `b50b3c8e-7488-4e52-b6a2-6ef04809d2b6` with skill `feature`.
+Its worker claims the item and runs at intake, with no Client target yet.
+The actual isolated worker configuration confirms `gpt-6.1-sol` / `xhigh`;
+the root and every observed descendant belong to its owned native Job. This
+establishes real native intake and launch, not completed downstream acceptance.
+The actual feature worker then saves successful wiki and full-docx responses,
+both independently checked as `ok=true` and `identity=bot`. The document is
+revision 236 with 42,552 UTF-8 Markdown bytes and 30 headings; its content hash
+equals the prior read-only probe. These are new worker-owned response files,
+not replayed probe responses. Native Code document intake is therefore measured;
+the separate UI-worker document journey and downstream Code gates remain pending.
+The subsequent checkpoint enters `contract` with stages A through G pending;
+no game PR has been published at that checkpoint. Normal human gates remain.
+No Bash/MSYS/WSL/MXC route is selected. FARM-1346 and FARM-1425 remain parked;
+production enablement and deployment remain separately authorized release work.
