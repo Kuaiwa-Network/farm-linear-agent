@@ -2602,3 +2602,61 @@ Jobs empty and no backend PR recorded in its plan. Named human gates, Client,
 closing and intended production-host qualification remain pending. These are
 development-PC measurements; the frozen runtime, development configuration,
 production installation and parked FARM-1346/FARM-1425 remain unchanged.
+
+### Committed mail milestone and independent native check (2026-10-08 Windows local)
+
+A later serial baseline diagnostic at
+`72899f35f313aa85eab1e237623c42e96c23a153` also fails: exit 1 in
+1,457.373 seconds, with its owned Job settled. Its JSON stream reports
+16,899 passing, 46 failing and 1,290 skipped test/subtest outcomes across
+12 failed packages. Parent and nested outcomes are included; these are not
+independent test counts, and the earlier incomplete parallel execution has a
+different outcome inventory. Every reported failed package, named failure and
+skip is retained privately with the UTF-8 log. This diagnostic does not turn
+the backend baseline into a pass or establish that all failures are harmless
+Windows limitations. The unresolved designer-data expectation and platform,
+actor and service-backed checks remain acceptance blockers.
+
+The worker develops the garden-gift mail changes with failing and passing
+focused tests, then applies and checks them in the actual backend worktree.
+It commits this milestone at
+`e9e2869eb949e7c88d6a40e9b1fe6c4a4234fbe7`. The changes add an explicit
+persistent garden-gift category, frozen mail text, order association and
+sequence checks, retention and claim/delete protections. Staging mail into
+an isolated recipient owner does not itself complete the multi-player
+database transaction or prove rollback and idempotency of purchase/send.
+Temporary overlay results are development evidence, not verification of the
+committed candidate.
+
+An independent check uses a new separate development checkout frozen at that
+exact mail commit. It uses the prepared native Go 1.25.1 and verified Windows
+compiler, its own build cache and temporary directories, disabled module
+network access and the owned Windows Job runner. The local trusted-object
+clone and exact checkout pass in 0.184 and 2.161 seconds. The command
+`go test -race -json -count=1 ./modules/mail` exits 0 in 26.054 seconds,
+with its Job settled. It reports 127 passing, zero failing and one skipped
+test/subtest outcome. All eight `TestGardenGift...` tests actually run and
+pass, covering persistent category, corrupt attachments, read-before-delete,
+category boundaries, frozen input, retention/reload, duplicate rejection and
+invalid association. The tested frozen checkout remains clean.
+
+The single skip is `TestEnqueueFiniteIdemClassification/mongo`: the existing
+fixture reports that `MONGO_URI` and `MONGO_REQUIRED` are unset. The first
+independent wrapper reports an assertion failure because it required zero
+skips across the whole package, despite Go exiting 0. That original receipt
+is preserved. A separate observation classifies the skip, verifies that all
+eight new gift tests passed without skips and checks the frozen checkout;
+it does not alter tests, repeat the suite or certify database integration.
+The UTF-8 Go JSON log has SHA-256
+`5b693ae7d54764fd1095088948e51290a76d1d1e0b6e56ea05cc25855125918d`.
+
+The previously recorded developer report is now observed consumed in the
+original item's inbox. The same item/session remains in stage D while the
+worker continues persistence and purchase/send transaction implementation.
+The four gifting handlers, complete 29-scenario coverage, real database
+integration, backend CI and stage-D acceptance remain pending. No backend PR
+is recorded in its plan at this checkpoint. Human UI readiness, configuration
+publication and game PR merges retain their gates, followed by Client and
+closing verification. These remain development-PC measurements; production
+qualification and deployment are not certified, and no production, runtime
+configuration, account or parked-issue change is made.
