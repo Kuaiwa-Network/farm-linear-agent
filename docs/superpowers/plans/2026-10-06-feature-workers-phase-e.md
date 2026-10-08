@@ -121,22 +121,23 @@ separately and cannot be inferred from those fixtures.
 Implementation and exact-candidate native/hosted offline verification are complete.
 The fresh FARM-1396 item-1 trial below now completes actual licensed export, scoped
 Client installation, hydrated guards, reserved exact-commit Unity loading,
-quiescent release and two-draft delivery on the development Windows PC. Historical
+quiescent release and two-draft delivery on the development Windows PC. Both
+game PRs are now human-merged, with the tested changed files preserved; the
+operator-confirmed screenshot passes scoped item-1 visual QA. Native scoped
+Feishu wiki/document access also passes below, with explicit content limits. Historical
 pending checkpoints below describe their state when recorded. Remaining gates:
 
-1. Human review/merge of [farmgui #145](https://github.com/Kuaiwa-Network/farmgui/pull/145).
-   Client #1428 is merged, and the operator-confirmed runtime screenshot below
-   passes the scoped item-1 text/clipping check at its captured resolution.
-   Item 2 and whole-card acceptance remain outside this trial.
-2. A scoped real Feishu document read from an operator-selected UI task, using the
-   intended native Windows profile. This uploaded-art trial verifies real app-token
-   image upload, not document access.
-3. Separately scoped real Code later-stage acceptance: Common/config/hive and native
+1. A real document-driven UI worker trial with usable requirements and an
+   operator-selected scope. The native profile reads linked wiki/docx objects
+   successfully, but the two measured documents return only headings; this does
+   not establish complete design content or UI-worker intake of that content.
+   FARM-1396 item 2 and whole-card acceptance remain outside this item-1 trial.
+2. Separately scoped real Code later-stage acceptance: Common/config/hive and native
    generators, running-worker withdrawal, Client/closing Unity tests and the real
    Contract gates, merge/squash resynchronization, write-back and archive. The
    [Phase C plan](2026-10-06-feature-workers-phase-c.md) distinguishes implemented
    offline behavior from this pending live journey; parked cards stay parked.
-4. Intended production-host tools, licensed exporter, native runtime, selected
+3. Intended production-host tools, licensed exporter, native runtime, selected
    account/profile/permissions, Git/LFS, dependency restore/cache, cold Editor
    startup and release/recovery acceptance, followed by separate authorization for
    production enablement and deployment. Development-PC evidence is not that
@@ -1898,3 +1899,72 @@ production-host startup/dependency/recovery checks plus separate deployment
 authorization remain pending as listed above. No game PR is merged by this
 verification, no delivered job or parked card is resumed, and no production
 configuration, runtime, credentials, account or service is changed.
+
+### Both human game merges and scoped native Feishu reads (2026-10-08 Windows local)
+
+Read-only verification at 2026-10-08 02:27:22 UTC confirms
+[farmgui #145](https://github.com/Kuaiwa-Network/farmgui/pull/145) merged as
+`6fa24eb22052010b6243900a04dca767c3859065`; source main equals that merge.
+[Client #1428](https://github.com/Kuaiwa-Network/Farm-Client/pull/1428) remains
+merged as `6baa6999d15ce5ffc86139668b67542124437160`, also current Client main.
+Both PR head identities equal their originally certified candidates.
+
+The three changed source files and two changed Client files have identical Git
+blob identities at their tested candidate, merge and current main. Client's
+entire candidate/merge/main trees are equal. Source trees differ: the complete
+candidate-to-merge comparison contains 21 changed paths, including rename
+origins, all confined to the unrelated, unselected `assets/Cards/` package.
+The selected Activities package and all five exported dependency packages, plus
+nonpackage inputs, are unchanged. This is scoped input equivalence, not whole
+source-tree equality or a new export certificate for main. The original source
+digest, approval, export receipt, installation, guards, Unity loading and delivery
+proof remain bound to their tested candidates. No delivered job is resumed and
+no source/export evidence is silently repinned.
+
+Together with the operator-confirmed captured visual check above, this completes
+the scoped FARM-1396 item-1 human merge/visual follow-up. The real card is not
+closed; item 2 and whole-card acceptance remain pending. No Code job's UI-ready
+state is advanced: its explicit human reply and refreshed component/export
+checks remain required when that independently scoped job reaches stage E.
+
+Under the earlier autonomous read-only reference-selection grant, existing UI
+cards supply linked wiki references. The selected native Codex **0.160.0**
+`command/exec` route uses fresh empty Codex homes and the existing current-account
+`farmbot` profile with lark-cli **1.0.82**, strict bot mode, explicit `--as bot`,
+no Windows HOME override and sanitized inherited credential/config selectors.
+The process is created suspended, assigned to its owned non-breakaway Job before
+startup and released only after membership is verified. Effective workspace-write
+roots, unelevated Windows policy and network permission are checked before each
+bounded read. No model turn, new FarmBot service or credential setup occurs.
+
+| Existing UI reference | Read | Command seconds | Entire run seconds | UTF-8 response bytes |
+|---|---|---:|---:|---:|
+| FARM-885 | Wiki resolution | 1.969 | 2.388 | 665 |
+| FARM-846 | Wiki resolution | 3.554 | 3.951 | 666 |
+| FARM-846 | Docx Markdown fetch | 2.326 | 2.752 | 229 |
+| FARM-1102 | Wiki resolution | 2.069 | 2.488 | 663 |
+| FARM-1102 | Docx Markdown fetch | 2.511 | 2.941 | 189 |
+
+All five actual commands exit 0; their complete API envelopes independently
+report `ok=true` and `identity=bot`. Total measured run duration is **14.520
+seconds**, excluding selection and inspection. Each read has verified child Job
+membership, empty-Job cleanup, dead child and settled RPC reader. Profile-config
+metadata and registered runtime receipt remain unchanged, and no Codex auth file
+is seeded. UTF-8 responses, RPC logs and their SHA-256 identities remain private.
+
+The first linked wiki resolves to `sheet`; no unsupported sheet command is run.
+The two docx fetches return only headings: respectively 51 UTF-8 Markdown bytes /
+two nonempty lines / one heading, and 14 bytes / one line / one heading. Their
+content hashes are retained privately. They demonstrate scoped bot document
+access, not substantive task requirements, complete visual designs or a real
+document-driven UI worker journey. The initial version-field assumption and
+docx-only selection fixture stop locally before their fetch; these fixture
+failures remain preserved. Correcting the private fixture changes no application
+code, credential source, permission or containment check.
+
+Remaining release work is the concrete scope/content selection and live journeys
+listed above, followed by intended production-host startup/dependency/recovery
+acceptance and separate enablement/deployment authorization. This is still the
+development Windows PC. No issue is mutated, no parked card or historical draft
+is resumed, and no production configuration, state, runtime, service, credentials,
+account or app settings are changed.
