@@ -2396,3 +2396,123 @@ journey and intended production-host qualification also remain pending,
 including the prerelease CLI and cold Unity startup findings above. The frozen
 TestBot runtime, development configuration, production installation and parked
 FARM-1346/FARM-1425 are unchanged.
+
+### Native backend prerequisites and resumed stage D (2026-10-08 Windows local)
+
+The original FARM-1419 item is claimed in the trusted `farm-hive` worktree.
+The worker refreshes the backend baseline to
+`66b352c7527c820abd25c33ef149656a5edfafb4` and rereads the actual Feishu
+document, revision 236. The observed content digest remains
+`a05a1317e3c106ab5c3fc06751ae7c3b3cfb03415dd5e5bd0eca60f4e660c79b`.
+The verified Contract source remains merge
+`4476168c2c63a639f67d7533f319522157c09949`; the named Common source remains
+`93b0d17793381b9acbb4be23759978bf788654d6`. Read-only source checks and
+retained UTF-8 logs establish the first native backend attempt:
+
+| Native backend check | Result | Seconds |
+|---|---|---:|
+| Protocol synchronization | Exit 0; 60 packages | 12.708 |
+| Registry generation | Exit 0; 61 outputs | 12.753 |
+| Protocol gate | Exit 0 | 11.447 |
+| Contract provenance gate | Exit 0 | 2.970 |
+| Registry gate | Exit 0 | 6.575 |
+| Designer-source digest | Exit 0 | 10.708 |
+| Candidate designer-pin calculation | Exit 0 | 11.615 |
+| Configuration generation | Exit 1; prepared configgen dependency unavailable with `GOPROXY=off` | 12.895 |
+| Dependency diagnostic | Exit 1; module lookup disabled | 0.047 |
+| Candidate configuration manifest | Exit 1; retained outputs do not match the candidate source pin | 0.155 |
+| Candidate configuration reproduction | Exit 1; same source/output mismatch | 0.388 |
+| Restored prior configuration manifest | Exit 0 | 0.512 |
+| Vet / build | Exit 1 / 1; missing hive-jelly and cache-write boundary, before compilation | 37.913 / 37.905 |
+| Race suite | Exit 2; CGO disabled, no tests run | 0.054 |
+
+An earlier native protocol-snapshot command also fails to resolve its local
+`origin/main` reference; the worker preserves that log and succeeds with an
+owned snapshot. These failures remain failures, not platform skips or backend
+acceptance. No new skip or waiver is introduced. Failed configuration generation
+does not replace the existing outputs or their pin: the old configuration
+manifest and inputs are restored and verified. Local commit
+`8a1f4211572a2c30eb1950519e8e989236becb4c` changes protocol provenance only;
+the trusted worktree is clean, it is not pushed and no backend PR exists at
+this checkpoint. All 29 mapped business scenarios remain unexecuted, and the
+four gifting handlers remain unimplemented in the observed source. The prior
+FARM-1436/FARM-1440 reports do not establish a current-run data regression.
+
+Notice `2db52ad1-2008-4fd6-a659-f9ff9b2de039`, posted at 06:43:26.076 UTC,
+requests the native prepared dependencies and CGO compiler. The controller
+parks the same item at `server` / `answers`, clears its worker PID, and all
+five attempt Jobs are empty. No worker downloads a tool or dependency, changes
+authentication, weakens containment or substitutes Bash/MSYS/WSL/MXC.
+
+Within the standing development-host preparation scope, the development agent
+prepares a new ignored scratch cache, leaving the runtime-selected caches and
+actual backend dependency files unchanged. The exact existing module pins are:
+
+- `github.com/Kuaiwa-Network/common/designer/configgen`:
+  `v0.0.0-20260916145836-6e697505d651`.
+- `github.com/Kuaiwa-Network/hive-jelly`:
+  `v0.0.0-20260929021510-b9d2278b90b3`.
+- `github.com/Kuaiwa-Network/hive`:
+  `v0.0.0-20260922032331-927a2319f67d`.
+
+Configgen is restored from a previously prepared local module archive and its
+committed Go checksums are verified. The initial hive-jelly Git fetch is refused
+by native askpass outside its trusted directory; that refusal and policy are
+retained. Existing GitHub API access reads the exact private source commits
+instead, without credential setup. Canonical module ZIP and `go.mod` checksums
+for both private modules match the committed `go.sum` entries. The initially
+missing pinned `golang.org/x/mod` dependency and public transitive metadata are
+prepared at their selected versions, with checksum verification; no dependency
+version is upgraded. The first incomplete graph check is retained separately.
+The broader scratch preparation adds 35 checksum lines; that temporary file is
+preserved and the original scratch dependency files are restored before the
+final checks. With those original files and `GOPROXY=off`, `GOSUMDB=off`,
+`GOTOOLCHAIN=local` and read-only module mode, all three final checks pass:
+the 124-entry module graph in 0.059 seconds, configgen command build resolution
+in 0.162 seconds and `go mod verify` in 0.678 seconds. This prepares inputs for
+the worker; it does not certify regenerated backend outputs or business tests.
+
+No native CGO compiler was available on the selected PATH. A standalone
+[Winlibs native Windows release](https://github.com/brechtsanders/winlibs_mingw/releases/tag/16.2.0posix-14.0.0-ucrt-r2)
+is prepared only in ignored development scratch: GCC 16.2.0, MinGW-w64 14.0.0,
+target `x86_64-w64-mingw32`. Its 273,613,326-byte archive matches both the
+GitHub release digest and the published SHA-256
+`d5dbafc4a170e762ca6143151ec918fb9e2c72736fb14cd704abebc6bdd5276a`.
+The native compiler hash is
+`206f9fc067234f48ae077550658dae06bd75d99110c1b3166887b7090cbd7fa0`.
+The `libsynchronization.a` runtime check required by the
+[Go Windows race-detector guidance](https://go.dev/doc/articles/race_detector)
+succeeds. No global PATH, application setting, registry, account, service or
+production installation changes.
+
+An independent native smoke probe uses the verified backend process runner,
+which starts suspended, assigns the process to its owned Windows Job before
+resuming it and verifies settlement. With network access disabled, a real CGO
+call and synchronized Go test pass under `go test -race -count=1 -v .` in
+10.641 seconds. A separate deliberately racing program run with `go run -race`
+returns exit 1 and reports `DATA RACE` in 2.096 seconds. Both Jobs settle.
+This positive/negative probe establishes compiler and detector operation on
+this development PC; it does not substitute for the actual farm-hive race suite.
+
+Private `host-native-backend-readiness.json` supplies the prepared paths and
+identities in the selected item's state directory. The authenticated original
+thread reply `8ed64467-c8c0-4df6-bff0-d1bd61ba3ed4`, created at
+07:14:45.666 UTC, explicitly identifies a Codex development-host measurement,
+not a new human design, configuration-publication or UI-ready decision. Real
+signed delivery is accepted and processed into the original inbox, and the
+worker consumes it. The same item/session resumes at `server`, with a fresh
+native Job and `gpt-6.1-sol` / `xhigh`. A snapshot-ancestry diagnostic includes
+an unrelated process whose creation predates the owned root; held native
+process handles distinguish it from the current worker. All observed processes
+created for the current attempt are members of its owned Job. Cleanup authority
+remains Job membership, never snapshot PID ancestry. The five predecessor Jobs
+are empty, the heartbeat is fresh and all six loops have zero consecutive errors.
+
+At this checkpoint stage D implementation, regenerated configuration, actual
+build/vet/race and business scenarios remain pending, followed by human UI
+readiness, Client and closing verification. Configuration publication and game
+PR merges retain their named human gates. The separately selected document-driven
+UI journey, prerelease CLI qualification, cold Unity startup and intended
+production-host release/recovery checks remain pending. These are development-PC
+measurements. Production deployment is unauthorized; the frozen TestBot source,
+development configuration and parked FARM-1346/FARM-1425 are unchanged.
