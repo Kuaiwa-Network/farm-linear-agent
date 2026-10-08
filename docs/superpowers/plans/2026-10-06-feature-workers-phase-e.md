@@ -124,8 +124,9 @@ Client installation, hydrated guards, reserved exact-commit Unity loading,
 quiescent release and two-draft delivery on the development Windows PC. Historical
 pending checkpoints below describe their state when recorded. Remaining gates:
 
-1. Human runtime visual QA of item 1, then human review/merge of its fresh farmgui
-   and Client drafts. Package loading does not prove the target panel's appearance.
+1. Human review/merge of [farmgui #145](https://github.com/Kuaiwa-Network/farmgui/pull/145).
+   Client #1428 is merged, and the operator-confirmed runtime screenshot below
+   passes the scoped item-1 text/clipping check at its captured resolution.
    Item 2 and whole-card acceptance remain outside this trial.
 2. A scoped real Feishu document read from an operator-selected UI task, using the
    intended native Windows profile. This uploaded-art trial verifies real app-token
@@ -1860,3 +1861,40 @@ authorized enablement/deployment. In particular, this warm development slot does
 not resolve or conceal the earlier first-import 120-second deadline gap. Neither
 parked FARM-1346 nor FARM-1425 is resumed, and no production deployment, service,
 configuration, credentials or account is changed.
+
+### Operator-supplied runtime visual check and Client merge (2026-10-08 Windows local)
+
+The operator supplies a 351-by-773 runtime screenshot, then explicitly confirms
+in this chat that it comes from the updated Client containing #1428. The original
+545,240-byte PNG is retained privately with SHA-256
+`24d7cd0c0666a63d5f0b31f6b4600911c013bf5e36f1e90bef3f6007fd409e72`.
+No screenshot, private path or device/account metadata is published in this record.
+
+Inspection against the original art confirms the wooden plaque displays both
+lines, `本页` and `礼包`, completely. The purchase label displays all four
+characters of `整页购买`, with no obvious clipping of the text or white outline
+at the supplied resolution. This passes the scoped item-1 captured visual check.
+The screenshot's build attribution is the operator's explicit confirmation; the
+image itself does not independently identify a commit or execution platform.
+The earlier full-stroke measurement and approximate-renderer gaps remain
+historical evidence and are not rewritten as automated passes. This check does
+not claim pixel-perfect whole-panel matching, all resolutions, item 2 or
+whole-card acceptance.
+
+Read-only GitHub checks confirm
+[Client #1428](https://github.com/Kuaiwa-Network/Farm-Client/pull/1428) merged as
+`6baa6999d15ce5ffc86139668b67542124437160`; current Client main is the same merge
+at this checkpoint. The Activities descriptor and dependency-guard Git blob
+identities match tested candidate `20a86e15744f7ac1ddf61780ee7adcc529d2f416`
+exactly at both the merge and current main. The prior certified native export,
+guards, exact-commit loading and terminal recovery results remain bound to their
+original candidate, not silently repinned to this merge.
+
+[Source #145](https://github.com/Kuaiwa-Network/farmgui/pull/145) remains an open
+draft at `5e47cb0830243954214355d9d526e0b19c1cdc30`. Its human review/merge is
+the immediate remaining provenance gate. Scoped real Feishu document access,
+live Code/closing and running-worker withdrawal acceptance, and intended
+production-host startup/dependency/recovery checks plus separate deployment
+authorization remain pending as listed above. No game PR is merged by this
+verification, no delivered job or parked card is resumed, and no production
+configuration, runtime, credentials, account or service is changed.
