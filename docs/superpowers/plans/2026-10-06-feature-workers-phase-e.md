@@ -118,17 +118,28 @@ separately and cannot be inferred from those fixtures.
 
 ## Remaining release prerequisites
 
-Phase D implementation and exact-candidate native/hosted offline verification
-are complete; the [measured record](2026-10-06-feature-workers-phase-d.md#as-executed-verified-ui-authoring-worker-2026-10-07)
-distinguishes that result from live acceptance. Remaining prerequisites:
+Implementation and exact-candidate native/hosted offline verification are complete.
+The fresh FARM-1396 item-1 trial below now completes actual licensed export, scoped
+Client installation, hydrated guards, reserved exact-commit Unity loading,
+quiescent release and two-draft delivery on the development Windows PC. Historical
+pending checkpoints below describe their state when recorded. Remaining gates:
 
-1. Run a separately approved TestBot UI card with actual documents/art, scoped LFS,
-   real app-token preview upload, named corrections/approval and licensed export.
-2. Verify hydrated Client guards and exact-commit Unity loading on the intended slot.
-3. Verify final production-host tools/runtime/account/permissions, release revision
-   and recovery; separately authorize production enablement/deployment.
-
-No existing parked Code card or unmerged game test draft supplies UI acceptance.
+1. Human runtime visual QA of item 1, then human review/merge of its fresh farmgui
+   and Client drafts. Package loading does not prove the target panel's appearance.
+   Item 2 and whole-card acceptance remain outside this trial.
+2. A scoped real Feishu document read from an operator-selected UI task, using the
+   intended native Windows profile. This uploaded-art trial verifies real app-token
+   image upload, not document access.
+3. Separately scoped real Code later-stage acceptance: Common/config/hive and native
+   generators, running-worker withdrawal, Client/closing Unity tests and the real
+   Contract gates, merge/squash resynchronization, write-back and archive. The
+   [Phase C plan](2026-10-06-feature-workers-phase-c.md) distinguishes implemented
+   offline behavior from this pending live journey; parked cards stay parked.
+4. Intended production-host tools, licensed exporter, native runtime, selected
+   account/profile/permissions, Git/LFS, dependency restore/cache, cold Editor
+   startup and release/recovery acceptance, followed by separate authorization for
+   production enablement and deployment. Development-PC evidence is not that
+   certification; the measured cold-import deadline gap remains explicit.
 
 ## As executed: suspended startup and export foundations (2026-10-07)
 
@@ -1723,3 +1734,129 @@ guards, reserved exact-commit loading and quiescent release must precede final
 two-draft delivery. Human runtime UI QA, scoped Feishu reads, broader release
 journeys and separately authorized production-host release/recovery/deployment
 remain pending as described above; item 2 and whole-card acceptance remain open.
+
+### Fresh approval, certified export and scoped Client installation
+
+The operator explicitly approves this fresh item-1 round and requests export.
+The relay into the current session is comment
+`11d17ec8-16e2-4b72-93b8-7e5aff33f241`, at 00:17:08.154 UTC on 2026-10-08,
+by the named human operator. The actual canonical session inbox message is 17.
+Independent checks match its author, time and body, accounting for Linear's
+ordinary automatic Markdown links only when comparing the relay. Authority
+hashes use the actual canonical inbox body. The approval binds the exact source
+head, review, source digest and comparison PNG recorded above, acknowledges the
+approximate preview gaps, and requests the normal corrected-baseline Client
+journey. It does not supply runtime visual acceptance or item-2 authorization.
+
+The normal native export produces receipt
+`c237c3e5152043ae9e56f9bfa5ec27ac`, with SHA-256
+`d68b5e4fda41094c0f6c01dea4c4367da81bac6c670a7cafb2bfbb37903587e4`.
+All six selected package identities and all 50 staged artifacts are independently
+rehash-verified against the controller snapshot and approval/source bindings.
+The actual publisher exits zero in 6.130 seconds, is assigned to its native Job
+before startup and export, and leaves that Job empty. End-to-end controller
+verification also repeats the owned full-source, remote and authority checks;
+6.130 seconds measures the publisher process, not the whole command.
+
+The normal handoff persists corrected Client baseline
+`07bba0faf92faa986ba544373fe9ad31d3a85a64` and the new independent issue branch.
+A preparation check detects an unhydrated Activities atlas after an initial LFS
+command; native hydration then succeeds. That failure remains private evidence,
+not a passing guard or an application regression. The certified installer
+accepts only Activities: 31 files including 16 metadata files, retaining existing
+GUIDs. Installation `01860ca3115c4ebc82f21679cdf2442f` has SHA-256
+`141974964333bccf09d1b9d01df17a18638191496d29ec98731fded29d03fdca`.
+Historical targets, receipts and drafts remain unchanged. Guards, reserved Unity
+loading and final delivery are recorded separately below only after their actual
+results and normal resource release are independently verified.
+
+### Fresh native guards and exact-commit loading
+
+The clean scoped Client candidate is
+`20a86e15744f7ac1ddf61780ee7adcc529d2f416`. Its diff contains only the Activities
+descriptor and the justified Activities dependency-guard entry. Independent
+checks revalidate the installed artifact bytes and global GUID inventory against
+the immutable installation certificate. Both actual hydrated native guards pass:
+`No_unsanctioned_published_dependency_edges` and
+`Package_dirs_hold_exactly_the_files_their_descriptors_declare`. There are two
+executed passing tests, zero failures and zero skips, in 7.478 seconds.
+
+Retained TRX SHA-256 is
+`3dc62341c5aea09092467e604608bc98db7ebe08fe693116610375c0d974389d`;
+the complete two-test identities, counters and outcomes are independently checked.
+Guard certificate SHA-256 is
+`90cd09d6d9cf5da6ee55ce5d8cbb5202285f87a202db4315076cfc4464e15f8b`.
+The unchanged native guard runner suspends before Job assignment and verifies
+zero exit and an empty owned Job before recording its bounded process result.
+The observer initially expects a Job name that this record format does not
+retain; it is corrected to the actual process schema while retaining checksum,
+TRX, exit and pre-startup/empty-Job result checks. This is a private diagnostic
+checker correction, not an application change or relaxed guard.
+
+The first slot grant returns an unknown identity observation, so the controller
+refuses handoff, releases that reservation and holds the slot with recovery
+evidence. Normal setup recovery `590da248-0e0c-43dd-900e-da1181247b3a` succeeds
+on its first persisted repair attempt. A subsequent identity observation matches
+and reservation `c2ee67f1-cdfd-483e-8156-d39174820053` is granted at the same
+exact candidate. No operator reset, target change, relaxed deadline or manual
+success record replaces the failed observation.
+
+The normal `verify-ui-loading` route then produces actual Unity certificate
+SHA-256 `f93fedff26c8c19be6e1225eb02df77b0b9c33f65a5cd455375f0f834645adaf`.
+It binds the same receipt, installation, source head and exact committed Client
+candidate. Before/after Editor and source identity checks match, all descriptors
+match the selected slot's actual bytes, and the fixed C# probe verifies every
+selected package and dependency:
+
+| Package | ID | Package items | Disk assets |
+|---|---|---:|---:|
+| Activities | `fvyctcfd` | 172 | 14 |
+| Common | `cmcommon` | 504 | 23 |
+| CommonFx | `xjwxiayo` | 5 | 1 |
+| ItemIcons | `ii0items` | 173 | 4 |
+| PlayerCustomize | `i34morsw` | 134 | 1 |
+| UILangTex | `82y1zwra` | 16 | 1 |
+
+These are 1,004 actual package items and 44 disk assets. The probe removes only
+registrations it created and records `cleanup_complete=true`; the immutable
+controller checksum and complete six-package results are independently checked.
+The exact-commit reservation is normally released after quiescence. This is
+actual native Unity package loading, not just a descriptor parse, dotnet pass or
+host-readiness probe. It does not establish target-panel appearance, the original
+second-line clipping cause, item 2 or human runtime UI acceptance.
+
+### Fresh terminal delivery and remaining release gates
+
+Independent terminal verification at 2026-10-08 01:19:25 UTC confirms normal `delivered`
+state with no worker PID and both current open drafts at their certified heads:
+[farmgui #145](https://github.com/Kuaiwa-Network/farmgui/pull/145) at
+`5e47cb0830243954214355d9d526e0b19c1cdc30`, and
+[Client #1428](https://github.com/Kuaiwa-Network/Farm-Client/pull/1428) at
+`20a86e15744f7ac1ddf61780ee7adcc529d2f416`. The controller delivery proof binds
+the fresh receipt, canonical approval/export request and matching guard/Unity
+certificates. Confirmed actual delivery comment `84be7e04-c060-45b5-9a5b-bb83d54a9e08` names
+both drafts; its outbox identity, marker and actual remote body are independently
+matched, accounting for ordinary automatic links only when comparing text.
+The real issue is independently verified open. Game review and merges remain
+human decisions.
+
+Normal terminal cleanup completes with no error. Both committed heads are
+independently verified in retained controller recovery refs and snapshots before
+the owned job worktrees are removed. All five attempt Jobs are empty; there is no
+active/queued reservation or pending repair. The shared development Editor remains
+normally idle/open, parked back at corrected main
+`07bba0faf92faa986ba544373fe9ad31d3a85a64`. The failed first grant and recovered
+setup record remain preserved. Historical failed trials, immutable targets,
+receipts, installation journals, recovery records and drafts remain intact.
+Frozen development runtime and selected development configuration hashes are
+unchanged throughout this fresh trial.
+
+This completes the scoped native Windows UI export-to-delivery trial. Human
+runtime visual QA, item 2 and whole-card acceptance are not certified; the real
+issue remains open. The remaining release prerequisites at the top are still
+pending: real scoped Feishu reads, later Code/closing acceptance and running-worker
+withdrawal, plus intended production-host preparation/recovery and separately
+authorized enablement/deployment. In particular, this warm development slot does
+not resolve or conceal the earlier first-import 120-second deadline gap. Neither
+parked FARM-1346 nor FARM-1425 is resumed, and no production deployment, service,
+configuration, credentials or account is changed.
