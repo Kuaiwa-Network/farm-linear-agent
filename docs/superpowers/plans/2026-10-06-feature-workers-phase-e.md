@@ -3101,3 +3101,33 @@ coverage, UI-ready, Client/closing, game main merges and production-host
 qualification remain separate release prerequisites. The running runtime,
 private configuration, credentials/accounts, production and parked issues
 remain unchanged.
+
+The subsequent new-project correction is committed as
+`b1cac0369ed1ff06d12bae9519db8356a1f5a14e`. Read-only review confirms removal
+of the historical recharge-statistics compatibility branch and extra
+historical-data release conditions. Its replacement regression corrupts the
+permanent recharge total/first/last records with a nonzero deadline and proves
+rejection before any committed gift effect. Overflow, reentrant first-recharge,
+reload, replay, actor/revision and complete local-store rollback checks remain.
+This closes the specific source-direction correction described above.
+
+A fresh independent checkout freezes that exact correction and reruns the
+same shared recharge/gift/login command. All 18 top-level tests run, producing
+38/0/0 test/subtest outcomes in 65.177 seconds. The Go JSON log
+SHA-256 is `9be0f044eb138920fe0a3ae2f72047f92d056d5a4e704cb80137386cb369bb2d`. A fresh private
+combination of this corrected application and the same complete maintenance
+ranges has head `f3bcb4fb4528999a1aa1c755bd93d8b4d3884410`: its full
+transaction-scanner race check passes 11/0/0 in
+25.624 seconds, and the shared regression plus
+configured Food guard passes 41/0/0 in 63.605 seconds.
+The latter Go JSON log SHA-256 is
+`f9019317d6e4357883412f2cf80ba63495f656f3181874ee61f74c05d1393447`. Both fresh checkouts
+stay clean, all tracked fingerprints remain unchanged, and the owned native
+Jobs settle with the verified 8 GiB memory guard. Application code, module pins
+and generated configuration in the combination match the corrected candidate.
+
+The earlier measurements remain historical. These new results close the
+covered local regressions after the direction correction; they do not resolve
+VIP's amount-growth requirement, authorize game-PR integration, supply real
+Mongo/complete-scenario evidence, publish the deferred archive or certify hosted
+CI/UI/Client/production-host readiness. Those gates remain pending.
