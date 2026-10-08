@@ -128,9 +128,10 @@ Feishu wiki/document access also passes below, with explicit content limits. His
 pending checkpoints below describe their state when recorded. Remaining gates:
 
 1. A real document-driven UI worker trial with usable requirements and an
-   operator-selected scope. The native profile reads linked wiki/docx objects
-   successfully, but the two measured documents return only headings; this does
-   not establish complete design content or UI-worker intake of that content.
+   operator-selected scope. The first two measured UI documents return only
+   headings. The later FARM-1419 read below retrieves substantive planning/UI
+   content through the current native runtime; UI-worker intake of that content
+   and a newly selected live scope remain untested.
    FARM-1396 item 2 and whole-card acceptance remain outside this item-1 trial.
 2. Separately scoped real Code later-stage acceptance: Common/config/hive and native
    generators, running-worker withdrawal, Client/closing Unity tests and the real
@@ -1968,3 +1969,65 @@ acceptance and separate enablement/deployment authorization. This is still the
 development Windows PC. No issue is mutated, no parked card or historical draft
 is resumed, and no production configuration, state, runtime, service, credentials,
 account or app settings are changed.
+
+### Substantive design read and proposed next Code scope (2026-10-08 Windows local)
+
+Read-only current Code-card discovery finds FARM-1419 as the open card assigned
+to the operator outside the two parked cards. It remains Backlog and undelegated.
+Its earlier TestBot grant explicitly limited work to stage A; that read-only
+analysis completed and the delegation was withdrawn. A generic development
+continuation is not recorded as permission to widen that named live grant.
+FARM-1419 is the proposed next card, not a newly started or approved Code job.
+
+Using its existing linked reference under the autonomous read-only selection
+grant, native Codex 0.160.0 and lark-cli 1.0.82 resolve the wiki and fetch the
+full planning document as the bot. The independently checked API envelopes
+both report `ok=true` and `identity=bot`. The fetch returns **43,431 UTF-8 JSON
+bytes**, document revision **236**, and **42,552 UTF-8 Markdown bytes / 30
+headings**, including substantive planning and UI sections. This advances the
+earlier heading-only access observation; it does not establish a new UI worker
+journey, current designer-source completeness or acceptance of all historical
+rules over later named Contract decisions.
+
+| Read | Command seconds | Entire run seconds | Response bytes |
+|---|---:|---:|---:|
+| Wiki resolution | 1.964 | 2.373 | 680 |
+| Full docx Markdown fetch | 2.111 | 2.531 | 43,431 |
+
+Both commands exit 0, with **4.904 seconds** total measured run duration.
+The same suspended startup, owned non-breakaway Job, fresh empty Codex home,
+effective native policy and exact-root checks apply. Child membership,
+empty-Job cleanup, dead child, settled RPC reader and unchanged profile metadata
+and registered runtime receipt are independently verified. Responses, complete
+document content, linked URLs, source hashes and UTF-8 logs remain private.
+No model turn, service start, credential setup or live issue mutation occurs.
+
+Pinned read-only source inspection identifies the existing gifting Contract
+and checks the associated follow-up
+[Farm-Contract #328](https://github.com/Kuaiwa-Network/Farm-Contract/pull/328).
+It remains an open draft at `220e618d3cd736b6f8cc747576bca7e5a0ca413a`, based on
+current Contract main `29e6cfe1430a7c7313febc642f95db4ea6c3fb18`, and GitHub reports
+it mergeable and clean. All **28** displayed hosted checks pass. The underlying
+[workflow run](https://github.com/Kuaiwa-Network/Farm-Contract/actions/runs/37422640372)
+is independently matched to that exact head and successful completion; the gates
+cover native Windows, macOS and Linux. The reviewed diff corrects the selected
+blessing/mail-template interpretation, preserves invalid-config refusal and
+frozen historical text, and changes no wire field, message or number. This is a
+Contract change requiring its human review/merge, not a FarmBot documentation PR.
+
+A bounded open-PR scan of the five configured repositories returns 8, 3, 7, 8
+and 4 PRs respectively, without hitting its 100-result cap. The related open
+follow-up identified by that scan is #328. The linked persistence dependency
+[hive-jelly #12](https://github.com/Kuaiwa-Network/hive-jelly/pull/12) is already
+merged as `424c70d860721cae54c7f49a271de0603cdd7b4e`; that state check does not
+certify its consumer pin or current backend acceptance. Preliminary discovery
+does not replace a worker's required fresh foreign-work/publication checks.
+
+The concrete proposed continuation is FARM-1419's remaining Code workflow, after
+the corrected Contract main is verified and the operator grants the later-stage
+scope. Ordinary human design/configuration, UI-ready and game-merge gates remain;
+workers draft only, never merge game PRs or publish configuration. No other issue
+is started and no designer value, player data or production integration is changed.
+FARM-1346 and FARM-1425 remain parked. The existing development runtime/profile
+is not changed by this preflight; production-host certification and separately
+authorized enablement/deployment remain pending.
