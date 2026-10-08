@@ -2206,3 +2206,41 @@ remains an open draft with human review/merge required by the operator's approve
 scope. Common/configuration, server, the explicit UI-ready gate, Client and
 closing/recovery verification remain pending. FARM-1346/FARM-1425 stay parked;
 production deployment and production resource changes remain unauthorized.
+
+### Human Contract merge and restored signed delivery (2026-10-08 Windows local)
+
+The operator reports the merge of
+[Farm-Contract #329](https://github.com/Kuaiwa-Network/Farm-Contract/pull/329).
+Independent current GitHub reads verify its unchanged tested head
+`8d7d26d280be8877b7987c7bf28414f334324f4b`, actual merge
+`4476168c2c63a639f67d7533f319522157c09949` and merge time 04:20:20 UTC.
+At this checkpoint the tested, merged and current-main trees are equal, and
+all 28 hosted checks remain successful. Only the gifting `tasks.md` changed.
+No game PR is merged by TestBot or this development agent.
+
+The authenticated operator's reply `5027a292-2cc7-4a66-8ed7-618de03441fd`
+transcribes that chat report in the existing TestBot thread. The development
+receiver records a real `AgentSessionEvent` / `prompted` response as 200 accepted;
+this path validates the webhook signature. Read-only ledger observation confirms
+the event is processed, the report reaches the original work item's inbox with
+the expected human author, and the worker consumes it. The existing session now
+has its original completed event and this completed prompt. Thus the replacement
+route has measured signed delivery, not only HTTP health or an operator's
+endpoint-update confirmation. No synthetic event or replacement session is used.
+
+The worker records the human merge, updates the Contract PR entry to merged and
+marks `stages.A` done. The controller completes the repository handoff to
+`common`: both Contract-attempt Jobs are empty, and a fresh Common-rooted native
+worker launches. Its root and all five observed descendants belong to its owned
+Job, with `gpt-6.1-sol` / `xhigh`. At this observation it has not yet claimed the
+queued item; the subsequent read confirms it claims the original item in the
+Common root. `stages.B` through `G` remain pending. This establishes a settled
+repository handoff, fresh launch and claim, not Common generation or later acceptance.
+The serving heartbeat is fresh and all six controller loops have zero consecutive
+errors. Development configuration and the frozen FarmBot runtime are unchanged.
+
+Ordinary named configuration input/publication, UI-ready, consumer verification
+and game-merge gates still apply. The separately selected document-driven UI
+journey and intended production-host release/recovery checks remain pending.
+FARM-1346/FARM-1425 remain parked; production deployment, credentials, accounts,
+player data and production resources are unchanged.
