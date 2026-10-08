@@ -2872,8 +2872,10 @@ in 48.652 seconds. All four named top-level tests run. The owned Job settles,
 the checkout stays clean and every tracked-file fingerprint stays unchanged.
 The UTF-8 Go JSON log has SHA-256
 `32717ed3f3c1d8be88998ff46b9ee998bfc450d0ee2bb8f57804d972d7f06135`.
-The worker's separate full Food and config package checks exit 0 in 67.770 and
-60.701 seconds; these are worker receipts, not additional independent coverage.
+The worker's full Food package check (437 pass outcomes) and focused
+config/recharge/gift selection (32 pass outcomes) exit 0 in 67.770 and
+60.701 seconds respectively, with no failures or skips. These are worker
+receipts, not additional independent coverage or a full config package run.
 
 The published backend drafts are [farm-hive #366](https://github.com/Kuaiwa-Network/farm-hive/pull/366)
 at `fc1475ec675be341b13280c91a74a031a3dbcbc2` and
@@ -2929,3 +2931,87 @@ publication, UI-ready, game PR human merges, Client/closing and production-host
 qualification retain their gates. These results measure the development PC,
 not production readiness. The running runtime and private configuration remain
 frozen; no production, credential/account or parked-issue changes are made.
+
+### Configured Food reward guard and recharge source investigation (2026-10-08 Windows local)
+
+The operator's latest instruction, relayed in original-thread comment
+`1e9adf40-846d-4abe-82ed-7b8e021985f7`, is to continue without addressing the
+Common configuration package now. Implementation and local native verification
+that do not depend on that published archive continue. The recorded archive
+404, publication/provenance and incomplete hosted backend CI stay pending;
+this instruction does not certify them or authorize configuration publication,
+UI-ready, game PR merges or production changes.
+
+Deleting the obsolete fixed Food reward assertion also removed
+`TestE2ERealFoodFirstRewardAdapted`, which F15 still named. Deliberately dropping
+first-reward adaptation then left the ordinary real cooking test passing in
+11.460 seconds: that remaining selection did not guard the configuration
+column. The separate [maintenance draft #369](https://github.com/Kuaiwa-Network/farm-hive/pull/369),
+exact commit `7dacf95a67e0b55b1b60419317c562b104148ad2`, restores the named
+adapter test with expectations decoded from the original embedded Food
+configuration. An independent absent/empty/nonempty input protects the adapter
+even if all real configured rewards are empty. Empty rewards remain valid;
+neither Food `20005` nor a five-coin reward is fixed by the test. F15 declares
+this adapter guard, and the cooking test retains its ordinary flow coverage.
+The three-file diff contains only tests, the F15 declaration and its design
+record. Application code, designer configuration and module pins are unchanged.
+The active worker tree is untouched; #369 and transaction maintenance #368
+remain drafts for the existing human game-PR integration gate.
+
+Independent exact-commit checks use native Windows, Go 1.25.1, the pinned
+native compiler, original offline module pins and `-race`. The final declared
+F15 baseline has 3 passing, zero failing and zero skipped test/subtest outcomes
+in 6.703 seconds. Applying F15's existing literal replacement from
+`adaptRowReward(r.GetFirstReward().GetRewards())` to `adaptRowReward(nil)`
+produces assertion failures in both named subtests and their parent: 0/3/0
+in 5.623 seconds. A compile failure is not substituted for a meaningful
+rejection. Every tracked source file is restored byte-for-byte, then the
+configured reward, cooking, empty-reward and repeat-reward selection passes
+13/0/0 in 11.723 seconds. Its UTF-8 Go JSON log has SHA-256
+`e22048defa08a1b11d8613c2f8fd09e260c81f8e46a30f3d4f3b873ef7f7eaa9`;
+the checkout stays clean. All owned Windows Jobs settle, retain kill-on-close
+and have the 8 GiB memory guard verified by API readback. No Bash, WSL, MSYS or
+MXC is used. The canonical Bash degradation harness remains unrun on this host.
+
+The first native compile exits 1 after 21.783 seconds because the host's
+temporary volume lacks space; no test assertion runs. The initial UTF-8
+failure log and receipt are preserved. Fresh, separately owned temporary and
+compilation-cache directories on an available volume resolve that host limit.
+No production cleanup, global environment change or live worker/runtime/cache
+mutation is performed. This is a development-PC result, not production-host
+qualification. Verified maintainer report `567ded7f-b227-4df6-b4aa-12bbce58812f`
+delivers the exact draft and measurements in the original selected thread;
+it is not a human approval or CI waiver.
+
+Read-only source investigation locates the existing C++ first-recharge
+producer at [ShopControl::recordRechargeOnDeliver](https://github.com/Kuaiwa-Network/farm-server/blob/d790916f8d9b2a62263395bbea5b4afed15c68c4/source/inks/shop/ShopControl.cpp#L65),
+freezing farm-server main `d790916f8d9b2a62263395bbea5b4afed15c68c4` and checking
+Git blob identities. It records the amount in fen under recharge total,
+first/last time, dispatches the shared after-recharge event and dispatches
+first-recharge only once, reserving the session flag before events. The selected
+published Go candidate already has `RecordComp` but only dispatches the
+after-recharge event. Maintainer report `d79eefb6-b643-4fda-862b-1dcb09a8de8f`
+provides this concrete source and existing Go component to TestBot, preserving
+actor/revision, atomicity and idempotency. It does not authorize copying the
+old asynchronous static-write implementation. The worker is implementing
+the shared first-recharge path; mutable-source checks do not certify a frozen
+published candidate.
+
+The already fetched original Feishu document remains revision 236, 42,552
+Markdown bytes, SHA-256
+`a05a1317e3c106ab5c3fc06751ae7c3b3cfb03415dd5e5bd0eca60f4e660c79b`.
+Its payment rule requires sender cumulative recharge, VIP growth and first
+recharge to behave identically to self-purchase, with no corresponding receiver
+progress. VIP source investigation continues: the inspected client privilege
+projection exposes monthly-card benefits/expiry, which cannot establish an
+amount-growth consumer. Neither absence nor completion of that consumer is
+inferred from the partial inspection; no guessed monetary field is introduced.
+
+Stage D and release prerequisites remain pending: verified complete voucher
+progress integration, complete 29-scenario coverage, required real services,
+successful backend CI after named archive publication, human game-PR
+integration and UI-ready, Client/closing and production-host qualification.
+The development contract's new-project/no-legacy-production-data assumption
+is unchanged; this source investigation adds no invented historical game-data
+migration requirement. Production, private runtime/configuration, credentials,
+accounts and parked issues are unchanged.
