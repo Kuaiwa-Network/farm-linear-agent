@@ -3132,20 +3132,22 @@ VIP's amount-growth requirement, authorize game-PR integration, supply real
 Mongo/complete-scenario evidence, publish the deferred archive or certify hosted
 CI/UI/Client/production-host readiness. Those gates remain pending.
 
-### Approved maintenance integration and monthly-card ruling (2026-10-08)
+### Approved maintenance integration and withdrawn interpretation (2026-10-08)
 
 The operator replies in the Codex conversation: "1. 沿用月卡行为 2. 批准".
-The first answer resolves the previously recorded VIP requirement question:
-gifting follows existing monthly-card validity and benefits; no amount-based
-VIP-growth counter is introduced. Cumulative recharge and first recharge still
-use the shared existing recharge path, with once-only sender accounting,
-amount units, atomic commit and rollback preserved. The receiver gains no
-corresponding recharge or VIP progress. Verified original-thread reply
-`0c87abe9-652b-4cfa-a2e1-e757d9457cfe`, authored by the operator's Linear identity
-on 2026-10-08 at 13:46:18 UTC, transcribes both decisions and their scope.
-The accepted Contract's contradictory amount-growth wording needs a focused
-Contract follow-up draft and its ordinary human main-merge gate; this decision
-does not falsely establish that a contract correction has already merged.
+The maintainer then expands the first answer into a monthly-card validity and
+benefits rule. That expansion is a maintainer interpretation, not an operator
+decision about monthly-card duration. It is withdrawn by the operator's
+2026-10-09 terminology correction recorded below: "VIP 成长" in this gift
+scenario means sender cumulative recharge, using the same statistic rather
+than an additional VIP money-experience or level counter. Shared first-charge
+handling, units, once-only accounting, atomicity and rollback remain required.
+Original-thread comment `0c87abe9-652b-4cfa-a2e1-e757d9457cfe`, posted through
+the operator's Linear identity on 2026-10-08 at 13:46:18 UTC, contains the
+maintainer's expanded interpretation as well as the actual replies. Its
+monthly-card expansion and conversation message 34 are retained as history,
+but are not evidence of an additional operator design ruling. The Contract
+follow-up remains subject to the ordinary human game-main merge gate.
 
 The second answer explicitly approves merging only maintenance
 [#368](https://github.com/Kuaiwa-Network/farm-hive/pull/368) and
@@ -3177,11 +3179,12 @@ Both maintenance PRs are verified MERGED. Backend
 at the integrated head, and farm-hive main remains
 `feee46cbb1336efeb1019638638e11fd7bd76ff0`. No game main PR is merged. Neither
 the active worker checkout nor its checkpoint/ledger is manually edited.
-The original TestBot session receives the verified ruling and integration
-report and is observed queued for continuation through its normal controller.
+The original TestBot session receives the integration report and the then-
+recorded interpretation and is observed queued through its normal controller.
 
-This development-PC result closes the two maintenance integration decisions
-and supplies the VIP ruling; it does not certify production-host readiness.
+This development-PC result closes the two maintenance integration decisions.
+The accompanying VIP interpretation is superseded by the 2026-10-09 correction
+below; this result does not certify production-host readiness.
 Real-service/Mongo execution, complete 29-scenario acceptance and full failure
 attribution, current feature UI-ready and client integration, configuration
 archive/provenance/hosted backend CI, game main merges and production release
@@ -3248,17 +3251,22 @@ original-thread reports `d9b85aef-b1da-4d32-8638-b7f2c34eb748` and
 `4555e002-4a81-43b4-be4d-3d0530c25e2d` give the TestBot this evidence.
 
 The normal controller subsequently hands this same selected issue back to a
-fresh Contract worker for the operator's monthly-card text correction. Its
+fresh Contract worker for the maintainer's then-recorded monthly-card text
+correction, whose interpretation is withdrawn on 2026-10-09 below. Its
 checkpoint records integrated backend head `aee99258`; the backend issue
 checkout is restored cleanly. This observed handoff is not proof that a new
 Contract PR or its human main-merge gate has completed. The earlier Common
 package deferral and all real-service, full-scenario, UI/client and production
 qualification gates remain in force.
 
-### Monthly-card Contract correction prepared and verified (2026-10-08)
+### Historical monthly-card draft checks; interpretation withdrawn (2026-10-08)
 
-The original selected TestBot session resumes under the operator's verified
-monthly-card ruling and adopts the approved backend maintenance head
+These measurements apply to the historical draft below. The maintainer's
+monthly-card interpretation is withdrawn on 2026-10-09; passing structural
+checks did not make that interpretation an operator design decision.
+
+The original selected TestBot session resumes under the then-recorded
+interpretation and adopts the approved backend maintenance head
 `aee99258a2de5b72edaba38399d42b8567173975`. It restores its backend issue
 checkout cleanly and uses the normal controller handoff to a fresh worker
 rooted in Farm-Contract. Neither the maintainer nor a backend worker manually
@@ -3270,13 +3278,14 @@ have already merged upstream, and prepares exact commit
 `a6d898b8181aa6effb3d743e1e7db1e4abd54e9b` on the selected issue branch.
 The focused [Contract draft #331](https://github.com/Kuaiwa-Network/Farm-Contract/pull/331)
 changes only the existing gifting proposal, design, tasks and gifting delta.
-It records original-thread decision `0c87abe9-652b-4cfa-a2e1-e757d9457cfe`
-under the actual operator and date, preserves historical rulings, removes the
-amount-growth interpretation for VIP, and retains shared sender cumulative/
-first-recharge accounting at 100 fen per voucher. Monthly-card validity and
-benefits follow existing behavior; atomic rollback and order idempotency
-remain required. No protocol field, configuration declaration or economic
-value is added. All 29 scenario names and their count are unchanged.
+That historical draft uses original-thread comment
+`0c87abe9-652b-4cfa-a2e1-e757d9457cfe` to express the maintainer's monthly-card
+interpretation and retains shared sender cumulative/first-recharge accounting
+at 100 fen per voucher, atomic rollback and order idempotency. The comment's
+expanded interpretation was incorrectly attributed as an operator ruling;
+that attribution and wording are corrected on 2026-10-09 below. No protocol
+field, configuration declaration or economic value is added. All 29 scenario
+names and their count are unchanged.
 
 All twelve required native Windows Contract gates return zero at the exact
 commit: buf build/lint, breaking-waiver, manifest, markers, message naming,
@@ -3292,7 +3301,8 @@ five IN_PROGRESS. Those hosted statuses are a measured snapshot, not a claim
 that every CI check passed. Contract main merge is still pending the selected
 issue's explicit human game-main merge gate: the preceding approval allowed
 only backend maintenance #368/#369 into the feature draft. This Contract
-correction is ready for that concrete review; it is not an assertion that
+draft was published for review and is subsequently corrected below; it does
+not establish that
 backend stage D, UI/client integration, complete scenario acceptance or
 production release qualification has finished. Common publication remains
 deferred, and all previously measured Windows failures remain recorded.
@@ -3390,3 +3400,98 @@ game-main merge gate remains pending. Existing Windows baseline failures,
 complete scenario acceptance, Common publication/provenance/hosted CI,
 UI-ready/client integration, review splitting and production-host qualification
 all retain their individual outstanding status.
+
+### Operator terminology correction published (2026-10-09)
+
+The operator asks "vip金额成长是啥 她意思应该就是累计充值吧" and, after
+the maintainer explains the proposed terminology correction, explicitly says
+"纠正吧". Verified [original-thread source](https://linear.app/kuaiwagames/issue/FARM-1419/好友花圃赠礼开发#comment-d103d57a)
+`d103d57a-5f44-4c1b-b906-e24e9e16ee19` relays these actual replies through
+the operator's Linear identity on 2026-10-09 local time. The correction is:
+
+- "VIP 成长" here means the sender's cumulative recharge statistic. It uses
+  the same record, without duplicate booking or a separate money-experience
+  or level counter.
+- Gift spending reuses the shared self-purchase recharge path and existing
+  first-charge determination, at N times 100 fen for N spent vouchers, once
+  per order. The recipient receives no corresponding recharge progress.
+- Cumulative accounting does not imply that an ordinary gift opens or renews
+  a monthly card. Existing monthly-card goods/reward configuration is not
+  changed. The maintainer's former duration/benefits expansion is withdrawn,
+  not recast as a separate operator design decision.
+- Shared atomic commit, whole-order rollback, retry idempotency and no fake
+  channel callback remain required. Original P1/P-06 and revision 236 history
+  are retained, not reassigned to a new respondent.
+
+Fresh GitHub inspection confirms the existing
+[Contract draft #331](https://github.com/Kuaiwa-Network/Farm-Contract/pull/331)
+is OPEN/draft at `a6d898b8181aa6effb3d743e1e7db1e4abd54e9b` before writing.
+An independent development checkout prepares a documentation-only correction
+on `codex/farm-1419-cumulative-contract-correction`, then fast-forwards the
+existing `farmbot/farm-1419` PR branch to
+`5416d3576a2901f2a960badab0d26ef08a24758b`. The base remains
+`acdc15286d79f8d09a3e9183b3f94ea0c150f18e` and the tree is
+`a94f46d960e600b9dbff555a5350f0360c7bdea3`. The title and body are corrected
+around cumulative recharge; the old commit and logs remain historical.
+Only proposal, design, tasks and the gifting delta change. Protocol, manifest,
+tools, configuration and economic values are unchanged; all 29 scenario names
+and their count remain identical to the accepted baseline.
+
+On this development Windows PC, all twelve existing README native Contract
+commands pass on that exact committed head. Tools are Python 3.13.16,
+Git 2.54.0.windows.1, Buf 1.72.0, Node v24.19.0 and OpenSpec 1.7.0; the Buf and
+OpenSpec pins are checked against the candidate workflow. Child environments
+omit inherited live selectors/authentication and use owned scratch/cache/temp
+directories. Native subprocess trees are assigned to owned Windows Jobs before
+execution and are verified settled with the 8 GiB guard; Bash/WSL/MXC is not
+used. Tracked-file fingerprints stay unchanged and the checkout stays clean.
+The existing commands are `buf build`, `buf lint`, followed by
+`python -I -X utf8 -B` with `check-breaking-waiver.py BREAKING_WAIVERS
+origin/main`, `gen-manifest.py --check`, and the remaining
+Python tools named below under `tools/`. The selected Python executable is
+used explicitly; private executable and checkout paths are not published.
+
+| Gate | Tool | Exit | Duration | UTF-8 log SHA-256 |
+|---:|---|---:|---:|---|
+| 1 | `buf build` | 0 | 0.069 s | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| 2 | `buf lint` | 0 | 0.100 s | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| 3 | `check-breaking-waiver.py` | 0 | 3.475 s | `0e8495a6814aed321d4f031d131cf19a83a5d57c18c4d327015f5758b27729c7` |
+| 4 | `gen-manifest.py` | 0 | 0.091 s | `506f1aa0ec1d18720a29348621195bcfbe90bb90c4e921e386620b95e6fbf8a6` |
+| 5 | `check-markers.py` | 0 | 0.173 s | `86e262f5368050e41ef72e05829fab4345767bffca4a438f76693f14cb2a6751` |
+| 6 | `check-msg-naming.py` | 0 | 0.069 s | `462ed55d2b62cb3bf2091cfbfb161acb3d60be89529302fef1a56be9d300f664` |
+| 7 | `check-proto-fields.py` | 0 | 0.122 s | `3643f69ebc44674f10fe5c117046a2003f2862ce65bdd08e59061001dffd3d56` |
+| 8 | `check-coverage.py` | 0 | 0.079 s | `29786146a45182143693f9e01561f4ba3c2278a65fa94f922a2b8426bf1a23d0` |
+| 9 | `check-spec-provenance.py` | 0 | 0.111 s | `1ec7ed86b48eea81824f2a3e5f544d56cd6ef82db4ce300ccf43b50d9d610ee2` |
+| 10 | `check-readme-inventory.py` | 0 | 0.058 s | `66c541dc6711646ce95243035b6864c4bbf41a7e420bb65c0ca53923ea1091e4` |
+| 11 | `check-openspec-config.py` | 0 | 0.059 s | `c10edd5b26399bc9eeb0f7ac597e2269cbeb789f21b7be5d00eeed2b513ec5a2` |
+| 12 | `check-openspec-validate.py` | 0 | 0.701 s | `d1776026e76cbbea7db21155d4c9027c3f43264c625d1cf0f87b6087d3401183` |
+
+Total gate duration is 5.229 seconds. OpenSpec reports 52 passed / 0
+failed; unchanged existing `skip_specs` exclusions `login-milestone2` and
+`remaining-protocol-drafts` are not covered. Coverage gate A uses the committed
+`cmd-registry.snapshot.tsv` as its mandatory universe; optional `farm-common`
+is absent, so its drift comparison does not run. No exclusion or skip is added
+to pass this correction. Initial gate 3 rejects the temporary clone's Git
+object alternates. The maintainer copies all objects into that independent
+clone, removes only its owned alternates file, passes `git fsck --full`, verifies
+the identical commit/tree, and reruns all twelve commands. The original failure
+and first three gate logs are retained; no trust rule is weakened.
+
+Verified original-thread delivery `334ce5d4-a7b4-4294-ad8f-a96a4c0152c1`
+supplies the TestBot the exact corrected candidate and asks it to verify the
+consumer implementation and update its binding/map through the normal process.
+The earlier 29-row mapping and 275/0/10 plus 114/0/0 backend measurements refer
+to old Contract `a6d898b8` and consumer `1ad3e576`; they remain unchanged and
+do not automatically certify a new Contract/consumer pair. No active worker
+checkout, ledger or checkpoint is manually edited. The selected worker is
+observed running its backend continuation; this documentation does not claim
+that its new candidate or focused check has passed.
+
+#331 remains OPEN/draft and is not merged into game main. Its former 28
+successful hosted checks apply to the old head, not this new commit. Complete
+scenario/real-service acceptance, the selected issue's human game-main merge
+gate, formal review splitting, deferred Common archive/provenance/complete
+backend CI, UI-ready/client integration and production-host release
+qualification remain individually pending. This correction changes neither
+runtime nor app settings, credentials/accounts, service state, production data
+or parked issues. Development-PC results do not certify production readiness.
