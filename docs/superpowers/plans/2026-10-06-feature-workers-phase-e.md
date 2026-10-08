@@ -3296,3 +3296,97 @@ correction is ready for that concrete review; it is not an assertion that
 backend stage D, UI/client integration, complete scenario acceptance or
 production release qualification has finished. Common publication remains
 deferred, and all previously measured Windows failures remain recorded.
+
+### Shared-store wiring candidate independently verified (2026-10-08)
+
+The selected TestBot resumes backend work and updates
+[draft #367](https://github.com/Kuaiwa-Network/farm-hive/pull/367) to exact
+candidate `1ad3e57630d335c83e1d0afe84444f8e517a9256`. Its 15-file increment from
+approved maintenance head `aee99258` binds the ordinary player and gift paths
+to the same revision-guarded store, validates distinct receipt/chat collections,
+drains admitted gift I/O before module/Mongo shutdown, and checks existing
+monthly-card validity through real configuration. Original maintenance merges
+remain ancestors; module pins and generated inputs are not changed in this
+increment. The Mongo commit/replay/stale-write/late-rollback case compiles but
+does not execute its assertions without a replica set.
+
+On this development Windows PC, a separate fresh checkout freezes the exact
+published candidate. Independent verification uses native Go 1.25.1, the
+previously pinned native GCC/CGO compiler, original offline dependency versions,
+`GOWORK=off`, `-mod=readonly`, and `go test -p 1 -race -timeout 120s -json
+-count=1`. All service selectors are absent; no shared or player database is
+selected. This is development evidence, not production-host certification.
+
+| Independent selection | Passing outcomes | Failing | Skipped | Duration |
+|---|---:|---:|---:|---:|
+| Complete `./server` package | 275 | 0 | 10 | 92.295 s |
+| Exact published gift/config/store/host/mail/chat/F15 selection | 114 | 0 | 0 | 54.769 s |
+
+Counts include subtests. Both owned Windows Jobs settle with the verified 8 GiB
+memory guard; all tracked-file hashes remain unchanged and the checkout stays
+clean. The UTF-8 Go JSON SHA-256 values are
+`72f4768c8062e1f58c39eea98a4f714e9ce685677f05addd8606eb9f7752c388`
+and `6925dc455dddba101bb84d52379a3626f87545a2e4e820b0c1f1690cb0c1de5c`.
+These new independent results are separate from the worker's same-candidate
+275/0/10 in 60.419 s, 114/0/0 in 48.691 s and scanner 11/0/0 in 23.337 s.
+The maintainer checks the worker's six published test/build/vet/crosscall log
+hashes and exact SHA; its whole-repository build/vet and existing CI callname
+crosscall selection return zero. No full-repository test pass is claimed.
+
+Every skip in the independent server run is preserved:
+
+- `TestGuildClusterDefaultsToSingleProcessAfterBoot`
+- `TestGuildHostWiring`
+- `TestMongoStoreVariant`
+- `TestFriendClusterChild`
+- `TestFriendClusterRealDispatch`
+- `TestGardenGiftMongoBootCommitsReplaysAndRollsBackLateFailure`
+- `TestPayWakeClusterChild`
+- `TestPayWakeRealDispatch`
+- `TestGateChainEndToEnd`
+- `TestGuildClusterEnabledIsWiredThroughBoot`
+
+Two entries are private subprocess helpers. The two guild-default/host entries
+skip because the shared memory boot fixture does not install the guild host;
+the remaining six entries lack real Mongo, Redis or cluster inputs. None is
+credited as successful Mongo/cluster acceptance.
+The worker's first full-server check at `0e4bed24` fails the unchanged factory
+configuration inventory assertion because the new order collection is missing
+from the template. It fixes the template at `f49ad35f`; the original 274/1/9
+result remains retained. No skip or containment/ownership check is relaxed.
+
+The worker maps all 29 original Contract scenarios to concrete delta,
+Requirement/Scenario names, input SHAs, tests and missing acceptance portions.
+The maintainer independently verifies all 30 distinct referenced test receipts
+against the actual passing JSON events and log hashes at this exact consumer
+commit. Every row remains `PARTIAL_LOCAL_PASS`; this mapping does not execute
+the outstanding Mongo concurrency, unknown commit/replay, real cross-node or
+client/UI behavior. The private JSON mapping SHA-256 is
+`04f165731b64f18f59a8220e11e3900695e9c2708b915c3d08fff538932abd4a`.
+
+Fresh inspection of [same-candidate main CI](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37800749740)
+confirms the build fails at the designer pin gate with HTTP 404; it does not
+reach the downstream business checks. Four native generation/provenance
+workflows succeed. The operator's Common publication deferral continues;
+merge of the Common source is not publication or a CI waiver. This draft still
+includes unmerged #366 and exceeds the repository's approximately 3,000-line
+handwritten-diff review limit, so formal splitting and review remain required
+before game-main merge.
+
+The worker settles with the issue checkout clean, no active worker, all owned
+Jobs empty, and stage D pending at the closing-input gate. A dedicated,
+disposable Mongo replica set, Redis, etcd and NATS environment is still required
+for the remaining native Windows acceptance. None of those service executables
+or Docker/Podman is found on the selected sanitized native-tool PATH; this is a
+PATH capability observation, not a search of production settings. No service,
+account, credentials, app settings, workflow rerun or production data is changed.
+
+At this snapshot, [Contract #331](https://github.com/Kuaiwa-Network/Farm-Contract/pull/331)
+is still OPEN/draft at `a6d898b8`, with all 28 hosted checks successful. Its
+previously measured OpenSpec validation excludes the two unchanged existing
+`skip_specs` entries `login-milestone2` and `remaining-protocol-drafts`; 52/52
+does not claim coverage of those exclusions. The selected issue's human
+game-main merge gate remains pending. Existing Windows baseline failures,
+complete scenario acceptance, Common publication/provenance/hosted CI,
+UI-ready/client integration, review splitting and production-host qualification
+all retain their individual outstanding status.
