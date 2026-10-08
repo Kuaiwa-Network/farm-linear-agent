@@ -139,7 +139,9 @@ pending checkpoints below describe their state when recorded. Remaining gates:
    [Phase C plan](2026-10-06-feature-workers-phase-c.md) distinguishes implemented
    offline behavior from this pending live journey. The approved FARM-1419 native
    Windows journey has started below; later-stage acceptance is still pending,
-   and parked cards stay parked.
+   and parked cards stay parked. Its Contract task-list draft #329 passes the
+   exact-candidate gates below and awaits human review/merge. External runtime
+   interruption and development webhook/recovery state are recorded separately.
 3. Intended production-host tools, licensed exporter, native runtime, selected
    account/profile/permissions, Git/LFS, dependency restore/cache, cold Editor
    startup and release/recovery acceptance, followed by separate authorization for
@@ -2096,3 +2098,81 @@ The subsequent checkpoint enters `contract` with stages A through G pending;
 no game PR has been published at that checkpoint. Normal human gates remain.
 No Bash/MSYS/WSL/MXC route is selected. FARM-1346 and FARM-1425 remain parked;
 production enablement and deployment remain separately authorized release work.
+
+### Contract draft and external runtime interruption (2026-10-08 Windows local)
+
+The native Code worker publishes
+[Farm-Contract #329](https://github.com/Kuaiwa-Network/Farm-Contract/pull/329)
+at `8d7d26d280be8877b7987c7bf28414f334324f4b`, based on merged #328
+`a9b444337721125b75067d635a4b0f816ee60cc3`. Only the existing gifting change's
+`tasks.md` changes: current ledger handoffs, MailInfo Client export declarations,
+the human UI dependencies and the complete 29-Scenario consumer acceptance map.
+No gameplay ruling, wire field, message, designer data or economic value changes.
+The candidate is clean; all twelve final native Windows gates are independently
+matched to this committed HEAD and exit 0. All 28 hosted checks also succeed
+at this unchanged PR head. It remains an open draft requiring human review/merge;
+downstream implementation and game acceptance are pending.
+
+The initial baseline report retains an additional failed invocation of
+`tools/check-msgid.py` (exit 2, missing file). README actually documents the
+non-gate helper under the remaining-protocol-drafts change. A separate native
+host focused run uses that documented entry point on the proto and proto-draft
+directories: 79 proto files, exit 0, 0.057 seconds and unchanged inputs. The
+failed worker invocation remains preserved. This corrects an invocation error,
+not an application regression or missing standard gate; it neither adds a skip
+nor replaces worker-context or downstream verification. The public draft body
+is sanitized to remove a host-root line and distinguish these measured results;
+the private original is retained and the draft head stays unchanged.
+
+Across an external desktop-package change, the selected Codex 0.160.0 file
+disappears. The recorded development controller, old TestBot proxy and shared
+development Editor are absent, and the existing worker Job is empty while its
+ledger row still says running. At the first read the heartbeat is 500.33 seconds
+old and the development receiver has no listener. These observations establish
+an interrupted run; they do not establish the exact process-termination cause.
+The committed draft, original session, checkpoint, claim history and all earlier
+evidence remain intact. All 26 recorded worker Jobs are independently empty;
+the interrupted root is dead, all five owned clone checks pass, and no reservation
+is open. Production configuration/state is not inspected or copied.
+
+The installed replacement is signed Codex **0.162.0-alpha.2**, SHA-256
+`3553cd6e7df5a093d8cb8301cd8088a57e0971aba71ddbe0e67f7f44a15cdf68`.
+Its prerelease status is explicit. Separate contained checks precede development
+recovery: the actual `gpt-6.1-sol` / `xhigh` model-only probe exits 0 with the exact
+readiness response in 11.265 seconds, leaves its work directory unchanged and
+settles its owned Job. A new command-only Feishu fetch checks suspended startup,
+membership and effective native unelevated workspace/network policy; the full API
+envelope independently reports `ok=true`, `identity=bot` and document revision
+236. It returns 43,431 bytes in 1.795 command seconds / 2.174 whole-run seconds,
+with empty-Job cleanup, dead child, settled reader, unchanged profile metadata
+and unchanged registered-runtime receipt. No Codex auth is seeded for that fetch.
+These limited compatibility results do not certify production use of this CLI
+or a resumed downstream feature stage. The 0.160 measurements are not repinned.
+
+New private wrappers pin the same frozen FarmBot source, unchanged development
+configuration and verified replacement CLI. Read-only Job/ledger observation and
+Git/documentation tooling no longer require the removed historical executable;
+runtime launches retain their own version/hash checks. The development controller
+is restarted with verified interpreter, owner, ancestry and listener. Health is
+200, the serving heartbeat is fresh and all six loops have zero consecutive errors.
+Recovery uses the existing controller mechanism after the original 45-minute
+claim lease expires; no lease, token, checkpoint or ledger row is manually changed.
+The interrupted row remains running at this checkpoint, so recovery completion
+and a new actual worker attempt are not claimed.
+
+The selected old development proxy is confirmed absent; no unrelated proxy is
+changed. A replacement pinned native quick tunnel forwards only to the verified
+development receiver and its external health response is 200. Its new webhook
+URL is retained in a private local operator file. Linear app settings are not
+changed: the operator must update only TestBot's development webhook endpoint
+before incoming signed replies are considered restored. No replacement issue
+session or synthetic webhook is created.
+
+Remaining steps are that manual webhook update, normal claim-fenced recovery and
+human Contract draft review/merge, followed by the pending Code stages, separately
+selected document-driven UI trial and intended production-host release/recovery
+acceptance. Desktop-dependent executable selection and development process
+lifetime require explicit release planning; a healthy replacement proxy is not
+an end-to-end webhook or production readiness certificate. FARM-1346/FARM-1425
+remain parked, and production deployment, settings, credentials and accounts
+remain unchanged.
