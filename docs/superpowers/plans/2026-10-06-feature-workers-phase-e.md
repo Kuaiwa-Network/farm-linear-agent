@@ -2516,3 +2516,89 @@ UI journey, prerelease CLI qualification, cold Unity startup and intended
 production-host release/recovery checks remain pending. These are development-PC
 measurements. Production deployment is unauthorized; the frozen TestBot source,
 development configuration and parked FARM-1346/FARM-1425 are unchanged.
+
+### Resumed native backend artifacts and failed race suite (2026-10-08 Windows local)
+
+The resumed worker independently verifies the prepared module cache and refreshes
+its backend baseline to `883bb1f4b5035ce7c77d899176d934d80ab3cfca`.
+Native configuration generation now succeeds without downloading dependencies.
+It commits the regenerated consumer outputs and local source pin at
+`72899f35f313aa85eab1e237623c42e96c23a153`. Independent trusted-worktree reads
+verify every one of the 368 committed artifact hashes, the selected source
+version `2026-10-08.93b0d17` and a clean worktree. This proves the consumer
+artifacts, not completion of the gifting implementation or configuration publication.
+
+The retained UTF-8 results distinguish successful checks and failed attempts:
+
+| Resumed native check | Result | Seconds |
+|---|---|---:|
+| Prepared module-cache verification | Exit 0 | 0.826 |
+| Exact designer-source digest | Exit 0 | 11.343 |
+| Configuration generation | Exit 0 | 29.129 |
+| Build / vet | Exit 0 / 0 | 17.302 / 8.530 |
+| Committed configuration manifest | Exit 0 | 1.154 |
+| Local designer-pin check | Exit 0 | 23.508 |
+| Configuration reproduction, first attempt | Exit 1; native read-only Git command fails | 76.685 |
+| Focused configuration diagnostic / final gate | Exit 0 / 0; all 368 artifacts match committed bytes | 50.342 / 37.569 |
+| Cross-call lint | Exit 0 | 14.290 |
+| Owner document / API / store gates | Exit 0 / 0 / 0 | 0.504 / 0.275 / 0.285 |
+| Contract provenance / message gates | Exit 0 / 0 | 3.199 / 11.754 |
+| Actual backend race suite | Exit 1; owned Job settled | 367.738 |
+| Focused food-configuration recheck | Exit 1 | 27.981 |
+
+The successful native reproduction reruns retain the same committed head and
+unchanged implementation. The failed first attempt remains preserved; the exact
+cause of its read-only Git failure is not established. No containment or source
+check is bypassed. Build/vet results at the refreshed baseline are separate from
+later implementation acceptance and do not certify code that has not yet been written.
+
+The actual Go race suite runs with the prepared native compiler. Its JSON stream
+reports 10,244 passing, 41 failing and 359 skipped test/subtest outcomes; these
+counts include parent and nested outcomes and are not 10,644 independent tests.
+There are 39 failed package outcomes, with named test failures reported in eight
+packages. The remaining failed package outcomes cannot be called passing or
+skipped. The log includes a native test-executable startup failure reporting
+"not a valid Win32 application". No `WARNING: DATA RACE` is present, but failed
+and incomplete execution does not establish a clean race suite. The retained
+UTF-8 JSON log has SHA-256
+`474557c559b3940661224794412d4e01f4708b46c36452c4664aca44b2715817`.
+An independently parsed private report preserves every failed package, named
+failure, skip name and reason. No new skip is added and no failed outcome is
+rewritten as an unavailable-host pass.
+
+Measured failure categories include tests invoking Linux shell scripts, native
+Windows timezone and socket assumptions, an `.invalid` DNS assumption that does
+not hold on this host, actor-call timeouts and a designer-data/test expectation
+mismatch. The shell-test failures are retained; Bash/MSYS/WSL is not installed
+or enabled to make them pass. Failed actor, socket and executable checks remain
+under focused investigation rather than being labeled application regressions
+or harmless host limitations without evidence. Linux/service-backed CI remains
+necessary evidence; these Windows results do not replace it.
+
+At the selected Common commit, the actual Food sheet's `20005` row leaves
+"首次制作奖励" empty. The existing tests `TestE2ERealFoodFirstRewardAdapted`
+and `TestE2ERealFoodMakeFlow` expect `COIN(1)` times 5, and their focused recheck
+fails. This establishes a current input/test-expectation conflict; it does not
+establish the intended designer value or a gifting regression. The agent does
+not invent that value, edit designer/global data, weaken assertions or approve
+a waiver. The prior FARM-1436/FARM-1440 reports remain separate historical
+observations, and those cards are not started or changed.
+
+Most recorded skips concern unavailable Mongo/Redis-backed integration fixtures;
+the full skip inventory remains in the private parsed report. Skipped service
+coverage, helper-probe skips and any configuration-dependent skip remain
+untested. No service, credentials or environment settings are created to turn
+them into an apparent pass. Actual gifting scenario coverage, backend CI and
+stage-D acceptance remain pending.
+
+The existing-thread developer report `41c5aa33-8cc4-4093-8003-36e6b8ba38af`,
+created at 07:44:17.528 UTC, preserves the failed suite and recommends continuing
+only the already-authorized gifting work independent of those baseline issues.
+It explicitly grants no new human design, waiver, publication, UI-ready, game
+merge or production approval. Failed checks remain acceptance blockers; no
+next-stage handoff is certified by this report. At this observation the same
+selected item remains running in its owned native Job, with its five prior
+Jobs empty and no backend PR recorded in its plan. Named human gates, Client,
+closing and intended production-host qualification remain pending. These are
+development-PC measurements; the frozen runtime, development configuration,
+production installation and parked FARM-1346/FARM-1425 remain unchanged.
