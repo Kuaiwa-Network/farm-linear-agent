@@ -2795,3 +2795,51 @@ acceptance are not certified. Named publication, UI-ready and game merge gates,
 Client/closing, schema migration/recovery planning and production qualification
 remain pending. The runtime and development configuration remain frozen; no
 production, credential, account or parked-issue changes are made.
+
+### Handler wiring and login-order regression (2026-10-08 Windows local)
+
+The same selected worker continues stage D with uncommitted handler and server
+wiring changes on top of `6fd4919277ee05bf671f379fe8c61eeca0141f4f`.
+These worker results measure mutable development source. A result file's HEAD
+label is not a frozen candidate identity, and the earlier independent checks
+do not cover this new batch.
+
+The real handler actor race check exits 0 in 13.390 seconds. The first
+production-module list check exits 1 in 8.913 seconds because the new module
+is absent from the declared end-to-end harness list. Adding it to that harness
+retains the list comparison and passes the focused check in 8.946 seconds.
+The new frontend/config/mail selection then reports 24 passing, zero failing
+and zero skipped test/subtest outcomes in 26.113 seconds, including the four
+typed request handlers exercised through real user-owner turns and memory
+stores. Build and vet exit 0 in 4.441 and 1.908 seconds. These checks do not
+establish the complete 29-scenario acceptance or real Mongo execution.
+
+The first existing-login regression selection exits 1 in 7.231 seconds.
+`TestLoginDuplicateKicksOld`, `TestReloginReadsBack` and
+`TestNewModulesLoadedOnRealBootPath` each receive `NewMail_Ntf` where the
+established login sequence expects `CloseFriendTeamSelf_Ntf`. The new module
+is moved after its already-started dependencies in the harness, preserving
+the existing login assertions and registration order. The corrected selection
+reports five passing, zero failing and zero skipped outcomes in 9.436 seconds.
+All original failure receipts and UTF-8 logs are retained privately; no skip
+or relaxed assertion is used to get a pass.
+
+Independent comparison freezes a separate development checkout at the previous
+exact commit `6fd4919277ee05bf671f379fe8c61eeca0141f4f` and runs
+`go test -race -json -count=1 -run '^(TestLoginDuplicateKicksOld|TestReloginReadsBack|TestNewModulesLoadedOnRealBootPath)$' ./server`.
+It uses sanitized native Windows child inputs, offline module resolution and
+an owned Job that settles. All three tests pass with zero failures and zero
+skips in 31.022 seconds, and the frozen checkout remains clean. This confirms
+the previous candidate passes those checks; it does not independently certify
+the mutable correction. Its UTF-8 Go JSON log has SHA-256
+`b5d1b61058823f62f078dfaa9a90e93527fe73cfe1b0d4d1700198bc68eb9aad`.
+
+Server registration currently leaves gift economics unavailable until the
+transaction service and guarded-store/progress wiring are installed. Stage D
+remains pending. Exact-commit verification of the new batch, authoritative
+VIP-growth/first-top-up mappings, the Food `20005` decision, complete scenario
+coverage, real database/service CI and schema migration/recovery planning
+remain release prerequisites. Human configuration publication, UI-ready and
+game PR merges, Client/closing and production-host qualification retain their
+gates. These measurements are from the development PC; the active runtime,
+production, credentials and parked issues are unchanged.
