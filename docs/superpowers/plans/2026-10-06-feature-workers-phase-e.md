@@ -3254,3 +3254,45 @@ checkout is restored cleanly. This observed handoff is not proof that a new
 Contract PR or its human main-merge gate has completed. The earlier Common
 package deferral and all real-service, full-scenario, UI/client and production
 qualification gates remain in force.
+
+### Monthly-card Contract correction prepared and verified (2026-10-08)
+
+The original selected TestBot session resumes under the operator's verified
+monthly-card ruling and adopts the approved backend maintenance head
+`aee99258a2de5b72edaba38399d42b8567173975`. It restores its backend issue
+checkout cleanly and uses the normal controller handoff to a fresh worker
+rooted in Farm-Contract. Neither the maintainer nor a backend worker manually
+changes the ledger/checkpoint or writes into another active repository root.
+
+The Contract worker fetches actual current main
+`acdc15286d79f8d09a3e9183b3f94ea0c150f18e`, including unrelated changes that
+have already merged upstream, and prepares exact commit
+`a6d898b8181aa6effb3d743e1e7db1e4abd54e9b` on the selected issue branch.
+The focused [Contract draft #331](https://github.com/Kuaiwa-Network/Farm-Contract/pull/331)
+changes only the existing gifting proposal, design, tasks and gifting delta.
+It records original-thread decision `0c87abe9-652b-4cfa-a2e1-e757d9457cfe`
+under the actual operator and date, preserves historical rulings, removes the
+amount-growth interpretation for VIP, and retains shared sender cumulative/
+first-recharge accounting at 100 fen per voucher. Monthly-card validity and
+benefits follow existing behavior; atomic rollback and order idempotency
+remain required. No protocol field, configuration declaration or economic
+value is added. All 29 scenario names and their count are unchanged.
+
+All twelve required native Windows Contract gates return zero at the exact
+commit: buf build/lint, breaking-waiver, manifest, markers, message naming,
+proto fields, coverage, provenance, README inventory, OpenSpec configuration
+and validation. Buf is 1.72.0 and OpenSpec is 1.7.0. Whole-repository OpenSpec
+validation reports 52 passed and zero failed. Original UTF-8 per-gate logs,
+durations and SHA-256 values are retained privately, and the maintainer
+independently verifies every reported log hash, unchanged source fingerprints,
+the exact published head/base, four-file scope and sanitized public diff/body.
+
+At the review snapshot, #331 is OPEN/draft; 23 hosted checks are SUCCESS and
+five IN_PROGRESS. Those hosted statuses are a measured snapshot, not a claim
+that every CI check passed. Contract main merge is still pending the selected
+issue's explicit human game-main merge gate: the preceding approval allowed
+only backend maintenance #368/#369 into the feature draft. This Contract
+correction is ready for that concrete review; it is not an assertion that
+backend stage D, UI/client integration, complete scenario acceptance or
+production release qualification has finished. Common publication remains
+deferred, and all previously measured Windows failures remain recorded.
