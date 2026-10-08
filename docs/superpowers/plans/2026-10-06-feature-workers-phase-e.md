@@ -3131,3 +3131,61 @@ covered local regressions after the direction correction; they do not resolve
 VIP's amount-growth requirement, authorize game-PR integration, supply real
 Mongo/complete-scenario evidence, publish the deferred archive or certify hosted
 CI/UI/Client/production-host readiness. Those gates remain pending.
+
+### Approved maintenance integration and monthly-card ruling (2026-10-08)
+
+The operator replies in the Codex conversation: "1. 沿用月卡行为 2. 批准".
+The first answer resolves the previously recorded VIP requirement question:
+gifting follows existing monthly-card validity and benefits; no amount-based
+VIP-growth counter is introduced. Cumulative recharge and first recharge still
+use the shared existing recharge path, with once-only sender accounting,
+amount units, atomic commit and rollback preserved. The receiver gains no
+corresponding recharge or VIP progress. Verified original-thread reply
+`0c87abe9-652b-4cfa-a2e1-e757d9457cfe`, authored by the operator's Linear identity
+on 2026-10-08 at 13:46:18 UTC, transcribes both decisions and their scope.
+The accepted Contract's contradictory amount-growth wording needs a focused
+Contract follow-up draft and its ordinary human main-merge gate; this decision
+does not falsely establish that a contract correction has already merged.
+
+The second answer explicitly approves merging only maintenance
+[#368](https://github.com/Kuaiwa-Network/farm-hive/pull/368) and
+[#369](https://github.com/Kuaiwa-Network/farm-hive/pull/369) into
+`farmbot/farm-1419-followup`. Before integration, the selected TestBot worker
+has exited, its owned Jobs are empty and its issue checkout is clean. Fresh
+GitHub checks confirm the exact previously reviewed PR heads, complete nine-
+and three-file scopes, feature-draft base and actual remote branch head
+`b1cac0369ed1ff06d12bae9519db8356a1f5a14e`. The complete two-commit Food scope
+is included. The maintenance drafts are marked ready and squash-merged with
+exact-head matching: #368 becomes
+`a907ca33b4140ea2ba14b29fd1604a3bdbcbb31c`, then #369 becomes
+`aee99258a2de5b72edaba38399d42b8567173975`.
+
+The resulting feature-draft Git tree is
+`05c3f2edb134e208e39bad588391fc6ac14d670e`, exactly matching the independently
+tested private combination `f3bcb4fb4528999a1aa1c755bd93d8b4d3884410` recorded
+above. A full tree comparison finds no difference. Its twelve-file difference
+from `b1cac036` contains only the reviewed CI/scanner/fixture, Food test and
+design-record maintenance; application code, module pins and generated
+configuration remain identical. The related native Windows measurements are
+11/0/0 scanner outcomes in 25.624 seconds and 41/0/0 recharge/gift/login/F15
+outcomes in 63.605 seconds. Those commands ran on the private combination,
+not on the new GitHub squash SHA; full tree equality links the measurement to
+the integrated content without inventing a rerun.
+
+Both maintenance PRs are verified MERGED. Backend
+[#367](https://github.com/Kuaiwa-Network/farm-hive/pull/367) remains OPEN/draft
+at the integrated head, and farm-hive main remains
+`feee46cbb1336efeb1019638638e11fd7bd76ff0`. No game main PR is merged. Neither
+the active worker checkout nor its checkpoint/ledger is manually edited.
+The original TestBot session receives the verified ruling and integration
+report and is observed queued for continuation through its normal controller.
+
+This development-PC result closes the two maintenance integration decisions
+and supplies the VIP ruling; it does not certify production-host readiness.
+Real-service/Mongo execution, complete 29-scenario acceptance and full failure
+attribution, current feature UI-ready and client integration, configuration
+archive/provenance/hosted backend CI, game main merges and production release
+qualification remain separate unfinished gates. The operator's instruction
+to defer the Common package remains in force. No Jenkins/config publication,
+Feishu writes, credentials/accounts or app settings, production operation or
+parked issue is changed by this integration.
