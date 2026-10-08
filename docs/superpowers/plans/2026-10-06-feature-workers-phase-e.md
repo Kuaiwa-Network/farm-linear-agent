@@ -3189,3 +3189,68 @@ qualification remain separate unfinished gates. The operator's instruction
 to defer the Common package remains in force. No Jenkins/config publication,
 Feishu writes, credentials/accounts or app settings, production operation or
 parked issue is changed by this integration.
+
+### Unresolved native failures compared with upstream main (2026-10-08)
+
+After approved maintenance integration, independent fresh development
+checkouts compare exact feature candidate
+`aee99258a2de5b72edaba38399d42b8567173975` with freshly verified farm-hive main
+`feee46cbb1336efeb1019638638e11fd7bd76ff0`. Both use native Windows, Go 1.25.1,
+the pinned native compiler and original offline dependency versions, with
+`go test -p 1 -race -timeout 120s -json -count=1` and the same explicit nine-test
+selection across seven packages. All nine top-level tests actually run in
+each checkout. Dependency downloads are disabled; the tests still perform
+their prescribed local/network diagnostic probes. No real or shared Mongo,
+production service or player database is used.
+
+| Exact input | Passing | Failing | Skipped | Duration |
+|---|---:|---:|---:|---:|
+| Integrated feature `aee99258` | 1 | 8 | 0 | 57.343 s |
+| Upstream main `feee46cb` | 1 | 8 | 0 | 56.044 s |
+
+The failure sets are identical:
+
+- `internal/mongotest`: `TestLayerHintNamesTheLayer`; the `.invalid` DNS-negative
+  precondition unexpectedly resolves on this host.
+- `internal/tzprobe`: `TestRunInZoneReflectsRealTimezone`; the child does not
+  observe the requested `TZ` offset on native Windows.
+- `loginsvr`: `TestBootFailureLeavesCluster` and `TestBootFailsWhenPortBusy`;
+  the occupied-port setup does not make startup return the expected error.
+- `modules/guildcompete`: `TestComputeSeasonTimesIndependentOfMachineTimezone`;
+  the child processes observe only one local-timezone offset.
+- `msgrisk/wordlib`: `TestWriteReadCacheRoundTripOnDisk` reports mode 666
+  against the POSIX 600 expectation, and
+  `TestWriteCacheIsAtomicForConcurrentReaders` fails its concurrent rename.
+- `nodeconf`: `TestProbeAnyReachableSharesOneDeadline`; its supposed blackhole
+  target returns immediately, so the timeout precondition is not demonstrated.
+
+The six failing packages have no file difference from that upstream main to
+the integrated feature candidate. These failures are reproduced on existing
+main, not new failure evidence attributable to this feature change. Host
+preconditions, fixture portability and application behavior still need separate
+diagnosis and any necessary native fixes; this comparison grants no exemption.
+In particular, neither startup failure, permissions nor atomic-cache checks
+is weakened, and no skip is added.
+
+`modules/friend.TestFriendRemoteReceiverUsesDBAndRevision` passes in both
+focused selections. That result does not resolve its original whole-suite
+timeout or prove timing stability. The preserved original serial result remains
+16,899 passing, 46 failing and 1,290 skipped outcomes; these two focused checks
+do not replace that suite or attribute all its failures and skips.
+
+The candidate UTF-8 Go JSON log SHA-256 is
+`02e4eff6deaee7ab8e1bab22915c8de7b8008c445cd8c07d0b7e46b5db86fd14`;
+the upstream log SHA-256 is
+`6779f2d702b0d3b7ff1d663f71ab41dad0a83b3c3e0dfbdd04892da62effd8f4`.
+Both checkouts remain clean, every tracked-file fingerprint is unchanged,
+and owned Windows Jobs settle with the verified 8 GiB memory guard. Verified
+original-thread reports `d9b85aef-b1da-4d32-8638-b7f2c34eb748` and
+`4555e002-4a81-43b4-be4d-3d0530c25e2d` give the TestBot this evidence.
+
+The normal controller subsequently hands this same selected issue back to a
+fresh Contract worker for the operator's monthly-card text correction. Its
+checkpoint records integrated backend head `aee99258`; the backend issue
+checkout is restored cleanly. This observed handoff is not proof that a new
+Contract PR or its human main-merge gate has completed. The earlier Common
+package deferral and all real-service, full-scenario, UI/client and production
+qualification gates remain in force.
