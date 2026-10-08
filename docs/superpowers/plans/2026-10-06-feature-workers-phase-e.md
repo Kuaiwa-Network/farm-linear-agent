@@ -3495,3 +3495,177 @@ backend CI, UI-ready/client integration and production-host release
 qualification remain individually pending. This correction changes neither
 runtime nor app settings, credentials/accounts, service state, production data
 or parked issues. Development-PC results do not certify production readiness.
+
+
+### Contract merge and local Docker real-service acceptance (2026-10-09)
+
+This is the same development Windows PC, not the production Windows host.
+The operator reports #331 merged, then explicitly requests local Docker for
+Mongo, Redis, etcd and NATS. The former missing local-service capability is
+addressed below; earlier skip and failure measurements remain historical.
+
+Fresh GitHub inspection verifies [Contract #331](https://github.com/Kuaiwa-Network/Farm-Contract/pull/331)
+merged at 2026-10-08 23:01:40 UTC: head
+`5416d3576a2901f2a960badab0d26ef08a24758b`, merge
+`fa924fd2f44cf68606ebc61e6ebd32b9b3399cb0`, tree
+`a94f46d960e600b9dbff555a5350f0360c7bdea3`. The merged tree matches the
+previously verified twelve-gate candidate; only the four recorded documents
+change. No new wire/config value or scenario is implied by the merge.
+
+[Backend #367](https://github.com/Kuaiwa-Network/farm-hive/pull/367) is still
+OPEN/draft at `15ea9ff29bc355062952ace0ec63c85d0b61b7aa`. Relative to the
+previous `1ad3e57630d335c83e1d0afe84444f8e517a9256`, only its gifting design
+document changes. An independent, no-hardlink/no-alternates Windows clone
+reruns the eight selected config/shop recharge tests with offline dependencies:
+11 passing test/subtest outcomes, zero failures or skips, 64.102 s. UTF-8
+stdout SHA-256 is
+`6f9cd165584fcf97d91b075b63759ff562413dd780db87080c260b8fea5f9d37`.
+The worker's separate same-head 11/0/0 in 13.795 s and its verified log hash
+`c4f8ba2a2247b4471174a52fcaa6b006b2e762c47ff1c6310d40a9b555ebf717`
+remain distinct observations. The eight tests cover actual configuration
+recharge, first charge, order replay, overflow/corrupt records, shared buy/paid
+delivery and reentrant events. The worker's current 29-row mapping remains
+`FULL_SCENARIO_ACCEPTANCE_PENDING`, SHA-256
+`fc7c742be94a09e655a88eb91fb2c2a07cc63f144f0ac6e3fe208ce8f814171a`.
+Those partial measurements do not sign off all scenarios.
+
+The host is Windows 11 Home x64 build 26200, with 31.8 GiB physical RAM,
+existing WSL 2.6.1/WSL2 and an active hypervisor. Docker was absent before
+this step. Following the [official Windows installation documentation](https://docs.docker.com/desktop/setup/install/windows-install/),
+Docker Desktop 4.94.0 build 241994 is installed per-user using the WSL2
+backend. Its official 606.1 MiB installer downloads in 42.069 s; published
+SHA-256 `a9814e31049d66156477a86614e83365669677733014ec72f74229623ff3890a`
+matches and Authenticode reports Valid with Docker Inc as publisher. Install
+returns zero in 23.399 s without elevation, credentials or account setup.
+Program files and both actual Docker virtual disks are on the selected
+development data drive; the system drive has only approximately 1 GiB free
+after installation, an ongoing host-capacity gap. No unrelated files are
+deleted. Docker engine 29.8.2 is Linux; its service containers use WSL2, while
+FarmBot, Go 1.25.1/CGO race and all test children execute natively on Windows.
+No Bash, MSYS or MXC worker path is introduced.
+
+The private disposable Compose project uses an explicit engine pipe and an
+empty owned Docker credential configuration. All four containers, the private
+bridge and four named volumes have checked project/issue/owner labels.
+Published bindings are actually verified as 127.0.0.1 only on fresh ports;
+there are no host bind mounts, Docker-socket mounts or privileged containers.
+Memory limits total 2,560 MiB, CPU/log limits are set, and restart is disabled.
+No Docker login, insecure registry setting or production configuration/data
+is used. Private paths, ownership IDs, logs and controller state stay local.
+
+| Service | Measured version | Source identity |
+|---|---|---|
+| Mongo replica set `rs0` | 7.0.40 | official image `sha256:b6421fd6d1c5ded6377b397d8983e2f82e2100dc5123332dcfda2065a472be5b` |
+| Redis | 7.0.15 | official image `sha256:352c1fdadc91926edda08f45aeb3f27f37194c2f14101229c0523a11195c96e3` |
+| etcd | 3.5.11 | pinned official archive `e256885e753dc99001335e099d3c2eb8cf21a865a087ee4d7e3665752ae5929a`; binary `fb240485b480e5d91d1504a4c8a78e4a1fe214e64a028acae63bd7a550040399` |
+| NATS | 2.10.9 | pinned official archive `0b251614eb2ad18ab499493ee76ede75db4fa60bbdca175aff70a72971e50b19`; binary `7ff038d44a3d889134acf4e1e5fbc0041972a8f01fc0cb84db74ba25caa3a425` |
+
+Redis follows the candidate CI acceptance pin 7.0.15, rather than changing
+the separate dev-compose 7.2 pin. etcd/NATS images contain the checksum-
+verified pinned binaries. Mongo's internal and external port match so its
+loopback replica-set member is reachable from Windows. Actual version and
+protocol probes pass for all four services; the native `go run ./cmd/devmongo`
+initializer confirms replica-set primary selection in 2.551 s.
+
+Setup failures are retained locally: the first engine probe times out during
+initial boot; the first mount assertion incorrectly treats named-volume
+bindings as host mounts; official images initially create two anonymous data
+volumes; an internal Docker network suppresses host port forwarding. The
+maintainer checks actual mount types/labels, replaces only this project's
+two anonymous volumes with owned named volumes, and recreates only its own
+containers on a normal private bridge with verified loopback publications.
+No global prune, safety-check waiver or application skip is used.
+
+Each native selection uses the configured Go executable explicitly:
+`go test -p 1 -race -timeout 180s -json -count=1 -run '<selection>' ./server`.
+Go environment is `GOENV=off`, `GOWORK=off`, `GOTOOLCHAIN=local`,
+`GOFLAGS=-mod=readonly -buildvcs=false`, `GOPROXY=off`, `GOSUMDB=off`,
+`CGO_ENABLED=1`; selected compiler/dependency/cache/temp inputs are owned.
+`PYTHONUTF8=1` is set before Python. Inherited live selectors/authentication
+are omitted, the four service inputs point only at the owned loopback
+containers, and Mongo/Redis/cluster required flags are all 1. Native process
+trees are assigned before execution to owned kill-on-close Windows Jobs with
+the verified 8 GiB guard and are checked settled. Docker infrastructure is
+owned independently by its exact IDs/labels. Source fingerprints and clean
+checkouts are verified; the selected TestBot runtime is not restarted.
+
+The six service tests actually run: `TestGardenGiftMongoBootCommitsReplaysAndRollsBackLateFailure`,
+`TestFriendClusterRealDispatch`, `TestPayWakeRealDispatch`,
+`TestGateChainEndToEnd`, `TestGuildClusterEnabledIsWiredThroughBoot`, and
+`TestMongoStoreVariant`. The original candidate passes five top-level tests,
+including gift transaction commit/replay/stale-write/late-failure rollback.
+G5 fails four subtests: `G5_roster_starts_empty`,
+`G5_roster_warn_did_not_recur`, `offline_convergence`, `shutdown_order`.
+The first three count the Windows stdout/file mirror twice; the fourth
+directly sends SIGTERM, unsupported on Windows. Current upstream main
+`d4a0acbe8981a812a6173b8e60003323e385e5a9`, frozen independently, reproduces
+the identical failures under the same owned services. Its G5 source and Go
+module inputs are byte-identical to the feature candidate.
+
+[Test-harness repair #371](https://github.com/Kuaiwa-Network/farm-hive/pull/371)
+is OPEN/draft at `f602a3a8e206e29a1a09be074e1d657de5855025`, based on
+that exact main. It changes two test files and the existing design document;
+production behavior/configuration is unchanged. An inherited private parent
+pipe requests the existing `srv.Stop()`; EOF/invalid commands fail, each
+child is waited once, and failed/forced cleanup fails the test. The original
+pre-stop open-node, login, once-only offline release and removal-before-exit
+assertions remain. Counting uses persisted structured files, preserving raw
+failure diagnostics and genuinely repeated events. Two added logging tests
+first fail; fixed G5, three regression tests and two existing budget checks
+then pass. No platform skip, weaker assertion or new CI gate is introduced.
+
+An additional independent clone combines original consumer `15ea9ff2` with
+only #371's test/docs commit, giving local verification commit
+`e1635662b7b1b442cd6add27ec87ad65055f878b`. It runs all six service tests
+plus those regression/budget checks: 11 top-level tests, 18 passing
+test/subtest outcomes, zero failures or skips. This combined result does not
+relabel the original unmodified `15ea9ff2` as passing G5 or imply that #371
+has merged.
+
+| Measurement | Pass / fail / skip outcomes | Duration | UTF-8 stdout SHA-256 |
+|---|---|---:|---|
+| Original `15ea9ff2`, six real-service tests | 8 / 5 / 0 | 63.908 s | `f52cb285a978a4be1cb1188e97201ff781da095bb3ecfc588bdc43f959b35cbf` |
+| Upstream `d4a0acbe`, complete G5 baseline | 3 / 5 / 0 | 86.856 s | `ca285216b37144fd37dc2beadfa92cc6b568ef8ea3d1fe77bba542b1fcb5bafd` |
+| Two added logging regressions, before repair | 0 / 2 / 0 | 7.351 s | `050fbc4d27bc82a8a1d3d5d473cc199906b434a872eb6e5c93ae9dad67412c47` |
+| Main plus final repair, G5/regression/budget | 13 / 0 / 0 | 13.751 s | `c439c7c2a6e86ae9b4b194f5cdfd6f75d8430957ecd62edac3f4a3b964486911` |
+| Feature plus repair, six services/regression/budget | 18 / 0 / 0 | 52.962 s | `4e9e213b5d65a48cf3e3cc336e85c9e5680e3c85e335c01d90d212d928f032ad` |
+
+The five failure outcomes in the first two rows represent four failing G5
+subtests and their failing parent, not five independent application faults.
+All selections have zero skips; prior full-suite platform/dependency skips
+and eight independently reproduced Windows baseline failures are retained,
+not cleared by these focused runs. Every stderr log is empty, SHA-256
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+Measured host tools are Python 3.13.16, Git 2.54.0.windows.1 and Git LFS
+3.7.1 (native Windows amd64, Go 1.25.1).
+
+Fresh [#371 CI](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37859968354)
+reports `windows-devctl` FAILURE before any step/test starts. Its original
+GitHub check annotation says recent account payments failed or the spending
+limit needs adjustment. This is an externally measured CI-account blocker,
+not an executed Windows test failure; it is neither waived nor hidden by
+the passing local test result. An account/organization administrator must
+resolve Billing & plans before this hosted Windows gate can run. No billing,
+account or app setting is changed by the maintainer. The other build is still
+in progress at the snapshot; its success is not asserted. Common publication
+remains deferred, and the earlier designer-package 404/downstream CI gap
+remains separate.
+
+Verified original-thread notice
+`41f8fdd8-2099-4fd6-9969-93142fd7556a` supplies the merge identity, exact
+original/combined results, #371 and the CI blocker to the selected TestBot
+session, with only owned loopback service inputs for continued authorized
+testing. Body/parent/operator identity are read back and checked. No worker
+checkout, ledger or checkpoint is manually edited. The four labelled test
+containers/volumes remain available for this selected task; they are not
+production services, and future cleanup must verify the same owner/IDs.
+
+Release prerequisites still outstanding are complete current 29-scenario
+acceptance (including Mongo concurrency, unknown commit/replay, retention,
+multi-item/reload and client/UI portions), repaired hosted CI execution and
+Common archive/provenance, #371 integration and formal split/review of the
+large backend draft including #366, selected game-main human merge gates,
+UI-ready/client integration and separate production-host qualification.
+These development-PC results do not certify production readiness. No
+production service/configuration, credential/account, player data, parked
+issue, publication job or webhook/app setting is changed.
