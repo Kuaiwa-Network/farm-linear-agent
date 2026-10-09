@@ -1031,6 +1031,16 @@ claim and native process-ownership checks remain required. Earlier helper-only
 attempt evidence is retained for diagnosis and cannot replace a fresh successful
 controller export; this correction adds no ledger migration or approval grant.
 
+The UI worker retains private exact-byte copies of its authored non-LFS source
+and UI-document files before parking or leaving farmgui. A clean reattached Git
+checkout can convert LF, CRLF or mixed endings while retaining the same commit;
+its different raw digest is still refused. Within its existing claimed farmgui
+write scope, the worker may preserve current bytes and restore only the proven
+original reviewed bytes. The unchanged full controller source/export checks must
+actually pass before Client handoff. Private recovery manifests supply no approval
+or export grant; missing originals stay a gap, and changed inputs require a new
+review. No source digest, receipt, Git setting or permission boundary is relaxed.
+
 The controller's Client baseline mechanism supports the scoped UI Client stage with
 the same immutable main/issue-branch selection and generation/claim/Stop fences as
 Code. Its existing Code-only entry points remain restricted to Code. UI intake and

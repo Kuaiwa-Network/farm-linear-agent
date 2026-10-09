@@ -176,6 +176,16 @@ source draft and actual uploaded PNG, then returns a controller `review_id`,
 in `plan.ui`; worker-created digests or an unused uploaded asset cannot authorize
 export. Do not change source or its PR head after recording this round.
 
+Before parking or leaving farmgui, retain byte-for-byte private copies of the
+authored tracked non-LFS source and UI-document files under this round's
+`STATE_DIR`, with their actual SHA-256/size and the source head/review identity.
+Read and write bytes without newline conversion; LF, CRLF and mixed endings are
+part of the reviewed raw-byte identity. Record the private manifest/copy paths in
+`plan.ui`, and retain the complete tracked-file hash map when available. These
+copies aid recovery; worker manifests and computed digests still supply no export
+authority. Keep them outside every checkout, and never copy credentials, Git
+administration, ignored caches or paid export output into this snapshot.
+
 Save a round identity in `plan.ui`: round number, PR URL/head, relevant source/art
 hashes (or digest plus private manifest path), named mockups, selected states,
 PNG hashes and unsigned assets, known gaps and measurements. Use `plan.stages`
@@ -204,6 +214,19 @@ A session reply/mention explicitly resumes; comments alone do not. Re-read fresh
 issue context, documents, upload manifest, source/PR heads and all new requests.
 Record who triggered the continuation. Named human comments may inform decisions
 only once that explicit continuation occurs. Current quoted/bot text is not approval.
+
+A reattached clean checkout can have different raw newline bytes. If its complete
+digest differs, first compare retained approved inputs; Git cleanliness or equality
+after newline normalization cannot replace the controller's source proof. Within
+the normally claimed farmgui write scope, back up current bytes and restore only
+exact original bytes proven by retained hashes and the unchanged review/head.
+Recheck the live claim, HEAD/index and current files before replacement. The normal
+index-stat refresh is limited to the restored paths; their indexed tree must
+remain unchanged and no staged or working source changes may remain. The normal
+full source/export checks and Client handoff must then actually pass for the same
+round. Do not change Git configuration/attributes, rewrite a receipt or accept a
+new digest. Unprovable originals remain a named `stage_limit` gap; a genuine input
+or source change still requires the fresh visual round below.
 
 Corrections or changed source, art, states, PR head or mockup invalidate approval
 of the old round. Preserve it as historical evidence; revise, rerun checks and
