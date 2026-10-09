@@ -3731,3 +3731,123 @@ manual worker-tree, ledger or checkpoint edits. Complete current scenario
 acceptance, deferred Common publication/provenance, hosted Windows CI,
 review splitting and game-main gates, client/UI and production-host
 qualification remain independently outstanding.
+
+
+### Merged G5 repair, native repeats and Mongo business scope (2026-10-09)
+
+This remains the development Windows PC, not the production Windows host.
+Fresh GitHub inspection confirms [farm-hive #371](https://github.com/Kuaiwa-Network/farm-hive/pull/371)
+merged at 2026-10-09 00:56:14 UTC: merge
+`739354a053889f59c1e2d52e792958244c881a69`, parent
+`d4a0acbe8981a812a6173b8e60003323e385e5a9`, tree
+`9362b62927eef29ce3a77c1de7767300802c728a`. The merge tree exactly matches
+the previously tested head `f602a3a8e206e29a1a09be074e1d657de5855025`.
+Only the two recorded gate-chain test files and existing design record differ.
+The remote maintainer branch is already absent after merge; its matching local
+branch is removed after verified adoption. The independent checkout is clean.
+
+Original-thread reply `51dd4849-fab0-4ab5-8476-049b545e5466` relays the
+operator's actual "merged, continue" instruction and targeted #371 adoption.
+The selected TestBot adopts it normally as
+`51ed3a3a63d28d6db485b194ffa814845a35e962`, directly after `15ea9ff2`.
+Read-only clone-trust checks confirm exactly the approved three-file patch;
+tree `31ee98d22950c96464f1c085a11a41eba036bc2f` matches the maintainer's
+previous independently tested `e1635662` overlay. No worker checkout, ledger,
+checkpoint, runtime configuration or controller is manually changed.
+
+The worker repeats native Windows Go 1.25.1/CGO race checks at that exact
+adopted SHA with offline dependencies, owned data-drive inputs, required
+service flags and the four labelled loopback Docker services. Logs are strict
+UTF-8, hashes and actual JSON test events are independently rechecked;
+source fingerprints stay identical, checkouts stay clean and the owned 8 GiB
+Job settles. These are separate observations from the maintainer's earlier
+overlay runs:
+
+| Selection | Actual test/subtest outcomes | Actual top-level tests | Duration | UTF-8 log SHA-256 |
+|---|---|---|---|---|
+| service/G5 and regression selection, `./server` | 15 pass / 0 fail / 0 skip | 8 | 158.171 s | `fc7ce98c5d1e5543bd9a3c73b0fd6203209e8a5b5995da05eae1b23d657e810a` |
+| gifting/revision plus budget selection, nine packages | 118 pass / 0 fail / 0 skip | 81 | 70.144 s | `f5750c6d3cf2afe321110fecb18f5f61503b890a777dc12cf5c57874a9baf644` |
+
+The first selection actually executes `TestMongoStoreVariant`,
+`TestFriendClusterRealDispatch`, `TestPayWakeRealDispatch`,
+`TestGuildClusterEnabledIsWiredThroughBoot`, complete `TestGateChainEndToEnd`
+with seven subtests, and the three new gate-chain regressions. Its regex also
+contains three unmatched names; no execution is inferred from regex text.
+The second selection actually runs
+`TestGardenGiftMongoBootCommitsReplaysAndRollsBackLateFailure`,
+`TestE2EPositiveWaitsUseBudget`, `TestE2EWaitTablesCoverEveryWaitHelper`,
+the two gift wiring checks and the previous eight-package gifting selection.
+The six intended service tests and two real budget checks therefore run across
+the two selections. The second command is `go test -p 1 -race -json -count=1
+-timeout 300s -run 'Gift|GardenGift|Monotonic|Revision|^TestE2EPositiveWaitsUseBudget$|^TestE2EWaitTablesCoverEveryWaitHelper$'
+./modules/gardengift ./modules/friendgardengifting ./modules/shop
+./modules/mail ./modules/friendchat ./modules/friend/friendstore ./user
+./config ./server`.
+
+The existing `TestGardenGiftMongoBootCommitsReplaysAndRollsBackLateFailure`
+constructs the actual shared Mongo store and checks transaction storage with
+synthetic economic effects. Its name does not establish execution of full
+server `Boot` or actual `Service.Gift`/configured recharge/reward/mail business.
+That distinction remains in the current scenario gaps. The new committed-config
+business fixtures below explicitly call actual `Service.Gift` using an actual
+MongoStore and independent per-process/per-sequence test databases; they do
+not replace complete server/network/client acceptance.
+
+The first new seven-test-file candidate is
+`98cff93a3310cd90ef3970a792c38c397aa37882`. Its config-package compile fails
+because a refactored handler test retains an unused `gardengift` import.
+Worker result is 0 pass / 0 fail / 0 skip test outcomes in 1.221 s, UTF-8 log
+SHA-256 `228583d7fd61d9537697f8cd78ab46bb73bbd128b4ae71e59c8ab5d85e3ffcac`.
+The maintainer independently repeats the nine-package selection: 62 passing
+test/subtest outcomes in the other packages, zero failing/skipped test
+outcomes, but config compilation fails and the overall exit code is 1;
+93.885 s, stdout SHA-256
+`9f799b2373613ebab9b3404ae25325d996160c91e4f97fa750dd6414512ec753`.
+Empty stderr has the previously recorded hash. Both original failures remain;
+an overall failed build is not reported as a passing selection.
+
+After the normal import fix `a8701348768d8946c9199f27105136bf55e8f290`,
+the worker's actual Mongo business selection reports 72 pass / 2 fail / 0 skip,
+29.055 s, log SHA-256
+`9e05d151d53e9ef64d914bb1c32dcbf1706823b179114e1d09faf79503674a1f`.
+The maintainer independently repeats the focused
+`TestRealGardenGiftMongoConcurrentOrdinaryPurchase`: 1 pass / 2 fail / 0 skip,
+11.039 s, stdout SHA-256
+`4fdbfd5819046f96b5a5c120bd3c052369532512bbf3490b803c9dead25dfcb8`.
+The failing subtest expects an ordinary COIN voucher self-purchase to add
+recharge as well as the gift. The original committed 84001/84002 rows have
+COIN(voucher) costs; existing `shop.Buy` prepares recharge accounting for
+RECHARGE costs. [The approved gifting scenario](https://github.com/Kuaiwa-Network/Farm-Contract/blob/fa924fd2f44cf68606ebc61e6ebd32b9b3399cb0/openspec/changes/friend-garden-gifting/specs/friend-garden-gifting/spec.md#L44-L47)
+specifies the gift's statistics, while [the recorded P1 decision](https://github.com/Kuaiwa-Network/Farm-Contract/blob/fa924fd2f44cf68606ebc61e6ebd32b9b3399cb0/openspec/changes/friend-garden-gifting/proposal.md#L84)
+explicitly calls the extra statistics a gifting exception. Reusing the shared
+accounting function does not authorize changing ordinary COIN self-purchases.
+
+The worker initially adds that ordinary shop-26 behavior in `6c345558`.
+It is not accepted as an application-regression repair or attributed to the
+operator's wording correction. Verified original-thread replies
+`2f4bc84e-2ca7-473a-a4d7-c3684ec3790a` and
+`1d027b80-238d-4e4a-86c9-b7d73845231b` supply source evidence and require
+normal-flow withdrawal of that behavior/design attribution, strict separate
+gift/ordinary accounting expectations, and retention of actual wallet,
+qualification, old-write, atomicity and replay checks. The real Mongo fixture
+work and all earlier failures are preserved; no skip or economic assertion
+waiver is authorized. Later corrected-candidate results must be recorded at
+their own precise source SHA.
+
+Merge does not clear hosted CI. Merged-main checks at `739354a0` are rejected
+before execution by the freshly verified GitHub recent-payment/spending-limit
+annotation, including the native generator/provenance jobs on all three host
+platforms. No Billing/account/app setting is changed or workflow rerun.
+The preceding #371 build SUCCESS and #206 Mac/Windows offline CI SUCCESS are
+separate earlier jobs; they do not prove these rejected checks executed.
+Common archive publication stays explicitly deferred; the feature designer
+package 404 and full wire/provenance sync remain independently pending.
+
+Remaining release prerequisites are correctly scoped real Mongo business and
+concurrency coverage, true unknown-commit/transport replay, actual gift chat
+cross-node/offline recovery and complete 29-scenario acceptance; hosted CI and
+deferred Common/provenance; formal split/review of #366/#367 and the game-main
+human gates; UI-ready/client work and separate production-host qualification.
+The owned Docker services remain available for the selected task. No parked
+issue, production service/player data, credential, account, app or webhook
+setting changes in this step.
