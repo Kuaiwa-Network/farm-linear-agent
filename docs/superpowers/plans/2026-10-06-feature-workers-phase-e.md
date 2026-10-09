@@ -4005,3 +4005,316 @@ do not waive the older whole-suite failures/skips or establish production readin
 The independent Docker services remain available to the selected task. No parked
 issue, production deployment/service/player data, credential/account or app/webhook
 setting changes in this work.
+
+
+### Full Windows suite attempts and native fixture corrections (2026-10-09)
+
+These are measurements on the development Windows PC, not the production host.
+The earlier Python offline suite and these backend Go tests are different suites.
+This backend run uses native Go 1.25.1, CGO/race, Python 3.13.16 with
+`PYTHONUTF8=1`, Git 2.54.0.windows.1 and Git LFS 3.7.1. The four owned Docker
+dependencies remain loopback-only, independently labelled, bounded and without
+host-directory binds; Linux service containers use Docker's WSL2 engine. Native
+test processes retain suspended assign-before-resume, kill-on-close ownership
+and the 8 GiB Job limit. Dependency downloads are disabled, required service
+flags remain enabled, UTF-8 logs/hashes and source fingerprints are retained
+privately, and every attempted Job below settles. No credentials or private
+host paths are published.
+
+The frozen `2c8c4ad14eb85ac12f4daefaad70627989f94431` full command is
+`go test -p 1 -race -json -count=1 -timeout 300s ./...`, with a separate 900-second
+owned-Job ceiling. It is **incomplete and failed**, not an all-green suite.
+The local committed Common pin gate passes in 10.802 s (hash
+`454a332080b2d61d36fd53b3103f8bb5b3de9f31c840704b1c1a2c022def2b0f`);
+the explicitly deferred archive is not certified by that source check.
+The first run unintentionally lets existing tests discover inherited Bash/WSL;
+it cannot establish an entirely native toolchain. Subsequent batches and focused
+checks use an explicit native-only executable search path on which `bash`, `sh`
+and `wsl` do not resolve. No Bash/WSL installation or global setting change is
+used to obtain a pass.
+
+| Frozen 2c8 attempt | Pass / fail / test skip | Duration | UTF-8 stdout SHA-256 |
+|---|---|---|---|
+| Initial full command; outer timeout | 5302 / 44 / 5 | 900.197 s | `d3f3aaabadc8d0da1057863a2814c03f32124d947c98d1e26d8f9ad71a1ce9b4` |
+| Remaining native batch 1 | 937 / 0 / 0 | 51.665 s | `39529b2fb2566964ce40944ab9406881f415e098eec0e1f4e1e26f350f194e52` |
+| Remaining native batch 2 | 1290 / 1 / 0 | 89.143 s | `dff03eec957cb0ff68d272820488ab4f8e60a4d424e7b05a5cd1a054c2ab4c4f` |
+| Remaining native batch 3 | 561 / 0 / 0 | 44.968 s | `0d90df5c12f30372a427584a28eaaca3f40fe1bd9fb5d34fecb5a1ec546fb97c` |
+| Remaining native batch 4 | 4595 / 2 / 2 | 227.060 s | `04924de809d9a71c7f52bc83a0fd8cfd42c5ccb2eb4ded83b699392481ab7d13` |
+| Remaining native batch 5 | 1093 / 0 / 0 | 44.041 s | `6741c5c563fb4fab22ffb175f42365cfe8d527e51c63c99fd66716aa65712c0c` |
+| Remaining native batch 6 | 756 / 0 / 0 | 42.476 s | `a29076a02994cc0f664ba388befa8b81dd082f5ed8a844b56c69c292b9d46ccd` |
+| Remaining native batch 7 | 827 / 0 / 0 | 38.409 s | `d6049c7e1ea8b45c8beec311034d033c4c90545d8195b124a75bdb35a0c48203` |
+| Remaining native batch 8 | 626 / 0 / 0 | 37.739 s | `e2bcce8fde1bb95c09abe2135c70859500196726d57f1d6fe38cf746a122868a` |
+| Remaining native batch 9 | 824 / 2 / 0 | 40.218 s | `986ff5384bd896da971de0878aac449a8dd91f00e2a604cf83f047ffb2e35a02` |
+| Remaining native batch 10 | 414 / 1 / 0 | 57.814 s | `17aba11db89640309522b76ff2876c2c70f0a3145427cebf36a1121ec921f09f` |
+| Remaining native batch 11 | 171 / 0 / 0 | 14.446 s | `9e0931b8da97844aacb9817bad7c80e427164bd5ec946ca6ea7a43b41bf21c3b` |
+| Separate complete server package | 292 / 0 / 4 | 69.783 s | `1b50d8b53c31c655365546efcf6ceeade4102eb93d34948673a40c9d01515156` |
+
+The initial run reaches package outcomes for 67 of 191 listed packages; the
+remaining 123 packages are attempted in eleven sequential native batches,
+followed by server. The eleven batches take 691.029 s, with 12,094 passing,
+six failing and two skipped test/subtest outcomes. Initial package events are
+35 pass, seven fail and 25 no-test-file skips; those package skips are distinct
+from test skips. Packages and tests overlap across attempts, so these counts
+must not be added as a unique whole-suite total. Resource-aborted packages leave
+tests without terminal outcomes and later tests unvisited. An attempted package
+and a zero failed-test counter do not prove that its process succeeded.
+
+At 2c8, the following test/subtest failures are actually emitted; original logs
+remain intact, including parent failures and the later-corrected cases.
+
+| Package | Emitted failed test/subtest names |
+|---|---|
+| `arch` | `TestStartClusterDepsDefaultsPublishURL`, `TestClientCodesTraceToNamedConstants`, `TestImplementedCodesAppearInProtoSnapshot` |
+| `cmd/devtest` | `TestExecutePreservesOutputAndExit`, `TestExecuteLongOutputAndSuccess`, `TestPreflightOrchestration/build_failure`, `TestPreflightOrchestration/success`, `TestPreflightOrchestration/test_failure`, `TestPreflightOrchestration/default_off`, `TestPreflightOrchestration` |
+| `config` | `TestContentDigestImplementationsAgree`, `TestDesignerNoNarrowTypeOverflow`, `TestGardenGiftDelayedDeliveryDoesNotResurrectEvictedMail/mongo`, `TestGardenGiftDelayedDeliveryDoesNotResurrectEvictedMail`, `TestRealGardenGiftTwoSendersCompeteForOneQualification/mongo`, `TestRealGardenGiftTwoSendersCompeteForOneQualification` |
+| `internal/mongotest` | `TestLayerHintNamesTheLayer` |
+| `internal/tzprobe` | `TestRunInZoneReflectsRealTimezone` |
+| `loginsvr` | `TestBootFailureLeavesCluster`, `TestBootFailsWhenPortBusy` |
+| `modules/closefriendteam` | `TestCreateHappyPath`, `TestCreateRejectionOrder`, `TestCreateNonceThreeBranches`, `TestCreateDoCostFailureKeepsTeam`, `TestCreateNonceRejectionOrderCrossCells`, `TestCreateKeepsClaimAndAttemptWhenOutcomeUnknown`, `TestNonceRetryAfterOwnDisbandCreatesNewTeam`, `TestNonceShortCircuitNeedsTeamStillMine`, `TestCreateRiskIsTwoPhaseAndAfterMoney`, `TestAttemptReconcileJudgesByMembershipNotLeadership`, `TestQueuedWakeDuringCreateCannotStealTheClaim`, `TestReconciledCreateChargesExactlyOnce`, `TestLoginReconcilesPendingCreateAttempt`, `TestInviteHappyPath`, `TestInviteRejectionOrder/参赛中不挡邀请（裁决_R25：161_只钉踢/退/散）`, `TestInviteRejectionOrder/目标存在但不是密友_157_/_无档案_2`, `TestInviteRejectionOrder/目标不在线_158（含_notifier_未装配的_fail-closed）`, `TestInviteRejectionOrder/目标已在团_159`, `TestInviteRejectionOrder/重复单据_160`, `TestInviteRejectionOrder/团满_156（在途邀请占名额）`, `TestInviteRejectionOrder`, `TestInviteDuplicateBeatsFull`, `TestCloseFriendCheckSurvivesHighWaterMark`, `TestRecommendFirstStage/满员团照样能推（不占名额）` |
+| `modules/friend` | `TestFriendRemoteReceiverUsesDBAndRevision` |
+| `modules/guild/guildstore` | `TestEveryWithTransactionCallsitePassesMajorityTransactionOptions` |
+| `modules/guildcompete` | `TestComputeSeasonTimesIndependentOfMachineTimezone` |
+| `msgrisk/wordlib` | `TestWriteReadCacheRoundTripOnDisk`, `TestWriteCacheIsAtomicForConcurrentReaders` |
+| `nodeconf` | `TestProbeAnyReachableSharesOneDeadline` |
+
+Every test skip across those attempts is listed below. Child-only helper skips
+are not missing top-level acceptance, while configuration/platform conditions
+remain explicit limitations; none is counted as a native test pass.
+
+| Package / skipped test | Measured reason |
+|---|---|
+| `config` / `TestAdaptFuncItemsHandlesClearCoin` | Generated FuncItem.b_clearcoin is not published/bumped/regenerated. |
+| `config` / `TestE2ERealGrantOnlyDishExists` | Committed dish/recipe rows are one-to-one; no grant-only dish exists. |
+| `config` / `TestRealRankConfigE2ELifecycleChild` | Child-only witness, executed through its parent lifecycle test. |
+| `internal/tzprobe` / `TestRunInZoneFailurePropagationProbe` | Child-only failure-propagation probe. |
+| `modules/chat/chatstore` / `TestCorruptZSetScoreNeverSpreads/坏分数=nan` | Redis 7.0.15 rejects the NaN sorted-set score at insertion. |
+| `modules/guildcompete` / `TestMachineTZCalendarProbeChild` | Child-only calendar probe. |
+| `modules/guildcompete` / `TestMachineTZProbeChild` | Child-only season probe. |
+| `server` / `TestGuildClusterDefaultsToSingleProcessAfterBoot` | Shared memory boot does not install a guild host. |
+| `server` / `TestGuildHostWiring` | Shared enabled list excludes guild; the explicit guild-enabled wiring case runs. |
+| `server` / `TestFriendClusterChild` | Private child helper of the actual friend cluster test. |
+| `server` / `TestPayWakeClusterChild` | Private child helper of the actual payment-wake cluster test. |
+
+Direct gift-related failures receive normal TestBot corrections, without edits
+to its live checkout, ledger or checkpoint. `015fac94` introduces closed named
+ACK mappings for 0–5/default FAIL and synchronizes the earlier config observer's
+append/reset/snapshot, which had raced with subsequent actual Mongo gift tests.
+It retains race checking and the economic/replay assertions. `14c0bb50` corrects
+the strict typed transaction gate to admit the actual literal
+`options.Transaction().SetReadConcern(readconcern.Snapshot()).SetWriteConcern(writeconcern.Majority())`.
+Snapshot and Majority remain unchanged in application transactions. The gate
+still checks the real third argument, driver/package/type identity and callsite
+census and rejects locals, helpers, decoys, fake constructors/setters, repeated
+overrides, weaker write concern and wrong read concern. Three valid and nineteen
+invalid compiling fixtures produce 24 test/subtest outcomes with their parents.
+
+The maintainer independently checks corrected behavior on its own clean frozen
+sources. Counts below are separate overlapping selections, not a suite total.
+
+| Independent source / selection | Pass / fail / skip | Duration | UTF-8 stdout SHA-256 |
+|---|---|---|---|
+| `015fac94` / observer-fixed-business-independent | 208 / 0 / 0 | 114.209 s | `f0c72cb1e4b273105a570e1f9f2c8b7ae9c04a275fbbfad95a2750912aad1996` |
+| `015fac94` / observer-fixed-boot-independent | 6 / 0 / 0 | 16.449 s | `14cba3929c8ce985e5031813d27c9f84d3ce4b042de598209cd028804716dd70` |
+| `015fac94` / observer-fixed-code-audit-independent | 2 / 1 / 0 | 22.427 s | `70e8405e397089c3d679316b730571451bbc9699155b3a681401a1cfaceb5cdc` |
+| `015fac94` / actual two-node gift | 1 / 0 / 0 | 8.220 s | `6ebcfe8129039d8ac0c202d0e168c892fd9b8c951de5b5bb023d3aa007b69295` |
+| `14c0bb50` / strict Snapshot+Majority fixtures | 24 / 0 / 0 | 31.915 s | `409901ae9dd59b44a709c4afc39e0799930c48250acd8ad478de9059b09c856c` |
+
+The original full closefriendteam run times out at the 300-second package limit
+after many actor query failures. A new isolated process passes CreateHappyPath
+at both 2c8 and pre-feature merged `739354a0`, but two preceding real store-panic
+tests poison the baseline pool. Native recovery logging tries an uninitialized
+TextLog writer even though TestMain installed zap. A small native probe observes
+default logging panic versus initialized structured logging success. The
+maintainer's separate [farm-hive #373](https://github.com/Kuaiwa-Network/farm-hive/pull/373)
+changes only three test files (21 added lines), initializes both relation test
+hosts' existing structured facade and requires the next actual relation query
+to succeed after an injected store panic. Removing the fix makes that new
+regression fail; full friend/closefriendteam packages then pass. Merge
+`ce3afdfa17b42b790bc25ed416c45d918b607b59` has the exact tested head's tree
+`d94017a2f87e5590c6e339aafe8bbab7ddbd2623`. Its temporary branches are removed.
+
+| Separate maintenance check | Pass / fail / skip | Duration | UTF-8 stdout SHA-256 |
+|---|---|---|---|
+| #373 / native-panic-fixtures-red | 0 / 1 / 0 | 38.651 s | `c21873cf1695df9358b34bc6855334e46623d609373d429c7ad770cb2d2c1f7a` |
+| #373 / native-panic-fixtures-full | 464 / 0 / 0 | 32.355 s | `f08ee3940575293debc2431b49ad7663da6dfc1cd8a885ec3ab6f04fb3f6a0c1` |
+
+TestBot normally adopts those exact three files as
+`791bdd6d63f81926e4c4340f1fac36c41d5a5904`; the maintainer verifies their bytes
+against merged #373 and recounts the actual UTF-8 worker logs, hashes and frozen
+source readbacks. At that source the service selection is 249/0/0 in 115.912 s
+(`1d77475f130a467807be44519ce9a71e6d8ed107ef5932674a329b78c075fea8`),
+complete relation packages 464/0/0 in 37.679 s
+(`f0c3bb53e8bb99632ebae8a8a632aa0a2ed7909cc119112831b0b58c877e19a7`),
+transaction gate 24/0/0 in 16.361 s
+(`449274643ad08a8f31eeff37d18ada8d8177d94aad1490aba04f0b50a8e34778`),
+and build/vet/pin/scanner 11/0/0 in 72.100 s
+(`7fa5fad536192974bfb0129fd369ded6dd62bc1678b8ac7b413a9860ecd9fbff`).
+Three full native protocol/registry gates and the existing native crosscall
+invocation pass. Passing that older callname selection does not establish that
+all newly introduced yielding entry points are covered.
+
+The baseline comparisons reproduce the same .invalid DNS, Windows TZ and two
+held-port failures at 2c8 and 739 (each selection 1/4/0). The host resolves the
+reserved .invalid name to an address rather than failing lookup; no global DNS
+change is made. Native Go does not use inherited TZ as those probes assume;
+global timezone/time.Local is not changed. Windows IPv4/wildcard bind semantics
+do not produce the held-port collision those fixtures assume. A separate 739
+selection reproduces both wordlib cache disk/atomic-reader failures, nodeconf's
+shared probe deadline failure and guildcompete's timezone failure (0/4/0,
+32.973 s, `33be379c0a122b2560ebdded4c4305af585aec36b561691c0b7f5d71be8212d5`).
+Those are measured pre-feature failures, not a waiver or an assertion that they
+are harmless. Existing Bash fixtures and a hardcoded python3 fixture also fail
+on the native-only path. Common-source cache/archive prerequisites remain
+separate from these platform assertions.
+
+Initial arch, guild and guildstore runs terminate with ThreadSanitizer Windows
+allocation error 1455. The C drive then has approximately 0.23 GiB free. After
+the operator reports freeing space, measurements show approximately 27.7 GiB
+free and 10.7 GiB available virtual memory. Reattempted complete packages at 791
+still have the following outcomes; guild/guildstore fail at process level even
+though their emitted failed-test counters are zero. This disproves treating
+disk cleanup alone as sufficient. No sanitizer, memory cap or containment
+check is disabled, and no unsupported sole-cause attribution is made.
+
+| Native 791 resource follow-up | Pass / fail / skip | Duration | UTF-8 stdout SHA-256 |
+|---|---|---|---|
+| resource-restored-arch | 574 / 5 / 0 | 91.750 s | `54f571a8a4f7692de85d924d8cae8acab92a280516f7b7b9ab1e8406521e364b` |
+| resource-restored-guild | 605 / 0 / 0 | 45.744 s | `817499195c996f7bea25b7d1f5fd3cfdb5ccf9e4aa65dd6d2b7e5a1f00ca3b3b` |
+| resource-restored-guildstore | 228 / 0 / 0 | 46.253 s | `b6102cfd8bc074507c529a2d08e457d10e1521677413c91135e28a092c7b2bf7` |
+| resource-case-guild | 1 / 0 / 0 | 9.173 s | `198a2d0130b125bc48001c9948acb3b4265ba143823d243a5cf0396d9c083637` |
+| resource-case-guildstore | 1 / 0 / 0 | 21.147 s | `b9c69c061a0c9ddacd245a54fb405a61d79d4559d116987b37aafa7e9d0a0478` |
+| native-new-arch-baseline | 1 / 2 / 0 | 6.490 s | `34ba0471067958cc6b9190456c81be18f1d5cb49c0dd5586dea3eff1b6ebda07` |
+
+The complete arch package now reaches previously unvisited gates and has five
+failed tests: TestPinHTTPFetchRejectsShaMismatch and
+TestStartClusterDepsDefaultsPublishURL still invoke Bash;
+TestGoTestConsolePackageFailurePreservesPendingOutput hardcodes python3;
+TestImplementedCodesAppearInProtoSnapshot rejects the gift Contract's prose
+code heading; and TestScannedPackagesCoverEveryYieldingPackage identifies
+friendgardengifting and user as newly yielding packages missing coverage.
+The last coverage gate passes on 739 under the same native environment; the
+two additional executable-name fixtures fail there as well (1/2/0, 6.490 s).
+
+The two interrupted resource tests each pass in a new bounded process:
+TestGuildCompeteTalentBonusReadsFrozenSnapshotOnly and
+TestMongoNearLimitDocRejectsGrowthAndOnlyStoreLayerCanShrink. Their passing
+selections do not replace a complete package run. Unvisited guildstore cases
+are further attempted in fresh bounded native groups, with the failed complete
+run preserved. The catalog is only a private test-selection diagnostic, not a
+new repository roster or CI gate.
+
+| Frozen 791 guildstore tail selection | Pass / fail / skip | Duration | UTF-8 stdout SHA-256 |
+|---|---|---|---|
+| resource-guildstore-tail-1 | 12 / 0 / 0 | 6.229 s | `aa2b71fe2ba2bdab0822eedb742a63c7275ec16322e853920819c1d1c30cb362` |
+| resource-guildstore-tail-2 | 12 / 0 / 0 | 5.959 s | `4e5a00916f2998535024660470edf5518b03b88a8cf272afac77db3c8067cc7b` |
+| resource-guildstore-tail-3 | 12 / 0 / 0 | 5.896 s | `99528643fbb602fd6a00a78c94d4b5df43a39049553123a463794d31896523fb` |
+| resource-guildstore-tail-4 | 42 / 0 / 0 | 8.931 s | `7eef92904b352e5b079d1f82ad123c6acda30d67929f63e71d71dda999dd3ccc` |
+| resource-guildstore-tail-5 | 32 / 0 / 0 | 11.140 s | `d01f477e35ba06c2a0bcafc6f2f3e0d475425f8a999c7dd1aed5b0e328aa2402` |
+| resource-guildstore-tail-6 | 14 / 0 / 0 | 6.168 s | `41bb70dffec7b310011a2cb919eeadab41421840777cb2550819f86c4e64b067` |
+
+A guild tail attempt emits five passing tests, then the existing
+TestRecommend_PoolSaturatedByFullGuilds fails with a nil TextLog writer while
+starting the actual OpsWorker timer. Later selected cases do not run, and the
+diagnostic selection assertion stops; this is not a green twelve-case batch.
+The independent maintenance [farm-hive #374](https://github.com/Kuaiwa-Network/farm-hive/pull/374)
+adds only the same initialized-facade selection and one explanatory comment
+in guild TestMain (two lines, one test file). Its existing real recommendation
+test supplies the red control; a broader recommendation/OpsWorker/resume/GM/
+archive/reconcile/log selection passes after the fix. No timer behavior,
+production log setting or assertion changes. Merge
+`b6a1c71a670d01fe1c039ff92596af8aeaa21747` matches tested head
+`2ee49b94e1ae980eda6815dbb79558fe794e82d5`, tree
+`bdc02da0e464a4604a304180b8248f1fa4f5f9ed`; temporary branches are removed.
+The normal original-thread reply requests narrowly scoped worker adoption,
+not automatic integration of unrelated main changes.
+
+| #374 independent existing-behavior control | Pass / fail / skip | Duration | UTF-8 stdout SHA-256 |
+|---|---|---|---|
+| native-guild-logging-red | 0 / 1 / 0 | 24.548 s | `c8204fa17d18c8c28fbd3a01e9d9c890a0f45f2d950952f8e56a448413d1f690` |
+| native-guild-logging-green | 86 / 0 / 0 | 18.400 s | `73b3269565deffb32dd4c75725d2efe66b94ad3995f616deee7960aee82ea8b9` |
+
+The GitHub observation at published 791 confirms #367 is still OPEN/draft.
+The build [original job](https://github.com/Kuaiwa-Network/farm-hive/actions/runs/37878706393/job/113653142314)
+executes and fails obtaining the deferred designer archive with HTTP 404 before
+business CI. All thirteen Windows/native failed checks have actual Billing/
+payment/spending-limit rejection annotations and zero executed steps; triage
+is skipped. They are not application-test failures or passing native CI.
+The administrator request remains pending; no billing setting, workflow dispatch
+or archive publication is performed. Unrelated external #372 remains OPEN and
+is neither adopted nor merged by this task.
+
+Normal original-thread replies now scope two remaining technical corrections:
+upstream Contract comment formatting only (canonical code heading and N=NAME
+rows; exactly 0–5, no WAIT, no fields/IDs/behavior changes), followed by full
+native consumer generation/provenance; and actual crosscall coverage of the new
+yielding entries without exclusions/debt/skip. The initial `88dd920c` coverage
+commit adds the two packages, but its three-gate selection is 2/1/0 because
+CI/local/native callnames still need RefreshPlayerState and ReloadCommittedState.
+88 is subsequently published as a draft; its older extended lint pass does not
+close that consistency failure. Further
+worker corrections and protocol follow-up results must bind their own final
+SHA; 791 measurements are not transferred to later commits.
+
+Remaining release prerequisites are: corrected upstream protocol and full
+consumer provenance; complete yielding-entry coverage with actual native lint;
+unresolved native baseline helpers/cache/timezone/network fixtures and a
+complete bounded suite result; required hosted CI after administrator Billing
+repair and the operator's separately deferred designer publication decision;
+formal splitting/review/latest-main integration and human game-main merge of
+#366/#367; real client/UI completion and the unmeasured parts of all 29 scenes;
+and separate production-host qualification plus explicit release authorization.
+The disk-space intervention is completed, while sanitizer whole-package limits
+remain measured. These records and small test-host maintenance merges do not
+enable production feature mode, certify production readiness, authorize Common
+publication or resume parked FARM-1346/FARM-1425. No production deployment,
+service restart, player-state cleanup, credential/account or app/webhook change.
+
+
+### Reviewed callname maintenance candidate (2026-10-09)
+
+TestBot normally adopts #374 as
+`69222ceab3887805f58d8a8c4c1be910a88b8b54`, with the exact merged guild TestMain
+bytes verified independently. Its focused timer/recommendation selection is
+8/0/0 in 12.337 s, log
+`a83008975994dc867b66498a82fd6f0308bcc10a13ca636576c50f189fe684bf`.
+The combined strict code/crosscall gates are 4/2/0 in 24.533 s: protocol comment
+format and canonical callname coverage remain failures at that source. Other
+earlier measurement SHAs remain attributed to their actual sources.
+
+The worker's fixed instructions prohibit CI/workflow edits. The maintainer
+reviews the concrete four-literal proposal and independently implements it in
+`codex/gift-yield-callnames`, outside the active worker tree. The four existing
+lines in local/CI commands and msgrisk/playerinfo degradation anchors retain
+all old names and add only RefreshPlayerState and ReloadCommittedState. No
+skip, new gate, debt entry, permission or workflow behavior change. The final
+maintenance source is `fce2a1e6f92415da2dbe9b5c20879c64f0830214`, tree
+`18453d20c927bc4cc6bcf334651ea872636b94aa`, on exact normally adopted 692.
+
+| Owned native maintenance selection | Pass / fail / skip | Duration | UTF-8 stdout SHA-256 |
+|---|---|---|---|
+| `8a77c7f3` / gift-callnames-ci-red | 0 / 1 / 0 | 5.153 s | `f735e36be1c27cbb0274e56369a543192be989ca90a4663fbc83c58791c237a8` |
+| `8a77c7f3` / gift-callnames-local-red | 0 / 1 / 0 | 2.914 s | `64202889cb3b83da84771eafcc2d88dfdbbd288987bebf66c5331121d43b083d` |
+| `fce2a1e6` / gift-callnames-final-g3-green | 3 / 0 / 0 | 10.555 s | `7a70e51a63c530313c5fb8fc79c0cd17d01ea4dbad335ce16f761b523f6cf15d` |
+| `fce2a1e6` / gift-callnames-final-canonical-native-lint | 0 / 0 / 0 | 4.799 s | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+
+The two red controls delete the actual CI/local command parameter lines; the
+existing relevant source gates must each fail, then exact original bytes are
+restored after the owned Job settles. Final G3/package/local checks pass 3/0/0
+and the real full-tree native crosscalllint reads the complete canonical
+arguments, with exit 0. Zero test outcomes on the lint command are not a no-op
+test claim. Exact changed anchor bytes, clean source and unchanged fingerprints
+are verified; the Bash degradation harness is not executed or represented as
+passed on Windows.
+
+The focused [farm-hive #375](https://github.com/Kuaiwa-Network/farm-hive/pull/375)
+targets `farmbot/farm-1419-followup`, not game main, and is OPEN at publication.
+It is held until the running hive worker normally finishes its checkpoint and
+hands off to Contract; the maintainer must reverify worker settlement, exact
+base/head/files/tree and unchanged main before merging this maintenance into
+the feature draft. Original-thread reply
+`754e6e19-b96b-4a2b-83ed-6d387fd4b06d` delivers those exact source/proof details
+and the normal handoff sequence, without editing active checkout or ledger.
+The protocol follow-up, hosted Billing/archive conditions, complete suite,
+formal review/splitting/human game-main merge and real client/UI/production-host
+prerequisites stay pending. A later merged/adopted candidate needs its own
+verification; this prepared correction is not reported as already integrated.
