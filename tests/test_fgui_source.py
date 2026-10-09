@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from agent import fgui_source as source
+from agent.fgui_approval import source_digest
 from agent.ledger import LedgerError
 from agent.worktrees import READ_ONLY_GIT, WorktreeError, Worktrees
 import agent.worktrees
@@ -82,6 +83,38 @@ class SourceTests(unittest.TestCase):
     def test_scoped_hydrated_lfs_matches_raw_committed_pointer(self):
         file = self.lfs()
         self.assertEqual(self.snapshot()["files"][file.relative_to(self.path).as_posix()], hashlib.sha256(file.read_bytes()).hexdigest())
+
+    def test_clean_checkout_newlines_change_review_digest_until_exact_bytes_are_restored(self):
+        self.global_config.write_text("[core]\n\tautocrlf = true\n", encoding="utf-8")
+        name = "assets/Notice/说明 file.xml"
+        file = self.path / name
+        original = b"<component>\r\n<child/>\n</component>\r\n"
+        (self.path / ".gitattributes").write_bytes(b"*.xml text eol=crlf\n")
+        file.write_bytes(original)
+        self.commit()
+        approved = self.snapshot()
+        blob = subprocess.check_output(["git", *READ_ONLY_GIT, "show", "HEAD:" + name], cwd=self.path)
+        self.assertEqual(blob, original.replace(b"\r\n", b"\n"))
+        index = git(self.path, "ls-files", "--stage")
+        self.assertEqual(git(self.path, "status", "--porcelain"), "")
+
+        file.unlink()
+        git(self.path, "checkout-index", "--index", "--", name)
+        self.assertEqual(file.read_bytes(), original.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+        self.assertEqual(git(self.path, "hash-object", "--path=" + name, name), git(self.path, "rev-parse", "HEAD:" + name))
+        self.assertEqual(git(self.path, "status", "--porcelain"), "",
+                         git(self.path, "status", "--porcelain=v2"))
+        rebuilt = self.snapshot()
+        self.assertEqual(rebuilt["head"], approved["head"])
+        self.assertEqual(git(self.path, "ls-files", "--stage"), index)
+        self.assertNotEqual(source_digest(rebuilt["files"]), source_digest(approved["files"]))
+
+        file.write_bytes(original)
+        # Refresh this path's stat data; its normalized index object must not change.
+        git(self.path, "add", "--", name)
+        self.assertEqual(git(self.path, "status", "--porcelain"), "")
+        self.assertEqual(git(self.path, "ls-files", "--stage"), index)
+        self.assertEqual(self.snapshot(), approved)
 
     def test_unselected_dependency_pointer_may_remain(self):
         file = self.lfs("assets/Other/icon.png", materialized=False)

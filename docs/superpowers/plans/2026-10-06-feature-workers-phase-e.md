@@ -5165,3 +5165,42 @@ UI item queues normally again under the same session, source draft, candidate an
 certificate identities. Actual restored source identity, Client rehydration,
 exact-candidate Unity loading, clean release, two-draft delivery and dynamic panel
 QA remain pending at this checkpoint. Production remains unchanged.
+
+### Exact reviewed inputs restored; normal Client handoff passed (2026-10-09)
+
+The normally claimed farmgui worker verifies the prepared files and current
+identities, preserves previous bytes, and restores only the two proven reviewed
+text inputs. The ordinary controller Client handoff actually passes and the same
+item advances to `ui-client-handoff` with `root_repo=Farm-Client`. The source
+attempt exits and its native Job is empty; the subsequent Client worker is
+contained and retains the same source draft, round, receipt, installation and
+candidate `827757aa1775b59bc1c88ddf9969e07a8a4e5b6e`. There is no new source commit,
+approval or export.
+
+Independent read-only `owned_source` validation now verifies all 5,504 actual
+tracked-file hashes, clean committed/index identity and the hydrated selected
+inputs. The actual complete digest is again
+`fcde79edda4bfaf97413688079c53446d6e941b88f88808f44144af9f5a2d246`, exactly matching
+the original controller review and immutable export record. The earlier virtual
+proof is now confirmed by restored files and successful normal controller entry.
+
+The UI instructions also require private exact-byte retention of authored
+non-LFS source/UI-document files before parking or leaving farmgui. They explain
+how a reattached checkout can change raw newlines, require unchanged reviewed
+identities and original-byte proof for scoped restoration, and preserve the
+existing controller refusal for a changed digest. This adds no controller API,
+schema migration, permission grant or source-normalization exemption. A real Git
+fixture with a Unicode/spaced XML path checks mixed reviewed newlines, native
+checkout conversion, unchanged commit/index, different complete digest, and exact
+restoration. Its initial fixture/stat-refresh failure is corrected; no application
+identity check or old test is weakened. The related source/workflow/skill/dispatch
+checks run 145 tests on native Windows: all pass, zero failures/errors/skips,
+78.453 seconds. UTF-8 logs and exact file identities are retained privately. The
+separate host verification Job has an 8-GiB limit and settles; model worker memory
+limits are not inferred from it. Live service/runtime configuration is unchanged
+by this instruction follow-up.
+
+The current Client attempt still needs its committed original inputs restored,
+then exact-candidate Unity loading, clean release, Client draft and two-draft
+delivery. Dynamic panel QA remains separate. These are development-PC results;
+production qualification and deployment are still pending.
