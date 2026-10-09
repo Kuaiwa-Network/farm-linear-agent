@@ -5204,3 +5204,121 @@ The current Client attempt still needs its committed original inputs restored,
 then exact-candidate Unity loading, clean release, Client draft and two-draft
 delivery. Dynamic panel QA remains separate. These are development-PC results;
 production qualification and deployment are still pending.
+
+### Actual reserved package loading and release passed (2026-10-09)
+
+The Client worker restores 92 committed original inputs through the existing
+scoped native process-filter route. The certified seven-file installation,
+source review/export identities and candidate
+`827757aa1775b59bc1c88ddf9969e07a8a4e5b6e` remain unchanged. Both actual hydrated
+guards pass again in 12.092 seconds, with no failed, skipped or Inconclusive
+result. Their controller checksum is
+`ec4d69a7bc058280534bf929c1ece0b630f1a28f904a0556291246b967dbee19`;
+the complete TRX checksum is
+`bd6c56d8d31835f3cb44e70deb3fb9c6f3d78dcafa467097a57158123265619c`.
+
+The first normal loading call refuses because the UI gate compares the active
+candidate to `slots.parked_commit`, which still names the last idle main park.
+Independent read-only inspection verifies that the actual owned slot HEAD is
+already the exact candidate. Normal worker unclean release and controller
+execution recovery preserve the candidate and repair the slot at that same
+commit. This makes the historical park field equal the requested candidate on
+the next reservation; it does not fix the faulty first-use check.
+
+Reservation `c3c52cac-e5de-4e08-a5fb-60c6236ec551` then produces the actual
+controller loading checksum
+`c81c4056df949f22f714297199b3781302902ce696da497283b5c1ae7c802ef2`.
+Matched before/after Editor/source identity and actual descriptor hashes bind
+the successful load of Common, CommonFx, Leaderboard, PlayerCustomize and
+UILangTex to the original installation, source and candidate. Probe-owned
+package cleanup is verified. The normal CLI's quiescence gate passes;
+the reservation is released with `worker reported quiescent`, and the pool
+returns to `idle_open`. These results come from the unchanged development
+runtime at `bb54cd060588493b900eb1203672fdabab362873`, not the following
+application fix or a production deployment. Client publication and two-draft
+delivery still need their actual proofs at this checkpoint. Package loading
+does not establish dynamic target-panel QA.
+
+### Same-round two-draft delivery completed (2026-10-09)
+
+The normal worker publishes [Farm-Client #1448](https://github.com/Kuaiwa-Network/Farm-Client/pull/1448)
+at the exact tested candidate and retains [farmgui #150](https://github.com/Kuaiwa-Network/farmgui/pull/150)
+at the unchanged reviewed source commit. Both are actual open drafts on
+`farmbot/farm-1104`. Controller delivery
+`b6dfa570a9624d38887be428ecfa9e4f` binds that exact pair to the original receipt,
+approval/request, current guard and actual loading identities. Normal
+`finish --outcome delivered` passes; the same original UI work item becomes
+`delivered` and its worker exits.
+
+Independent read-only verification confirms the delivery ID in the terminal
+evidence, generation, exact PR pair and source/candidate pins, canonical guard
+and loading checksums, five loaded packages, complete probe cleanup, and the
+actual reservation's quiescent release. All 12 UI attempt native Jobs are empty;
+there is no open UI reservation or pending UI recovery. Normal controller task
+cleanup completes and removes the temporary task worktrees. The trusted clone
+retains the candidate branch, whose diff still contains only
+`Assets/GameRes/FairyRes/Leaderboard/Leaderboard_fui.bytes` against the selected
+baseline. The shared Editor remains in an idle-open pool slot; no host process
+or state is manually cleared to obtain delivery.
+
+The selected small UI trial has completed certified source approval, native
+export, scoped Client installation, hydrated guards, exact-commit package
+loading, clean resource release and two-draft delivery on this development PC.
+The actual game panel still requires dynamic nickname/VIP visibility, relation
+placement and pooled-row checks, including the bottom self row. Neither game PR
+is merged by this verification. FARM-1419 remains pending its art/UI work, and
+production-host qualification and separately authorized deployment remain release
+prerequisites.
+
+### Active UI slot identity uses the actual owned commit (2026-10-09)
+
+The application fix keeps `parked_commit` as historical idle-park evidence.
+At every UI reservation fence it instead validates the configured Client slot's
+owned clone/worktree entry and reads the actual HEAD through explicit Git
+directory/common-directory/work-tree selectors. Hooks, fsmonitor, LFS filters,
+replacement objects, lazy fetch and optional locks are disabled for this bounded
+read. An unavailable read, different commit or borrowed Git pointer refuses
+loading. Active exact-commit reservations, live claims, before/after Editor and
+source identity, package hashes, cleanup, Stop and delivery checks remain in force.
+There is no schema migration, new write grant or manual live-row correction.
+
+The regression uses real owned local Git repositories and the normal pool grant,
+switch, identity record, reservation-token file and resume path, with a separate
+Unicode/spaced Editor folder. The last idle park remains the baseline while the
+actual slot switches to the candidate. Before the fix the normal loading case
+reproduces the committed-slot refusal in 11.736 seconds. New refusal cases cover
+a changed actual HEAD even when the historical field names the candidate,
+another owned worktree's Git pointer, commit drift during loading and a timed-out
+commit read. Existing unknown identity, Stop, package/result and source-drift
+refusals remain covered.
+
+Native Windows validation covers 138 distinct relevant cases. The initial
+137-case run records two fixture errors (547.733 seconds); normal pool grants
+return the secret token through their existing file, and Git for Windows protects
+the hidden `.git` fixture file. After correcting token handling and adding the
+timeout case, the 138-case run has one remaining hidden-file fixture error
+(533.070 seconds). The fixture then uses an existing-file handle and restores
+its original pointer/permissions. The complete changed UI group reruns all
+12 cases successfully in 111.075 seconds, with zero failures/errors/skips and
+unchanged application source. The other 126 cases have 124 passes and only these
+two existing platform skips:
+
+- `test_slots.PoolTests.test_a_fifo_left_for_the_batch_summary_cannot_stall_the_batch_run`:
+  `FIFOs in a directory are POSIX`.
+- `test_slots.PoolTests.test_what_the_worker_left_at_the_token_path_is_replaced_by_the_grant`:
+  `no FIFOs in a directory, and making a symlink needs a privilege`.
+
+All ten native Windows Job Object tests actually run and pass. No application
+check or existing test is weakened, and no skip is added. Python is 3.13.16,
+Git is 2.54.0.windows.1, and `PYTHONUTF8=1` is set before each explicit Python
+launch. UTF-8 logs, every initial fixture error, durations, source identities
+and process settlement are retained privately. The separate host verification
+Job has a measured 8-GiB limit and settles; this does not assert a model-worker
+memory limit. Documentation checks, links and whitespace are also validated.
+These tests change no active runtime or configuration.
+
+The predecessor exact-input follow-up #221 has now completed its full pinned
+[Mac/Windows CI](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37926740183)
+successfully. The current application's full CI is tracked separately. The
+successful live UI delivery above used the earlier runtime, and does not
+substitute for first-use verification of this fix or production-host qualification.

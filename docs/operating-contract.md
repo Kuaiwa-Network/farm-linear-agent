@@ -1096,7 +1096,12 @@ certified committed Client head after the current guard proof. Existing slot
 preparation, reservation tokens, ownership and quiescence rules apply. The shared
 Editor remains outside worker containment. `verify-ui-loading` uses the reserved
 slot's pinned MCP session and fixed bounded package-loading probe, with matched
-Editor/source identity before and after. It compares imported descriptor bytes
+Editor/source identity before and after. Each reservation fence reads the actual
+slot HEAD through its validated owned Client clone and worktree entry. The
+slot's `parked_commit` remains the last idle park; it is not evidence of an
+active switch. A different actual commit, foreign Git pointer or unverifiable
+clone refuses loading and cannot record success. It compares imported descriptor
+bytes
 to actual committed Client hashes and loads every export/dependency package and
 its declared atlas/sound/misc assets. Already registered packages refuse the
 probe. Cleanup removes only newly registered probe-owned wrappers and uses
