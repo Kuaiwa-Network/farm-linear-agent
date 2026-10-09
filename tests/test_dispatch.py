@@ -395,7 +395,7 @@ class SkillAuthorityTests(unittest.TestCase):
     def test_ui_authority_is_pinned_to_certified_export_client_and_unity_loading(self):
         part = dispatch.FGUI_AUTHORITY
         self.assertEqual(hashlib.sha256(part.encode("utf-8")).hexdigest(),
-                         "62bc3985391d523e2ea01986713acd14c648f371257325dc7a0da0716eaa13a9")
+                         "232f2725995f1f417707de3b301748f862f19e28c460d364a121e34cc462c98b")
         self.assertIs(dispatch.SKILL_AUTHORITY["fgui"], part)
         self.assertEqual(self.message({"id":"i", "skill":"fgui"}).split("\n\n", 1)[0],
                          dispatch.COMMON_AUTHORITY + part + dispatch.AUTHORITY_REFERENCE)

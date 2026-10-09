@@ -10,7 +10,10 @@ drafts and a Contract acceptance/archive draft; people review, merge and accept 
 The UI worker (`fgui`) is also opt-in. It starts in farmgui, opens a source
 draft and posts clearly labeled approximate previews for explicit human visual
 approval. Replies resume it; comments alone do not. Corrections require a fresh
-preview round. An unchanged approved preview and explicit export request allow
+preview round. Each round's notice names the Client branch and changed package
+paths. A named human's confirmation of that unchanged round includes export and
+scoped Client continuation; an explicit visual-only reply leaves export pending.
+The recorded approval and export request allow
 the configured licensed native Windows publisher to export the changed packages.
 The controller then permits a scoped Farm-Client stage, actual Client guards and
 reserved exact-commit Unity package loading before two-draft delivery. Missing

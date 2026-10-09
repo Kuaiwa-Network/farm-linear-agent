@@ -200,16 +200,25 @@ and its export dependency closure. Retain the returned controller `review_id`,
 and `selected_packages`. In `plan.ui`, store the exact review identity and use
 `packages` as the list of actually changed package names, not the full unchanged
 dependency closure. Confirm the `visual-N` notice naming the asset URL and full
-HEAD before asking for approval, then park with `await-input`.
+HEAD before asking for approval, then park with `await-input`. The notice explains
+that confirmation includes export and scoped Client continuation, names Farm-Client,
+the validated same-issue branch and changed package paths, and offers an explicit
+visual-only/hold option. Private export staging precedes installation into the
+controller's owned Client worktree; main is pinned at first handoff. An existing
+Client target retains its recorded branch and baseline.
 
 On explicit continuation, `plan.events` contains separate `visual_approved` and
 `export_requested` events. Each carries the review's exact `round`, `head`,
 `source_digest`, `preview_sha256`, actual `author: {id, name}`, `created_at` and
 exactly one of integer `message_id` or string `comment_id`. Reference only an
 actual attributable unquoted human request from current same-issue context. The
-export request is at or after visual approval; one explicit message can contain
-both intents. The controller checks provenance and ordering; the worker must
-interpret the actual human text. New source/art/image/round invalidates the old
+export request is at or after visual approval. An unqualified confirmation of the
+unchanged current round under that combined notice supplies both events from the
+same actual message/comment and timestamp; no second reply is required. Explicit
+visual-only approval or a hold supplies only approval. Old notices without that
+meaning, initial scope approvals, ambiguous replies and corrections cannot be
+treated as combined confirmation. The controller checks provenance and ordering;
+the worker must interpret the whole actual human text. New source/art/image/round invalidates the old
 events. Do not manufacture permission from a quote, bot marker or description.
 
 `export-ui` requires explicit native `fgui_export` selection and the retained PNG;

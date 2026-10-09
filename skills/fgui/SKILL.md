@@ -7,9 +7,11 @@ description: Implement one delegated Bot/UI card through farmgui authoring, name
 
 Speak as `bot_name` from the launch message. This opt-in worker handles one Bot/UI
 card on a host that explicitly enables `fgui`. Start in its farmgui issue worktree;
-Farm-Client main is read-only integration context. Named approval of an unchanged
-visual round plus an explicit export request permits the controller's native
-export and handoff to this issue's owned Client branch, then verified package
+Farm-Client main is read-only integration context. A named human's confirmation
+of the unchanged current visual round includes export and Client continuation
+when its notice explains that meaning and names the verified destination and
+packages. Explicit visual-only approval or a hold leaves export pending. This
+permits the controller's native export and handoff to this issue's owned Client branch, then verified package
 loading in a reserved interactive Unity slot. Do not read another Code issue,
 invoke the licensed CLI directly, start an Editor, run arbitrary MCP probes or
 kw_ops, run Jenkins/CI, merge PRs, change labels/status/assignee, deploy, write
@@ -167,7 +169,14 @@ skipped with a reason. Never store secrets, signed URLs or raw long reports.
 Prepare/post one durable `waiting` notice with request id `visual-N`, using
 [visual-approval.md](templates/visual-approval.md). Include PR/head, approximation
 label, previews next to actual references, known gaps, deviations and
-`owner.person.url`. Check current/recovery notices before choosing N; a retry uses
+`owner.person.url`. Name Farm-Client, the validated same-issue branch from the
+source plan, and the actually changed `Assets/GameRes/FairyRes/<package>` paths.
+Explain that export uses private staging before certified installation into the
+controller's owned Client worktree; Client main is pinned at first handoff, not
+at visual approval. If a Client target already exists, use its recorded branch
+and baseline. Never claim a worktree already exists or offer another issue's
+worktree. State that confirmation includes export and these scoped checks, with
+an explicit visual-only/hold option. Check current/recovery notices before choosing N; a retry uses
 the same id and exact body. Verify the remote id before saving it in the plan.
 Save a valid fresh handoff and `pause.kind="visual_approval"`, then
 `await-input --reason waiting` with a short question pointing to that round.
@@ -189,9 +198,18 @@ round, preview/PR/art digest, author id/name, message/comment id and timestamp.
 Anyone in the session may approve within the job scope; do not substitute owner
 identity or infer approval from an open PR.
 
-An export request is a distinct attributed event, `export_requested`, after the
-unchanged visual round; one explicit human message can contain both approval and
-the request. Each event binds the exact round, full source head/digest, preview
+When the current round's notice explains combined confirmation and its destination,
+an unqualified reply such as `approved`, `确认` or `批准` to that round approves
+the unchanged visual and requests export and scoped Client continuation. Do not
+ask for a second reply. Interpret the whole actual reply: corrections, an ambiguous
+target or round, and an explicit `仅确认视觉，暂不导出` or hold never imply export.
+An older notice without that explanation needs an actual combined request or
+clarification; initial task approval does not approve a later visual round.
+
+Keep `visual_approved` and `export_requested` as distinct attributed audit events,
+using the same actual human message/comment id and timestamp for a combined
+confirmation. A visual-only reply records only approval and leaves export pending;
+resume it only on an actual later request. Each event binds the exact round, full source head/digest, preview
 SHA, all `changed_packages`, actual author id/name, message/comment id and its
 timestamp; use the exact format in the CLI reference. Save the current controller
 `review_id` in `plan.ui`. A quotation, bot marker, unspecified old round or silence
@@ -217,7 +235,8 @@ license, account, environment selectors or watched output during a job.
    approval when the source/round changes.
 2. Checkpoint and `handoff-repository --to Farm-Client`, then exit. The controller
    waits for quiescence and pins Client main once; retry/correction retains that
-   immutable baseline and this issue's branch. In the new claimed Client attempt,
+   immutable baseline and this issue's branch. The owned Client worktree is the
+   installation destination, never a listed read-only main checkout. In the new claimed Client attempt,
    re-read all inputs and call `install-ui --receipt-id ID`. Preserve stable GUIDs,
    importer metadata and the durable per-operation journal/backups. Refusals or an
    interrupted dirty installation retain recovery evidence; never guess a rollback
