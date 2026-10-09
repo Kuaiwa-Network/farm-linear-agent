@@ -193,3 +193,22 @@ binary transport and suspended-start Job/drain checks use dummy native children.
 Windows runs all native checks; other platforms skip them explicitly. A missing
 compiler/Git LFS fails as a host gap. These fixtures do not certify a selected real
 worker, live publication, licensed UI export or production readiness.
+
+`git lfs checkout` and `git restore` can return zero while a clean worktree still
+contains pointers. On a host that already supplies the verified process filter,
+restore only explicit scoped files whose current bytes equal their committed
+LFS pointers and whose cached original OID/size have been checked. Use native
+`git checkout-index --prefix=NEW_PRIVATE_STAGE/ -z --stdin`, UTF-8 NUL path input
+and command-local `GIT_LFS_SKIP_SMUDGE=0`. The destination is a new absolute private
+directory under the item's state, outside the checkout. The fresh destination avoids a
+working-file stat shortcut. Verify staged OID/size, recheck the unchanged pointer
+and live claim, then replace only those committed originals. Verify restored
+OID/size and unchanged HEAD/indexed tree. A scoped
+`git update-index --really-refresh -z --stdin` then refreshes
+cached file stats; require clean status. Do not use `--all`, overwrite genuine
+changes, register new filters or change the trusted clone to make this work.
+Absent verified cache/filter capability remains a gap. The native fixture now
+exercises cached staged checkout, clean filtering and preserved real source edits
+with spaces/Unicode, without a helper shell, network or host credentials.
+The [Git reference](https://git-scm.com/docs/git-checkout-index) documents the
+private prefix and NUL-delimited input options.
