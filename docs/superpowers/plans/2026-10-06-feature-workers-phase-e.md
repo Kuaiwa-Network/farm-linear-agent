@@ -3851,3 +3851,157 @@ human gates; UI-ready/client work and separate production-host qualification.
 The owned Docker services remain available for the selected task. No parked
 issue, production service/player data, credential, account, app or webhook
 setting changes in this step.
+
+
+### Actual Mongo business, cross-node delivery and corrected accounting (2026-10-09)
+
+These measurements are from the same development Windows PC, not the production
+Windows host. The four previously owned Docker services remain isolated on
+loopback. Go 1.25.1/CGO race and test child processes run natively on Windows;
+Docker uses WSL2 for Linux dependency containers. Python is explicitly 3.13.16
+with `PYTHONUTF8=1`; dependency downloads remain disabled, required service flags
+are set, source fingerprints and actual JSON outcomes are checked, and every
+owned 8 GiB Job is settled. Private paths, credentials and raw logs stay local.
+
+The selected TestBot consumes both scope-correction replies and normally commits
+`7097486b0ba5efa25ca51d71cffe50606414f181`. `modules/shop/buy.go` is again byte
+identical to the approved `51ed3a3a` source. Ordinary shop-26 COIN self-purchases
+retain their original behavior; the gift uses the approved recharge exception.
+The real Mongo concurrency test still requires both 58+18 voucher costs, balance
+924, gift cumulative recharge 58 and recharge record 5800, plus replay with no
+additional effects. The unsupported ordinary-self-buy recharge-overflow test is
+withdrawn with that unsupported behavior; approved gift overflow, first-charge,
+qualification, stale-write and atomic rollback assertions remain. Design
+attribution is corrected. The rejected `6c345558` expansion and prior failing
+tests remain in history; a green result at that source is not accepted as the
+product specification.
+
+The real Mongo fixtures call actual `Service.Gift` with committed configuration,
+loaded component Owners and MongoStore, rather than just synthetic transaction
+effects. They use independently named per-process/per-sequence databases. Cases
+include gift versus self-buy/other voucher spend, qualified competing gifts,
+multiple-item rollback after late relation failure, permanent recharge record
+overflow/malformed rejection, configured first-charge and recipient exclusion,
+101-item retention/reload and frozen content. Two further replay cases place an
+owned loopback proxy before the disposable Mongo service: after a genuine
+successful server commit, it drops the reply or returns one
+`UnknownTransactionCommitResult`. Driver retry must keep the same durable order,
+one debit/reward/recharge and no repeated frames. No Mongo failpoint, server
+configuration change or production data is used.
+
+Actual cross-node gift delivery needs a bounded typed committed-order wake. The
+new internal RPC carries only a 64-hex order identity; it uses the existing bounded
+friend dispatcher and authoritative `center_node` routing. The receiver requires
+the current admitted live actor and a guarded owner turn, then reloads committed
+state. It does not accept economic payloads, arbitrary directive names, allocate
+an offline recipient or bypass the revision/commit boundary. Regression cases
+cover invalid identities, retired/replaced/wrong recipients and receive admission.
+The integration test starts two actual native gameBoot processes with the real
+Mongo/Redis/etcd/NATS services and tests online increment, offline durable receipt,
+relogin full recovery and absence of cold-login incremental presentation. Its
+gateHub substitutes the gate wire and installs the two exact test placement
+leases. This is server integration evidence, not real Unity/client/UI acceptance.
+
+All initial cross-node failures remain: missing test relation-sequence store at
+`a553b142` (0/1/0, 10.530 s,
+`903e21d45e38b3bedc6e78ce1cf07c89a53442cc98ff86ab16deb9727b88c76f`),
+then missing online increment at `a1c3bc81` (0/1/0, 13.767 s,
+`66f839d5644a38e2f78ae4903e72b1d1b9be6c5625a7220c0cf6868eb5190601`)
+and diagnostic-only `403f37d1` (0/1/0, 13.762 s,
+`e94ce16a9273b70d66964ee51aa017954d530988b449392f77c5f3963d1ecadb`).
+The fixture lacked the gate placement needed by the production routing path;
+`545e35c5` supplies those owned test leases and verifies a real routed frame before
+the gift, without extending the wait budget or removing notification assertions.
+That exact selection passes 1/0/0 in 9.972 s,
+`f663ee18382bdba1d6388dee37a8061b8b90789de67b1b88c503e53058d7cecb`.
+
+The maintainer independently freezes corrected `7097486b`; the following are
+separate from the worker's own results. Counts include actual test/subtest
+outcomes, never inferred regex matches. Every selection has zero failures and
+zero skips, empty stderr, a clean checkout and unchanged source fingerprints.
+
+| Exact candidate / independent selection | Pass / fail / skip | Duration | UTF-8 stdout SHA-256 |
+|---|---|---|---|
+| `7097486b`, nine business/notification packages, CGO race | 197 / 0 / 0 | 93.969 s | `d0b01bbc3a389126f4fd556008a969108a2786843e58453b918635fb60e3626c` |
+| `7097486b`, six real-service tests, complete G5, gift cross-node, three regressions and two budget gates | 19 / 0 / 0; all 12 specified top-level tests run | 22.966 s | `c02c83fac3852bf9ccca3e834925985789a476ac98c13d61fec4dda059e9c4ae` |
+| `2c8c4ad1`, the three newly Mongo-expanded hotload/chat tests | 9 / 0 / 0 | 17.434 s | `0ef979fabec4e3ddb591c5c27e7116f4c4621329ac4df7b0cbc4d62ceb269e6a` |
+
+The first independent command is `go test -p 1 -race -json -count=1 -timeout
+300s -run 'Gift|GardenGift|Monotonic|Revision|FriendProtocolCensus|FriendReceive|FriendExact|FriendRoute|FriendSession|Recharge|FirstRecharge'
+./modules/gardengift ./modules/friendgardengifting ./modules/shop ./modules/mail
+./modules/friendchat ./modules/friend/friendstore ./user ./session ./config`.
+The second uses an anchored alternation of the twelve actually recorded server
+test names, including all six intended service tests, complete G5 and
+`TestGardenGiftClusterRealOnlineAndOfflineRecovery`; it starts only after the
+worker's same-PID service selection has settled. The added-test selection is
+anchored to `TestRealGardenGiftHotloadInvalidPriceRejectsNewGiftButKeepsCommittedReceipt`,
+`TestGardenGiftChatDedupSurvivesHistoryAndConversationDeletion` and
+`TestGardenGiftChatConcurrentReplayAppendsOnce`, in config and friendchat. All three
+run their memory and actual Mongo variants. The last commit changes only those
+two test files; the independent 709 measurements remain attributed to 709.
+
+Full native protocol synchronization commits the merged Contract provenance in
+`0eb99cc0`: all 60 consumed snapshots already match
+`fa924fd2f44cf68606ebc61e6ebd32b9b3399cb0`, so only the manifest pin changes.
+After a fresh independent fetch of Contract main, corrected 709 passes native
+snapshot/generated-code reproduction (11.698 s,
+`0e130b7a450b301c2dfed4634b2a8ba7dc6f4aa5704a763a9ccd9bbb189fb36a`),
+provenance (2.770 s,
+`8ca376a590bc8214152d55814be92ef6d9b82d85bb03d4d2012805aeec18d7ef`)
+and all 61 registry output bytes (5.234 s,
+`8444ad837929550cc614b8fa17a543ac47900d87510d9faad804444ca03a9106`).
+The upstream `redeem_code.proto` remains explicitly unconsumed, a non-error NOTE;
+no invented target or partial synchronization is used to suppress it.
+
+The worker's first protocol-gate attempt at `0eb99cc0` has exit 1 at registry
+`WinError 5` after the snapshot/provenance checks succeed: 18.461 s,
+`f70b19f6514fd455cd97b57d8f198d654fa1f1dc0819845c52f13da4557336df`.
+It executes zero test/subtest outcomes; the failure is preserved and does not
+establish a product assertion failure. The registry passes independently at the
+same 0eb source; subsequent worker retries at corrected 709 and final 2c8 also
+pass. No skip substitutes for the gate, and no cause is claimed merely from a
+successful retry. The earlier 0eb business result 229/0/0 remains historical
+because it still contained the rejected ordinary self-purchase expansion.
+
+Final worker candidate is `2c8c4ad14eb85ac12f4daefaad70627989f94431`, tree
+`ee71cac47a8f069699ccc3fe5dbc4a13c6121990`. Its own fully recounted native results
+are 239/0/0 across ten selected business/service packages (121 actual top-level
+tests), 99.794 s, log
+`3481d66638eb2a414fae45bad5508abd9a4300199089478f2987aa3bf86f50f7`;
+native protocol gates exit 0, 19.934 s,
+`9623b566466fff1eea24a493af58d2d414eafdc01bfce01a8e902279bcf88dc1`;
+and build/vet, transaction scanner and internal-cluster reproduction exit 0,
+65.846 s, log
+`38ed9cb48c957a015ff095492a4d51dd1b6d679e0a0e7ea38fc80294aac497ca`.
+The latter includes 11 passing scanner test/subtest outcomes, and the existing
+25 scanner self-test cases remain distinct from that count. No result is moved
+to an untested integration tree. An additional standalone cluster regeneration
+at the same 2c8 source initially exits 1 before assertions because Go cannot
+create its work directory (Access is denied): 0.444 s, zero test outcomes,
+`e459d0c196c25891e459d897b85f38d54c14a91e1741084955fdb999e492ed8c`.
+The retained retry exits 0 and reproduces all nine internal cluster protocols
+in 0.890 s, `e5215f71523bdf9932303bbdc18d866899ceb90fe50a32d6b57230210a793171`.
+Both attempts leave the checkout clean and source fingerprints unchanged;
+neither is counted as a Go test pass or a product assertion failure. Original-thread reply
+`aa607794-6388-4933-80e0-acbdb8ee8fb1` delivers the independent 709 observations
+and current-main drift to the selected session through normal routing; no active
+worker checkout, ledger or checkpoint is manually modified.
+
+Fresh GitHub API plus Git remote-ref inspection observes farm-hive main advancing
+to `acff471877b9454a8ddae571c37fa0e139035580` by #350, with approved #371's
+`739354a0` as its first parent. These tests bind the specified feature candidates,
+not an integration with that further main. Normal foreign-work review and fresh
+candidate validation remain necessary for any integration. #366/#367 remain
+drafts with their formal split/review and human game-main merge gates; this record
+does not authorize those merges.
+
+Remaining release prerequisites are the complete 29-scenario acceptance mapping
+including real client/UI presentation; formal code review/splitting and any
+latest-main integration; required hosted CI after the recorded Billing rejection
+and the explicitly deferred Common/designer publication dependency; UI-ready/client
+completion; and separate production-host qualification plus explicit release
+authorization. These native service results close measured server-test gaps but
+do not waive the older whole-suite failures/skips or establish production readiness.
+The independent Docker services remain available to the selected task. No parked
+issue, production deployment/service/player data, credential/account or app/webhook
+setting changes in this work.
