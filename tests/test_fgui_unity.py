@@ -2,13 +2,17 @@
 import copy
 import hashlib
 import json
+import stat
+import subprocess
 import unittest
 from unittest.mock import Mock, patch
 
 from agent.fgui_unity import loading_source, verify_loading
 from agent.fgui_workflow import UiWorkflow
 from agent.ledger import LedgerError
+from agent.slots import SlotPool, slot_entry
 import test_fgui_client_workflow as client_fixtures
+from test_slots import FakeMcp
 
 
 class UiUnityTests(unittest.TestCase):
@@ -17,15 +21,25 @@ class UiUnityTests(unittest.TestCase):
         f.installed(); f.source.commit(f.client)
         self.head = f.source.git(f.client, "rev-parse", "HEAD")
         self.ledger, self.item, self.receipt = f.ledger, f.item, f.exported["receipt_id"]
-        entry = {"id": "unity_slot:1", "folder": str(f.client), "build_target": "StandaloneWindows64"}
+        entry = slot_entry({"id": "unity_slot:1", "folder": str(f.source.root / "Editor slot 空间"),
+                            "build_target": "StandaloneWindows64"})
         f.source.config.slots = [entry]
-        self.ledger.ensure_slot(entry["id"], kind="unity_slot", host="fixture", folder=str(f.client),
-                                instance="fixture-instance", mcp_address="http://127.0.0.1:8080/mcp")
+        mcp = FakeMcp()
+        pool = SlotPool(self.ledger, f.source.trees, [entry], host="fixture", editors_root=f.paths.editors,
+                        mcp=mcp, editor_scan=lambda folder: None,
+                        editor_pid=lambda folder: 4242 if str(folder) in mcp.open_folders else None,
+                        state_dir=lambda item: f.paths.runs / item)
+        pool.ensure()
         self.ledger.await_resource(self.item, f.source.token, "unity_slot", "interactive", skill=f.source.skill,
                                    commit_sha=self.head, issue_prefix=f.source.config.issue_prefix)
-        self.reservation = self.ledger.acquire("unity_slot", owner="fixture-controller", host="fixture")
-        self.ledger.set_slot_state(entry["id"], "interactive_busy", parked_commit=self.head)
-        self.ledger.resume(self.item, "fixture Unity acquired")
+        self.assertEqual(pool.grant(), 1)
+        self.reservation = self.ledger.active_reservation(self.item)
+        self.reservation["token"] = pool.token_path(self.item).read_text(encoding="utf-8")
+        self.slot_folder = f.source.root / "Editor slot 空间"
+        slot = self.ledger.slot(entry["id"])
+        self.assertEqual(slot["parked_commit"], f.baseline)
+        self.assertNotEqual(slot["parked_commit"], self.head)
+        self.assertEqual(f.source.git(self.slot_folder, "rev-parse", "HEAD"), self.head)
         f.source.token = self.ledger.claim(self.item, worker_id="ui-unity-fixture")["token"]
         self.workflow = UiWorkflow(self.ledger, self.item, f.source.token, f.source.config, f.source.skill,
                                    lambda: f.source.api, stage="Farm-Client")
@@ -57,6 +71,45 @@ class UiUnityTests(unittest.TestCase):
         self.ledger.release(self.reservation["reservation_id"], self.reservation["token"], "fixture release")
         with self.assertRaisesRegex(LedgerError, "active interactive"): self.verify()
         self.client.call_tool.assert_not_called()
+
+    def test_actual_slot_commit_mismatch_refuses_even_with_candidate_in_parked_field(self):
+        self.fixture.source.git(self.slot_folder, "checkout", "--detach", self.fixture.baseline)
+        self.ledger.set_slot_state("unity_slot:1", "interactive_busy", parked_commit=self.head)
+        with self.assertRaisesRegex(LedgerError, "actual committed candidate"): self.verify()
+        self.identity.probe.assert_not_called()
+        self.client.call_tool.assert_not_called()
+
+    def test_slot_git_pointer_cannot_borrow_another_owned_worktree(self):
+        pointer = self.slot_folder / ".git"
+        original, mode = pointer.read_bytes(), pointer.stat().st_mode
+        # Git for Windows protects this hidden fixture file. An existing-file
+        # handle avoids CREATE_ALWAYS refusing a hidden file even after chmod.
+        pointer.chmod(mode | stat.S_IWRITE)
+        def replace(raw):
+            with pointer.open("r+b") as stream:
+                stream.write(raw); stream.truncate()
+        try:
+            replace((self.fixture.client / ".git").read_bytes())
+            with self.assertRaisesRegex(LedgerError, "owned Client commit"): self.verify()
+        finally:
+            replace(original); pointer.chmod(mode)
+        self.identity.probe.assert_not_called()
+        self.client.call_tool.assert_not_called()
+
+    def test_unavailable_slot_commit_read_cannot_start_editor_loading(self):
+        with patch("agent.fgui_unity._git", side_effect=subprocess.TimeoutExpired("git", 10)), \
+                self.assertRaisesRegex(LedgerError, "owned Client commit"):
+            self.verify()
+        self.identity.probe.assert_not_called()
+        self.client.call_tool.assert_not_called()
+
+    def test_actual_slot_commit_drift_during_loading_cannot_record_success(self):
+        def moved(*args, **kwargs):
+            self.fixture.source.git(self.slot_folder, "checkout", "--detach", self.fixture.baseline)
+            return {"result": self.result}
+        self.client.call_tool.side_effect = moved
+        with self.assertRaisesRegex(LedgerError, "actual committed candidate"): self.verify()
+        self.assertEqual(self.ledger.connection.execute("SELECT count(*) FROM audit WHERE kind='fgui_unity_complete'").fetchone()[0], 0)
 
     def test_unknown_preprobe_identity_refuses_actual_loading(self):
         self.identity.probe.return_value["aggregate"] = "unknown"

@@ -6,6 +6,7 @@ Only newly registered probe packages are removed, in a finally block.
 """
 import hashlib
 from pathlib import Path
+import subprocess
 
 from .fgui_client import _client, installation_record
 from .fgui_records import _canonical, _live
@@ -14,6 +15,7 @@ from .ledger import LedgerError
 from .preview_upload import _plain_path
 from .slots import UnityIdentity, slot_entry
 from .uploads import _read_regular
+from .worktrees import GIT_ENV, READ_ONLY_GIT, WorktreeError, _git
 
 
 def loading_source(packages, descriptors):
@@ -38,8 +40,7 @@ def _reservation(workflow, commit):
             or reservation["kind"] != "unity_slot" or reservation["commit_sha"] != commit):
         raise LedgerError("UI loading requires this job's active interactive reservation at the exact committed candidate")
     slot = workflow.ledger.slot(reservation["resource"])
-    if (not slot or slot["state"] != "interactive_busy" or not slot.get("instance")
-            or slot.get("parked_commit") != commit):
+    if not slot or slot["state"] != "interactive_busy" or not slot.get("instance"):
         raise LedgerError("UI loading requires the controller's committed and connected Unity slot")
     entries = [slot_entry(entry) for entry in workflow.config.slots if entry.get("id") == slot["slot_id"]]
     if len(entries) != 1 or not entries[0]["build_target"]:
@@ -49,6 +50,21 @@ def _reservation(workflow, commit):
     if (entry["kind"] != "unity_slot" or entry["repo"] != "Farm-Client"
             or Path(slot["folder"]).resolve() != folder.resolve() or slot["mcp_address"] != entry["mcp_address"]):
         raise LedgerError("UI loading slot identity differs from its current configured Client slot")
+    # parked_commit describes the last idle park, not the subsequent active
+    # switch. Read this slot's actual HEAD through its verified clone/entry;
+    # never let its .git pointer select another repository or configuration.
+    try:
+        git_entry = workflow.trees.worktree_entry("Farm-Client", folder)
+        clone = workflow.trees._clone("Farm-Client")
+        actual = _git("rev-parse", "--verify", "HEAD", cwd=folder, timeout=10,
+                      config=READ_ONLY_GIT, env={**GIT_ENV, "GIT_DIR": str(git_entry),
+                          "GIT_COMMON_DIR": str(clone), "GIT_WORK_TREE": str(folder),
+                          "GIT_NO_REPLACE_OBJECTS": "1", "GIT_NO_LAZY_FETCH": "1",
+                          "GIT_CONFIG_COUNT": "0", "GIT_OPTIONAL_LOCKS": "0"})
+    except (WorktreeError, OSError, subprocess.TimeoutExpired):
+        raise LedgerError("UI loading cannot verify the slot's owned Client commit") from None
+    if actual != commit:
+        raise LedgerError("UI loading slot is not at the actual committed candidate")
     return reservation, slot, entries[0]
 
 
