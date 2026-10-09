@@ -144,7 +144,9 @@ pending checkpoints below describe their state when recorded. Remaining gates:
    follow-up #377 is now merged with the exact reviewed tree. Remaining UI-ready,
    Client/closing Unity, consumer resynchronization, write-back and archive
    acceptance stay pending; full game-suite and hosted CI gaps remain explicit.
-   Deferred designer archive publication remains outside the approved scope.
+   The operator now confirms that FARM-1419 art/UI is unfinished; its worker
+   parks at `ui_ready` with no Client stage accepted. Deferred designer archive
+   publication remains outside the approved scope.
    External runtime interruption and development webhook/recovery state are
    recorded separately. Game-repository CI failures below do not establish a
    FarmBot implementation defect or replace these live acceptance gates.
@@ -4644,3 +4646,90 @@ production-host startup/exit/recovery qualification followed by explicit
 deployment authorization. Historical failures, platform/test skips, sanitizer
 error 1455 and interrupted full-suite attempts remain recorded. No release date,
 whole-suite pass, UI-ready acceptance or production certification is claimed.
+
+
+### Human UI dependency and new document-driven scope (2026-10-09)
+
+The operator confirms that [FARM-1419](https://linear.app/kuaiwagames/issue/FARM-1419)
+art/UI is unfinished. Normal attributed reply `f1fb15dc-7d5f-46f9-9b40-7c6a98466002` in the
+existing development thread conveys that input, with exact remote read-back.
+The real worker acknowledges it and parks at `ui_ready`; its worker process is
+absent, recorded owned Jobs are empty and the issue worktree is clean. Completed
+Contract/service work is retained. Client, closing Unity, resynchronization,
+write-back and archive remain pending. Same-named source components or parsed
+package descriptors are not a replacement for the missing human/UI delivery.
+No service restart, production change or state cleanup occurs.
+
+Read-only candidate checks reject automatic continuation of already implemented
+work. The operator then approves a new, narrow
+[FARM-1104](https://linear.app/kuaiwagames/issue/FARM-1104) UI trial: place the VIP
+badge immediately after the nickname in leaderboard list rows and the self row,
+using existing art. Titles, podium layout, gameplay, Contract/server work and
+Common configuration remain outside that scope; it is not whole-card acceptance.
+Current owned read checkouts match farmgui main
+`86cd4640616a3434006fe87379060d7bb874746c` and Farm-Client main
+`9f0eb670ddd5ce79535adf532ff80ef30e773efe`. Existing
+[Client #1254](https://github.com/Kuaiwa-Network/Farm-Client/pull/1254) is merged;
+pre-intake checks find no open matching issue PR/branch, current delegate or
+development job. Existing main still uses a fixed list-badge position, while
+the card's later human feedback requests adjacency to the nickname.
+
+The issue's original wiki link resolves to a short directory document, not R4.
+Native read-only resolution identifies the actual attached
+`排行榜_系统策划案R4.docx`; its direct wiki link is supplied in the new human scope
+comment so the worker need not browse unrelated wiki nodes. Root verification
+uses the existing `farmbot` bot profile and creates no credentials or profile.
+All commands start suspended, bind to an owned 8 GiB Job before resume and settle
+with no descendants left. No inherited FarmBot selector or credential override,
+separate Windows HOME, Bash, MSYS or WSL route is used. Profile-file metadata
+remains unchanged. UTF-8 payloads and hashes remain private.
+
+| Native candidate read | Exit | Duration | UTF-8 stdout SHA-256 |
+|---|---:|---:|---|
+| directory fetch | 0 | 2.889 s | `01d048b9b201bcc0334565c9088a2a4871c53791bbd171e0dddaba7582cba7e4` |
+| wiki | 0 | 1.931 s | `f735b814ff85dee32b9613d2b0f6c30aabf1d9ff7906e67b79f2dbc1df6f3170` |
+| nodes | 0 | 2.024 s | `68962606597e61e7c1b029b8da9a01bb1a86f15c68309fd483a403d408ec3b1d` |
+| download | 0 | 3.397 s | `aaa57260e0bd5a2d63ce26e9b48a33ce761f16ab864e7952a944cedff6f5522b` |
+
+The original DOCX is 1,229,520 bytes, SHA-256
+`2fa928fb96ca667c694b674c85a8047f8891f7d93d2bf079e85aca7a7ef7ba58`. Bounded OOXML body/table reading yields
+217 nonempty paragraphs, 13 tables and 14,914 UTF-8 bytes, SHA-256
+`cd17e04ff8df80ee6ff0400ef5da7ede2273dcd7c22cfe99d256fd6c04c5f651`. This confirms substantive text, not image/layout fidelity
+or intake by the actual UI worker. The archive is unchanged; no ZIP extraction,
+Office install or credentials/configuration change is needed. An initial helper
+preflight refuses a PATH exposing `wsl.exe` before any Feishu command starts;
+the rerun selects only native executable directories and preserves that refusal
+as helper evidence, not an application regression.
+
+Human scope comment `0684528c-839b-4a7d-87d6-36f012c2d4af` and the existing Bot/UI label authorize
+only this selected card. API delegation creates exactly one real TestBot session
+and one `fgui` work item through the existing signed webhook; no duplicate
+session or synthetic event is created. The existing development runtime/profile
+is unchanged. A subsequent real-worker observation verifies substantive
+document/upload intake below. Source authoring, new visual approval, explicit
+export request, certified Client handoff and Unity evidence for this scope remain
+pending at this observation. Earlier FARM-1396 evidence is not
+relabelled as this new trial. FARM-1346 and FARM-1425 stay parked, deferred Common
+publication stays deferred, and production-host acceptance remains separate.
+
+
+The actual native `fgui` worker now performs the wiki resolution and bot download
+itself. Its private original DOCX matches the independently read R4 file above,
+including its 1,229,520-byte size and SHA-256; bounded re-reading confirms
+all 217 nonempty paragraphs and 13 tables. Its actual saved text is
+15,129 bytes, SHA-256
+`9f0e5f8d41fb245d6aa2f0e8592ceedac0ccc4e3479522f562095ae4ac799171`. Every nonempty original paragraph is present.
+The worker preserves a different blank-line/newline representation, so this text
+is not claimed byte-identical to the root verifier's conversion. Document images
+and rich layout are not certified by those text checks.
+
+Its real `download-uploads` manifest records seven successful artifacts: six PNG
+images and one MP4, with no download failures. Independent reads verify every
+recorded size/SHA-256 and unchanged file metadata. The original manifest SHA-256
+is `04f7f2f16fe2728ad269c12d62038791426a73c00a0e5e1e010e3bc76f998293`. Those inputs remain private and are not committed
+or silently counted as visual approval. The worker is measured using
+`gpt-6.1-sol`/`xhigh`; its root and every observed descendant belong to the owned
+native Job, and the development controller reports zero loop errors. This now
+establishes substantive linked-document intake in a real UI worker. It does not
+complete authoring, the new visual round, export/Client delivery or production
+acceptance. Any later source, art or PR-head change invalidates prior round proof.
