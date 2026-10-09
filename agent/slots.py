@@ -61,8 +61,9 @@ class SlotError(RuntimeError):
             # through the probe arm and *release* a slot spec §7 says to hold — silently, on the only slot
             # there is. Construction is the one place that can catch it, and it is what STAGES is for.
             raise ValueError(f"stage must be one of {self.STAGES}, not {stage!r}")
-        # "git" and "editor" may be retried once at the tail of the queue; "compile" fails the item and leaves
-        # the slot in the pool; "probe" holds the slot for the operator's recover-slot (spec §7).
+        # "git" may be retried once at the tail of the queue; "compile" fails the item and leaves
+        # the slot in the pool. Editor preparation and "probe" failures quarantine it for
+        # bounded controller recovery; see _switch_failed for the preparation/run distinction.
         self.stage = stage
         # "external" is git, Unity, the host or the operator; "farmbot" is this codebase's own bug.
         self.fault = fault
@@ -304,9 +305,14 @@ class SlotPool:
 
     def _switch_failed(self, reservation, exc, *, recovery_kind='setup'):
         reason = str(exc)[:400]
-        if exc.stage == "probe":
+        if exc.stage == "probe" or (exc.stage == "editor" and recovery_kind == "setup"):
             # Preparation failures have their own bounded budget: no worker has
             # received this grant yet. A batch run that already began is execution.
+            # A startup deadline does not prove the Editor exited: it may still
+            # be importing without MCP. Keep the requested commit and source
+            # untouched until recovery fences the old attempt and owns repair.
+            # Returning through park() here would force-checkout main beneath
+            # that live importer and lose its changes before they can be archived.
             self.ledger.hold(reservation["reservation_id"], reason, recovery_kind=recovery_kind)
             return
         self.ledger.release(reservation["reservation_id"], reservation["token"], reason)
