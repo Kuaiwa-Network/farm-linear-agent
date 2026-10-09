@@ -127,12 +127,13 @@ operator-confirmed screenshot passes scoped item-1 visual QA. Native scoped
 Feishu wiki/document access also passes below, with explicit content limits. Historical
 pending checkpoints below describe their state when recorded. Remaining gates:
 
-1. A real document-driven UI worker trial with usable requirements and an
-   operator-selected scope. The first two measured UI documents return only
-   headings. The later FARM-1419 read below retrieves substantive planning/UI
-   content through the current native runtime; UI-worker intake of that content
-   and a newly selected live scope remain untested.
-   FARM-1396 item 2 and whole-card acceptance remain outside this item-1 trial.
+1. Complete the operator-selected document-driven FARM-1104 UI trial below.
+   Actual native UI-worker intake of the full leaderboard R4 DOCX and seven
+   uploads is measured. Its bounded source draft and controller-recorded round 1
+   are now ready for named visual approval and an explicit export request;
+   certified export, Client guards/loading and real dynamic panel QA remain
+   pending. The approximate source renderer does not execute sibling relations.
+   FARM-1396 item 2 and whole-card acceptance remain outside this trial.
 2. Separately scoped real Code later-stage acceptance: Common/config/hive and native
    generators, running-worker withdrawal, Client/closing Unity tests and the real
    Contract gates, merge/squash resynchronization, write-back and archive. The
@@ -4733,3 +4734,67 @@ native Job, and the development controller reports zero loop errors. This now
 establishes substantive linked-document intake in a real UI worker. It does not
 complete authoring, the new visual round, export/Client delivery or production
 acceptance. Any later source, art or PR-head change invalidates prior round proof.
+
+
+### Document-driven leaderboard source and visual round 1 (2026-10-09)
+
+The selected native Windows TestBot UI job advances from verified R4/upload
+intake to authoring. [farmgui #150](https://github.com/Kuaiwa-Network/farmgui/pull/150) is an open draft at
+`f6dbab2572e70bc2a150a305deb9b22a2d2234e2`, tree `94044413279fee79063ee2ae11eb0662989a4c7b`, based on
+`86cd4640616a3434006fe87379060d7bb874746c`. Independent native Git/GitHub reads verify exactly
+two changed files: `assets/Leaderboard/Items/LeaderboardRankItem.xml` and
+`docs/farm-1104-leaderboard-vip-ui.md`. Whitespace checks pass. No image content,
+package registration, stable child ID/name or Client C# is changed; title/podium
+and whole-card work stay outside the human-approved scope.
+
+The component retains the existing font size and VIP art, moves both owner-state
+nickname origins left by 18 source pixels and relates the badge to the nickname's
+right edge and vertical middle. The badge uses the existing 41-by-44 image with
+an 8-pixel logical gap. Existing `SetVip`/`KeepRankAboveName` bindings are retained.
+Worker evidence reports passing package-cycle/export/ID lint, text color/ink-box
+checks, unchanged child identities and referenced registrations. Sixteen static
+geometry cases cover other/self, short/six-CJK/12-wide-ASCII and VIP/non-VIP.
+The widest printable ASCII case has an estimated 7-pixel visible-ink gap to the
+right label. This depends on the checked font and the current input-code fallback
+limits; actual GlobalInfo values, special characters, Unity glyphs and pooled
+row reuse remain unverified. These are static estimates, not runtime acceptance.
+
+The two actual native source renders report `status=gap`: sibling-target
+relations are unsupported. Automatic/rich text remains approximate and
+transitions are not simulated. No missing-image gap remains. The private
+2,200-by-2,740 comparison sheet places the actual uploaded references beside
+those two source renders and labels its 16-case geometry illustration separately.
+It explicitly identifies the self badge's unexpanded relation and does not claim
+to be a FairyGUI Editor or Unity capture. The initial pointer-image preview,
+helper argument/path/geometry refusals, commit identity omission and checkpoint
+helper correction are preserved privately; later success does not erase them
+or relabel these helper failures as application regressions.
+
+Read-only development-ledger inspection verifies the actual earlier image
+transfer and exactly one controller `fgui_review_created` audit record:
+
+| Round identity | Measured value |
+|---|---|
+| Round / controller review ID | 1 / `290eceb764804d9db9a7539fabc8a748` |
+| Source digest | `fcde79edda4bfaf97413688079c53446d6e941b88f88808f44144af9f5a2d246` |
+| Review image SHA-256 | `5e7ced85694b4b720db66c4fc08b08f1e6db9f8bb1a97fbe5a34726e4d27d191` |
+| Actually changed package | Leaderboard / `k8r6dxmj` |
+| Selected dependency closure | Common, CommonFx, Leaderboard, PlayerCustomize, UILangTex |
+| Confirmed normal visual notice | `a31de05a-cece-4ca7-a862-4d41e4f25a1c` |
+
+The uploaded image hash/size/dimensions, private retained image, exact source
+HEAD and controller record agree. The worker posts its durable `visual-1`
+notice, parks at `visual_approval` and exits; independent observation finds no
+worker and empty owned Jobs, with zero controller loop errors. No export audit
+record exists. Scope approval is not approval of this new round. Named approval
+of the unchanged preview/source plus an explicit export request is the next
+human step. Source changes invalidate this round; the draft is not merged to
+bypass that requirement.
+
+This is development-PC evidence. The actual licensed export, scoped Client
+installation, guards, exact-commit Unity loading, dynamic UI QA and delivery for
+this new trial remain pending. FARM-1419 remains at its art-dependent `ui_ready`
+gate with completed backend work retained; FARM-1346/FARM-1425 stay parked.
+Deferred Common publication and intended production-host qualification remain
+separate. No production deployment/restart, credential, profile or app setting
+change occurs.
