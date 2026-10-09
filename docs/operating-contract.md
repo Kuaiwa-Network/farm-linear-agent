@@ -889,6 +889,17 @@ destination may be used. Missing art/behavior requires a named human answer; a
 placeholder is never inferred. Approximate previews record PR/source/art/PNG/state
 identities, known gaps and deviations against actual uploaded references.
 
+Native hydration is verified from actual file OIDs/sizes. An already supplied
+verified process filter may restore explicit scoped committed pointer files from
+their verified local cache through native index checkout into a new private
+directory, with smudge enabled for that command. Staged OID/size, the unchanged
+disk pointer and live claim are checked before replacing only committed originals;
+paid export outputs still require the installer. HEAD and the indexed tree remain
+unchanged; scoped stat
+refresh must produce clean status. Real edits, absent cache/filter capability,
+unexpected bytes or identity drift refuse this route. Exit zero alone is not
+hydration evidence, and this route installs/configures nothing or expands no root.
+
 Each visual round posts one durable waiting notice and parks with
 `pause.kind="visual_approval"`. Comments alone do not resume; an explicit session
 reply does. Instructions require attributable human user/message/time and the

@@ -235,6 +235,20 @@ the exact full head. Hydrate guard inputs with the owned native Git/LFS route,
 then `verify-ui-guards`; both actual named methods must pass in complete TRX.
 Skipped or Inconclusive is pending.
 
+Hydration requires actual bytes, not only exit zero. If the supplied verified
+native LFS process filter and exact cached originals are already available,
+native `git checkout-index --prefix=NEW_PRIVATE_STAGE/ -z --stdin` with UTF-8 NUL
+path input and command-local `GIT_LFS_SKIP_SMUDGE=0` can read explicit scoped
+originals into a new absolute private directory under `STATE_DIR`, outside the
+checkout, without a working-file stat shortcut.
+Verify current committed pointer bytes and cached OID/size before overwriting,
+and staged OID/size before replacement. Recheck each unchanged pointer and live
+claim before replacing only those committed originals; paid exports still use
+`install-ui`. Verify restored OID/size and unchanged HEAD/indexed tree. Refresh only
+those paths with `git update-index --really-refresh -z --stdin`, then require
+clean status. This adds no filter installation, credential/configuration change,
+whole-worktree reset, or permission to overwrite real edits.
+
 Checkpoint and request `await-resource --resource unity_slot --mode interactive
 --commit FULL_SHA`, then exit. On the reserved claimed attempt,
 `verify-ui-loading` uses the controller's fixed probe and pinned MCP session at

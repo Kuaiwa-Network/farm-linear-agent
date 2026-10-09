@@ -4831,3 +4831,53 @@ installation-success record yet. The intended destination is
 `Assets/GameRes/FairyRes/Leaderboard` inside that worktree. Client installation,
 guards, exact-commit Unity loading and actual dynamic panel QA remain pending;
 this development PC observation does not certify production-host readiness.
+
+### Native cached Client input restoration (2026-10-09)
+
+The same FARM-1104 Client attempt retains its certified export and fixed baseline
+but parks at `stage_limit` before installation. Its actual waiting notice is
+`4f84fc5a-f99d-417f-90a0-b12ebf5bd94b`. `install-ui` refuses unhydrated selected
+inputs. The worker's scoped LFS commands exit zero while still leaving pointers;
+their diagnostic says Git LFS is not installed for that repository despite the
+supplied required native process filter. This message is retained as a finding,
+not treated as proof that the host lacks Git LFS or that credentials are missing.
+No installation, Client candidate, guards, Unity reservation or Client draft is
+recorded. The worker exits and all its owned Jobs settle.
+
+Independent read-only inspection verifies the owned Client branch, unchanged
+baseline/index and clean Git status. Across selected packages/dependencies and
+the actual guard descriptors, 92 committed LFS files still contain pointers,
+including 64 descriptors. All 92 corresponding local cache objects have the
+correct SHA-256 and size; none is missing. This inspection uses no network.
+An older private bootstrap also refuses because its historical Codex package
+path was removed. The Git/LFS-only diagnostic avoids selecting Codex and reuses
+the existing independently verified native tools; no runtime or host setting
+is changed to bypass that stale diagnostic helper.
+
+The first offline force-checkout probe passes only after changing pointer file
+stats. A new real-Git clean-pointer regression exposes that direct force checkout
+can still leave matching-stat pointer files unchanged. The incomplete probe and
+failing regression are preserved; no skip or application guard is weakened.
+The complete method uses native `checkout-index` with a fresh private `--prefix`
+and UTF-8 NUL path input. Instructions require original OID/size proof and the
+unchanged disk pointer plus live claim before scoped replacement; the offline
+fixture verifies byte identities and preserves Head/indexed tree. A scoped index
+stat refresh follows. The independent probe ends with clean status.
+The real native regression also preserves a separate genuine XML edit and covers
+binary bytes and paths with spaces/Unicode without a helper shell, network or
+host login. Paid export outputs still pass through `install-ui`.
+
+The selected native Windows Python 3.13.16/Git 2.54.0 run passes 123 focused
+filter/UI-instruction/dispatch/skill tests in 4.503 seconds with zero failures,
+errors or skips after the complete-method correction. Worker instructions, CLI
+reference and current contract now require staged byte proof and scoped
+replacement rather than relying on exit zero. No filter binary, controller
+implementation, schema, account, credential, clone/host configuration or service
+is changed. The existing TestBot receives the verified continuation in its
+original thread as `c63a3876-15a5-4c95-a72d-2fa00a0ebd62`; it is a continuation
+of the unchanged approved round, not a second session or repeated export.
+Actual Client installation/guards/loading and dynamic panel QA remain pending.
+
+[The complete #215 CI run](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37903019651)
+now succeeds on both Mac and Windows for the one-confirmation change. That is
+separate from this new hydration regression and from production-host qualification.

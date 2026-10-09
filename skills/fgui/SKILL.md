@@ -104,6 +104,22 @@ preview. Use only the owned credential callback supplied by the host; do not
 install helpers, change clone config/hooks/attributes, use another account or
 expand a write root to make a pull/push work. A hydration/publish refusal is a gap.
 
+Check actual file bytes after hydration: a zero exit from `git lfs pull`,
+`git lfs checkout` or `git restore` does not prove that pointers became content.
+With an already supplied verified native process filter, cached originals may be
+read into a new absolute private directory under `STATE_DIR`, outside the checkout,
+through native `git checkout-index
+--prefix=NEW_PRIVATE_STAGE/ -z --stdin`, using UTF-8 NUL
+paths and `GIT_LFS_SKIP_SMUDGE=0` for that command. Use only explicit scoped files
+whose current disk bytes match their committed LFS pointers and whose cached
+OID/size are verified; never `--all`, overwrite real edits, select a new filter or
+change clone/host configuration. Verify staged OID/size and recheck each unchanged
+disk pointer plus the live claim before replacing only those committed originals.
+Paid export output still uses `install-ui`. Verify restored OID/size, unchanged HEAD
+and indexed tree, then refresh only those paths with `git update-index --really-refresh
+-z --stdin` and require clean Git status. Missing cached bytes/filter capability
+remain a gap; do not infer success or copy arbitrary exports to bypass it.
+
 Follow current farmgui rules: Common controls/safeArea, stable child names,
 five font sizes, actual art dimensions, real resource IDs, exported cross-package
 references and no package cycles. An authorized rule-12 exception permits new

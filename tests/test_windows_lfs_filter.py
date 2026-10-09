@@ -196,41 +196,58 @@ class NativeLfsFilterTests(unittest.TestCase):
         if not value: raise RuntimeError('Native filter integration requires installed Git LFS')
         return Path(value).resolve()
 
-    def test_actual_git_clean_and_stat_refresh_preserve_source_with_no_helper_shell(self):
+    def test_actual_cached_staged_checkout_clean_and_stat_refresh_preserve_source_with_no_helper_shell(self):
         self.pin(executable=self.real_lfs())
         original = self.work / 'source 原图'; original.mkdir()
         env = self.git_env(); env['GIT_TRACE'] = '1'
         traces = []
-        def git(cwd, *args, environment=env, allowed=(0,)):
+        def git(cwd, *args, environment=env, allowed=(0,), data=None):
             result = subprocess.run(['git', '-c', 'core.hooksPath=NUL', '-c', 'core.fsmonitor=false',
                                      '-c', 'user.name=Offline filter fixture', '-c', 'user.email=offline@example.invalid', *args],
-                                    cwd=cwd, env=environment, capture_output=True, timeout=30)
+                                    cwd=cwd, env=environment, input=data, capture_output=True, timeout=30)
             self.assertIn(result.returncode, allowed, result.stderr.decode('utf-8', errors='replace'))
             traces.append(result.stderr.decode('utf-8', errors='replace'))
             return result.stdout.decode('utf-8').strip()
         git(original, 'init', '-q')
         (original / '.gitattributes').write_text('*.png filter=lfs diff=lfs merge=lfs -text\n', encoding='utf-8')
         data = bytes(range(256)) * 100
-        (original / 'image.png').write_bytes(data)
+        name = 'image 彩 space.png'
+        (original / name).write_bytes(data)
         (original / 'layout.xml').write_text('<text fontSize="42"/>\n', encoding='utf-8')
-        git(original, 'add', '--', '.gitattributes', 'image.png', 'layout.xml'); git(original, 'commit', '-qm', 'offline baseline')
+        git(original, 'add', '--', '.gitattributes', name, 'layout.xml'); git(original, 'commit', '-qm', 'offline baseline')
         tree = git(original, 'rev-parse', 'HEAD^{tree}')
         smudge = subprocess.run(['git', '-c', 'core.hooksPath=NUL', '-c', 'core.fsmonitor=false',
-                                 'cat-file', '--filters', 'HEAD:image.png'], cwd=original,
+                                 'cat-file', '--filters', 'HEAD:'+name], cwd=original,
                                 env={**env, 'GIT_LFS_SKIP_SMUDGE': '0'}, capture_output=True, timeout=30)
         self.assertEqual((smudge.returncode, smudge.stdout), (0, data))
         traces.append(smudge.stderr.decode('utf-8', errors='replace'))
         materialized = self.work / 'pointer clone 中文'
         git(self.work, 'clone', '-q', '--local', '--no-hardlinks', str(original), str(materialized), environment=self.git_env(False))
-        self.assertTrue((materialized / 'image.png').read_bytes().startswith(b'version https://git-lfs'))
-        (materialized / 'image.png').write_bytes(data)
+        self.assertTrue((materialized / name).read_bytes().startswith(b'version https://git-lfs'))
+        head = git(materialized, 'rev-parse', 'HEAD')
+        oid = hashlib.sha256(data).hexdigest()
+        cached = materialized / '.git/lfs/objects' / oid[:2] / oid[2:4] / oid
+        cached.parent.mkdir(parents=True); cached.write_bytes(data)
         (materialized / 'layout.xml').write_text('<text fontSize="40"/>\n', encoding='utf-8')
-        expected = git(materialized, 'rev-parse', 'HEAD:image.png')
-        self.assertEqual(git(materialized, 'hash-object', '--path=image.png', 'image.png'), expected)
-        git(materialized, 'update-index', '--really-refresh', '--', 'image.png', allowed=(0, 1))
+        # Use a fresh private prefix so matching working-file stat information
+        # cannot suppress smudge. Verify staged originals before replacement.
+        staged = self.work / 'hydration stage 中文'; staged.mkdir()
+        git(materialized, 'checkout-index', '--prefix='+staged.as_posix()+'/', '-z', '--stdin',
+            environment={**env, 'GIT_LFS_SKIP_SMUDGE':'0'}, data=(name+'\0').encode('utf-8'))
+        self.assertEqual((staged / name).read_bytes(), data)
+        self.assertTrue((materialized / name).read_bytes().startswith(b'version https://git-lfs'))
+        self.assertEqual(git(materialized, 'rev-parse', 'HEAD'), head)
+        self.assertEqual(git(materialized, 'write-tree'), tree)
+        os.replace(staged / name, materialized / name)
+        self.assertEqual((materialized / name).read_bytes(), data)
+        self.assertEqual(git(materialized, 'rev-parse', 'HEAD'), head)
+        expected = git(materialized, 'rev-parse', 'HEAD:'+name)
+        self.assertEqual(git(materialized, 'hash-object', '--path='+name, name), expected)
+        git(materialized, 'update-index', '--really-refresh', '-z', '--stdin',
+            data=(name+'\0').encode('utf-8'), allowed=(0, 1))
         self.assertEqual(git(materialized, 'status', '--porcelain'), 'M layout.xml')
         self.assertEqual(git(materialized, 'write-tree'), tree)
-        self.assertEqual((materialized / 'image.png').read_bytes(), data)
+        self.assertEqual((materialized / name).read_bytes(), data)
         self.assertIn('fontSize="40"', (materialized / 'layout.xml').read_text(encoding='utf-8'))
         trace = '\n'.join(traces)
         self.assertIn(selector(self.helper), trace)
