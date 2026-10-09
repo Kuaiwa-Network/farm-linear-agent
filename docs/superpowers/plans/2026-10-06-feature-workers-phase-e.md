@@ -5033,3 +5033,135 @@ remain available. This is preserved work plus an unresolved Unity preparation ga
 not successful end-to-end UI delivery. The next prerequisite is safe slot recovery
 and exact-candidate Unity verification; neither reapproval nor re-export of this
 unchanged round is required. These remain development-PC measurements.
+
+
+### Fenced recovery of the failed UI startup (2026-10-09)
+
+[FarmBot #219](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/219)
+fixes the Editor preparation failure-return path exposed above: it now quarantines
+the slot at the requested commit and enters existing bounded controller recovery,
+instead of force-checking out main beneath an importer that may still be running.
+Preparation and execution budgets remain separate; batch-runner wiring failures
+retain their existing behavior. There is no timeout increase, new skip, identity
+bypass or schema change. Three new regressions fail on the old implementation and
+pass after the fix, including Stop during startup, which never resumes cancelled
+work. Native Windows checks run 126 tests: 124 pass, zero errors/failures,
+and the following two existing platform skips:
+
+- `test_slots.PoolTests.test_a_fifo_left_for_the_batch_summary_cannot_stall_the_batch_run`:
+  `FIFOs in a directory are POSIX`.
+- `test_slots.PoolTests.test_what_the_worker_left_at_the_token_path_is_replaced_by_the_grant`:
+  `no FIFOs in a directory, and making a symlink needs a privilege`.
+
+All ten native Windows Job Object tests actually run and pass. The related
+slot/multi-slot/recovery/UI checks take 352.562 seconds. The host's separate
+8-GiB verification Job settles; this does not assert a memory cap on model workers.
+UTF-8 logs, failing regressions and exact revision/tree are retained privately.
+#219 merges as `bb54cd060588493b900eb1203672fdabab362873` with the verified tested tree
+`23024c19f823df0ca0cbd0054b01c33bf196e8ec`. Full cross-platform CI is still pending at merge and is tracked
+separately from these focused native results.
+
+Before requesting recovery of the existing development slot, read-only inspection
+verifies its configured folder, clone/worktree trust, exact source snapshot, two
+eligible atlas metadata changes, Editor executable and current-account ownership.
+All 50 recorded native worker Jobs are empty; no active worker, queued/running/
+resource-waiting item, open reservation, pending recovery or cleanup exists.
+The host requests the existing controller recovery API, with no forced release,
+direct row edit, manual source reset or direct Editor operation. This request
+does not resume the failed job. The controller completes recovery
+`314eefee-5cb8-424c-962f-14837308b2e5` in two bounded repair attempts. It preserves the two
+changed metadata files under immutable archive commit
+`a8f425893f7a7d17b4ddd8649604d8b00ee7ac94`, verifies the Editor has exited and leaves the
+same main commit `5f76b77955d7d97ebac91b46b4c6b1575d809033` clean and `idle_closed`.
+Independent read-only checks verify the manifest, recovery ref, exact archived
+path set and parent commit; the failed item and all original candidate/guard
+evidence stay preserved.
+
+A fresh development runtime is prepared outside every task worktree from the
+verified merged #219 tree. It copies only repository source, with no private
+configuration, credential or runtime-state copy. Read-only doctor reports no
+missing feature/UI tools and native export readiness; existing historical
+failed/blocked-job findings remain. After a fresh whole-instance settlement fence,
+only the verified owned TestBot development controller restarts. Its interpreter,
+process creation identity, current-account ownership, bootstrap ancestry and
+listener are checked. Configuration and all external state roots remain unchanged;
+the already selected signed native CLI remains `codex-cli 0.162.0-alpha.2` and the
+model policy remains `latest-sol` / `xhigh`, resolving to `gpt-6.1-sol` at this
+checkpoint. The healthy serving heartbeat has zero loop errors. Neither a healthy
+heartbeat nor the restored main slot certifies candidate Unity loading.
+
+The normal operator-authored continuation in the original thread is
+`98ad292a-0168-4642-beff-bc0e709d778c`, independently read back with the original
+operator identity. It requests normal continuation of retained round 1 and
+candidate `827757aa1775b59bc1c88ddf9969e07a8a4e5b6e`, with no new visual approval,
+export or source change. A read-only conversation worker receives it in the
+original session under a verified native Job, still using `gpt-6.1-sol` / `xhigh`.
+The conversation completes its normal `request-repair` continuation and exits
+with its native Job empty. The original UI work item is queued again under the
+same item/session, with the saved source draft, candidate, target and checkpoint
+retained; its next native worker is verified contained and uses the same model.
+Exact-candidate loading, clean release, Client draft, two-draft delivery and dynamic
+panel QA remain pending at this checkpoint. The
+other cards remain parked and production is unchanged. These are development-PC
+measurements, not production-host qualification or deployment authorization.
+
+
+The #219 tested-head Mac CI completes successfully at 2026-10-09 10:47:15 UTC;
+the Windows job also completes successfully at 11:16:20 UTC. Its
+[full CI run](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37918315612)
+is distinct from the focused native result and the actual UI trial.
+
+During normal UI continuation, a source comparison finds that the reattached
+checkout still contains the committed LFS pointer for
+`assets/Common/Atlas/bg/icon_bg_90.png`. Independent read-only checks verify the
+cached original against that committed pointer's SHA-256 and size. The worker
+restores the original input; a subsequent independent check verifies its actual
+bytes, unchanged reviewed source head and clean working-tree status using the
+already pinned native Git/LFS filter. The host does not edit the active worker's
+checkout. This resolves the observed input-materialization gap without a source
+change, new review or repeat export; the remaining controller source/receipt
+checks and Client/Unity continuation still have to complete.
+
+### Reviewed byte identity after worktree reattachment (2026-10-09)
+
+The resumed worker restores 694 selected source originals using the pinned native
+fresh-prefix checkout, verifying committed LFS OIDs/sizes and retaining its
+restoration evidence. Independent read-only source validation accepts the owned
+clean source commit and hydrated selection, but its complete 5,504-file raw-byte
+digest is `13bc4df5c0ccf0879c4195a6e5e42dc275319fb483baef316a65fca2a4b07c28`,
+different from the review/export digest
+`fcde79edda4bfaf97413688079c53446d6e941b88f88808f44144af9f5a2d246`.
+The actual normal Client handoff refuses with
+`UI source or authority differs from the controller export`. The worker preserves
+all evidence, posts notice `08a315f5-f5aa-46b7-b6ad-28703f9f24b9`, and exits
+`awaiting_input` at `ui-source-identity-stage-limit`; all its native Jobs are empty.
+No new Unity reservation, Client draft or delivery certificate is produced.
+Git cleanliness alone does not establish the original raw-byte review identity.
+
+Read-only diagnosis isolates the difference to checkout newline conversion in
+the two changed text files. The reviewed `LeaderboardRankItem.xml` has 3,018
+bytes and SHA-256
+`1679155ab44c900a41f97e0371cc3d19ac8d95455f3e3ccee3a0dc31eaee7f31`:
+lines 20, 21, 36, 37 and 43 use LF; the other line endings use CRLF. The rebuilt
+checkout has all CRLF. Its approved raw bytes are reconstructed from the unchanged
+committed blob and independently matched to that retained review hash/size.
+The other file, `docs/farm-1104-leaderboard-vip-ui.md`, has original LF bytes,
+6,373 bytes and SHA-256
+`9e18e4223a0b93e0867a44844f309c23348631f507413b0d846cfe572faef61a`;
+these equal its committed blob. Substituting only these two verified original
+hashes into the otherwise unchanged full file map exactly reproduces the original
+approved/exported digest. This is a virtual diagnostic proof until actual source
+restoration and normal controller verification complete.
+
+The host writes only new private prepared copies and a manifest under this card's
+existing state root. It does not edit the live checkout, claim, ledger,
+configuration, Git filters/attributes or export. The operator-authored continuation
+`d0185c71-f048-4b6b-92ee-19ad0d7bf8bc` is read back with the original operator and
+thread identity. It authorizes the normally claimed farmgui worker to verify and
+back up current bytes, restore only these exact approved inputs within its existing
+write scope, and require the unchanged full source/export checks and Client handoff
+to pass. No changed source or weaker identity check is authorized. The original
+UI item queues normally again under the same session, source draft, candidate and
+certificate identities. Actual restored source identity, Client rehydration,
+exact-candidate Unity loading, clean release, two-draft delivery and dynamic panel
+QA remain pending at this checkpoint. Production remains unchanged.
