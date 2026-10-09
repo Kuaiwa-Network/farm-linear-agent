@@ -69,7 +69,8 @@ class FguiScopeTests(unittest.TestCase):
                        "verify-ui-guards", "verify-ui-loading", 'pause.kind="stage_limit"',
                        "native publisher is not explicitly configured", "no package cycles", "publish nothing and ask nothing",
                        "same id and exact body", "Never invent a name", "prepared", "exactly both current",
-                       "never guess a rollback", "pinned MCP session"):
+                       "never guess a rollback", "pinned MCP session", "Do not ask for a second reply",
+                       "仅确认视觉，暂不导出", "validated same-issue branch", "installation destination"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase.casefold(), text.casefold())
         self.assertNotIn("--type elicitation", text)

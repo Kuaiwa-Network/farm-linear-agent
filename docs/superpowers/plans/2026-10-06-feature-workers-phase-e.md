@@ -4798,3 +4798,36 @@ gate with completed backend work retained; FARM-1346/FARM-1425 stay parked.
 Deferred Common publication and intended production-host qualification remain
 separate. No production deployment/restart, credential, profile or app setting
 change occurs.
+### Combined visual confirmation and measured Client destination (2026-10-09)
+
+The operator clarifies that normal confirmation of the current visual round
+includes export and scoped Client continuation. The worker notice now names
+Farm-Client, the validated same-issue branch and changed package paths before
+asking for that one reply. An explicit visual-only approval or hold leaves export
+pending. The two provenance events remain distinct and may cite the same actual
+human message and timestamp; no controller text heuristic, schema migration,
+publication bypass or broader write grant is introduced. An older notice needs
+an actual combined request or clarification. Runtime instructions and the visual
+notice template are updated together; the running TestBot revision is not edited
+or restarted by this change.
+
+For FARM-1104 round 1, the operator's `approved` reply is independently read back
+as human comment `42a97f89-bfc4-49ac-9476-354f836058ae` in the existing TestBot
+thread. The subsequent actual combined clarification is
+`d7d32e43-cb97-4a43-81b6-8144532f49ed`; no second session or ledger edit is used.
+Read-only native development-state inspection measures one successful controller
+export receipt, `3545fe52a0c244e39cdd0d1fdfc0c4f7`, SHA-256
+`6eadebd81070188fd1df7cb7a24a18249a54c828f710abef013dff1520d34d0e`.
+It retains the exact round-1 source/preview identities above. Actual private
+staging matches the immutable five-package dependency closure; only Leaderboard
+is changed and eligible for installation. The native publisher exits zero with
+assignment before startup/export and an empty owned Job.
+
+The controller then pins Farm-Client baseline
+`54756872aadfb4619e9ec0055e56d36caa4d2570` and branch `farmbot/farm-1104`.
+Independent trusted Git reads verify the actual owned Client worktree and branch.
+At this observation its HEAD still equals the baseline, with no Client diff or
+installation-success record yet. The intended destination is
+`Assets/GameRes/FairyRes/Leaderboard` inside that worktree. Client installation,
+guards, exact-commit Unity loading and actual dynamic panel QA remain pending;
+this development PC observation does not certify production-host readiness.

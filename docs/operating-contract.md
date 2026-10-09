@@ -895,7 +895,14 @@ reply does. Instructions require attributable human user/message/time and the
 unchanged round for approval. Changed source/art/states/PR head invalidate it and
 require a new round. The controller preserves requests, checkpoints and outbox
 identity; it does not infer visual approval or judge a model's interpretation.
-An attributed export request is retained separately; absent native publisher
+The notice names Farm-Client, its validated same-issue branch and changed package
+paths, and explains that confirmation includes export and scoped Client
+continuation. An unqualified confirmation of that unchanged current round supplies
+both approval and the export request from one human reply; an explicit visual-only
+approval or hold leaves export pending. Older notices without that meaning need
+an actual combined request or clarification. Initial scope approval, corrections
+and ambiguous replies do not authorize a later round. An attributed export request
+is retained as a distinct audit event; absent native publisher
 selection or another host prerequisite, the worker parks with
 `pause.kind="stage_limit"`. The certified export/Client/package-loading route
 does not establish complete UI visual/runtime acceptance. Stop and
@@ -991,7 +998,9 @@ review-image hash, round and every actually changed package to distinct
 `visual_approved` and `export_requested` events. Each event must match an actual
 named human session message (including canonical stored messages from the same
 issue's retired attempts) or a human comment in the complete current inventory,
-including its timestamp. The export request must be at or after approval; stale events, bots, quotes,
+including its timestamp. Combined confirmation uses the same actual message/comment
+id and timestamp for both events; this does not require two human operations.
+The export request must be at or after approval; stale events, bots, quotes,
 fabricated attribution and missing evidence supply no grant. Understanding the
 person's explicit intent remains the scoped worker's duty, not a text heuristic
 in this helper. Controller integration verifies the actual draft, source,
@@ -1017,8 +1026,9 @@ runtime grant.
 
 `review-ui`, `export-ui`, `install-ui` and `verify-ui` require an explicitly enabled
 UI job and the scoped Client/Unity manifest. The UI worker starts in farmgui and
-uses these controller commands after actual named visual approval and an explicit
-export request. Farmgui's conditional owner grant is recorded in
+uses these controller commands after actual named visual approval and the export
+request, including one combined confirmation under the current round's notice.
+Farmgui's conditional owner grant is recorded in
 [#142](https://github.com/Kuaiwa-Network/farmgui/pull/142). Default chat/fix host
 enablement is unchanged. Missing publisher selection permits authoring but leaves
 export pending; an older authoring-only manifest still refuses these commands.

@@ -78,21 +78,23 @@ class UiWorkflowTests(unittest.TestCase):
         return self.workflow().review(packages=self.packages, preview=self.preview,
                                       asset_url=self.uploaded["asset_url"], round=number)
 
-    def approve(self, review, *, post_notice=True):
+    def approve(self, review, *, post_notice=True, body="approved", export_requested=True):
         identity = {key: review[key] for key in ("round", "head", "source_digest", "preview_sha256")}
         self.plan["ui"] = {**identity, "review_id": review["review_id"], "packages": list(review["changed_packages"])}
         if post_notice:
             request = 'visual-'+str(review["round"])
             notice = self.ledger.prepare_notice(self.item, self.token, "waiting", request,
-                "Approximate review: " + review["asset_url"] + "\nSource HEAD: " + review["head"])
+                "Approximate review: " + review["asset_url"] + "\nSource HEAD: " + review["head"] +
+                "\nConfirmation includes export and installation into Farm-Client / " + self.branch +
+                " / Assets/GameRes/FairyRes/One in the owned issue worktree. Say visual-only to hold export.")
             remote = self.api.create_comment(self.fixture.item["issue_id"], notice["body"])
             self.ledger.confirm_notice(self.item, request, remote)
         self.now += .25
-        self.ledger.push_inbox(self.item, "Approved; please export this unchanged round.", author=DESIGNER)
+        self.ledger.push_inbox(self.item, body, author=DESIGNER)
         message = self.ledger.issue_context(self.item)["session_messages"][-1]
         self.plan["events"] = [{**identity, "kind": kind, "message_id": message["id"],
                               "created_at": message["created_at"], "author": message["author"]}
-                             for kind in ("visual_approved", "export_requested")]
+                             for kind in (("visual_approved", "export_requested") if export_requested else ("visual_approved",))]
         self.save_plan()
 
     def publish(self, project, packages, executable, pins, run, **kwargs):
@@ -120,6 +122,30 @@ class UiWorkflowTests(unittest.TestCase):
         self.approve(review)
         result = self.cli("export-ui", "--preview", self.preview, "--review-id", review["review_id"])
         self.assertEqual(export_record(self.ledger, self.item, result["receipt_id"])["source_pr"], self.url)
+
+    def test_combined_confirmation_preserves_one_actual_message_in_both_receipt_events(self):
+        # Script the scoped worker's interpretation; the controller still checks
+        # both events against the real stored human reply and unchanged review.
+        review = self.review(); self.approve(review)
+        message = self.ledger.issue_context(self.item)["session_messages"][-1]
+        self.assertEqual(message["body"], "approved")
+        result = self.export(review)
+        recorded = export_record(self.ledger, self.item, result["receipt_id"])["authority"]
+        for kind, key in (("visual_approved", "approval"), ("export_requested", "request")):
+            event = recorded[key]
+            self.assertEqual(event["kind"], kind)
+            self.assertEqual(event["message_id"], message["id"])
+            self.assertEqual(event["created_at"], message["created_at"])
+            self.assertEqual(event["author"], {k: message["author"][k] for k in ("id", "name")})
+        self.publisher.assert_called_once()
+
+    def test_explicit_visual_only_reply_cannot_start_publisher(self):
+        review = self.review()
+        self.approve(review, body="仅确认视觉，暂不导出", export_requested=False)
+        with self.assertRaisesRegex(LedgerError, "export request"):
+            self.export(review)
+        self.publisher.assert_not_called()
+        self.assertIsNone(self.ledger.connection.execute("SELECT 1 FROM audit WHERE kind='fgui_export_complete'").fetchone())
 
     def test_real_publisher_result_certifies_the_same_reviewed_source_digest(self):
         # Keep the real publisher-to-ledger boundary; replace only the licensed
