@@ -5362,3 +5362,58 @@ created. The exact delivered Client branch still needs actual game-panel checks.
 Actual dynamic game-panel acceptance,
 FARM-1419 art/UI closure, intended production-host qualification and separately
 authorized production deployment remain release prerequisites.
+
+
+### Chat/fix-only production candidate: preflight held (2026-10-09)
+
+The operator selects a partial production upgrade: keep only `chat` and `fix`,
+and continue feature/UI acceptance on TestBot. The selected installation is the
+local `FarmBot-Receiver` scheduled task. The task is Ready, enabled and configured
+for an interactive limited user with a logon trigger; the existing receiver is
+actually listening on its configured port **8766**, using the selected Python and
+configuration arguments. Checking the default port 8765 does not establish that
+this receiver is stopped. Its current supervisor ancestry has not been verified.
+
+The staged candidate is [#221](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/221),
+`2e4cf15a796508e7590f43a0c9cc4340efbd9965`. Its merge tree matches the candidate
+which passed both full macOS/Windows CI jobs. Its chat/fix implementation matches
+current main; #222 changes only UI loading code, tests and documentation. This
+selection is not an early production activation of the new Code/UI workers.
+
+A source-only candidate outside the running installation and development
+checkouts is prepared. Private configuration/supervision and farmgui Git selector
+backups accompany a consistent SQLite backup with successful integrity check.
+This is a point-in-time preparation snapshot, **not a settled cutover backup**.
+On a disposable copy, candidate migration adds `delegation_episodes` and
+`session_closures`, preserves every existing column/row, and the previous revision
+opens the migrated copy. This does not prove data rollback after new external
+effects. Original ledger, source, configuration and clone settings are untouched.
+
+The old installation selects Python **3.14.3** and Codex CLI **0.156.1**. The
+prepared tools instead use Python **3.13.16** outside development checkouts and
+the existing signed, pinned native **0.162.0-alpha.2** CLI. Its earlier bounded
+native model acceptance remains separate from a new production worker trial.
+The candidate selects `latest-sol`/`xhigh`, currently resolving to
+`gpt-6.1-sol`, and the previously measured current-user `unelevated` backend.
+No credentials, accounts or app settings are provisioned. All **10** native
+Windows Job Object tests run from the staged candidate with its copied Python,
+passing in **1.855 s**, with zero failures/errors/skips. Production activation
+and an actual new production worker are not claimed.
+
+Read-only old/candidate doctors remain incomplete: **four** historical worker
+groups lack full descendant teardown evidence; another **four** cleanup records
+are blocked by farmgui's unallowed `extensions.worktreeconfig`. The latter also
+has root and linked-worktree configuration, including one sparse-checkout file,
+so blindly deleting the key is not an accepted repair. Eleven historical named
+Windows Jobs are independently empty, while eight earlier attempts have no Job
+record. The current OS boot predates those attempts and cannot prove their exit.
+Four fix jobs remain waiting for input, with no recorded active worker or open
+reservation, and two webhook events remain pending. No rows, teardown receipts,
+claims or cleanup status are rewritten to pass the checks.
+
+Cutover remains held for operator-controlled maintenance to establish legacy
+process quiescence, review/preserve the clone and sparse-worktree configuration,
+then take a fresh settled backup and verify the actual supervisor/task switch.
+Final startup must independently verify the released revision, original bot
+identity, healthy loops, native worker behavior and recovery. No production
+restart, code/config update, resource cleanup or feature/UI enablement occurs.
