@@ -132,9 +132,12 @@ pending checkpoints below describe their state when recorded. Remaining gates:
    uploads is measured. Round 1 has the operator's actual combined approval and
    a successful controller-certified export. Native restoration of all 92 required
    Client originals and current source-main history is independently verified.
-   Certified Client installation, guards/loading and real dynamic panel QA remain
-   pending at the latest checkpoint below. The approximate source renderer does
-   not execute sibling relations.
+   Controller-certified Client installation, the single-file candidate scope
+   and both actual native guards are independently verified. Unity preparation
+   fails at the later checkpoint below; loading, clean release, two-draft delivery
+   and real dynamic panel QA remain pending. The candidate is retained under
+   protected recovery refs. The approximate source renderer does not execute
+   sibling relations.
    FARM-1396 item 2 and whole-card acceptance remain outside this trial.
 2. Separately scoped real Code later-stage acceptance: Common/config/hive and native
    generators, running-worker withdrawal, Client/closing Unity tests and the real
@@ -4923,3 +4926,110 @@ ledger edit or source-round change is used to bypass either refusal. FARM-1419
 continues waiting for art/UI; parked cards are not resumed. These are measurements
 on the development Windows PC, not qualification of the intended production host.
 Production deployment/restart, credentials, profiles and app settings are unchanged.
+
+
+### Leaderboard Client candidate and owned native package preparation (2026-10-09)
+
+The unchanged FARM-1104 round proceeds through the original TestBot job to a
+successful controller-certified installation. Read-only native inspection verifies
+installation `89e52676b94b4cb09c74cfe686e72228`, checksum
+`9fe9870e9b548dab431b9c2fe019566549a97f1b23bcbb6b3adae5c97267702b`, bound to retained export receipt
+`3545fe52a0c244e39cdd0d1fdfc0c4f7` and reviewed source
+`f6dbab2572e70bc2a150a305deb9b22a2d2234e2`. The actual seven-file Leaderboard
+inventory matches that installation proof. Only Leaderboard is installed; its
+atlases and existing Unity metadata are preserved.
+
+The Client branch `farmbot/farm-1104` retains baseline
+`54756872aadfb4619e9ec0055e56d36caa4d2570` and now has candidate
+`827757aa1775b59bc1c88ddf9969e07a8a4e5b6e`. Actual controller `verify-ui` scope evidence and
+independent Git reads agree on exactly one changed file,
+`Assets/GameRes/FairyRes/Leaderboard/Leaderboard_fui.bytes`. The working tree is
+clean. No gameplay, View bindings, other package or guard implementation changes.
+
+The initial `verify-ui-guards` attempt stops during native dotnet project restore
+with `NU1301` against the public NuGet service index. It creates no complete TRX
+and neither of the two real guard tests runs. This is an unresolved dependency
+restore finding, not a failing product assertion, skipped test or successful guard.
+Its actual waiting notice is `43f485fe-bb41-4a04-a8fa-88358119b4b8`. The worker
+saves the candidate/installation and exits; all its observed owned Jobs are empty.
+No Unity reservation or Client draft is created at that checkpoint.
+
+Host preparation then independently verifies 11 existing public NuGet archives:
+their recorded SHA-512, size and ZIP integrity all match, including the exact
+five direct dependencies of this committed Client project. Using the already
+pinned native SDK, the host creates a fresh per-card private feed and package
+cache under the existing task state root. A separate temporary probe project has
+the same `net8.0` target and exact PackageReference declarations. Native restore
+uses only an explicit local feed/config and exits zero in 1.9
+seconds; all 11 restored archives match. The host's separate native Job has an
+8-GiB limit and settles. This prepares dependencies; it does not run or certify
+the actual guards, and does not assert that the model worker's Job has that limit.
+
+No credential, user/global NuGet setting, SDK, service configuration, tracked
+Client file or live ledger is changed by that preparation. The prepared cache is
+already inside this card's existing state write root, requiring no wider grant.
+The normal continuation in the original thread is
+`af13bbf8-dfeb-46a2-88f2-ab5410186774`, read back as the actual operator. It directs
+the resumed worker to verify the package/SDK identities and use command-local
+`NUGET_PACKAGES` and private cache/temp selectors for the unchanged controller
+CLI. [NuGet documents the process-local package-cache selector](https://learn.microsoft.com/en-us/nuget/consume-packages/managing-the-global-packages-and-cache-folders).
+No test-command substitution, skip, source-failure suppression or fabricated TRX
+is used. The same two real guards and exact-candidate Unity loading remain required.
+
+[The full #216 CI run](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37907469578)
+now passes on both Mac and Windows for the native cached-checkout regression.
+This is separate from the live Client guard/cache preparation and actual panel QA.
+The renewed worker remains on the same candidate and retained source round;
+the next actual guard, loading, clean-release and draft-delivery results are pending
+at this checkpoint. These are development-PC results, not production-host
+qualification or authorization to deploy. FARM-1419 still waits for art/UI and
+the parked cards are not resumed.
+
+
+### Actual native guards passed; Unity preparation failed (2026-10-09)
+
+The original worker subsequently completes the unchanged controller guard command
+against Client candidate `827757aa1775b59bc1c88ddf9969e07a8a4e5b6e` using the prepared
+exact-version cache. Both real tests run and pass:
+
+- `FguiDependencyGuardTests.No_unsanctioned_published_dependency_edges`
+- `FguiOrphanAtlasGuardTests.Package_dirs_hold_exactly_the_files_their_descriptors_declare`
+
+The complete TRX records two total/executed/passed tests and zero failures, errors,
+skips or inconclusive outcomes. Native process duration is 12.463 seconds, exit
+zero, with Job assignment before startup and the owned Job empty after completion.
+Independent read-only inspection verifies the controller record checksum
+`b328c87c4e5fde3c0cbfcbed08664ea97037ac055d70a2fb71222fcc7a4bde8f`, actual TRX SHA-256
+`773ffa3a3080b4a20ef3865b701f3e602e8bc30fcb1c7cd8c1b07ad10c171f5c`, exact candidate,
+installation/source binding and pinned native SDK. The earlier `NU1301` restore
+gap is resolved for this actual guard run.
+
+The controller then attempts interactive Unity preparation for that same candidate.
+The first reservation is released after Editor startup cannot find its MCP instance
+within 120 seconds. The ordinary failure-return path parks the folder on current
+Client main `5f76b77955d7d97ebac91b46b4c6b1575d809033`; the next preparation attempt
+finds tracked changes and fails. The job ends `failed` at
+`ui-client-guards-verified`. Both reservations are released and all observed owned
+worker Jobs are empty. No Unity loading or delivery certificate exists and no Client
+draft has been created.
+
+Later read-only inspection finds the configured Editor alive and its exact slot
+connected to MCP. It also finds two modified atlas metadata files: Activities
+changes a GUID, and PlayerCustomize changes importer platform entries. ProjectSettings
+and Packages have no tracked diff. The Editor log includes an asset-database mtime
+mismatch during the preparation interval, then late server-ready/session-connected
+messages. The generic dirty-slot wording that says a human edited the folder does
+not establish who produced these changes. A late MCP connection does not certify
+the candidate: the slot is now on main, not the requested candidate. No metadata
+is discarded, no Editor is stopped, no runtime is edited/restarted and no retry is
+forced during this inspection.
+
+The controller's normal task-worktree retirement preserves the candidate under
+both the item recovery ref/history and `farmbot/farm-1104`. Independent trusted
+read-only Git verifies the exact candidate still changes only the Leaderboard
+descriptor against its pinned baseline; the committed LFS OID and retained object
+match the certified installation. Immutable installation, guard and TRX records
+remain available. This is preserved work plus an unresolved Unity preparation gap,
+not successful end-to-end UI delivery. The next prerequisite is safe slot recovery
+and exact-candidate Unity verification; neither reapproval nor re-export of this
+unchanged round is required. These remain development-PC measurements.
