@@ -139,9 +139,14 @@ pending checkpoints below describe their state when recorded. Remaining gates:
    [Phase C plan](2026-10-06-feature-workers-phase-c.md) distinguishes implemented
    offline behavior from this pending live journey. The approved FARM-1419 native
    Windows journey has started below; later-stage acceptance is still pending,
-   and parked cards stay parked. Its Contract task-list draft #329 passes the
-   exact-candidate gates below and awaits human review/merge. External runtime
-   interruption and development webhook/recovery state are recorded separately.
+   and parked cards stay parked. Its Contract corrections are now merged, and
+   the operator has merged farm-hive #367. The actual merged main still needs its
+   freshly generated protocol follow-up; remaining Client/closing Unity,
+   merge-resynchronization, write-back and archive acceptance stay pending.
+   Deferred designer archive publication remains outside the approved scope.
+   External runtime interruption and development webhook/recovery state are
+   recorded separately. Game-repository CI failures below do not establish a
+   FarmBot implementation defect or replace these live acceptance gates.
 3. Intended production-host tools, licensed exporter, native runtime, selected
    account/profile/permissions, Git/LFS, dependency restore/cache, cold Editor
    startup and release/recovery acceptance, followed by separate authorization for
@@ -4453,3 +4458,81 @@ normal checkpoint/fresh hive handoff, full native generation/provenance, scoped
 #376 adoption with #375 retained, and checks bound to the resulting exact head.
 This completes the upstream format correction, not consumer integration or
 Stage D, hosted CI, game-main, client/UI or production acceptance.
+
+
+### Current release gates and post-merge protocol candidate (2026-10-09)
+
+The remaining prerequisites above are three acceptance groups, not a count of
+missing FarmBot features: finish the selected real Code later-stage journey,
+complete a separately selected document-driven UI journey, then qualify the
+intended production Windows host and obtain deployment authorization. The
+earlier screenshot-driven UI acceptance and implemented offline behavior remain
+recorded; the substantive document read alone does not certify a UI worker
+journey. There is no measured release date or percentage-complete claim.
+
+At 2026-10-09 04:47:15 UTC, FarmBot's own latest main is
+`605748ba9e2bbe334c1b90294c924cfb4db862c0`, the merge of
+[FarmBot #210](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/210).
+Git comparison against the active development runtime
+`a7c335bf64ad5c8954142622b79f26baea333f62` shows no changes under agent, tests,
+skills, scripts or .github. This comparison does not restart or deploy anything.
+
+| FarmBot #210 hosted offline check | Status at observation | Conclusion |
+|---|---|---|
+| Offline / macos-latest / Python 3.13 | COMPLETED | SUCCESS |
+| Offline / windows-latest / Python 3.13 | IN_PROGRESS | pending |
+
+These are FarmBot's checks. The independently inspected game-repository
+Billing/zero-step rejections and the deferred designer archive 404 remain
+separate findings. They must not be presented as a Billing failure of FarmBot's
+own Windows check, or as new missing FarmBot implementation. No rerun or account
+setting change is performed.
+
+The operator's direct message identifies the human merge of
+[farm-hive #367](https://github.com/Kuaiwa-Network/farm-hive/pull/367).
+Fresh GitHub/Git verification binds it to merged main
+`4965825f17d7be3da1e894ee27cea51a9eb0222c`, tree `fa1095b738c7c46cce5107d516bbeaa1a846b427`,
+parent `6548725eea5cb3a663b001bae19bdbb967e3153e`; its public reviewed
+head is `24b43fb8071f71ef59082cb956c718bd887b9d24`. The follow-up branch
+was deleted by that merge. A fetch including the now-deleted branch fails;
+fetching main alone succeeds, and ls-remote confirms the branch is absent.
+This is a branch-lifecycle finding, not an authentication failure. The old
+[farm-hive #366](https://github.com/Kuaiwa-Network/farm-hive/pull/366) draft
+is still open at the observation; it is not blindly merged or closed.
+
+The #367 merge retains the earlier gift protocol comment snapshot. A normal
+original-thread reply reports the actual merge and deleted branch, requests
+preserving generated work and normal main-based review/checkpoint handling,
+and does not edit the worker's source, checkpoint, ledger or publishing target.
+The worker prepares a clean main-based candidate on
+`farmbot/farm-1419-followup-2`, head `49982e3427132dc5a2c0b4b8bb233270cceecc31`, tree `aace01078cdc7b7aee7e0bd136a92fd6c88018cb`.
+Its sole parent is the actual #367 merge. Exactly three files differ: the
+generated gift protocol, generated protocol manifest and gift design document
+provenance. The generated files are byte-identical to the independently tested
+0cafeff7 consumer candidate. Full native regeneration on the new worker head
+returns exit 0 in 10.954 s with unchanged fingerprints, clean source and a
+settled owned Job. Its UTF-8 log SHA-256 is independently verified as
+`4b1ae5797dd55f4f18eb65c4034d757f5eb3a0743c4a446d492e7b051c9338e3`. It consumes the merged
+[Farm-Contract #332](https://github.com/Kuaiwa-Network/Farm-Contract/pull/332)
+source; no protocol wire fields or business behavior change.
+
+The new exact candidate is frozen in a separate owned development checkout.
+The earlier 0cafeff7 checks are not relabelled as measurements of merged main.
+Independent native checks of the new head use the unchanged Go 1.25.1/CGO
+race setup, Python 3.13.16 with PYTHONUTF8=1, pinned dependencies and native Git.
+Bash, sh and wsl do not resolve. Suspended assign-before-resume, kill-on-close
+and the 8 GiB Job cap are preserved; every Job settles, with clean source and
+unchanged fingerprints.
+
+| Independent post-merge candidate check | Pass / fail / skip | Duration | UTF-8 stdout SHA-256 |
+|---|---|---|---|
+| Six existing strict architecture gates | 6 / 0 / 0 | 27.179 s | `55834906f321af18f916e9d8b8ece6a84a807fc5fb2b123f50e4810c09ee5d84` |
+| Canonical whole-tree native crosscalllint | exit 0 (not unittest counts) | 14.365 s | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+
+At this checkpoint the new candidate's publication/review/merge and later
+Client/Unity, write-back and archive steps remain pending. No complete game
+suite pass is claimed. Earlier failed attempts, sanitizer error 1455 and all
+test/platform skips remain recorded; grouped selections do not certify one
+whole-package process or the production host. Private credentials, host paths,
+logs and state remain local. No production deploy/restart, account or app
+configuration, deferred archive publication or parked-issue resumption occurs.
