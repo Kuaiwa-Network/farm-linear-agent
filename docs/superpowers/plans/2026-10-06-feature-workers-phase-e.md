@@ -5417,3 +5417,79 @@ then take a fresh settled backup and verify the actual supervisor/task switch.
 Final startup must independently verify the released revision, original bot
 identity, healthy loops, native worker behavior and recovery. No production
 restart, code/config update, resource cleanup or feature/UI enablement occurs.
+
+
+### Chat/fix-only production cutover completed (2026-10-10)
+
+This supersedes the held preflight above for the operator-selected local Windows
+production installation. The operator completes the planned reboot. Fresh native
+OS evidence places every audited legacy worker launch and attempt before the new
+boot. Production has no active/queued/resource-waiting job, worker PID, open
+reservation or pending/repairing resource recovery at the settled cutover.
+
+The existing `FarmBot-Receiver` task is stopped only after its receiver and
+supervisor are independently verified, with retained process handles. The task
+is temporarily disabled during maintenance. A new settled SQLite backup passes
+integrity checking; original task/configuration/supervision, clone references and
+worktree metadata, tracked source diffs and untracked source files are preserved
+privately. The original source checkout remains available. This is a rollback
+preparation record, not permission to rewind data after external effects.
+
+farmgui's unsupported `extensions.worktreeconfig` is repaired without broadening
+the clone allowlist. Its clean sparse helper contains only two instruction files.
+Those files, branch/commit, index and sparse patterns are retained with independent
+Git metadata, while the FarmBot clone returns to ordinary bare configuration.
+An offline rehearsal also preserves an unrelated worktree's uncommitted source.
+A cross-volume metadata move initially stops; the correction copies and verifies
+every metadata byte before removing the original registration. Source is not
+deleted, and the initial settled backup is retained. All five configured clones
+then pass the existing trust checks.
+
+The candidate's existing `recover-worker-cleanup` implementation is exercised
+first against a private ledger/attempt copy using the real Windows boot time,
+then records **eight** append-only recovery audits on the intended host. The
+controller subsequently completes all **eight** cleanup records through normal
+source preservation and removal. No synthetic attempt/Job teardown receipt or
+manual cleanup-completion row is supplied. Pending cleanup is now **zero**.
+
+Production runs the exact fully checked [#221](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/221)
+merge `2e4cf15a796508e7590f43a0c9cc4340efbd9965`, tree
+`37e0f4f425d797247a8a3ebc56ce0a5f193a75f6`, from a separate pinned source directory.
+The original task keeps its Windows account/privilege and uses Python **3.13.16**
+and the existing signed native Codex CLI **0.162.0-alpha.2**. Receiver supervision
+pins the tool PATH and clears inherited test/runtime selectors. Only **chat/fix**
+are enabled; both select `latest-sol`/`xhigh`, currently resolving to
+`gpt-6.1-sol`. The measured current-user `unelevated` backend is retained.
+Existing native Go **1.26.6**, .NET SDK **8.0.423** and MSVC-built protoc **35.1**
+are copied and verified at stable release paths outside development checkouts.
+Version checks are not a new full generator or game-build acceptance run.
+
+The restarted task, receiver executable/config arguments and supervisor ancestry
+are verified. The production app/workspace identity matches. The heartbeat reports
+the candidate revision, a clean source tree, `serving`, and completed iterations
+with **zero consecutive errors in all six loops**. Local HTTP health is 200.
+The public health endpoint is also **200** using an identified FarmBot readiness
+client. A default Python HTTP client is rejected with Cloudflare 1010; this is kept
+separate from receiver health. The existing tunnel process starts after reboot and
+outlives its exited supervisor; the unchanged existing tunnel task successfully
+adopts that verified process and holds its exclusive supervisor lock. No tunnel
+configuration, credentials, Windows accounts or Linear app settings are changed.
+
+Read-only doctor now reports `attention`, with historical `issue_status_error`,
+`job_blocked`, `job_failed` and `long_parked` findings. Its previous unverified
+cleanup and clone-selector findings are gone. Existing job totals remain **96**:
+four waiting for input, one blocked, nine cancelled, 63 delivered and 19 failed.
+Those records are preserved; deployment does not resume parked work or invent a
+new real production issue test. The prepared candidate's **10** passing native
+Job Object tests and earlier bounded native CLI/model acceptance remain the
+recorded runtime evidence, separate from a new live production worker journey.
+
+This establishes the requested chat/fix production cutover on this Windows host.
+It does **not** activate feature/UI in production or complete Phase E acceptance.
+The real game-panel review of [farmgui #150](https://github.com/Kuaiwa-Network/farmgui/pull/150)
+and [Farm-Client #1448](https://github.com/Kuaiwa-Network/Farm-Client/pull/1448)
+remains pending in the operator's existing development Client. The Code closing,
+resync/writeback/archive journey and any remaining art-dependent work remain
+separate release prerequisites. TestBot keeps its isolated development profile;
+the [#222](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/222) active-slot
+candidate has now completed both full platform CI jobs successfully.
