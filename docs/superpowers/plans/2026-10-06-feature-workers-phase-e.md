@@ -140,9 +140,10 @@ pending checkpoints below describe their state when recorded. Remaining gates:
    offline behavior from this pending live journey. The approved FARM-1419 native
    Windows journey has started below; later-stage acceptance is still pending,
    and parked cards stay parked. Its Contract corrections are now merged, and
-   the operator has merged farm-hive #367. The actual merged main still needs its
-   freshly generated protocol follow-up; remaining Client/closing Unity,
-   merge-resynchronization, write-back and archive acceptance stay pending.
+   the operator has merged farm-hive #367. Its three-file generated protocol
+   follow-up #377 is now merged with the exact reviewed tree. Remaining UI-ready,
+   Client/closing Unity, consumer resynchronization, write-back and archive
+   acceptance stay pending; full game-suite and hosted CI gaps remain explicit.
    Deferred designer archive publication remains outside the approved scope.
    External runtime interruption and development webhook/recovery state are
    recorded separately. Game-repository CI failures below do not establish a
@@ -4536,3 +4537,110 @@ test/platform skips remain recorded; grouped selections do not certify one
 whole-package process or the production host. Private credentials, host paths,
 logs and state remain local. No production deploy/restart, account or app
 configuration, deferred archive publication or parked-issue resumption occurs.
+
+
+### Exact protocol merge and read-only UI inputs (2026-10-09)
+
+The selected worker normally parks at its closing checkpoint and exits; the
+read-only development observer verifies that its owned Jobs are empty before
+maintenance publication. Under the operator's standing authorization for small
+reviewed corrections, [farm-hive #377](https://github.com/Kuaiwa-Network/farm-hive/pull/377)
+is squash-merged at `dab1fb3745af7fbcd75469d41a860d5313474720`. Its sole parent is
+`4965825f17d7be3da1e894ee27cea51a9eb0222c`, and the actual merged tree `aace01078cdc7b7aee7e0bd136a92fd6c88018cb`
+exactly matches independently tested head `49982e3427132dc5a2c0b4b8bb233270cceecc31`.
+The three-file diff changes protocol comments, the generated manifest/source
+pin and design provenance. The protocol's non-comment lines are identical.
+No business code, wire field, scenario, runtime or production setting changes.
+The remote `farmbot/farm-1419-followup-2` branch remains present at observation.
+
+The previous section binds independent six-gate/native-lint checks to the
+reviewed head. The following additional worker results are independently
+verified against their original UTF-8 log hashes, clean source, unchanged
+fingerprints and settled 8 GiB Jobs on that same head. They are not relabelled
+as new runs on the squash SHA or summed into a whole-suite pass.
+
+| Source-bound native worker selection | Pass / fail / skip | Duration | UTF-8 log SHA-256 |
+|---|---|---|---|
+| main-gift-services | 249 / 0 / 0 | 135.560 s | `14faeaf501468902467aa72bce892d2eb4502c36db06745532412a9a894c5527` |
+| main-transaction-gates | 24 / 0 / 0 | 19.562 s | `45f8aa8eb1dd07c8c0f3badc908b8f610dabe861cdd56246f51a9bcb1838c5ab` |
+| main-guild-path-gates | 2 / 0 / 0 | 15.379 s | `bf6395a52122491b1c361c50fb5f8dae779d6d0d2082221e7f519893a74a1295` |
+| main-build-gates | 11 / 0 / 0 | 89.926 s | `90a56ce97bfcb99d85010020c722d257c3226bac72e4fd88522bd5d678b23e90` |
+
+A verified normal original-thread reply reports the actual merge and requests
+normal main/source checks before subsequent work. It preserves the merged-PR
+review rule, Common publication deferral and all UI-ready/client/human gates.
+No active source, ledger, checkpoint or issue branch is manually rewritten.
+The older #366 draft is not blindly closed or merged.
+
+At 2026-10-09 13:32:51 +08:00, both macOS/Python 3.13 and Windows/Python 3.13
+hosted offline checks have completed SUCCESS on each of
+[FarmBot #210](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/210) and
+[FarmBot #211](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/211).
+The latter merged main is `55cebefddaeae2252fcb3cb81aa7c19a2728ca37`. Its agent/tests/skills/scripts/.github
+paths remain identical to the active a7c335bf development runtime. This closes
+the previously observed in-progress Bot CI state; it does not deploy that main.
+
+Game CI remains separate: #377 has seven Billing-rejected checks with zero
+executed steps, while build executes thirteen steps and fails at the designer
+pin gate on the deferred archive's HTTP 404/exit 2, before downstream Go checks.
+The independently preserved build failure log SHA-256 is
+`086a64d08205af7ad37ecdda118eb5acd6cb1879666de1a7505b36070af3712d`.
+Neither failure is treated as a passing game gate. No Actions rerun/dispatch,
+Billing change, Jenkins or Common archive publication is performed.
+
+Existing owned read checkouts are inspected without refresh, hydration or
+mutation. Their heads match the current GitHub defaults: farmgui
+`86cd4640616a3434006fe87379060d7bb874746c` and Farm-Client
+`9f0eb670ddd5ce79535adf532ff80ef30e773efe`. All six previously named source descriptors
+are present with matching package entries: GiftGardenView, MailPanel,
+MailContentPopup, ChatGiftMsgItem, UnlockPopup and RewardPopup. The Activities,
+Mail, Chat and Common client descriptor exports are still LFS pointers in this
+specific read checkout. This is a representation/readiness finding, not proof
+that Git LFS or real exports are unavailable on the host. It does not certify
+their binary identities, dependencies or UI behavior. The three-step gifting
+popup/success-state component identities still need their named UI-owner
+confirmation. Existing components and the earlier FARM-1396 screenshot approval
+are not inferred to approve FARM-1419's UI-ready gate.
+
+Descriptor-only availability is then resolved without changing those read
+checkouts. Mail and Chat are hash-verified in the existing development LFS
+cache and pass the bounded v7 package parser. Activities and Common are absent
+from that particular cache and do not match the two inspected retained export
+receipts; this is not reported as global host unavailability. Using the already
+approved origin-scoped native Git/GCM route, their two committed descriptors
+are fetched into a new owned isolated bare repository/cache in 2.780 s. Each
+native helper Job settles under the unchanged 8 GiB cap. No new credentials,
+host settings, production resources or existing checkout files are configured.
+
+The initial local helper imports an older checkout's agent package and stops
+at the parser after the successful fetch. Parsing resumes in an explicitly
+selected current-runtime child, without a second download. Original logs and
+hashes remain preserved; this is a verification-helper import defect, not an
+application or LFS-transfer regression. All four byte streams match the
+committed pointer hash/size and expected source package ID and pass v7 parsing:
+
+| Package | Descriptor bytes | Package ID | Committed pointer SHA-256 |
+|---|---|---|---|
+| Activities | 66787 | `fvyctcfd` | `6c0c22fc5a6b968c2765c3dabd8ea026471095df4971b58f76befee41d7c47cd` |
+| Chat | 24997 | `gnqvkylv` | `742a57f448adaaa8e7e40101d8795ee0bb7354e7524b00ba4065fb99186af363` |
+| Common | 146430 | `cmcommon` | `5bf06b43e0da172944e3423c1977622c7d60501b4bf7c4b54b53f62dd52dbfe4` |
+| Mail | 6348 | `83fhzknh` | `9dd50e428800265615eed7c3746d1b4a342090862532249e437228bf9b9de59d` |
+
+This verifies descriptor format/package identity and declared dependency
+inventory only. The full atlases/dependency assets, component payload behavior,
+current-task human UI-ready confirmation and new popup IDs remain unaccepted.
+Existing read checkout files are still pointers; they are not silently hydrated
+or used to bypass controller checks. The resumed Code worker reports no new
+source diff, confirms the actual merged main and preserves D/E/F/G pending at
+its normal closing checkpoint, with owned Jobs empty. Its fresh main CI report
+has sixteen Billing-zero-step jobs, distinct from #377's seven PR jobs; deferred
+archive publication and full game acceptance stay pending. A concrete question
+about current gifting UI completion is presented to the operator; no UI approval
+or role/scope change is inferred from the earlier screenshot trial.
+
+Remaining release groups stay unchanged: the selected Code later-stage journey,
+a separately scoped substantive-document UI worker journey, and intended
+production-host startup/exit/recovery qualification followed by explicit
+deployment authorization. Historical failures, platform/test skips, sanitizer
+error 1455 and interrupted full-suite attempts remain recorded. No release date,
+whole-suite pass, UI-ready acceptance or production certification is claimed.
