@@ -133,11 +133,14 @@ pending checkpoints below describe their state when recorded. Remaining gates:
    a successful controller-certified export. Native restoration of all 92 required
    Client originals and current source-main history is independently verified.
    Controller-certified Client installation, the single-file candidate scope
-   and both actual native guards are independently verified. Unity preparation
-   fails at the later checkpoint below; loading, clean release, two-draft delivery
-   and real dynamic panel QA remain pending. The candidate is retained under
-   protected recovery refs. The approximate source renderer does not execute
-   sibling relations.
+   and both actual native guards are independently verified. The later successful
+   continuation below now completes exact-commit Unity loading, quiescent release,
+   controller-certified two-draft delivery and normal task cleanup. Source
+   [farmgui #150](https://github.com/Kuaiwa-Network/farmgui/pull/150) and Client
+   [#1448](https://github.com/Kuaiwa-Network/Farm-Client/pull/1448) remain review
+   drafts. Real dynamic panel QA still needs the existing development Client;
+   package-loading evidence and the approximate source renderer do not establish
+   actual runtime layout or visibility behavior.
    FARM-1396 item 2 and whole-card acceptance remain outside this trial.
 2. Separately scoped real Code later-stage acceptance: Common/config/hive and native
    generators, running-worker withdrawal, Client/closing Unity tests and the real
@@ -5322,3 +5325,40 @@ The predecessor exact-input follow-up #221 has now completed its full pinned
 successfully. The current application's full CI is tracked separately. The
 successful live UI delivery above used the earlier runtime, and does not
 substitute for first-use verification of this fix or production-host qualification.
+
+
+### Development controller activated after settled UI delivery (2026-10-09)
+
+Application fix [#222](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/222)
+merges as `b3c630bf20b48304e2a8faac2d8ca840ba2046c5`, with the exact tested
+tree `6a105544a6cd56155a701f8eda191bbb7b009721`. A new isolated frozen development
+runtime contains only that repository revision; no private configuration,
+credentials or state are copied into it. Its read-only preflight verifies the
+unchanged development profile, native CLI 0.162.0-alpha.2, ready native publisher,
+no missing feature/UI tools, and `gpt-6.1-sol` with `xhigh`.
+
+Before activation, the fresh whole-instance fence verifies all 56 historical
+native worker Jobs empty, no active/queued worker, pending webhook, open
+reservation, pending recovery or incomplete cleanup. The actual owned idle-open
+slot has clean source and a quiescent Editor at its historical park. The restart
+revalidates the old development controller's executable, command, creation time,
+owner, ancestry and receiver port, retains its process handle, and terminates only
+that verified controller. The shared idle Editor is preserved. Private restart,
+process and rollback evidence remain intact.
+
+Independent read-only checks verify the new controller identity/ancestry,
+unchanged configuration, exact merged revision/tree, fresh serving heartbeat,
+HTTP health 200 and zero consecutive errors in all six service loops. The same
+whole-instance/idle-slot fence passes again after startup. Health 200 alone is
+not claimed as readiness: these results are scoped development-runtime evidence.
+The already delivered UI trial is not repeated, and no new approval/export,
+game PR merge, production deployment or production configuration change occurs.
+
+The application's pinned [full CI](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37932931889)
+is still running at this activation checkpoint; the native focused coverage above
+is not represented as a full-suite result. The operator selects the existing
+development Client for visual acceptance; no additional acceptance checkout is
+created. The exact delivered Client branch still needs actual game-panel checks.
+Actual dynamic game-panel acceptance,
+FARM-1419 art/UI closure, intended production-host qualification and separately
+authorized production deployment remain release prerequisites.
