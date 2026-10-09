@@ -4318,3 +4318,138 @@ The protocol follow-up, hosted Billing/archive conditions, complete suite,
 formal review/splitting/human game-main merge and real client/UI/production-host
 prerequisites stay pending. A later merged/adopted candidate needs its own
 verification; this prepared correction is not reported as already integrated.
+
+
+### Native guild path correction and yielding-entry integration (2026-10-09)
+
+These measurements continue on the development Windows PC after the completed
+disk intervention. They do not qualify the production host. The same pinned
+native Go 1.25.1/CGO race, Python 3.13.16 (`PYTHONUTF8=1`), native Git/LFS and
+owned loopback Docker dependencies are used. Bash, sh and wsl do not resolve
+on the test search path. Suspended assign-before-resume, kill-on-close and the
+8 GiB Job cap remain unchanged. Every recorded root test Job settles; source
+fingerprints remain fixed during each invocation. Private logs/state and
+credentials remain local.
+
+After the normal hive worker exits, the read-only development observer confirms
+the selected job's actual root repository is Farm-Contract and its prior Jobs
+are empty. Stage and repository are checked separately during handoff.
+The tested [farm-hive #375](https://github.com/Kuaiwa-Network/farm-hive/pull/375)
+is squash-merged only into `farmbot/farm-1419-followup`, at
+`24b43fb8071f71ef59082cb956c718bd887b9d24`, tree
+`18453d20c927bc4cc6bcf334651ea872636b94aa`. The exact reviewed base is
+`69222ceab3887805f58d8a8c4c1be910a88b8b54`, head
+`fce2a1e6f92415da2dbe9b5c20879c64f0830214`. #367 stays OPEN/draft, and main
+is verified unchanged by this feature-branch maintenance merge. The temporary
+maintenance branches are removed; the worker receives the merge through a
+normal verified reply, preserving its prohibition on editing CI/workflows.
+
+Only four existing callnames literals change: CI, the local crosscall command
+and the two existing degradation anchors. RefreshPlayerState and
+ReloadCommittedState are appended to all prior names. Removing each actual
+CI/local parameter line produces its expected red control; restored G3/local
+consistency checks give 3/0/0, and the canonical whole-tree native crosscalllint
+passes. The final head's checks are 10.555 s (hash
+`7a70e51a63c530313c5fb8fc79c0cd17d01ea4dbad335ce16f761b523f6cf15d`)
+and 4.799 s (empty-output SHA-256
+`e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`).
+No exclusion, debt or skip is added. These native controls do not claim that
+the Bash degradation batch was executed.
+
+The independent fce2 guild selection then reaches 874 passing, one failing and
+zero skipped test/subtest outcomes in twelve groups, 125.727 s; later groups
+are not attempted. Its TestGuildNameWritersInvalidatePanels failure is also
+reproduced on pre-feature main 739354a0 and current b6a1c71. The existing
+`/guildstore/` exclusion sees backslash filenames on Windows, incorrectly
+counting the Store implementation as a second business writer. This is a
+baseline test-host path defect, not a gift application regression.
+
+[farm-hive #376](https://github.com/Kuaiwa-Network/farm-hive/pull/376) changes
+one existing test helper (two added lines, one removed): callback filenames
+pass through filepath.ToSlash. Typed AST loading, directory scope, writer
+uniqueness and cache-invalidation checks remain intact. A compiling extra
+business writer outside guildstore still fails the uniqueness assertion; it
+is restored before all four existing callback consumers pass. No application
+code or production configuration changes. Merge
+`6548725eea5cb3a663b001bae19bdbb967e3153e` exactly matches tested head
+`47c0831a4033b101e7fc78c3d8b86abac239e36b`, tree
+`d74b18a2af307c5fad87cbcbc05da74fd9dba1dc`. Temporary public maintenance
+branches are removed, and normal worker adoption is requested.
+
+| Independent source-gate control | Pass / fail / skip | Duration | UTF-8 stdout SHA-256 |
+|---|---|---|---|
+| Pre-feature 739354a0 natural red | 0 / 1 / 0 | 13.956 s | `92195c58a61b90cbfc1d912ee8717d7feb7fdd451dc4104a14537268374b46c2` |
+| guild-source-paths-native-red | 0 / 1 / 0 | 28.158 s | `92991da959e86d2dced767efebc63fa478ecea6a8c00c67a1c1bd16c8e73e24b` |
+| guild-source-paths-second-writer-red | 0 / 1 / 0 | 13.655 s | `ce1dd8fc00ca25f07d3b28fffec440d6dbe002d8fe87607978c7b2023e673877` |
+| guild-source-paths-all-consumers-green | 144 / 0 / 0 | 15.014 s | `830535404f5de2391e763cba254afef85c3a92103c21c1f1228e0655e456e199` |
+
+The independent guild rerun uses a clean local verification-only commit
+`f73c26a8d23dd3d6c416333142a278e97a54beb2`, tree `ac3e61800e575f2283fbdc903f87e89e2ceccc91`. Its feature parent is the
+actual #375 merge, and the sole added file change is byte-verified against
+the merged #376 test helper. This source is not the live worker's checkout,
+and these results must not be relabelled as measurements of a later worker SHA.
+A premature helper launch before the preparation receipt existed exits before
+starting any Go test; after preparation settles, the actual measured run starts.
+No active worker source, ledger or checkpoint is edited.
+
+| Frozen independent guild group | Pass / fail / skip | Duration | UTF-8 stdout SHA-256 |
+|---|---|---|---|
+| Group 1 | 58 / 0 / 0 | 6.210 s | `61b255a8adecf7cded2a5829d74da080ed4adbec4f4194f2e9efae3d539f62e5` |
+| Group 2 | 57 / 0 / 0 | 6.171 s | `62f848feb24827480f524efa347b18fc84ecd04cc146b637ef80abe78988a358` |
+| Group 3 | 48 / 0 / 0 | 10.827 s | `1cb340cf60808676076c1c5f8f6ba7c1fd7330490c3e4462fd70b1185f5dd0d0` |
+| Group 4 | 71 / 0 / 0 | 12.682 s | `4d5c9577885d4d001d0cc43e63269dfd3767fa82f2a3f659cd8799e56eaa2f02` |
+| Group 5 | 68 / 0 / 0 | 14.878 s | `9239ef6f8088e868b8a35ec6a3ea520cf7f94ed4a008150bd168e38a91ee96cd` |
+| Group 6 | 82 / 0 / 0 | 6.086 s | `0080823db849e905966205c7dc9b21506002f3aadeff9344d0b596bdbd1980f3` |
+| Group 7 | 222 / 0 / 0 | 14.045 s | `d658e2fe5072e63e37dcced26d9e8ad48fc569ac1d200e07eb558078442b0600` |
+| Group 8 | 53 / 0 / 0 | 10.071 s | `d4b22249b1d0defb3c2c054d1ea4731397648cf49754c7ddf7dab5749b0bda0d` |
+| Group 9 | 56 / 0 / 0 | 12.814 s | `0d42a6dd2ed24ddd9e50fd054c6258e5374a4eb02c165abe608ae0d3d2d81091` |
+| Group 10 | 48 / 0 / 0 | 9.386 s | `8a845415d12b9b867d3394ac15595ab2c369b02e78f695d26388d5e619bd799d` |
+| Group 11 | 55 / 0 / 0 | 10.918 s | `09a6ca937f971f567ad17e16f5fec23a0408785d7e5b84e5c92bc2590bd1f51a` |
+| Group 12 | 57 / 0 / 0 | 9.599 s | `7447883239a8000092587c15af82260133ae0b8957e1386442057fa4f4c7ccba` |
+| Group 13 | 48 / 0 / 0 | 6.138 s | `f41b0842490656f22b8c63839018b061eba9431dc55e79d02de4f003eb562b9e` |
+| Group 14 | 48 / 0 / 0 | 6.474 s | `f899eef222f90bee7da1c960d781bb756285f8e35f37d0099d8f6132b5525542` |
+| Group 15 | 69 / 0 / 0 | 6.746 s | `d7ee65bbb07009d3687e33a563eb0ebb630832c6d891af9f5a07971f17e21850` |
+| Group 16 | 71 / 0 / 0 | 6.085 s | `f1fc01c3225f1af8129179884c0f0c63743e70ba932fb5096eea955784fe9d9a` |
+| Group 17 | 51 / 0 / 0 | 9.474 s | `7ce664b0e14c22a3f14dce293160b740a553f2b0264d052b04f884d353e5d754` |
+| Group 18 | 50 / 0 / 0 | 6.159 s | `eeb58305d53a11f2ff66167662b049c438ba189a4554ddeefc25be3c84503093` |
+| Group 19 | 65 / 0 / 0 | 11.006 s | `496034529c378687b76fd5d1fb3de08db9c9f2fe9ae9b678a1a7003330277b4b` |
+| Group 20 | 30 / 0 / 0 | 6.419 s | `13072e9b145f42506769d908e05c19e295cec6be15bd4a5101c275b9324c3ddc` |
+
+Measured run: 1307 pass / 0 fail / 0 skip, 187.666 s; completed=true. All 929 actually listed top-level guild cases run in fresh groups; test/subtest counts overlap earlier selections and are not added to them. A fresh-process grouped pass, when present, is distinct from a complete
+single-process package pass. The earlier whole-package sanitizer error 1455,
+failed suite attempts, baseline failures and all platform/test skips remain
+recorded. No memory-limit or containment change is made to obtain a pass.
+
+The selected TestBot continues its normal upstream comment-format-only work
+and fresh consumer generation/provenance. Its measurements must bind the
+resulting exact SHA. Public hosted CI is still a separate prerequisite: the
+earlier actual Billing rejection/zero-step evidence remains pending an
+administrator response; local maintenance merges do not repair that account.
+The deferred designer archive remains outside this task's publication scope.
+Formal split/review and human game-main merge gates for #366/#367, remaining
+real client/UI scenes and production-host qualification plus explicit release
+authorization remain. No production service restart/deploy, credential/account
+setup, player-state cleanup, app/webhook edit or parked-issue resumption occurs.
+
+
+The fresh Contract worker publishes the separate
+[Farm-Contract #332](https://github.com/Kuaiwa-Network/Farm-Contract/pull/332).
+Independent review verifies exactly the approved code-comment block and its
+generated manifest row; no fields/message names/IDs/0-5 meanings or WAIT rule
+change, and the original 29 scenarios remain byte-identical. On clean head
+`4f4e40611978a36963e5f17ad9fda9e2b4a7acb0`, base
+`6d594d1f74e8cc04563d84b0a33288a3fee199c1`, all twelve existing native
+Contract gates pass independently in 4.310 s. Buf is 1.72.0, OpenSpec 1.7.0,
+Node 24.19.0 and Python 3.13.16; OpenSpec is 53 passed / 0 failed, breaking
+diagnostics/waivers are 0/0, and optional Common drift remains unmeasured.
+Existing skip_specs declarations are unchanged. Each Job settles without Bash,
+MSYS or WSL and tracked-source fingerprints stay unchanged.
+
+Under the operator's standing authority for small maintenance PRs, #332 is
+merged at `3699c93c51b83e6d962518c5d7571e51d33f18fc`, exact tree
+`b305b8026abd51172a159ede86882a9ec7c8b920`. The worker business branch is
+preserved. A normal original-thread reply reports the real merge and requests
+normal checkpoint/fresh hive handoff, full native generation/provenance, scoped
+#376 adoption with #375 retained, and checks bound to the resulting exact head.
+This completes the upstream format correction, not consumer integration or
+Stage D, hosted CI, game-main, client/UI or production acceptance.
