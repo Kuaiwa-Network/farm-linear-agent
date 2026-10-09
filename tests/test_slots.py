@@ -636,6 +636,93 @@ class SwitchTests(SlotFixture):
 class PoolTests(SlotFixture):
     """The pool thread's loop: grant a queued request, switch the slot, hand it over, settle it afterwards."""
 
+    def test_startup_timeout_preserves_live_import_and_queues_exact_commit_recovery(self):
+        from agent.resource_recovery import RecoveryStore
+
+        relative = Path('Assets') / 'atlas.png.meta'
+        (self.origin / relative).parent.mkdir()
+        (self.origin / relative).write_text('guid: original\n', encoding='utf-8')
+        git('add', '.', cwd=self.origin)
+        git('commit', '-qm', 'atlas metadata', cwd=self.origin)
+        self.pool().ensure()
+        pinned = self.commit('candidate')
+        self.commit('main-moved-on')
+        item = self.waiting(ISSUE, pinned, 'interactive')
+
+        class ImportingWithoutMcp(FakeMcp):
+            def start(inner, slot, entry):
+                super().start(slot, entry)
+                (Path(slot['folder']) / relative).write_text('guid: imported\n', encoding='utf-8')
+                raise TimeoutError('Editor instance was not ready before startup deadline')
+
+        mcp = ImportingWithoutMcp()
+        pool = self.pool(mcp=mcp)
+        self.assertEqual(pool.tick(), {'settled': 0, 'granted': 0, 'parked': 0})
+        slot = self.ledger.slot('unity_slot:1')
+        self.assertEqual(slot['state'], 'held')
+        self.assertEqual(self.trees.head(Path(slot['folder'])), pinned)
+        self.assertEqual((Path(slot['folder']) / relative).read_text(encoding='utf-8'), 'guid: imported\n')
+        self.assertTrue(pool.editor_is_open(slot))
+        self.assertTrue(mcp._lock(slot).exists())
+        self.assertNotIn(('terminate', slot['slot_id']), mcp.calls)
+        saved = self.ledger.item(item)
+        self.assertEqual((saved['state'], saved['stage']), ('awaiting_resource', 'waiting_for_recovery'))
+        store = RecoveryStore(self.ledger)
+        [recovery] = store.pending('test')
+        self.assertEqual((recovery['commit_sha'], recovery['recovery_kind']), (pinned, 'setup'))
+        started = store.begin(recovery['id'])
+        store.detach(started['id'], started['attempts'])
+        queued = [r for r in self.ledger.reservations() if r['state'] == 'queued']
+        self.assertEqual([r['commit_sha'] for r in queued], [pinned])
+        self.assertEqual(store.job_attempts(item, recovery_kind='setup'), 1)
+        self.assertEqual(store.job_attempts(item), 0)
+
+    def test_startup_failure_before_spawn_is_quarantined_for_bounded_host_repair(self):
+        from agent.resource_recovery import RecoveryStore
+
+        self.pool().ensure()
+        pinned = self.commit('candidate')
+        self.commit('main-moved-on')
+        item = self.waiting(ISSUE, pinned, 'interactive')
+
+        class CannotStart(FakeMcp):
+            def start(inner, slot, entry):
+                raise OSError('Editor executable could not start')
+
+        pool = self.pool(mcp=CannotStart())
+        self.assertEqual(pool.tick()['granted'], 0)
+        slot = self.ledger.slot('unity_slot:1')
+        self.assertEqual(slot['state'], 'held')
+        self.assertEqual(self.trees.head(Path(slot['folder'])), pinned)
+        self.assertFalse(pool.editor_is_open(slot))
+        [recovery] = RecoveryStore(self.ledger).pending('test')
+        self.assertEqual((recovery['commit_sha'], recovery['recovery_kind']), (pinned, 'setup'))
+        self.assertEqual(self.ledger.item(item)['stage'], 'waiting_for_recovery')
+
+    def test_stop_during_startup_timeout_never_resumes_the_cancelled_item(self):
+        from agent.resource_recovery import RecoveryStore
+
+        self.pool().ensure()
+        pinned = self.commit('candidate')
+        item = self.waiting(ISSUE, pinned, 'interactive')
+
+        class CancelThenTimeout(FakeMcp):
+            def start(inner, slot, entry):
+                super().start(slot, entry)
+                self.ledger.cancel(item, 'operator Stop')
+                raise TimeoutError('Editor startup deadline')
+
+        pool = self.pool(mcp=CancelThenTimeout())
+        self.assertEqual(pool.tick(), {'settled': 0, 'granted': 0, 'parked': 0})
+        self.assertEqual(self.ledger.item(item)['state'], 'cancelled')
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'held')
+        [recovery] = RecoveryStore(self.ledger).pending('test')
+        self.assertFalse(recovery['resume_job'])
+        started = RecoveryStore(self.ledger).begin(recovery['id'])
+        RecoveryStore(self.ledger).detach(started['id'], started['attempts'])
+        self.assertFalse(any(r['state'] == 'queued' for r in self.ledger.reservations()))
+        self.assertEqual(self.ledger.item(item)['state'], 'cancelled')
+
     def waiting(self, issue_id, commit, mode):
         # issue(id=...), not issue(issue_id=...): the helper's keyword is `id` and the wrong one leaves the
         # row on ISSUE, after which create_work_item raises "unknown issue".

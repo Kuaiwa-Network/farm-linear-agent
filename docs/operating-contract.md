@@ -655,6 +655,12 @@ operator-only slot recovery policy. Workers checkpoint, release `unclean`, and e
 The release revokes both their claim and reservation token. Never request a human to operate
 Unity or add `needs-more-info` for this condition.
 
+An Editor startup failure also quarantines its slot at the requested commit, using
+the preparation recovery budget. A missing MCP instance at the startup deadline
+does not prove the Editor exited; the failure path does not park on main or discard
+source changes beneath a still-running importer. Existing fenced recovery verifies
+process ownership and preserves eligible metadata before an exact-commit retry.
+
 After certifying the worker's process tree has stopped, the controller detaches the old
 reservation and queues its exact commit and mode. A healthy second slot may resume that job
 while an independent service loop repairs the first. Only configured local slot editors may
