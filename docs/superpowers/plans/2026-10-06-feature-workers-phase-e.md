@@ -129,10 +129,12 @@ pending checkpoints below describe their state when recorded. Remaining gates:
 
 1. Complete the operator-selected document-driven FARM-1104 UI trial below.
    Actual native UI-worker intake of the full leaderboard R4 DOCX and seven
-   uploads is measured. Its bounded source draft and controller-recorded round 1
-   are now ready for named visual approval and an explicit export request;
-   certified export, Client guards/loading and real dynamic panel QA remain
-   pending. The approximate source renderer does not execute sibling relations.
+   uploads is measured. Round 1 has the operator's actual combined approval and
+   a successful controller-certified export. Native restoration of all 92 required
+   Client originals and current source-main history is independently verified.
+   Certified Client installation, guards/loading and real dynamic panel QA remain
+   pending at the latest checkpoint below. The approximate source renderer does
+   not execute sibling relations.
    FARM-1396 item 2 and whole-card acceptance remain outside this trial.
 2. Separately scoped real Code later-stage acceptance: Common/config/hive and native
    generators, running-worker withdrawal, Client/closing Unity tests and the real
@@ -4881,3 +4883,43 @@ Actual Client installation/guards/loading and dynamic panel QA remain pending.
 [The complete #215 CI run](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/37903019651)
 now succeeds on both Mac and Windows for the one-confirmation change. That is
 separate from this new hydration regression and from production-host qualification.
+
+
+### Actual native Client originals and source-history recovery (2026-10-09)
+
+The existing FARM-1104 TestBot job resumes the unchanged approved round through
+its original session and normal repository handoffs. Independent read-only
+inspection at 2026-10-09T09:01:06+00:00 verifies all 92 previously inventoried Client
+originals against their committed LFS OID and size. Every actual file matches,
+with zero remaining pointers and zero differences from those baseline bytes.
+The owned branch remains `farmbot/farm-1104`, with HEAD equal to its fixed Client
+baseline `54756872aadfb4619e9ec0055e56d36caa4d2570`. This inspection uses no network and does not
+modify live state. It measures the worker's actual restoration, separately from
+the earlier offline fixture and from certified installation of paid outputs.
+
+The next `install-ui` attempt refuses before installation because current
+verified farmgui main `32f65d5d229c88404b621cf063eae3c5b8b8273c` is not yet available
+as a local commit. Its bounded source Git read cannot compute the trusted merge
+base; no installation recovery entries or Client changes are created. The
+controller does not fetch into a read-only source repository from a Client-rooted
+attempt. The worker saves its evidence and uses a normal handoff to a fresh
+farmgui-rooted attempt to fetch that history. This preserves repository authority
+and does not require a host configuration change or weakened source check.
+
+At 2026-10-09T09:03:45+00:00, independent source validation succeeds against that current
+verified main. The reviewed source HEAD remains `f6dbab2572e70bc2a150a305deb9b22a2d2234e2`,
+merge base `86cd4640616a3434006fe87379060d7bb874746c`, with exactly the same component/UI-document
+diff and only Leaderboard / `k8r6dxmj` changed. The source draft, human approval,
+preview and retained export receipt remain unchanged. The active worker and all
+observed descendants remain in its owned native Windows Job; prior Jobs are empty
+and the development controller has zero loop errors. This observation does not
+claim a memory limit on the runtime worker's Job.
+
+The read-only controller-record checkpoint at 2026-10-09T09:08:35+00:00 still has exactly
+one export and no completed installation, guard, Unity-loading or delivery record.
+Those stages and actual dynamic panel QA remain pending. No second session,
+repeat visual approval, direct export invocation, manual Client-output copy,
+ledger edit or source-round change is used to bypass either refusal. FARM-1419
+continues waiting for art/UI; parked cards are not resumed. These are measurements
+on the development Windows PC, not qualification of the intended production host.
+Production deployment/restart, credentials, profiles and app settings are unchanged.
