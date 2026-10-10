@@ -4,6 +4,7 @@ A slot is a detached worktree of FarmBot's own clone with a built Library/. Task
 never open Unity. Everything host-specific lives in the slot's configuration entry or in agent/unity.py.
 """
 import hashlib
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 import signal
@@ -88,7 +89,7 @@ class SlotPool:
 
     def __init__(self, ledger, worktrees, entries, *, host, editors_root, unity=None, mcp=None, clock=time.time,
                  sleep=None, editor_scan=None, editor_pid=None, state_dir=None, owner="pool",
-                 run_unsandboxed=None):
+                 run_unsandboxed=None, concurrent_batches=False):
         # `ledger` may be a Ledger or a zero-argument factory. The pool runs on its own thread beside the
         # receiver's and the scheduler's, and two threads on one sqlite3.Connection do not get two
         # transactions: _transaction() is a bare BEGIN IMMEDIATE/COMMIT, so one thread's BEGIN can land
@@ -96,6 +97,9 @@ class SlotPool:
         # already takes a factory for exactly this, and service.build passes the pool one too. A pool handed
         # a Ledger *object* borrows it and must not close it — that one belongs to the scheduler.
         self._owns_ledger = callable(ledger) and not isinstance(ledger, Ledger)
+        if concurrent_batches and not self._owns_ledger:
+            raise ValueError("concurrent batches require a separate Ledger connection factory")
+        self._ledger_factory = ledger if self._owns_ledger else None
         self.ledger = ledger() if self._owns_ledger else ledger
         self.worktrees = worktrees
         self.entries = {entry["id"]: entry for entry in entries}
@@ -119,6 +123,11 @@ class SlotPool:
         self.run_unsandboxed = run_unsandboxed
         self.owner = owner
         self.last_observation = None
+        self._batches = {}
+        self._batch_executor = (ThreadPoolExecutor(max_workers=max(1, len(self.entries)),
+                                                  thread_name_prefix="farmbot-unity")
+                                if concurrent_batches else None)
+        self._draining_batches = False
 
     @staticmethod
     def _collaborator_error(slot_id, exc, *, stage, doing):
@@ -201,25 +210,77 @@ class SlotPool:
         """The pool thread's whole loop body. Everything slow lives here and nothing here holds a ledger
         transaction across a git command, a subprocess or an MCP call.
 
-        The three run in this order on purpose: a slot a finished worker has let go is settled and parked
-        before the next request is considered, so one tick can hand the slot straight on.
+        Completed executions are handed over first. Settlement and parking preserve
+        quiescence checks; a newly parked slot becomes available on the next tick.
         """
-        return {"settled": self.settle(), "granted": self.grant(), "parked": self.park_idle()}
+        completed = self._finish_batches()
+        return {"settled": self.settle(), "granted": completed + self.grant(), "parked": self.park_idle()}
+
+    def _run_batch_on_connection(self, reservation):
+        # Only execution leaves the pool thread. Git, MCP preparation, reservation
+        # hand-over and parking remain serialized there. Each batch owns its SQLite
+        # connection; sharing the pool's connection would interleave transactions.
+        batch = SlotPool(self._ledger_factory, self.worktrees, list(self.entries.values()),
+                         host=self.host, editors_root=self.editors_root, unity=self.unity,
+                         mcp=self.mcp, clock=self.clock, sleep=self.sleep,
+                         editor_scan=self.editor_scan, editor_pid=self.editor_pid,
+                         state_dir=self.state_dir, owner=self.owner,
+                         run_unsandboxed=self.run_unsandboxed)
+        try:
+            return batch.run_batch(batch.ledger.slot(reservation["resource"]), reservation)
+        finally:
+            batch.close()
+
+    def _finish_batches(self):
+        completed = 0
+        for slot_id, (reservation, future) in list(self._batches.items()):
+            if not future.done():
+                continue
+            try:
+                try:
+                    future.result()
+                except SlotError as exc:
+                    self._switch_failed(reservation, exc, recovery_kind="execution")
+                except Exception as exc:
+                    self._give_the_slot_back(reservation, f"hand-over failed after the switch: {exc!r}"[:400], True)
+                else:
+                    completed += int(self._resume_hand_over(reservation))
+            finally:
+                del self._batches[slot_id]
+        return completed
+
+    def drain_batches(self):
+        """Join executions and finish their hand-overs before closing the ledger/root lock.
+
+        Service shutdown fences and stops owned runs first. Its heartbeat continues
+        while this method waits, and no new batch is admitted after draining starts.
+        """
+        self._draining_batches = True
+        if self._batch_executor is not None:
+            self._batch_executor.shutdown(wait=True)
+        return self._finish_batches()
 
     def grant(self):
         """`granted` counts hand-overs that reached a worker, not acquisitions that were attempted. A
         switch that failed and a Stop that landed mid-switch both give the slot back, so counting them
         would make tick()'s own report disagree with the ledger.
 
-        One acquire per kind per tick, deliberately: a switch is minutes, so there is nothing to gain from
-        looping here, and a requeued request would otherwise be retried in the tick that failed it.
+        Concurrent batch execution is bounded by configured slots. Preparation remains
+        on this thread, and an in-flight execution cannot be settled or reacquired.
+        Synchronous hand-overs retain one acquire per kind per tick, including retries.
         """
         granted = 0
+        if self._draining_batches:
+            return granted
         for kind in sorted({entry["kind"] for entry in self.entries.values()}):
-            reservation = self.ledger.acquire(kind, owner=self.owner, host=self.host)
-            if reservation is None:
-                continue
-            granted += 1 if self._hand_over(reservation) else 0
+            for _ in range(len(self.entries)):
+                reservation = self.ledger.acquire(kind, owner=self.owner, host=self.host,
+                                                  exclude_resources=self._batches)
+                if reservation is None:
+                    break
+                granted += int(self._hand_over(reservation))
+                if reservation["resource"] not in self._batches:
+                    break  # interactive, synchronous batch or preparation failure
         return granted
 
     def _hand_over(self, reservation):
@@ -243,6 +304,14 @@ class SlotPool:
             self._switch_failed(reservation, exc)
             return False
         if reservation["mode"] == "batch":
+            if self._batch_executor is not None:
+                try:
+                    future = self._batch_executor.submit(self._run_batch_on_connection, reservation)
+                except Exception as exc:
+                    self._give_the_slot_back(reservation, f"could not start batch execution: {exc!r}"[:400], True)
+                else:
+                    self._batches[slot_id] = (reservation, future)
+                return False  # only a completed run may resume its worker
             # The run itself, here and not in the worker. Under Codex's workspace-write seatbelt the Editor
             # hangs for ever on a denied Mach lookup (Task 0's addendum), so the pool performs the run on
             # this thread, outside the sandbox, and the fresh worker is handed the results file instead.
@@ -258,15 +327,23 @@ class SlotPool:
                 self._give_the_slot_back(reservation,
                                          f"hand-over failed after the switch: {exc!r}"[:400], True)
                 return False
+        return self._resume_hand_over(reservation, self.last_observation)
+
+    def _resume_hand_over(self, reservation, observation=None):
+        item_id, slot_id = reservation["item_id"], reservation["resource"]
+        current = self.ledger.reservation(reservation["reservation_id"])
+        if current is None or current["state"] != "active":
+            self._give_the_slot_back(reservation, "item stopped during its batch hand-over", False)
+            return False
         handed = False
         # The defaults cover the one path that reaches the finally without passing an except arm: a
         # BaseException, which `guarded` does not catch either and which would otherwise take the pool
         # thread down with the slot held by a live reservation.
         reason, fail_item = "hand-over abandoned after the switch", True
         try:
-            if self.last_observation is not None:
+            if observation is not None:
                 self.ledger.record_identity(item_id, reservation["reservation_id"], slot_id,
-                                            self.last_observation)
+                                            observation)
             self._write_token(item_id, reservation)
             try:
                 self.ledger.resume(item_id, f"{slot_id} acquired ({reservation['mode']})")
@@ -351,6 +428,8 @@ class SlotPool:
         """
         settled = 0
         for reservation in self.ledger.reservations_to_settle():
+            if reservation["resource"] in self._batches:
+                continue  # execution/evidence must finish before cancellation settles
             slot = self.ledger.slot(reservation["resource"])
             token = self._read_token(reservation["item_id"])
             if token is None:
@@ -397,6 +476,8 @@ class SlotPool:
         """
         parked = 0
         for slot in self.ledger.slots(host=self.host):
+            if slot["slot_id"] in self._batches:
+                continue
             if slot["state"] != "switching" or self.ledger.active_reservation_on(slot["slot_id"]):
                 continue
             departing = self.ledger.last_reservation_on(slot["slot_id"])
@@ -410,6 +491,7 @@ class SlotPool:
         return parked
 
     def close(self):
+        self.drain_batches()
         if self._owns_ledger:
             self.ledger.close()
 
@@ -489,8 +571,8 @@ class SlotPool:
         """The batch run itself, performed by the launcher outside any sandbox and never by the worker.
 
         The argv comes from the slot entry and the item's state directory only. That is the security
-        property this redesign rests on: exactly one process in FarmBot escapes the seatbelt, and no part of
-        its command line is a value a worker chose.
+        property this redesign rests on: only controller-composed Unity runs escape
+        the worker seatbelt, and no part of their command line is a value a worker chose.
         """
         if self.run_unsandboxed is None:
             raise SlotError(f"{slot['slot_id']}: no unsandboxed runner; a batch slot cannot be granted",

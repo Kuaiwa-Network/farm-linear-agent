@@ -976,6 +976,32 @@ class ServeHeartbeatTests(unittest.TestCase):
         state, beat = read(self.path, now=time.time())
         self.assertEqual((state, beat["phase"]), ("fresh", "stopped"))
 
+    def test_shutdown_keeps_heartbeat_and_state_open_until_background_batches_drain(self):
+        draining, release = threading.Event(), threading.Event()
+        self.addCleanup(release.set)
+
+        def drain():
+            draining.set()
+            release.wait(20)
+            self.events.append("batches drained")
+
+        pool = SimpleNamespace(ensure=lambda: None, tick=lambda: None, drain_batches=drain,
+                               close=lambda: self.events.append("pool.close"))
+        with patch("agent.service.HEARTBEAT_INTERVAL", 0.05), \
+                patch("agent.heartbeat._write_worker_file", side_effect=self.writer()):
+            thread, problems = self.run_serve(self.components(pool), io.StringIO())
+            self.released.set()
+            self.assertTrue(draining.wait(20))
+            self.wait_until(lambda: self.beats_since("stop_all_unsandboxed") >= 3, timeout=5)
+            self.assertNotIn("ledger.close", self.events)
+            self.assertNotIn(("beat", "stopped"), self.events)
+            release.set()
+            thread.join(timeout=20)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(problems, [])
+        self.assertLess(self.events.index("batches drained"), self.events.index(("beat", "stopped")))
+        self.assertLess(self.events.index("batches drained"), self.events.index("ledger.close"))
+
     def test_a_failing_writer_is_logged_once_each_time_writes_start_failing(self):
         # By attempt: a first failure, a repeat, a recovery and a second failure; every later write succeeds.
         script = [PermissionError("sharing violation"), PermissionError("sharing violation"), None,
