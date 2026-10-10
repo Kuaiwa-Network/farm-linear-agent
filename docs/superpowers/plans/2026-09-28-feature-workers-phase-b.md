@@ -1588,6 +1588,136 @@ Task 17 remains partial. [The Phase C development plan](2026-10-06-feature-worke
 describes the next client implementation without claiming it is available.
 
 
+## Native Windows FARM-1461 verification (2026-10-10/11; incomplete release gates)
+
+The operator authorized TestBot's non-visual FARM-1461 feature trial and requested
+completion of testing before further storage cleanup or deployment. These checks
+used separate development checkouts and TestBot's isolated resources on the local
+Windows machine, which also hosts production FarmBot. Read-only task/port
+observations confirmed the production receiver was running; no production config
+or ledger was read for these checks, and no production service, settings, runtime
+state or storage was changed. This is development verification on that machine,
+not certification that production may enable `feature`.
+
+The active TestBot controller remained on frozen FarmBot source
+`c93cb7d038beb52c1cd020539d73f82581c84112`. Native tools were used; Bash, MSYS and
+WSL were not substituted for Windows generation or testing. Python 3.13 was
+started with `PYTHONUTF8=1`; logs and receipts were preserved as UTF-8. The
+independent server comparison used Git `2.54.0.windows.1`, Go `1.25.1
+windows/amd64`, the same measured native compiler executable as the current run,
+isolated child homes, disabled inherited Go configuration/workspaces and offline
+module resolution. It copied local Git objects into an owned development checkout,
+with independent Git metadata, and copied no bot configuration, credentials or
+runtime state.
+
+**Revisions and provenance.** The owner merged
+[Contract #337](https://github.com/Kuaiwa-Network/Farm-Contract/pull/337), head
+`4549d28fd0fe1b6dc865a1f0a942ea5cbd521f0e`, as
+`f648bd6c6dead0056f64eed58034e86a977f4909`. Both consumer candidates used the same
+subsequently verified merged Contract input
+`9433c1e4a162b67bc7956ffe7d3ccf98a802068b`:
+
+- Client `d96b27099ba610fa1ad65171be8e7fd1183b4f43`, tree
+  `3d5a36bc526495be58f457c13054327074a34564`.
+- Server `cd6a9c59f4302490e3caaa6128e3eafadc94ad38`, tree
+  `482272afc2f00dba30b55f6c327ad6dc2a26960a`.
+
+These issue worktrees were clean when inspected. Server
+[#386](https://github.com/Kuaiwa-Network/farm-hive/pull/386) remained a draft at
+older published head `6c071e77e12106b945afc92ebc90b8fd47a0daa8`; the current local
+server result must not be represented as verification of that published head.
+GitHub CI remained explicitly deferred, not passed.
+
+**Client measurements.** All three complete typechecks reported zero errors
+(111/0/7 warnings). With pinned .NET `8.0.423`, the current complete unit gate in
+the independent normal-layout checkout reported **6,635 total, 6,629 passed,
+zero failed and six NotExecuted**, exit 0, in **25.855 seconds**. TestBot reproduced
+the same outcomes in **71.950 seconds**. All eleven GuideObservation .NET cases
+passed. Five non-executed cases were Unix process/executable checks; the sixth
+required the optional real Common artifact, absent because this card skipped B/C.
+Raw TRX leaf outcomes and `total - executed` establish six NotExecuted even where
+the aggregate TRX `notExecuted` counter says zero.
+
+Earlier DLL-copy access denial, relocated-output source lookup failures and two
+literal-LF source-guard failures were retained. The passing run used the exact
+committed LF bytes in an independent verification view, with unchanged assertions,
+logic, source tree and issue branch; no skip was added to obtain a pass. A retry
+had overwritten one earlier TRX, so the original log/counts/non-pass details are
+retained without claiming that original TRX exists.
+
+Focused Unity tests passed **9/9 PlayMode** and **13/13 EditMode**, with zero
+failures/skips. Two whole-assembly attempts following focused Play/Edit runs
+stalled at callback count 21 and remain incomplete. Restoring focus did not advance
+the second attempt. A normally recovered Editor running the full assembly first
+completed **1,270 leaf cases: 1,188 passed, 53 failed, 29 skipped**, in
+**147.460 seconds**, using Unity `2022.3.62f3`. All nine new GuideObservation cases
+passed within that full run. Its raw result SHA-256 is
+`aea3c6481634f2238e9547ad069dd5ec14231c474182a3a46baeffc581af0aca`.
+
+An earlier independent baseline run at Client
+`66a177e6c5efcb56559e5bab2798c83c38faf019` reported 1,261/1,181/51/29
+total/pass/fail/skip. Forty-nine current failures matched baseline names and
+normalized messages. Four current-only full-run failures were two NetSeam
+disconnect cases and two SpeechBubble timer-repair cases; all four passed focused
+current-head tests afterward. They remain unclassified across the full suite.
+Those comparisons used different process runs, and the earlier paired comparison
+had a preserved IDE-settings-only delta; neither establishes a clean passing full
+gate. The shared Unity slot was normally released and parked after the measured
+current run. **F/G and Client publication remained pending.**
+
+**Server measurements.** The four owned loopback-only Docker test services were
+healthy (MongoDB replica set with writable primary, Redis, etcd and NATS). This
+health finding is separate from application test success. At clean current head,
+the focused real-service race check reported **152 pass, one fail, zero skip**
+terminal test actions in **120.408 seconds**. All 21 design-named new behavior
+tests passed, including measured Mongo commit/replay/rollback and cluster paths.
+The census failed because four SpiritCollection requests lacked server handlers.
+
+The complete current-head command was
+`go test -race -p=2 -timeout 300s -json -count=1 ./...`: **19,523 pass, 21 fail,
+12 skip**, exit 1, in **891.532 seconds**, with the same clean head/tree before and
+after. Unlike the earlier 1,500-second timed-out diagnostic, this run completed.
+These are Go terminal actions, including parents/subtests, not disjoint case
+counts. Build, vet and full crosscall lint passed. Native designer-pin, config-manifest and Contract
+provenance checks passed. Config and registry reproduction passed; the initial
+protocol reproduction failed and its bounded short-temporary-path retry passed,
+with both receipts retained.
+
+The JSON parser's 23 self-tests passed. Fourteen log-query gates reported eleven
+passes and three failures due to the failing arch/config packages. The guild
+forced-remote equivalent stage was not run; other shell-only gates were not run
+on Windows. None of those pending checks was counted as a pass.
+
+A separate clean server baseline at
+`afbc46b1d5185d87ee0a7c51b290abe0758fb0e7`, tree
+`7ae65f461d7f6378cda32512b21eda854ecd3b37`, reproduced the same **19 earlier failing
+test events** in a focused comparison (four pass, 19 fail, zero skip; exit 1;
+**106.476 seconds**). The separately targeted baseline protocol-code gate passed
+one test in **20.959 seconds**. This is focused baseline evidence, not a full
+baseline pass, proof of every root cause or a timing comparison. The two remaining
+current failures concern the newer protocol snapshot: the missing SpiritCollection
+handlers and Rank emitting code 4 absent from the active contract. Subsequent
+server main `beb500a50a5dc1ee3da6531134b72450925a0598` contains merged Rank
+[#389](https://github.com/Kuaiwa-Network/farm-hive/pull/389); this does not clear the
+tested candidate's gate without integration and new verification. No neighboring
+business scope, exception or assertion weakening was introduced during testing.
+
+**Evidence and remaining work.** The private verification records retain every
+full-run failure and skip reason, exact revisions/tool identities, logs, durations,
+startup/permission failures, source audits and ownership/recovery evidence. The
+sanitized current Client comparison is SHA-256
+`0f52c5c0a5fe914b2fbe1fe283277a66740e6fe0a92a63ef3eb6ac3d3ce0add2`;
+the sanitized independent server comparison is
+`71ee4e236ae254bcc45261a543f238e499d0257d16fef55890027b59f7a08275`.
+Their private locations, raw host logs and identities are intentionally absent
+from this public record. Release still needs resolution and re-verification of
+the failed full gates and protocol gaps, remaining CI-equivalent checks/owner
+reviews, actual analytics dictionary/JSON acceptance and the closing publication
+steps. Deferred CI and a focused pass do not certify those prerequisites. Further
+production storage cleanup, root moves and deployment remain separate work.
+TestBot saved its checkpoint and entered `awaiting_input` after completing the
+automatic checks, with all owned heavy checks quiescent and no Unity reservation.
+
 ## Scope
 
 In Phase B (spec §13, item 2):
