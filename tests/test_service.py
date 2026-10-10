@@ -472,6 +472,9 @@ class ServeTests(unittest.TestCase):
         self.assertIsNotNone(beat["stopped_at"])
         self.assertEqual(set(beat["loops"]), set(LOOPS))
         self.assertEqual(beat["workers"], {})  # the launcher's own list: this fixture launched no worker
+        self.assertEqual(beat["capacity"], {"max_workers": components.config.max_concurrent,
+                                            "unity_slots": len(components.config.slots),
+                                            "enabled_skills": sorted(components.skills)})
 
     def test_a_heartbeat_that_cannot_be_written_never_stops_serving(self):
         problems = []

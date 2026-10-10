@@ -363,6 +363,21 @@ descriptions, comments, questions, logs, paths, PIDs, tokens or raw errors; use 
 detail. There is no login: anyone who can reach the port can read issue identifiers, titles and job
 states.
 
+The service section also shows the enabled skills and the applied worker and Unity capacity. For example,
+`worker 2/10` means the controller tracks two processes, including workers that have not yet claimed a job;
+it is independent of the running-job count and the Unity slot limit. Full capacity is shown as 已满载, not a
+service fault. These values come from the controller's heartbeat, not a config edit that has not been applied.
+An older heartbeat shows 此版本未提供; a stale, stopped or starting service, or an unavailable worker list,
+shows worker usage as unknown rather than zero.
+
+Failed results show a fixed category and a handling hint: launch failure, exit before claim, claim timeout,
+exit without completion, exhausted model-capacity retries, disabled skill, or a generic failure. Categories
+come from the latest failed audit record; raw error text and logs are never sent to the browser. Up to 30
+unresolved failures from the last 24 hours raise 需要关注 even when `/health` and the loops are healthy. A
+retry or a later job of the same skill clears the old failure's attention; a later conversation does not
+resolve a failed fix. Older failures remain in the seven-day results with their category. The monitor checks
+recent failures separately, so thirty newer successful results cannot hide them.
+
 The monitor reads the ledger read-only, probes the receiver's `/health` on loopback and reads
 `<local_root>/service-heartbeat.json`. `serve` rewrites that file every five seconds with its phase, loop
 timings, revision, webhook counts, and the start and deadline times of the workers it manages (never

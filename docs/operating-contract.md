@@ -1783,8 +1783,30 @@ side files beside a ledger whose service is stopped, which is why the monitor ru
 answering; a 3xx, any other status and a failed request count as not answering. The JSON is an allowlist.
 It carries a job's stage name, clamped to 120 characters, but no checkpoint contents, descriptions,
 comments, questions, inbox or worker messages, evidence prose, logs, paths, PIDs, tokens, config values
-other than the instance's environment, ID, bot name and host, or raw stored errors. Older ledgers without
-optional tables or columns are read without migration.
+other than the instance's environment, ID, bot name and host and the applied public capacity described
+below, or raw stored errors. Older ledgers without optional tables or columns are read without migration.
+
+The heartbeat's optional `capacity` contains only `max_workers`, `unity_slots` and `enabled_skills`,
+copied from the serving controller's applied configuration at startup. It never rereads those values
+from the monitor's config. The JSON exposes them as `service.capacity`, with `workers_used` counted
+from the launcher's tracked workers only when the heartbeat is fresh and `serving`. This includes
+launched workers that have not claimed a job. Starting, stopped and stale heartbeats, or an unavailable
+worker list, leave usage unknown. Older heartbeats omit capacity and the page shows 此版本未提供.
+Worker and Unity limits are independent; reaching the worker limit reads 已满载 and raises no attention.
+The page distinguishes enabled and disabled 对话/修改/Code/UI capabilities.
+
+Each failed `recent` result carries a `failure_code`, one of `worker_launch_failed`,
+`worker_start_failed`, `worker_claim_timeout`, `worker_exit_failed`, `model_capacity_exhausted`,
+`skill_disabled` or `job_failed`. It is classified from the latest failed audit reason and emits no
+stored error text; a missing audit table or unrecognised reason reads as the generic failure. Other
+outcomes carry null. The page supplies a fixed Chinese explanation and handling hint for each category.
+Independently of the thirty most recent results, the monitor raises attention for up to thirty failed
+items updated in the last 24 hours, newest first, unless a successor or a later job of the same skill
+has taken over their work. Retrying the same item also removes its failure attention as it is queued.
+A conversation does not resolve a failed fix. A failure outside that window can still appear in the
+seven-day history without raising current attention. These records indicate failed work, not proof of
+an ongoing host outage. The additions need no ledger migration; older monitors ignore the added
+heartbeat fields, and newer monitors tolerate older heartbeat and ledger schemas.
 
 `serve` writes `<local_root>/service-heartbeat.json` by replacement:
 - when it starts, with phase `starting`, before slot preparation;
@@ -1792,9 +1814,10 @@ optional tables or columns are read without migration.
 - on clean shutdown, after its loops have stopped, with phase `stopped`.
 
 The heartbeat records each loop's work timing and consecutive errors, the revision, in-memory webhook
-outcome counts, and the worker processes the launcher is managing, as start and budget-deadline times
-only. A failed write is skipped and never affects serving. The first failure of each run of failed writes
-prints one `heartbeat_error` JSON line naming the exception class, and the final `stopped` beat, which no
+outcome counts, the applied public capacity, and the worker processes the launcher is managing, as
+start and budget-deadline times only. A failed write is skipped and never affects serving. The first failure
+of each run of failed writes prints one `heartbeat_error` JSON line naming the exception class, and the
+final `stopped` beat, which no
 later beat repairs, is retried once after 0.1 seconds. The monitor reads the file as untrusted data (a
 regular file, at most 64 KiB, validated) and treats it as stale once it is 60 seconds old. It judges
 loops as idle, busy, stalled or erroring only from a fresh heartbeat that is not `stopped`; a stale or
@@ -1831,7 +1854,7 @@ The verdict is the first that applies:
 | 已停止 | A stopped heartbeat and no `/health` |
 | 正在启动 | A fresh heartbeat with phase `starting` |
 | 无响应 | No `/health` and no fresh heartbeat |
-| 需要关注 | A half-alive service, erroring or overlong loops, recent webhook rejections, held or orphaned slots, expired leases, overdue or untracked workers, cleanup still pending 10 minutes or more after a job finished, repeated Linear status failures, or a reservation cancellation unsettled for 5 minutes or more |
+| 需要关注 | A half-alive service, erroring or overlong loops, recent webhook rejections, held or orphaned slots, expired leases, overdue or untracked workers, cleanup still pending 10 minutes or more after a job finished, repeated Linear status failures, a reservation cancellation unsettled for 5 minutes or more, or unresolved failed work from the last 24 hours |
 | 正常 | None of the above |
 
 A verdict is evidence about these checks only, not proof that Linear, the tunnel or Unity work.

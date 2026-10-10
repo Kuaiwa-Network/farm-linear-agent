@@ -19,14 +19,17 @@ VERDICTS = ("ok", "attention", "starting", "unresponsive", "stopped", "unknown")
 DISPLAY_STATES = ("queued", "launching", "switching_repo", "retry_wait", "running", "awaiting_input",
                   "awaiting_resource", "waiting_for_recovery")
 OUTCOMES = ("delivered", "no_change", "blocked", "failed", "cancelled")
+FAILURE_CODES = ("worker_launch_failed", "worker_start_failed", "worker_claim_timeout", "worker_exit_failed",
+                 "model_capacity_exhausted", "skill_disabled", "job_failed")
 ATTENTION_CODES = ("slot_held", "slot_without_reservation", "lease_expired", "cleanup_pending",
                    "issue_status_error", "reservation_cancel_pending", "loop_erroring", "loop_stalled",
                    "webhook_rejected", "receiver_unreachable", "heartbeat_stale", "heartbeat_missing",
                    "heartbeat_unreadable",
-                   "renewal_overdue", "worker_untracked")
+                   "renewal_overdue", "worker_untracked", *FAILURE_CODES)
 WORKER_STATES = ("alive", "unknown", "renewal_overdue", "untracked", "lease_expired")
 RECENT_SECONDS = 7 * 86400
 RECENT_LIMIT = 30
+FAILURE_SECONDS = 24 * 3600
 CLEANUP_GRACE = 600
 STATUS_FAILURES = 3
 CANCEL_GRACE = 300
@@ -256,12 +259,54 @@ def _recent_rows(db, schema, now):
             ORDER BY w.updated_at DESC, w.id LIMIT ?""", (*TERMINAL, now - RECENT_SECONDS, RECENT_LIMIT))]
 
 
-def _history(rows, prs):
+def _unresolved_failures(db, schema, now):
+    # A retry or a later job of the same skill replaces the old failure. A conversation does not resolve a fix.
+    successor = "s.predecessor_id=w.id OR " if "predecessor_id" in schema["work_items"] else ""
+    return [dict(row) for row in db.execute(f"""SELECT w.id, w.updated_at, {_ISSUE_FIELDS}
+        FROM work_items w JOIN issues i ON i.id=w.issue_id
+        WHERE w.state='failed' AND w.updated_at >= ? AND NOT EXISTS (
+            SELECT 1 FROM work_items s WHERE {successor}
+                (s.issue_id=w.issue_id AND s.skill=w.skill AND s.created_at>w.created_at))
+        ORDER BY w.updated_at DESC, w.id LIMIT ?""", (now - FAILURE_SECONDS, RECENT_LIMIT))]
+
+
+def _failure_code(reason):
+    """Classify controller audit reasons without publishing error text, paths or exception messages."""
+    if not isinstance(reason, str):
+        return "job_failed"
+    if reason.startswith("launch failed: "):
+        return "worker_launch_failed"
+    if reason.startswith("worker exited before claiming (") or reason == "worker process gone before claiming":
+        return "worker_start_failed"
+    if reason == "worker did not claim within the timeout":
+        return "worker_claim_timeout"
+    if reason.startswith("worker exited without finishing ("):
+        return "worker_exit_failed"
+    if reason == "model capacity automatic retries exhausted (3)":
+        return "model_capacity_exhausted"
+    if re.fullmatch(r"skill [a-z][a-z0-9_-]{0,31} is not enabled on this host", reason):
+        return "skill_disabled"
+    return "job_failed"
+
+
+def _failure_codes(db, schema, item_ids):
+    found = dict.fromkeys(item_ids, "job_failed")
+    if not item_ids or not _has(schema, "audit", "id", "item_id", "kind", "reason"):
+        return found
+    for row in db.execute(f"""SELECT a.item_id, a.reason FROM audit a JOIN (
+        SELECT MAX(id) AS id FROM audit WHERE item_id IN ({_marks(item_ids)}) AND kind='failed'
+        GROUP BY item_id) latest ON latest.id=a.id""", item_ids):
+        found[row["item_id"]] = _failure_code(row["reason"])
+    return found
+
+
+def _history(rows, prs, failures):
     return [{"identifier": _text(row["identifier"], 32), "title": _text(row["title"], 200),
              "url": _linear_url(row["url"]), "skill": _text(row["skill"], 32),
              "outcome": "no_change" if row["state"] == "delivered" and row["no_change"] else row["state"],
              "finished_at": _time(row["updated_at"]), "retried": bool(row["retried"]),
-             "prs": prs.get(row["issue_id"], [])} for row in rows]
+             "prs": prs.get(row["issue_id"], []),
+             "failure_code": failures.get(row["id"]) if row["state"] == "failed" else None} for row in rows]
 
 
 def _slots(db, schema):
@@ -349,6 +394,10 @@ def _read_ledger(db, now, beat_state, beat, renew_seconds):
     schema = _schema(db)
     rows = _active_rows(db, schema)
     recent = _recent_rows(db, schema, now)
+    failed = _unresolved_failures(db, schema, now)
+    failure_ids = list(dict.fromkeys([row["id"] for row in recent if row["state"] == "failed"]
+                                    + [row["id"] for row in failed]))
+    failures = _failure_codes(db, schema, failure_ids)
     issue_ids = list(dict.fromkeys([row["issue_id"] for row in rows] + [row["issue_id"] for row in recent]))
     prs = _pull_requests(db, schema, issue_ids)
     queue = _unity_queue(db, schema)
@@ -368,9 +417,12 @@ def _read_ledger(db, now, beat_state, beat, renew_seconds):
     sections = {"counts": counts, "active": jobs,
                 "slots": None if slots is None else [{key: slot[key] for key in SLOT_FIELDS} for slot in slots],
                 "unity_queue": None if queue is None else len(queue),
-                "recent": _history(recent, prs)}
+                "recent": _history(recent, prs, failures)}
     missing = [name for name in KNOWN_TABLES if name not in schema]
-    return sections, service, _ledger_attention(db, schema, rows, slots, now) + _worker_attention(jobs), missing
+    attention = [{"code": failures[row["id"]], "subject": _text(row["identifier"], 32),
+                  "since": _time(row["updated_at"]), "count": None} for row in failed]
+    return sections, service, (_ledger_attention(db, schema, rows, slots, now)
+                              + _worker_attention(jobs) + attention), missing
 
 
 def _live(beat_state, beat):
@@ -402,7 +454,13 @@ def _loops(beat_state, beat, now):
 def _service(beat_state, beat, health, now):
     fields = ("phase", "written_at", "started_at", "stopped_at", "revision", "dirty", "runtime")
     heartbeat = {"state": beat_state, **{key: (beat[key] if beat else None) for key in fields}}
-    return {"health": health, "heartbeat": heartbeat, "loops": _loops(beat_state, beat, now),
+    capacity = beat.get("capacity") if beat else None
+    if capacity is not None:
+        live = beat_state == "fresh" and beat["phase"] == "serving" and beat["workers"] is not None
+        capacity = {"max_workers": capacity["max_workers"], "unity_slots": capacity["unity_slots"],
+                    "enabled_skills": list(capacity["enabled_skills"]),
+                    "workers_used": len(beat["workers"]) if live else None}
+    return {"health": health, "heartbeat": heartbeat, "capacity": capacity, "loops": _loops(beat_state, beat, now),
             "webhooks": beat["webhooks"] if beat else None, "agent_event_at": None, "linear": None}
 
 

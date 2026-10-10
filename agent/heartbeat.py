@@ -50,12 +50,17 @@ def _empty_loop():
 class Heartbeat:
     """In-memory state of one serving process. Loop threads record into it; the heartbeat thread writes it."""
 
-    def __init__(self, *, runtime, revision=(None, None), workers=None, clock=time.time):
+    def __init__(self, *, runtime, revision=(None, None), workers=None, capacity=None, clock=time.time):
         self.clock = clock
         self._lock = threading.Lock()
         self._runtime = runtime
         # A zero-argument callable such as Launcher.running: the worker processes serve is managing.
         self._workers = workers
+        # The controller's applied configuration, not a later edit to the monitor's config file.
+        try:
+            self._capacity = _capacity(capacity)
+        except ValueError:
+            self._capacity = None  # optional display data must never stop the controller
         self._revision, self._dirty = revision
         self._phase = "starting"
         self._started_at = clock()
@@ -123,6 +128,7 @@ class Heartbeat:
             return {"schema_version": SCHEMA_VERSION, "phase": self._phase, "started_at": self._started_at,
                     "written_at": self.clock(), "stopped_at": self._stopped_at, "revision": self._revision,
                     "dirty": self._dirty, "runtime": self._runtime, "workers": workers,
+                    "capacity": _capacity(self._capacity),
                     "loops": {name: dict(record) for name, record in self._loops.items()},
                     "webhooks": {**self._webhooks, "counts": dict(self._webhooks["counts"])}}
 
@@ -187,6 +193,25 @@ def _worker_records(raw):
     return workers
 
 
+def _capacity(raw):
+    """Optional, bounded public limits. Older writers omit them; unknown fields never leave the reader."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError("heartbeat capacity")
+    maximum = _count(raw.get("max_workers"))
+    if maximum == 0:
+        raise ValueError("heartbeat capacity")
+    skills = raw.get("enabled_skills")
+    if not isinstance(skills, list) or len(skills) > 64:
+        raise ValueError("heartbeat skills")
+    names = [_matching(_RUNTIME, name, optional=False) for name in skills]
+    if len(set(names)) != len(names):
+        raise ValueError("heartbeat skills")
+    return {"max_workers": maximum, "unity_slots": _count(raw.get("unity_slots")),
+            "enabled_skills": sorted(names)}
+
+
 def validate(raw):
     """The fields the monitor uses, checked one by one; ValueError for anything else."""
     # Exactly the integer: true and 1.0 compare equal to 1.
@@ -204,7 +229,8 @@ def validate(raw):
             "revision": _matching(_REVISION, raw.get("revision")), "dirty": dirty,
             "runtime": _matching(_RUNTIME, raw.get("runtime"), optional=False),
             "loops": {name: _loop(loops[name]) for name in LOOPS if name in loops},
-            "webhooks": _webhooks(raw.get("webhooks")), "workers": _worker_records(raw.get("workers"))}
+            "webhooks": _webhooks(raw.get("webhooks")), "workers": _worker_records(raw.get("workers")),
+            "capacity": _capacity(raw.get("capacity"))}
 
 
 def _read_bytes(path):

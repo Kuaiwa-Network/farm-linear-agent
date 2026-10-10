@@ -217,7 +217,10 @@ def _serve(components):
     # stopped with the loops would age into 无响应 on the monitor during a clean shutdown.
     beat_stop = threading.Event()
     heartbeat = Heartbeat(runtime=components.launcher.runtime.name, revision=source_revision(ROOT),
-                          workers=components.launcher.running)
+                          workers=components.launcher.running,
+                          capacity={"max_workers": components.config.max_concurrent,
+                                    "unity_slots": len(components.config.slots),
+                                    "enabled_skills": sorted(components.skills)})
     heartbeat_path = Paths(components.config).heartbeat
     # The receiver's handler counts each /webhook outcome into it (receiver.make_server).
     components.server.heartbeat = heartbeat

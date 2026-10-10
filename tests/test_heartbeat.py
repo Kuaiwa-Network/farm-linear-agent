@@ -78,6 +78,22 @@ class HeartbeatRecordTests(unittest.TestCase):
         self.assertEqual(payload["workers"], {item: {"started_at": 990.0, "deadline": 29790.0}})
         self.assertNotIn("424242", json.dumps(payload))
 
+    def test_capacity_is_a_snapshot_of_applied_configuration_with_no_private_fields(self):
+        capacity = {"max_workers": 10, "unity_slots": 2, "enabled_skills": ["fix", "chat"],
+                    "client_secret": "PRIVATE-CAPACITY-SECRET"}
+        beat = Heartbeat(runtime="codex", capacity=capacity, clock=self.clock)
+        capacity["max_workers"] = 20
+        capacity["enabled_skills"].append("fgui")
+        first = beat.payload()
+        self.assertEqual(first["capacity"], {"max_workers": 10, "unity_slots": 2, "enabled_skills": ["chat", "fix"]})
+        first["capacity"]["enabled_skills"].append("feature")
+        self.assertEqual(beat.payload()["capacity"]["enabled_skills"], ["chat", "fix"])
+        self.assertNotIn("PRIVATE-CAPACITY-SECRET", json.dumps(first))
+
+    def test_capacity_that_cannot_be_published_does_not_stop_the_heartbeat(self):
+        beat = Heartbeat(runtime="codex", capacity={"max_workers": True}, clock=self.clock)
+        self.assertIsNone(heartbeat.validate(beat.payload())["capacity"])
+
     def test_an_unreadable_worker_source_leaves_workers_unknown(self):
         def broken():
             raise RuntimeError("launcher busy")
@@ -222,6 +238,22 @@ class HeartbeatFileTests(unittest.TestCase):
                         {item: []}, [], too_many):
             with self.subTest(workers=str(workers)[:40]):
                 self.write(self.payload(workers=workers))
+                self.assertEqual(read(self.path, now=1000.0), ("unreadable", None))
+
+    def test_capacity_is_optional_and_bounded_when_reading_a_heartbeat(self):
+        old = self.payload()
+        old.pop("capacity")
+        self.write(old)
+        self.assertIsNone(read(self.path, now=1000.0)[1]["capacity"])
+        capacity = {"max_workers": 10, "unity_slots": 0, "enabled_skills": ["chat", "fix"]}
+        self.write(self.payload(capacity=capacity | {"path": "PRIVATE-PATH"}))
+        self.assertEqual(read(self.path, now=1000.0)[1]["capacity"], capacity)
+        for change in ({"max_workers": True}, {"max_workers": 0}, {"max_workers": 1e300},
+                       {"unity_slots": -1}, {"unity_slots": "2"}, {"enabled_skills": "chat"},
+                       {"enabled_skills": ["chat"] * 65}, {"enabled_skills": ["chat", "chat"]},
+                       {"enabled_skills": ["<script>"]}, {"enabled_skills": [None]}):
+            with self.subTest(change=change):
+                self.write(self.payload(capacity=capacity | change))
                 self.assertEqual(read(self.path, now=1000.0), ("unreadable", None))
 
     def test_an_oversized_file_is_unreadable(self):
