@@ -629,6 +629,30 @@ These guards apply to every terminal retirement path. The scheduler retries pend
 existing quiescence probe; held slots enter controller-owned recovery. No log, run report, ledger history or
 memory snapshot is removed by closure cleanup. Every worker attempt gets its own log directory.
 
+On native Windows, normal Codex worker reaping also reclaims only that attempt's
+`home/.sandbox-bin/codex.exe` copy. Matching `process.json`/`killed.json` identity,
+an empty descendant list, a recorded empty Job and a fresh native Job query are
+required. Missing, malformed or inaccessible evidence holds retention; a dead
+parent alone never authorizes it. Reparse paths and hardlinked files are refused.
+Native handles pin the ancestor directories and exact file against replacement
+through deletion. A retention error preserves the copy and does not block worker
+reaping or resource settlement. Logs, claims, credentials, configuration,
+checkpoints, helpers and teardown evidence stay intact. An attempt receipt keeps
+the removed executable's size/hash and process/teardown hashes. No ledger schema
+changes are needed, and rollback does not restore discarded disposable binaries.
+
+For old copies, explicit operator maintenance is available through
+`python -B -m agent.runtime_retention --runs-root ABSOLUTE_RUNS_DIRECTORY
+--expected-instance INSTANCE_ID`. It reads only the exact profile ownership marker
+and attempt files; it does not load configuration, open a ledger or signal any
+process. The default is read-only; `--apply` enables reclamation. An optional
+`--archive-root ABSOLUTE_ARCHIVE_DIRECTORY` saves and verifies one executable per
+SHA-256 before removing the source. The archive must be an existing ordinary
+directory outside the instance state; an unmarked nonempty directory or a marker
+from another instance is refused. Archives contain executable bytes and a
+nonsecret ownership hash, never worker homes or credentials. Active or uncertain
+attempts are preserved while other certified attempts can be reclaimed.
+
 Inspect `cleanup_pending` and `issue_status_errors` with `python3 -m agent.service status`, or the
 ledger CLI's `status`. `issue-context --item JOB_ID` exposes that job's `cleanup` and, for successors,
 `recovery` evidence. Inspect saved source with `git --git-dir .local/repos/REPO.git show

@@ -88,6 +88,24 @@ With no `tunnel` key in the host config it runs a quick tunnel, whose hostname
 changes at every restart and must be pasted into the Linear app settings again; set
 `"tunnel": {"name": "<tunnel>"}` once a named Cloudflare tunnel exists and the hostname stops moving.
 
+Windows worker attempts retain their logs and recovery evidence, but reclaim the
+disposable Codex sandbox executable after certified Job Object teardown. For an
+existing marked instance, inspect old copies without loading credentials or a ledger:
+
+```powershell
+# Use the configured Python executable and the selected instance's absolute runs path.
+$env:PYTHONUTF8 = '1'
+python -B -m agent.runtime_retention --runs-root 'D:\FarmBot\TestBot\runs' --expected-instance 'testbot'
+```
+
+Add `--apply` to reclaim only verified inactive executable copies. An optional
+`--archive-root` points to a separate existing directory (initially empty) and
+keeps one verified copy per executable hash. Active/uncertain attempts, credentials,
+logs and recovery evidence are preserved. See the [operating contract](docs/operating-contract.md).
+For a new instance, an absolute `local_root` on D: also puts its runs, clones and
+Unity slots there. Moving an existing instance requires a settled migration;
+changing the config while its controller or workers are running is unsafe.
+
 Behaviour: `docs/operating-contract.md`. Plans: `docs/superpowers/plans/`.
 
 For Mac development alongside Windows production, follow the

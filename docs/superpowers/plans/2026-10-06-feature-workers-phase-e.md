@@ -6157,3 +6157,60 @@ game-repository review/merge and acceptance, and deferred CI remain pending.
 The trial remains isolated development on the Windows production host; no
 FarmBot source/configuration change, production deployment or service restart
 is performed during this recovery.
+
+### Disposable Windows runtime retention (2026-10-10)
+
+The preceding capacity recovery was temporary: C: later fell to **8.145 GiB**,
+with the Windows paging file growing from approximately **3.851 to 6.874 GiB**.
+That accounts for part of the decrease, not its entire cause. The worker saves
+`client-waiting-storage` and returns to `awaiting_input` through its normal
+checkpoint path. Its recorded Job is empty, and the development controller
+reports zero workers and zero loop errors. No new full Unity pass follows.
+
+A read-only inventory finds **50 distinct `codex.exe` files**, with no hardlinks,
+under retained attempt homes' `.sandbox-bin` directories: **15.448 GiB** of a
+**31.914 GiB** run directory total. Go compiled cache entries account for another
+**9.305 GiB**. These are retained data across 14 job directories, not concurrent
+worker counts or per-issue storage requirements. FarmBot creates a fresh Codex
+home per attempt; the installed Codex Windows sandbox materializes its own binary
+there. This inspection does not read production configuration or ledger.
+
+The operator explicitly authorizes retention repair, safe reclamation and D:
+storage, preserving active workers, credentials and recovery evidence. At
+**20:08 UTC+8**, explicit TestBot-only maintenance removes **49** copies with
+matching process/teardown records and freshly verified empty native Jobs:
+**15.144 GiB**. Before removing each source it saves and verifies an executable
+archive on D:, deduplicated to **four hashes / 1.227 GiB**. Archive hashes all
+match. Metadata (file identity, size and modification time) for **20,285** other
+files in those settled attempts is unchanged; credential contents are not read.
+One **0.304 GiB** copy without a completed teardown record remains intact.
+C: free space changes from **12.440 to 27.583 GiB**; D: from **216.297 to
+215.069 GiB**. Complete private receipts remain local; no credentials, account
+identifiers, private host paths or raw host logs are published.
+
+The retention change reclaims only the sandbox's copied executable after normal
+Windows Codex reaping. It requires matching teardown identity and native empty
+Job checks, pins directory/file handles through deletion, rejects reparse paths
+and hardlinks, and records binary and teardown hashes. Cleanup errors preserve
+the copy without preventing reaping. Operator maintenance defaults to read-only
+and verifies the selected instance marker; it never opens a ledger, loads a
+configuration or signals a process. Logs, settings, credentials, claims,
+checkpoints, helpers and process/recovery evidence are retained. There is no
+ledger schema change. Existing archived executables can be verified by their
+hash; a source rollback alone does not restore removed disposable files.
+
+Native focused validation passes **21 retention tests**, with no failure, error
+or skip. The earlier broader run passes **129 tests**, with **46 existing POSIX
+skips**; all 10 Windows worker tests execute. Full offline verification is pending
+at the time of this entry. Verification temporary data and UTF-8 reports are on
+D:. GitHub CI remains deferred under the operator's earlier instruction.
+
+This is development work on the Windows production host. Production FarmBot
+source, state, configuration, credentials and service are untouched; neither bot
+is restarted. The existing TestBot state root, Unity projects and active/recovery
+paths are not relocated. Future instances can select a D: `local_root`; moving an
+existing marked instance still requires a settled migration that preserves
+absolute-path and ownership evidence. Automatic retention requires deployment of
+the changed source. Client full Unity verification, publication, server validation
+gaps, final Contract synchronization, owner reviews/merges and acceptance remain
+pending; this cleanup does not establish feature release readiness.
