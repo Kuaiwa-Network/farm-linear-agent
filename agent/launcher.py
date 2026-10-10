@@ -1061,6 +1061,21 @@ class Launcher:
         reason = self._stopping.get(item_id, "exited")
         record = Finished(item_id, code, self._read_last_message(handle), reason != "exited", reason,
                           self._failure_kind(handle, code, reason), handle.pid)
+        if os.name == "nt" and self.runtime.name == "codex":
+            # Dispose only the sandbox's copied executable after authoritative Job
+            # teardown. Keep isolated settings, credentials, logs and recovery files.
+            try:
+                from .runtime_retention import retire_codex_copy
+                retained = retire_codex_copy(self.runs_root.absolute(), handle.run_dir.absolute(), apply=True)
+            except Exception as exc:
+                # Retention is best effort; it cannot prevent normal reaping/slot settlement.
+                retained = {'status': 'held', 'reason': type(exc).__name__}
+            if retained['status'] == 'held':
+                try:
+                    print(json.dumps({'event': 'worker_runtime_retention_held', 'item_id': item_id,
+                                      'reason': retained.get('reason', 'unverified')}), flush=True)
+                except OSError:
+                    pass
         # Nothing below raises: the handle and its state go only with a complete record in hand.
         self._settling.pop(item_id, None)
         self._stopping.pop(item_id, None)
