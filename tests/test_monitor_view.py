@@ -14,7 +14,7 @@ from unittest.mock import Mock
 from agent.config import Config
 from agent.heartbeat import Heartbeat, validate
 from agent.ledger import Ledger
-from agent.monitor_view import CLEANUP_GRACE, LOOP_LIMITS, RECENT_LIMIT, build_status
+from agent.monitor_view import CLEANUP_GRACE, FAILURE_SECONDS, LOOP_LIMITS, RECENT_LIMIT, build_status
 from agent.resource_recovery import MAX_REPAIR_ATTEMPTS, RecoveryStore
 from agent.service import Components, serve
 from test_ledger import PIN, comment, issue, SKILLS
@@ -26,9 +26,10 @@ INSTANCE = {"environment": "production", "instance_id": "default", "bot_name": "
 
 
 def beat(phase="serving", written_at=NOW - 1, *, loops=None, rejected_at=None, rejected=0, stopped_at=None,
-         workers=None):
+         workers=None, capacity=None):
     payload = Heartbeat(runtime="codex", revision=("a3f9f77c1d2e", False), clock=lambda: NOW - 100).payload()
-    payload.update(phase=phase, written_at=written_at, stopped_at=stopped_at, loops=loops or {}, workers=workers)
+    payload.update(phase=phase, written_at=written_at, stopped_at=stopped_at, loops=loops or {}, workers=workers,
+                   capacity=capacity)
     payload["webhooks"]["last_rejected_at"] = rejected_at
     payload["webhooks"]["counts"]["rejected"] = rejected
     return validate(payload)
@@ -74,6 +75,95 @@ class ViewBase(unittest.TestCase):
 
     def active(self, document, identifier):
         return next(job for job in document["active"] if job["identifier"] == identifier)
+
+
+class CapacityAndFailureTests(ViewBase):
+    def test_capacity_counts_tracked_launches_even_before_claim_and_is_unknown_when_not_live(self):
+        item = self.job()
+        capacity = {"max_workers": 10, "unity_slots": 2, "enabled_skills": ["chat", "fix"]}
+        workers = {item["id"]: {"started_at": NOW - 20, "deadline": NOW + 3600}}
+        for state, phase, records, used in (("fresh", "serving", workers, 1), ("fresh", "serving", {}, 0),
+                                           ("fresh", "serving", None, None), ("stale", "serving", workers, None),
+                                           ("fresh", "stopped", workers, None), ("fresh", "starting", workers, None)):
+            with self.subTest(state=state, phase=phase, records=records):
+                document = self.status(heartbeat=(state, beat(phase, workers=records, capacity=capacity)))
+                self.assertEqual(document["service"]["capacity"], capacity | {"workers_used": used})
+                self.assertEqual(document["counts"]["running"], 0)
+        self.assertIsNone(self.status()["service"]["capacity"])
+        self.assertIsNone(self.status(heartbeat=("missing", None))["service"]["capacity"])
+
+    def test_failures_are_classified_without_exposing_audit_errors(self):
+        cases = [("launch failed: FileNotFoundError: PRIVATE-ERROR", "worker_launch_failed"),
+                 ("worker exited before claiming (exit, code 1)", "worker_start_failed"),
+                 ("worker process gone before claiming", "worker_start_failed"),
+                 ("worker did not claim within the timeout", "worker_claim_timeout"),
+                 ("worker exited without finishing (exit, code 1)", "worker_exit_failed"),
+                 ("model capacity automatic retries exhausted (3)", "model_capacity_exhausted"),
+                 ("skill fgui is not enabled on this host", "skill_disabled"),
+                 ("PRIVATE-UNKNOWN-ERROR", "job_failed")]
+        expected = {}
+        for reason, code in cases:
+            item = self.job()
+            self.ledger.fail_queued(item["id"], reason)
+            expected[f"FARM-{self.count}"] = code
+        document = self.status()
+        self.assertEqual({row["identifier"]: row["failure_code"] for row in document["recent"]}, expected)
+        self.assertEqual({row["subject"]: row["code"] for row in document["attention"]}, expected)
+        self.assertEqual(document["verdict"], "attention")  # healthy /health and loops do not hide failed launches
+        serialized = json.dumps(document)
+        for secret in ("PRIVATE-ERROR", "PRIVATE-UNKNOWN-ERROR", "FileNotFoundError", "code 1"):
+            self.assertNotIn(secret, serialized)
+
+    def test_only_the_latest_failure_reason_is_classified_after_retry(self):
+        item = self.job()
+        self.ledger.fail_queued(item["id"], "launch failed: FileNotFoundError")
+        self.ledger.record_cleanup(item["id"], {}, done=True)
+        self.ledger.retry(item["id"], "重试")
+        self.ledger.fail_queued(item["id"], "model capacity automatic retries exhausted (3)")
+        self.assertEqual(self.status()["recent"][0]["failure_code"], "model_capacity_exhausted")
+
+    def test_recent_failure_attention_expires_and_is_cleared_when_retried(self):
+        item = self.job()
+        self.ledger.fail_queued(item["id"], "worker exited before claiming (exit, code 1)")
+        finished = self.clock
+        self.assertIn("worker_start_failed", {a["code"] for a in self.status()["attention"]})
+        expired = self.status(now=finished + FAILURE_SECONDS + 1)
+        self.assertEqual(expired["recent"][0]["failure_code"], "worker_start_failed")
+        self.assertNotIn("worker_start_failed", {a["code"] for a in expired["attention"]})
+        self.ledger.record_cleanup(item["id"], {}, done=True)
+        self.ledger.retry(item["id"], "重试")
+        self.assertEqual(self.status()["attention"], [])
+
+    def test_a_successor_clears_old_attention_but_a_conversation_does_not_resolve_a_fix(self):
+        failed = self.job()
+        self.ledger.fail_queued(failed["id"], "launch failed: RuntimeError")
+        self.clock += 10
+        next_item = self.job(skill="chat")
+        self.sql("UPDATE work_items SET issue_id=? WHERE id=?", failed["issue_id"], next_item["id"])
+        self.assertIn("worker_launch_failed", {a["code"] for a in self.status()["attention"]})
+        self.sql("UPDATE work_items SET skill='fix' WHERE id=?", next_item["id"])
+        self.assertEqual(self.status()["attention"], [])
+
+    def test_a_linked_successor_clears_attention_even_with_the_same_creation_time(self):
+        failed = self.job()
+        self.ledger.fail_queued(failed["id"], "launch failed: RuntimeError")
+        successor = self.job()
+        self.sql("UPDATE work_items SET issue_id=?, predecessor_id=? WHERE id=?",
+                 failed["issue_id"], failed["id"], successor["id"])
+        self.assertEqual(self.status()["attention"], [])
+        previous = next(row for row in self.status()["recent"] if row["identifier"] == "FARM-1")
+        self.assertTrue(previous["retried"])
+
+    def test_failures_are_not_hidden_by_thirty_newer_successful_results(self):
+        failed = self.job()
+        self.ledger.fail_queued(failed["id"], "launch failed: RuntimeError")
+        self.clock += 10
+        for _ in range(RECENT_LIMIT):
+            item = self.job()
+            self.sql("UPDATE work_items SET state='delivered' WHERE id=?", item["id"])
+        document = self.status()
+        self.assertNotIn("FARM-1", {row["identifier"] for row in document["recent"]})
+        self.assertIn("FARM-1", {row["subject"] for row in document["attention"]})
 
 
 class ActiveWorkTests(ViewBase):
@@ -333,7 +423,8 @@ class AttentionTests(ViewBase):
         self.claim(expired)
         document = self.status()
         self.assertEqual(self.found(document), {("cleanup_pending", "FARM-1"), ("issue_status_error", "FARM-4"),
-                                                ("lease_expired", "FARM-5")})
+                                                ("lease_expired", "FARM-5"), ("job_failed", "FARM-1"),
+                                                ("job_failed", "FARM-2")})
         self.assertEqual(document["verdict"], "attention")
 
     def test_cleanup_is_pending_only_for_a_job_that_has_finished(self):
@@ -392,7 +483,8 @@ class AttentionTests(ViewBase):
         self.assertEqual(self.ledger.item(item["id"])["state"], "failed")
         document = self.status()
         self.assertEqual(self.cleanup_items(document), [])
-        self.assertEqual(document["verdict"], "ok")
+        self.assertEqual(document["verdict"], "attention")  # the new failure is actionable; its cleanup is not overdue
+        self.assertEqual(self.found(document), {("job_failed", "FARM-1")})
 
     def test_cancelling_a_blocked_job_restarts_its_cleanup_grace_once(self):
         # Accepted: cancel() turns a blocked job into a cancelled one and so moves its finish time, once.
@@ -654,6 +746,24 @@ class OlderLedgerTests(unittest.TestCase):
     def build(self, path):
         return build_status(path, heartbeat=("missing", None), health=HEALTHY, instance=INSTANCE,
                             monitor_revision=(None, False), now=NOW)
+
+    def test_an_old_failed_job_has_a_generic_category_without_creating_an_audit_table(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "old failed 状态.sqlite3"
+            with closing(sqlite3.connect(path)) as db:
+                db.executescript("""
+                    CREATE TABLE issues (id TEXT PRIMARY KEY, metadata TEXT NOT NULL);
+                    CREATE TABLE work_items (id TEXT PRIMARY KEY, issue_id TEXT, skill TEXT, state TEXT, stage TEXT,
+                                             created_at REAL, updated_at REAL);""")
+                db.execute("INSERT INTO issues VALUES('issue-1',?)", (json.dumps({"identifier": "FARM-9"}),))
+                db.execute("INSERT INTO work_items VALUES('item-1','issue-1','fix','failed','intake',?,?)", (NOW - 60, NOW - 30))
+                db.commit()
+                before = db.execute("SELECT name FROM sqlite_master").fetchall()
+                document = self.build(path)
+                self.assertEqual(before, db.execute("SELECT name FROM sqlite_master").fetchall())
+            self.assertTrue(document["ledger"]["ok"])
+            self.assertEqual(document["recent"][0]["failure_code"], "job_failed")
+            self.assertIn("job_failed", {row["code"] for row in document["attention"]})
 
     def test_a_ledger_with_only_the_required_tables_still_lists_work(self):
         with tempfile.TemporaryDirectory() as tmp:

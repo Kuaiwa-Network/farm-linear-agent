@@ -24,7 +24,7 @@ from agent.config import Config, Paths, load_config, monitor_settings
 from agent.heartbeat import LOOPS
 from agent.ledger import Ledger
 from agent.monitor import allowed_host, make_monitor_server, probe_health, run
-from agent.monitor_view import ATTENTION_CODES, DISPLAY_STATES, OUTCOMES, SCHEMA_VERSION, VERDICTS, WORKER_STATES
+from agent.monitor_view import ATTENTION_CODES, DISPLAY_STATES, FAILURE_CODES, OUTCOMES, SCHEMA_VERSION, VERDICTS, WORKER_STATES
 from agent.service import main
 from agent.skills import load_skills
 
@@ -156,6 +156,9 @@ class PageTests(unittest.TestCase):
 
     def test_every_attention_code_has_a_label(self):
         self.assert_labelled("ATTENTION", ATTENTION_CODES)
+
+    def test_every_failure_code_has_a_label_and_handling_hint(self):
+        self.assert_labelled("FAILURE", FAILURE_CODES)
 
     def test_every_worker_state_has_a_label(self):
         # lease_expired and renewal_overdue are attention codes as well: only WORKER's own keys count here.

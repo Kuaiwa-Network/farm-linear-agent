@@ -16,6 +16,15 @@
     unresponsive: ["无响应", "bad"], stopped: ["已停止", "bad"], unknown: ["未知", "neutral"],
   };
   const SKILL = {fix: "修改", feature: "Code", fgui: "UI", chat: "对话"};
+  const FAILURE = {
+    worker_launch_failed: ["工作进程启动失败", "请联系管理员检查执行器 CLI 和启动环境；修复后在 Linear 回复「重试」。"],
+    worker_start_failed: ["工作进程在认领前退出", "请联系管理员检查执行器 CLI、登录状态和启动环境；修复后在 Linear 回复「重试」。"],
+    worker_claim_timeout: ["工作进程认领超时", "工作进程启动后未及时认领，请联系管理员检查启动日志，再在 Linear 回复「重试」。"],
+    worker_exit_failed: ["工作进程未完成即退出", "请查看 Linear 中的错误说明和保留的进度，处理后回复「重试」。"],
+    model_capacity_exhausted: ["模型容量重试已用尽", "工作已保留，可稍后在 Linear 回复「重试」。"],
+    skill_disabled: ["所需能力未启用", "请联系管理员确认本机启用能力，启用后在 Linear 回复「重试」。"],
+    job_failed: ["工作失败", "请查看 Linear 中的错误说明，处理后回复「重试」。"],
+  };
   const STATE = {
     queued: ["排队中", "neutral"], launching: ["正在启动", "info"], switching_repo: ["切换仓库", "info"],
     retry_wait: ["等待重试", "neutral"], running: ["处理中", "info"], awaiting_input: ["等待回复", "warn"],
@@ -61,6 +70,13 @@
     heartbeat_unreadable: () => "服务心跳文件无法读取",
     renewal_overdue: (a) => `${a.subject || "一项工作"} 的 worker 超过预期时间没有续约，可能卡住了`,
     worker_untracked: (a) => `${a.subject || "一项工作"} 显示处理中，但服务没有在管理对应的 worker 进程`,
+    worker_launch_failed: (a) => failureText(a.subject, a.code),
+    worker_start_failed: (a) => failureText(a.subject, a.code),
+    worker_claim_timeout: (a) => failureText(a.subject, a.code),
+    worker_exit_failed: (a) => failureText(a.subject, a.code),
+    model_capacity_exhausted: (a) => failureText(a.subject, a.code),
+    skill_disabled: (a) => failureText(a.subject, a.code),
+    job_failed: (a) => failureText(a.subject, a.code),
   };
 
   let doc = null;
@@ -211,6 +227,29 @@
     byId("attention-rows").replaceChildren(...rows);
   }
 
+  function failureText(subject, code) {
+    const [label, hint] = FAILURE[code] || FAILURE.job_failed;
+    return `${subject || "一项工作"}：${label}。${hint}`;
+  }
+
+  function capacityRows(service) {
+    const capacity = service.capacity;
+    if (!capacity) return [row("two", cell("label muted", "能力与容量"), cell("main muted", "此版本未提供"))];
+    const enabled = new Set(capacity.enabled_skills);
+    const names = new Set([...Object.keys(SKILL), ...enabled]);
+    const skills = el("div", "pills");
+    skills.append(...[...names].map((name) => pill(`${SKILL[name] || name}${enabled.has(name) ? " 已启用" : " 未启用"}`,
+                                                enabled.has(name) ? "info" : "neutral")));
+    const known = typeof capacity.workers_used === "number";
+    const full = known && capacity.workers_used >= capacity.max_workers;
+    const usage = `${known ? capacity.workers_used : "?"}/${capacity.max_workers}`;
+    return [row("two", cell("label muted", "本机能力"), cell("main", skills)),
+            row("two", cell("label muted", "worker 占用"),
+                cell("main", pill(`${usage}${full ? " · 已满载" : known ? "" : " · 状态未知"}`, full ? "warn" : "neutral"))),
+            row("two", cell("label muted", "Unity 容量"),
+                cell("main", `${capacity.unity_slots} 个槽位`, " · ", el("span", "muted", "与 worker 容量独立，占用详情见下方")))];
+  }
+
   // The later of a loop's recorded start and finish, or null when it recorded neither.
   function lastRecorded(loop) {
     const times = [loop.started_at, loop.finished_at].filter((t) => typeof t === "number");
@@ -241,7 +280,7 @@
 
   function renderService() {
     const service = doc.service;
-    const rows = [];
+    const rows = capacityRows(service);
     const health = service.health;
     const detail = health.ok ? `${health.latency_ms} ms` : health.error_type || (health.status ? `HTTP ${health.status}` : "");
     rows.push(row("two", cell("label muted", "接收器 /health"),
@@ -334,6 +373,10 @@
     target.replaceChildren(...work.recent.map((job) => {
       const [label, tone] = OUTCOME[job.outcome] || [job.outcome, "neutral"];
       const main = cell("main", el("div", "title", job.title || ""), el("div", "muted", SKILL[job.skill] || job.skill || ""));
+      if (job.failure_code) {
+        const [failure, hint] = FAILURE[job.failure_code] || FAILURE.job_failed;
+        main.append(el("div", "urgent", failure), el("div", "muted", hint));
+      }
       if (job.prs.length) main.append(prLinks(job.prs));
       const state = cell("state", pill(label, tone));
       if (job.retried) state.append(el("div", "muted", "已重试"));
