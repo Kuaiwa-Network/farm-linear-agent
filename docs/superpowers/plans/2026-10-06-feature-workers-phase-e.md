@@ -6068,6 +6068,30 @@ reservation cleanly, the pool parks the slot in `idle_open`, and client
 verification records `unity_failed`. Clean resource release describes checkout
 and process state, not test success. Stage F and the client PR remain pending.
 
+The next client commit, `aee52d2974eb925811a82fa91747345878c22ee9`, changes
+only two test files from that candidate. The guide fixture loads the committed
+Common/Guide UI packages and resets them during cleanup. The pause/resume
+assertion decodes every outgoing frame and requires each to be the existing
+heartbeat request, preserving rejection of any delayed guide observation.
+The generated-registry smoke assertion is updated to the verified full export
+count of 602. Production guide/network code remains unchanged by this correction.
+The full native .NET repeat retains **6,629 passed / zero failed / six not
+executed**, and all three assembly typechecks pass with zero errors in
+**9.628 s**, retaining warning counts **111 / 0 / 7**.
+
+Two subsequent exact-commit interactive reservations each complete **nine of
+nine** focused guide PlayMode cases and **13 of 13** selected EditMode cases,
+with **zero failures and skips**. The first focused runs take 0.338219 s and
+0.618519 s; their repeats take 0.309510 s and 0.171274 s. These results correct
+the selected candidate failures, but do not establish a full-suite pass.
+The saved full PlayMode progress receipt remains `running` after 21 progress
+records, with `stuck_suspected=true`, `editor_is_focused=false` and
+`blocked_reason=editor_unfocused`. Its discovery total of 5,334 is not a
+completed test count. No completed full result at this new commit is claimed;
+the earlier 53 failures and 29 skips remain retained without baseline
+attribution. Recovery uses the normal controller/CLI reservation path, without
+direct ledger repair, forced process cleanup or persistent app-setting changes.
+
 This remains an isolated development trial on the Windows production host.
 FarmBot source and development configuration remain unchanged. Remaining work
 is nonvisual client protocol/logic and verification, human game-repository
