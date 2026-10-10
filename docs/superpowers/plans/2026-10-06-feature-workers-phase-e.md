@@ -5895,3 +5895,68 @@ consumer generation/verification, game-repository reviews/merges, reporting
 dictionary alignment and client acceptance remain pending. The earlier complete
 CI results above are unchanged; this documentation/recovery record does not claim
 a new full-suite run against the replacement CLI.
+
+### Contract completion and native server handoff (2026-10-10; partial)
+
+After the operator updates only TestBot's temporary webhook, the recovered
+development receiver accepts actual signed session events. A read-only chat
+queues the original Code item's retry through the normal controller path;
+the original session, answers and checkpoint are retained. There is no direct
+ledger repair, copied runtime state or production restart. The subsequent
+foreign-work pause identifies this development session's own merged
+[documentation PR #230](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/230).
+The operator's standing authorization permits an explicit coordination reply:
+that PR is historical evidence, and the original implementation continues.
+This resolves the specific pause without disabling the foreign-work check or
+giving blanket authority over later foreign branches.
+
+Stage A publishes [Farm-Contract draft #337](https://github.com/Kuaiwa-Network/Farm-Contract/pull/337)
+at `4549d28fd0fe1b6dc865a1f0a942ea5cbd521f0e`, based on
+`5acea57119a82bf18b34603a9df071391c08abc5`, with tree
+`df79ef21be7cd9350f7f3297e8f475ef315fb03f`. The one-commit change contains nine
+files: the OpenSpec proposal/design/tasks/spec and metadata, project and README
+indices, `proto/guide.proto` and its manifest. The reviewed historical proposal
+is preserved; the new design and delta cite the final named answers and resolve
+its former open items. The delta specifies 14 records and 28 scenarios, retains
+the agreed action IDs 82–93, and adds two guide/step observation requests without
+Ack or gameplay side effects. Server and client implementation remain separate.
+
+All **12 native local Contract gates exit 0**, using buf **1.72.0** and OpenSpec
+**1.7.0**. Their retained UTF-8 receipts report zero breaking changes and waivers,
+62 manifest entries, coverage **452/452**, and all **56** active changes parsed.
+The guide protocol SHA-256 is
+`60e2f6d4d7d859cbfe04880a5426729c29c474a410a5a1a911ae8fc450ee1706`;
+the working file, manifest and published commit agree. The optional common
+drift comparison is **not run**. These gates do not establish reporting-system
+dictionary alignment, service behavior or client acceptance.
+
+The [Contract Actions run](https://github.com/Kuaiwa-Network/Farm-Contract/actions/runs/38035380232)
+rejects all 28 jobs before execution because account Actions availability is
+blocked. This is **CI not run**, not a measured application failure or a pass.
+At 15:55 UTC+8 the operator explicitly defers that external issue and directs
+local development to continue. The original TestBot session receives this
+steering through a signed event; checks, provenance rules, review/merge authority
+and release prerequisites remain unchanged. No workflow, billing or credential
+settings are modified.
+
+The controller hands the same item to a fresh **farm-hive-rooted** worker
+(attempt 7). Stage B/C are skipped because the existing `GuideInfo.steps` and
+`GuideStepInfo.stepID` definitions already export the required fields; the
+existing designer pin is retained. Stage E is skipped under the operator's
+explicit no-new-UI scope. Stage D begins and stage F remains pending. Native
+protocol and registry generation produce a guide snapshot matching the reviewed
+Contract bytes, with source
+`4549d28fd0fe1b6dc865a1f0a942ea5cbd521f0e-unreachable`, correctly recording its
+unmerged provenance. At the 15:54 UTC+8 observation, the previous worker Job is
+empty; the current gate is a
+member of its recorded native Job, and fresh serving heartbeats report zero
+controller-loop errors. No completed server tests or server PR are claimed at
+this observation.
+
+This remains an isolated development trial on the Windows production host.
+FarmBot source and development configuration remain unchanged. Remaining work
+is server implementation and local gates, nonvisual client protocol/logic and
+verification, human game-repository reviews/merges, both consumers' final sync
+from the same verified Contract main SHA, action-dictionary/actual receiver
+acceptance, client smoke acceptance and deferred CI. No production feature
+enablement, deployment or readiness certificate follows from these measurements.
