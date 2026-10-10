@@ -6092,6 +6092,20 @@ the earlier 53 failures and 29 skips remain retained without baseline
 attribution. Recovery uses the normal controller/CLI reservation path, without
 direct ledger repair, forced process cleanup or persistent app-setting changes.
 
+The controller subsequently exhausts its two automatic execution retries and
+records `verification-infrastructure-failed`: Unity inspection was continuously
+unavailable for 180 seconds. The latest retained watchdog and repair-attempt
+receipts contain `ValueError: Unity observation failed`; they do not establish
+an application regression or prove that focus caused this later failure.
+All four reservations are released, the latest worker Job is empty, and the
+development slot returns to `idle_open`. The serving controller reports zero
+loop errors. A read-only diagnostic session selects the exact recorded slot
+instance and successfully reads its project metadata and zero console errors
+after recovery. Its cached Editor status is stale, so that response is not full
+readiness evidence. The operator is asked to inspect the owned `slot-1` window
+before another retry. No manual Editor operation, controller restart or direct
+resource/state repair is performed. Client publication and closing stay pending.
+
 This remains an isolated development trial on the Windows production host.
 FarmBot source and development configuration remain unchanged. Remaining work
 is nonvisual client protocol/logic and verification, human game-repository
