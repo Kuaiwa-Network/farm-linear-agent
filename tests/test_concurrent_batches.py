@@ -34,7 +34,7 @@ class ConcurrentBatchTests(SlotFixture):
             self.opened.append(ledger)
             return ledger
 
-        entries = [slot_entry({**self.entry, "id": f"unity_slot:{n}"}) for n in (1, 2)]
+        entries = kwargs.pop("entries", [slot_entry({**self.entry, "id": f"unity_slot:{n}"}) for n in (1, 2)])
         kwargs.setdefault("editor_pid", lambda folder: None)
         pool = SlotPool(factory, self.trees, entries, host="test", editors_root=self.root / "editors",
                         clock=lambda: self.now, sleep=self.advance, mcp=FakeMcp(),
@@ -234,3 +234,11 @@ class ConcurrentBatchTests(SlotFixture):
         with self.assertRaisesRegex(ValueError, "connection factory"):
             SlotPool(self.ledger, self.trees, [self.entry], host="test", editors_root=self.root,
                      concurrent_batches=True)
+
+    def test_one_slot_keeps_synchronous_hand_over_without_an_execution_thread(self):
+        item = self.waiting(ISSUE, self.commit("single-fix"))
+        pool = self.batch_pool(FakeUnity(total=1, passed=1), entries=[self.entry])
+        self.assertEqual(pool.tick()["granted"], 1)
+        self.assertEqual(self.ledger.item(item)["state"], "queued")
+        self.assertEqual(pool._batches, {})
+        self.assertEqual(len(self.opened), 1)
