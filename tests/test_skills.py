@@ -561,6 +561,22 @@ class FeatureInstructionTests(unittest.TestCase):
             "Fetch only links found in the card's description, its human comments and this job's session messages",
             "never draft from a paraphrase", "Never guess what the document says"))
 
+    def test_spreadsheet_designs_require_complete_native_bot_reads_at_one_revision(self):
+        self.assert_phrases((
+            "lark-cli --profile PROFILE sheets +workbook-info --as bot",
+            "lark-cli --profile PROFILE sheets +cells-get --as bot",
+            "For `sheet`, use the resolved object token as `SHEET_TOKEN`, never the wiki node token",
+            "Read every tab, including hidden and empty tabs",
+            "Never stop at the first empty row",
+            "Check top-level `has_more` and each range's `truncated`, `actual_range`, `row_indices` and `col_indices`",
+            "Every cell response's revision must match the saved workbook revision",
+            "Fetch `+workbook-info` again after the reads",
+            "revision and tab identities/dimensions to be unchanged",
+            "never treat a successful exit or a partial response as a complete design",
+            "No spreadsheet writes, exports, searches, imports, scripts or permission changes are granted",
+            "Never introduce Bash or WSL",
+            "Use the same five read commands above with `--as bot`"))
+
     def test_rulings_come_only_from_named_authors_and_never_by_default(self):
         self.assert_phrases((
             "`[DECIDED:<Linear user name>@<date>]`", "`author.name`", "not the `displayName` handle",
