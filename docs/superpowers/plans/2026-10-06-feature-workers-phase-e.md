@@ -6003,6 +6003,71 @@ weakened check is used to obtain a pass. Stage D is recorded done for draft
 implementation delivery; its native Job empties and the controller queues the
 client handoff. Client stage F and closing remain pending.
 
+The client handoff starts attempt 8 under a fresh native Job Object. Its initial
+native network exporter exits 0 with explicit expected Contract main commit
+`f648bd6c6dead0056f64eed58034e86a977f4909`. The guide implementation captures
+the configured step ID before handlers or skip cleanup, sends one-way
+observations without owning the gameplay request slot, and drops observations
+when paused, unauthenticated, disconnected or waiting for reauthentication.
+The original Finish/Skip request ordering and authoritative progress remain.
+No FairyGUI or new UI work is introduced.
+
+During client preparation, [Contract main advances](https://github.com/Kuaiwa-Network/Farm-Contract/commit/74e281ff0ac22e570bd902eccd041d0e1df7b94b)
+to `74e281ff0ac22e570bd902eccd041d0e1df7b94b`, with tree
+`7f7ce9cf12f8e36bbf9981df880333ce9eae93de` and first parent
+`f648bd6c6dead0056f64eed58034e86a977f4909`. Fresh GitHub reads verify that
+provenance. The unrelated permanent-state protocol addition does not alter
+`guide.proto`. The client repeats full native generation at this newer input,
+including `SpiritCollection.pb.cs`, its metadata and the registry addition.
+The server draft still names the earlier merged input; both consumers' final
+sync to the same verified Contract main remains required. The original signed
+session receives this explicit provenance reminder without a new business
+ruling or work on the upstream issue.
+
+After selecting the worktree source root and hydrating the committed text/LFS
+inputs, the repeated full native .NET unit command exits 0. Its TRX records
+**6,635 total**, **6,629 passed**, **zero failed/errors** and **six not executed**,
+with an execution interval of **23.745 s**. All 11 new observation-rule and
+wiring cases pass. The six retained skips are `TimeoutKillsEntireUnixProcessTree`,
+`RunDrainsBothFullPipesAndBoundsOutput`,
+`TimeoutBoundsPartialOutputOfChattyProcess`,
+`RunPropagatesExplicitEnvironmentOverride` and
+`RunPreservesLinuxExecutablePathToken` (each reports `Not supported on Win`),
+and `ValidateRealCommonArtifactWhenProvided` (`FARM_CONFIG_ARTIFACT_ROOT` was
+not provided). The earlier source-root/input failures are retained in private
+logs; no application check is weakened or skip added to obtain this result.
+Full native typechecking of `HotUpdate`, `HotUpdate.Tests` and
+`HotUpdate.PlayTests` also exits 0 in **9.864 s**, with zero errors and warning
+counts **111 / 0 / 7**. Its receipts confirm reference and source inputs unchanged
+during the check and no Unity start. These measurements cover the evolving
+client working tree; the committed-candidate Unity reservation and runtime
+tests remain pending.
+
+The client commits its 14 intended files at
+`c86570be91bd93c5f4df56c298d3ddb697eb3229`, based on
+`66a177e6c5efcb56559e5bab2798c83c38faf019`. Its source-guard comparison makes
+all four new wiring guards fail against the old source and pass against the
+candidate. The committed candidate repeats the full .NET checks successfully
+with the same counts/skips in a **22.486 s** TRX execution interval; all three
+assembly typechecks pass in **10.374 s**.
+The normal CLI accepts the clean, exact commit for an **interactive** Unity
+reservation. Attempt 8's native Job empties, and the controller binds a fresh
+attempt 9 to that reservation and commit. Runtime tests and a client PR remain
+pending; reserving the Editor does not establish their success.
+
+Attempt 9's actual full Unity PlayMode run records **1,270 total**, **1,188
+passed**, **53 failed** and **29 skipped** in **146.777 s**. A focused run of the
+nine new guide cases records **seven passed / two failed / zero skipped**;
+the 13-case EditMode selection records **12 passed / one failed**. Retained
+results include a guide pause/cleanup packet-count assertion, an uninitialized
+YooAsset fixture error and an old generated-registry count expecting 562 while
+the full export contains 602. These require investigation and verification of
+any correction; neither compilation nor the .NET passes make Unity green.
+Every runtime result and skip is retained privately. The worker releases the
+reservation cleanly, the pool parks the slot in `idle_open`, and client
+verification records `unity_failed`. Clean resource release describes checkout
+and process state, not test success. Stage F and the client PR remain pending.
+
 This remains an isolated development trial on the Windows production host.
 FarmBot source and development configuration remain unchanged. Remaining work
 is nonvisual client protocol/logic and verification, human game-repository
