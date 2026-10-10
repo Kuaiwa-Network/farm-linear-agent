@@ -5829,3 +5829,69 @@ These measurements establish original-document intake and native execution for
 this selected trial. They do not establish completed telemetry implementation,
 game-client acceptance or production feature enablement. The production bot
 continues running chat/fix; this trial authorizes no deployment.
+
+### FARM-1461 answers and interrupted-runtime recovery (2026-10-10; partial)
+
+The next contained worker reads all three tabs and 12,000 declared cells again,
+with stable metadata and cell responses at revision **134**. The new action list
+now agrees with the creator's
+[named answer](https://linear.app/kuaiwagames/issue/FARM-1461#comment-0574eccc):
+**82–93**, in the original new-action order, preserving every existing ID.
+The earlier operator-side 85–96 proposal is superseded; it is not a ruling.
+The updated workbook metadata also reports one floating image that the authorized
+read commands cannot retrieve. The operator's subsequent
+[named answer](https://linear.app/kuaiwagames/issue/FARM-1461#comment-bae44124)
+selects Q12 A: the text cells contain the complete requirements for this batch,
+and the image adds no rules. This resolves the content gap without claiming an
+image read or broadening document authority.
+
+That same answer confirms Q5 A, the Q10 supplement A and the specific proposed
+revision of `proposal.md`. Gifts retain their distinct business objects; crafting
+counts actual output, and flower-garden gifts record the accepted frozen crop
+items at successful send acceptance. New guide observations validate configured
+guide/step identities, allow valid Skip observations after Finish, and diagnose
+missing/undefined steps without inventing a step or changing old-client gameplay.
+Earlier named answers remain the sources for the other questions. No answer is
+inferred from a generic request to continue.
+
+The resulting resume starts an attempt at 14:39 UTC+8, but the development
+controller, its worker and the temporary proxy disappear before the worker
+claims the item. The retained heartbeat ends at 14:40:05; no completion message
+or explanatory controller error is recorded. Their termination cause is not
+established. The old pinned native Codex executable is subsequently found missing
+from its app-version directory. The active desktop package is now
+**26.1007.2314.0**, supplying signed native **Codex 0.162.0-alpha.17.2**.
+This explains the failed restart integrity check, not the process terminations.
+
+A replacement CLI is verified without installation or credential setup. Its
+SHA-256 is `d13914ced6c7af174d8d638db938284231227312104b06a25e9608c632a7daec`.
+One contained, model-only probe keeps **gpt-6.1-sol / xhigh**, returns the expected
+response with exit 0 in **14.284 seconds**, verifies native Job Object membership
+and final quiescence, and leaves its empty work directory unchanged. Native
+PowerShell and the configured unelevated runtime remain in use.
+
+The read-only interrupted-instance fence verifies all **60** recorded development
+worker Jobs empty, all recorded controller/worker processes gone, no other active
+work items, and zero pending events, reservations, recoveries or cleanup. Clone
+trust checks and clean idle-slot source checks pass. Separate recovery selectors
+retain the original logs and receipts, the exact tested source
+`c93cb7d038beb52c1cd020539d73f82581c84112` and unchanged development configuration.
+Doctor reports no missing feature/UI tools and ready native export tooling;
+historical job findings and the interrupted worker finding remain separate from
+these tool results.
+
+The development service is recovered with no process termination or direct ledger
+repair. Its normal controller path marks the unclaimed interrupted attempt
+failed; the answers remain in Linear and the saved checkpoint. Fresh serving
+heartbeats have zero loop errors. The replacement temporary proxy passes local
+and public HTTP health checks, and its URL is retained only in a private file.
+The operator must update only TestBot's webhook before a normal signed retry;
+neither app settings nor production configuration/state are changed here.
+
+This is recovery of the isolated development TestBot on the Windows production
+host, not a production upgrade or readiness certificate. HTTP health does not
+prove webhook delivery or implementation. Stage A, the actual telemetry changes,
+consumer generation/verification, game-repository reviews/merges, reporting
+dictionary alignment and client acceptance remain pending. The earlier complete
+CI results above are unchanged; this documentation/recovery record does not claim
+a new full-suite run against the replacement CLI.
