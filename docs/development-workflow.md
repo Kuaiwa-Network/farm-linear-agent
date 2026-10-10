@@ -382,11 +382,19 @@ Only Codex `feature` and `fgui` workers receive the configured ID and secret as 
 from every worker, Unity run, Editor launch and diagnostic child, even after environment overrides.
 Other workers retain no lark credential; user/tenant access tokens, proxy keys and config-directory
 overrides are still withheld. Code/UI launches remove the auth-proxy override too. Worker prompts
-contain only `tools.lark_cli: {"authentication": "environment"}` and authorize the same three reads,
+contain only `tools.lark_cli: {"authentication": "environment"}` and authorize the skill's scoped reads
+(`feature` also allows `sheets +workbook-info` and `sheets +cells-get` for a linked spreadsheet),
 with `--as bot` and without `--profile` or `HOME`. Missing credentials are an unavailable tool;
 there is no fallback to a profile. Secret values never enter the generated Codex config or process
 record, and shell snapshots are disabled. Every command in the authorized document-reading worker can read
 the bot secret, so the app's actual Feishu permissions remain a release check.
+
+A Code card may link a Feishu spreadsheet as its design. The existing document-reader app needs
+the read-only `sheets:spreadsheet:read` scope and access to that spreadsheet. Applying a scope and
+publishing the app's permission update are operator work, separate from the bot's deployment.
+The Code worker reads all tabs at one verified revision through the two scoped read commands;
+it cannot search Feishu, write cells or change permissions. A screenshot of a document title alone
+is not a link: an operator must supply the resolved link in the card or its conversation before intake.
 
 `doctor` checks the source's presence in its own process and lark-cli's version, without passing the
 secret to probes or reading the profile store in this mode. This establishes neither live Feishu
