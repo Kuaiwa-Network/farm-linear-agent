@@ -378,6 +378,85 @@ class RecoveryTests(LedgerBase):
         self.assertEqual(self.ledger.item(item)['state'], 'failed')
         self.assertIn('infrastructure', self.store().notifications()[0]['body'])
 
+    def exhausted_setup(self, *, fail_job=True):
+        item, _, reservation = self.running_with_slot()
+        self.ledger.hold(reservation['reservation_id'], 'Editor did not connect before deadline', recovery_kind='setup')
+        record = self.begin()
+        self.store().detach(record['id'], record['attempts'])
+        for index in range(3):
+            record = record if index == 0 else self.store().begin(record['id'])
+            self.store().failed(record['id'], record['attempts'], 'startup deadline expired')
+            self.now += 601
+        if fail_job:
+            self.store().fail_unserviceable('test')
+        return item, self.store().get(record['id'])
+
+    def late_controller(self, revalidate):
+        from agent.resource_recovery import RecoveryController
+        def forbidden(record):
+            self.fail('late connection checks must not stop, restart or detach again')
+        return RecoveryController(self.ledger, None, host='test', inspect=forbidden,
+                                  fence=forbidden, repair=forbidden, revalidate=revalidate,
+                                  evidence_root=self.path.parent / 'recovery')
+
+    def test_late_connection_restores_slot_without_reviving_failed_work(self):
+        item, record = self.exhausted_setup()
+        controller = self.late_controller(lambda r: (r['commit_sha'], 'late-instance'))
+        self.assertEqual(controller.tick()['repaired'], 1)
+        self.assertEqual(self.ledger.slot(record['slot_id'])['state'], 'idle_open')
+        self.assertEqual(self.store().get(record['id'])['state'], 'recovered')
+        self.assertEqual(self.store().get(record['id'])['attempts'], 3)
+        self.assertEqual(self.ledger.item(item)['state'], 'failed')
+        self.assertEqual(self.ledger.reservations(states=('active', 'queued')), [])
+        self.assertTrue((self.path.parent / 'recovery' / record['id'] / 'late-start-validated.json').exists())
+
+    def test_late_connection_does_not_resume_work_cancelled_during_recovery(self):
+        item, record = self.exhausted_setup(fail_job=False)
+        self.ledger.cancel(item, 'operator stop')
+        controller = self.late_controller(lambda r: (r['commit_sha'], 'late-instance'))
+        self.assertEqual(controller.tick()['repaired'], 1)
+        self.assertEqual(self.ledger.item(item)['state'], 'cancelled')
+        self.assertEqual(self.ledger.reservations(states=('active', 'queued')), [])
+
+    def test_unready_late_editor_keeps_original_cause_and_rechecks_at_most_once_per_minute(self):
+        _, record = self.exhausted_setup()
+        calls = []
+        def unready(r):
+            calls.append(r['id'])
+            raise RuntimeError('still importing')
+        controller = self.late_controller(unready)
+        self.assertEqual(controller.tick()['repaired'], 0)
+        self.assertEqual(controller.tick()['repaired'], 0)
+        self.now += 59
+        controller.tick()
+        self.assertEqual(calls, [record['id']])
+        self.now += 1
+        controller.tick()
+        self.assertEqual(calls, [record['id'], record['id']])
+        current = self.store().get(record['id'])
+        self.assertEqual((current['state'], current['attempts'], current['error']),
+                         ('exhausted', 3, 'startup deadline expired'))
+
+    def test_execution_exhaustion_and_superseded_setup_recovery_are_not_revalidated(self):
+        _, record = self.exhausted_setup()
+        self.ledger.connection.execute("UPDATE resource_recoveries SET recovery_kind='execution' WHERE id=?", (record['id'],))
+        controller = self.late_controller(lambda r: self.fail('execution exhaustion is not a late startup'))
+        self.assertEqual(controller.tick()['repaired'], 0)
+        self.ledger.connection.execute("UPDATE resource_recoveries SET recovery_kind='setup' WHERE id=?", (record['id'],))
+        self.store().adopt(record['slot_id'], 'new recovery')
+        self.assertEqual(self.store().late_candidates('test'), [])
+
+    def test_late_connection_check_is_fenced_by_the_physical_recovery_lock(self):
+        _, record = self.exhausted_setup()
+        other = self.late_controller(lambda r: self.fail('overlapping validation'))
+        def validate(r):
+            self.now += 901
+            self.assertEqual(other.tick()['repaired'], 0)
+            return r['commit_sha'], 'late-instance'
+        controller = self.late_controller(validate)
+        self.assertEqual(controller.tick()['repaired'], 1)
+        self.assertEqual(self.store().get(record['id'])['state'], 'recovered')
+
     def test_repair_keeps_other_slot_schedulable(self):
         item, _, r = self.running_with_slot()
         self.ledger.hold(r['reservation_id'], 'stalled')

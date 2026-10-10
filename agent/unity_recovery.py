@@ -30,6 +30,39 @@ class UnityRecovery:
         verified, _ = self._slot(slot['slot_id'])
         return self.pool.mcp.recovery_snapshot(verified)
 
+    def revalidate(self, recovery):
+        """Certify a late-started Editor without restarting or modifying it."""
+        pool = self.pool
+        slot, entry = self._slot(recovery['slot_id'])
+        if slot['state'] != 'held' or pool.ledger.active_reservation_on(slot['slot_id']):
+            raise SlotError('late Editor validation requires an isolated held slot', stage='probe')
+        folder = Path(slot['folder'])
+        pool.worktrees.worktree_entry(entry['repo'], folder)
+        before = source_snapshot(folder)
+        commit = recovery.get('commit_sha')
+        if not commit or before['commit_sha'] != commit or before['dirty']:
+            raise SlotError('late Editor source must be clean at the recovery commit', stage='git')
+        if not pool.editor_is_open(slot):
+            raise SlotError('late Editor is not idle on the configured project', stage='editor')
+        # A timed-out first start never saved slots.instance. Discover the live
+        # project and pin this observation without changing the ledger yet.
+        instance = pool.mcp.discover_instance(slot)
+        if not instance:
+            raise SlotError('late Editor has no connected project instance', stage='probe')
+        slot = {**slot, 'instance': instance}
+        if not pool.mcp.quiescent(slot, 'interactive'):
+            raise SlotError('late Editor is not idle on the configured project', stage='editor')
+        errors = pool.mcp.console_errors_since(slot, commit)
+        if errors:
+            raise SlotError(f'late Editor has compilation/console errors: {errors[0]}', stage='compile')
+        result = pool.mcp.probe(slot, {'repository': str(folder), 'commit_sha': commit,
+                                     'build_target': entry.get('build_target')})
+        if result.get('aggregate') != 'match' or source_snapshot(folder) != before:
+            raise SlotError('late Editor identity did not match', stage='probe')
+        if (result.get('editor') or {}).get('instance') != instance:
+            raise SlotError('late Editor identity has no matching verified instance', stage='probe')
+        return commit, instance
+
     def repair(self, recovery):
         pool = self.pool
         slot, entry = self._slot(recovery['slot_id'])
