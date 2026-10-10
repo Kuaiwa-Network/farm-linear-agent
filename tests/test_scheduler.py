@@ -866,6 +866,18 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(len(self.launcher.spawned), 1)
         self.assertEqual([row["issue_id"] for row in self.ledger.queue()], [OTHER])
 
+    def test_ten_worker_limit_launches_ten_and_keeps_the_eleventh_queued(self):
+        self.scheduler.max_concurrent = 10
+        for n in range(11):
+            self.now += 1
+            self.item(issue_id=f"00000000-0000-4000-8000-{n + 1:012d}",
+                      session=f"session-{n}", identifier=f"FARM-{n + 1}")
+        self.assertEqual(self.scheduler.tick()["launched"], 10)
+        self.assertEqual(len(self.scheduler.active), 10)
+        self.assertEqual(len(self.launcher.spawned), 10)
+        self.assertEqual(len(self.ledger.queue()), 1)
+        self.assertEqual(self.scheduler.tick()["launched"], 0)
+
     def test_a_loaded_skill_this_host_does_not_enable_fails_with_a_session_error(self):
         self.scheduler.enabled_skills = {"chat"}
         item = self.item()

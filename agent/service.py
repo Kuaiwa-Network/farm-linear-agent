@@ -90,9 +90,10 @@ def build(config, runtime_override=None):
     pool = SlotPool(lambda: Ledger(paths.ledger, check_same_thread=False),
                     worktrees, entries, host=config.host,
                     editors_root=paths.editors, state_dir=launcher.state_dir,
-                    # The one process FarmBot starts outside the worker seatbelt, and the pool is what
-                    # composes its argv: Unity cannot run inside sandbox_workspace_write at all.
+                    # The pool composes each Unity argv outside the worker seatbelt;
+                    # independent reserved slots may execute their batches together.
                     run_unsandboxed=launcher.run_unsandboxed,
+                    concurrent_batches=True,
                     mcp=UnityIdentity(ROOT / "agent" / "probes" / "editor-readiness.cs.txt",
                                       token_env=token_env, secret_env=config.lark_cli.get("secret_env")))
     progress = SessionProgress(Ledger(paths.ledger, check_same_thread=False), api)
@@ -339,6 +340,12 @@ def _serve(components):
                     # Keep the root lock and DB connections until all controller
                     # mutations have stopped, even when an operation drains slowly.
                     thread.join()
+            # Batch executions have separate connections and outlive a pool tick.
+            # Drain them while the root lock and serving heartbeat still belong to
+            # this controller, after the launcher has fenced all further spawns.
+            drain_batches = getattr(components.pool, "drain_batches", None)
+            if drain_batches is not None:
+                drain_batches()
             beat_stop.set()
             if beat_thread.ident is not None:
                 beat_thread.join()

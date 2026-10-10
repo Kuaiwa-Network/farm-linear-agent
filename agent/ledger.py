@@ -1675,7 +1675,7 @@ class Ledger:
                         "commit_sha": selected_commit, "baseline_commit": target["commit_sha"]})
             return self._view(self._row(row["id"]))
 
-    def acquire(self, kind, *, owner, host):
+    def acquire(self, kind, *, owner, host, exclude_resources=()):
         """Grant the oldest queued request of this kind a free slot. FIFO by arrival, never by item priority.
 
         There is deliberately no kind-wide "is anything active?" pre-check. It would read as an optimisation
@@ -1696,7 +1696,8 @@ class Ledger:
                 return None
             # Spec §7 scheduling preference: interactive wants an Editor already open, batch wants none.
             order = ("idle_open", "idle_closed") if row["mode"] == "interactive" else ("idle_closed", "idle_open")
-            free = [s for s in self.slots(kind=kind, host=host) if s["state"] in self.FREE_SLOT_STATES]
+            free = [s for s in self.slots(kind=kind, host=host)
+                    if s["state"] in self.FREE_SLOT_STATES and s["slot_id"] not in exclude_resources]
             free.sort(key=lambda s: (order.index(s["state"]), s["slot_id"]))
             if not free:
                 return None

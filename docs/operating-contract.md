@@ -1651,9 +1651,15 @@ refuses to prepare new ones.
 ## Resource execution limits
 
 - Each configured host owns its Unity slots. Items that need Unity queue for a free slot;
-  a worker holds at most one slot and releases
-  it after its own quiescence check with `release-resource --outcome quiescent`, or `--outcome unclean` to
-  hand it to controller recovery. **A worker never starts a Unity process**: the Editor does not work inside a
+  a worker holds at most one slot and releases it after its own quiescence check with
+  `release-resource --outcome quiescent`, or `--outcome unclean` to hand it to controller recovery.
+  batch tests can execute concurrently in different reserved slots, up to the configured slot count.
+  The controller serializes slot preparation, hand-over and parking, gives each executing batch its
+  own ledger connection, and keeps its slot reserved until execution and evidence writing finish.
+  Stop targets the selected job's owned process. Service shutdown fences new launches and joins
+  batch executions before closing state or releasing its controller lock; uncertain quiescence holds
+  the affected slot for recovery.
+  **A worker never starts a Unity process**: the Editor does not work inside a
   worker's sandbox, so FarmBot performs a batch run itself, outside that sandbox, between the request and
   the worker that reads its results — one grant is one run. A failing probe, and an unclean release, hold
   the slot until controller repair verifies it healthy. No slot is ever released on a timer. A slot runs Edit Mode
@@ -1676,7 +1682,8 @@ refuses to prepare new ones.
 - Delegate from the Linear UI. Setting the delegate through the API creates no agent session: on a card
   FarmBot never observed nothing happens, and on a card it tracks the delegation is settled as one Linear
   opened no session for (Triggers), including automatic session creation when no thread can take it.
-- Two concurrent workers (`max_concurrent`). At most one of them runs an attempt of an exclusive skill,
+- Two concurrent workers by default (`max_concurrent`), configurable independently of Unity slots.
+  Increasing worker capacity does not increase Unity capacity. At most one worker runs an attempt of an exclusive skill,
   one whose `skill.json` sets `"exclusive": true` (spec §5.8, D16; `feature` sets it):
   while one runs, including an attempt that is being retired for a repository handoff, a queued item of
   any exclusive skill waits in its place in the queue, and `fix` and chat items still launch up to
