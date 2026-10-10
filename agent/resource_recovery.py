@@ -160,6 +160,34 @@ class RecoveryStore:
                             (now + 900, now, recovery_id))
             return self.get(recovery_id)
 
+    def late_candidates(self, host):
+        """Only the latest detached setup failure may certify a late connection."""
+        now = self.ledger.clock()
+        return [dict(r) for r in self.db.execute("""SELECT r.* FROM resource_recoveries r
+            JOIN slots s ON s.slot_id=r.slot_id
+            WHERE r.host=? AND r.state='exhausted' AND r.recovery_kind='setup'
+              AND r.detached=1 AND r.due_at<=? AND r.lease_until<=? AND s.state='held'
+              AND r.id=(SELECT id FROM resource_recoveries WHERE slot_id=r.slot_id
+                        ORDER BY created_at DESC,rowid DESC LIMIT 1)
+            ORDER BY r.created_at,r.id""", (host, now, now))]
+
+    def begin_revalidation(self, recovery_id, host):
+        with self.ledger._transaction():
+            r = next((r for r in self.late_candidates(host) if r['id'] == recovery_id), None)
+            if r is None or self.ledger.active_reservation_on(r['slot_id']) is not None:
+                return None
+            # This is inspection, not another Editor repair. Retain the repair
+            # count and use the existing lease plus physical lock to fence it.
+            self.db.execute("UPDATE resource_recoveries SET state='repairing',lease_until=?,updated_at=? WHERE id=?",
+                            (self.ledger.clock() + 900, self.ledger.clock(), recovery_id))
+            return self.get(recovery_id)
+
+    def failed_revalidation(self, recovery_id, attempt):
+        with self.ledger._transaction():
+            self._attempt(recovery_id, attempt)
+            self.db.execute("UPDATE resource_recoveries SET state='exhausted',lease_until=0,due_at=?,updated_at=? WHERE id=?",
+                            (self.ledger.clock() + 60, self.ledger.clock(), recovery_id))
+
     def job_attempts(self, item_id, *, recovery_kind='execution'):
         if recovery_kind not in ('execution', 'setup'):
             raise ValueError('unknown resource recovery kind')
@@ -250,8 +278,8 @@ class RecoveryStore:
                                {'recovery_id': recovery_id, 'commit_sha': commit, 'evidence': evidence})
 
     def _exhaust(self, r, error):
-        self.db.execute("UPDATE resource_recoveries SET state='exhausted',lease_until=0,error=?,updated_at=? WHERE id=?",
-                        (error[:1000], self.ledger.clock(), r['id']))
+        self.db.execute("UPDATE resource_recoveries SET state='exhausted',lease_until=0,due_at=?,error=?,updated_at=? WHERE id=?",
+                        (self.ledger.clock() + 60, error[:1000], self.ledger.clock(), r['id']))
         if r['item_id'] and r['resume_job'] and not r['detached']:
             self._fail_job(r['item_id'], 'Unity infrastructure recovery failed: ' + error[:300])
 
@@ -293,17 +321,19 @@ class RecoveryStore:
 
 class RecoveryController:
     """Run on its own service thread/connection, independently of slot grants."""
-    def __init__(self, ledger, pool, *, host, evidence_root, fence, inspect=None, repair=None, api=None):
+    def __init__(self, ledger, pool, *, host, evidence_root, fence, inspect=None, repair=None, revalidate=None, api=None):
         self.ledger, self.pool, self.host = ledger, pool, host
         self.store = RecoveryStore(ledger)
         self.evidence_root = Path(evidence_root)
         self.fence, self.api = fence, api
-        if inspect is None or repair is None:
+        if inspect is None or repair is None or (revalidate is None and pool is not None):
             from .unity_recovery import UnityRecovery
             self.editor = UnityRecovery(pool)
             inspect = inspect or self.editor.inspect
             repair = repair or self.editor.repair
+            revalidate = revalidate or self.editor.revalidate
         self.inspect, self.repair = inspect, repair
+        self.revalidate = revalidate
 
     def _save(self, recovery, name, value):
         path = self.evidence_root / recovery['id'] / name
@@ -396,9 +426,29 @@ class RecoveryController:
                 if not acquired:
                     continue
                 repaired += self._repair(pending['id'])
+        if self.revalidate is not None:
+            for candidate in self.store.late_candidates(self.host):
+                with repair_lock(self.evidence_root / candidate['id'] / '.lock') as acquired:
+                    if acquired:
+                        repaired += self._revalidate(candidate['id'])
         self.store.fail_unserviceable(self.host)
         self.report()
         return {'repaired': repaired}
+
+    def _revalidate(self, recovery_id):
+        recovery = self.store.begin_revalidation(recovery_id, self.host)
+        if recovery is None:
+            return 0
+        try:
+            commit, instance = self.revalidate(recovery)
+            self._save(recovery, 'late-start-validated.json', {'commit_sha': commit, 'instance': instance})
+            self.store.complete(recovery_id, recovery['attempts'], commit, instance)
+            return 1
+        except Exception:
+            # Keep the original exhaustion cause and do not retry destructive
+            # repair, consume job budgets, or revive a terminal/cancelled job.
+            self.store.failed_revalidation(recovery_id, recovery['attempts'])
+            return 0
 
     def _repair(self, recovery_id):
         from .unity_recovery import SourceMetaReconciled

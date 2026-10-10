@@ -117,6 +117,86 @@ class EditorRecoveryTests(SlotFixture):
         manifest = json.loads((evidence / 'source-meta.json').read_text(encoding='utf-8'))
         self.assertEqual(manifest['tracked_ref'], caught.exception.evidence['tracked_ref'])
 
+    def test_large_metadata_rewrite_is_archived_and_restored_with_literal_unicode_paths(self):
+        from agent.unity_recovery import SourceMetaReconciled
+        relative_root = Path('Assets') / '资源 图集 [test]'
+        (self.origin / relative_root).mkdir(parents=True)
+        paths = [relative_root / f'texture {index:04d}.png.meta' for index in range(1832)]
+        for relative in paths:
+            (self.origin / relative).write_text('textureCompression: 1\n', encoding='utf-8')
+        git('add', '.', cwd=self.origin)
+        git('commit', '-qm', 'large atlas', cwd=self.origin)
+        adapter, pool, mcp, record = self.setup_repair()
+        slot_path = pool.folder(self.entry)
+        for relative in paths:
+            (slot_path / relative).write_text('textureCompression: 0\n', encoding='utf-8')
+        evidence = self.root / 'resource recovery' / 'large'
+        with self.assertRaises(SourceMetaReconciled) as caught:
+            adapter.repair(dict(record, id='large', evidence_dir=str(evidence)))
+        self.assertEqual(source_snapshot(slot_path)['dirty'], [])
+        self.assertFalse(mcp.open_folders)
+        manifest = json.loads((evidence / 'source-meta.json').read_text(encoding='utf-8'))
+        self.assertEqual(len(manifest['changes']), 1832)
+        saved = subprocess.run(['git', 'show', f"{caught.exception.evidence['tracked_ref']}:{paths[-1].as_posix()}"],
+                               cwd=slot_path, capture_output=True, text=True, check=True).stdout
+        self.assertEqual(saved, 'textureCompression: 0\n')
+        self.assertEqual((slot_path / paths[-1]).read_text(encoding='utf-8'), 'textureCompression: 1\n')
+
+    def late_editor(self):
+        mcp = FakeMcp()
+        adapter, pool, _, record = self.setup_repair(mcp)
+        def discover(slot):
+            mcp.calls.append(('discover', slot['slot_id']))
+            return mcp.instance
+        mcp.discover_instance = discover
+        probe = mcp.probe
+        def pinned_probe(slot, target):
+            self.assertEqual(slot['instance'], mcp.instance)
+            return {**probe(slot, target), 'editor': {'instance': slot['instance']}}
+        mcp.probe = pinned_probe
+        return adapter, pool, mcp, record
+
+    def test_late_editor_is_revalidated_without_start_stop_refresh_or_source_changes(self):
+        adapter, pool, mcp, record = self.late_editor()
+        mcp.calls.clear()
+        before = source_snapshot(pool.folder(self.entry))
+        self.assertEqual(adapter.revalidate(record), (record['commit_sha'], mcp.instance))
+        self.assertEqual(source_snapshot(pool.folder(self.entry)), before)
+        self.assertEqual([name for name, _ in mcp.calls], ['discover', 'quiescent', 'console', 'probe'])
+        self.assertEqual(self.ledger.slot(record['slot_id'])['state'], 'held')
+        self.assertIsNone(self.ledger.slot(record['slot_id'])['instance'])
+
+    def test_late_editor_without_a_matching_connected_instance_stays_quarantined(self):
+        adapter, _, mcp, record = self.late_editor()
+        mcp.discover_instance = lambda slot: None
+        with self.assertRaisesRegex(Exception, 'no connected project instance'):
+            adapter.revalidate(record)
+        mcp.discover_instance = lambda slot: mcp.instance
+        mcp.probe = lambda slot, target: {'aggregate': 'match', 'editor': {'instance': 'other-project'}}
+        with self.assertRaisesRegex(Exception, 'matching verified instance'):
+            adapter.revalidate(record)
+        self.assertEqual(self.ledger.slot(record['slot_id'])['state'], 'held')
+
+    def test_late_editor_wrong_commit_or_dirty_source_is_never_reused(self):
+        adapter, pool, mcp, record = self.late_editor()
+        with self.assertRaisesRegex(Exception, 'clean at the recovery commit'):
+            adapter.revalidate(dict(record, commit_sha='b' * 40))
+        (pool.folder(self.entry) / 'README.md').write_text('unexpected edit', encoding='utf-8')
+        with self.assertRaisesRegex(Exception, 'clean at the recovery commit'):
+            adapter.revalidate(record)
+        self.assertFalse(any(name == 'probe' for name, _ in mcp.calls))
+
+    def test_late_editor_not_quiet_or_wrong_identity_stays_quarantined(self):
+        adapter, _, mcp, record = self.late_editor()
+        mcp.quiescent = lambda slot, mode: False
+        with self.assertRaisesRegex(Exception, 'not idle'):
+            adapter.revalidate(record)
+        mcp.quiescent = lambda slot, mode: True
+        mcp.ready = False
+        with self.assertRaisesRegex(Exception, 'identity'):
+            adapter.revalidate(record)
+        self.assertEqual(self.ledger.slot(record['slot_id'])['state'], 'held')
+
     def test_new_importer_metadata_is_backed_up_before_removal(self):
         from agent.unity_recovery import SourceMetaReconciled
         adapter, pool, _, record = self.setup_repair()

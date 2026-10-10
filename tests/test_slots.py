@@ -25,6 +25,41 @@ def git(*args, cwd):
 
 
 class UnityIdentityEnvironmentTests(unittest.TestCase):
+    def test_slow_windows_startup_fits_the_default_and_slot_specific_deadlines(self):
+        for connected_at, configured, succeeds in ((170, None, True), (170, 180, True), (310, None, False),
+                                                   (170, 120, False)):
+            with self.subTest(connected_at=connected_at, configured=configured), tempfile.TemporaryDirectory() as tmp:
+                folder = Path(tmp) / 'Unity slot 测试'
+                folder.mkdir()
+                binary = folder / 'Unity'
+                binary.touch()
+                now = [0.0]
+                def sleep(seconds):
+                    now[0] += seconds
+                def discover(slot):
+                    if now[0] < connected_at:
+                        raise SlotError('not connected yet', stage='editor')
+                    return 'instance'
+                identity = UnityIdentity(folder / 'probe.cs', clock=lambda: now[0], sleep=sleep)
+                raw = {'id': 'unity_slot:1', 'unity': str(binary)}
+                if configured is not None:
+                    raw['start_timeout'] = configured
+                entry = slot_entry(raw)
+                slot = {'slot_id': entry['id'], 'folder': str(folder), 'mcp_address': entry['mcp_address']}
+                with patch('agent.slots.subprocess.Popen'), patch.object(identity, 'discover_instance', side_effect=discover):
+                    if succeeds:
+                        self.assertEqual(identity.start(slot, entry), 'instance')
+                        self.assertEqual(now[0], connected_at)
+                    else:
+                        with self.assertRaisesRegex(SlotError, f"after {entry['start_timeout']}s"):
+                            identity.start(slot, entry)
+                        self.assertEqual(now[0], entry['start_timeout'])
+
+    def test_invalid_startup_deadlines_are_rejected_before_editor_launch(self):
+        for value in (0, -1, 601, float('nan'), float('inf'), True, '300', None):
+            with self.subTest(value=value), self.assertRaisesRegex(SlotError, 'start_timeout'):
+                slot_entry({'id': 'unity_slot:1', 'start_timeout': value})
+
     def test_interactive_editor_does_not_inherit_the_kw_ops_token(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp)

@@ -39,6 +39,9 @@ DEFAULTS = {
     # 300s is the pool's own deadline well above them; the Editor was gone 1s after SIGTERM, so 60s is
     # already extravagant — it was 120 when the close was expected to wait on a lockfile that never goes.
     "quiet_timeout": 300,
+    # Native Windows production measured a 170-second startup; the original
+    # 120-second deadline was based on a much smaller Mac rehearsal.
+    "start_timeout": 300,
     "close_timeout": 60,
     # Task 0 Step 4 measured the EditMode suite at 19 s, and Step 6 at 105 s for the same suite under
     # launchd's Background band, so half an hour is two orders of magnitude of headroom — and still a
@@ -78,6 +81,8 @@ def slot_entry(raw):
     if not isinstance(raw.get("id"), str) or not raw["id"].strip():
         raise SlotError("a slot entry needs an id such as unity_slot:1")
     entry = {**DEFAULTS, **raw}
+    if type(entry["start_timeout"]) not in (int, float) or not 0 < entry["start_timeout"] <= 600:
+        raise SlotError("slot start_timeout must be a number greater than 0 and at most 600 seconds")
     entry["test_assemblies"] = tuple(entry["test_assemblies"])
     return entry
 
@@ -669,7 +674,7 @@ class SlotPool:
 
     def open_editor(self, slot, entry):
         """Start the Editor and wait until the MCP endpoint answers and names this folder's instance. The
-        timeout is the cold-start figure Task 0 Step 5 measured; the returned instance id is what the worker
+        slot's startup deadline bounds the wait; the returned instance id is what the worker
         pins its own MCP session with."""
         try:
             return self.mcp.start(slot, entry)
@@ -849,14 +854,14 @@ class UnityIdentity:
     one instance serves every slot.
     """
 
-    def __init__(self, probe_path, timeout=120, start_timeout=120, clock=time.time, sleep=time.sleep,
+    def __init__(self, probe_path, timeout=120, start_timeout=300, clock=time.time, sleep=time.sleep,
                  token_env=None, secret_env=None):
         self.probe_path = Path(probe_path)
         self.timeout = timeout
         self.token_env = token_env
         self.secret_env = secret_env
-        # Task 0 Step 5 measured cold Editor start to a usable MCP endpoint at 16 s. 120 is generous headroom
-        # over a measured number; the 600 an earlier draft carried was a guess at an unmeasured one.
+        # A Windows slot measured 170 seconds to load. Each configured slot may
+        # override the five-minute default without changing MCP request timeouts.
         self.start_timeout = start_timeout
         self.clock = clock
         self.sleep = sleep
@@ -934,15 +939,15 @@ class UnityIdentity:
                    str(slot["folder"]), "-logFile", str(Path(slot["folder"]) / "Logs" / "farmbot-editor.log")]
         subprocess.Popen(command, start_new_session=True, env=child_environment(self.token_env, secret_env=self.secret_env),
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        deadline = self.clock() + self.start_timeout
+        start_timeout = entry.get("start_timeout", self.start_timeout)
+        deadline = self.clock() + start_timeout
         while True:
             try:
                 return self.discover_instance(slot)
             except Exception:
                 if self.clock() >= deadline:
-                    raise SlotError(f"{slot['slot_id']}: no MCP instance after {self.start_timeout}s "
-                                    f"(measured cold start is 16s); either the Editor did not come up, or a "
-                                    f"stale server from a previous Editor still holds {slot['mcp_address']}",
+                    raise SlotError(f"{slot['slot_id']}: no MCP instance after {start_timeout}s; "
+                                    f"Editor startup or MCP connection did not finish at {slot['mcp_address']}",
                                     stage="editor")
                 self.sleep(5.0)
 

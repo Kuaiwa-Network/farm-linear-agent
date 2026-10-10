@@ -685,6 +685,23 @@ the preparation recovery budget. A missing MCP instance at the startup deadline
 does not prove the Editor exited; the failure path does not park on main or discard
 source changes beneath a still-running importer. Existing fenced recovery verifies
 process ownership and preserves eligible metadata before an exact-commit retry.
+The startup deadline defaults to 300 seconds, reflecting a measured 170-second
+native Windows startup. A slot's `start_timeout` may explicitly select a positive
+number up to 600 seconds; it is separate from individual MCP request timeouts.
+
+An exhausted, detached preparation recovery is rechecked at most once per minute
+for an Editor that connected late. This path only inspects: it never starts or stops
+an Editor, refreshes assets, or changes source. It requires the latest recovery for
+that configured slot, no active reservation, a verified owned worktree, clean source
+at the exact recovery commit, an idle Editor, a clean console and the full project,
+commit, build-target and loaded-assembly identity probe. The existing physical lock
+and repair lease fence the check. A matching Editor restores the slot as `idle_open`
+without consuming another repair or job retry; other outcomes retain quarantine
+and the original failure cause. Execution failures are not eligible. A recovered
+slot does not revive a failed, cancelled or human-waiting job; explicit continuation
+still goes through the existing authority checks. No new ledger schema is needed;
+existing typed preparation recoveries are eligible, and older code stops these
+late-connection checks without reversing saved work or diagnostics.
 
 After certifying the worker's process tree has stopped, the controller detaches the old
 reservation and queues its exact commit and mode. A healthy second slot may resume that job
@@ -699,6 +716,12 @@ retry consumes the existing preparation or execution budget, so a commit that re
 Unity rewrite metadata ends in an explicit job failure without holding slots indefinitely. A
 shared MCP broker is never terminated by this recovery path. Captured diagnostics remain under
 `.local/agent/resource-recovery/`.
+Metadata recovery accepts large importer rewrites within the source snapshot's
+existing size bounds, without a 1,024-file cutoff. Restoration sends literal UTF-8
+paths through Git's NUL-separated stdin pathspec, so Windows command-line length,
+spaces, Unicode and wildcard characters do not prevent recovery. Changes are still
+archived and the snapshot rechecked before restoration; source edits outside the
+eligible metadata set remain quarantined.
 
 The controller observes test progress, not merely the active flag: 180 seconds without progress
 or continuously unavailable inspection triggers recovery. Repair requests a cooperative Play Mode

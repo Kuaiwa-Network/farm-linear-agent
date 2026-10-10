@@ -75,13 +75,13 @@ class WorktreeError(RuntimeError):
     pass
 
 
-def _git(*args, cwd, env=GIT_ENV, timeout=600, config=()):
+def _git(*args, cwd, env=GIT_ENV, timeout=600, config=(), input_text=None):
     """`config` is further `-c` settings placed before the subcommand, after HOOKS_OFF, which every call has."""
     # Farm-Client's nested paths exceed MAX_PATH under an isolated state root. Git for Windows needs this
     # per-command setting even when Windows supports long paths; do not write host or trusted clone config.
     native_config = ("-c", "core.longpaths=true") if os.name == "nt" else ()
     result = subprocess.run(["git", *HOOKS_OFF, *native_config, *config, *args], cwd=str(cwd), capture_output=True, text=True,
-                            timeout=timeout, env={**os.environ, **env})
+                            timeout=timeout, env={**os.environ, **env}, input=input_text, encoding="utf-8")
     if result.returncode:
         raise WorktreeError(f"git {args[0]} failed: {result.stderr.strip()[:500]}")
     return result.stdout.strip()
@@ -871,7 +871,7 @@ class Worktrees:
         changed = before["dirty"]
         if not changed:
             return None
-        if len(changed) > 1024 or any(
+        if any(
                 not row["path"].startswith("Assets/")
                 or not row["path"].casefold().endswith(".meta")
                 or row["status"] not in (" M", "M ", "MM", "??")
@@ -925,8 +925,11 @@ class Worktrees:
         if source_snapshot(path) != before:
             raise WorktreeError("slot source changed while preserving metadata")
         if tracked:
-            _git("restore", "--source=HEAD", "--staged", "--worktree", "--", *tracked,
-                 cwd=path, env=SLOT_ENV)
+            # Importers can rewrite thousands of files. Send literal UTF-8 paths
+            # on stdin instead of exceeding Windows' command-line length limit.
+            _git("--literal-pathspecs", "restore", "--source=HEAD", "--staged", "--worktree",
+                 "--pathspec-from-file=-", "--pathspec-file-nul", cwd=path, env=SLOT_ENV,
+                 input_text="".join(relative + "\0" for relative in tracked))
         for relative in untracked:
             (path / relative).unlink()
         if source_snapshot(path)["dirty"]:
