@@ -5895,3 +5895,221 @@ consumer generation/verification, game-repository reviews/merges, reporting
 dictionary alignment and client acceptance remain pending. The earlier complete
 CI results above are unchanged; this documentation/recovery record does not claim
 a new full-suite run against the replacement CLI.
+
+### Contract completion and native server handoff (2026-10-10; partial)
+
+After the operator updates only TestBot's temporary webhook, the recovered
+development receiver accepts actual signed session events. A read-only chat
+queues the original Code item's retry through the normal controller path;
+the original session, answers and checkpoint are retained. There is no direct
+ledger repair, copied runtime state or production restart. The subsequent
+foreign-work pause identifies this development session's own merged
+[documentation PR #230](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/230).
+The operator's standing authorization permits an explicit coordination reply:
+that PR is historical evidence, and the original implementation continues.
+This resolves the specific pause without disabling the foreign-work check or
+giving blanket authority over later foreign branches.
+
+Stage A publishes [Farm-Contract draft #337](https://github.com/Kuaiwa-Network/Farm-Contract/pull/337)
+at `4549d28fd0fe1b6dc865a1f0a942ea5cbd521f0e`, based on
+`5acea57119a82bf18b34603a9df071391c08abc5`, with tree
+`df79ef21be7cd9350f7f3297e8f475ef315fb03f`. The one-commit change contains nine
+files: the OpenSpec proposal/design/tasks/spec and metadata, project and README
+indices, `proto/guide.proto` and its manifest. The reviewed historical proposal
+is preserved; the new design and delta cite the final named answers and resolve
+its former open items. The delta specifies 14 records and 28 scenarios, retains
+the agreed action IDs 82–93, and adds two guide/step observation requests without
+Ack or gameplay side effects. Server and client implementation remain separate.
+
+All **12 native local Contract gates exit 0**, using buf **1.72.0** and OpenSpec
+**1.7.0**. Their retained UTF-8 receipts report zero breaking changes and waivers,
+62 manifest entries, coverage **452/452**, and all **56** active changes parsed.
+The guide protocol SHA-256 is
+`60e2f6d4d7d859cbfe04880a5426729c29c474a410a5a1a911ae8fc450ee1706`;
+the working file, manifest and published commit agree. The optional common
+drift comparison is **not run**. These gates do not establish reporting-system
+dictionary alignment, service behavior or client acceptance.
+
+At 16:22:25 UTC+8 the owner merges Contract #337. Fresh GitHub reads verify
+merge commit `f648bd6c6dead0056f64eed58034e86a977f4909` and current main at
+that same commit, with the reviewed tree
+`df79ef21be7cd9350f7f3297e8f475ef315fb03f` unchanged. At 16:27:28 UTC+8 the
+original TestBot session receives the operator's merge confirmation and the
+verified metadata; the signed event is processed normally. Both consumers must
+still fetch, pin this verified Contract main revision, regenerate natively and
+revalidate. Relaying the merge does not establish those consumer checks.
+
+The [Contract Actions run](https://github.com/Kuaiwa-Network/Farm-Contract/actions/runs/38035380232)
+rejects all 28 jobs before execution because account Actions availability is
+blocked. This is **CI not run**, not a measured application failure or a pass.
+At 15:55 UTC+8 the operator explicitly defers that external issue and directs
+local development to continue. The original TestBot session receives this
+steering through a signed event; checks, provenance rules, review/merge authority
+and release prerequisites remain unchanged. No workflow, billing or credential
+settings are modified.
+
+The controller hands the same item to a fresh **farm-hive-rooted** worker
+(attempt 7). Stage B/C are skipped because the existing `GuideInfo.steps` and
+`GuideStepInfo.stepID` definitions already export the required fields; the
+existing designer pin is retained. Stage E is skipped under the operator's
+explicit no-new-UI scope. Stage D begins and stage F remains pending. Native
+protocol and registry generation produce a guide snapshot matching the reviewed
+Contract bytes, with source
+`4549d28fd0fe1b6dc865a1f0a942ea5cbd521f0e-unreachable`, correctly recording its
+unmerged provenance. At the 15:54 UTC+8 observation, the previous worker Job is
+empty; the current gate is a
+member of its recorded native Job, and fresh serving heartbeats report zero
+controller-loop errors. No completed server tests or server PR are claimed at
+this observation.
+
+Subsequent server review finds a new compatibility regression: requiring the
+new `food_session.preHalfStar` field during cold loading discards otherwise
+valid sessions written by the old schema. A focused native race test first
+reproduces the rejection for missing, wrong-type, negative and out-of-range
+snapshots at both zero and five-star prior scores. The fix keeps valid gameplay
+sessions, treats unavailable observation eligibility as unknown rather than
+zero, and emits no invented research observation. The same focused command,
+`go test -race ./modules/food ./config -run
+"ResearchTracking|TrackingGardenGift" -count=1`, then exits 0; its package
+summaries report 2.426 s and 3.712 s. Gift coverage also exercises distinct crop
+IDs in non-sorted reward order with an intervening non-crop reward. These are
+checks of the evolving working tree, not final committed-candidate validation.
+
+Stage D subsequently publishes [farm-hive draft #386](https://github.com/Kuaiwa-Network/farm-hive/pull/386)
+at `6c071e77e12106b945afc92ebc90b8fd47a0daa8`, based on updated main
+`afbc46b1d5185d87ee0a7c51b290abe0758fb0e7`. Its 51-file, four-commit change
+records the 60-package full protocol sync from Contract main
+`f648bd6c6dead0056f64eed58034e86a977f4909`. Six independent native gates pass:
+designer pin, pb manifest, config reproduction (368 artifacts), registry
+reproduction (61 outputs), message products and Contract provenance (60
+snapshots). Build, vet and CI's actor-call analysis also pass; the latter detects
+and fixes a new flower telemetry read after a yielding reward call, with no
+lint suppression. The merged upstream data update is retained. There are no
+own designer edits; server main's published `2026-10-09.f4ddf84` pin remains.
+Committed common source and generated bytes are checked independently; the
+published archive's raw download is not independently verified in this run.
+
+The repeat full native command, `go test -race -p=4 -timeout 300s -json ./...
+-count=1`, exits 1. It records **17,788 pass**, **20 fail** and **1,331 skip**
+JSON test events, including parent/child tests rather than independent case
+counts. Focused runs on the updated main and candidate match 19 failure
+signatures. The remaining AST roster check reports `cannot allocate memory`
+in the full run and passes on both sides of the focused comparison; its full-run
+failure remains unclassified. Neither the baseline comparison nor the focused
+passes make the full suite green. The draft names every independent shell step
+not executed and enumerates real-service variants not verified. Complete UTF-8
+logs and every skip remain private. No Bash/MSYS/WSL invocation, added skip or
+weakened check is used to obtain a pass. Stage D is recorded done for draft
+implementation delivery; its native Job empties and the controller queues the
+client handoff. Client stage F and closing remain pending.
+
+The client handoff starts attempt 8 under a fresh native Job Object. Its initial
+native network exporter exits 0 with explicit expected Contract main commit
+`f648bd6c6dead0056f64eed58034e86a977f4909`. The guide implementation captures
+the configured step ID before handlers or skip cleanup, sends one-way
+observations without owning the gameplay request slot, and drops observations
+when paused, unauthenticated, disconnected or waiting for reauthentication.
+The original Finish/Skip request ordering and authoritative progress remain.
+No FairyGUI or new UI work is introduced.
+
+During client preparation, [Contract main advances](https://github.com/Kuaiwa-Network/Farm-Contract/commit/74e281ff0ac22e570bd902eccd041d0e1df7b94b)
+to `74e281ff0ac22e570bd902eccd041d0e1df7b94b`, with tree
+`7f7ce9cf12f8e36bbf9981df880333ce9eae93de` and first parent
+`f648bd6c6dead0056f64eed58034e86a977f4909`. Fresh GitHub reads verify that
+provenance. The unrelated permanent-state protocol addition does not alter
+`guide.proto`. The client repeats full native generation at this newer input,
+including `SpiritCollection.pb.cs`, its metadata and the registry addition.
+The server draft still names the earlier merged input; both consumers' final
+sync to the same verified Contract main remains required. The original signed
+session receives this explicit provenance reminder without a new business
+ruling or work on the upstream issue.
+
+After selecting the worktree source root and hydrating the committed text/LFS
+inputs, the repeated full native .NET unit command exits 0. Its TRX records
+**6,635 total**, **6,629 passed**, **zero failed/errors** and **six not executed**,
+with an execution interval of **23.745 s**. All 11 new observation-rule and
+wiring cases pass. The six retained skips are `TimeoutKillsEntireUnixProcessTree`,
+`RunDrainsBothFullPipesAndBoundsOutput`,
+`TimeoutBoundsPartialOutputOfChattyProcess`,
+`RunPropagatesExplicitEnvironmentOverride` and
+`RunPreservesLinuxExecutablePathToken` (each reports `Not supported on Win`),
+and `ValidateRealCommonArtifactWhenProvided` (`FARM_CONFIG_ARTIFACT_ROOT` was
+not provided). The earlier source-root/input failures are retained in private
+logs; no application check is weakened or skip added to obtain this result.
+Full native typechecking of `HotUpdate`, `HotUpdate.Tests` and
+`HotUpdate.PlayTests` also exits 0 in **9.864 s**, with zero errors and warning
+counts **111 / 0 / 7**. Its receipts confirm reference and source inputs unchanged
+during the check and no Unity start. These measurements cover the evolving
+client working tree; the committed-candidate Unity reservation and runtime
+tests remain pending.
+
+The client commits its 14 intended files at
+`c86570be91bd93c5f4df56c298d3ddb697eb3229`, based on
+`66a177e6c5efcb56559e5bab2798c83c38faf019`. Its source-guard comparison makes
+all four new wiring guards fail against the old source and pass against the
+candidate. The committed candidate repeats the full .NET checks successfully
+with the same counts/skips in a **22.486 s** TRX execution interval; all three
+assembly typechecks pass in **10.374 s**.
+The normal CLI accepts the clean, exact commit for an **interactive** Unity
+reservation. Attempt 8's native Job empties, and the controller binds a fresh
+attempt 9 to that reservation and commit. Runtime tests and a client PR remain
+pending; reserving the Editor does not establish their success.
+
+Attempt 9's actual full Unity PlayMode run records **1,270 total**, **1,188
+passed**, **53 failed** and **29 skipped** in **146.777 s**. A focused run of the
+nine new guide cases records **seven passed / two failed / zero skipped**;
+the 13-case EditMode selection records **12 passed / one failed**. Retained
+results include a guide pause/cleanup packet-count assertion, an uninitialized
+YooAsset fixture error and an old generated-registry count expecting 562 while
+the full export contains 602. These require investigation and verification of
+any correction; neither compilation nor the .NET passes make Unity green.
+Every runtime result and skip is retained privately. The worker releases the
+reservation cleanly, the pool parks the slot in `idle_open`, and client
+verification records `unity_failed`. Clean resource release describes checkout
+and process state, not test success. Stage F and the client PR remain pending.
+
+The next client commit, `aee52d2974eb925811a82fa91747345878c22ee9`, changes
+only two test files from that candidate. The guide fixture loads the committed
+Common/Guide UI packages and resets them during cleanup. The pause/resume
+assertion decodes every outgoing frame and requires each to be the existing
+heartbeat request, preserving rejection of any delayed guide observation.
+The generated-registry smoke assertion is updated to the verified full export
+count of 602. Production guide/network code remains unchanged by this correction.
+The full native .NET repeat retains **6,629 passed / zero failed / six not
+executed**, and all three assembly typechecks pass with zero errors in
+**9.628 s**, retaining warning counts **111 / 0 / 7**.
+
+Two subsequent exact-commit interactive reservations each complete **nine of
+nine** focused guide PlayMode cases and **13 of 13** selected EditMode cases,
+with **zero failures and skips**. The first focused runs take 0.338219 s and
+0.618519 s; their repeats take 0.309510 s and 0.171274 s. These results correct
+the selected candidate failures, but do not establish a full-suite pass.
+The saved full PlayMode progress receipt remains `running` after 21 progress
+records, with `stuck_suspected=true`, `editor_is_focused=false` and
+`blocked_reason=editor_unfocused`. Its discovery total of 5,334 is not a
+completed test count. No completed full result at this new commit is claimed;
+the earlier 53 failures and 29 skips remain retained without baseline
+attribution. Recovery uses the normal controller/CLI reservation path, without
+direct ledger repair, forced process cleanup or persistent app-setting changes.
+
+The controller subsequently exhausts its two automatic execution retries and
+records `verification-infrastructure-failed`: Unity inspection was continuously
+unavailable for 180 seconds. The latest retained watchdog and repair-attempt
+receipts contain `ValueError: Unity observation failed`; they do not establish
+an application regression or prove that focus caused this later failure.
+All four reservations are released, the latest worker Job is empty, and the
+development slot returns to `idle_open`. The serving controller reports zero
+loop errors. A read-only diagnostic session selects the exact recorded slot
+instance and successfully reads its project metadata and zero console errors
+after recovery. Its cached Editor status is stale, so that response is not full
+readiness evidence. The operator is asked to inspect the owned `slot-1` window
+before another retry. No manual Editor operation, controller restart or direct
+resource/state repair is performed. Client publication and closing stay pending.
+
+This remains an isolated development trial on the Windows production host.
+FarmBot source and development configuration remain unchanged. Remaining work
+is nonvisual client protocol/logic and verification, human game-repository
+reviews/merges, resolution of server validation gaps, both consumers' final sync
+and verification from the same Contract main SHA, action-dictionary/actual
+receiver acceptance, client smoke acceptance and deferred CI. No production feature
+enablement, deployment or readiness certificate follows from these measurements.
