@@ -5745,3 +5745,87 @@ were not selected in this release and remain pending tasks.
 - `test_worktrees.ReadCheckoutTests.test_a_junction_is_refused_as_a_symlink_is`: junctions are Windows'.
 
 </details>
+
+### No-UI feature intake from an original spreadsheet (2026-10-10)
+
+The operator selects [FARM-1461](https://linear.app/kuaiwagames/issue/FARM-1461)
+for a real Windows TestBot Code trial and explicitly excludes new UI. The intake
+comment scopes the work to the telemetry additions dated 2026-10-09, preserving
+older behavior as a compatibility reference. Nonvisual Client code may still
+require stage F. Business answers, game-repository PR reviews/merges and any
+configuration publication retain their normal human gates.
+
+The issue originally provides only a screenshot of the planning document title.
+The operator authorizes searching for its original. Read-only wiki enumeration
+and node resolution locate the spreadsheet. A denied sheet read names
+`sheets:spreadsheet:read`; after the operator confirms granting and publishing
+that read-only permission, the configured native bot profile reads the original.
+No credential setup, profile change or personal-user authentication is performed.
+
+[#228](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/228) adds only
+`sheets +workbook-info --as bot` and `sheets +cells-get --as bot` to Code's existing
+linked-design reads. The worker retains every declared tab and range, including
+empty or hidden tabs, source coordinates, hashes and a stable workbook revision;
+truncation, missing coverage or a changed revision prevents claiming a complete
+read. UI workers retain their existing three document/attachment reads. No sheet
+writes, general search, export, import or remote scripts are granted. The shared
+worker CLI reference is aligned with this feature-only authority.
+
+The tested candidate is `c93cb7d038beb52c1cd020539d73f82581c84112`, tree
+`7cd0ce29e5a057c904d8b100b3d8a8d621aeec7d`. Native focused checks use sanitized
+selectors, Python UTF-8 mode and the explicit Python executable. Private UTF-8
+logs retain revisions, versions, durations and executed test IDs.
+
+| Check | Result | Seconds |
+| --- | --- | ---: |
+| Precommit working-tree dispatch, skill and Code journeys | 114 tests; no failures/errors/skips; all 13 Code journeys | 171.776 |
+| Committed candidate, Client journeys and native containment | 134 tests; no failures/errors/skips; all nine Client journeys and 10 native Job Object tests | 191.632 |
+| macOS full CI | 2147 tests; no failures/errors; 73 platform skips | 733.341 |
+| Windows full CI | 2147 tests; no failures/errors; 69 platform skips | 2299.062 |
+
+The first selection tests the uncommitted candidate contents, not its then-current
+base HEAD. The second selection runs the committed head above. Native versions
+are Python 3.13.16, Git 2.54.0.windows.1 and Git LFS 3.7.1. Hosted versions, full
+logs and every platform skip remain in the
+[CI evidence](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/38019301542).
+CI checkout tree identity is checked against the exact candidate tree.
+The merged code commit is `b374300018e160999ba48d260e8a54213367873f`, with the same tree.
+Both CI skip-ID/reason dictionaries exactly match the preceding release's
+Windows/macOS lists above; every native Windows Job Object check, all 13 Code
+journeys and all nine Client journeys run in Windows CI.
+
+TestBot is activated from that frozen source outside the development checkout,
+on the same physical Windows production host with separate development state.
+Before its settled restart, the read-only fence finds zero active workers,
+pending events, reservations, recoveries or cleanup, verifies all 56 prior native
+worker Jobs empty and retains the clean idle shared Unity Editor. Only the
+verified development controller is stopped. The production receiver's listener
+identity remains unchanged; no production configuration or ledger is read.
+
+The actual contained Code worker independently reads all three spreadsheet tabs,
+each `A1:T200`, for **12,000 declared cells**. Both metadata snapshots and every
+cell response retain **revision 117**; row/column coverage is complete, with no
+pagination or truncation. This is worker execution evidence in addition to the
+operator-assisted original read. The checkpoint records `ui.has_ui=false` and
+skips stage E. Native PowerShell is used, with the recorded worker gate verified
+inside its Windows Job Object. No UI worker, farmgui authoring or export starts.
+
+The first question round is posted on the selected issue and saved in the
+checkpoint as an `answers` pause. The item reaches `awaiting_input` at the
+Contract stage, with all 11 questions retained, no new protocol/spec scenarios or
+game-repository draft PRs yet, and its native worker Job verified empty.
+The round identifies existing behavior-ID conflicts and asks for named business
+rulings on guide observations, breeding, gifts, contests, close friends, recipe
+research and logging guarantees. No ruling is supplied by silence or by the
+read-permission confirmation. Model-stream reconnect diagnostics remain in
+the private log; the attempt reaches this normal saved pause and quiescence.
+A named creator follow-up at 11:42 UTC+8 asks for the existing behavior/ID list,
+without deciding the questions. A fresh worker attempt starts at 11:43; its native
+gate is contained and its model stream has no reconnect diagnostic at the
+11:48 observation. It rereads workflow/repository context for this follow-up;
+the original business rulings and implementation remain pending.
+
+These measurements establish original-document intake and native execution for
+this selected trial. They do not establish completed telemetry implementation,
+game-client acceptance or production feature enablement. The production bot
+continues running chat/fix; this trial authorizes no deployment.
