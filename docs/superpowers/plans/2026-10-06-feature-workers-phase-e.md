@@ -6113,3 +6113,47 @@ reviews/merges, resolution of server validation gaps, both consumers' final sync
 and verification from the same Contract main SHA, action-dictionary/actual
 receiver acceptance, client smoke acceptance and deferred CI. No production feature
 enablement, deployment or readiness certificate follows from these measurements.
+
+### Native window inspection and storage recovery (2026-10-10; partial)
+
+After the preceding recovery record, the installed Windows computer-use tool
+inspects the exact owned `slot-1` Editor. The window responds, is not playing,
+and has no blocking dialog; the operator separately confirms normal response.
+The tool brings only that Editor to the foreground. No persistent Unity setting,
+scene/source edit, process termination or service restart is performed. A normal
+authenticated continuation resumes the original feature job, preserving its
+client commit and earlier test/recovery evidence. These observations do not
+establish the cause of the previous inspection failure or a full-suite pass.
+
+Before further heavy verification, a separate storage check finds C: has only
+**0.42 GiB** free. The worker saves `waiting-storage`, enters `awaiting_input`,
+and exits through the normal checkpoint path. Its controller reports zero
+workers and an empty recorded worker Job; the checkpoint retains no active
+Unity reservation for this card. This capacity gap is measured independently
+of the Unity inspection failure and is not treated as its proven cause.
+
+The operator requests a read-only storage inventory, then explicitly approves
+disabling Windows Hibernate. No files or directory trees are deleted or moved
+from FarmBot storage. The inventory reads filesystem metadata only, without
+reading credential files or production configuration/ledger. The initial
+unelevated `powercfg /hibernate off` attempt exits 1 for
+insufficient privileges. The same official Windows command is then launched
+with elevation and exits **0**. At **19:20 UTC+8**, C: free space increases from
+**0.336 GiB to 13.074 GiB** immediately after the command, with **13.078 GiB**
+in the follow-up measurement, and the hibernation file is absent. A fresh
+`powercfg /a` confirms ordinary S3 Sleep remains available; Hibernate, hybrid
+sleep and Fast Startup are unavailable. These effects match the operator's
+approved power-setting change and the
+[Windows power-state documentation](https://learn.microsoft.com/en-us/windows/win32/power/system-power-states).
+
+The restored capacity exceeds the requested 10 GiB threshold. The original
+TestBot session receives an explicit implementation continuation, and the
+same feature job starts attempt 14 with
+`aee52d2974eb925811a82fa91747345878c22ee9` and all previous evidence preserved.
+Only the owned `slot-1` Editor is brought to the foreground again. This records
+resumption, not completed full Unity verification or publication. The earlier
+failure/skip counts, both consumers' final Contract synchronization, human
+game-repository review/merge and acceptance, and deferred CI remain pending.
+The trial remains isolated development on the Windows production host; no
+FarmBot source/configuration change, production deployment or service restart
+is performed during this recovery.
