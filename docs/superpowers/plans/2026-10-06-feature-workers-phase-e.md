@@ -5930,6 +5930,15 @@ the working file, manifest and published commit agree. The optional common
 drift comparison is **not run**. These gates do not establish reporting-system
 dictionary alignment, service behavior or client acceptance.
 
+At 16:22:25 UTC+8 the owner merges Contract #337. Fresh GitHub reads verify
+merge commit `f648bd6c6dead0056f64eed58034e86a977f4909` and current main at
+that same commit, with the reviewed tree
+`df79ef21be7cd9350f7f3297e8f475ef315fb03f` unchanged. At 16:27:28 UTC+8 the
+original TestBot session receives the operator's merge confirmation and the
+verified metadata; the signed event is processed normally. Both consumers must
+still fetch, pin this verified Contract main revision, regenerate natively and
+revalidate. Relaying the merge does not establish those consumer checks.
+
 The [Contract Actions run](https://github.com/Kuaiwa-Network/Farm-Contract/actions/runs/38035380232)
 rejects all 28 jobs before execution because account Actions availability is
 blocked. This is **CI not run**, not a measured application failure or a pass.
@@ -5952,6 +5961,19 @@ empty; the current gate is a
 member of its recorded native Job, and fresh serving heartbeats report zero
 controller-loop errors. No completed server tests or server PR are claimed at
 this observation.
+
+Subsequent server review finds a new compatibility regression: requiring the
+new `food_session.preHalfStar` field during cold loading discards otherwise
+valid sessions written by the old schema. A focused native race test first
+reproduces the rejection for missing, wrong-type, negative and out-of-range
+snapshots at both zero and five-star prior scores. The fix keeps valid gameplay
+sessions, treats unavailable observation eligibility as unknown rather than
+zero, and emits no invented research observation. The same focused command,
+`go test -race ./modules/food ./config -run
+"ResearchTracking|TrackingGardenGift" -count=1`, then exits 0; its package
+summaries report 2.426 s and 3.712 s. Gift coverage also exercises distinct crop
+IDs in non-sorted reward order with an intervening non-crop reward. These are
+checks of the evolving working tree, not final committed-candidate validation.
 
 This remains an isolated development trial on the Windows production host.
 FarmBot source and development configuration remain unchanged. Remaining work
