@@ -6201,9 +6201,45 @@ hash; a source rollback alone does not restore removed disposable files.
 
 Native focused validation passes **21 retention tests**, with no failure, error
 or skip. The earlier broader run passes **129 tests**, with **46 existing POSIX
-skips**; all 10 Windows worker tests execute. Full offline verification is pending
-at the time of this entry. Verification temporary data and UTF-8 reports are on
-D:. GitHub CI remains deferred under the operator's earlier instruction.
+skips**; all 10 Windows worker tests execute. Full native Windows offline discovery
+then completes **2,168 tests** in **1579.511 seconds**, with **0 failures,
+0 errors and 69 platform skips**. All **10 native Windows worker tests**, all
+**21 retention tests** and all **13 feature journey tests** actually execute
+and pass. This uses Python **3.13.16**, `git version 2.54.0.windows.1` and
+`git-lfs/3.7.1 (GitHub; windows amd64; go 1.25.1; git b84b3384)`. The suite starts from base
+`3b00140f79144a15be79f830582908ea0125d89d` plus the retention implementation;
+its code matches candidate `7644236bd553018ef3be3dbc7725cf0af30ef235`.
+Source hashes are preserved in the private summary. The launcher is normalized
+from CRLF to LF while the run is in progress; an exact byte comparison confirms
+that this is its only difference from the tested source. Neither retention code
+nor regression tests change during the run. Verification temporary data, the
+UTF-8 verbose log and every skipped test ID/reason remain on D:. The complete
+platform-skip reason counts are:
+
+- 1: `FIFOs and O_NOFOLLOW symlink refusal are POSIX`.
+- 1: `FIFOs are POSIX`.
+- 12: `FIFOs in a directory are POSIX`.
+- 1: `POSIX permissions; Windows has the junction test`.
+- 1: `POSIX process group semantics`.
+- 3: `POSIX process inspection`.
+- 4: `POSIX self-exit evidence; Windows workers are proved by Job Objects`.
+- 2: `POSIX service termination contract`.
+- 8: `POSIX sessions and process groups`.
+- 25: `POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py`.
+- 1: `Windows has no O_NOFOLLOW; making a symlink there needs a privilege`.
+- 1: `Windows refuses every lark_cli home`.
+- 1: `Windows worker jobs contain children; tested in test_windows_workers`.
+- 1: `macOS's Seatbelt, as Codex's`.
+- 1: `making a symlink on Windows needs a privilege`.
+- 1: `no FIFOs in a directory, and making a symlink needs a privilege`.
+- 1: `the filter here is a shell script`.
+- 1: `the hooks here are shell scripts`.
+- 1: `the hooks, fsmonitor and filters here are shell scripts`.
+- 1: `the macOS store's master key file`.
+- 1: `the planted hooks and fsmonitor are shell scripts`.
+
+GitHub CI remains deferred under the operator's earlier instruction. These are
+native Windows results; no new macOS run is claimed.
 
 This is development work on the Windows production host. Production FarmBot
 source, state, configuration, credentials and service are untouched; neither bot
