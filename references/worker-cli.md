@@ -309,11 +309,20 @@ HOME=<tools.lark_cli.home> lark-cli --profile <tools.lark_cli.profile> drive +do
 
 Resolve only a linked wiki URL with `wiki +node-get`. Its `data.obj_type` says whether to fetch a `docx`
 with `docs +fetch` or download a `file` using `data.obj_token`; the wiki node token is not the file token.
-Run the download in the state's design directory with a relative output filename. No other lark-cli
+Run the download in the state's design directory with a relative output filename.
+
+Only `feature` additionally reads a linked `sheet`: use its resolved spreadsheet object token, never
+its wiki node token, with `sheets +workbook-info --as bot` and `sheets +cells-get --as bot` under the
+same configured identity. A direct spreadsheet link may be passed through `--url`. Read all tabs,
+including hidden and empty tabs, retain source coordinates and hashes, reject truncation or missing
+coverage, and verify one unchanged revision before, during and after reading as
+[`skills/feature/SKILL.md`](../skills/feature/SKILL.md) requires. These operations grant no sheet writes,
+search, export, imports or remote scripts; a denied read names the required read-only scope and asks
+the operator. `fgui` retains only the three document/attachment reads above. No other lark-cli
 command is authorized apart from local help (`--help`, `skills read`).
 
 If `tools.lark_cli` is `{"authentication": "environment"}`, FarmBot supplied the bot credentials and
-strict bot mode in your shell environment. Run the same three read commands with `--as bot`, omitting
+strict bot mode in your shell environment. Run only your skill's authorized read commands with `--as bot`, omitting
 `HOME=` and `--profile`; for example `lark-cli docs +fetch --as bot --doc <URL> --doc-format markdown`.
 No credential value, app ID or source variable name appears in the launch message. Missing credentials
 produce `status: unavailable`; never fall back to a profile or personal login.
