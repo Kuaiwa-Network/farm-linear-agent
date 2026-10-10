@@ -126,7 +126,7 @@ class SlotPool:
         self._batches = {}
         self._batch_executor = (ThreadPoolExecutor(max_workers=max(1, len(self.entries)),
                                                   thread_name_prefix="farmbot-unity")
-                                if concurrent_batches else None)
+                                if concurrent_batches and len(self.entries) > 1 else None)
         self._draining_batches = False
 
     @staticmethod
