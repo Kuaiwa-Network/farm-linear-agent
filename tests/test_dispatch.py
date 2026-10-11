@@ -88,10 +88,25 @@ WITHDRAWAL_AT_DESIGN = (
 )
 
 
+SERVER_RESOURCE_AT_SLOTS = (
+    "For a server_slot resource, use only its loopback environment for service-backed tests at resource.commit. "
+    "Never administer Docker or use live services. Keep game-server processes in this worker's containment; "
+    "stop them, checkpoint, release the resource, then park or hand off and exit so the controller can prove "
+    "teardown before recycling the services. Request server_slot only in a farm-hive write stage with an "
+    "explicit clean committed HEAD. Hold no resource while requesting another. "
+)
+
+
+def with_server_slots(text):
+    """Only the reviewed server resource paragraph and Unity qualification amend the frozen common text."""
+    return text.replace("When a resource block is present", SERVER_RESOURCE_AT_SLOTS +
+                        "When a unity_slot resource block is present")
+
+
 def with_withdrawal(text):
-    """The a29d078 text with the withdrawal sentence at the end of its common part, before the kw_ops paragraph."""
+    """The historical text with the reviewed server restrictions and withdrawal sentence before kw_ops."""
     common, marker, rest = text.partition("When tools.kw_ops.access is present")
-    return common + WITHDRAWAL_AT_DESIGN + marker + rest
+    return with_server_slots(common) + WITHDRAWAL_AT_DESIGN + marker + rest
 # D18 h, question 5: the export grant fix's AUTHORITY adds. A change to it is a change to what the approval
 # reviewer lets a fix worker export, so it is pinned here word for word.
 FGUI_EXPORT_AT_D18 = (
@@ -168,6 +183,18 @@ FEATURE_AUTHORITY_WITH_SHEETS = (
     "sibling reads it. Workers still never merge, publish designer data or deploy. "
 )
 FEATURE_AUTHORITY_WITH_SHEETS_SHA256 = "af608a2f7172800db1f333663b17caa70912da924c133b802e61eb511cd5d205"
+
+# Keep the earlier feature fixture and its digest intact. Only this explicit, reviewed server lease
+# paragraph amends it; comparing the complete result retains every previous authority boundary.
+FEATURE_SERVER_RESOURCE_AT_SLOTS = (
+    "For service-backed server tests, request server_slot in batch mode only from farm-hive, with your "
+    "clean committed HEAD. Use only its reservation-bound loopback endpoints, keeping tests and any game-server "
+    "processes inside this worker. Never administer Docker, use another slot's data, or substitute a live endpoint. "
+    "Checkpoint, release, park or hand off and exit before another resource request; hold no resource while "
+    "waiting for another. "
+)
+FEATURE_AUTHORITY_WITH_SERVER_SLOTS = FEATURE_AUTHORITY_WITH_SHEETS.replace(
+    "Never start Unity directly", FEATURE_SERVER_RESOURCE_AT_SLOTS + "Never start Unity directly")
 
 def payload_of(message):
     return json.loads(message.split("\n\n", 1)[1])
@@ -343,14 +370,14 @@ class SkillAuthorityTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(AUTHORITY_AT_A29D078.encode("utf-8")).hexdigest(), AUTHORITY_AT_A29D078_SHA256)
 
     def test_chat_receives_the_a29d078_authority_byte_for_byte(self):
-        """Byte for byte but for the withdrawal sentence the withdrawn-work design adds to the common part (§7.3)."""
+        """Historical bytes plus the explicitly reviewed server restrictions and withdrawal sentence."""
         self.assertEqual(self.message({"id": "i", "skill": "chat"}).split("\n\n", 1)[0],
                          with_withdrawal(AUTHORITY_AT_A29D078))
 
     def test_fix_receives_the_a29d078_authority_plus_the_fgui_export_grant_before_the_reference(self):
         """D18 h and question 5: the approval reviewer trusts only this text, so the export grant farmgui's rules
         record is stated here for fix alone; everything else is the a29d078 text, byte for byte, with the
-        withdrawal sentence of the withdrawn-work design."""
+        withdrawal sentence and reviewed server resource restrictions."""
         reference = dispatch.AUTHORITY_REFERENCE
         self.assertEqual(self.message({"id": "i", "skill": "fix"}).split("\n\n", 1)[0],
                          with_withdrawal(AUTHORITY_AT_A29D078)[:-len(reference)] + FGUI_EXPORT_AT_D18 + reference)
@@ -362,10 +389,10 @@ class SkillAuthorityTests(unittest.TestCase):
         the common part and fix's and chat's bytes stay as the tests above pin them."""
         self.assertEqual(hashlib.sha256(FEATURE_AUTHORITY_WITH_SHEETS.encode("utf-8")).hexdigest(),
                          FEATURE_AUTHORITY_WITH_SHEETS_SHA256)
-        self.assertEqual(dispatch.FEATURE_AUTHORITY, FEATURE_AUTHORITY_WITH_SHEETS)
+        self.assertEqual(dispatch.FEATURE_AUTHORITY, FEATURE_AUTHORITY_WITH_SERVER_SLOTS)
         self.assertIs(dispatch.SKILL_AUTHORITY["feature"], dispatch.FEATURE_AUTHORITY)
         self.assertEqual(self.message({"id": "i", "skill": "feature"}).split("\n\n", 1)[0],
-                         dispatch.COMMON_AUTHORITY + FEATURE_AUTHORITY_WITH_SHEETS + dispatch.AUTHORITY_REFERENCE)
+                         dispatch.COMMON_AUTHORITY + FEATURE_AUTHORITY_WITH_SERVER_SLOTS + dispatch.AUTHORITY_REFERENCE)
 
     def test_the_feature_part_states_its_limits_and_carries_no_other_skills_grants(self):
         part = dispatch.SKILL_AUTHORITY["feature"]
@@ -433,7 +460,7 @@ class SkillAuthorityTests(unittest.TestCase):
         checkpoint rule included, and the reference."""
         reference = "Use references/worker-cli.md for command arguments and the exact handoff JSON shape."
         common, marker, rest = AUTHORITY_AT_A29D078.partition("When tools.kw_ops.access is present")
-        self.assertEqual(dispatch.COMMON_AUTHORITY, common + WITHDRAWAL_AT_DESIGN)
+        self.assertEqual(dispatch.COMMON_AUTHORITY, with_server_slots(common) + WITHDRAWAL_AT_DESIGN)
         self.assertEqual(dispatch.AUTHORITY_REFERENCE, reference)
         self.assertEqual(dispatch.KW_OPS_AUTHORITY, marker + rest[:-len(reference)])
 
