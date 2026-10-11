@@ -2282,6 +2282,419 @@ work. The prior cleanup and production cutover records are
 [storage record #242](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/242)
 and [cutover record #241](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/241).
 
+### Isolated server pool and three-slot candidate (2026-10-12)
+
+The operator requested three Unity slots and three server-test slots, with ten
+model workers, after relocating TestBot to D:. [FarmBot #244](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/244)
+adds an opt-in server pool and shared heavy-resource memory admission. This
+record distinguishes implementation and isolated host measurements from a live
+capacity change. Both serving instances retained their existing revision and
+configuration throughout these checks.
+
+The final executable candidate is `5cd7b2b75cfa21ee948f85e0babfb9176adac3e3`.
+The PC runs production Windows FarmBot, but the tests used separate development
+roots on D:, dummy/offline identities and temporary fixture repositories. No
+production ledger was opened through the mutating `Ledger` API; no service,
+webhook, account, credential store or game environment was reconfigured.
+
+Each server lease supplies its own MongoDB replica set, Redis, etcd and NATS,
+with unique containers, fresh volumes and isolated internal networking. A fixed
+nonroot/read-only relay publishes only the four loopback endpoints. Native game
+processes stay in the worker's existing containment. Cleanup waits for verified
+worker quiescence and exact Docker ownership. A held lease preserves its private
+journal; it never enters Unity recovery. No global prune or automatic image pull
+is used. Workers receive configuration availability, and the CLI refuses an
+unconfigured pool. The existing clean-HEAD, claim, generation and token fences
+remain required. One item cannot hold a resource while requesting another.
+
+Measured native checks at the final candidate:
+
+- Three managed Git worktrees held three different fixture commits. Three
+  service stacks and three real Windows Job-contained Python fixture workers
+  were simultaneously active. MongoDB reported writable replica-set primary;
+  workers wrote/read candidate-specific values under identical Redis/etcd keys
+  and exercised identical NATS subjects through separate endpoints.
+- Cancelling one worker proved its Job empty and cleaned only its lease. The
+  other two remained running and re-read their own values afterward. All new
+  services were cleaned and all three workers had verified teardown. Docker's
+  pre-existing container inventory/identities/start times were unchanged.
+  The final probe took **35.132 seconds**; its checkout was clean.
+- This service-only fixture profile reserved 3072 MiB per server lease, a
+  12288 MiB instance budget, 4096 MiB available physical headroom and 2048 MiB
+  commit headroom. It ran no Go game build or actual Farm server. Release
+  configuration uses a separate 4608 MiB server estimate and 4096 MiB commit
+  floor; the smaller fixture setting does not certify that release workload.
+- Windows observed available physical/commit memory before the probe as
+  14281/13727 MiB, after all three stacks as 13415/12912 MiB, and after
+  cleanup as 13411/13157 MiB. These are host snapshots while other activity was
+  present, not isolated peak-memory attribution.
+- Host: native Windows 11 build 26200, 31.84 GiB RAM, Python 3.13.16,
+  Git 2.54.0.windows.1 and Git LFS 3.7.1. `PYTHONUTF8=1` was set before Python,
+  and inherited FarmBot/fake CLI/GitHub/Lark selectors were scrubbed before
+  fixture discovery. Logs are UTF-8 and preserved privately with revisions,
+  versions, duration, failures/errors and every platform skip.
+- Docker Desktop 4.94.0 used a local Linux Engine 29.8.2 backend with 15.53 GiB
+  configured RAM. Its VM data disk was verified on D:, independently of the
+  TestBot state-root migration. The shared relay image is **5,013,712 bytes**.
+  Native Go 1.26.6 unit tests and static Linux amd64 packaging passed, with no
+  external modules, network build step, credentials or mutable image selection.
+  Canonical source SHA-256:
+  `891b60cf4b603ca829aa6c3cbb6c21cc32465f82b5271b64bfabfb004e894c1f`;
+  binary SHA-256:
+  `57cc4e1e9790eab0dc1ccd311a0fcb1332995e71658d01e6458382675b862f54`.
+
+The offline three-Unity batch regression proves that three reserved candidates
+can overlap through separate ledger connections. It uses fake Editors and is
+not a measurement of three actual native Unity projects. The new server
+regressions cover FIFO admission, a fourth request waiting, memory/commit
+pressure, held-resource budgeting, simultaneous pool admission, clean candidate
+selection, stage and skill restrictions, restart/cancellation/timeout, journal
+redirect refusal, exact daemon/ownership cleanup and verified operator recovery.
+
+Full frozen-candidate results:
+
+| Host | Tests | Failures / errors | Platform skips | Seconds |
+| --- | ---: | ---: | ---: | ---: |
+| Native production PC, isolated development roots | 2,226 | 0 / 0 | 69 | 1370.905 |
+| Hosted macOS | 2,226 | 0 / 0 | 88 | 956.074 |
+| Hosted Windows | 2,226 | 0 / 0 | 69 | 2408.883 |
+
+The native run used the configured Python to discover `tests` with verbosity 2,
+`-B`, UTF-8 and the sealed, sanitized development environment. All 13 feature
+journeys and all ten native Windows worker tests ran successfully; none skipped.
+Hosted CI tested pull-request merge `7aee85d676ab94bc00ea29eb717dc31cfa5a8cf7`,
+whose tree `a1696d5cea98753b46ed7b354c9cf1fbff0a2dba` was verified equal
+to the final candidate. Both relay gates and complete suites passed in
+[Actions run 38160846017](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/38160846017).
+
+Hosted macOS: Python 3.13.15, macOS 26.6.2 arm64, Git 2.55.0 and
+Git LFS 3.8.0 (Go 1.27.0). Hosted Windows: Python 3.13.15,
+Windows Server 2025 build 26100, Git 2.55.0.windows.5 and Git LFS 3.7.1
+(Go 1.25.1).
+
+UTF-8 unittest log SHA-256 receipts:
+
+- Native PC: `5b168b5911fed21c2d7b95185dad734fa2d17543ee37f47d360cdd9d8feeb3e8`.
+- Hosted macOS: `726861ad8276510c16b07f2febe6c88f8a13761f8ff83b794488d59f930fdfd4`.
+- Hosted Windows: `0deefe847cbc0ddad199b529f194909ed5a16a155553449c1577ccfa6d6d080e`.
+
+During development, the first full local run imported the earlier authority
+snapshots and completed 2,225 tests in 1392.806 seconds with four expected-text
+assertion failures and no errors. All 13 feature journeys and all ten native
+Windows worker tests executed. The historical authority fixtures/digests were
+preserved; only explicit server restrictions were added to their complete
+expected text, with 25 dispatch tests then passing. The later capability check
+passed 282 focused tests in 52.196 seconds with three existing POSIX skips.
+The raw initial result and its start-revision receipt are retained separately;
+its helper recorded completion-time HEAD, so it is not the final frozen-run
+certificate. A fresh complete run tests the final committed candidate.
+The documentation record passed 76 skill/reference tests with no skips, plus
+relative-link and whitespace checks; two existing relative links were corrected.
+
+Earlier focused runs also exposed stale manifest/optional-heartbeat expectations,
+an unsupported reservation mode, and ambient Lark strict-mode/update-notifier
+variables in the development harness. The pool now uses the existing batch-mode
+schema; expected shapes were updated, and the harness strips those inherited
+selectors before loading fixtures. Focused rechecks passed without weakening
+credential withholding or adding platform skips. Their original logs remain
+private with the later successful checks.
+
+Initial disposable probe failures were also retained. Native Docker did not
+expose ports directly from an internal-only service network, which led to the
+fixed internal/ingress relay. A Docker missing-network message needed exact
+handling. Helper-only mistakes and a probe overlapping an earlier fixture's
+cleanup were corrected before the successful probes. Recovery reconciled only
+the named, label/identity-verified fixtures after native worker teardown; no
+containment, ownership guard or test skip was weakened.
+
+The proposed capacity is three slots of each kind, not six guaranteed concurrent
+heavy stages. Private staged settings use a 13824 MiB production estimate budget,
+with 4096 MiB Unity and 4608 MiB server costs, while leaving a proposed 4608 MiB
+budget for TestBot. They retain physical/commit headroom and admit at most three
+heavy stages at once. These per-instance budgets are estimates rather than an
+atomic host-wide quota. They have **not** been applied.
+
+Remaining promotion checks are three real owned Unity projects/Editors with
+their actual acceptance selection, actual Farm multi-node/service-backed tests
+and measured peak loads, then an authorized settled cutover. TestBot's temporary
+public tunnel remains absent; any next live issue trial needs its development
+webhook restored and an operator-selected card. Production currently retains
+ten workers/two Unity slots with no server pool; TestBot retains one worker/one
+Unity slot with no server pool. Local HTTP health and healthy controller loops
+do not certify the pending acceptance checks. Settle every server lease and
+preserve its journal before rolling back to a controller without this kind.
+
+#### Platform skip inventory
+
+Every skip from the frozen runs is listed below. Native and hosted Windows
+inventories match.
+
+##### Native Windows / hosted Windows (69)
+
+FIFOs and O_NOFOLLOW symlink refusal are POSIX:
+
+- `test_heartbeat.HeartbeatFileTests.test_a_fifo_or_symlink_is_unreadable_without_waiting`.
+
+FIFOs are POSIX:
+
+- `test_heartbeat.HeartbeatFileTests.test_write_replaces_a_symlink_or_fifo_instead_of_opening_it`.
+
+FIFOs in a directory are POSIX:
+
+- `test_launcher.LauncherTests.test_a_fifo_the_worker_left_as_a_report_file_cannot_block_poll`.
+- `test_launcher.LauncherTests.test_a_kill_after_a_restart_persists_its_targets_past_a_fifo_left_for_their_temporary_file`.
+- `test_launcher.LauncherTests.test_a_kill_after_a_restart_refuses_a_fifo_teardown_record_before_signalling`.
+- `test_launcher.LauncherTests.test_a_stop_replaces_a_fifo_the_live_worker_swapped_in_for_its_teardown_record`.
+- `test_launcher.LauncherTests.test_cleanup_checks_refuse_a_fifo_launch_or_teardown_record_without_blocking`.
+- `test_launcher.LauncherTests.test_spawn_notes_an_undelivered_prompt_past_a_fifo_the_worker_left_for_the_note`.
+- `test_launcher.LauncherTests.test_spawn_records_the_pid_past_a_fifo_the_new_worker_put_at_its_launch_record`.
+- `test_launcher.LauncherTests.test_stop_does_not_block_on_a_fifo_teardown_record_and_holds_cleanup`.
+- `test_launcher.WorkerFileReadTests.test_a_fifo_is_refused_without_waiting_for_a_writer`.
+- `test_launcher.WorkerFileWriteTests.test_a_fifo_at_the_name_is_replaced_without_waiting_for_a_reader`.
+- `test_scheduler.SchedulerTests.test_a_fifo_left_for_the_batch_summary_is_no_evidence_and_cannot_stall_the_launch`.
+- `test_slots.PoolTests.test_a_fifo_left_for_the_batch_summary_cannot_stall_the_batch_run`.
+
+POSIX permissions; Windows has the junction test:
+
+- `test_worktrees.ReadCheckoutTests.test_removal_never_acts_through_a_link`.
+
+POSIX process group semantics:
+
+- `test_launcher.LauncherTests.test_group_kill_escalates_when_only_the_child_ignores_term`.
+
+POSIX process inspection:
+
+- `test_doctor.ProcessProbeTests.test_invalid_pids_are_never_passed_to_os_kill`.
+- `test_doctor.ProcessProbeTests.test_permission_denied_and_ps_failure_are_unknown_not_dead`.
+- `test_doctor.ProcessProbeTests.test_real_worker_is_recognized_and_reaped_worker_is_dead`.
+
+POSIX self-exit evidence; Windows workers are proved by Job Objects:
+
+- `test_cleanup.SelfExitedWorkerCleanupTests.test_continuation_of_a_self_exited_paused_worker_launches`.
+- `test_cleanup.SelfExitedWorkerCleanupTests.test_resource_fencing_certifies_a_worker_that_exited_by_itself`.
+- `test_cleanup.SelfExitedWorkerCleanupTests.test_resource_fencing_fails_while_the_old_handle_is_still_registered`.
+- `test_cleanup.SelfExitedWorkerCleanupTests.test_retirement_leaves_the_reap_of_a_registered_worker_to_poll`.
+
+POSIX service termination contract:
+
+- `test_service.SignalShutdownTests.test_sigterm_during_pool_ensure_also_cleans_up_and_restores_the_handler`.
+- `test_service.SignalShutdownTests.test_sigterm_reaps_the_batch_child_and_closes_a_running_service`.
+
+POSIX sessions and process groups:
+
+- `test_launcher.PosixSessionScanTests.test_a_failed_ps_exit_proves_nothing`.
+- `test_launcher.PosixSessionScanTests.test_a_member_that_exits_before_getsid_is_skipped`.
+- `test_launcher.PosixSessionScanTests.test_a_session_that_cannot_be_read_proves_nothing`.
+- `test_launcher.PosixSessionScanTests.test_a_table_that_does_not_list_farmbot_itself_proves_nothing`.
+- `test_launcher.PosixSessionScanTests.test_group_and_session_members_are_listed_but_not_the_leader_or_zombies`.
+- `test_launcher.PosixSessionScanTests.test_ps_that_fails_or_times_out_proves_nothing`.
+- `test_launcher.PosixSessionScanTests.test_signals_reach_the_group_and_only_members_still_in_the_session`.
+- `test_launcher.PosixSessionScanTests.test_the_group_is_gone_only_when_the_kernel_says_so`.
+
+POSIX sessions; Windows workers are proved by Job Objects in test_windows_workers.py:
+
+- `test_launcher.PosixSelfExitTeardownTests.test_a_claimed_worker_is_not_reaped_by_poll_even_without_waitid`.
+- `test_launcher.PosixSelfExitTeardownTests.test_a_failing_teardown_check_still_reports_every_exit`.
+- `test_launcher.PosixSelfExitTeardownTests.test_a_fifo_teardown_record_holds_cleanup_without_blocking_the_poll`.
+- `test_launcher.PosixSelfExitTeardownTests.test_a_fifo_that_appears_at_the_teardown_record_is_replaced_by_the_verified_one`.
+- `test_launcher.PosixSelfExitTeardownTests.test_a_group_still_reported_after_the_reap_holds_cleanup`.
+- `test_launcher.PosixSelfExitTeardownTests.test_a_member_that_cannot_be_terminated_holds_cleanup`.
+- `test_launcher.PosixSelfExitTeardownTests.test_a_process_table_that_stays_unreadable_holds_cleanup`.
+- `test_launcher.PosixSelfExitTeardownTests.test_a_reap_that_cannot_complete_is_retried`.
+- `test_launcher.PosixSelfExitTeardownTests.test_a_repeated_stop_keeps_what_an_earlier_stop_recorded`.
+- `test_launcher.PosixSelfExitTeardownTests.test_a_signalled_member_that_leaves_the_session_is_still_checked`.
+- `test_launcher.PosixSelfExitTeardownTests.test_a_teardown_record_naming_another_pid_holds_cleanup`.
+- `test_launcher.PosixSelfExitTeardownTests.test_a_verified_self_exit_keeps_an_interrupted_stops_recorded_descendants`.
+- `test_launcher.PosixSelfExitTeardownTests.test_an_unreadable_process_table_is_retried_while_the_worker_stays_unreaped`.
+- `test_launcher.PosixSelfExitTeardownTests.test_an_unverified_self_exit_supersedes_an_interrupted_stop_record`.
+- `test_launcher.PosixSelfExitTeardownTests.test_normal_exit_is_proven_quiescent`.
+- `test_launcher.PosixSelfExitTeardownTests.test_other_group_in_the_worker_session_is_terminated_and_recorded`.
+- `test_launcher.PosixSelfExitTeardownTests.test_poll_leaves_a_worker_being_killed_to_kill`.
+- `test_launcher.PosixSelfExitTeardownTests.test_same_group_survivor_is_terminated_and_recorded`.
+- `test_launcher.PosixSelfExitTeardownTests.test_setsid_descendant_escapes_the_session_check`.
+- `test_launcher.PosixSelfExitTeardownTests.test_stop_after_a_self_exit_leaves_the_reap_and_its_evidence_to_poll`.
+- `test_launcher.PosixSelfExitTeardownTests.test_stop_racing_a_self_exit_signals_the_group_even_without_waitid`.
+- `test_launcher.PosixSelfExitTeardownTests.test_stop_racing_a_self_exit_still_reaches_the_worker_group`.
+- `test_launcher.PosixSelfExitTeardownTests.test_stop_terminates_a_group_member_the_parent_walk_cannot_see`.
+- `test_launcher.PosixSelfExitTeardownTests.test_what_the_worker_left_for_the_unverified_record_is_replaced_not_opened`.
+- `test_launcher.PosixSelfExitTeardownTests.test_without_waitid_a_self_exit_keeps_holding_cleanup`.
+
+Windows has no O_NOFOLLOW; making a symlink there needs a privilege:
+
+- `test_launcher.WorkerFileReadTests.test_a_symlink_is_refused_even_to_a_regular_file`.
+
+Windows refuses every lark_cli home:
+
+- `test_config.LarkCliConfigTests.test_a_home_lies_outside_local_root_the_users_home_and_every_temporary_directory`.
+
+Windows worker jobs contain children; tested in test_windows_workers:
+
+- `test_cleanup.CancellationCleanupTests.test_exited_parent_with_detached_child_holds_cleanup_after_restart`.
+
+macOS's Seatbelt, as Codex's:
+
+- `test_worktrees.ControllerGitTests.test_within_those_parts_a_worker_commits_and_pushes_but_cannot_touch_the_config`.
+
+making a symlink on Windows needs a privilege:
+
+- `test_launcher.WorkerFileWriteTests.test_a_symlink_at_the_name_is_replaced_and_what_it_names_is_left_alone`.
+
+no FIFOs in a directory, and making a symlink needs a privilege:
+
+- `test_slots.PoolTests.test_what_the_worker_left_at_the_token_path_is_replaced_by_the_grant`.
+
+the filter here is a shell script:
+
+- `test_worktrees.ControllerGitTests.test_farmbots_git_in_a_worktree_follows_neither_of_its_pointers`.
+
+the hooks here are shell scripts:
+
+- `test_worktrees.ControllerGitTests.test_farmbots_own_git_runs_no_hook_left_in_the_clone`.
+
+the hooks, fsmonitor and filters here are shell scripts:
+
+- `test_worktrees.ReadCheckoutTests.test_no_hook_fsmonitor_filter_or_setting_of_the_host_or_the_clone_runs`.
+
+the macOS store's master key file:
+
+- `test_doctor.FeatureToolchainTests.test_a_store_whose_key_is_a_file_and_that_holds_a_login_is_exposed`.
+
+the planted hooks and fsmonitor are shell scripts:
+
+- `test_worktrees.ReattachTests.test_no_hook_or_fsmonitor_planted_in_the_clone_runs_while_re_attaching`.
+
+##### Hosted macOS (88)
+
+Windows Job Objects:
+
+- `test_windows_workers.WindowsWorkerTests.test_assignment_failure_never_runs_requested_command`.
+- `test_windows_workers.WindowsWorkerTests.test_assignment_precedes_even_python_redirector_and_gate_startup`.
+- `test_windows_workers.WindowsWorkerTests.test_later_contained_attempt_cannot_certify_legacy_attempt_with_same_pid`.
+- `test_windows_workers.WindowsWorkerTests.test_normal_exit_is_proven_quiescent`.
+- `test_windows_workers.WindowsWorkerTests.test_receiver_crash_terminates_its_worker_job`.
+- `test_windows_workers.WindowsWorkerTests.test_resume_failure_starts_no_gate_and_retains_not_started_evidence`.
+- `test_windows_workers.WindowsWorkerTests.test_simultaneous_stop_and_poll_finalize_job_once`.
+- `test_windows_workers.WindowsWorkerTests.test_spontaneous_exit_reaps_child_and_preserves_unrelated_process`.
+- `test_windows_workers.WindowsWorkerTests.test_stop_is_proven_quiescent`.
+- `test_windows_workers.WindowsWorkerTests.test_unassigned_suspended_creation_object_cannot_be_resumed`.
+
+Windows boot proof:
+
+- `test_cleanup_recovery.CleanupRecoveryTests.test_new_attempt_with_reused_pid_is_not_covered_by_old_boot`.
+- `test_cleanup_recovery.CleanupRecoveryTests.test_reused_pid_after_reboot_is_not_an_old_worker`.
+- `test_cleanup_recovery.CleanupRecoveryTests.test_scheduler_preserves_then_cleans_without_killing_reused_pid`.
+
+Windows file-name semantics are checked on Windows:
+
+- `test_uploads.WindowsNameTests.test_colon_names_create_no_stream`.
+- `test_uploads.WindowsNameTests.test_reserved_device_names_are_never_opened`.
+- `test_uploads.WindowsNameTests.test_trailing_dots_and_spaces_do_not_alias`.
+
+junctions are Windows':
+
+- `test_worktrees.ControllerGitTests.test_cleanup_refuses_a_junction_in_the_item_directory`.
+- `test_worktrees.ReadCheckoutTests.test_a_junction_is_refused_as_a_symlink_is`.
+
+junctions exist on Windows only:
+
+- `test_uploads.OutputDirectoryTests.test_a_junction_is_refused_as_out`.
+
+lark-cli keeps secrets per Windows user, whatever HOME says:
+
+- `test_config.LarkCliConfigTests.test_a_home_is_refused_on_windows`.
+
+native Windows Git LFS filter adapter:
+
+- `test_windows_lfs_filter.NativeLfsFilterTests.test_actual_cached_staged_checkout_clean_and_stat_refresh_preserve_source_with_no_helper_shell`.
+- `test_windows_lfs_filter.NativeLfsFilterTests.test_adapter_and_native_child_remain_in_assigned_job_and_drain`.
+- `test_windows_lfs_filter.NativeLfsFilterTests.test_arguments_are_refused_before_starting_selected_executable`.
+- `test_windows_lfs_filter.NativeLfsFilterTests.test_builder_pins_existing_lfs_without_installing_configuration`.
+- `test_windows_lfs_filter.NativeLfsFilterTests.test_builder_refuses_existing_and_unsafe_output_before_writing`.
+- `test_windows_lfs_filter.NativeLfsFilterTests.test_changed_executable_hash_is_refused_without_diagnostics`.
+- `test_windows_lfs_filter.NativeLfsFilterTests.test_child_failure_code_is_preserved`.
+- `test_windows_lfs_filter.NativeLfsFilterTests.test_fragmented_binary_stream_is_preserved_without_text_conversion`.
+- `test_windows_lfs_filter.NativeLfsFilterTests.test_missing_malformed_oversized_or_bom_settings_are_refused`.
+- `test_windows_lfs_filter.NativeLfsFilterTests.test_pinned_child_and_adapter_support_spaces_and_unicode`.
+- `test_windows_lfs_filter.NativeLfsFilterTests.test_reparse_settings_are_refused`.
+- `test_windows_lfs_filter.NativeLfsFilterTests.test_reparse_target_executable_is_refused`.
+- `test_windows_lfs_filter.NativeLfsFilterTests.test_utf8_console_adds_no_preamble_and_restores_input_encoding`.
+
+native Windows LFS credential callback:
+
+- `test_windows_lfs_askpass.NativeLfsAskpassTests.test_argument_count_is_checked_before_lookup`.
+- `test_windows_lfs_askpass.NativeLfsAskpassTests.test_default_build_remains_github_only`.
+- `test_windows_lfs_askpass.NativeLfsAskpassTests.test_environment_cannot_redirect_pinned_lfs_lookup`.
+- `test_windows_lfs_askpass.NativeLfsAskpassTests.test_failed_and_malformed_responses_are_quiet`.
+- `test_windows_lfs_askpass.NativeLfsAskpassTests.test_github_route_cannot_fall_back_to_lfs_credentials`.
+- `test_windows_lfs_askpass.NativeLfsAskpassTests.test_https_origin_and_unicode_credentials`.
+- `test_windows_lfs_askpass.NativeLfsAskpassTests.test_incomplete_or_invalid_lfs_selection_creates_no_output`.
+- `test_windows_lfs_askpass.NativeLfsAskpassTests.test_missing_malformed_and_replaced_pins_fail_before_lookup`.
+- `test_windows_lfs_askpass.NativeLfsAskpassTests.test_native_short_directory_alias_names_the_same_pinned_executable`.
+- `test_windows_lfs_askpass.NativeLfsAskpassTests.test_optional_build_pins_origin_executable_and_source_identities`.
+- `test_windows_lfs_askpass.NativeLfsAskpassTests.test_origin_fields_are_accepted_when_they_match`.
+- `test_windows_lfs_askpass.NativeLfsAskpassTests.test_password_username_must_match_returned_identity`.
+- `test_windows_lfs_askpass.NativeLfsAskpassTests.test_reparse_pins_and_drive_relative_paths_are_refused_before_lookup`.
+- `test_windows_lfs_askpass.NativeLfsAskpassTests.test_scheme_host_port_and_prompt_are_checked_before_lookup`.
+- `test_windows_lfs_askpass.NativeLfsAskpassTests.test_server_only_lookup_returns_only_requested_field`.
+- `test_windows_lfs_askpass.NativeLfsAskpassTests.test_utf8_console_does_not_add_bom_or_change_input_encoding`.
+
+native Windows UI guard Job Objects:
+
+- `test_fgui_guards.NativeGuardProcessTests.test_selected_python_redirector_runs_only_after_assignment_and_drains_job`.
+- `test_fgui_guards.NativeGuardProcessTests.test_stop_before_resume_never_starts_process`.
+- `test_fgui_guards.NativeGuardProcessTests.test_timeout_reaps_owned_python_tree_and_retains_logs`.
+
+native Windows credential callback:
+
+- `test_windows_git_askpass.NativeGitAskpassTests.test_failed_or_malformed_lookup_never_outputs_a_credential_or_diagnostic`.
+- `test_windows_git_askpass.NativeGitAskpassTests.test_invalid_argument_count_never_starts_credential_lookup`.
+- `test_windows_git_askpass.NativeGitAskpassTests.test_password_for_another_user_is_refused_without_output`.
+- `test_windows_git_askpass.NativeGitAskpassTests.test_unavailable_or_wrong_executable_never_starts_credential_lookup`.
+- `test_windows_git_askpass.NativeGitAskpassTests.test_username_and_password_are_only_the_requested_field`.
+- `test_windows_git_askpass.NativeGitAskpassTests.test_utf8_console_does_not_add_a_bom_to_the_credential_request`.
+- `test_windows_git_askpass.NativeGitAskpassTests.test_wrong_destination_or_prompt_never_starts_credential_lookup`.
+
+native Windows file handles and Job Objects:
+
+- `test_runtime_retention.NativeRetentionTests.test_active_real_job_is_preserved_even_with_empty_receipt`.
+- `test_runtime_retention.NativeRetentionTests.test_archive_inside_state_is_refused_without_modifying_it`.
+- `test_runtime_retention.NativeRetentionTests.test_archive_is_verified_and_deduplicated`.
+- `test_runtime_retention.NativeRetentionTests.test_corrupt_archive_keeps_source`.
+- `test_runtime_retention.NativeRetentionTests.test_dry_run_leaves_every_file_intact`.
+- `test_runtime_retention.NativeRetentionTests.test_hardlinked_executable_is_preserved`.
+- `test_runtime_retention.NativeRetentionTests.test_incomplete_teardown_and_outside_root_never_delete`.
+- `test_runtime_retention.NativeRetentionTests.test_launcher_reclaims_after_native_teardown`.
+- `test_runtime_retention.NativeRetentionTests.test_linked_receipt_preserves_source_and_external_file`.
+- `test_runtime_retention.NativeRetentionTests.test_native_delete_preserves_credentials_logs_and_recovery_evidence`.
+- `test_runtime_retention.NativeRetentionTests.test_open_file_contention_preserves_source`.
+- `test_runtime_retention.NativeRetentionTests.test_parent_cannot_be_renamed_during_hash_and_delete`.
+- `test_runtime_retention.NativeRetentionTests.test_reparse_directory_or_receipt_cannot_redirect_cleanup`.
+- `test_runtime_retention.NativeRetentionTests.test_retention_failure_does_not_prevent_worker_reaping`.
+- `test_runtime_retention.NativeRetentionTests.test_sweep_refuses_unknown_archive_and_preserves_owned_marker`.
+
+native Windows interpreter selection:
+
+- `test_doctor.FeatureToolchainTests.test_windows_uses_its_running_python_and_never_probes_posix_tools`.
+
+native Windows publisher Job Objects:
+
+- `test_fgui_publisher.NativePublisherTests.test_native_assignment_failure_never_runs_publisher`.
+- `test_fgui_publisher.NativePublisherTests.test_native_competing_process_is_never_terminated`.
+- `test_fgui_publisher.NativePublisherTests.test_native_delayed_assignment_precedes_redirector_and_gate_startup`.
+- `test_fgui_publisher.NativePublisherTests.test_native_existing_editor_refuses_before_any_process`.
+- `test_fgui_publisher.NativePublisherTests.test_native_exited_parent_with_lingering_child_is_refused_and_reaped`.
+- `test_fgui_publisher.NativePublisherTests.test_native_mutex_excludes_second_process`.
+- `test_fgui_publisher.NativePublisherTests.test_native_nested_job_inside_owned_worker`.
+- `test_fgui_publisher.NativePublisherTests.test_native_parent_exit_waits_for_bounded_descendant_quiescence`.
+- `test_fgui_publisher.NativePublisherTests.test_native_stop_after_assignment_never_opens_gate`.
+- `test_fgui_publisher.NativePublisherTests.test_native_stop_during_running_publisher_reaps_owned_tree`.
+- `test_fgui_publisher.NativePublisherTests.test_native_success_assigns_before_launch_and_is_quiescent`.
+- `test_fgui_publisher.NativePublisherTests.test_native_timeout_reaps_tree_preserves_unrelated_process`.
+
+the Windows containment path reads every attempt's launch record:
+
+- `test_launcher.WorkerFileReadTests.test_an_oversized_launch_record_is_refused_by_the_windows_containment_check`.
+
 ## Scope
 
 In Phase B (spec §13, item 2):
@@ -8984,7 +9397,7 @@ receiver:
 FarmBot stores neither the app ID nor its secret; they stay in that lark-cli profile. `home` must lie
 outside `local_root`, your home directory and every temporary directory. `serve` and `enqueue` refuse
 a host that enables `feature` without the block. Create the home and the profile as the
-[development workflow](docs/development-workflow.md) describes. Every worker starts without
+[development workflow](../../development-workflow.md) describes. Every worker starts without
 `LARKSUITE_CLI_APP_ID`, `LARKSUITE_CLI_APP_SECRET`, `LARKSUITE_CLI_PROXY_KEY` and any
 `LARKSUITE_CLI_*ACCESS_TOKEN`, because lark-cli prefers credentials from the environment to
 `--profile`. That removal covers only the environment a worker inherits, so never export them, or
@@ -14312,7 +14725,7 @@ the setup must keep that login out of the workers' reach, as the development wor
 section describes for TestBot; otherwise accept that exposure knowingly before enabling `feature`.
 On Windows, lark-cli keeps secrets per Windows user, so a separate home isolates nothing; how the
 production host holds the FarmBot secret is not decided yet
-([feature-workers design](docs/superpowers/specs/2026-09-24-feature-workers-design.md) §14.2), and
+([feature-workers design](../specs/2026-09-24-feature-workers-design.md) §14.2), and
 `feature` stays disabled there until it is.
 ```
 
