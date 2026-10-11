@@ -19,7 +19,7 @@ STALE_AFTER = 60.0
 # and so can the replace itself. The one retry of such a read, or of serve's final beat, waits this long.
 RETRY_AFTER = 0.1
 MAX_BYTES = 64 * 1024
-LOOPS = ("receive", "schedule", "pool", "lifecycle", "progress", "resource_recovery")
+LOOPS = ("receive", "schedule", "pool", "lifecycle", "progress", "resource_recovery", "server_pool")
 PHASES = ("starting", "serving", "stopped")
 OUTCOMES = ("accepted", "duplicate", "ignored", "rejected", "malformed", "failed")
 _ERROR_TYPE = re.compile(r"[A-Za-z_][A-Za-z0-9_.]{0,63}")
@@ -208,8 +208,11 @@ def _capacity(raw):
     names = [_matching(_RUNTIME, name, optional=False) for name in skills]
     if len(set(names)) != len(names):
         raise ValueError("heartbeat skills")
-    return {"max_workers": maximum, "unity_slots": _count(raw.get("unity_slots")),
-            "enabled_skills": sorted(names)}
+    result = {"max_workers": maximum, "unity_slots": _count(raw.get("unity_slots")),
+              "enabled_skills": sorted(names)}
+    if "server_slots" in raw:
+        result["server_slots"] = _count(raw["server_slots"])
+    return result
 
 
 def validate(raw):

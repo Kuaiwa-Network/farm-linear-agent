@@ -1629,7 +1629,9 @@ class Ledger:
         root is its stored root, the rules are the ones it always had.
         """
         _text(resource, "resource")
-        if mode not in ("interactive", "batch"):
+        if resource == "server_slot" and mode != "batch":
+            raise LedgerError("server slots require batch mode")
+        if resource != "server_slot" and mode not in ("interactive", "batch"):
             raise LedgerError("mode must be interactive or batch")
         with self._transaction():
             row = self._owned(item_id, token)
@@ -1639,6 +1641,24 @@ class Ledger:
                 raise LedgerError("a resource request requires the work item's own skill manifest")
             require_listed_resource(skill, resource)
             root = current_root(row["root_repo"], skill)
+            if resource == "server_slot":
+                if row["skill"] not in ("fix", "feature") or root != "farm-hive":
+                    raise LedgerError("server integration requires a farm-hive write stage")
+                if not isinstance(commit_sha, str) or not COMMIT_SHA.fullmatch(commit_sha):
+                    raise LedgerError("server integration requires an explicit committed server HEAD")
+                if self.connection.execute("SELECT 1 FROM reservations WHERE item_id=? AND state IN "
+                        "('queued','active','cancel_requested')", (item_id,)).fetchone():
+                    raise LedgerError("release the resource this item already holds before requesting another")
+                reservation_id = str(uuid4())
+                self.connection.execute("""INSERT INTO reservations
+                    (reservation_id,item_id,generation,kind,mode,commit_sha,state,created_at)
+                    VALUES(?,?,?,?,?,?,'queued',?)""",
+                    (reservation_id, item_id, row["generation"], resource, mode, commit_sha, self.clock()))
+                self._set_state(item_id, "awaiting_resource", "needs server_slot:batch", token=None,
+                                lease_expires_at=None, worker_pid=None, needs_resource="server_slot:batch")
+                self._audit(item_id, "reservation", "queued", details={"reservation_id": reservation_id,
+                            "mode": mode, "commit_sha": commit_sha})
+                return self._view(self._row(item_id))
             if root not in (None, "Farm-Client"):
                 raise LedgerError("Unity verification requires the neutral or Farm-Client stage")
             target = json.loads(row["target_json"]) if row["target_json"] else None
@@ -1832,7 +1852,8 @@ class Ledger:
                                     (self.clock(), row["resource"]))
             self._audit(row["item_id"], "reservation", "held", details={"reservation_id": reservation_id,
                                                                        "reason": reason[:200]})
-            RecoveryStore(self).request_in_transaction(row["resource"], reason, recovery_kind=recovery_kind)
+            if row["kind"] != "server_slot":
+                RecoveryStore(self).request_in_transaction(row["resource"], reason, recovery_kind=recovery_kind)
             return self._reservation_view(row)
 
     def hold_owned(self, reservation_id, token, reason):
@@ -1884,6 +1905,8 @@ class Ledger:
         _text(reason, "reason")
         with self._transaction():
             row = self._slot_row(slot_id)
+            if row["kind"] == "server_slot":
+                raise LedgerError("server slots require controller-owned Docker cleanup; use recover-server-slot")
             if self.connection.execute("SELECT 1 FROM resource_recoveries WHERE slot_id=? AND state IN ('pending','repairing')",
                                        (slot_id,)).fetchone():
                 raise LedgerError('slot is owned by automatic recovery; cannot bypass worker/editor fencing')

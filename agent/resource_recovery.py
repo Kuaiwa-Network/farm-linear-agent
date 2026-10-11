@@ -133,6 +133,8 @@ class RecoveryStore:
         """Migrate pre-existing holds, retaining genuine human questions and exhausted holds."""
         with self.ledger._transaction():
             for slot in self.ledger.slots(host=host):
+                if slot['kind'] != 'unity_slot':
+                    continue
                 if slot['state'] != 'held':
                     continue
                 latest = self.db.execute('SELECT state FROM resource_recoveries WHERE slot_id=? ORDER BY created_at DESC LIMIT 1',

@@ -94,7 +94,7 @@ class SlotPool:
 
     def __init__(self, ledger, worktrees, entries, *, host, editors_root, unity=None, mcp=None, clock=time.time,
                  sleep=None, editor_scan=None, editor_pid=None, state_dir=None, owner="pool",
-                 run_unsandboxed=None, concurrent_batches=False):
+                 run_unsandboxed=None, concurrent_batches=False, admission=None):
         # `ledger` may be a Ledger or a zero-argument factory. The pool runs on its own thread beside the
         # receiver's and the scheduler's, and two threads on one sqlite3.Connection do not get two
         # transactions: _transaction() is a bare BEGIN IMMEDIATE/COMMIT, so one thread's BEGIN can land
@@ -127,6 +127,7 @@ class SlotPool:
         # run that never happened.
         self.run_unsandboxed = run_unsandboxed
         self.owner = owner
+        self.admission = admission
         self.last_observation = None
         self._batches = {}
         self._batch_executor = (ThreadPoolExecutor(max_workers=max(1, len(self.entries)),
@@ -219,7 +220,27 @@ class SlotPool:
         quiescence checks; a newly parked slot becomes available on the next tick.
         """
         completed = self._finish_batches()
+        self.close_idle_for_memory()
         return {"settled": self.settle(), "granted": completed + self.grant(), "parked": self.park_idle()}
+
+    def close_idle_for_memory(self):
+        """Configured heavy-resource admission may reclaim idle Editors, after the ordinary ownership probe."""
+        if self.admission is None:
+            return
+        queued = self.ledger.reservations(states=("queued",))
+        if not queued:
+            return
+        waiting = any(r["kind"] == "server_slot" for r in queued)
+        if not waiting and self.admission.last_reason is None:
+            return
+        for slot in self.ledger.slots(kind="unity_slot", host=self.host):
+            if slot["state"] != "idle_open" or self.ledger.active_reservation_on(slot["slot_id"]):
+                continue
+            try:
+                self.close_editor(slot)
+                self.park(slot["slot_id"], "batch")
+            except SlotError:
+                self.ledger.set_slot_state(slot["slot_id"], "held")
 
     def _run_batch_on_connection(self, reservation):
         # Only execution leaves the pool thread. Git, MCP preparation, reservation
@@ -279,8 +300,11 @@ class SlotPool:
             return granted
         for kind in sorted({entry["kind"] for entry in self.entries.values()}):
             for _ in range(len(self.entries)):
-                reservation = self.ledger.acquire(kind, owner=self.owner, host=self.host,
-                                                  exclude_resources=self._batches)
+                acquire = self.admission.acquire if self.admission else None
+                reservation = (acquire(self.ledger, kind, owner=self.owner, host=self.host,
+                                       exclude_resources=self._batches) if acquire else
+                               self.ledger.acquire(kind, owner=self.owner, host=self.host,
+                                                   exclude_resources=self._batches))
                 if reservation is None:
                     break
                 granted += int(self._hand_over(reservation))
@@ -433,6 +457,8 @@ class SlotPool:
         """
         settled = 0
         for reservation in self.ledger.reservations_to_settle():
+            if reservation["kind"] != "unity_slot":
+                continue
             if reservation["resource"] in self._batches:
                 continue  # execution/evidence must finish before cancellation settles
             slot = self.ledger.slot(reservation["resource"])
@@ -481,6 +507,8 @@ class SlotPool:
         """
         parked = 0
         for slot in self.ledger.slots(host=self.host):
+            if slot["kind"] != "unity_slot":
+                continue
             if slot["slot_id"] in self._batches:
                 continue
             if slot["state"] != "switching" or self.ledger.active_reservation_on(slot["slot_id"]):

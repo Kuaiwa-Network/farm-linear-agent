@@ -66,6 +66,31 @@ jobs:
               (root / "link").symlink_to(root / "target", target_is_directory=True)
               assert (root / "link").is_symlink()
 
+      - name: Set up pinned Go for the fixed service relay
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.6"
+          cache: false
+
+      - name: Test and cross-build fixed service relay
+        shell: python
+        run: |
+          import os
+          import pathlib
+          import subprocess
+          import tempfile
+          source = pathlib.Path("agent/probes/server-proxy").resolve()
+          env = dict(os.environ, GOENV="off", GOWORK="off", GOTOOLCHAIN="local", GOPROXY="off", GOSUMDB="off")
+          for name in list(env):
+              if name.upper().startswith(("FARMBOT_", "FAKE_CLI_", "DOCKER_", "COMPOSE_")) or name.upper() in {
+                  "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"
+              }:
+                  del env[name]
+          subprocess.run(["go", "test", "-count=1", "-timeout=30s", "./..."], cwd=source, env=env, check=True)
+          with tempfile.TemporaryDirectory() as directory:
+              subprocess.run(["go", "build", "-trimpath", "-o", str(pathlib.Path(directory) / "server-proxy"), "."],
+                             cwd=source, env=dict(env, GOOS="linux", GOARCH="amd64", CGO_ENABLED="0"), check=True)
+
       - name: Run offline suite
         shell: python
         run: |

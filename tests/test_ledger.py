@@ -429,7 +429,7 @@ class ManifestResourceTests(LedgerBase):
 
     def test_fix_waits_only_for_the_kind_its_manifest_lists(self):
         item, token = self.claimed("fix")
-        with self.assertRaisesRegex(LedgerError, "^unity is not a resource of fix; its manifest lists unity_slot$"):
+        with self.assertRaisesRegex(LedgerError, "^unity is not a resource of fix; its manifest lists unity_slot, server_slot$"):
             self.ledger.await_resource(item, token, "unity", "batch", skill=SKILLS["fix"])
         waiting = self.ledger.await_resource(item, token, "unity_slot", "batch", skill=SKILLS["fix"])
         self.assertEqual(waiting["state"], "awaiting_resource")

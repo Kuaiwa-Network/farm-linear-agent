@@ -193,7 +193,15 @@ Run each check in the repository's own stage. Cheapest sufficient check first, a
 
 1. Client typecheck: `tools/typecheck/hotupdate-typecheck.sh` in the Farm-Client worktree.
 2. dotnet unit tests: `dotnet test tests/Farm.Tests.Unit` in the Farm-Client worktree.
-3. hive: `go test ./...` in the farm-hive worktree.
+3. hive: `go test ./...` in the farm-hive worktree. For service-backed checks on a
+   host with `tools.server_tests.status: configured`, first commit and checkpoint the candidate and test plan,
+   request `await-resource --resource server_slot --mode batch --commit FULL_HEAD_SHA`,
+   then exit. After resume check `resource.commit`, use only its loopback
+   `resource.environment`, and keep native game-server processes inside this worker.
+   Docker administration and shared/live service fallback are forbidden. Record
+   results/skips, stop game processes, checkpoint and release, then park/handoff or
+   request the next run and exit. The controller waits for verified teardown before
+   resetting data. Without a configured slot, record service checks as pending.
 4. EditMode or PlayMode fixtures need a Unity slot in batch mode. Checkpoint your handoff, then
    `await-resource --resource unity_slot --mode batch --commit FIX_SHA` and exit. **You are asking for a run, not for
    permission to perform one.** While you are gone the pool switches the slot to your requested commit and

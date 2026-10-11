@@ -281,7 +281,7 @@ class SkillRegistryTests(unittest.TestCase):
         self.assertEqual(set(skills), {"chat", "feature", "fix", "fgui"})
         self.assertEqual(skills["fix"].trigger, ("delegation",))
         self.assertIn("Farm-Client", skills["fix"].writes)
-        self.assertEqual(skills["fix"].resources, ("unity_slot",))
+        self.assertEqual(skills["fix"].resources, ("unity_slot", "server_slot"))
         self.assertEqual(skills["chat"].writes, ())
         self.assertTrue(skills["fix"].skill_md.is_file())
         self.assertEqual(skills["fix"].mcp, ("kw_ops",))
@@ -496,7 +496,7 @@ class FeatureManifestTests(unittest.TestCase):
         "initial_root": "Farm-Contract",
         "staged": True,
         "reads": ["Farm-Contract", "Farm-Client", "farmgui"],
-        "resources": ["unity_slot"],
+        "resources": ["unity_slot", "server_slot"],
         "gates": ["answers", "config_ready", "ui_ready", "closing", "pr_review"],
         "mcp": [],
         "budget": {"lease_seconds": 2700, "max_hours": 10, "renew_minutes": 10},
@@ -516,7 +516,7 @@ class FeatureManifestTests(unittest.TestCase):
         self.assertEqual((feature.trigger, feature.intents, feature.writes, feature.initial_root, feature.staged,
                           feature.reads, feature.resources, feature.gates, feature.mcp, feature.budget),
                          (("delegation",), ("label:Bot/Code",), ("Farm-Contract", "common", "farm-hive", "Farm-Client"),
-                          "Farm-Contract", True, ("Farm-Contract", "Farm-Client", "farmgui"), ("unity_slot",),
+                          "Farm-Contract", True, ("Farm-Contract", "Farm-Client", "farmgui"), ("unity_slot", "server_slot"),
                           ("answers", "config_ready", "ui_ready", "closing", "pr_review"), (),
                           {"lease_seconds": 2700, "max_hours": 10, "renew_minutes": 10}))
         self.assertEqual((feature.opt_in, feature.exclusive), (True, True))

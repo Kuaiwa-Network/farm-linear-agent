@@ -29,7 +29,7 @@ class Scheduler:
                  max_concurrent=2, guidance_for=lambda item: "", claim_timeout=600, api=None,
                  slot_entries=None, preflight=None, control_ledger_factory=None, publication=None, codex_workers=None,
                  config_path=None, issue_prefix='FARM', bot_name='FarmBot', kw_ops=None, enabled_skills=None,
-                 lark_cli=None, default_server_environment="公共测试服"):
+                 lark_cli=None, default_server_environment="公共测试服", server_slots_root=None):
         self.publication = publication
         self.preflight = preflight
         self.control_ledger_factory = control_ledger_factory
@@ -50,6 +50,7 @@ class Scheduler:
         self.kw_ops_config = dict(kw_ops or {})
         self.lark_cli = dict(lark_cli or {})
         self.default_server_environment = default_server_environment
+        self.server_slots_root = server_slots_root
         # The loaded skills this host runs (spec §9.11); tick() refuses a queued item of any other loaded skill.
         # Without a set, every loaded skill but the opt-in ones, as skills.enabled_skills decides (P1).
         self.enabled_skills = ({name for name, skill in (skills or {}).items() if not skill.opt_in}
@@ -171,6 +172,8 @@ class Scheduler:
         # not make that repository file inert: codex exec trusts an undecided cwd and then loads it, so
         # Launcher.spawn records the cwd as untrusted in that home.
         reservation = self.ledger.active_reservation(item["id"])
+        if reservation is not None and reservation["generation"] != item["generation"]:
+            return None
         if reservation is not None and self.ledger.slot(reservation['resource'])['state'] == 'held':
             return None
         servers, resource = {}, None
@@ -194,7 +197,14 @@ class Scheduler:
                         "batch_result": (self._batch_result(state_dir)
                                          if reservation["mode"] == "batch" else None),
                         "results_dir": str(state_dir)}
-            if reservation["mode"] == "interactive":
+            if reservation["kind"] == "server_slot":
+                # The controller journal is outside worker write roots. Reconstruct endpoints from it,
+                # never from a worker-writable result file or inherited production environment.
+                from .server_slots import read_resource
+                resource = {**read_resource(slot, reservation, self.server_slots_root),
+                            "token_file": str(Path(state_dir) / "reservation.token")}
+                self.worktrees.verification_commit("farm-hive", item["id"], reservation["commit_sha"])
+            if reservation["kind"] == "unity_slot" and reservation["mode"] == "interactive":
                 # The server exists for this worker only while the reservation is held, and the worker pins
                 # its own MCP session with set_active_instance because HTTP selection is per session. The
                 # shape is the runtime's, not one guess for both: write_mcp_config's JSON writer emits
@@ -209,6 +219,9 @@ class Scheduler:
         if kw_ops_grant.server is not None:
             servers[KW_OPS_SERVER] = kw_ops_grant.server
         tools = {KW_OPS_SERVER: kw_ops_grant.tools} if kw_ops_grant.tools is not None else {}
+        if skill.name in ("fix", "feature") and root == "farm-hive":
+            tools["server_tests"] = {"status": "configured" if self.server_slots_root else "unavailable",
+                                     "resource": "server_slot"}
         if skill.name == "feature" and root == "Farm-Client":
             # A configured slot may supply read-only generated projects/DLLs even before a reservation. This
             # exposes no Editor command or writable slot root, and the delivered typecheck validates readiness.
@@ -275,6 +288,12 @@ class Scheduler:
         if self.kw_ops_config and kw_ops_grant.keep_env is None:
             options["withheld_env"] = [self.kw_ops_config["token_env"]]
         worker_env = {"FARMBOT_DB": str(self.db_path), "PYTHONPATH": pythonpath}
+        if resource and resource["kind"] == "server_slot":
+            worker_env.update(resource["environment"])
+            cache = Path(self.launcher.state_dir(item["id"])) / "server-tests"
+            for child in ("go-cache", "tmp"):
+                (cache / child).mkdir(parents=True, exist_ok=True)
+            worker_env.update(GOCACHE=str(cache / "go-cache"), GOTMPDIR=str(cache / "tmp"), GOMAXPROCS="2")
         if self.config_path is not None:
             # Every attempt, including resumes, uses the controller's selected file.
             # Do not mutate os.environ: another controller/test may live in this process.
@@ -468,6 +487,17 @@ class Scheduler:
                 self._retire(finished.item_id, state)
             reaped += 1
         return reaped
+
+    def resource_quiescent(self, item_id):
+        """A resource pool may recycle services only after all recorded worker attempts are contained and empty."""
+        with self.lock:
+            if item_id in self.launcher.running():
+                return False
+            try:
+                self.launcher.assert_quiescent(item_id, self.ledger.last_worker_pid(item_id))
+            except Exception:
+                return False
+            return True
 
     def fence_resource_worker(self, recovery):
         """Stop the revoked attempt and certify its process tree before failover."""

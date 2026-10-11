@@ -740,7 +740,11 @@ def run(args, ledger, api_factory):
         request_options = {}
         if args.commit is not None:
             from .worktrees import Worktrees
-            if (item["skill"] not in WRITE_SKILLS or args.resource != "unity_slot"
+            server_request = args.resource == "server_slot"
+            if server_request and (item["skill"] not in ("fix", "feature") or args.mode != "batch"
+                                   or current_root(item["root_repo"], skill) != "farm-hive"):
+                raise LedgerError("server integration requires a farm-hive write stage")
+            if not server_request and (item["skill"] not in WRITE_SKILLS or args.resource != "unity_slot"
                     or (item.get("target") or {}).get("repository") != "Farm-Client"
                     or current_root(item["root_repo"], skill) != "Farm-Client"):
                 raise LedgerError("only a write worker may select a Farm-Client Unity verification commit")
@@ -749,7 +753,9 @@ def run(args, ledger, api_factory):
             if Path(args.db).resolve() != paths.ledger.resolve():
                 raise LedgerError("verification must use the configured host ledger")
             options = {}
-            if item["skill"] in ("feature", "fgui"):
+            if server_request and not config.server_slots:
+                raise LedgerError("this host has no configured server integration slots")
+            if not server_request and item["skill"] in ("feature", "fgui"):
                 options["expected_branch"] = ledger.staged_client_branch(args.item, issue_prefix=config.issue_prefix)
                 request_options["issue_prefix"] = config.issue_prefix
             if item["skill"] == "fgui":
@@ -765,7 +771,7 @@ def run(args, ledger, api_factory):
                 installed = installation_record(ledger, args.item, receipt)
                 verification_record(workflow, "fgui_guards_complete", "guards_sha256", receipt, scope, installed)
             Worktrees(paths.repos, paths.worktrees, config.repos).verification_commit(
-                "Farm-Client", args.item, args.commit, **options)
+                "farm-hive" if server_request else "Farm-Client", args.item, args.commit, **options)
         # Ownership is checked again after Git validation, fencing a concurrent stop/closure.
         return ledger.await_resource(args.item, token, args.resource, args.mode, skill=skill,
                                      commit_sha=args.commit, **request_options)
@@ -780,6 +786,9 @@ def run(args, ledger, api_factory):
             raise LedgerError("this item holds no resource")
         if args.outcome == "unclean":
             held = ledger.hold_owned(reservation["reservation_id"], token, "worker reported an unclean release")
+            if reservation["kind"] == "server_slot":
+                return {"state": "held", "reservation": held, "item": ledger.item(args.item),
+                        "next_action": "checkpoint and park or fail, then exit; verified server slot recovery is required"}
             return {"state": "recovery_queued", "reservation": held, "item": ledger.item(args.item),
                     "next_action": "exit; the controller will recover Unity and resume the saved job"}
         ledger.release(reservation["reservation_id"], token, "worker reported quiescent")

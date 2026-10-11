@@ -583,6 +583,96 @@ interpreter, before this check existed, or while FarmBot was stopped keep their 
 when a later check could not verify the attempt) and the job's `issue-context` cleanup evidence before
 deciding how to proceed.
 
+## Server test slots and heavy-resource admission
+
+Worker capacity, Unity capacity and server-test capacity are independent. A host
+may configure 10 workers, three ordinary Unity entries in `slots`, and
+`server_slots.count: 3`. The resource counts are ceilings; memory admission can
+queue heavy stages even while workers remain available. Coding, pure unit tests
+and read-only conversations do not reserve Docker services.
+
+`server_slots` is opt-in and requires an explicit `resource_admission` block.
+Its keys are `count` (1-16), `docker` (absolute native executable), `context`
+(default `default`, local Unix/named-pipe socket only), `timeout_seconds`
+(default 1800, range 30-7200), and `images`. Images must supply `mongo`, `redis`,
+`etcd`, `nats` and `proxy` as installed `sha256:<64 hex>` IDs or digest references;
+mutable tags and automatic pulls are refused. Use the repository-pinned MongoDB,
+Redis, etcd and NATS versions for the tested server candidate. The supported
+etcd image has `/etcd` as entrypoint and `/etcdctl`; NATS uses `/nats-server`.
+The fixed `proxy` image uses `/server-proxy`, built from
+[`agent/probes/server-proxy`](agent/probes/server-proxy/main.go) with the pinned Go
+and its Dockerfile. Hash the source and binary, retain build/test evidence, inspect
+the resulting image ID and write that ID to private config. The trusted operator
+can run `python3 -m agent.server_slot_tools --go /absolute/go --docker /absolute/docker --output /absolute/new-build-directory`
+(Windows: use the configured Python and native executable paths). It verifies
+Go 1.26.6/local Docker, tests the relay natively, cross-builds for that Linux
+backend, and builds only the fixed scratch image with network/pulls disabled.
+The output directory must be new; the private receipt retains hashes, identity
+and UTF-8 logs. It reads no bot config or credentials and starts no services.
+Doctor checks the relay's canonical source digest against its image provenance.
+The serving Python
+controller requires Docker and installed images, not a Go compiler.
+
+A conservative starting admission block for a 32 GiB development PC is:
+
+```json
+{"max_reserved_mib": 16384, "min_available_mib": 4096,
+ "min_commit_mib": 4096, "unity_mib": 4096, "server_mib": 4608}
+```
+
+These are estimates to be tuned from measured peak loads, not six-stage readiness
+certification. Switching, busy and held resources consume budget; idle open
+Editors also count. Windows checks available physical RAM **and** commit
+headroom. Missing memory observations hold the queue. The two controller pool
+threads share one admission lock. The reservation budget is per instance, not
+an atomic cross-instance host quota; when several bots share a PC, divide that
+budget explicitly and retain host headroom for the other bot and applications.
+An admission-enabled Unity pool may close only verified idle Editors when heavy
+work waits. It preserves all existing ownership/quiescence checks.
+
+Each server lease owns MongoDB replica-set, Redis, etcd and NATS services with
+fresh data, an internal network and unique names. A minimal nonroot, read-only
+forwarding container joins that internal network and a separate ingress network;
+only its four explicit `127.0.0.1` bindings reach native workers. Service
+containers retain their internal network isolation. The fixed relay has no shell,
+general forwarding API, credentials, host mount or worker-supplied destination.
+The service memory caps total 2560 MiB, plus 64 MiB for the relay, with swap
+disabled and CPU/PID limits. Docker requires an additional 2 GiB backend headroom.
+No game code executes through Docker or an unsandboxed controller command.
+
+Workers checkpoint, request `server_slot` in batch mode at a clean committed
+`farm-hive` HEAD, and exit. The resumed worker gets only that lease's endpoints,
+required-service flags and deadline. Its Go build cache/temp live in its private
+state directory; `GOMAXPROCS=2` bounds its Go runtime. Multiple native game-server
+nodes of the same candidate may use the same lease. Server and Unity stages
+release before another resource request; simultaneous combined resource grants
+are not supported. A request waiting for memory holds no resource or worker seat.
+
+Cancellation and deadlines use the existing worker termination path. A slot is
+reusable only after all worker attempts have verified teardown and every named
+Docker target has matching ownership labels/identity. Cleanup deletes only that
+lease's containers, volumes and networks. Partial setup, uncertain ownership or
+cleanup failures hold the slot and retain its private journal outside worker
+write roots under `local_root/server-slots`; no global prune or blind reset exists.
+`doctor` checks the configured local backend/images without starting services.
+The monitor displays server capacity and pool health alongside Unity.
+
+For a held server slot, stop the settled instance through its normal operator
+procedure and use the intended config with
+`python3 -m agent.service recover-server-slot --config /absolute/private-config.json --slot server_slot:1 --reason "..."`;
+on Windows substitute the configured Python executable. This takes the exclusive
+controller lock, proves worker teardown and reconciles only the recorded owned
+Docker targets before freeing the slot. It refuses missing/foreign journals.
+Restart/retry remains an operator action. `recover-slot` cannot bypass this gate.
+Do not disable/shrink the pool or move its root while leases remain unsettled.
+
+No database table migration is needed: server leases use existing reservation
+rows and batch mode. Rollback still requires settling server leases first; older
+controllers lack the kind-specific settlement guard and must not inspect a
+ledger with unsettled server resources. Preserve journals and worker evidence
+with the ledger. Docker volume data lives in Docker's VM disk; placing config or
+worker state on D: does not itself relocate that disk.
+
 ## Shared worker memory
 
 FarmBot starts with an empty memory store. Workers may save reusable corrections,

@@ -426,6 +426,33 @@ The controller handles editor recovery and job continuation. Do not follow it wi
 or ask for host intervention. A fresh worker receives the exact retried commit and can read
 `issue-context.resource_recovery` for prior attempts and retained diagnostics.
 
+For service-backed server tests, `fix` and `feature` may checkpoint and request
+`await-resource --resource server_slot --mode batch --commit FULL_SERVER_HEAD_SHA`
+only from their `farm-hive` write stage on a host with configured server slots. The
+launch message's `tools.server_tests.status` is `configured` or `unavailable` in
+that stage; this describes configuration, not backend readiness. The CLI refuses
+a disabled pool before queueing. It grants no live-service fallback. The
+CLI verifies their own clean managed worktree at that commit; the scheduler checks
+it again before launch. Save the test plan, then exit after requesting. The resumed
+worker receives `resource.kind: "server_slot"`, `resource.commit`, a deadline and
+`resource.environment` containing only that lease's loopback Mongo replica-set,
+Redis, etcd and NATS endpoints. The required-service flags prevent missing services
+from becoming skipped acceptance tests. Adapt repository-specific test flags to
+these endpoints; never fall back to shared or live servers. No Docker authority,
+mount, slot write root or Unity MCP is granted. Native game-server processes remain
+inside the worker's containment. Multiple game-server nodes of the same candidate
+may share this one lease's services.
+
+After testing, save commands, revision, outcomes and all skips. Stop your game-server
+children, checkpoint, release quiescent, then park or hand off and exit. A release
+does not free the slot until the controller verifies worker teardown and deletes
+only that lease's owned Docker resources. For another server run in the same stage,
+checkpoint and request again after release, then exit; the next grant waits for the
+previous attempt's teardown. Never hold one resource while asking for another.
+An unclean server release holds the slot for verified operator recovery; it does
+not invoke Unity recovery. Keep the checkpoint and exit through the normal park/fail
+path. `recover-server-slot` is a trusted service command, not a worker command.
+
 `await-resource` refuses a resource your skill's `skill.json` does not list under `resources`, and a
 Unity request from any root but a neutral start or Farm-Client.
 

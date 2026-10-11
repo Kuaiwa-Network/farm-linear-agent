@@ -98,6 +98,8 @@ class Config:
     local_root: Path = ROOT / ".local"
     default_server_environment: str = "公共测试服"
     slots: list = field(default_factory=list)
+    server_slots: dict = field(default_factory=dict)
+    resource_admission: dict = field(default_factory=dict)
     tunnel: dict = field(default_factory=dict)
     codex_workers: dict = field(default_factory=dict)
     # {"url": ..., "token_env": NAME}; the token itself lives in the controller's environment, never here.
@@ -122,6 +124,13 @@ class Config:
     source_path: Path | None = field(default=None, init=False, repr=False, compare=False)
 
     def __post_init__(self):
+        from .server_slots import validate_settings as validate_server_slots
+        from .resource_admission import validate_settings as validate_admission
+        validate_server_slots(self.server_slots)
+        if self.resource_admission:
+            validate_admission(self.resource_admission)
+        if self.server_slots and not self.resource_admission:
+            raise ValueError("server_slots requires explicit resource_admission budgets")
         if self.environment not in ('legacy', 'development', 'production', 'offline'):
             raise ValueError('invalid environment')
         if not isinstance(self.instance_id, str) or not re.fullmatch(r'[a-z][a-z0-9-]{0,47}', self.instance_id):
@@ -204,6 +213,8 @@ class Paths:
         self.worktrees = Path(config.local_root) / "worktrees"
         self.repos = Path(config.local_root) / "repos"
         self.editors = Path(config.local_root) / "editors"
+        # Outside the ledger directory granted writable to workers.
+        self.server_slots = Path(config.local_root) / "server-slots"
         self.heartbeat = Path(config.local_root) / "service-heartbeat.json"
 
 

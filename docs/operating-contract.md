@@ -1376,6 +1376,62 @@ An older revision does not remove a `<worktrees>/<item>.reads` directory an unfi
 hand once that item's cleanup record is done. Older revisions ignore the `lark_cli` key, withhold no lark-cli
 variable from workers, and read the new notice kinds like any other.
 
+## Isolated server integration resources
+
+The optional `server_slots` pool is controller-owned. `fix` and `feature` may
+request `server_slot` in batch mode only from their farm-hive write stage, after
+checkpointing and committing the exact candidate. The item-authenticated CLI
+verifies its clean managed worktree and configured host ledger; the scheduler
+rechecks HEAD before launch. The existing generation, token and unique active
+resource fences apply. A skill manifest does not grant Docker administration.
+
+Every lease creates four pinned services with fresh data on its own internal
+Docker network. A fixed, pinned, nonroot/read-only relay supplies loopback-only
+ingress through a separate network. Service containers retain internal isolation;
+the relay exposes four fixed destinations, not arbitrary worker commands. No
+host filesystem mount, production endpoint or credential is supplied. This
+uses Docker's [internal/ingress network pattern](https://docs.docker.com/compose/how-tos/networking/)
+and [explicit loopback publishing](https://docs.docker.com/engine/network/port-publishing/).
+The native worker receives reservation-bound endpoints and required-service
+flags. Its game processes remain in the existing Windows Job Object or POSIX
+containment. Multi-node tests may run several candidate processes against one
+lease; workers never choose another lease or shared/live data as fallback.
+
+Resource requests checkpoint and retire their worker claim, freeing model-worker
+capacity after exit. One item holds at most one open reservation: server tests
+release and exit before Unity/stage handoff or another resource request. The
+implementation grants no simultaneous server/Unity bundle. Heavy-resource
+admission serializes both pool threads, counts nonclosed/held resources and idle
+Editors, and checks actual host physical/Windows commit headroom. Its estimate
+budget is per instance, not a host-wide atomic quota. Operators sharing a PC
+must divide that budget across bots. Missing observations leave work queued.
+Only verified idle Editors may close to reclaim headroom. Cheap work remains
+independent of the heavy pools; slot counts are ceilings, not guaranteed full
+concurrency on a 32 GiB host.
+
+Quiescent release does not immediately free server data. All worker attempts must
+have verified teardown before the controller deletes that lease's exact Docker
+identities and matching labels. A bounded lease timeout cancels the item through
+the scheduler's normal contained-worker path. Other leases remain independent.
+Journals survive controller restart under `local_root/server-slots`, outside
+worker write roots. Partial setup/uncertain cleanup holds the slot and preserves
+evidence. Unity settlement and automatic Unity recovery ignore server leases.
+An interrupted handover fails explicitly rather than stranding awaiting work.
+Trusted `recover-server-slot` takes the controller lock and repeats the same
+ownership and teardown gates; legacy `recover-slot` refuses server resources.
+Neither worker nor operator recovery uses global Docker prune/force removal.
+
+Server slots are opt-in and default off, and require explicit admission budgets,
+an absolute Docker CLI, a local Linux backend and installed digest-pinned images.
+Server write-stage workers see configuration availability in `tools.server_tests`;
+the CLI refuses disabled pools instead of queueing an impossible request.
+Doctor probes backend capacity and image prerequisites read-only; a listener's
+health response does not certify Docker, game tests or all heavy slots. Images
+are shared, writable data is per lease. Docker's VM disk location is independent
+of the FarmBot state root. See the README for config, memory caps, relay packaging
+and operator recovery. No schema migration is introduced; settle server leases
+and preserve journals before rolling back to code without this resource kind.
+
 ## Shared memory
 
 Workers share bounded recall notes in the ledger, with an immutable Markdown index and topic files
@@ -1809,7 +1865,7 @@ comments, questions, inbox or worker messages, evidence prose, logs, paths, PIDs
 other than the instance's environment, ID, bot name and host and the applied public capacity described
 below, or raw stored errors. Older ledgers without optional tables or columns are read without migration.
 
-The heartbeat's optional `capacity` contains only `max_workers`, `unity_slots` and `enabled_skills`,
+The heartbeat's optional `capacity` contains `max_workers`, `unity_slots`, optional `server_slots` and `enabled_skills`,
 copied from the serving controller's applied configuration at startup. It never rereads those values
 from the monitor's config. The JSON exposes them as `service.capacity`, with `workers_used` counted
 from the launcher's tracked workers only when the heartbeat is fresh and `serving`. This includes

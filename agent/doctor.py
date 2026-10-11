@@ -498,6 +498,16 @@ def diagnose(config, *, now=None):
                  "that FarmBot does not write, which could make its git run a program outside the sandbox. Find "
                  "out who wrote them, remove them, and the next job uses the clone again.", clones=unexpected)
     # spec §8.5, §9.11: probed only where this host enables feature, so other hosts run nothing more.
+    if config.server_slots:
+        from .server_slots import DockerServices
+        try:
+            DockerServices(config.server_slots).preflight(config.server_slots["count"])
+        except Exception as exc:
+            report["tools"]["server_slots"] = {"configured": True, "count": config.server_slots["count"],
+                                               "ready": False, "error_type": type(exc).__name__}
+            _finding(report, "server_toolchain_incomplete", "Check local Docker backend memory and pinned images; no services were started.")
+        else:
+            report["tools"]["server_slots"] = {"configured": True, "count": config.server_slots["count"], "ready": True}
     if "feature" in (report["skills"]["enabled"] or []):
         feature = report["tools"]["feature"] = feature_toolchain(config, paths)
         if not config.lark_cli:
@@ -580,7 +590,10 @@ def diagnose(config, *, now=None):
     owned_slots = {r["resource"] for r in report["reservations"] if r["state"] in ("active", "cancel_requested")}
     for slot in report["slots"]:
         if slot["state"] == "held":
-            _finding(report, "slot_held", "Controller recovery owns this slot. Inspect resource_recoveries and retained diagnostics; do not release it manually.", slot_id=slot["slot_id"], host=slot["host"])
+            hint = ("Server slot is held. Preserve its private journal; recover-server-slot verifies worker teardown and Docker ownership."
+                    if slot["kind"] == "server_slot" else
+                    "Controller recovery owns this slot. Inspect resource_recoveries and retained diagnostics; do not release it manually.")
+            _finding(report, "slot_held", hint, slot_id=slot["slot_id"], host=slot["host"])
         # release() leaves a slot switching while park_idle() returns it to the pool.
         elif slot["state"] in ("interactive_busy", "batch_busy") and slot["slot_id"] not in owned_slots:
             _finding(report, "slot_without_reservation", "Inspect the slot and reservation history; a busy slot has no active reservation.", slot_id=slot["slot_id"], host=slot["host"])

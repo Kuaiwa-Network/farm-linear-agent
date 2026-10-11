@@ -458,6 +458,7 @@ def _service(beat_state, beat, health, now):
     if capacity is not None:
         live = beat_state == "fresh" and beat["phase"] == "serving" and beat["workers"] is not None
         capacity = {"max_workers": capacity["max_workers"], "unity_slots": capacity["unity_slots"],
+                    **({"server_slots": capacity["server_slots"]} if "server_slots" in capacity else {}),
                     "enabled_skills": list(capacity["enabled_skills"]),
                     "workers_used": len(beat["workers"]) if live else None}
     return {"health": health, "heartbeat": heartbeat, "capacity": capacity, "loops": _loops(beat_state, beat, now),
