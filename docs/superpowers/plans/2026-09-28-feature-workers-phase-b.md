@@ -2221,6 +2221,67 @@ migration to D: with Git/Unity path validation, plus a defined retention policy
 for disposable build caches and cold verification artifacts; simply changing
 `local_root` on a running instance is unsafe.
 
+### Measured TestBot storage migration (2026-10-11)
+
+Following the operator's instruction to move TestBot before adding test slots,
+the existing development instance was migrated from C: to D: on the Windows
+host that also runs production FarmBot. The running production receiver,
+configuration, shared Editor, MCP server and production tunnel were preserved.
+This operation changed TestBot storage and its private launcher; it did not
+deploy a new FarmBot revision or increase either bot's resource capacity.
+
+- Exact serving candidate: `c32cda32898dfdebdabfef0cc37e7b4e1ad9e6ef`.
+  TestBot was already stopped before migration, with no queued/running jobs,
+  open reservations or active recoveries. All 88 recorded native worker Job
+  Objects were queried and empty; no Editor held its Unity project.
+- Copied 291,134 ordinary files, totaling 26.554 GiB, to a dedicated D: root.
+  Every copied file's content hash matched. The source remained available until
+  destination validation completed. A content-equal timestamp difference in
+  SQLite's temporary SHM file was recorded separately; it was freshly hashed.
+- Preserved the original ownership marker, selected config, database/WAL and
+  changed Git metadata in private overlays. The destination marker was explicitly
+  rebound to the migrated development root with the same app/workspace/instance
+  identity. No unmarked or production state was relabelled.
+- Rebased 13 checkpoint documents and the current slot folder. Verified five
+  registered worktrees against their original commits and status, and verified
+  all five clone trust boundaries. Job states, generations, authorizations,
+  historical job evidence and the original audit/process receipts were preserved.
+  A private relative-path mapping locates historical evidence whose recorded
+  original path remains unchanged; no historical ownership proof was rewritten.
+- Verified equivalent private-file access rules for 113 credential-bearing or
+  configuration files. The destination base is protected from unrelated parent
+  inheritance. Credential values, the existing Windows account/Feishu profile,
+  skills, model settings and concurrency settings were preserved. External
+  credential stores and global app/Git/account settings were not modified.
+- Preparation/launcher failures were retained privately. Git's hidden metadata
+  was updated through existing-file handles with its attributes preserved. The
+  final detached Windows launcher returned normally, with Python owning its
+  private logs; the same migrated receiver remained serving after verification
+  and cleanup. Feature/UI tools and native export preflight passed. All six
+  controller loops were healthy, with zero workers and local health HTTP 200.
+- Verified that the original can be reconstructed from the content-hashed copy
+  and original overlays before deleting the retired C: duplicate. Measured free
+  C: space increased 25.997 GiB during that cleanup; the final recorded free space
+  was 47.632 GiB on C: and 192.493 GiB on D:. These are live free-space measurements,
+  rather than an attribution of every concurrent filesystem change to TestBot.
+
+This was a one-time operational migration, not a new generic migration command
+or a schema change. Recovery requires the preserved original config/marker,
+database and path metadata overlays; checking out older code alone does not
+restore the former layout. Shared read-only tools outside TestBot's state root
+were retained, including tools used by production. Superseded C:-bound private
+development helpers remain historical; current verification uses the sealed
+native release environment and the new TestBot launcher.
+
+No live issue was resumed for this migration. No actual Unity test was run from
+the relocated project, and local HTTP health does not certify that acceptance.
+TestBot's temporary public tunnel was already absent before migration; public
+webhook reachability remains a prerequisite for the next live trial. The proposed
+three-server-slot pool and third production Unity slot remain separate pending
+work. The prior cleanup and production cutover records are
+[storage record #242](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/242)
+and [cutover record #241](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/241).
+
 ## Scope
 
 In Phase B (spec §13, item 2):
