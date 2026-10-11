@@ -263,7 +263,16 @@ def wake_parent(ledger, parent_id):
                                 for t in tasks)
         # A task question wakes the parent once per question round. Parking again
         # while the same question awaits a person must not create a launch loop.
-        signature = [[t["id"], t["state"], t["checkpoint"].get("pending_question")] for t in tasks]
+        signature = []
+        for task in tasks:
+            # Identical question text can begin a new round after a partial
+            # answer, and a human-authorized retry can fail for the same reason.
+            # State-transition audit IDs distinguish those events without
+            # waking again for unrelated checkpoints or cleanup diagnostics.
+            event = ledger.connection.execute("SELECT MAX(id) FROM audit WHERE item_id=? AND kind=?",
+                                              (task["id"], task["state"])).fetchone()[0]
+            signature.append([task["id"], task["generation"], task["state"],
+                              task["checkpoint"].get("pending_question"), event])
         if not settled and (not actionable or checkpoint.get("task_wake") == signature):
             return False
         checkpoint["task_wake"] = signature

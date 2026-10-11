@@ -141,6 +141,44 @@ class GeneralWorkflowTests(unittest.TestCase):
         self.message("Use uploaded art")
         self.assertEqual(await_tasks(self.ledger, self.parent, self.token)["state"], "queued")
 
+    def test_same_question_in_a_new_round_wakes_parent_after_partial_answer(self):
+        task = self.task()
+        self.ledger.await_input(task["id"], self.claim_task(task), "Which art and dimensions?")
+        await_tasks(self.ledger, self.parent, self.token)
+        self.assertTrue(wake_parent(self.ledger, self.parent))
+        self.token = self.ledger.claim(self.parent, worker_id="coordinator")["token"]
+        message = self.message("Use icon A; dimensions still undecided.")
+        self.ledger.pop_inbox(self.parent, self.token)
+        forward_answer(self.ledger, self.parent, self.token, "ui", message)
+        await_tasks(self.ledger, self.parent, self.token)
+        task_token = self.claim_task(task)
+        self.ledger.pop_inbox(task["id"], task_token)
+        self.ledger.await_input(task["id"], task_token, "Which art and dimensions?")
+        self.assertTrue(wake_parent(self.ledger, self.parent))
+        self.token = self.ledger.claim(self.parent, worker_id="coordinator")["token"]
+        await_tasks(self.ledger, self.parent, self.token)
+        self.assertFalse(wake_parent(self.ledger, self.parent))
+
+    def test_repeated_failure_after_human_retry_wakes_parent(self):
+        task = self.task()
+        self.claim_task(task)
+        self.ledger.fail(task["id"], "missing tool")
+        self.ledger.record_cleanup(task["id"], {}, done=True)
+        await_tasks(self.ledger, self.parent, self.token)
+        self.assertTrue(wake_parent(self.ledger, self.parent))
+        self.token = self.ledger.claim(self.parent, worker_id="coordinator")["token"]
+        message = self.message("Retry UI after fixing the tool.")
+        self.ledger.pop_inbox(self.parent, self.token)
+        retry_task(self.ledger, self.parent, self.token, "ui", message)
+        await_tasks(self.ledger, self.parent, self.token)
+        self.claim_task(task)
+        self.ledger.fail(task["id"], "missing tool")
+        self.assertTrue(wake_parent(self.ledger, self.parent))
+        self.token = self.ledger.claim(self.parent, worker_id="coordinator")["token"]
+        await_tasks(self.ledger, self.parent, self.token)
+        self.ledger.record_cleanup(task["id"], {}, done=True)
+        self.assertFalse(wake_parent(self.ledger, self.parent))
+
     def test_certified_completion_wakes_parent_and_failure_cancels_siblings(self):
         task = self.task()
         self.ledger.finish(task["id"], self.claim_task(task), "delivered", {"summary": "unchanged",

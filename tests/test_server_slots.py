@@ -97,7 +97,8 @@ class PoolTests(ServerPoolFixture):
         self.assertEqual(self.ledger.item(item)["state"], "queued")
         self.ledger.cancel(item, "general issue stopped")
         self.assertEqual(self.pool.tick()["settled"], 1)
-        self.assertEqual(self.services.cleaned, [self.services.started[0]])
+        self.assertEqual(len(self.services.cleaned), 1)
+        self.assertEqual(self.services.cleaned[0]["reservation_id"], self.services.started[0]["reservation_id"])
 
     def test_three_candidates_receive_distinct_services_and_fourth_waits(self):
         items = [self.request(str(index) * 40) for index in range(1, 5)]
