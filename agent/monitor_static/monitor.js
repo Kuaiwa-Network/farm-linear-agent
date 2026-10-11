@@ -28,7 +28,7 @@
   const STATE = {
     queued: ["排队中", "neutral"], launching: ["正在启动", "info"], switching_repo: ["切换仓库", "info"],
     retry_wait: ["等待重试", "neutral"], running: ["处理中", "info"], awaiting_input: ["等待回复", "warn"],
-    awaiting_resource: ["等待 Unity", "neutral"], waiting_for_recovery: ["等待 Unity 修复", "warn"],
+    awaiting_resource: ["等待资源", "neutral"], waiting_for_recovery: ["等待 Unity 修复", "warn"],
   };
   const OUTCOME = {
     delivered: ["已交付", "ok"], no_change: ["无需改动", "ok"], blocked: ["受阻", "warn"],
@@ -36,7 +36,7 @@
   };
   const LOOP = {
     receive: "接收", schedule: "调度", pool: "Unity 池", lifecycle: "状态同步", progress: "进度汇报",
-    resource_recovery: "资源恢复",
+    resource_recovery: "资源恢复", server_pool: "服务测试池",
   };
   const WORKER = {
     alive: ["worker 运行中", "ok"], unknown: ["worker 状态未知", "neutral"],
@@ -51,6 +51,7 @@
   const ATTENTION = {
     slot_held: (a, work) => {
       const slot = ((work && work.slots) || []).find((candidate) => candidate.slot_id === a.subject);
+      if (slot && slot.kind === "server_slot") return `${a.subject} 已隔离，保留了测试数据和恢复记录；需要验证进程退出及 Docker 所有权后恢复`;
       // The slot's own row words its recovery with the same function, so the two can never disagree.
       return slot && slot.recovery
         ? `${a.subject} 已隔离，${recoveryText(slot.recovery)}`
@@ -60,7 +61,7 @@
     lease_expired: (a) => `${a.subject || "一项工作"} 的租约已过期，worker 可能已退出`,
     cleanup_pending: (a) => `${a.subject || "一项工作"} 的清理尚未完成，已保留恢复证据`,
     issue_status_error: (a) => `${a.subject || "一个 issue"} 的 Linear 状态读取连续失败 ${a.count} 次`,
-    reservation_cancel_pending: (a) => `${a.subject || "一项工作"} 的 Unity 占用正在取消，尚未完成`,
+    reservation_cancel_pending: (a) => `${a.subject || "一项工作"} 的资源占用正在取消，尚未完成`,
     loop_erroring: (a) => `${LOOP[a.subject] || a.subject} 循环连续出错 ${a.count} 次`,
     loop_stalled: (a) => `${LOOP[a.subject] || a.subject} 循环单次运行时间过长`,
     webhook_rejected: (a) => `最近有 webhook 被拒绝（签名、时间或身份不符；启动以来共 ${a.count} 个）`,
@@ -212,7 +213,7 @@
 
   function renderCounts(work) {
     const tiles = [["处理中", work.counts.running], ["排队", work.counts.queued],
-                   ["等待回复", work.counts.awaiting_input], ["等待 Unity", work.counts.awaiting_resource]];
+                   ["等待回复", work.counts.awaiting_input], ["等待资源", work.counts.awaiting_resource]];
     byId("counts").replaceChildren(...tiles.map(([label, value]) =>
       cell("tile", el("div", "muted", label), el("div", "number", value))));
   }
@@ -247,7 +248,9 @@
             row("two", cell("label muted", "worker 占用"),
                 cell("main", pill(`${usage}${full ? " · 已满载" : known ? "" : " · 状态未知"}`, full ? "warn" : "neutral"))),
             row("two", cell("label muted", "Unity 容量"),
-                cell("main", `${capacity.unity_slots} 个槽位`, " · ", el("span", "muted", "与 worker 容量独立，占用详情见下方")))];
+                cell("main", `${capacity.unity_slots} 个槽位`, " · ", el("span", "muted", "与 worker 容量独立，占用详情见下方"))),
+            ...(typeof capacity.server_slots === "number" ? [row("two", cell("label muted", "服务测试容量"),
+                cell("main", `${capacity.server_slots} 个槽位`))] : [])];
   }
 
   // The later of a loop's recorded start and finish, or null when it recorded neither.
@@ -356,14 +359,14 @@
   function renderSlots(work) {
     const target = byId("slot-rows");
     if (work.slots === null) return target.replaceChildren(el("div", "empty muted", "此版本未提供"));
-    if (!work.slots.length) return target.replaceChildren(el("div", "empty muted", "未配置 Unity 槽位"));
+    if (!work.slots.length) return target.replaceChildren(el("div", "empty muted", "未配置资源槽位"));
     const rows = work.slots.map((slot) => {
       const [label, tone] = SLOT[slot.state] || [slot.state, "neutral"];
       const detail = [slot.mode, slot.commit && `提交 ${slot.commit}`].filter(Boolean).join(" · ");
       const side = slot.recovery ? recoveryCell(slot.recovery) : cell("side", slot.holder || "");
       return row("four", cell("ident", slot.slot_id), cell("main muted", detail), cell("state", pill(label, tone)), side);
     });
-    if (work.unity_queue) rows.push(row("two", cell("label muted", "排队"), cell("main", `${work.unity_queue} 项工作在等待 Unity 槽位`)));
+    if (work.unity_queue) rows.push(row("two", cell("label muted", "排队"), cell("main", `${work.unity_queue} 项工作在等待资源槽位`)));
     target.replaceChildren(...rows);
   }
 

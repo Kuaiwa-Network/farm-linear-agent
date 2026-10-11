@@ -342,6 +342,49 @@ class CliTests(unittest.TestCase):
         token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
         return item, token, baseline, fixed, path
 
+    def test_server_resource_verifies_own_clean_head_and_configured_ledger(self):
+        from unittest.mock import patch
+        from agent.__main__ import parser, run
+        from agent.config import load_config, Paths
+        from agent.ledger import Ledger, LedgerError
+        from agent.worktrees import Worktrees, WorktreeError
+        from test_worktrees import git
+        from test_server_slots import SETTINGS
+        item, token, baseline, fixed, _ = self.verification_fixture()
+        config = load_config(self.env["FARMBOT_CONFIG"])
+        config.repos["farm-hive"] = config.repos["Farm-Client"]
+        config.server_slots = SETTINGS
+        paths = Paths(config)
+        trees = Worktrees(paths.repos, paths.worktrees, config.repos)
+        trees.ensure_clone("farm-hive")
+        path = trees.add("farm-hive", item, "farmbot/farm-1")
+        (path / "server.txt").write_text("committed server candidate\n", encoding="utf-8")
+        git("add", ".", cwd=path)
+        git("commit", "-qm", "server candidate", cwd=path)
+        candidate = trees.head(path)
+        self.root_item(item, "farm-hive")
+        ledger = Ledger(self.db)
+        self.addCleanup(ledger.close)
+        args = parser().parse_args(["--db", str(self.db), "await-resource", "--item", item, "--token", token,
+                                    "--resource", "server_slot", "--mode", "batch", "--commit", candidate])
+        with patch("agent.__main__.load_config", return_value=config):
+            (path / "server.txt").write_text("uncommitted\n", encoding="utf-8")
+            with self.assertRaisesRegex(WorktreeError, "clean worktree"):
+                run(args, ledger, lambda: None)
+            git("restore", "server.txt", cwd=path)
+            args.commit = baseline
+            with self.assertRaisesRegex(WorktreeError, "HEAD"):
+                run(args, ledger, lambda: None)
+            args.commit = candidate
+            args.db = str(self.root / "other-ledger")
+            with self.assertRaisesRegex(LedgerError, "configured host ledger"):
+                run(args, ledger, lambda: None)
+            args.db = str(self.db)
+            result = run(args, ledger, lambda: None)
+        self.assertEqual(result["state"], "awaiting_resource")
+        self.assertEqual(result["target"]["commit_sha"], baseline)
+        self.assertEqual(ledger.reservations()[0]["commit_sha"], candidate)
+
     def test_await_resource_can_select_committed_fix_without_changing_baseline(self):
         item, token, baseline, fixed, path = self.verification_fixture()
         result = self.run_cli("await-resource", "--item", item, "--token", token,

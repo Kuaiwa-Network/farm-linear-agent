@@ -470,10 +470,11 @@ class ServeTests(unittest.TestCase):
         state, beat = read(path, now=time.time())
         self.assertEqual((state, beat["phase"]), ("fresh", "stopped"))
         self.assertIsNotNone(beat["stopped_at"])
-        self.assertEqual(set(beat["loops"]), set(LOOPS))
+        self.assertEqual(set(beat["loops"]), set(LOOPS) - {"server_pool"})
         self.assertEqual(beat["workers"], {})  # the launcher's own list: this fixture launched no worker
         self.assertEqual(beat["capacity"], {"max_workers": components.config.max_concurrent,
                                             "unity_slots": len(components.config.slots),
+                                            "server_slots": 0,
                                             "enabled_skills": sorted(components.skills)})
 
     def test_a_heartbeat_that_cannot_be_written_never_stops_serving(self):

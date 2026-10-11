@@ -256,6 +256,12 @@ existing production data or copy its marker.
 
 Keep the game/server test environment in mind as well. The config's
 `default_server_environment` is descriptive; it does not enforce server isolation.
+The opt-in `server_slots` pool provides a separate integration-test environment
+per reservation. Its Docker images are installed and pinned by the operator;
+workers receive only the owned loopback endpoints and run tests inside their
+existing containment. See the README's server test slots section. Each instance
+needs its own state root and pool; moving that root does not move Docker's VM disk.
+Verify the VM disk's location separately before reserving more disk space.
 
 ## lark-cli for feature workers
 

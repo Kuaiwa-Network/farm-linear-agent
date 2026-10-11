@@ -19,6 +19,8 @@ from .ledger import Ledger
 from .lifecycle import Lifecycle
 from .publication import PublicationVerifier
 from .resource_recovery import RecoveryController
+from .resource_admission import ResourceAdmission
+from .server_slots import ServerSlotPool, ServerSlotError
 from .receiver import Receiver, make_server
 from .router import BOT_GROUP, BOT_SKILLS, WRITE_SKILLS, bot_children
 from .scheduler import Scheduler
@@ -29,8 +31,8 @@ from .worktrees import Worktrees
 from .unity import editor_holds_project
 
 Components = namedtuple("Components",
-                        "config paths api ledger skills worktrees launcher scheduler receiver server pool lifecycle progress recovery",
-                        defaults=(None, None, None))
+                        "config paths api ledger skills worktrees launcher scheduler receiver server pool lifecycle progress recovery server_pool",
+                        defaults=(None, None, None, None))
 
 
 def build(config, runtime_override=None):
@@ -63,6 +65,7 @@ def build(config, runtime_override=None):
                           kw_ops=config.kw_ops,
                           lark_cli=config.lark_cli,
                           default_server_environment=config.default_server_environment,
+                          server_slots_root=paths.server_slots,
                           enabled_skills=set(enabled),
                           slot_entries={entry["id"]: entry for entry in entries},
                           guidance_for=lambda item: (ledger.session(item["session_id"]) or {}).get("guidance") or "",
@@ -87,6 +90,7 @@ def build(config, runtime_override=None):
     server = make_server(receiver, config.port)
     # A factory, not the scheduler's connection: the pool runs on its own thread and two threads on one
     # sqlite3.Connection interleave their BEGIN IMMEDIATE blocks. The receiver already takes one of these.
+    admission = ResourceAdmission(config.resource_admission) if config.resource_admission else None
     pool = SlotPool(lambda: Ledger(paths.ledger, check_same_thread=False),
                     worktrees, entries, host=config.host,
                     editors_root=paths.editors, state_dir=launcher.state_dir,
@@ -94,6 +98,7 @@ def build(config, runtime_override=None):
                     # independent reserved slots may execute their batches together.
                     run_unsandboxed=launcher.run_unsandboxed,
                     concurrent_batches=True,
+                    admission=admission,
                     mcp=UnityIdentity(ROOT / "agent" / "probes" / "editor-readiness.cs.txt",
                                       token_env=token_env, secret_env=config.lark_cli.get("secret_env")))
     progress = SessionProgress(Ledger(paths.ledger, check_same_thread=False), api)
@@ -106,9 +111,13 @@ def build(config, runtime_override=None):
     recovery = RecoveryController(recovery_ledger, recovery_pool, host=config.host,
                                   evidence_root=paths.config_dir / 'resource-recovery',
                                   fence=scheduler.fence_resource_worker, api=api)
+    server_pool = (ServerSlotPool(lambda: Ledger(paths.ledger, check_same_thread=False), config.server_slots,
+                                 host=config.host, root=paths.server_slots, state_dir=launcher.state_dir,
+                                 quiescent=scheduler.resource_quiescent, admission=admission)
+                   if config.server_slots else None)
     # `skills` is the enabled set the ready line reports, not every manifest the checkout loads.
     return Components(config, paths, api, ledger, set(enabled), worktrees, launcher, scheduler, receiver, server, pool,
-                      lifecycle, progress, recovery)
+                      lifecycle, progress, recovery, server_pool)
 
 
 def seed_clones(config, source_root=None):
@@ -220,6 +229,7 @@ def _serve(components):
                           workers=components.launcher.running,
                           capacity={"max_workers": components.config.max_concurrent,
                                     "unity_slots": len(components.config.slots),
+                                    "server_slots": components.config.server_slots.get("count", 0),
                                     "enabled_skills": sorted(components.skills)})
     heartbeat_path = Paths(components.config).heartbeat
     # The receiver's handler counts each /webhook outcome into it (receiver.make_server).
@@ -299,6 +309,13 @@ def _serve(components):
             components.recovery.tick()
             return 15.0
         threads.append(threading.Thread(target=guarded('resource_recovery', recover_resources_once), daemon=True))
+    if components.server_pool is not None:
+        def server_pool_once():
+            if not components.server_pool.ready:
+                raise ServerSlotError("server pool prerequisites unavailable")
+            components.server_pool.tick()
+            return 2.0
+        threads.append(threading.Thread(target=guarded('server_pool', server_pool_once), daemon=True))
     beat_thread = threading.Thread(target=beat_loop, daemon=True)
     main_thread = threading.current_thread() is threading.main_thread()
     previous_sigterm = signal.getsignal(signal.SIGTERM) if main_thread else None
@@ -321,6 +338,11 @@ def _serve(components):
             # A host whose slot cannot be prepared must still answer Linear: the pool is simply empty,
             # every unity_slot request stays queued, and the operator gets the folder to inspect.
             print(json.dumps({"event": "slot_pool_unavailable", "error": str(exc)}), flush=True)
+        if components.server_pool is not None:
+            try:
+                components.server_pool.ensure()
+            except ServerSlotError as exc:
+                print(json.dumps({"event": "server_pool_unavailable", "error": str(exc)}), flush=True)
         for thread in threads:
             thread.start()
         heartbeat.set_phase("serving")
@@ -367,6 +389,8 @@ def _serve(components):
                 components.progress.ledger.close()
             if components.recovery is not None:
                 components.recovery.close()
+            if components.server_pool is not None:
+                components.server_pool.close()
         finally:
             beat_stop.set()  # also when a join or close raised, so the beat thread stops with serve
             if main_thread:
@@ -376,15 +400,42 @@ def _serve(components):
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="python3 -m agent.service")
     parser.add_argument("command", choices=["configure", "serve", "status", "seed-clones", "install-launchd",
-                                            "enqueue", "slots", "doctor", "recover-worker-cleanup", "monitor"])
+                                            "enqueue", "slots", "doctor", "recover-worker-cleanup", "monitor",
+                                            "recover-server-slot"])
     parser.add_argument("--config")
     parser.add_argument("--from", dest="source_root", help="directory holding local checkouts to seed from")
     parser.add_argument("--issue", help="Linear issue id or identifier to enqueue work for")
     parser.add_argument("--skill", default="fix")
     parser.add_argument("--commit", help="pin this commit instead of resolving the default branch")
     parser.add_argument("--item", help="terminal work item whose legacy cleanup needs recovery")
+    parser.add_argument("--slot", help="held server slot to reconcile through verified Docker cleanup")
     parser.add_argument("--reason", help="operator explanation for cleanup recovery")
     args = parser.parse_args(argv)
+    if args.command == "recover-server-slot":
+        if not args.slot or not args.reason:
+            parser.error("recover-server-slot requires --slot and --reason")
+        config = load_config(args.config)
+        if not config.server_slots:
+            raise ServerSlotError("no configured server slot pool")
+        with ControllerGuard(config):
+            paths = Paths(config)
+            launcher = Launcher(paths.runs, RUNTIMES[config.runtime], config.host)
+            current = Ledger(paths.ledger)
+            def quiescent(item_id):
+                try:
+                    launcher.assert_quiescent(item_id, current.last_worker_pid(item_id))
+                except Exception:
+                    return False
+                return True
+            pool = ServerSlotPool(lambda: Ledger(paths.ledger), config.server_slots, host=config.host,
+                                  root=paths.server_slots, state_dir=launcher.state_dir, quiescent=quiescent,
+                                  admission=ResourceAdmission(config.resource_admission))
+            try:
+                print(json.dumps(pool.recover(args.slot, args.reason)))
+            finally:
+                pool.close()
+                current.close()
+        return 0
     if args.command == "monitor":
         from .monitor import run
         return run(args.config)

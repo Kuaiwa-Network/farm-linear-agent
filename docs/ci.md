@@ -6,6 +6,16 @@
 Windows compatibility. Hosted runner images and the Python patch can change, so
 retain the versions recorded with each candidate's test evidence.
 
+The workflow separately tests the fixed TCP service relay with Go 1.26.6 on both
+hosts and cross-builds its static Linux binary. This package has no external Go
+modules; `GOENV=off`, `GOWORK=off`, `GOTOOLCHAIN=local`, `GOPROXY=off` and
+`GOSUMDB=off` keep that gate independent of host module/toolchain settings. It
+does not start Docker services. Run `go test -count=1 -timeout=30s ./...` from
+`agent/probes/server-proxy` with that pinned native Go before packaging the relay.
+The ordinary Python suite fakes Docker and never inspects or changes existing
+containers. Real Docker isolation and native worker containment are a separate
+host acceptance gate, not a Docker requirement for unittest discovery.
+
 The controller uses the standard library; optional UI preview/image tests also use
 Pillow, explicitly installed from the platform-wheel hashes in
 [requirements-ui.txt](../requirements-ui.txt) before discovery. No source builds,

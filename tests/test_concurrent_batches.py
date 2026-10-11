@@ -4,10 +4,12 @@ import sys
 import threading
 import time
 from pathlib import Path
+from uuid import uuid4
 
 from agent.launcher import Launcher, RUNTIMES, Unsandboxed
 from agent.ledger import Ledger
 from agent.slots import SlotPool, slot_entry
+from agent.resource_admission import ResourceAdmission
 from test_ledger import ISSUE, OTHER, SELECTED_AT, SKILLS, issue
 from test_slots import FakeMcp, FakeUnity, SlotFixture
 
@@ -101,6 +103,23 @@ class ConcurrentBatchTests(SlotFixture):
         for ledger in self.opened[1:]:
             with self.assertRaises(sqlite3.ProgrammingError):
                 ledger.connection.execute("SELECT 1")
+
+    def test_three_reserved_unity_candidates_execute_together_under_admission(self):
+        commits = [self.commit("candidate-" + str(index)) for index in range(3)]
+        items = [self.waiting(identity, commit) for identity, commit in zip((ISSUE, OTHER, str(uuid4())), commits)]
+        runner = self.blocking_runner(items)
+        admission = ResourceAdmission({}, observe=lambda: {"available_mib": 100000, "commit_mib": 100000})
+        entries = [slot_entry({**self.entry, "id": f"unity_slot:{index}"}) for index in (1, 2, 3)]
+        pool = self.batch_pool(runner, entries=entries, admission=admission)
+        self.assertEqual(pool.tick()["granted"], 0)
+        for item in items:
+            self.assertTrue(self.started[item].wait(15))
+        self.assertEqual(len(self.opened), 4)
+        for item in items:
+            self.release[item].set()
+        self.assertEqual(pool.drain_batches(), 3)
+        self.assertEqual([self.ledger.active_reservation(item)["commit_sha"] for item in items], commits)
+        self.assertEqual(len({self.ledger.active_reservation(item)["resource"] for item in items}), 3)
 
     def test_cancelled_execution_is_not_settled_or_parked_before_it_exits(self):
         pool, first, second, _, second_commit = self.start_pair()
