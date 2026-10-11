@@ -2169,6 +2169,58 @@ host-release checks. FARM-1461's backend dictionary, real JSON receiver and
 original guide presentation acceptance remain separate **game-release** tasks;
 this cutover did not deploy game services or enable the production UI worker.
 
+### Measured runtime-copy backlog reclamation (2026-10-11)
+
+After the [approved production cutover](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/241),
+the operator returned to bot storage growth. Metadata-only measurement found
+production state on D: at **79.013 GiB**, including 59.890 GiB of runs and
+15.689 GiB of Unity slot data. TestBot state on C: was **30.910 GiB**, including
+21.711 GiB of runs and 7.405 GiB of Unity slot data. Development checkout local
+verification data was another 9.019 GiB on C:. These are logical file sizes,
+not exact physical allocation; live directories can change during a scan.
+
+Old `codex.exe` copies accounted for **37.296 GiB / 124 files** in production
+and **4.661 GiB / 15 files** in TestBot. The already deployed
+[runtime-retention change #233](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/233)
+reclaims new completed attempts after certified native teardown; it does not
+automatically sweep historical attempts or delete their homes/evidence.
+
+Authorized maintenance selected each instance's exact runs root from its pinned
+host configuration and checked the same serving controller start/revision.
+It used the existing per-attempt retention API: matching process/teardown
+records, native empty-Job queries and pinned directory/file handles through
+archiving/deletion. The legacy production profile was not relabelled or given
+an ownership marker; TestBot's existing development ownership was checked.
+
+- **132 certified copies removed: 39.882 GiB gross**. Production contributed
+  118 copies / 35.526 GiB; TestBot contributed 14 copies / 4.356 GiB.
+- Kept **five hash-verified executable versions, 1.525 GiB**, in a separate
+  archive on D:. Every removal receipt and its original process/teardown hashes
+  were verified. The cleanup ran in 77.701 seconds.
+- **Seven uncertain copies were preserved**: three had inconsistent teardown
+  evidence and four had missing evidence files. No process was signalled and
+  no ownership/containment check was weakened to reclaim them.
+- All **42,641 retained files** remained present with unchanged size and
+  modification time. A first preservation checker incorrectly compared Windows
+  `DirEntry.stat` against `Path.lstat`; its failed result remains local. A
+  repeat using the baseline's API found zero metadata changes. The baseline's
+  device/inode/link counts were zero, so no pre-cleanup file-ID proof is claimed.
+- Measured free space changed from **16.116 to 20.459 GiB on C:** and
+  **185.849 to 219.849 GiB on D:**, after the recovery archive and verification
+  artifacts. Other activity can also affect free-space readings.
+- Both original controllers still served exact `c32cda32898d`, with all six
+  loops healthy, zero active workers and local HTTP health 200. Configurations
+  and controller starts were unchanged. No service restart, credential-store
+  access/change, credential archiving, ledger edit or issue mutation ran.
+
+This clears the certified executable-copy backlog while preserving worker
+homes, logs, checkpoints, active tools, Unity projects and recovery evidence.
+It does not claim all bot data has moved off C:. TestBot's retained state and
+development fixtures remain there. The next storage work is a settled TestBot
+migration to D: with Git/Unity path validation, plus a defined retention policy
+for disposable build caches and cold verification artifacts; simply changing
+`local_root` on a running instance is unsafe.
+
 ## Scope
 
 In Phase B (spec §13, item 2):
