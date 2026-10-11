@@ -3002,6 +3002,125 @@ third-Unity configuration rollout. More free disk space alone does not provide
 this memory headroom. No game test weakening, new live issue or credential
 configuration is required by this next step.
 
+### Two simultaneous native server selections pass after GM fixture isolation (2026-10-12)
+
+The later retry supersedes the memory-blocked next step immediately above.
+This PC reports **31.84 GiB of physical RAM**; Docker's approximately 16 GiB
+Linux VM setting is a separate limit, not a per-worker RAM allocation. Windows
+physical availability and commit headroom were measured independently. A
+16 GiB physical PC has not been tested by these results.
+
+With more observed headroom, the unchanged farm-hive main
+`539a2f1ec621cc6c8fcad09976b067b32ba9fef7` completed both native selections
+without reaching the memory stop buffer. One worker passed 805 tests/subtests
+with four existing skips; the other passed 797, skipped four and failed
+`TestGateChainEndToEnd`. Its game child could not bind the shared default GM
+port `0.0.0.0:7201`; the parent then timed out waiting for readiness. The trial
+took 185.307 seconds and retained at least **6125/6631 MiB** of available
+physical/commit memory. This was a real test-fixture port collision, not an
+allocation failure.
+
+The separate test-only branch `codex/isolate-gatechain-gm-port` fixes GateChain
+and the three successful guild boot variants. Each GM listener remains enabled
+and receives its own held, allocated loopback port; GateChain's parent supplies
+the port through a private child environment variable. Its new configuration
+regression checks assigned ports and the enabled listener. The first GateChain
+fix, `54e995c044ef14d268aeb61e8df38ed880acad8f`, passed that end-to-end test in
+both workers but exposed the same default-port mistake in
+`TestGuildClusterEnabledIsWiredThroughBoot` and `TestGuildEnabledHostWiring`.
+Those failed runs and their cleanup receipts remain preserved. No GM feature,
+race checking, typed source-gate information, process containment, ownership
+check or test assertion was removed, and no skip was added.
+
+The final farm-hive candidate is
+`cea1deae687c1477e305d25cf434e1a55a317b14`, tree
+`007a3538556802c16f720d65ac1532f3345d71e8`, published as
+[farm-hive #394](https://github.com/Kuaiwa-Network/farm-hive/pull/394).
+FarmBot's executable candidate remains unchanged at
+`5cd7b2b75cfa21ee948f85e0babfb9176adac3e3`. The two owned task folders were
+advanced only after exact native Job quiescence and clean clone/worktree
+checks, then reconstructed with fresh dummy identities in disposable ledgers.
+Each worker used its own owned MongoDB replica set, Redis, etcd and NATS
+stack. Native Python 3.13.16 was started with `PYTHONUTF8=1`; native Go 1.25.1,
+the selected race compiler, Git 2.54.0.windows.1 and Git LFS 3.7.1 were retained.
+No serving ledger or runtime state was copied into the fixture.
+
+Both workers ran the unchanged four-package selection:
+
+```text
+go test -x -race -p=1 -timeout 300s -json -count=1 ./nodeconf ./modules/friend/friendstore ./modules/rank ./server
+```
+
+| Worker | Passed tests/subtests | Existing skips | Failures | Exit | Worker seconds | Peak Job commit, MiB |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 806 | 4 | 0 | 0 | 114.951 | 5530.36 |
+| 2 | 806 | 4 | 0 | 0 | 113.717 | 5210.58 |
+
+All four packages passed in each worker. Actual `server` package execution
+overlapped for **74.138 seconds**, not merely compilation or pending resource
+requests. The complete trial, including stack setup and cleanup, took
+**137.114 seconds**. Minimum available physical/commit headroom was
+**7255/6499 MiB**, above the unchanged 4096 MiB floor and 4608 MiB early stop
+buffer. Warm build caches were reused, although read-only process sampling
+still observed compiler/linker activity. This is targeted concurrency verification,
+not a new full-repository test result or a three-worker capacity certificate.
+
+Read-only Win32 memory queries verified membership in each exact fixture Job
+before reading its processes. Across 252 samples, the largest test process
+private-memory observations were **5024.52/4671.75 MiB**; the largest sampled
+compiler process was 976.26 MiB. Job peaks include the test driver, helpers and
+descendants and are committed memory, not physical RAM or steady-state game
+server requirements. The existing typed source-gate loader remains intact.
+These measurements explain why a complete race/source-validation selection
+costs more than just starting a game server; they do not establish a minimum
+RAM specification for other PCs.
+
+Each worker's four existing skips were:
+
+- `TestGuildClusterDefaultsToSingleProcessAfterBoot`: the shared boot has no
+  guild host; the explicit enabled guild boot tests ran and passed.
+- `TestGuildHostWiring`: the same shared-boot limitation; the explicit enabled
+  host-wiring variant ran and passed.
+- `TestFriendClusterChild`: private re-exec child entry outside its role flag;
+  its actual parent scenario ran.
+- `TestPayWakeClusterChild`: private re-exec child entry outside its role flag;
+  its actual parent scenario ran.
+
+Both exact native Jobs were verified quiescent. Both leases' containers,
+networks and volumes were independently verified removed, with cleaned
+journals retained. UTF-8 logs decode strictly and contain no configured TestBot
+credential values. A transient Windows reader-sharing error in the private
+report helper caused one earlier aborted attempt; it was corrected with a
+bounded atomic-write retry and its owned resources were also cleaned. All
+attempt evidence remains on D:.
+
+Final UTF-8 log SHA-256 receipts:
+
+- Worker 1:
+  `b5baac8ab79aa951d07fff0a0496cffb73618a3fdf87dbd04acdbe803f614ef6`.
+- Worker 2:
+  `ef6bdad4eb3fb79cb194e030ec5d04a12cc71736abc277e0bdc8c2e94e8c162e`.
+- Membership-verified memory samples:
+  `c9d92f338acb5aba90618f57896c3a9ff1743c22f45a0b508e9829d89189f584`.
+
+This measurement was run in separate development fixtures on the Windows PC
+that also hosts production. Production's configuration and service remained
+unchanged: ten workers, two Unity slots and no server pool. TestBot retained
+its three configured Unity/server slots and its conservative one-heavy-stage
+budget. Local health returned HTTP 200 and all controller loops reported zero
+consecutive errors on both instances; these observations do not alone certify
+readiness. No production restart, live issue, Editor, webhook, application
+setting or credential change was part of this retry.
+
+Next: incorporate the reviewed game fixture fix, then perform the previously
+discussed settled third-Unity configuration rollout and separately select a
+production server-pool/concurrency cutover. Two concurrent selected server
+suites are now measured on this host; three simultaneous full heavy stages
+remain uncertified. Unity-plus-server overlap was not measured here. The
+prepared third-Unity production configuration is still unapplied. This record
+changes documentation only; relative links, relevant skill/reference tests
+and whitespace are checked before publication.
+
 ## Scope
 
 In Phase B (spec §13, item 2):
