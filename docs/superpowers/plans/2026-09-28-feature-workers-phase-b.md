@@ -1922,6 +1922,94 @@ This record does not enable feature in production, deploy, restart a service,
 change a webhook or certify live production readiness. FARM-1419 still awaits
 its art/UI input, and no parked neighboring issue was resumed.
 
+### Final candidate and production-host preflight (2026-10-11)
+
+This follow-up uses a clean separate development checkout on D: on the **Windows
+PC that also hosts production FarmBot**. No runtime state or credentials were
+copied into that checkout. The release candidate is
+`c32cda32898dfdebdabfef0cc37e7b4e1ad9e6ef`, tree
+`98bc6e45a53b4029db48f61d4837e600092ddd82`, including the merged retention
+and guarded Unity recovery repairs. Production remains on `3aed7d8fcedf` with
+chat/fix enabled. This is preparation, not a production deployment.
+
+**Exact-candidate verification.** The completed [offline CI run](https://github.com/Kuaiwa-Network/farm-linear-agent/actions/runs/38120235079)
+tested this exact revision on both operating systems:
+
+| Environment | Tests discovered | Failures / errors | Platform skips | Seconds |
+|---|---:|---:|---:|---:|
+| Hosted native Windows, Python 3.13.15, Git 2.55.0.windows.5, LFS 3.7.1 | 2,192 | 0 / 0 | 69 | 2,367.841 |
+| Hosted macOS, Python 3.13.15, Git 2.55.0, LFS 3.8.0 | 2,192 | 0 / 0 | 88 | 922.429 |
+| Production PC, isolated focused native Windows checks, Python 3.13.16, Git 2.54.0.windows.1, LFS 3.7.1 | 163 | 0 / 0 | 0 | 431.299 |
+
+The native host command selected `test_runtime_retention`, `test_windows_workers`,
+`test_resource_recovery`, `test_unity_recovery`, `test_slots`,
+`test_config_propagation` and `test_feature_journey` through unittest discovery.
+All 21 retention, 10 native Job Object and 13 feature-journey cases executed;
+the other 119 checks cover slot/recovery/config behavior. `PYTHONUTF8=1` was set
+before Python started; explicit Python and native Git/LFS executables, sanitized
+selectors and temporary directories on D: were used. The focused UTF-8 log hash is
+`117449f2b7a287ce5be750b1a7ef4c3b87e886072dc9fd416d14d37999e4df2a`.
+Both complete CI artifacts retain every test ID, skip reason, duration and version.
+Windows executed all ten required native Job tests; macOS's skipped native tests
+do not establish Windows coverage. The preceding local full-suite measurement
+remains evidence for its own earlier revision, not a new local full run at this head.
+
+**Merged Client completeness and duplicate Server PR.** A read-only audit of
+[Client #1464](https://github.com/Kuaiwa-Network/Farm-Client/pull/1464) verified that
+its entire merge tree equals published head
+`5520059cc6927c3a01fdb48d287c0bc345b61b17`. Original feature source, generated
+protocols and guide tests are preserved; post-test changes are metadata whitespace,
+one test provenance comment and the report. All four added C# metadata GUIDs are
+unique and unchanged. All 5,980 LFS objects (1,161,266,088 bytes) passed size/hash
+verification; the saved unit/Unity evidence hashes still match. The two guide
+message IDs and Contract pin agree with merged Server. No omitted client change
+was found.
+
+[Server #386](https://github.com/Kuaiwa-Network/farm-hive/pull/386) was reconciled
+without force-pushing to head `01dc4223f6ad4b699d4114039d315d8cc4885855`, with the
+exact already-tested Server #393 main tree and zero file changes. A subsequent
+GitHub read confirms the owner merged it at 07:33:40 UTC as
+`539a2f1ec621cc6c8fcad09976b067b32ba9fef7`; it is no longer an open duplicate.
+The authenticated human continuation resumed the original FARM-1461 job. It
+reconciled Server main and handed off to its Client stage; the closing/write-back
+result is still pending at this measurement. No neighboring issue was resumed.
+
+**Staged tools and host gaps.** Read-only doctor against the intended production
+profile and feature flags held only in memory found all required tools after
+selecting the existing verified native TestBot tool directories: Go 1.26.6,
+protoc 35.1, buf 1.72.0, Node 24.19.0, OpenSpec 1.7.0, LFS 3.7.1,
+Python 3.13.16, .NET SDK 8.0.423 and lark-cli 1.0.82. No Bash/MSYS/WSL ran.
+The installed production service PATH lacks Lark and OpenSpec; the release PATH
+candidate supplies them without changing the live PATH or installing credentials.
+The proposed config changes only enabled skills and the existing bot-only Lark
+profile. The running production installation retains its supported legacy config
+with no ownership marker; this preflight is not an explicit pinned production
+profile initialization or migration. Native signed Codex 0.162.0-alpha.17.2 has an existing matching contained
+model-start receipt. The candidate's `latest-sol`/`xhigh` policy resolves to
+`gpt-6.1-sol`; Windows remains `unelevated`, with its previously measured limits.
+Windows DPAPI credentials remain per user; no separate HOME isolation is claimed.
+
+Production's fresh heartbeat has no active workers, reservations or loop errors,
+but read-only doctor remains incomplete. Two Unity slots are held after exhausted
+setup recovery. One closed project has 1,832 modified importer `.meta` files and
+no other dirty source; the other project is clean at its recovery commit and its
+Editor is open. The new recovery code must preserve metadata evidence and verify
+the live Editor before either slot is released; neither was reset or released here.
+One historical cleanup row retains a PID; all eleven recorded native Jobs are
+empty, while doctor's Windows PID probe is explicitly unsupported. That finding
+is not proof of an active worker or permission to discard its recovery evidence.
+Historical failed/blocked jobs and exhausted recovery rows remain retained.
+
+**Remaining prerequisites.** Finish the selected live job's Client/Contract
+closing path; distinguish its recorded automated evidence from any real analytics
+rows/dictionary/JSON acceptance still outstanding. Rehearse or verify the merged
+recovery/retention code with the intended runtime after the trial settles. Complete
+guarded slot recovery and recheck the settled production profile, then obtain the
+separate production cutover authorization for the prepared source/config/PATH
+bundle. Real game-service deployment and visual guide acceptance are independent
+of installing FarmBot. This record enables no production skill, restarts no
+service and changes no webhook, credential or production resource.
+
 ## Scope
 
 In Phase B (spec §13, item 2):
