@@ -1718,6 +1718,58 @@ production storage cleanup, root moves and deployment remain separate work.
 TestBot saved its checkpoint and entered `awaiting_input` after completing the
 automatic checks, with all owned heavy checks quiescent and no Unity reservation.
 
+### Follow-up server repairs (2026-10-11; separate main-based candidate)
+
+The Rank fix was integrated into the local feature candidate as server
+`75950fe0f00b99282e065f8a7e923e71f80f79f5`. Its focused Rank checks passed
+72 top-level tests / 116 terminal actions, zero failures/skips, in 35.513 seconds;
+vet passed in 8.959 seconds and the protocol-code gate passed one test in
+45.389 seconds. The feature PR's older published head did not change.
+
+Broader native Windows repairs were made in an independent source-only development
+checkout based on main `beb500a50a5dc1ee3da6531134b72450925a0598`, then published
+as [server #391](https://github.com/Kuaiwa-Network/farm-hive/pull/391), head
+`96f88293c223c94d8a80988c25b86bbb7534ba66`. This is a separate candidate from
+FARM-1461. Native executable/Python/HTTP fixtures replace Unix-only assumptions;
+controlled DNS and deadline inputs retain the real TCP checks. Windows cache
+files now receive private user + SYSTEM access at creation and use atomic native
+replacement while existing readers retain their complete old version. Guarded
+timezone probes initialize only explicitly selected child processes before any
+concurrent startup, and reject a PASS marker followed by a failing exit. No Bash,
+MSYS or WSL executed the Windows verification, and no new skip was added.
+
+With Python 3.13.16, Git 2.54.0.windows.1, Git LFS 3.7.1 and native Go 1.25.1,
+isolated child environments and the existing dedicated local Docker test services,
+the complete race command finished in **824.435 seconds**, exit **1**:
+**19,533 PASS / one FAIL / 12 existing SKIP** terminal actions. The sole failure
+was an undeclared clock-audit entry for the new Windows timezone fixture.
+Only that exact-function declaration file changed after the full run; source
+fingerprints verified no other post-run application edit. The **complete clock
+package then passed five race runs: 130 PASS / zero FAIL / zero SKIP**, exit 0,
+in **41.416 seconds**. The full run remains recorded as exit 1. The complete cache
+package passed five race runs (910 PASS, zero failures/skips), including actual
+ACL inspection, open-reader replacement, long Unicode paths and filename alignments.
+Anchor census/self-tests, current designer pin and focused native checks passed.
+
+The [sanitized measured report](https://github.com/Kuaiwa-Network/farm-hive/blob/96f88293c223c94d8a80988c25b86bbb7534ba66/docs/2026-10-11-native-windows-verification.md)
+records both full attempts, every skip and focused UTF-8 log hashes. The second
+full log SHA-256 is
+`13a7ba694432149ebedaffbe8355cd09ec486f670d917e7e154717d3e66072d1`;
+the clock follow-up log is
+`c4eba144ad2afae2cbd93a3329171071eee265c0285ed97c64e1dc60b684dc61`.
+
+These main-based repairs do not clear the feature candidate's four missing
+SpiritCollection request handlers or certify its integration. Client inspection
+identified a stale login fixture missing an explicit `loginUrl` and Gossip tests
+hard-coding a story absent from the published table; other shared failures concern
+UI/configuration resources and asynchronous behavior. No client code was edited
+or Unity test rerun in this follow-up, and the four current-only full-suite
+failures remain unclassified. Server repair review/integration, feature handler
+resolution, remaining CI-equivalent checks and client full-gate verification are
+still release prerequisites. GitHub CI remains deferred and Unix runtime/degradation
+checks pending. The production installation, managed issue worktree and frozen
+TestBot runtime were unchanged; TestBot stayed parked with its recovery evidence.
+
 ## Scope
 
 In Phase B (spec §13, item 2):
