@@ -2925,6 +2925,83 @@ This follow-up changes documentation only. Relevant skill/reference tests,
 relative links and whitespace were checked; the frozen executable suite/hosted
 CI results above remain the code evidence, not new tests of a changed runtime.
 
+### Server-only retries and reduced concurrency scope (2026-10-12)
+
+The operator subsequently narrowed this capacity trial to server testing and
+asked to try **two concurrent server workers**. Adding production's third Unity
+slot uses the already deployed version's configuration and managed-folder
+support; it does not require a new Unity implementation. The twenty-five
+client-main test failures above remain game-test findings, but do **not** gate
+this slot-count configuration trial or the server-only measurement.
+
+Both retries used FarmBot candidate `5cd7b2b75cfa21ee948f85e0babfb9176adac3e3`
+and unchanged farm-hive main `539a2f1ec621cc6c8fcad09976b067b32ba9fef7`.
+The three previously successful owned task folders and their completed Go
+caches were reused only after verifying native Job quiescence, clone trust,
+clean tracked files and exact HEAD. Dummy identities were reconstructed in
+fresh disposable ledgers; serving ledgers were not mutated. The fixed native
+Go race selection remained the same four packages, with `-x` added solely to
+preserve build diagnostics. No Unity acceptance run was repeated.
+
+| Attempt | Workers | Seconds before stop | Minimum physical / commit headroom, MiB | Early stop buffer, MiB | Complete worker results |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Warm-folder server-only retry | 3 | 120.715 | 7755 / 5699 | 6144 | 0 |
+| Operator-requested reduced retry | 2 | 60.162 | 6355 / 4390 | 4608 | 0 |
+
+The configured physical/commit floor remained **4096 MiB**. These private
+supervisors stopped early, above that floor, rather than waiting for a Windows
+allocation failure. Each worker completed `nodeconf`,
+`modules/friend/friendstore` and `modules/rank`; the `server` package had
+started, and the last observed test was
+`TestAnimalBreedIOPoolUsesConfiguredSize`. No test assertion failure was
+observed before the stop. The complete selection did not finish, so neither
+attempt is a pass and no statement about unexecuted cases/skips is inferred.
+
+Source inspection shows that this stage calls the existing shared, typed
+source-gate loader, which loads/type-checks the server and dependencies. Its
+type information and node ownership are necessary to the guard's constant and
+dead-code checks. They were **not** removed to lower memory use. Merely reusing
+Go caches did not make concurrent full race selections fit this host during
+these attempts. This is measured host pressure, not a demonstrated application
+assertion regression; build versus test-process peak attribution remains
+incomplete.
+
+All five retry workers' exact native Jobs were verified quiescent. All five
+owned Docker leases, including their containers, networks and volumes, were
+verified cleaned, and their journals retained. The logs decode strictly as
+UTF-8 and contain no configured TestBot credential values. No production worker,
+Editor, tunnel, application setting or service was changed. After cleanup,
+available physical/commit memory was **18287/17158 MiB**; this is a host snapshot,
+not an isolated workload peak.
+
+UTF-8 log SHA-256 receipts:
+
+- Three-worker retry, worker 1:
+  `f6aa0b14dc56db3a9af1db75f964079bc85f308cb9475b26c904d82d02b8180a`.
+- Three-worker retry, worker 2:
+  `228659505efb03fba64e7491fa2a12fc1246666744c488be42ddec2fe2562d9d`.
+- Three-worker retry, worker 3:
+  `4978be831db67de98519ffe6f40047511265168fa5a895388c52d25bd8be74d1`.
+- Two-worker retry, worker 1:
+  `94ffe1e2367e624e83e285c41e9c14f080922602f89f1d39732b11a051b601b3`.
+- Two-worker retry, worker 2:
+  `a18798953797d5394af82b584f686217b37757a6ff8ee96d13735192b96d7c18`.
+
+A private production configuration candidate now adds only `unity_slot:3` at a
+new derived managed folder on D:. Both existing slot entries, ten workers,
+chat/fix/feature, native tools, credentials, webhook and state root remain
+identical. The deployed `c32cda32898d` config loader accepted it, and its ACLs
+were copied exactly. Read-only production inspection found zero active workers,
+open reservations or active recoveries, and 300 historical worker Jobs empty.
+The candidate is **prepared, not applied**: production still has two Unity
+slots and no server pool, and no receiver restart occurred.
+
+Next: obtain more host physical/commit headroom and rerun the two-worker server
+selection with the same guards, then perform the already discussed settled
+third-Unity configuration rollout. More free disk space alone does not provide
+this memory headroom. No game test weakening, new live issue or credential
+configuration is required by this next step.
+
 ## Scope
 
 In Phase B (spec §13, item 2):
