@@ -20,15 +20,28 @@ attribution; partial answers resume only the relevant task. Missing assets are
 questions, never implicit permission to invent art or use placeholders. The
 existing FGUI visual approval/export/install/guards/Unity proof gates remain.
 
-Parent Client gameplay waits for completed/skipped server work and every required
+Parent Client gameplay waits for configuration stages B/C and server stage D to
+be done or explicitly skipped with reasons, and every required
 presentation task's delivery and certified teardown. All same-repository writers
 serialize, including attempts recovered after restart; a presentation retains its
 Client stage across human/resource waits and terminal task retries until delivery.
 FGUI retains its reviewed source through certified delivery. The job keeps one immutable Client pin,
 and each presentation task retains a clean entry HEAD for its own scoped diff.
 Tasks report progress without closing the shared session. Only the parent posts
-the issue outcome, including every task's PRs. Stop/withdrawal/failure cancels the
-whole job; shared source is cleaned only after certified child teardown.
+the issue outcome, including every task's PRs. Stop/failure cancels the whole job;
+withdrawal preserves the shared claimed-worker grace, including parked
+coordinators and queued/parked children through quick re-delegation. Shared source
+is cleaned only after certified child teardown. Successor UI recovery retains the
+original baseline, accepts only matching certified installation history, and
+requires fresh approval/export/guards/Unity proofs. Scene delivery binds a clean
+owned Client HEAD to the actual open draft; no-change delivery proves zero task
+diff. Delivered tasks are rechecked at their exact clean source/Client HEADs after
+process quiescence. Late writes invalidate that task's delivery while preserving
+the candidate and certified teardown for attributed human retry. Internal UI
+no-change delivery requires clean owned source and zero original-baseline Client
+diff when it entered Client. Optional progress posts cannot fail an already durable transition.
+Native FGUI export remains serialized by the host mutex with fenced bounded waits;
+UI authoring and server work still run concurrently.
 
 Enable `work` explicitly; hosts without it retain the legacy routing described
 below. Existing jobs retain their profile, which must stay enabled to continue
@@ -278,7 +291,7 @@ a Bot label starts nothing and a delegated Bug card starts `fix`. §7 of
 | Skill | May write to | Resources | Needs delegation |
 |---|---|---|---|
 | chat | shared memory through item-authenticated CLI only; no repositories | kw_ops query tools (Codex, when configured) | no |
-| work | one rooted repository per attempt, starting in Farm-Contract; common, farm-hive and Farm-Client as required; coordinates scoped presentation tasks | configured kw_ops; read-only bot document reads; exact-commit reserved Unity verification; server_slot integration tests in farm-hive | yes |
+| work | one rooted repository per attempt, starting in Farm-Contract; common, farm-hive and Farm-Client as required; coordinates scoped presentation tasks | read-only bot document reads; exact-commit reserved Unity verification; server_slot integration tests in farm-hive; no standing MCP or kw_ops | yes |
 | scene | internal task's scoped Client scene/prefab/display assets on its general job's owned branch | presentation previews and exact-commit reserved Unity verification | through its general job |
 | fix | one rooted repository per worker attempt, selected from Farm-Contract, Farm-Client, farm-hive, farmgui, common; the neutral investigation attempt has no repository writes | Unity slot (one, batch or interactive, two-phase); kw_ops, every tool (Codex, when configured) | yes |
 | feature | one rooted repository per worker attempt: Farm-Contract first (its initial root), then common, farm-hive and Farm-Client as its stages need; reads detached checkouts of Farm-Contract's, Farm-Client's and farmgui's default branches | Unity verification only at an explicit clean committed owned Client HEAD; Unity MCP only with its held interactive reservation; no kw_ops or standing MCP; lark-cli as the FarmBot app, read-only | yes |

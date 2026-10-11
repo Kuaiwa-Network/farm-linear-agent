@@ -61,6 +61,49 @@ def installation_record(ledger, item_id, receipt_id):
     return matches[0]
 
 
+def installation_history(ledger, item_id):
+    """Complete installs retained under the controller's original recovery base.
+
+    Historical installs justify the existing candidate only. Fresh review,
+    export, installation and verification records still belong to this task.
+    """
+    item = ledger.item(item_id)
+    if not item.get("parent_id"):
+        return installation_records(ledger, item_id)
+    parent = ledger.item(item["parent_id"])
+    ancestors, current = set(), parent.get("predecessor_id")
+    while current and current not in ancestors:
+        ancestors.add(current)
+        current = ledger.item(current).get("predecessor_id")
+    seen = set()
+
+    def retained(task_id):
+        if task_id in seen:
+            raise LedgerError("UI installation recovery lineage is ambiguous; preserve recovery evidence")
+        seen.add(task_id)
+        task = ledger.item(task_id)
+        if task_id != item_id and (task.get("parent_id") not in ancestors or task["skill"] != "fgui"
+                or task["issue_id"] != item["issue_id"] or task.get("target") != item.get("target")
+                or task.get("task_client_base") != item.get("task_client_base")
+                or not (ledger.cleanup_record(task_id) or {}).get("done")):
+            raise LedgerError("UI installation recovery must retain its certified predecessor ownership and baseline")
+        pins = [json.loads(row["details"]) for row in ledger.connection.execute(
+            "SELECT details FROM audit WHERE item_id=? AND kind='task_client_base' ORDER BY id", (task_id,))]
+        if len(pins) > 1 or pins and pins[0].get("commit") != task.get("task_client_base"):
+            raise LedgerError("UI installation recovery baseline evidence is damaged")
+        records = []
+        for previous in pins[0].get("predecessor_tasks", []) if pins else []:
+            records.extend(retained(previous))
+        for proof in installation_records(ledger, task_id):
+            if (proof.get("format") != "farmbot-fgui-client-v1" or proof.get("baseline") != item.get("task_client_base")
+                    or proof.get("branch") != (item.get("target") or {}).get("issue_branch")):
+                raise LedgerError("UI installation recovery records differ from the retained baseline or branch")
+            records.append(proof)
+        return records
+
+    return retained(item_id)
+
+
 def assert_installed(workflow, proof):
     client, branch, baseline = _client(workflow)
     if proof["branch"] != branch or proof["baseline"] != baseline:
@@ -86,7 +129,7 @@ def install(workflow, receipt_id):
     if workflow.trees.git_in(client, "status", "--porcelain"):
         raise LedgerError("first UI installation requires a clean owned Client at its pinned baseline; preserve interrupted work")
     if initial_head != baseline:
-        records = installation_records(workflow.ledger, workflow.item_id)
+        records = installation_history(workflow.ledger, workflow.item_id)
         if not records:
             raise LedgerError("first UI installation requires its pinned baseline")
         last = records[-1]

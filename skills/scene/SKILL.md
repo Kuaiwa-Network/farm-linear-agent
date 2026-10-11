@@ -43,3 +43,6 @@ visual-review notices. Do not post a separate started/blocker/delivery outcome
 comment or close the issue's shared conversation. Task `finish` JSON carries
 `summary`, `verification` and its verified `prs`, or an explicit `no_change`
 reason; the general job posts the final outcome comment.
+The controller rechecks clean owned Client HEAD and actual draft provenance at
+finish. Commit all intended changes first; a no-change claim must have no tracked
+or untracked changes and zero diff from this task's immutable entry baseline.

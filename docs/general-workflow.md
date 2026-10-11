@@ -19,8 +19,8 @@ actual visual references. FGUI needs no separate OpenSpec project. Complex bugs
 use all required stages; simple changes explicitly skip unnecessary stages.
 
 Code stages reuse the feature capability's contract, configuration, server,
-Client and closing instructions and protection boundaries. General jobs retain
-configured kw_ops access. They never merge, deploy, publish designer data or
+Client and closing instructions and protection boundaries, including withholding
+standing MCP/kw_ops access. They never merge, deploy, publish designer data or
 configure the host. Runtime authority lives in dispatch and skills.
 
 ## Parallel work and human questions
@@ -60,10 +60,21 @@ existing explicit session-continuation requirement stays in place.
 Its durable `awaiting_input` checkpoint has `waiting_tasks: true`; this is an
 internal join, not an outstanding human elicitation. The controller wakes the
 parent for a new task question/failure or certified completion, once per unchanged
-question round. Replies arriving during the pause are never stranded. If all
+question round. Unrelated sibling launches/handoffs do not repeat that wake, and
+already certified tasks cannot park the parent again. Replies arriving during the
+pause are never stranded. If all
 remaining work needs humans, the parent consolidates pending questions through
 normal `await-input`. Task progress never closes the parent conversation; only
-the parent posts issue outcome comments and final delivery.
+the parent posts issue outcome comments and final delivery. Optional task thoughts
+are best effort after durable transitions: a failed Linear post never turns a
+successful finish/park into a failed command. The parent reads the durable task
+question/outcome and owns its human-facing reporting. Operator-enqueued tasks use
+issue comments because their `local-` session IDs are not Linear sessions.
+
+UI source authoring may run concurrently across issues. The native publisher
+keeps its existing host mutex through process teardown; a competing export waits
+with live claim/delegation fences and a bounded timeout. This serializes the
+licensed resource while UI and server work continue independently.
 
 ## Repository and Client gates
 
@@ -85,8 +96,19 @@ Later tasks build on the prior committed output. No branch resets to newer main.
 FGUI also retains its reviewed source through Client verification and certified
 delivery; another UI task cannot invalidate that source during an approval wait.
 
-The parent can enter Client gameplay only after stage D is done or explicitly
-skipped and every required task is delivered with certified teardown. It checks
+Scene delivery verifies a clean owned Client HEAD and its exact open draft in the
+configured repository. A no-change result verifies zero diff from its original
+task entry baseline. Worker prose and an unrelated PR cannot certify delivery or
+release a dirty candidate to another writer.
+After the worker exits, cleanup rechecks delivered source/Client HEADs and
+cleanliness. Late writes invalidate the task delivery and preserve its candidate
+and certified process teardown for an attributed human retry. Internal UI
+no-change tasks also prove clean source and zero original-baseline Client diff
+when they entered Client.
+
+The parent can enter Client gameplay only after configuration stages B/C and
+server stage D are done or explicitly skipped with reasons, and every required
+task is delivered with certified teardown. It checks
 actual artifacts and task evidence before binding components and verifying full
 behavior. Its final delivery includes every task's drafts. The old feature E
 human UI-ready gate is replaced by this same-issue join; UI merge is not required
@@ -94,7 +116,15 @@ for integrating verified changes already on the owned branch.
 
 ## Stop, recovery and migration
 
-Stop, withdrawal or parent failure fences/cancels all active tasks. Children certify
+Stop or parent failure fences/cancels all active tasks. Withdrawal is reconciled
+as one job: if the parent or any child has a claimed attempt, the coordinator and
+its queued/parked siblings retain their state under shared withdrawal flags while
+claimed workers save progress during grace. A quick re-delegation clears the
+flags and preserves those tasks. A coordinator that runs `withdraw` before its
+running children finish parks without closing the shared conversation. The group
+ends when those children withdraw or grace expires. Read authority/cutoff guards
+cover every unfinished child; a newer or excluded child defers the group to a
+fresh deciding read. Explicit Stop remains immediate. Children certify
 their process/resource teardown and remove only their own read snapshots. They
 never preserve/remove shared source. Parent source cleanup waits for all children
 to settle safely, then preserves branches, recovery refs and pending work using
@@ -104,8 +134,13 @@ certified teardown, through `retry-task`; creating another key to bypass a retry
 gate is forbidden. A cancelled root gets the existing linked successor, whose
 matched tasks retain predecessor evidence and require fresh validation.
 An interrupted predecessor's unverified Client changes cannot become a fresh UI
-entry baseline, even under a new task key. Preserve the candidate and ask for
-recovery/revalidation; never hide that diff or erase it to make a new task start.
+entry baseline, even under a new task key. After certified predecessor teardown,
+the successor retains the original task baseline and can revalidate the complete
+candidate with fresh review/export/install/guards/Unity checks. Historical
+certified installation records justify existing files/deletions only; their
+approval and verification proofs never transfer. Dirty partial installations or
+unexplained files remain preserved for recovery; no branch reset or fresh baseline
+hides the unverified diff.
 
 The schema adds `parent_id`, `task_key`, `task_request` and `task_client_base` to
 `work_items`, with one active **root** per issue and unique task keys per job.

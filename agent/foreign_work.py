@@ -117,7 +117,7 @@ def _lineage(ledger, item_id):
         try:
             row = ledger.item(current)
         except LedgerError:
-            break
+            continue
         items.append(row)
         pending.append(row.get("predecessor_id"))
         if row.get("parent_id"):

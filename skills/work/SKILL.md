@@ -91,8 +91,10 @@ never authority to install/configure them yourself.
 
 ## Client join and completion
 
-After server/config work, inspect all required presentation tasks. Use
-`await-tasks` and exit when they are unfinished. This releases the worker attempt
+Explicitly complete or skip with reasons configuration stages B/C and server D
+before entering Client. After server/config work, inspect all required presentation tasks. Use
+`await-tasks` and exit when they are unfinished. Already certified tasks need no
+join wait; proceed to the required integration or human decision. This releases the worker attempt
 without losing source, questions or task state. The controller resumes you for
 new task questions, failures or certified completion; no live polling process
 waits for a human. Replies arrive at the general job and are routed with

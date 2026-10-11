@@ -105,6 +105,14 @@ host does not run, it refuses to start a first job. Either command continues `re
 on a host that runs its skill; elsewhere it refuses, and starts nothing else. Relay a refusal's
 message, which says why, and do not retry.
 
+Internal presentation task finish/question state is durable before its optional
+progress thought is sent. A failed thought is diagnosed without making the
+successful state transition fail; the general job reads that state and owns
+human-facing questions and outcome reporting. `local-` tasks post issue comments.
+Scene `finish` additionally verifies clean owned Client HEAD and the exact actual
+open draft; no-change evidence requires zero diff from its task entry baseline.
+The parent Client join checks explicit B/C configuration and D server completion.
+
 Each `session_messages` entry, like each message in `conversation_history`, is
 `{"id", "body", "author", "created_at"}`, and so is each entry of the launch message's
 `user_requests`. `author` is the Linear user who wrote it, `{"id", "name", "url"}` with the full

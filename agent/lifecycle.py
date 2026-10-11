@@ -88,8 +88,17 @@ class Lifecycle:
         now = self.clock()
         guards = {'created_before': before} if everyone else {'created_before': before, 'authority': 'delegation'}
         for item in self.ledger.unfinished_for_issue(issue_id):
+            if item.get('parent_id'):
+                continue  # internal tasks share their general job's withdrawal; they do not end independently here
             if item['created_at'] >= before or (not everyone and item['authority'] != 'delegation'):
                 continue
+            if item['skill'] == 'work' and item['state'] in ACTIVE_STATES:
+                deadline = now + grace_seconds(self.scheduler.skills.get(item['skill']))
+                try:
+                    self.ledger.flag_withdrawal(item['id'], reason, deadline, **guards)
+                    continue
+                except StaleRouting:
+                    pass  # no claimed child, or changed/new work: guarded cancellation rechecks the whole job
             if item['state'] in UNDELEGATED_STATES:
                 text = None if reason == 'unreachable' else self._notice(reason)
                 self.scheduler.stop(item['id'], WITHDRAWN_REASONS[reason], states=UNDELEGATED_STATES, notice=text,

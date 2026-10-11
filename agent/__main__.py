@@ -353,6 +353,35 @@ def complete_session(ledger, api_factory, item, outcome, evidence):
         owe_closing(ledger, item, content, exc)
 
 
+def task_progress(ledger, api_factory, item, body, *, question=False):
+    """Optional thoughts must not fail an already committed task transition.
+
+    The task's question/outcome is durable in the ledger and wakes its parent,
+    which owns the human conversation. Record transport failures for diagnosis.
+    """
+    try:
+        current = ledger.item(item["id"])
+        parent = ledger.item(item["parent_id"]) if item.get("parent_id") else current
+        if parent["state"] not in ACTIVE_STATES or parent["withdraw_deadline"] is not None:
+            return False
+        api = api_factory()
+        if question:
+            api.needs_more_info(item["issue_id"])
+        if str(item["session_id"]).startswith("local-"):
+            api.create_comment(item["issue_id"], body)
+        else:
+            api.create_activity(item["session_id"], {"type": "thought", "body": body})
+        return True
+    except Exception as exc:
+        print(json.dumps({"warning": "task progress not posted", "error": type(exc).__name__}),
+              file=sys.stderr, flush=True)
+        try:
+            ledger.note(item["id"], "task_progress_not_posted", details={"error": type(exc).__name__})
+        except Exception:
+            pass
+        return False
+
+
 def owned_action(ledger, item_id, action_id, token):
     """Only a live claim on the issue a comment speaks for may act on it.
 
@@ -543,10 +572,7 @@ def run(args, ledger, api_factory):
             return retry_task(ledger, args.item, token, args.task, args.message_id)
         result = await_tasks(ledger, args.item, token)
         body = "工作进度已保存，正在等待本 issue 的界面/场景任务；问题和答复会保留在同一会话。"
-        if str(item["session_id"]).startswith("local-"):
-            api.create_comment(item["issue_id"], body)
-        else:
-            api.create_activity(item["session_id"], {"type": "thought", "body": body})
+        task_progress(ledger, lambda: api, result, body)
         return result
     if c == "prepare-comment":
         return ledger.prepare_comment(args.item, resolve_token(args), args.kind, read_text(args.body_file))
@@ -570,8 +596,10 @@ def run(args, ledger, api_factory):
         item = ledger.item(args.item)
         ledger.renew(args.item, resolve_token(args))  # proves ownership before speaking for the item
         if item.get("parent_id"):
-            return api_factory().create_activity(item["session_id"], {
-                "type": "thought", "body": f"[{item['task_key']}] {read_text(args.body_file)}"})
+            body = f"[{item['task_key']}] {read_text(args.body_file)}"
+            api = api_factory()
+            return (api.create_comment(item["issue_id"], body) if str(item["session_id"]).startswith("local-") else
+                    api.create_activity(item["session_id"], {"type": "thought", "body": body}))
         return api_factory().create_activity(item["session_id"], {"type": args.type, "body": read_text(args.body_file)})
     if c == "await-input":
         token = resolve_token(args)
@@ -589,11 +617,19 @@ def run(args, ledger, api_factory):
                 raise LedgerError("issue closed or archived: save a checkpoint, then run withdraw and exit")
             if not api.app_user_id or status.get("delegate_id") != api.app_user_id:
                 raise LedgerError(Ledger.WITHDRAWN)
+        if item.get("parent_id"):
+            view = ledger.await_input(args.item, token, args.question, reason=args.reason)
+            task_progress(ledger, lambda: api, view, f"[{item['task_key']}] {args.question}",
+                          question=args.reason == "question")
+            return view
         if args.reason == "question":
             api.needs_more_info(item["issue_id"])
         content = ({"type": "thought", "body": f"[{item['task_key']}] {args.question}"}
                    if item.get("parent_id") else {"type": "elicitation", "body": args.question})
-        api.create_activity(item["session_id"], content)
+        if str(item["session_id"]).startswith("local-"):
+            api.create_comment(item["issue_id"], content["body"])
+        else:
+            api.create_activity(item["session_id"], content)
         try:
             return ledger.await_input(args.item, token, args.question, reason=args.reason)
         except LedgerError:
@@ -878,8 +914,13 @@ def run(args, ledger, api_factory):
         else:
             delegated = bool(api.app_user_id) and status.get("delegate_id") == api.app_user_id
             closed = status["archived"] or status["status_type"] in TERMINAL_STATUS_TYPES
-        view, reason = ledger.withdraw(args.item, token, delegated=delegated, closed=closed, read_at=read_at)
-        posted = post_closing_notice(ledger, lambda: api, view, reason)
+        from .config import ROOT
+        from .skills import load_skills
+        from .withdrawal import grace_seconds
+        grace = grace_seconds(load_skills(ROOT / "skills").get(item["skill"]))
+        view, reason = ledger.withdraw(args.item, token, delegated=delegated, closed=closed, read_at=read_at,
+                                       grace_seconds=grace)
+        posted = post_closing_notice(ledger, lambda: api, view, reason) if view["state"] == "cancelled" else False
         return {**view, "reason": reason, "notice_posted": posted,
                 "next_action": "exit; a later delegation continues this job from its checkpoint"}
     if c == "reservations":
@@ -907,10 +948,23 @@ def run(args, ledger, api_factory):
             workflow = UiWorkflow(ledger, args.item, token, config, load_skills(ROOT / "skills").get("fgui"),
                                   api_factory, stage="Farm-Client")
             evidence["ui_delivery_id"] = verify_delivery(workflow, evidence.get("prs"))["delivery_id"]
+        if item["skill"] == "scene" and args.outcome == "delivered":
+            from .scene_delivery import verify_delivery
+            config = load_config(secure_permissions=False)
+            if Path(args.db).resolve() != Paths(config).ledger.resolve():
+                raise LedgerError("scene delivery must use the configured host ledger")
+            evidence["scene_delivery_id"] = verify_delivery(ledger, args.item, token, config, api_factory, evidence)["delivery_id"]
+        if item["skill"] == "fgui" and item.get("parent_id") and args.outcome == "delivered" and evidence.get("no_change"):
+            from .fgui_delivery import verify_no_change
+            config = load_config(secure_permissions=False)
+            if Path(args.db).resolve() != Paths(config).ledger.resolve():
+                raise LedgerError("UI no-change delivery must use the configured host ledger")
+            evidence["ui_no_change_id"] = verify_no_change(ledger, args.item, token, config, api_factory,
+                                                          evidence["no_change"])["delivery_id"]
         view = ledger.finish(args.item, token, args.outcome, evidence)
         if item.get("parent_id") and view["state"] in ("delivered", "blocked"):
-            api_factory().create_activity(item["session_id"], {
-                "type": "thought", "body": f"[{item['task_key']}] {evidence['summary']}；本 issue 的整体验证和交付由主任务继续。"})
+            task_progress(ledger, api_factory, view,
+                          f"[{item['task_key']}] {evidence['summary']}；本 issue 的整体验证和交付由主任务继续。")
         elif not item.get("parent_id"):
             complete_session(ledger, api_factory, item, args.outcome, evidence)
         return view

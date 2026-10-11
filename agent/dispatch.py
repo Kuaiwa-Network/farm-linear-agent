@@ -253,8 +253,7 @@ WORK_AUTHORITY = (
 SKILL_AUTHORITY["work"] = (WORK_AUTHORITY + FEATURE_AUTHORITY.replace(
     "This is a feature job: one Linear issue labelled Bot/Code, carried through repository stages with one fresh ",
     "This is a general issue job carried through repository stages with one fresh ").replace(
-    "no standing MCP or kw_ops grant exists", "standing kw_ops access follows the explicit grant below").replace(
-    "create no other task or issue", "create no separate issue; delegate only through the general job's task CLI") + KW_OPS_AUTHORITY)
+    "create no other task or issue", "create no separate issue; delegate only through the general job's task CLI"))
 SKILL_AUTHORITY["scene"] = (
     "This is a scene/prefab/display presentation task owned by one delegated general issue job. "
     "Follow the recorded settled shared OpenSpec and actual design references. Author only this task's "

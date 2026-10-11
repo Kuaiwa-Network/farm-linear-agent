@@ -65,3 +65,56 @@ def verify_delivery(workflow, urls):
         proof.update(generation=row["generation"], fingerprint=row["claimed_fingerprint"])
         workflow.ledger._audit(workflow.item_id, "fgui_delivery_verified", details=proof)
     return proof
+
+
+def verify_no_change(ledger, item_id, token, config, api_factory, reason):
+    """Certify clean owned checkouts for an internal UI task with no delta."""
+    from .config import Paths
+    from .ledger import TERMINAL_STATUS_TYPES
+    from .publication import is_issue_branch
+    from .workflow import JobWorktrees, repository_path
+    from .worktrees import Worktrees
+    paths = Paths(config)
+    trees = JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger)
+
+    def fence():
+        api = api_factory()
+        observed = ledger.observe_issue(api.fetch_issue(ledger.item(item_id)["issue_id"]))
+        row = ledger._owned(item_id, token)
+        ledger._refuse_withdrawn(row)
+        ledger.require_no_reservation(item_id)
+        issue = ledger.issue(row["issue_id"])
+        if row["skill"] != "fgui" or not row["parent_id"]:
+            raise LedgerError("internal UI no-change verification requires its general job")
+        if (not observed["in_scope"] or issue.get("archived") or issue.get("status_type") in TERMINAL_STATUS_TYPES
+                or row["authority"] == "delegation" and (not api.app_user_id or issue.get("delegate_id") != api.app_user_id)):
+            raise LedgerError("UI no-change delivery requires its current open delegated issue")
+        if row["claimed_fingerprint"] != ledger._issue_row(row["issue_id"])["fingerprint"] or row["requeue_requested"]:
+            raise LedgerError("reconcile changed issue inputs before UI no-change delivery")
+        return row, issue
+
+    row, issue = fence()
+    heads, branches = {}, {}
+    repositories = ["farmgui", *(["Farm-Client"] if row["task_client_base"] else [])]
+    for repo in repositories:
+        path = repository_path(trees, repo, item_id)
+        head = trees.head(path)
+        branch = (ledger.staged_client_branch(item_id, issue_prefix=config.issue_prefix) if repo == "Farm-Client"
+                  else trees.git_in(path, "branch", "--show-current"))
+        if not is_issue_branch(branch, issue["identifier"], config.issue_prefix):
+            raise LedgerError("UI no-change delivery requires its owned issue branch")
+        trees.verification_commit(repo, item_id, head, expected_branch=branch)
+        if repo == "Farm-Client" and trees.git_in(path, "diff", "--name-only", "--no-renames", "--no-ext-diff",
+                "--no-textconv", row["task_client_base"], head):
+            raise LedgerError("UI no-change delivery must retain zero Client diff from its original task baseline")
+        heads[repo], branches[repo] = head, branch
+    fence()
+    for repo, head in heads.items():
+        trees.verification_commit(repo, item_id, head, expected_branch=branches[repo])
+    proof = {"delivery_id": uuid4().hex, "generation": row["generation"],
+             "fingerprint": row["claimed_fingerprint"], "heads": heads, "branches": branches,
+             "baseline": row["task_client_base"], "no_change": reason}
+    with ledger._transaction():
+        ledger._owned(item_id, token)
+        ledger._audit(item_id, "fgui_no_change_verified", details=proof)
+    return proof

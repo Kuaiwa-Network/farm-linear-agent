@@ -153,6 +153,10 @@ def _environment():
     return env
 
 
+class ExportLockBusy(LedgerError):
+    """Another export owns the host resource; no native process may start yet."""
+
+
 class _WindowsLock:
     def __init__(self, name=_MUTEX):
         from .windows_job import api, checked, close, wait, W, C
@@ -160,8 +164,13 @@ class _WindowsLock:
         self.handle = checked(api("CreateMutexW", W.HANDLE, C.c_void_p, W.BOOL, W.LPCWSTR)(None, False, name))
         state = wait(self.handle, 0)
         if state not in (0, 0x80):  # acquired / abandoned, still check foreign processes
+            error = C.get_last_error() if state == 0xffffffff else None
             close(self.handle); self.handle = None
-            raise LedgerError("another native publisher owns the machine export lock")
+            if state == 258:  # WAIT_TIMEOUT: a competing export owns this resource.
+                raise ExportLockBusy("another native publisher owns the machine export lock")
+            if state == 0xffffffff:
+                raise C.WinError(error)
+            raise LedgerError("native export mutex returned an unexpected wait state")
         self.abandoned = state == 0x80
 
     def __enter__(self):
@@ -173,6 +182,25 @@ class _WindowsLock:
             checked(self.release(self.handle))
         finally:
             self.close(self.handle); self.handle = None
+
+
+def _acquire_export_lock(fence, timeout):
+    """Wait only for the publisher resource, checking live authority while parked.
+
+    Authoring tasks can run together. Their licensed native exports serialize
+    across controllers through the same machine mutex, including process teardown.
+    A cancelled or stale claimant leaves this wait before creating any process.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            return _WindowsLock()
+        except ExportLockBusy:
+            fence()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ExportLockBusy("timed out waiting for the machine export lock") from None
+            time.sleep(min(.1, remaining))
 
 
 def _foreign_editors(owned=()):
@@ -217,7 +245,7 @@ def _windows_run(command, cwd, run, fence, timeout):
     from .windows_job import WindowsJob, active, process_ids, CREATE_SUSPENDED
     if not _native_windows():
         raise LedgerError("this prepared publisher requires native Windows")
-    with _WindowsLock() as lock:
+    with _acquire_export_lock(fence, timeout) as lock:
         if _foreign_editors():
             raise LedgerError("an existing FairyGUI process prevents isolated batch export")
         fence()

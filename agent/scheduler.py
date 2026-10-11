@@ -10,7 +10,7 @@ from pathlib import Path
 from .config import LARK_CLI_SKILLS
 from .dispatch import dispatch_message
 from .launcher import _read_worker_text
-from .ledger import LedgerError, plan_issue_branches
+from .ledger import ACTIVE_STATES, LedgerError, plan_issue_branches
 from .kw_ops import SERVER as KW_OPS_SERVER, resolve as resolve_kw_ops
 from .lark_cli import tools as lark_tools
 from .memory import publish_snapshot
@@ -438,7 +438,8 @@ class Scheduler:
             try:
                 if control.item(destination)["skill"] == "work":
                     children = [task["id"] for task in task_views(control, destination)
-                                if not (control.cleanup_record(task["id"]) or {}).get("done")]
+                                if task["state"] == "cancelled"
+                                and not (control.cleanup_record(task["id"]) or {}).get("done")]
             except LedgerError:
                 pass
         finally:
@@ -644,8 +645,26 @@ class Scheduler:
             if item.get("parent_id"):
                 # The parent retains the shared repository history. A child may
                 # certify its process teardown, never remove its siblings' files.
+                delivery_error = None
+                if item["state"] == "delivered":
+                    try:
+                        self._verify_retired_task_delivery(item)
+                    except Exception as exc:
+                        delivery_error = str(exc)[:500]
+                        with self.ledger._transaction():
+                            current = self.ledger._row(item_id)
+                            if current["state"] != "delivered" or current["generation"] != item["generation"]:
+                                raise LedgerError("task delivery changed during teardown verification") from exc
+                            # Process teardown is complete, but the published
+                            # candidate cannot be trusted. Retain its files,
+                            # entry baseline and prior proof for human retry.
+                            self.ledger._set_state(item_id, "failed", "presentation output changed before worker teardown",
+                                                   token=None, lease_expires_at=None, worker_pid=None)
+                            self.ledger._audit(item_id, "task_delivery_invalidated", details={
+                                "generation": item["generation"], "error": delivery_error})
+                        result["delivery_error"] = delivery_error
                 self.worktrees.remove_reads(item_id)
-                self.ledger.record_cleanup(item_id, result, done=True)
+                self.ledger.record_cleanup(item_id, result, error=delivery_error, done=True)
                 return
             if item["skill"] == "work":
                 if any(not (self.ledger.cleanup_record(t["id"]) or {}).get("done")
@@ -669,11 +688,66 @@ class Scheduler:
             if self.ledger.item(item_id)["state"] in TERMINAL:
                 self.ledger.record_cleanup(item_id, result, error=str(exc)[:500])
 
+    def _verify_retired_task_delivery(self, item):
+        """After quiescence, bind shared output to the task's controller proof.
+
+        A worker can still have filesystem access between finish and exit. No
+        later writer may inherit edits or commits that appeared in that window.
+        """
+        row, evidence = self.ledger._row(item["id"]), item["evidence"]
+        if item["skill"] == "scene":
+            kind, evidence_key = "scene_delivery_verified", "scene_delivery_id"
+        elif item["skill"] == "fgui":
+            kind, evidence_key = (("fgui_no_change_verified", "ui_no_change_id") if evidence.get("no_change") else
+                                  ("fgui_delivery_verified", "ui_delivery_id"))
+        else:
+            raise LedgerError("presentation delivery has no supported controller proof")
+        proofs = [json.loads(record["details"]) for record in self.ledger.connection.execute(
+            "SELECT details FROM audit WHERE item_id=? AND kind=? ORDER BY id DESC", (item["id"], kind))]
+        proof = next((value for value in proofs if value.get("delivery_id") == evidence.get(evidence_key)
+                      and value.get("generation") == row["generation"]
+                      and value.get("fingerprint") == row["claimed_fingerprint"]), None)
+        if proof is None:
+            raise LedgerError("presentation teardown requires its current controller delivery proof")
+        if kind == "fgui_no_change_verified":
+            heads, branches = proof.get("heads"), proof.get("branches")
+            if proof.get("baseline") != item.get("task_client_base"):
+                raise LedgerError("unchanged UI teardown must retain its original Client entry baseline")
+            required = {"farmgui"}
+            if item.get("task_client_base"):
+                required.add("Farm-Client")
+            if (not isinstance(heads, dict) or set(heads) != required
+                    or not isinstance(branches, dict) or set(branches) != required):
+                raise LedgerError("unchanged UI teardown requires its exact certified checkout heads and branches")
+        elif kind == "fgui_delivery_verified":
+            recorded = self.ledger.recorded_branches(item["id"], issue_prefix=self.issue_prefix)
+            source_branch = recorded.get("farmgui")
+            if not source_branch:
+                raise LedgerError("UI teardown requires its controller-recorded source branch")
+            heads = {"farmgui": proof.get("source_head"), "Farm-Client": proof.get("commit")}
+            branches = {"farmgui": source_branch,
+                        "Farm-Client": self.ledger.staged_client_branch(item["id"], issue_prefix=self.issue_prefix)}
+        else:
+            if proof.get("baseline") != item.get("task_client_base"):
+                raise LedgerError("scene teardown must retain its original entry baseline")
+            branch = self.ledger.staged_client_branch(item["id"], issue_prefix=self.issue_prefix)
+            if proof.get("branch") != branch:
+                raise LedgerError("scene teardown must retain its certified Client branch")
+            heads, branches = {"Farm-Client": proof.get("commit")}, {"Farm-Client": branch}
+        for repo, head in heads.items():
+            self.worktrees.verification_commit(repo, item["id"], head, expected_branch=branches[repo])
+
     def _exclusive_running(self):
-        """Whether an attempt of an exclusive skill holds one of this controller's worker slots: one it launched and
-        has not reaped, a retiring handoff attempt included, counted as max_concurrent counts them."""
+        """Keep the legacy exclusive lane independent of general-job capabilities.
+
+        Native UI export owns its machine mutex separately. A general job's UI
+        authoring must not prevent an unrelated legacy server attempt from running.
+        """
         for item_id in self.active:
-            skill = self.skills.get(self.ledger.item(item_id)["skill"])
+            item = self.ledger.item(item_id)
+            if item.get("parent_id"):
+                continue
+            skill = self.skills.get(item["skill"])
             if skill is not None and skill.exclusive:
                 return True
         return False
@@ -710,7 +784,8 @@ class Scheduler:
                 cancelled = self.ledger.expire_withdrawal(item["id"])
             except LedgerError:
                 continue
-            if cancelled is not None and cancelled["withdraw_reason"] in NOTICE_REASONS:
+            if (cancelled is not None and cancelled["state"] == "cancelled"
+                    and not cancelled.get("parent_id") and cancelled["withdraw_reason"] in NOTICE_REASONS):
                 self._notify(cancelled["id"], "response",
                              withdrawal_notice(cancelled["skill"], cancelled["withdraw_reason"], self.bot_name),
                              item=cancelled)
@@ -722,9 +797,11 @@ class Scheduler:
             reaped = self._reap()
             recovered = self._recover()
             self._sweep_worktrees()
-            for row in self.ledger.status()["items"]:
-                if row["skill"] == "work":
-                    wake_parent(self.ledger, row["id"])
+            parents = self.ledger.connection.execute("SELECT id FROM work_items "
+                "WHERE parent_id IS NULL AND skill='work' AND state='awaiting_input' "
+                "AND json_extract(checkpoint,'$.waiting_tasks')=1").fetchall()
+            for row in parents:
+                wake_parent(self.ledger, row["id"])
             queue = self.ledger.queue()
         launched = 0
         for item in queue:
@@ -748,7 +825,7 @@ class Scheduler:
                     owner = repository_owner(item)
                     if item.get("parent_id"):
                         parent = self.ledger.item(owner)
-                        if parent["state"] not in ("queued", "running", "awaiting_input", "awaiting_resource") or parent["withdraw_deadline"] is not None:
+                        if parent["state"] not in ACTIVE_STATES or parent["withdraw_deadline"] is not None:
                             continue
                     if root == "Farm-Client":
                         try:

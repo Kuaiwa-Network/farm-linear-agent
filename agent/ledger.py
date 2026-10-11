@@ -24,7 +24,7 @@ from .publication import SUFFIXES, PublicationError, is_issue_branch, issue_bran
 from .resource_recovery import RecoveryStore, SCHEMA as RECOVERY_SCHEMA
 from .router import CONVERSATION_SKILLS, WRITE_SKILLS
 from .stages import current_root
-from .withdrawal import SILENT_GRACE_SECONDS
+from .withdrawal import DEFAULT_GRACE_SECONDS, SILENT_GRACE_SECONDS
 from .worktrees import SAFE_BRANCH
 
 MARKER = re.compile(r"\[farmbot:[0-9a-f]{64}\]")
@@ -1137,20 +1137,27 @@ class Ledger:
         return [self._view(row) for row in rows]
 
     def expired_withdrawals(self):
-        """Running items whose withdrawal grace has ended: their workers did not run `withdraw` in time, and the
-        controller stops them (design P2) through expire_withdrawal."""
-        rows = self.connection.execute("SELECT * FROM work_items WHERE state='running' AND withdraw_deadline<=? "
-                                       "ORDER BY withdraw_deadline, id", (self.clock(),))
+        """Claimed workers past grace, or a flagged general coordinator whose group can now stop."""
+        rows = self.connection.execute("""SELECT * FROM work_items w WHERE withdraw_deadline IS NOT NULL AND
+            ((state='running' AND withdraw_deadline<=?) OR
+             (skill='work' AND parent_id IS NULL AND state IN ('queued','running','awaiting_input','awaiting_resource')
+              AND (withdraw_deadline<=? OR (state!='running' AND NOT EXISTS
+                   (SELECT 1 FROM work_items t WHERE t.parent_id=w.id AND t.state='running')))))
+            ORDER BY withdraw_deadline, id""", (self.clock(), self.clock()))
         return [self._view(row) for row in rows]
 
     def expire_withdrawal(self, item_id):
-        """Cancel `item_id` if it is still a running item whose withdrawal grace has ended, checked in the cancelling
-        transaction: a read that found the delegation back may have cleared the flag since the listing, and the
-        worker then keeps its claim. Returns the cancelled view, whose `withdraw_reason` says why, or None."""
+        """Cancel a flagged worker past grace, or its parked general coordinator after the children stop.
+
+        Recheck the flag and group in the transaction: a delegation read may have cleared the listed flag.
+        Returns the cancelled view, whose `withdraw_reason` says why, or None."""
         with self._transaction():
             row = self._row(item_id)
-            if (row["state"] != "running" or row["withdraw_deadline"] is None
-                    or row["withdraw_deadline"] > self.clock()):
+            group = row["skill"] == "work" and row["parent_id"] is None and row["state"] in ACTIVE_STATES
+            children = self._active_children(row["id"]) if group else []
+            ready = group and row["state"] != "running" and not any(c["state"] == "running" for c in children)
+            if (row["withdraw_deadline"] is None or (row["state"] != "running" and not group)
+                    or (row["withdraw_deadline"] > self.clock() and not ready)):
                 return None
             self._cancel_row(row, f"withdrawal grace expired ({row['withdraw_reason']})", drop_progress=True)
             return self._view(self._row(row["id"]))
@@ -1396,9 +1403,8 @@ class Ledger:
             progress = dict(progress)
             progress.pop("waiting_tasks", None)
             progress.pop("task_wake", None)
-            for key in ("task_wake",):
-                if key in previous:
-                    progress[key] = previous[key]
+            if "task_wake" in previous:
+                progress["task_wake"] = previous["task_wake"]
             if previous.get("worker_id"):
                 if "worker_id" in progress and progress["worker_id"] != previous["worker_id"]:
                     raise LedgerError("checkpoint cannot change the running worker identity")
@@ -1621,17 +1627,27 @@ class Ledger:
             parent = self._row(row["parent_id"])
             if parent["state"] not in ACTIVE_STATES or parent["skill"] != "work":
                 raise LedgerError("presentation entry requires its active general job")
+            entry_head, inherited = commit, []
             if row["skill"] == "fgui":
                 predecessor, seen = parent["predecessor_id"], set()
                 while predecessor and predecessor not in seen:
                     seen.add(predecessor)
-                    previous = self.connection.execute("SELECT state,task_client_base FROM work_items WHERE parent_id=? "
-                                                       "AND skill='fgui'", (predecessor,)).fetchall()
-                    unfinished = [task["task_client_base"] for task in previous
+                    previous = self.connection.execute("SELECT id,state,task_client_base,target_json FROM work_items WHERE parent_id=? "
+                                                       "AND skill='fgui' ORDER BY created_at,rowid", (predecessor,)).fetchall()
+                    unfinished = [task for task in previous
                                   if task["task_client_base"] and task["state"] != "delivered"]
                     if unfinished:
-                        if any(base != commit for base in unfinished):
-                            raise LedgerError("uncertified predecessor Client work cannot become a new UI baseline; preserve recovery evidence")
+                        bases = {task["task_client_base"] for task in unfinished}
+                        if len(bases) != 1 or any(json.loads(task["target_json"] or "null") != json.loads(row["target_json"])
+                                                for task in unfinished):
+                            raise LedgerError("uncertified predecessor Client baselines are ambiguous; preserve recovery evidence")
+                        if any(not (self.cleanup_record(task["id"]) or {}).get("done") for task in unfinished):
+                            raise LedgerError("predecessor UI baseline recovery waits for certified task teardown")
+                        # Keep every unverified predecessor change in the new
+                        # task's diff. The current candidate HEAD is evidence,
+                        # never a replacement baseline that hides that output.
+                        commit = bases.pop()
+                        inherited = [task["id"] for task in unfinished]
                         break
                     if any(task["state"] == "delivered" for task in previous):
                         break  # a later UI delivery already revalidated the retained candidate
@@ -1646,7 +1662,8 @@ class Ledger:
                 return self._view(row)
             self.connection.execute("UPDATE work_items SET task_client_base=?,updated_at=? WHERE id=?",
                                     (commit, self.clock(), item_id))
-            self._audit(item_id, "task_client_base", details={"commit": commit})
+            self._audit(item_id, "task_client_base", details={"commit": commit, "entry_head": entry_head,
+                                                             "predecessor_tasks": inherited})
             return self._view(self._row(item_id))
 
     def _new_stage_allowances(self, row):
@@ -2090,6 +2107,14 @@ class Ledger:
                 return self._view(row)
             if row["state"] not in (*ACTIVE_STATES, "blocked"):
                 raise LedgerError("work item is already terminal")
+            # A deciding read cannot end the coordinator while a child outside its decision still owns work.
+            # Withdrawing parked work also must not revoke a child that claimed since the caller's listing.
+            if row["skill"] == "work" and row["parent_id"] is None:
+                children = self._unfinished_children(row["id"])
+                if any(not self._still_decided(child, authority, created_before) for child in children):
+                    return None
+                if states is not None and "running" not in states and any(c["state"] == "running" for c in children):
+                    return None
             self._cancel_row(row, reason, drop_progress=drop_progress)
             return self._view(self._row(row["id"]))
 
@@ -2126,6 +2151,14 @@ class Ledger:
         if drop_progress and self.connection.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name='session_progress'").fetchone():
             self.connection.execute("DELETE FROM session_progress WHERE item_id=?", (row["id"],))
+
+    def _active_children(self, item_id):
+        return [row for row in self._unfinished_children(item_id) if row["state"] in ACTIVE_STATES]
+
+    def _unfinished_children(self, item_id):
+        return self.connection.execute("SELECT * FROM work_items WHERE parent_id=? AND state IN "
+                                       "('queued','running','awaiting_input','awaiting_resource','blocked')",
+                                       (item_id,)).fetchall()
 
     # A closing activity Linear refused is owed to its thread (silent-delegation design P10, which amends the
     # withdrawn-work design's P7): tried again 1, 2, 4, 8 and 16 minutes apart, about 31 minutes in all, and given up
@@ -2323,8 +2356,10 @@ class Ledger:
     def flag_withdrawal(self, item_id, reason, deadline, *, authority=None, created_before=None):
         """Tell a claimed worker its work is withdrawn (design P2). It keeps its claim, to save its progress and run
         `withdraw`, and the controller stops it at `deadline`, in epoch seconds. Only the first flag counts: True when
-        this call set it, False when the item has one already. StaleRouting when no worker holds the item: the caller
-        cancels it instead; and when `authority` or `created_before` no longer hold, as `cancel` rechecks them."""
+        this call set it, False when the item has one already. A parked general coordinator shares its running
+        children's grace, keeping queued and human-waiting tasks intact until the group stops or delegation returns.
+        StaleRouting when no worker holds the job, or any child is outside the authority/time guards: guarded cancel
+        rechecks the same group, and a later read decides work outside this read's fences."""
         if reason not in self.WITHDRAW_REASONS:
             raise LedgerError(f"withdrawal reason must be one of {', '.join(self.WITHDRAW_REASONS)}")
         if type(deadline) not in (int, float) or not math.isfinite(deadline):
@@ -2332,28 +2367,48 @@ class Ledger:
         _checked_guards(authority, created_before)
         with self._transaction():
             row = self._row(item_id)
-            if row["state"] != "running":
-                raise StaleRouting(f"work item {row['id']} is {row['state']}, not running; cancel it instead")
             if not self._still_decided(row, authority, created_before):
                 raise StaleRouting(f"work item {row['id']} is no longer the work the caller decided on")
+            group = row["skill"] == "work" and row["parent_id"] is None and row["state"] in ACTIVE_STATES
+            children = self._active_children(item_id) if group else []
+            if group and any(not self._still_decided(child, authority, created_before)
+                             for child in self._unfinished_children(item_id)):
+                raise StaleRouting("general job contains work outside the caller's deciding read")
+            if row["state"] != "running" and not (group and (row["withdraw_deadline"] is not None
+                                                            or any(c["state"] == "running" for c in children))):
+                raise StaleRouting(f"work item {row['id']} is {row['state']}, not running; cancel it instead")
             if row["withdraw_deadline"] is not None:
                 return False
-            self.connection.execute("UPDATE work_items SET withdraw_deadline=?,withdraw_reason=?,updated_at=? WHERE id=?",
-                                    (deadline, reason, self.clock(), row["id"]))
-            self.connection.execute("UPDATE work_items SET withdraw_deadline=?,withdraw_reason=?,updated_at=? "
-                                    "WHERE parent_id=? AND state IN ('queued','running','awaiting_input','awaiting_resource')",
-                                    (deadline, reason, self.clock(), row["id"]))
-            self._audit(row["id"], "withdrawal", reason, {"deadline": deadline})
+            self._flag_withdrawal_group(row, children, reason, deadline)
             return True
+
+    def _flag_withdrawal_group(self, row, children, reason, deadline):
+        """Caller owns the transaction and has fenced every row in this logical job."""
+        for current in (row, *children):
+            if current["withdraw_deadline"] is not None:
+                continue
+            self.connection.execute("UPDATE work_items SET withdraw_deadline=?,withdraw_reason=?,updated_at=? WHERE id=?",
+                                    (deadline, reason, self.clock(), current["id"]))
+            self._audit(current["id"], "withdrawal", reason, {"deadline": deadline})
 
     def _clear_withdrawals(self, issue_id):
         """Caller owns the transaction. A read found the card delegated again: the flags that loss of delegation set
         on the issue's work go. A takeover by a newer session stays."""
-        rows = self.connection.execute("""SELECT id FROM work_items WHERE issue_id=? AND withdraw_reason='undelegated'
+        rows = self.connection.execute("""SELECT * FROM work_items WHERE issue_id=? AND withdraw_reason='undelegated'
             AND state IN ('queued','running','awaiting_input','awaiting_resource')""", (issue_id,)).fetchall()
         for row in rows:
             self.connection.execute("UPDATE work_items SET withdraw_deadline=NULL,withdraw_reason=NULL,updated_at=? "
                                     "WHERE id=?", (self.clock(), row["id"]))
+            if row["skill"] == "work" and row["parent_id"] is None and row["state"] == "awaiting_input":
+                parked = self.connection.execute("SELECT id,details FROM audit WHERE item_id=? AND kind='withdrawn' "
+                                                 "ORDER BY id DESC LIMIT 1", (row["id"],)).fetchone()
+                state_change = self.connection.execute("SELECT id FROM audit WHERE item_id=? AND kind IN "
+                                                       "('queued','running','awaiting_input','awaiting_resource') "
+                                                       "ORDER BY id DESC LIMIT 1", (row["id"],)).fetchone()
+                if (parked and state_change and parked["id"] > state_change["id"]
+                        and json.loads(parked["details"]).get("waiting_tasks")):
+                    self._set_state(row["id"], "queued", "delegation restored after coordinator saved progress",
+                                    token=None, lease_expires_at=None, worker_pid=None)
             self._audit(row["id"], "withdrawal", "cleared: the card is delegated again")
         return [row["id"] for row in rows]
 
@@ -2362,14 +2417,15 @@ class Ledger:
         with self._transaction():
             return self._clear_withdrawals(issue_id)
 
-    def withdraw(self, item_id, token, *, delegated, closed, read_at=None):
+    def withdraw(self, item_id, token, *, delegated, closed, read_at=None, grace_seconds=DEFAULT_GRACE_SECONDS):
         """A worker ends its own claim as cancelled once its work is withdrawn: flagged, or the card is not delegated
         to this app (`delegated`) or is closed (`closed`), as its CLI has just read. Only work the delegation
         authorised ends with it: a conversation a mention or the operator started continues on an undelegated card
         (design P2, G2). A flag the delegation's loss set does not count once the read finds the card delegated
         again: the flag is cleared and the work continues (design P3). Cancelled, not blocked: a later delegation
-        continues the job from its plan (design P2, F14). Returns (view, reason): the flag's reason, else `closed`,
-        else `undelegated`.
+        continues the job from its plan (design P2, F14). A general coordinator parks after saving its own progress
+        while claimed tasks finish their grace; its returned view is still active, so callers post no closing notice.
+        Returns (view, reason): the flag's reason, else `closed`, else `undelegated`.
 
         `read_at` is when the CLI's read began. A read that finds the delegation and clears the issue's mark records
         with it that the delegation is back, as clear_undelegated does (silent-delegation design §3.1)."""
@@ -2377,6 +2433,8 @@ class Ledger:
             raise LedgerError("delegated and closed must be booleans")
         if read_at is not None:
             _seconds(read_at, "read_at")
+        if type(grace_seconds) not in (int, float) or not math.isfinite(grace_seconds) or grace_seconds <= 0:
+            raise LedgerError("withdrawal grace must be a positive finite number of seconds")
         with self._transaction():
             row = self._owned(item_id, token)
             flag = (row["withdraw_reason"] or "undelegated") if row["withdraw_deadline"] is not None else None
@@ -2394,6 +2452,16 @@ class Ledger:
                 self._clear_undelegated(row["issue_id"], read_at)
                 reason = None
             if reason is not None:
+                if row["skill"] == "work" and row["parent_id"] is None and not closed:
+                    children = self._active_children(item_id)
+                    if any(c["state"] == "running" for c in children):
+                        if row["withdraw_deadline"] is None:
+                            self._flag_withdrawal_group(row, children, reason, self.clock() + grace_seconds)
+                        # The coordinator saved its own work, but its siblings still need their grace to save theirs.
+                        self._set_state(item_id, "awaiting_input", "coordinator saved progress; waiting for task withdrawal",
+                                        token=None, lease_expires_at=None, worker_pid=None)
+                        self._audit(item_id, "withdrawn", reason, {"waiting_tasks": True})
+                        return self._view(self._row(item_id)), reason
                 self._cancel_row(row, f"withdrawn by its worker: {reason}", drop_progress=True)
                 self._audit(row["id"], "withdrawn", reason)
                 return self._view(self._row(row["id"])), reason
@@ -2871,8 +2939,15 @@ class Ledger:
                     raise LedgerError("delivery requires every required presentation task to be delivered")
                 if outcome == "delivered" and any(not (self.cleanup_record(t["id"]) or {}).get("done") for t in tasks):
                     raise LedgerError("general delivery waits for certified presentation teardown")
-                task_prs = {pr for t in tasks for pr in t["evidence"].get("prs", [])}
                 if outcome == "delivered":
+                    task_prs = set()
+                    for task in tasks:
+                        task_urls = task["evidence"].get("prs")
+                        task_urls = [] if task_urls is None else task_urls
+                        if not isinstance(task_urls, list) or any(not isinstance(pr, str) or not self.PR_URL.fullmatch(pr)
+                                                                  for pr in task_urls):
+                            raise LedgerError("task evidence must contain an array of canonical PR URLs")
+                        task_prs.update(task_urls)
                     prs = evidence.get("prs") or []
                     if not isinstance(prs, list) or any(not isinstance(pr, str) for pr in prs):
                         raise LedgerError("prs must be an array of PR URLs")
@@ -2888,6 +2963,12 @@ class Ledger:
                            and proof.get("prs") == sorted(evidence.get("prs") or []) for proof in proofs):
                     raise LedgerError("full UI delivery requires current controller verification of both drafts, guards and Unity loading")
             if row["parent_id"]:
+                evidence = dict(evidence)
+                task_urls = evidence.get("prs")
+                evidence["prs"] = [] if task_urls is None else task_urls
+                if not isinstance(evidence["prs"], list) or any(not isinstance(pr, str) or not self.PR_URL.fullmatch(pr)
+                                                                for pr in evidence["prs"]):
+                    raise LedgerError("task PRs must be canonical HTTPS pull request URLs")
                 if outcome == "delivered":
                     _text(evidence.get("verification"), "verification")
                     prs = evidence.get("prs") or []
@@ -2899,6 +2980,16 @@ class Ledger:
                             raise LedgerError("a no_change task carries no PR")
                     elif not prs:
                         raise LedgerError("task delivery requires PRs or an explicit no_change reason")
+                    if row["skill"] == "scene":
+                        proofs = [json.loads(proof["details"]) for proof in self.connection.execute(
+                            "SELECT details FROM audit WHERE item_id=? AND kind='scene_delivery_verified'", (item_id,))]
+                        if not any(proof.get("delivery_id") == evidence.get("scene_delivery_id")
+                                   and proof.get("generation") == row["generation"]
+                                   and proof.get("fingerprint") == row["claimed_fingerprint"]
+                                   and proof.get("baseline") == row["task_client_base"]
+                                   and proof.get("prs") == prs
+                                   and proof.get("no_change") == evidence.get("no_change") for proof in proofs):
+                            raise LedgerError("scene delivery requires current controller verification of its clean Client and draft")
             elif chat and outcome == "delivered":
                 _text(evidence.get("verification"), "verification")
                 if evidence.get("comment_action_id") is not None or evidence.get("prs"):

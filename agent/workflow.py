@@ -111,6 +111,8 @@ def await_tasks(ledger, item_id, token):
         tasks = task_views(ledger, item_id)
         if not tasks:
             raise LedgerError("this job has no presentation tasks")
+        if _tasks_settled(ledger, tasks):
+            raise LedgerError("presentation tasks are already delivered with certified teardown; continue the job")
         checkpoint = json.loads(row["checkpoint"])
         checkpoint["waiting_tasks"] = True
         checkpoint.pop("pending_question", None)
@@ -126,7 +128,7 @@ def forward_answer(ledger, item_id, token, task_key, message_id):
 
     No synthesized answer, cross-issue message or automatic blanket resume.
     """
-    from .ledger import LedgerError
+    from .ledger import ACTIVE_STATES, LedgerError
     if type(message_id) is not int or message_id < 1:
         raise LedgerError("answer requires a positive inbox message id")
     with ledger._transaction():
@@ -138,7 +140,7 @@ def forward_answer(ledger, item_id, token, task_key, message_id):
                                          (item_id, task_key)).fetchone()
         message = ledger.connection.execute("SELECT * FROM inbox WHERE item_id=? AND id=?",
                                             (item_id, message_id)).fetchone()
-        if not task or task["state"] not in ("queued", "running", "awaiting_input", "awaiting_resource"):
+        if not task or task["state"] not in ACTIVE_STATES:
             raise LedgerError("answer requires an active task belonging to this job")
         if not message or not message["author_json"]:
             raise LedgerError("answer requires this job's actual attributed human message")
@@ -198,13 +200,24 @@ def client_ready(ledger, row):
         return  # asset/scene authoring precedes the parent's gameplay integration
     stages = json.loads(parent["checkpoint"]).get("plan", {}).get("stages", {})
     server = stages.get("D", "")
-    skipped = isinstance(server, str) and server.startswith("skipped:") and server.split(":", 1)[1].strip()
-    if not (server == "done" or skipped):
+    if not _stage_settled(server):
         raise LedgerError("Client work waits for required server/config work to finish")
+    if any(not _stage_settled(stages.get(stage)) for stage in ("B", "C")):
+        raise LedgerError("Client work waits for required configuration stages B/C to finish or be explicitly skipped")
     for task in task_views(ledger, row["id"]):
         cleanup = ledger.cleanup_record(task["id"])
         if task["state"] != "delivered" or not cleanup or not cleanup["done"]:
             raise LedgerError("Client work waits for presentation delivery and certified task teardown")
+
+
+def _stage_settled(value):
+    return value == "done" or (isinstance(value, str) and value.startswith("skipped:")
+                               and bool(value.split(":", 1)[1].strip()))
+
+
+def _tasks_settled(ledger, tasks):
+    return bool(tasks) and all(task["state"] == "delivered" and (ledger.cleanup_record(task["id"]) or {}).get("done")
+                               for task in tasks)
 
 
 def repository_busy(ledger, item, skills, active=(), launcher=None):
@@ -258,13 +271,12 @@ def wake_parent(ledger, parent_id):
         if row["state"] != "awaiting_input" or not checkpoint.get("waiting_tasks"):
             return False
         tasks = task_views(ledger, parent_id)
-        actionable = any(t["state"] in ("awaiting_input", "blocked", "failed", "cancelled") for t in tasks)
-        settled = tasks and all(t["state"] == "delivered" and (ledger.cleanup_record(t["id"]) or {}).get("done")
-                                for t in tasks)
+        settled = _tasks_settled(ledger, tasks)
+        actionable = [t for t in tasks if t["state"] in ("awaiting_input", "blocked", "failed", "cancelled")]
         # A task question wakes the parent once per question round. Parking again
         # while the same question awaits a person must not create a launch loop.
         signature = []
-        for task in tasks:
+        for task in tasks if settled else actionable:
             # Identical question text can begin a new round after a partial
             # answer, and a human-authorized retry can fail for the same reason.
             # State-transition audit IDs distinguish those events without
@@ -273,9 +285,14 @@ def wake_parent(ledger, parent_id):
                                               (task["id"], task["state"])).fetchone()[0]
             signature.append([task["id"], task["generation"], task["state"],
                               task["checkpoint"].get("pending_question"), event])
-        if not settled and (not actionable or checkpoint.get("task_wake") == signature):
+        # Remember each task's last observed actionable round. Resolving one
+        # task, or launching a sibling, creates no new question for the parent.
+        # Keep the list format so old persisted wake checkpoints remain usable.
+        observed = {entry[0]: entry for entry in checkpoint.get("task_wake", [])}
+        if not signature or all(observed.get(entry[0]) == entry for entry in signature):
             return False
-        checkpoint["task_wake"] = signature
+        observed.update((entry[0], entry) for entry in signature)
+        checkpoint["task_wake"] = list(observed.values())
         checkpoint.pop("waiting_tasks", None)
         ledger._set_state(parent_id, "queued", "presentation task progress", token=None, lease_expires_at=None,
                           worker_pid=None, checkpoint=_json(checkpoint))

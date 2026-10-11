@@ -30,7 +30,8 @@ class GeneralWorkflowTests(unittest.TestCase):
 
     def save(self, **stages):
         self.ledger.checkpoint(self.parent, self.token, {
-            "plan": {"stages": {"A": "done", "D": "pending", **stages}}, "handoff": HANDOFF})
+            "plan": {"stages": {"A": "done", "B": "skipped: no configuration changes",
+                                "C": "skipped: no designer data", "D": "pending", **stages}}, "handoff": HANDOFF})
 
     def task(self, key="ui", capability="fgui"):
         return delegate_task(self.ledger, self.parent, self.token,
@@ -163,8 +164,8 @@ class GeneralWorkflowTests(unittest.TestCase):
         task = self.task()
         self.claim_task(task)
         self.ledger.fail(task["id"], "missing tool")
-        self.ledger.record_cleanup(task["id"], {}, done=True)
         await_tasks(self.ledger, self.parent, self.token)
+        self.ledger.record_cleanup(task["id"], {}, done=True)
         self.assertTrue(wake_parent(self.ledger, self.parent))
         self.token = self.ledger.claim(self.parent, worker_id="coordinator")["token"]
         message = self.message("Retry UI after fixing the tool.")
@@ -183,8 +184,8 @@ class GeneralWorkflowTests(unittest.TestCase):
         task = self.task()
         self.ledger.finish(task["id"], self.claim_task(task), "delivered", {"summary": "unchanged",
             "verification": "checked existing assets", "no_change": "No asset delta"})
-        self.ledger.record_cleanup(task["id"], {}, done=True)
         await_tasks(self.ledger, self.parent, self.token)
+        self.ledger.record_cleanup(task["id"], {}, done=True)
         self.assertTrue(wake_parent(self.ledger, self.parent))
         self.token = self.ledger.claim(self.parent, worker_id="coordinator")["token"]
         sibling = self.task("scene", "scene")
@@ -229,8 +230,15 @@ class GeneralWorkflowTests(unittest.TestCase):
         task = self.task("scene", "scene")
         with self.assertRaisesRegex(LedgerError, "all presentation tasks"):
             self.ledger.finish(self.parent, self.token, "delivered", {"summary": "done"})
-        self.ledger.finish(task["id"], self.claim_task(task), "delivered", {"summary": "Scene ready",
-            "verification": "Checked scene", "prs": ["https://github.com/example/Farm-Client/pull/1"]})
+        task_token = self.claim_task(task)
+        evidence = {"summary": "Scene ready", "verification": "Checked scene",
+                    "prs": ["https://github.com/example/Farm-Client/pull/1"], "scene_delivery_id": "verified-fixture"}
+        row = self.ledger._row(task["id"])
+        self.ledger.note(task["id"], "scene_delivery_verified", details={
+            "delivery_id": evidence["scene_delivery_id"], "generation": row["generation"],
+            "fingerprint": row["claimed_fingerprint"], "baseline": row["task_client_base"],
+            "prs": evidence["prs"], "no_change": None})
+        self.ledger.finish(task["id"], task_token, "delivered", evidence)
         with self.assertRaisesRegex(LedgerError, "certified presentation teardown"):
             self.ledger.finish(self.parent, self.token, "delivered", {"summary": "done", "prs": []})
         self.ledger.record_cleanup(task["id"], {}, done=True)
@@ -299,7 +307,8 @@ class GeneralWorkflowTests(unittest.TestCase):
         general, ui = authority("work"), authority("fgui")
         self.assertIn("including UI-only behavior", general)
         self.assertIn("Missing assets are human questions", general)
-        self.assertNotIn("no standing MCP or kw_ops grant exists", general)
+        self.assertIn("no standing MCP or kw_ops grant exists", general)
+        self.assertEqual(SKILLS["work"].mcp, ())
         self.assertIn("guard/loading proofs", ui)
         self.assertFalse(SKILLS["work"].exclusive)
 
@@ -316,10 +325,12 @@ class GeneralWorkflowTests(unittest.TestCase):
         task = self.task("new-ui-key")
         self.ledger.connection.execute("UPDATE work_items SET root_repo='Farm-Client' WHERE id=?", (task["id"],))
         self.ledger.pin_staged_client(task["id"], task["generation"], pin, branch="farmbot/farm-1")
-        with self.assertRaisesRegex(LedgerError, "uncertified predecessor"):
+        with self.assertRaisesRegex(LedgerError, "certified task teardown"):
             self.ledger.pin_task_client_base(task["id"], task["generation"], "c" * 40)
         self.assertIsNone(self.ledger.item(task["id"])["task_client_base"])
-        self.ledger.pin_task_client_base(task["id"], task["generation"], "b" * 40)
+        self.ledger.record_cleanup(previous["id"], {}, done=True)
+        self.ledger.pin_task_client_base(task["id"], task["generation"], "c" * 40)
+        self.assertEqual(self.ledger.item(task["id"])["task_client_base"], "b" * 40)
 
 
 class GeneralSchedulerTests(unittest.TestCase):
