@@ -64,7 +64,7 @@ class GeneralJobJourneyTests(unittest.TestCase):
         self.assertEqual(server_payload["stage"]["write_repositories"], ["farm-hive"])
         ui_payload = json.loads((ui_run / "prompt.md").read_text(encoding="utf-8").split("\n\n", 1)[1])
         self.assertEqual(ui_payload["stage"]["write_repositories"], ["farmgui"])
-        self.assertEqual(Path(ui_payload["worktrees"]["farmgui"]), j.tree(parent, "farmgui"))
+        self.assertTrue(Path(ui_payload["worktrees"]["farmgui"]).samefile(j.tree(parent, "farmgui")))
         self.assertEqual(ui_payload["task"]["parent_id"], parent)
         recorded = j.context(parent)["plan"]["prs"]["Farm-Contract"][0]["head"]
         contract_read = Path(ui_payload["reads"]["Farm-Contract"])
@@ -115,7 +115,7 @@ class GeneralJobJourneyTests(unittest.TestCase):
             *j.pause("question", "Scene: required art is missing.")], "scene entry")
         child, owner = j.c.ledger.item(task), j.c.ledger.item(parent)
         self.assertEqual(payload["stage"]["write_repositories"], ["Farm-Client"])
-        self.assertEqual(Path(payload["worktrees"]["Farm-Client"]), j.tree(parent, "Farm-Client"))
+        self.assertTrue(Path(payload["worktrees"]["Farm-Client"]).samefile(j.tree(parent, "Farm-Client")))
         self.assertEqual(child["target"], owner["target"])
         self.assertEqual(child["task_client_base"], j.head(j.tree(parent, "Farm-Client")))
         self.assertEqual(owner["root_repo"], None)
