@@ -2695,6 +2695,236 @@ the Windows containment path reads every attempt's launch record:
 
 - `test_launcher.WorkerFileReadTests.test_an_oversized_launch_record_is_refused_by_the_windows_containment_check`.
 
+### Actual Windows workload trial after TestBot-only approval (2026-10-12)
+
+After #244 and the documentation record #245 merged, the operator approved
+upgrading/restarting **only TestBot** at executable candidate
+`5cd7b2b75cfa21ee948f85e0babfb9176adac3e3`, temporarily with three workers,
+three Unity slots and three server slots. The earlier statements about both
+instances retaining the old revision describe the preceding checks, not this
+later trial. Production retained ten workers, two Unity slots and no server
+pool at its previous revision. No production service, webhook, credential,
+account or game service changed. TestBot's temporary public tunnel remained
+absent; these workload probes created no Linear issue or comment.
+
+The trial ran on the PC that also serves production Windows FarmBot, using
+separate owned development roots on D:. Actual game sources were pinned to
+Farm-Client `14da81ba8820f78a14e56093d0ad54172153ff7f` and farm-hive
+`539a2f1ec621cc6c8fcad09976b067b32ba9fef7`. Fresh fixture ledgers, managed
+worktrees, three Unity project folders and isolated Docker leases were used.
+Only immutable Git objects and 4,939 SHA-verified LFS blobs (1,073,793,278 bytes)
+were borrowed; no serving ledger, Library database or credentials were copied.
+The serving ledgers were inspected through read-only snapshots. Neither game
+repository was edited by this capacity trial.
+
+TestBot's settled cutover preserved a consistent database backup, private
+configuration backups, ACLs, ownership markers, original jobs/checkpoints and
+recovery evidence. Its seven controller loops and local health endpoint passed
+after the upgrade and after each memory-profile adjustment. All 88 historical
+native worker Jobs were verified empty. Six configured resources were
+`idle_closed` at the final check. Local health does not certify game acceptance.
+An ACL helper initially failed because the sealed PowerShell module path
+prevented module autoload; the private helper was corrected and exact ACLs
+retained before retrying. This required no application change or production
+restart.
+
+#### Actual native server workloads
+
+Native Go 1.25.1 and the existing verified native C compiler ran the fixed
+selection below, with CGO enabled, cached modules, network module access disabled,
+`GOMAXPROCS=2`, `GOMEMLIMIT=1536MiB`, and per-worker build/cache/temp/output on D:.
+Each Go process and its native multi-node descendants ran inside its worker's
+Windows Job; each worker received only its own loopback service endpoints.
+
+```text
+go test -race -p=1 -timeout 300s -json -count=1 ./nodeconf ./modules/friend/friendstore ./modules/rank ./server
+```
+
+The current designer archive was checked before each worker against its three
+pins: version `2026-10-10.dfde6ac`, archive SHA-256
+`df2586385703fa7ae2212087b5e5a07339702d8ea3650c0baa0b5115d3932d43`,
+content digest `4d69972e4049933a3e21c1bf7540b02d01efbd7ead5ec4ed72ce498481643f73`.
+
+Three simultaneous cold-cache workers exceeded the original 4608 MiB estimate.
+The observed minimum available physical/commit headroom was **536/482 MiB**;
+their sampled native Job peak commit values were **5548.42, 5514.32 and
+5426.32 MiB**, excluding Docker. These values are committed memory, not RSS.
+Only the three verified owned fixture Jobs were stopped, then their exact leases
+were cleaned after quiescence. The stopped run lasted **404.391 seconds**, with
+no complete worker result, and is not a pass. Its UTF-8 logs and lease journals
+remain private. No containment, ownership check or skip was weakened.
+
+A retry used an **8192 MiB server estimate**, **13824 MiB instance budget** and
+**4096 MiB physical/commit floors**, admitting one heavy worker at a time. All
+three requests completed in FIFO order, with peak actual concurrency one:
+
+| Request | Passed tests/subtests | Skips | Failures | Worker seconds |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 805 | 4 | 0 | 173.255 |
+| 2 | 805 | 4 | 0 | 175.256 |
+| 3 | 805 | 4 | 0 | 171.008 |
+
+Each run also passed all four package terminals and exited zero. Total pool
+trial duration was **600.728 seconds**, including preparation and cleanup.
+Minimum sampled available physical/commit headroom was **10159/7578 MiB**.
+Sampled native Job peak commits were **5466.74, 5519.94 and 5498.08 MiB**.
+An ownership-verified snapshot of the earlier three Docker stacks used about
+645 MiB collectively; this was a snapshot, not their peak. Service container
+memory ceilings totaled 2624 MiB per stack, separately from native worker usage.
+
+The successful selection actually ran Mongo transaction commit/replay, the
+garden/shop actor transaction case, event-to-Redis integration, two Redis stores
+sharing the real server, real friend/guild cross-process dispatch, player movement
+between games, and gate-chain login/business/duplicate/offline/shutdown cases.
+It is a service-backed selection, not the entire farm-hive suite. All three
+native Jobs were verified empty and all leased services cleaned after results.
+
+All four skips in each request were recorded; none was a missing-service or
+Windows skip:
+
+- `TestGuildClusterDefaultsToSingleProcessAfterBoot`: the shared in-memory boot
+  manifest does not include a guild host.
+- `TestGuildHostWiring`: that shared boot manifest has no guild host; the explicit
+  `TestGuildEnabledHostWiring` case ran.
+- `TestFriendClusterChild`: a private child-process entry, skipped in the parent
+  run without its child flag.
+- `TestPayWakeClusterChild`: the corresponding private child entry, likewise
+  skipped without its child flag.
+
+Successful worker UTF-8 log SHA-256 receipts, in request order:
+
+- `7e409ff8cde862648b48381585927ce4c03ec2b51ad20d838cd0ff49cac5dc28`.
+- `585a83cf117d1c2f8d793d12c2e4992a6894e68aefd995fee04d951cd89085c1`.
+- `a7d17674adf15202343212f968f56b00be1cc735da7a88a82d47e7ab66ef3452`.
+
+#### Actual native Unity workloads and remaining failures
+
+Unity **2022.3.62f3** ran the existing `HotUpdate.Tests` EditMode assembly with
+the Win64 build target through the controller's native batch path. No global
+Editor settings were changed. Shared Editors stayed outside worker containment,
+with exact project ownership and quiescence checked before returning a slot.
+
+The first three-Editor attempt overlapped actual Editors but failed fetching
+locked Spine packages with a Git TLS EOF; it produced no test XML and ended
+after **247.370 seconds**. The other owned executions were stopped and evidence
+retained. Only the three matching Spine package contents were then seeded from
+an existing cache after checking full lock hashes and content digests. No
+Library database or runtime state was seeded. A mismatched cached package variant
+was refused rather than substituted. An earlier fixture omitted its required
+root repository, and the controller correctly refused it before starting any
+Editor; the fixture was corrected without changing the authority guard.
+
+After the package correction, three cold Editors reached only **3903 MiB commit
+headroom** and were stopped at **135.319 seconds**, without results. A two-Editor
+retry with a 6144 MiB estimate likewise crossed the unchanged 4096 MiB commit
+floor at **131.665 seconds**, without results. These are failed capacity
+attempts, not application test passes or proof of a controller deadlock.
+
+With an 8192 MiB Unity estimate, one actual Editor compiled and completed the
+full selected assembly: **4975 total, 4950 passed, 25 failed, 0 skipped and
+0 inconclusive**, exit 2. Native batch duration was **184.6 seconds**; the XML
+test execution itself took **4.478 seconds**. While the Editor was present,
+minimum sampled physical/commit headroom was **10664/7165 MiB**. This is evidence
+that real tests ran, not clean client acceptance.
+
+The private capacity harness initially held that completed reservation while
+waiting for the other two results, omitting the resumed worker's normal result
+consumption/release. No Editor was running in that wait. Its outer run later
+hit the host commit floor at **627.348 seconds** and ended. All four disposable
+Unity ledgers were subsequently cancelled/settled through normal token and
+ownership gates, all three project folders were verified quiescent, and every
+result/log was retained. This fixture mistake does not establish an application
+deadlock. The three-request queue handoff was subsequently checked with the
+corrected harness, as described below.
+
+The 25 failures at the pinned client main were:
+
+| Test (class prefix shortened) | Measured failure |
+| --- | --- |
+| `AnimalBarnConfigTests.AllBarns_StartLockedWithTaskGate` | Barn 1 lacks a task unlock condition. |
+| `AnimalBarnConfigTests.BarnUnlockTip_MatchesDesignerRequirement`, cases 1–4 | Tests expect tasks 48/92/152/234; current data reports levels 7/11/16/22. Four failures. |
+| `AnimalUpgradeCostConfigTests.EveryRow_Level1Cost_Positive` | Animal 1201's calculated coin cost is zero. |
+| `AnimalUpgradeCostConfigTests.FirstRow_Rule_Level1Cost_Positive` | Same zero-cost assertion. |
+| `AnimalUpgradeCostConfigTests.SharedRule_DifferentBaseValue_CostsDifferPerAnimal` | Both compared costs are zero. |
+| `DressUpConfigContractTests.ExportedClothTables_SatisfyDressUpContract` | Suit 110016 mixes Dress and Upper/Lower. |
+| `LeaderboardConfigContractTests.SystemUnlock_110_IsLeaderboard_WithTipAndAnchor` | Expected task acceptance text; exported text says task completion. |
+| `StoryChoiceConfigContractTests.ChoiceSteps_ExistAndParseIntoOptions` | No exported stepType 5 choice node. |
+| `ConfigProtobufGeneratedGoldenTests.RewardTableInfo_Row3KeepsGoldenCompositeReward` | Expected final value 9; current row has 3. |
+| `ConfigTableTests.FurnitureGossipInfo_KeysByStoryId` | Expected story row absent. |
+| `ConfigTableTests.FurnitureGossipStepInfo_GroupsByStoryAndSortsByStepSeq` | Expected step group absent. |
+| `FriendShelfUnlockConfigTests.LockedSlot_UsesRealCostAndReward`, cases 4–9 | Expected reward 54; current data has 3005. Six failures. |
+| `PendingFeatureBoundaryGuardTests.GuildTaskSlotRefreshPoll_StaysSilent` | Raw source-string assertion matches `PendingFeaturePresenter` in a comment; the actual call uses `QuerySlot(..., silent: true)`. |
+| `VisitSharedRequestTests.ConcurrentAndLaterConsumersShareOneRequest` | Runner rejects the non-void async Task test shape. |
+| `VisitSharedRequestTests.ReturningToSameFriendRejectsPreviousVisitResponse` | Same runner rejection. |
+| `VisitSharedRequestTests.EndDiscardsResponseAndRevisitFetchesAgain` | Same runner rejection. |
+| `VisitSharedRequestTests.FailedSnapshotIsSharedUntilNextRefresh` | Same runner rejection. |
+
+Source inspection distinguishes one comment-scanning false positive and four
+test-runner definition failures from the twenty configuration/behavior
+assertions. The latter require comparison with current authoritative game
+contracts/data before deciding whether expectations or application behavior
+should change. They were not declared stale, weakened or skipped to obtain a
+pass. No game code fix was included in this FarmBot capacity record.
+
+Native Unity XML SHA-256:
+`a6b581f55ef2a79a8b7fea7c61f4f35fa965671a4d0dedf024135ae78bf8d38b`.
+Its UTF-8 Editor log SHA-256:
+`92194b7a673555c74c4a095e00fdfe11ffcdfce4e3f5ba07ce001e826b199040`.
+All 51 inventoried fixture logs at the final check were readable as UTF-8;
+checking them for configured TestBot credential values found zero matches.
+Logs and exact local identities
+stay private.
+
+The corrected fixture consumed each result before waiting for the next. Three
+requests completed in FIFO order in **185.253 seconds**, with peak Editor
+concurrency one and minimum sampled physical/commit headroom **14440/12779 MiB**.
+Their native batch durations were **68.4/19.4/19.2 seconds**. Every request ran
+4975 tests and reproduced the **identical 25 failed case names**, with 4950
+passes, zero skips and zero inconclusive results. The normal pool reused the
+same warm first slot; this verifies queued result delivery and cleanup, not
+successful full acceptance in all three physical project folders. All three
+reservations were settled, no queued/active fixture reservation remained, and
+all project folders were quiescent. Pool delivery completed successfully;
+client acceptance remained failed.
+
+Corrected-queue UTF-8 Editor log SHA-256 receipts, in request order:
+
+- `56ddbcdae826adeb565ea960a9c57593fc1625eb629d3e6dd039a605d2942e04`.
+- `4099de18b8e662759e8b0a98b1dd57984846bdc9473dab382252c4d59f0c05f1`.
+- `ecc9469178a2229feba9c51eed725e23c966f153affbd41535f56d69e4bb2406`.
+
+#### Measured profile and promotion boundary
+
+TestBot's final profile reserves **8192 MiB for either heavy kind**, a
+**13824 MiB total estimate budget**, and **4096 MiB physical/commit floors**.
+It therefore admits at most one heavy stage at a time while allowing three
+model workers and three slots of each kind. This admission check is not a memory
+cap or continuous watchdog; later workload/other-application growth can still
+consume headroom. The two bots do not share an atomic host-wide quota.
+The older private 4096/4608 MiB production proposal was marked superseded and
+not ready for promotion. No production capacity settings were applied.
+
+The preserved fixture files occupied about **22.3 GiB logical size** on D: at
+the final measurement: Unity folders **7.11/3.65/3.10 GiB**, native Go caches
+and failed-run evidence about **4.94 GiB**, with the remaining Git/task/evidence
+files about **3.5 GiB**. The latter two Unity folders did not complete full batch
+acceptance, so their sizes are not fully warmed-slot estimates. Shared Git/LFS
+objects and logical sizes must not be read as physical allocation or the exact
+cost of production's third slot. Production files and recovery evidence were
+not cleaned during this trial.
+
+Promotion remains blocked on resolving/attributing the client acceptance
+failures, clean native client acceptance in the intended slots, and choosing
+a measured concurrency profile for both bots on this host. Three simultaneous
+full heavy stages were not certified on this 31.84 GiB PC. A production cutover
+requires its own settled-state authorization; the TestBot-only approval does
+not grant it. All server leases must be settled and journals retained before
+rolling back to a revision without server slots.
+
+This follow-up changes documentation only. Relevant skill/reference tests,
+relative links and whitespace were checked; the frozen executable suite/hosted
+CI results above remain the code evidence, not new tests of a changed runtime.
+
 ## Scope
 
 In Phase B (spec §13, item 2):
