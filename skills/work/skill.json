@@ -1,0 +1,14 @@
+{
+  "name": "work",
+  "trigger": ["delegation"],
+  "intents": [],
+  "writes": ["Farm-Contract", "common", "farm-hive", "Farm-Client"],
+  "initial_root": "Farm-Contract",
+  "staged": true,
+  "reads": ["Farm-Contract", "Farm-Client", "farmgui"],
+  "resources": ["unity_slot", "server_slot"],
+  "gates": ["answers", "config_ready", "presentation_ready", "closing", "pr_review"],
+  "mcp": ["kw_ops"],
+  "budget": {"lease_seconds": 2700, "max_hours": 10, "renew_minutes": 10},
+  "opt_in": true
+}

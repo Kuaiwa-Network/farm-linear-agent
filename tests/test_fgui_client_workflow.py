@@ -20,6 +20,9 @@ class UiClientWorkflowTests(unittest.TestCase):
     def setUp(self):
         self.source = source = workflow_fixtures.UiWorkflowTests(); source.setUp(); self.addCleanup(source.doCleanups)
         self.ledger, self.paths, self.item = source.ledger, source.paths, source.item
+        internal = getattr(self, "internal", False)
+        if internal:
+            self.parent = source.make_general_task()["id"]
         review = source.review(); source.approve(review); self.exported = source.export(review)
         source.plan["ui"]["receipt_id"] = self.exported["receipt_id"]; source.save_plan()
         fixture = installer_fixtures.FguiInstallTests(); fixture.setUp(); self.addCleanup(fixture.doCleanups)
@@ -38,13 +41,36 @@ class UiClientWorkflowTests(unittest.TestCase):
         row = self.ledger.item(self.item)
         self.ledger.pin_staged_client(self.item, row["generation"], {"repository": "Farm-Client", "requested_ref": "main",
             "commit_sha": self.baseline, "server_environment": "fixture", "selected_at": "2026-10-07T00:00:00Z"}, branch=source.branch)
-        self.client = source.trees.add_stage("Farm-Client", self.item, source.branch, self.baseline)
+        owner = self.parent if internal else self.item
+        self.client = source.trees.add_stage("Farm-Client", owner, source.branch, self.baseline)
+        if internal:
+            # An earlier delivered scene contributes legitimate Client files.
+            # The UI scope must exclude those while retaining the job baseline.
+            (self.client / "scene.prefab").write_text("Earlier scene output", encoding="utf-8")
+            source.commit(self.client)
+            entry_head = source.git(self.client, "rev-parse", "HEAD")
+            self.ledger.pin_task_client_base(self.item, row["generation"], entry_head)
         source.token = self.ledger.claim(self.item, worker_id="ui-client-fixture")["token"]
         self.workflow = UiWorkflow(self.ledger, self.item, source.token, source.config, source.skill,
                                    lambda: source.api, stage="Farm-Client")
 
     def installed(self):
         return install(self.workflow, self.exported["receipt_id"])
+
+    def test_internal_task_installs_on_prior_scene_without_expanding_ui_diff_scope(self):
+        fixture = UiClientWorkflowTests(); fixture.internal = True; fixture.setUp(); self.addCleanup(fixture.doCleanups)
+        proof = fixture.installed()
+        self.assertEqual(proof["baseline"], fixture.ledger.item(fixture.item)["task_client_base"])
+        self.assertNotEqual(proof["baseline"], fixture.ledger.item(fixture.parent)["target"]["commit_sha"])
+        self.assertEqual((fixture.client / "scene.prefab").read_text(encoding="utf-8"), "Earlier scene output")
+        fixture.source.commit(fixture.client)
+        from agent.fgui_scope import verify_candidate
+        scope = verify_candidate(fixture.workflow, fixture.exported["receipt_id"])
+        self.assertNotIn("scene.prefab", scope["changed_client_files"])
+        (fixture.client / "Gameplay.cs").write_text("Unauthorized gameplay", encoding="utf-8")
+        fixture.source.commit(fixture.client)
+        with self.assertRaisesRegex(LedgerError, "outside certified"):
+            verify_candidate(fixture.workflow, fixture.exported["receipt_id"])
 
     def handoff(self, root, pid):
         source = self.source

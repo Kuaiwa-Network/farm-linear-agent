@@ -108,8 +108,10 @@ class LarkCliConfigTests(unittest.TestCase):
             self.config(lark_cli={"profile": "farmbot", "home": self.home})
 
     def test_a_host_that_enables_a_skill_reading_the_design_doc_names_a_profile(self):
-        self.assertEqual(LARK_CLI_SKILLS, ("feature", "fgui"))
+        self.assertEqual(LARK_CLI_SKILLS, ("work", "feature", "fgui"))
         with self.assertRaisesRegex(ValueError, "feature reads the 策划案 with lark-cli"):
             require_lark_cli(self.config(), {"chat", "fix", "feature"})
         require_lark_cli(self.config(lark_cli={"profile": "farmbot"}), {"chat", "fix", "feature"})
         require_lark_cli(self.config(), {"chat", "fix"})
+        with self.assertRaisesRegex(ValueError, "work reads the 策划案 with lark-cli"):
+            require_lark_cli(self.config(), {"chat", "work"})

@@ -167,7 +167,7 @@ class ServeTests(unittest.TestCase):
         self.assertEqual(service.scheduler.enabled_skills, {"chat"})
         self.assertEqual(service.skills, {"chat"})  # what the ready line reports
         # Still loaded, so the scheduler can refuse a queued fix instead of leaving it waiting.
-        self.assertEqual(set(service.scheduler.skills), {"chat", "feature", "fix", "fgui"})
+        self.assertEqual(set(service.scheduler.skills), {"chat", "feature", "fix", "fgui", "work", "scene"})
         # A config without the key runs every skill in the checkout but the opt-in ones.
         self.assertEqual((self.c.receiver.skills, self.c.scheduler.enabled_skills), ({"chat", "fix"}, {"chat", "fix"}))
 

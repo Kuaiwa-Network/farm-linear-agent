@@ -493,11 +493,11 @@ class DoctorTests(unittest.TestCase):
         # feature is loaded from the checkout but opt-in (P1): enabled only where enabled_skills names it.
         skills = self.report()["skills"]
         self.assertEqual((skills["loaded"], skills["enabled"], skills["configured"]),
-                         (["chat", "feature", "fgui", "fix"], ["chat", "fix"], False))
+                         (["chat", "feature", "fgui", "fix", "scene", "work"], ["chat", "fix"], False))
         self.config.enabled_skills = ["chat"]
         report = self.report()
         self.assertEqual((report["skills"]["loaded"], report["skills"]["enabled"], report["skills"]["configured"]),
-                         (["chat", "feature", "fgui", "fix"], ["chat"], True))
+                         (["chat", "feature", "fgui", "fix", "scene", "work"], ["chat"], True))
         self.assertEqual(report["status"], "ok")
 
     def test_an_enabled_skill_the_checkout_lacks_is_the_finding_serve_would_refuse(self):
@@ -557,7 +557,7 @@ class DoctorTests(unittest.TestCase):
         self.config.runtime = "claude"
         with patch("agent.doctor.load_skills", return_value=skills):
             report = self.report()
-            self.assertEqual(report["skills"], {"loaded": ["chat", "feature", "fgui", "fix"], "enabled": ["chat", "fix"],
+            self.assertEqual(report["skills"], {"loaded": ["chat", "feature", "fgui", "fix", "scene", "work"], "enabled": ["chat", "fix"],
                                                 "configured": False})
             finding = next(f for f in report["findings"] if f["code"] == "skill_runtime_unsupported")
             self.assertEqual(finding["skills"], ["fix"])
@@ -568,7 +568,7 @@ class DoctorTests(unittest.TestCase):
             self.config.enabled_skills = ["chat", "feature"]
             with patch.dict(SKILL_AUTHORITY, {fixture.name: "Fixture feature grants. "}):
                 report = self.report()
-            self.assertEqual(report["skills"], {"loaded": ["chat", "feature", "fgui", "fix"], "enabled": ["chat", "feature"],
+            self.assertEqual(report["skills"], {"loaded": ["chat", "feature", "fgui", "fix", "scene", "work"], "enabled": ["chat", "feature"],
                                                 "configured": True})
             finding = next(f for f in report["findings"] if f["code"] == "skill_runtime_unsupported")
             self.assertEqual(finding["skills"], ["feature"])

@@ -30,11 +30,15 @@ def _client(workflow):
     workflow._stage("Farm-Client")
     item = workflow.ledger.item(workflow.item_id)
     branch = workflow.ledger.staged_client_branch(workflow.item_id, issue_prefix=workflow.config.issue_prefix)
-    client = workflow.paths.worktrees / workflow.item_id / "Farm-Client"
+    from .workflow import repository_owner
+    client = workflow.paths.worktrees / repository_owner(item) / "Farm-Client"
     _plain_path(client)
     if workflow.trees.git_in(client, "branch", "--show-current") != branch:
         raise LedgerError("UI installation requires the controller's exact owned Client issue branch")
-    return client, branch, item["target"]["commit_sha"]
+    baseline = item.get("task_client_base") if item.get("parent_id") else item["target"]["commit_sha"]
+    if not baseline:
+        raise LedgerError("internal UI installation requires its controller-selected presentation entry HEAD")
+    return client, branch, baseline
 
 
 def installation_records(ledger, item_id):

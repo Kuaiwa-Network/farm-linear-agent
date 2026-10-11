@@ -32,8 +32,10 @@ keep runtime authority and behavior changes in those sources and their tests.
 - `agent/slots.py`, `agent/unity.py`, `agent/unity_mcp.py`, `agent/identity.py`: Unity
   resource ownership, Editor discovery, MCP and verification evidence.
 - `agent/__main__.py`, `agent/dispatch.py`, `skills/`, `references/`: worker-facing
-  CLI, launch context and instructions; `skills/feature` is the opt-in Code worker,
-  and `skills/fgui` is the opt-in UI worker with certified export/Client gates.
+  CLI, launch context and instructions; `skills/work` owns general issue jobs,
+  reusing `skills/feature` for code and `skills/fgui`/`skills/scene` for durable
+  presentation tasks. FGUI retains certified export/Client gates; legacy profiles
+  remain available during rollout.
 - `agent/skills.py`, `agent/stages.py`, `agent/uploads.py`, `agent/foreign_work.py`: skill
   manifests (opt-in and exclusive skills included) and per-host enablement, repository
   stages, Linear upload downloads and the foreign-work report.

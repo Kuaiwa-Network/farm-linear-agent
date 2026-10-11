@@ -20,6 +20,7 @@ from .preview_upload import _plain_path, read_image
 from .publication import PublicationVerifier, github_api
 from .uploads import _read_regular
 from .worktrees import Worktrees
+from .workflow import JobWorktrees, repository_owner
 
 
 def _inputs(context):
@@ -41,13 +42,14 @@ class UiWorkflow:
             raise LedgerError("UI workflow stage is invalid")
         self.stage = stage
         roots = (None, "farmgui") if stage == "farmgui" else ("Farm-Client",)
+        enabled = "fgui" in (config.enabled_skills or []) or (item.get("parent_id") and "work" in (config.enabled_skills or []))
         if (item["skill"] != "fgui" or item["root_repo"] not in roots
-                or "fgui" not in (config.enabled_skills or []) or not skill or skill.name != "fgui"
+                or not enabled or not skill or skill.name != "fgui"
                 or "Farm-Client" not in skill.writes or "unity_slot" not in skill.resources):
             raise LedgerError("UI export requires the explicitly enabled Phase E farmgui stage")
         if not (ledger.session(item["session_id"]) or {}).get("delegation"):
             raise LedgerError("UI export requires this delegated job")
-        self.trees = Worktrees(self.paths.repos, self.paths.worktrees, config.repos)
+        self.trees = JobWorktrees(Worktrees(self.paths.repos, self.paths.worktrees, config.repos), ledger)
         self.initial_inputs = None
         self.fence(refresh=True)
         self.initial_inputs = _inputs(ledger.issue_context(item_id))
@@ -133,7 +135,7 @@ class UiWorkflow:
         run.parent.mkdir(parents=True, exist_ok=True)
         _plain_path(run.parent)
         block = self.config.fgui_export
-        result = publish(self.paths.worktrees / self.item_id / "farmgui", review["selected_packages"],
+        result = publish(self.paths.worktrees / repository_owner(self.ledger.item(self.item_id)) / "farmgui", review["selected_packages"],
             block["executable"], block["tool_sha256"], run, fence=self.fence,
             verify_source=lambda: owned_source(self.trees, self.item_id, branch, review["selected_packages"], expected_head=source["head"]),
             timeout=block.get("timeout_seconds", 180))

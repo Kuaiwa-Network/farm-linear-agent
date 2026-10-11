@@ -1,12 +1,26 @@
 ---
 name: fgui
-description: Implement one delegated Bot/UI card through farmgui authoring, named visual approval, native certified export, scoped Client assets and verified Unity package loading. Publish two drafts for human review.
+description: Reusable FairyGUI capability for a general issue's presentation task or a retained standalone UI job; preserve visual approval, certified export, scoped Client assets and Unity loading.
 ---
 
-# FarmBot UI worker
+# FarmBot FairyGUI capability
 
-Speak as `bot_name` from the launch message. This opt-in worker handles one Bot/UI
-card on a host that explicitly enables `fgui`. Start in its farmgui issue worktree;
+Speak as `bot_name` from the launch message. For an internal `task`, the enabled
+general job owns the issue; no Bot label or separately enabled UI worker is
+required. Read `issue-context.parent_job` for the settled shared OpenSpec and
+`task.instructions` for scope. New/changed UI interactions require that shared
+behavior contract; pure visual corrections use existing requirements and actual
+design references. Missing art is a human question; save it with the task key and
+park only this task. The parent routes actual attributed answers, retains partial
+decisions and continues independent server work. All existing visual/export and
+Client checks below still apply.
+Internal tasks also receive `reads.Farm-Contract`. Read the parent's recorded
+settled contract commit and scenario/file references with read-only Git, including
+`git show COMMIT:path` for an unmerged OpenSpec; never change the read checkout or
+assume its default-branch files already contain the parent's change.
+
+A retained standalone job runs on a host that explicitly enables `fgui`.
+Start in its farmgui issue worktree;
 Farm-Client main is read-only integration context. A named human's confirmation
 of the unchanged current visual round includes export and Client continuation
 when its notice explains that meaning and names the verified destination and
@@ -46,8 +60,9 @@ At every attempt:
    do not change ACLs, repair or overwrite stale tokens,
    elevate, or echo a token. Renew at least every `renew_minutes`.
 3. Run `fetch-issue` and `issue-context`, then `pop-inbox`. Verify current open
-   delegation, exactly one Bot/UI child (the historical 功能 parent is accepted
-   by the controller), current human requests and the saved/recovery plan. If
+   delegation, current human requests and the saved/recovery plan. A standalone
+   legacy job also checks exactly one Bot/UI child (the historical 功能 parent is
+   accepted by the controller); an internal task checks its active parent instead. If
    `fetch-issue` prints `delegated: false` or `withdrawn: true`, or any command
    refuses with `delegation withdrawn`, publish nothing and ask nothing: save a
    checkpoint, run `withdraw` and exit. A refusal because delegation returned
@@ -55,8 +70,9 @@ At every attempt:
 4. Check `foreign-work` after a fresh issue read; inspect its verified heads and
    notices. Ask whether to continue, stop or build on foreign work. Do not create
    a competing branch or treat another worker's report as a human answer.
-5. Post the normal `started` outbox comment once, reusing `plan.started` or
-   recovery/outbox evidence. Record the confirmed id. Fetch current verified main
+5. A standalone job posts the normal `started` outbox comment once, reusing
+   `plan.started` or recovery/outbox evidence, and records the confirmed id.
+   An internal task reports a task-prefixed progress thought. Fetch current verified main
    without replacing the owned issue branch; preserve the recorded PR/branch/head.
    Before publication, incorporate relevant base drift without force-push and
    repeat affected checks. A changed upload or source invalidates visual approval.
@@ -333,3 +349,10 @@ predecessor plan, heads, notices and private evidence; never reconstruct approva
 from a PNG's presence. Preserve recovery evidence when cleanup is uncertain.
 Reports use `STATE_DIR/report.md`, then `STATE_DIR/report-2.md` on a later attempt;
 follow the evidence/memory references and keep them out of repository commits.
+
+For an internal task, do not post a started/blocker/delivery outcome comment or
+close the parent session. Visual-round notices remain required. After the same
+two-draft delivery verification, `finish` takes summary, verification, both PRs
+and normal UI proof; no `comment_action_id` is required. A genuine no-change task
+records its reason. The parent owns the issue's final delivery and Client gameplay
+integration. Normal progress is a task-prefixed thought.

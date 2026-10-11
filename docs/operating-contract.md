@@ -3,6 +3,38 @@
 Current behaviour implemented in this repository. Closure cleanup requires deployment of this revision. Rewritten in place whenever behaviour changes; the
 design rationale lives in `docs/superpowers/specs/`.
 
+## General issue jobs
+
+The opt-in `work` workflow owns one delegated issue and ignores Bot labels for new
+delegations and first authorized conversation requests. Bug fixing and feature
+implementation use the same capabilities and only the required stages. New or
+changed behavior, including UI-only interactions/states, uses shared OpenSpec in
+Farm-Contract. Pure visual corrections check existing requirements and actual
+design references; farmgui needs no separate OpenSpec project.
+
+After the shared behavior is settled, the general job may delegate durable `fgui`
+or `scene` tasks and continue independent server/config work. Each has separate
+claim tokens, checkpoints, human gates and run evidence, sharing the job's owned
+branches. Actual human answers go to the parent, which routes them with original
+attribution; partial answers resume only the relevant task. Missing assets are
+questions, never implicit permission to invent art or use placeholders. The
+existing FGUI visual approval/export/install/guards/Unity proof gates remain.
+
+Parent Client gameplay waits for completed/skipped server work and every required
+presentation task's delivery and certified teardown. All same-repository writers
+serialize, including attempts recovered after restart; a presentation retains its
+Client stage across human/resource waits and terminal task retries until delivery.
+FGUI retains its reviewed source through certified delivery. The job keeps one immutable Client pin,
+and each presentation task retains a clean entry HEAD for its own scoped diff.
+Tasks report progress without closing the shared session. Only the parent posts
+the issue outcome, including every task's PRs. Stop/withdrawal/failure cancels the
+whole job; shared source is cleaned only after certified child teardown.
+
+Enable `work` explicitly; hosts without it retain the legacy routing described
+below. Existing jobs retain their profile, which must stay enabled to continue
+them. See [activation, concurrency and schema recovery](general-workflow.md).
+This is offline implementation, not evidence of deployment or live acceptance.
+
 ## Host configuration
 
 File selection is explicit `--config`, then `FARMBOT_CONFIG`, then the checkout's
@@ -209,6 +241,10 @@ back once, with the same effect. Another app's comments, which earlier revisions
 person's, are a bot's from this revision, so an issue another app commented on changes fingerprint
 once in the same way, and back again on a rollback.
 
+Label-specific rows below describe hosts without `work`. In general mode, any
+delegation starts `work`; the remaining conversation/lifecycle rules apply to
+the parent job, and Stop includes all its tasks.
+
 | You do | FarmBot does |
 |---|---|
 | Assign (delegate) an issue labelled Bot/修改 to @FarmBot | starts a `fix` work item when this instance runs `fix`, whatever else the card carries and whatever text comes with it (otherwise the read-only conversation that says so); first activity within 10 s; posts 「👀 <bot_name> 已开始处理」 (「👀 FarmBot 已开始处理」 in production) once the worker claims |
@@ -229,7 +265,7 @@ once in the same way, and back again on a rollback.
 | Delegate an issue when Linear opens no session for it (one of FarmBot's threads on the card still waits for an answer, or the delegation came through Linear's API or an automation) | on a card FarmBot tracks, about 90 s after a status read first finds the card delegated to FarmBot again with no delegation session recorded since, FarmBot settles it on a fresh read of the card, without opening a session or changing the card. Work of the kind the labels name that the delegation already has is kept, and its thread gets one line (at most one per job in 30 minutes): a waiting job asks its question again, a running one says it goes on. Other queued or waiting work, or a conversation, that lives in a delegation thread Linear shows as not archived is taken over in that same thread with its messages, as a new delegation takes a card over. Otherwise FarmBot records a creation attempt and opens its own session through `agentSessionCreateOnIssue`. Its normal `created` routing checks the card again, carries messages and compatible progress, and defers behind a claimed write worker. An explicit refusal falls back to one note in each open FarmBot thread: a response that ends a waiting thread, keeps its work answerable and says to choose No agent and delegate again; a thought where work runs; a response that closes a thread with no work, unless a Stop there still reaches the card's work or an event of it waits. On an explicit refusal with no open thread, nothing is posted and `doctor` lists `silent_delegation`. An uncertain response is recovered by its unique issue link, without another creation request. A card the fresh read finds closed, archived, trashed or not delegated to FarmBot is left alone, and so is one Linear keeps answering "not found" for 15 minutes while its other calls succeed. A delegation session that arrives later takes the card over as usual |
 | @FarmBot on an issue that already has FarmBot work in another session | a waiting conversation moves to your thread and answers there; otherwise your text is forwarded to that work, and the notice says whether it was resumed, will be read at the next checkpoint, or will not continue because the card is no longer delegated |
 
-The Bot label group (D18) is team-scoped and single-select, so a card carries at most one child:
+On legacy hosts, the Bot label group (D18) is team-scoped and single-select, so a card carries at most one child:
 修改, UI or Code. Bug, Improvement, Feature and the 部门 labels are for people and start nothing.
 The group was named 功能 until 2026-09-28. This revision reads it under both names, so it routes
 alike on either side of the rename, and a later revision drops 功能. Revisions before it read only
@@ -242,6 +278,8 @@ a Bot label starts nothing and a delegated Bug card starts `fix`. §7 of
 | Skill | May write to | Resources | Needs delegation |
 |---|---|---|---|
 | chat | shared memory through item-authenticated CLI only; no repositories | kw_ops query tools (Codex, when configured) | no |
+| work | one rooted repository per attempt, starting in Farm-Contract; common, farm-hive and Farm-Client as required; coordinates scoped presentation tasks | configured kw_ops; read-only bot document reads; exact-commit reserved Unity verification; server_slot integration tests in farm-hive | yes |
+| scene | internal task's scoped Client scene/prefab/display assets on its general job's owned branch | presentation previews and exact-commit reserved Unity verification | through its general job |
 | fix | one rooted repository per worker attempt, selected from Farm-Contract, Farm-Client, farm-hive, farmgui, common; the neutral investigation attempt has no repository writes | Unity slot (one, batch or interactive, two-phase); kw_ops, every tool (Codex, when configured) | yes |
 | feature | one rooted repository per worker attempt: Farm-Contract first (its initial root), then common, farm-hive and Farm-Client as its stages need; reads detached checkouts of Farm-Contract's, Farm-Client's and farmgui's default branches | Unity verification only at an explicit clean committed owned Client HEAD; Unity MCP only with its held interactive reservation; no kw_ops or standing MCP; lark-cli as the FarmBot app, read-only | yes |
 | fgui | starts in farmgui; certified export handoff adds scoped FairyRes/metadata and reasoned guard entries on its owned Farm-Client branch; detached main stays read-only | approximate previews, bot document reads, attributed native export and controller-verified interactive Unity package loading; no gameplay, direct paid CLI, arbitrary MCP or kw_ops | yes |
@@ -674,8 +712,9 @@ that Python cleanup executes after SIGKILL. Reservation release still requires a
 
 A failing release or stalled interactive test quarantines its slot and requests controller
 recovery. `awaiting_resource` with stage `waiting_for_recovery` is an infrastructure wait;
-`awaiting_input` remains exclusively a wait on a human: a question or, with `--reason waiting`, a
-human step elsewhere. This supersedes the original
+`awaiting_input` normally waits on a human: a question or, with `--reason waiting`, a
+human step elsewhere. A general job's `waiting_tasks: true` checkpoint is the
+explicit internal task join and emits no human elicitation. This supersedes the original
 operator-only slot recovery policy. Workers checkpoint, release `unclean`, and exit immediately.
 The release revokes both their claim and reservation token. Never request a human to operate
 Unity or add `needs-more-info` for this condition.
@@ -928,10 +967,12 @@ write only the active repository stage and read Farm-Client main for integration
 context. Its six-hour attempt budget and renewal use the shared controller. The
 conditional Client grant and interactive `unity_slot` route are described below;
 the manifest supplies no arbitrary MCP or kw_ops grant.
-It routes only a delegated Bot/UI card and has no intake Client commit pin. Default
+As a standalone legacy job it routes only a delegated Bot/UI card. An internal
+task is enabled through its general `work` job without a label gate. Neither has
+an intake Client commit pin. Default
 hosts still enable chat/fix only. Selecting `fgui` requires the explicit bot
 document-reader configuration; no profile/account/credential setup is automatic.
-`doctor` adds `tools.fgui` only when enabled: native selected Python 3.13+, Git LFS,
+`doctor` adds `tools.fgui` when `fgui` or `work` is enabled: native selected Python 3.13+, Git LFS,
 pinned Pillow 12.3.0, a prepared CJK font's name/hash and the configured read-only
 lark-cli identity route. These probes neither authenticate to Feishu nor start an
 Editor or create/migrate a ledger. Missing prerequisites remain named findings.
@@ -1378,7 +1419,7 @@ variable from workers, and read the new notice kinds like any other.
 
 ## Isolated server integration resources
 
-The optional `server_slots` pool is controller-owned. `fix` and `feature` may
+The optional `server_slots` pool is controller-owned. `work`, `fix` and `feature` may
 request `server_slot` in batch mode only from their farm-hive write stage, after
 checkpointing and committing the exact candidate. The item-authenticated CLI
 verifies its clean managed worktree and configured host ledger; the scheduler

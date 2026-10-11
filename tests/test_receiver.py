@@ -1950,7 +1950,7 @@ class OwnThreadReceiverTests(ReceiverBase):
         fix = self.waiting_fix("session-1")
 
         def launch_fails():
-            self.scheduler.worktrees.fail_on = ("Farm-Client", fix["id"])
+            self.scheduler.worktrees.trees.fail_on = ("Farm-Client", fix["id"])
             self.scheduler.tick()
         self.answered_slowly(launch_fails)
         self.mention_in("session-9", "@FarmBot 公共测试服")

@@ -54,7 +54,9 @@ class GuardResultTests(unittest.TestCase):
 
 class UiGuardWorkflowTests(unittest.TestCase):
     def setUp(self):
-        self.fixture = f = client_fixtures.UiClientWorkflowTests(); f.setUp(); self.addCleanup(f.doCleanups)
+        self.fixture = f = client_fixtures.UiClientWorkflowTests()
+        f.internal = getattr(self, "internal", False)
+        f.setUp(); self.addCleanup(f.doCleanups)
         f.installed(); f.source.commit(f.client)
         self.tool = f.source.root / 'dotnet.exe'; self.tool.write_bytes(b'fixture tool identity')
         self.enterContext(patch('agent.fgui_guards.shutil.which', return_value=str(self.tool)))

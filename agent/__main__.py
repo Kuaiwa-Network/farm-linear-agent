@@ -54,6 +54,13 @@ def parser():
     cmd("revalidate", "--item", "--fingerprint", token=True)
     cmd("issue-context", "--item")
     cmd("pop-inbox", "--item", token=True)
+    cmd("tasks", "--item")
+    cmd("delegate-task", "--item", "--input", token=True)
+    cmd("await-tasks", "--item", token=True)
+    answer_task = cmd("answer-task", "--item", "--task", token=True)
+    answer_task.add_argument("--message-id", type=int, required=True)
+    retry_task_parser = cmd("retry-task", "--item", "--task", token=True)
+    retry_task_parser.add_argument("--message-id", type=int, required=True)
     cmd("verify-publication", "--item", "--repo", token=True)
     cmd("foreign-work", "--item", token=True)
     uploads = cmd("download-uploads", "--item", "--out", token=True)
@@ -190,7 +197,7 @@ def conversation_request(ledger, item_id, issue, running, *, start):
         refusal = continuation_refusal(work["skill"])
     if refusal is not None:
         return None, refusal
-    return (start_skill(children) if start else None), None
+    return (("work" if "work" in running else start_skill(children)) if start else None), None
 
 
 def configured_issue_prefix():
@@ -236,6 +243,8 @@ def post_closing_notice(ledger, api_factory, item, reason):
     out of reach gets none. True when Linear took it; a response it refused is owed to the session (owe_closing)."""
     if reason not in NOTICE_REASONS:
         return False
+    if item.get("parent_id"):
+        return False  # the parent owns the one session-closing notice
     body = None
     try:
         body = withdrawal_notice(item["skill"], reason, configured_bot_name())
@@ -264,6 +273,8 @@ def withdraw_question(ledger, api, item_id):
         item = ledger.item(item_id)
     except LedgerError:
         return
+    if item.get("parent_id"):
+        return  # its thought cannot strand an elicitation or close the parent
     working = ledger.active_item_for_session(item["session_id"])
     if working is not None and working["session_id"] == item["session_id"]:
         return
@@ -299,7 +310,8 @@ def verify_late_prs(ledger, args, token, progress):
     session = ledger.session(item['session_id']) or {}
     if item['skill'] not in WRITE_SKILLS or not skill or not session.get('delegation'):
         raise LedgerError("only a delegated write worker may reconcile published PRs")
-    verifier = PublicationVerifier(Worktrees(paths.repos, paths.worktrees, config.repos),
+    from .workflow import JobWorktrees
+    verifier = PublicationVerifier(JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger),
                                    issue_prefix=config.issue_prefix)
     verified = []
     for url in sorted(late):
@@ -351,6 +363,8 @@ def owned_action(ledger, item_id, action_id, token):
     and a confirmed row makes post_comment a no-op, so this cannot post anything twice.
     """
     ledger.renew(item_id, token)
+    if ledger.item(item_id).get("parent_id"):
+        raise LedgerError("only the general job may post or confirm outcome comments")
     row = ledger.connection.execute(
         """SELECT o.* FROM outbox o JOIN work_items w ON w.id=?
            WHERE o.action_id=? AND o.issue_id=w.issue_id AND o.fingerprint=w.claimed_fingerprint
@@ -498,6 +512,42 @@ def run(args, ledger, api_factory):
         return ledger.issue_context(args.item)
     if c == "pop-inbox":
         return ledger.pop_inbox(args.item, resolve_token(args))
+    if c == "tasks":
+        from .workflow import task_views
+        return task_views(ledger, args.item)
+    if c in ("delegate-task", "await-tasks", "answer-task", "retry-task"):
+        from .workflow import await_tasks, delegate_task, forward_answer, retry_task
+        token = resolve_token(args)
+        ledger.renew(args.item, token)
+        item = ledger.item(args.item)
+        refuse_withdrawn(item)
+        if item["skill"] != "work" or item.get("parent_id"):
+            raise LedgerError("task coordination requires the general job's own claim")
+        config = load_config(secure_permissions=False)
+        if Path(args.db).resolve() != Paths(config).ledger.resolve() or "work" not in (config.enabled_skills or []):
+            raise LedgerError("task coordination requires the configured general-worker host ledger")
+        api = api_factory()
+        status = api.issue_status(item["issue_id"])
+        if (not api.app_user_id or status.get("delegate_id") != api.app_user_id or status["archived"]
+                or status["status_type"] in TERMINAL_STATUS_TYPES):
+            raise LedgerError("issue must remain open and delegated to FarmBot")
+        if c == "delegate-task":
+            request = read_json(args.input)
+            needed = "farmgui" if isinstance(request, dict) and request.get("capability") == "fgui" else "Farm-Client"
+            if needed not in config.repos:
+                raise LedgerError("required presentation repository is not configured on this host")
+            return delegate_task(ledger, args.item, token, request)
+        if c == "answer-task":
+            return forward_answer(ledger, args.item, token, args.task, args.message_id)
+        if c == "retry-task":
+            return retry_task(ledger, args.item, token, args.task, args.message_id)
+        result = await_tasks(ledger, args.item, token)
+        body = "工作进度已保存，正在等待本 issue 的界面/场景任务；问题和答复会保留在同一会话。"
+        if str(item["session_id"]).startswith("local-"):
+            api.create_comment(item["issue_id"], body)
+        else:
+            api.create_activity(item["session_id"], {"type": "thought", "body": body})
+        return result
     if c == "prepare-comment":
         return ledger.prepare_comment(args.item, resolve_token(args), args.kind, read_text(args.body_file))
     if c == "post-comment":
@@ -519,6 +569,9 @@ def run(args, ledger, api_factory):
             raise LedgerError("ask with await-input: it posts the question and parks the job")
         item = ledger.item(args.item)
         ledger.renew(args.item, resolve_token(args))  # proves ownership before speaking for the item
+        if item.get("parent_id"):
+            return api_factory().create_activity(item["session_id"], {
+                "type": "thought", "body": f"[{item['task_key']}] {read_text(args.body_file)}"})
         return api_factory().create_activity(item["session_id"], {"type": args.type, "body": read_text(args.body_file)})
     if c == "await-input":
         token = resolve_token(args)
@@ -538,7 +591,9 @@ def run(args, ledger, api_factory):
                 raise LedgerError(Ledger.WITHDRAWN)
         if args.reason == "question":
             api.needs_more_info(item["issue_id"])
-        api.create_activity(item["session_id"], {"type": "elicitation", "body": args.question})
+        content = ({"type": "thought", "body": f"[{item['task_key']}] {args.question}"}
+                   if item.get("parent_id") else {"type": "elicitation", "body": args.question})
+        api.create_activity(item["session_id"], content)
         try:
             return ledger.await_input(args.item, token, args.question, reason=args.reason)
         except LedgerError:
@@ -623,9 +678,11 @@ def run(args, ledger, api_factory):
         paths = Paths(config)
         if Path(args.db).resolve() != paths.ledger.resolve():
             raise LedgerError("preview upload must use the configured host ledger")
-        if item["skill"] != "fgui" or item["root_repo"] not in (None, "farmgui"):
+        internal = item.get("parent_id") and "work" in (config.enabled_skills or [])
+        scene = internal and item["skill"] == "scene" and item["root_repo"] in (None, "Farm-Client")
+        if not scene and (item["skill"] != "fgui" or item["root_repo"] not in (None, "farmgui")):
             raise LedgerError("preview upload requires this job's farmgui authoring stage")
-        if "fgui" not in (config.enabled_skills or []):
+        if not internal and "fgui" not in (config.enabled_skills or []):
             raise LedgerError("preview upload requires explicit fgui enablement on this host")
         image = read_image(args.file, paths.runs / args.item)
         ledger.renew(args.item, token)
@@ -642,8 +699,13 @@ def run(args, ledger, api_factory):
         keepalive()
         result = api.upload_image(image, keepalive=keepalive)
         keepalive()
-        from .fgui_records import record_preview
-        record_preview(ledger, args.item, token, image, result)
+        if scene:
+            with ledger._transaction():
+                ledger._owned(args.item, token)
+                ledger._audit(args.item, "scene_preview_uploaded", details=result)
+        else:
+            from .fgui_records import record_preview
+            record_preview(ledger, args.item, token, image, result)
         return result
     if c == "download-uploads":
         from .uploads import download_issue_uploads, issue_uploads, output_directory
@@ -679,7 +741,7 @@ def run(args, ledger, api_factory):
         from .config import ROOT
         from .publication import PublicationVerifier
         from .skills import load_skills
-        from .worktrees import Worktrees, _git
+        from .worktrees import Worktrees
         token = resolve_token(args)
         ledger.renew(args.item, token)
         item = ledger.item(args.item)
@@ -704,10 +766,10 @@ def run(args, ledger, api_factory):
             if (not api.app_user_id or issue.get('delegate_id') != api.app_user_id or issue.get('archived')
                     or issue.get('status_type') in TERMINAL_STATUS_TYPES):
                 raise LedgerError("issue must remain open and delegated to FarmBot")
-            trees = Worktrees(paths.repos, paths.worktrees, config.repos)
-            branch = _git('branch', '--show-current', cwd=paths.worktrees / args.item / args.repo)
+            from .workflow import JobWorktrees
+            trees = JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger)
             result = PublicationVerifier(trees, issue_prefix=config.issue_prefix).verify(
-                args.repo, args.item, issue['identifier'], branch, suffix_roles=skill.initial_root is not None)
+                args.repo, args.item, issue['identifier'], suffix_roles=skill.initial_root is not None)
             ledger.renew(args.item, token)  # fence cancellation while network checks were in progress
             refuse_withdrawn(ledger.item(args.item))  # and a withdrawal flagged meanwhile
             return result
@@ -741,7 +803,7 @@ def run(args, ledger, api_factory):
         if args.commit is not None:
             from .worktrees import Worktrees
             server_request = args.resource == "server_slot"
-            if server_request and (item["skill"] not in ("fix", "feature") or args.mode != "batch"
+            if server_request and (item["skill"] not in ("work", "fix", "feature") or args.mode != "batch"
                                    or current_root(item["root_repo"], skill) != "farm-hive"):
                 raise LedgerError("server integration requires a farm-hive write stage")
             if not server_request and (item["skill"] not in WRITE_SKILLS or args.resource != "unity_slot"
@@ -755,7 +817,7 @@ def run(args, ledger, api_factory):
             options = {}
             if server_request and not config.server_slots:
                 raise LedgerError("this host has no configured server integration slots")
-            if not server_request and item["skill"] in ("feature", "fgui"):
+            if not server_request and item["skill"] in ("work", "feature", "fgui", "scene"):
                 options["expected_branch"] = ledger.staged_client_branch(args.item, issue_prefix=config.issue_prefix)
                 request_options["issue_prefix"] = config.issue_prefix
             if item["skill"] == "fgui":
@@ -770,7 +832,8 @@ def run(args, ledger, api_factory):
                 scope = verify_candidate(workflow, receipt, expected_commit=args.commit)
                 installed = installation_record(ledger, args.item, receipt)
                 verification_record(workflow, "fgui_guards_complete", "guards_sha256", receipt, scope, installed)
-            Worktrees(paths.repos, paths.worktrees, config.repos).verification_commit(
+            from .workflow import JobWorktrees
+            JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger).verification_commit(
                 "farm-hive" if server_request else "Farm-Client", args.item, args.commit, **options)
         # Ownership is checked again after Git validation, fencing a concurrent stop/closure.
         return ledger.await_resource(args.item, token, args.resource, args.mode, skill=skill,
@@ -845,7 +908,11 @@ def run(args, ledger, api_factory):
                                   api_factory, stage="Farm-Client")
             evidence["ui_delivery_id"] = verify_delivery(workflow, evidence.get("prs"))["delivery_id"]
         view = ledger.finish(args.item, token, args.outcome, evidence)
-        complete_session(ledger, api_factory, item, args.outcome, evidence)
+        if item.get("parent_id") and view["state"] in ("delivered", "blocked"):
+            api_factory().create_activity(item["session_id"], {
+                "type": "thought", "body": f"[{item['task_key']}] {evidence['summary']}；本 issue 的整体验证和交付由主任务继续。"})
+        elif not item.get("parent_id"):
+            complete_session(ledger, api_factory, item, args.outcome, evidence)
         return view
     if c == "cancel":
         # An active job the operator stops gets one note, and its pending heartbeat goes in the same transaction, so

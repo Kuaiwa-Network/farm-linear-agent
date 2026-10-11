@@ -429,7 +429,7 @@ class SkillAuthorityTests(unittest.TestCase):
     def test_ui_authority_is_pinned_to_certified_export_client_and_unity_loading(self):
         part = dispatch.FGUI_AUTHORITY
         self.assertEqual(hashlib.sha256(part.encode("utf-8")).hexdigest(),
-                         "232f2725995f1f417707de3b301748f862f19e28c460d364a121e34cc462c98b")
+                         "6ed311ec903b32ca5810d8ed8a3ff036c5914424e289889567273644a09b5018")
         self.assertIs(dispatch.SKILL_AUTHORITY["fgui"], part)
         self.assertEqual(self.message({"id":"i", "skill":"fgui"}).split("\n\n", 1)[0],
                          dispatch.COMMON_AUTHORITY + part + dispatch.AUTHORITY_REFERENCE)
@@ -444,9 +444,9 @@ class SkillAuthorityTests(unittest.TestCase):
         self.assertNotIn("tools.kw_ops.access", part)  # D16: no operator-tool grant
 
     def test_the_kw_ops_grant_is_per_skill_and_the_rest_is_common(self):
-        self.assertEqual(set(dispatch.SKILL_AUTHORITY), {"fix", "chat", "feature", "fgui"})
+        self.assertEqual(set(dispatch.SKILL_AUTHORITY), {"fix", "chat", "work", "feature", "fgui", "scene"})
         self.assertNotIn("kw_ops", dispatch.COMMON_AUTHORITY + dispatch.AUTHORITY_REFERENCE)
-        for skill in ("fix", "chat"):
+        for skill in ("fix", "chat", "work"):
             with self.subTest(skill=skill):
                 self.assertIn("tools.kw_ops.access", dispatch.SKILL_AUTHORITY[skill])
 

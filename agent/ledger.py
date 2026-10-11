@@ -43,7 +43,7 @@ AWAIT_REASONS = ("question", "waiting")
 # The skills that start at an initial root, whose jobs last days across stages and human gates: their
 # automatic-retry allowances bound one stage, not the job (spec §5.8, D16). The ledger reads no manifests, so it
 # knows them by name, as it knows fix, whose allowances last the job.
-STAGE_ALLOWANCE_SKILLS = ("feature", "fgui")
+STAGE_ALLOWANCE_SKILLS = ("work", "feature", "fgui", "scene")
 # What authorised an item, recorded once when it is created (withdrawn-work design P1): the card's delegation to this
 # app (every write item, and a chat a delegation opened), a person's @mention or message on a card not delegated
 # here, or the operator's `agent.service enqueue` of a chat. Only delegation-authority work is withdrawn when the
@@ -642,6 +642,10 @@ class Ledger:
                                                 ("resource_job_retries", "setup_attempts", "INTEGER NOT NULL DEFAULT 0"),
                                                 ("sessions", "guidance", "TEXT"), ("work_items", "lease_seconds", "REAL"),
                                                 ("work_items", "predecessor_id", "TEXT"),
+                                                ("work_items", "parent_id", "TEXT REFERENCES work_items(id)"),
+                                                ("work_items", "task_key", "TEXT"),
+                                                ("work_items", "task_request", "TEXT"),
+                                                ("work_items", "task_client_base", "TEXT"),
                                                 ("work_items", "capacity_retries", "INTEGER NOT NULL DEFAULT 0"),
                                                 ("work_items", "publication_retries", "INTEGER NOT NULL DEFAULT 0"),
                                                 ("work_items", "retry_not_before", "REAL NOT NULL DEFAULT 0"),
@@ -664,6 +668,15 @@ class Ledger:
                 present = {row["name"] for row in self.connection.execute(f"PRAGMA table_info({table})")}
                 if column not in present:
                     self.connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
+            # Only the root job owns the issue's active slot. Internal tasks are
+            # admitted exclusively by a live, delegated general-job claim.
+            index = self.connection.execute("SELECT sql FROM sqlite_master WHERE name='one_active_item_per_issue'").fetchone()
+            if index and "parent_id" not in index["sql"]:
+                with self._transaction():
+                    self.connection.execute("DROP INDEX one_active_item_per_issue")
+                    self.connection.execute("""CREATE UNIQUE INDEX one_active_item_per_issue ON work_items(issue_id)
+                        WHERE parent_id IS NULL AND state IN ('queued','running','awaiting_input','awaiting_resource')""")
+            self.connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS one_task_key_per_job ON work_items(parent_id,task_key)")
         except Exception:
             self.connection.close()
             raise
@@ -701,13 +714,14 @@ class Ledger:
         result = {key: row[key] for key in ["id", "issue_id", "session_id", "skill", "state", "stage",
                                             "priority", "host", "generation", "lease_expires_at",
                                             "worker_pid", "needs_resource", "root_repo", "next_root_repo",
-                                            "created_at", "predecessor_id",
+                                            "created_at", "predecessor_id", "parent_id", "task_key", "task_client_base",
                                             "capacity_retries", "publication_retries", "retry_not_before",
                                             "withdraw_deadline", "withdraw_reason"]}
         result.update(identifier=issue["identifier"], target=json.loads(row["target_json"]) if row["target_json"] else None,
                       authority=_authority(row),
                       resume_authorized=bool(row["resume_authorized"]), checkpoint=json.loads(row["checkpoint"]),
                       evidence=json.loads(row["evidence"]))
+        result["task_request"] = json.loads(row["task_request"]) if row["task_request"] else None
         return result
 
     def _audit(self, item_id, kind, reason="", details=None):
@@ -733,6 +747,10 @@ class Ledger:
             raise LedgerError("running claim and matching token required")
         if row["lease_expires_at"] <= self.clock():
             raise LedgerError("lease expired; the launcher recovers expired work, workers must stop")
+        if row["parent_id"]:
+            parent = self._row(row["parent_id"])
+            if parent["state"] not in ACTIVE_STATES:
+                raise LedgerError("parent job ended")
         return row
 
     def _own_bodies(self, issue_id):
@@ -1004,6 +1022,8 @@ class Ledger:
     def create_work_item(self, *, issue_id, session_id, skill, target=None, authority=None):
         """`authority` is what authorised the item (AUTHORITIES); None records the skill's default."""
         _text(skill, "skill")
+        if skill == "scene":
+            raise LedgerError("scene is an internal presentation capability; delegate it from a general job")
         authority = _checked_authority(skill, authority)
         with self._transaction():
             issue = json.loads(self._issue_row(issue_id)["metadata"])
@@ -1022,7 +1042,7 @@ class Ledger:
         # A re-delegation continues its skill's cancelled job, for every write skill (spec §9.4): the successor
         # reads that job's plan and notices in `recovery` and launches after its cleanup. Chat continues nothing.
         prior = self.connection.execute(
-            "SELECT id,state FROM work_items WHERE issue_id=? AND skill=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
+            "SELECT id,state FROM work_items WHERE issue_id=? AND skill=? AND parent_id IS NULL ORDER BY created_at DESC,rowid DESC LIMIT 1",
             (issue["id"], skill)).fetchone() if skill in WRITE_SKILLS else None
         predecessor = prior["id"] if prior and prior["state"] == "cancelled" else None
         item_id = str(uuid4())
@@ -1035,7 +1055,7 @@ class Ledger:
         return item_id
 
     def active_item_for_session(self, session_id):
-        row = self.connection.execute("""SELECT * FROM work_items WHERE session_id=? AND state IN
+        row = self.connection.execute("""SELECT * FROM work_items WHERE session_id=? AND parent_id IS NULL AND state IN
             ('queued','running','awaiting_input','awaiting_resource') ORDER BY created_at DESC LIMIT 1""", (session_id,)).fetchone()
         if row is None:
             # A mention may have handed execution back to the original delegation
@@ -1082,7 +1102,7 @@ class Ledger:
             if (latest is not None and latest["session_id"] == session_id and active is not None
                     and active["authority"] == "delegation"):
                 return active, "latest_delegation"
-        last = self.connection.execute("SELECT * FROM work_items WHERE session_id=? ORDER BY created_at DESC,rowid DESC "
+        last = self.connection.execute("SELECT * FROM work_items WHERE session_id=? AND parent_id IS NULL ORDER BY created_at DESC,rowid DESC "
                                        "LIMIT 1", (session_id,)).fetchone()
         if last is None or last["state"] != "cancelled":
             return None, "none"
@@ -1101,7 +1121,7 @@ class Ledger:
         return [self._view(row) for row in rows]
 
     def active_item_for_issue(self, issue_id):
-        row = self.connection.execute("""SELECT * FROM work_items WHERE issue_id=? AND state IN
+        row = self.connection.execute("""SELECT * FROM work_items WHERE issue_id=? AND parent_id IS NULL AND state IN
             ('queued','running','awaiting_input','awaiting_resource') ORDER BY created_at DESC LIMIT 1""", (issue_id,)).fetchone()
         return self._view(row) if row else None
 
@@ -1194,6 +1214,11 @@ class Ledger:
     PR_URL = re.compile(r"https://[A-Za-z0-9.-]+(?::[0-9]+)?/[^/?#\s]+/[^/?#\s]+/pull/[1-9][0-9]*")
 
     def _set_state(self, item_id, state, reason, **columns):
+        if state in ("failed", "blocked", "cancelled"):
+            for child in self.connection.execute("SELECT * FROM work_items WHERE parent_id=? AND state IN "
+                                                 "('queued','running','awaiting_input','awaiting_resource')",
+                                                 (item_id,)).fetchall():
+                self._cancel_row(child, reason, drop_progress=True)
         assignments = ",".join(f"{name}=?" for name in columns)
         values = list(columns.values())
         self.connection.execute(f"UPDATE work_items SET state=?,updated_at=?{',' + assignments if assignments else ''} WHERE id=?",
@@ -1215,6 +1240,10 @@ class Ledger:
                 raise LedgerError("previous worker has not finished teardown")
             if row["retry_not_before"] > self.clock():
                 raise LedgerError("automatic retry delay has not elapsed")
+            if row["parent_id"]:
+                parent = self._row(row["parent_id"])
+                if parent["state"] not in ACTIVE_STATES or parent["withdraw_deadline"] is not None:
+                    raise LedgerError("parent job is no longer active or delegated")
             issue_row = self._issue_row(row["issue_id"])
             if not _in_scope(json.loads(issue_row["metadata"])):
                 raise LedgerError("issue left scope; cancel instead of claiming")
@@ -1365,6 +1394,11 @@ class Ledger:
             row = self._owned(item_id, token)
             previous = json.loads(row["checkpoint"])
             progress = dict(progress)
+            progress.pop("waiting_tasks", None)
+            progress.pop("task_wake", None)
+            for key in ("task_wake",):
+                if key in previous:
+                    progress[key] = previous[key]
             if previous.get("worker_id"):
                 if "worker_id" in progress and progress["worker_id"] != previous["worker_id"]:
                     raise LedgerError("checkpoint cannot change the running worker identity")
@@ -1470,6 +1504,9 @@ class Ledger:
             root = current_root(row["root_repo"], skill)
             if root == to_repo:
                 raise LedgerError("worker is already rooted in that repository")
+            if to_repo == "Farm-Client" and (row["skill"] == "work" or row["parent_id"]):
+                from .workflow import client_ready
+                client_ready(self, row)
             if row["next_root_repo"] is not None:
                 raise LedgerError("repository handoff is already pending")
             if row["worker_pid"] is None:
@@ -1531,7 +1568,8 @@ class Ledger:
             raise LedgerError("staged client baseline requires Farm-Client")
         with self._transaction():
             row = self._row(item_id)
-            if (row["skill"] not in ("feature", "fgui") or row["state"] != "queued" or row["root_repo"] != "Farm-Client"
+            client_root = row["root_repo"] == "Farm-Client" or row["skill"] == "scene" and row["root_repo"] is None
+            if (row["skill"] not in ("work", "feature", "fgui", "scene") or row["state"] != "queued" or not client_root
                     or row["next_root_repo"] is not None or row["worker_pid"] is not None
                     or row["token"] is not None or row["generation"] != expected_generation):
                 raise LedgerError("staged client baseline requires the same queued client-stage generation")
@@ -1542,6 +1580,18 @@ class Ledger:
             plan_issue_branches({"prs": {"Farm-Client": [{"role": "issue", "branch": branch}]}},
                                 metadata["identifier"], issue_prefix, reserved=True)
             target["issue_branch"] = branch
+            if row["parent_id"]:
+                parent = self._row(row["parent_id"])
+                if parent["skill"] != "work" or parent["state"] not in ACTIVE_STATES:
+                    raise LedgerError("presentation baseline requires its active general job")
+                self._refuse_withdrawn(parent)
+                shared = json.loads(parent["target_json"]) if parent["target_json"] else None
+                if shared is not None and shared != target:
+                    raise LedgerError("presentation must retain its general job's immutable Client baseline and branch")
+                if shared is None:
+                    self.connection.execute("UPDATE work_items SET target_json=?,updated_at=? WHERE id=?",
+                                            (_json(target), self.clock(), parent["id"]))
+                    self._audit(parent["id"], "work_client_baseline", details=target)
             previous = json.loads(row["target_json"]) if row["target_json"] else None
             if previous is not None:
                 if previous != target:
@@ -1550,6 +1600,53 @@ class Ledger:
             self.connection.execute("UPDATE work_items SET target_json=?, updated_at=? WHERE id=?",
                                     (_json(target), self.clock(), item_id))
             self._audit(item_id, row["skill"] + "_client_baseline", details=target)
+            return self._view(self._row(item_id))
+
+    def pin_task_client_base(self, item_id, expected_generation, commit):
+        """Controller records the clean owned entry HEAD for a presentation's scope.
+
+        The job's main baseline stays immutable. A later task verifies only its
+        own changes on top of earlier delivered presentation, never bypassing
+        the UI-only diff check by including siblings in its certified scope.
+        """
+        if not isinstance(commit, str) or not COMMIT_SHA.fullmatch(commit):
+            raise LedgerError("presentation entry requires a full commit")
+        with self._transaction():
+            row = self._row(item_id)
+            if (not row["parent_id"] or row["state"] != "queued" or row["root_repo"] not in (None, "Farm-Client")
+                    or row["generation"] != expected_generation or row["next_root_repo"] is not None
+                    or row["worker_pid"] is not None or row["token"] is not None or not row["target_json"]):
+                raise LedgerError("presentation entry requires its queued Client generation")
+            self._refuse_withdrawn(row)
+            parent = self._row(row["parent_id"])
+            if parent["state"] not in ACTIVE_STATES or parent["skill"] != "work":
+                raise LedgerError("presentation entry requires its active general job")
+            if row["skill"] == "fgui":
+                predecessor, seen = parent["predecessor_id"], set()
+                while predecessor and predecessor not in seen:
+                    seen.add(predecessor)
+                    previous = self.connection.execute("SELECT state,task_client_base FROM work_items WHERE parent_id=? "
+                                                       "AND skill='fgui'", (predecessor,)).fetchall()
+                    unfinished = [task["task_client_base"] for task in previous
+                                  if task["task_client_base"] and task["state"] != "delivered"]
+                    if unfinished:
+                        if any(base != commit for base in unfinished):
+                            raise LedgerError("uncertified predecessor Client work cannot become a new UI baseline; preserve recovery evidence")
+                        break
+                    if any(task["state"] == "delivered" for task in previous):
+                        break  # a later UI delivery already revalidated the retained candidate
+                    predecessor = self._row(predecessor)["predecessor_id"]
+            if self.connection.execute("SELECT 1 FROM work_items WHERE parent_id=? AND id<>? AND task_client_base IS NOT NULL "
+                                       "AND state IN ('queued','running','awaiting_input','awaiting_resource')",
+                                       (row["parent_id"], item_id)).fetchone():
+                raise LedgerError("another presentation task retains this job's Client stage")
+            if row["task_client_base"] is not None:
+                if row["task_client_base"] != commit:
+                    raise LedgerError("presentation entry HEAD is immutable")
+                return self._view(row)
+            self.connection.execute("UPDATE work_items SET task_client_base=?,updated_at=? WHERE id=?",
+                                    (commit, self.clock(), item_id))
+            self._audit(item_id, "task_client_base", details={"commit": commit})
             return self._view(self._row(item_id))
 
     def _new_stage_allowances(self, row):
@@ -1574,7 +1671,7 @@ class Ledger:
         """Revalidate controller metadata before selecting a Code/UI verification checkout."""
         row = self._row(item_id)
         target = json.loads(row["target_json"]) if row["target_json"] else None
-        if (row["skill"] not in ("feature", "fgui") or not target or target.get("repository") != "Farm-Client"
+        if (row["skill"] not in ("work", "feature", "fgui", "scene") or not target or target.get("repository") != "Farm-Client"
                 or not target.get("issue_branch")):
             raise LedgerError("staged verification requires its controller-selected client baseline")
         identifier = json.loads(self._issue_row(row["issue_id"])["metadata"])["identifier"]
@@ -1642,7 +1739,7 @@ class Ledger:
             require_listed_resource(skill, resource)
             root = current_root(row["root_repo"], skill)
             if resource == "server_slot":
-                if row["skill"] not in ("fix", "feature") or root != "farm-hive":
+                if row["skill"] not in ("work", "fix", "feature") or root != "farm-hive":
                     raise LedgerError("server integration requires a farm-hive write stage")
                 if not isinstance(commit_sha, str) or not COMMIT_SHA.fullmatch(commit_sha):
                     raise LedgerError("server integration requires an explicit committed server HEAD")
@@ -1664,7 +1761,7 @@ class Ledger:
             target = json.loads(row["target_json"]) if row["target_json"] else None
             if not target or not COMMIT_SHA.match(target.get("commit_sha") or ""):
                 raise LedgerError("a resource request needs a pinned commit; this item has none")
-            if row["skill"] in ("feature", "fgui"):
+            if row["skill"] in ("work", "feature", "fgui", "scene"):
                 if (target.get("repository") != "Farm-Client" or not target.get("issue_branch")
                         or root != "Farm-Client"):
                     raise LedgerError("staged verification requires its controller-selected client baseline")
@@ -1674,7 +1771,7 @@ class Ledger:
             if commit_sha is not None:
                 if not isinstance(commit_sha, str) or not COMMIT_SHA.fullmatch(commit_sha):
                     raise LedgerError("verification commit must be a full lowercase commit SHA")
-                if (row["skill"] not in ("fix", "fgui", "feature") or resource != "unity_slot"
+                if (row["skill"] not in WRITE_SKILLS or resource != "unity_slot"
                         or target["repository"] != "Farm-Client" or root != "Farm-Client"):
                     raise LedgerError("only a write worker may select a Farm-Client Unity verification commit")
             selected_commit = target["commit_sha"] if commit_sha is None else commit_sha
@@ -2006,6 +2103,10 @@ class Ledger:
     def _cancel_row(self, row, reason, *, drop_progress):
         """Caller owns the transaction and has checked that `row` is active or blocked: revoke its claim, keep its
         worker's pid for cleanup and cancel it."""
+        for child in self.connection.execute("SELECT * FROM work_items WHERE parent_id=? AND state IN "
+                                             "('queued','running','awaiting_input','awaiting_resource','blocked')",
+                                             (row["id"],)).fetchall():
+            self._cancel_row(child, reason, drop_progress=drop_progress)
         pid = self.last_worker_pid(row["id"])
         self.connection.execute(
             "INSERT OR IGNORE INTO job_cleanup(item_id,worker_pid,updated_at) VALUES(?,?,?)",
@@ -2239,6 +2340,9 @@ class Ledger:
                 return False
             self.connection.execute("UPDATE work_items SET withdraw_deadline=?,withdraw_reason=?,updated_at=? WHERE id=?",
                                     (deadline, reason, self.clock(), row["id"]))
+            self.connection.execute("UPDATE work_items SET withdraw_deadline=?,withdraw_reason=?,updated_at=? "
+                                    "WHERE parent_id=? AND state IN ('queued','running','awaiting_input','awaiting_resource')",
+                                    (deadline, reason, self.clock(), row["id"]))
             self._audit(row["id"], "withdrawal", reason, {"deadline": deadline})
             return True
 
@@ -2298,7 +2402,7 @@ class Ledger:
         raise LedgerError("the card is still delegated to this app and nothing withdrew this work; continue it")
 
     def _refuse_withdrawn(self, row):
-        if row["withdraw_deadline"] is not None:
+        if row["withdraw_deadline"] is not None or (row["parent_id"] and self._row(row["parent_id"])["withdraw_deadline"] is not None):
             raise LedgerError(self.WITHDRAWN)
 
     def fail(self, item_id, reason):
@@ -2379,8 +2483,13 @@ class Ledger:
                 raise LedgerError("retry requires a terminal work item")
             if not _in_scope(json.loads(self._issue_row(row["issue_id"])["metadata"])):
                 raise LedgerError("issue is archived or in a terminal status")
+            if row["parent_id"]:
+                if self._row(row["parent_id"])["state"] not in ACTIVE_STATES:
+                    raise LedgerError("presentation retry requires its active general job")
+                if not (self.cleanup_record(row["id"]) or {}).get("done"):
+                    raise LedgerError("presentation retry waits for certified teardown")
             try:
-                if row["state"] == "cancelled":
+                if row["state"] == "cancelled" and not row["parent_id"]:
                     return self._view(self._row(self._cancelled_successor(row, reason)))
                 self._guard_cleanup_retry(row["id"])
                 # A retry is a person's decision to run the job again, so a withdrawal it outlived goes: queue()
@@ -2399,7 +2508,7 @@ class Ledger:
         session first (spec §9.4). The CLI continues it only where the host runs its skill."""
         skills = ",".join("?" * len(CONVERSATION_SKILLS))
         return self.connection.execute(f"""SELECT w.* FROM work_items w JOIN sessions s
-            ON s.session_id=w.session_id WHERE w.issue_id=? AND w.skill IN ({skills}) AND s.delegation=1
+            ON s.session_id=w.session_id WHERE w.issue_id=? AND w.parent_id IS NULL AND w.skill IN ({skills}) AND s.delegation=1
             AND w.state IN ('blocked','delivered','cancelled','failed')
             ORDER BY (w.session_id=?) DESC,w.created_at DESC,w.rowid DESC LIMIT 1""",
             (issue_id, *CONVERSATION_SKILLS, session_id)).fetchone()
@@ -2631,6 +2740,8 @@ class Ledger:
         _text(body, "comment body")
         with self._transaction():
             row = self._owned(item_id, token)
+            if row["parent_id"]:
+                raise LedgerError("presentation tasks report to their parent; only the general job posts outcome comments")
             if not _in_scope(json.loads(self._issue_row(row["issue_id"])["metadata"])):
                 raise LedgerError("issue left scope; do not post a new comment")
             key = f"{row['issue_id']}:{row['claimed_fingerprint']}:{row['generation']}:{kind}"
@@ -2751,6 +2862,22 @@ class Ledger:
         with self._transaction():
             self.require_valid_checkpoint(item_id, token)
             row = self._owned(item_id, token)
+            if row["skill"] == "work":
+                from .workflow import task_views
+                tasks = task_views(self, item_id)
+                if outcome == "delivered" and any(t["state"] in ACTIVE_STATES for t in tasks):
+                    raise LedgerError("finish waits for all presentation tasks to settle")
+                if outcome == "delivered" and any(t["state"] != "delivered" for t in tasks):
+                    raise LedgerError("delivery requires every required presentation task to be delivered")
+                if outcome == "delivered" and any(not (self.cleanup_record(t["id"]) or {}).get("done") for t in tasks):
+                    raise LedgerError("general delivery waits for certified presentation teardown")
+                task_prs = {pr for t in tasks for pr in t["evidence"].get("prs", [])}
+                if outcome == "delivered":
+                    prs = evidence.get("prs") or []
+                    if not isinstance(prs, list) or any(not isinstance(pr, str) for pr in prs):
+                        raise LedgerError("prs must be an array of PR URLs")
+                    if not task_prs.issubset(set(prs)):
+                        raise LedgerError("general delivery must include every presentation task's draft PRs")
             chat = row["skill"] == "chat"
             if row["skill"] == "fgui" and outcome == "delivered" and not evidence.get("no_change"):
                 proofs = [json.loads(proof["details"]) for proof in self.connection.execute(
@@ -2760,7 +2887,19 @@ class Ledger:
                            and proof.get("fingerprint") == row["claimed_fingerprint"]
                            and proof.get("prs") == sorted(evidence.get("prs") or []) for proof in proofs):
                     raise LedgerError("full UI delivery requires current controller verification of both drafts, guards and Unity loading")
-            if chat and outcome == "delivered":
+            if row["parent_id"]:
+                if outcome == "delivered":
+                    _text(evidence.get("verification"), "verification")
+                    prs = evidence.get("prs") or []
+                    if not isinstance(prs, list) or any(not isinstance(pr, str) or not self.PR_URL.fullmatch(pr) for pr in prs):
+                        raise LedgerError("task PRs must be canonical HTTPS pull request URLs")
+                    if evidence.get("no_change"):
+                        _text(evidence["no_change"], "no_change")
+                        if prs:
+                            raise LedgerError("a no_change task carries no PR")
+                    elif not prs:
+                        raise LedgerError("task delivery requires PRs or an explicit no_change reason")
+            elif chat and outcome == "delivered":
                 _text(evidence.get("verification"), "verification")
                 if evidence.get("comment_action_id") is not None or evidence.get("prs"):
                     raise LedgerError("chat deliveries carry no issue comment and no PR")
@@ -2875,7 +3014,7 @@ class Ledger:
             return [r["body"] for r in rows]
 
     def issue_context(self, item_id):
-        """Everything one worker needs about its own item; no token, no other items."""
+        """This item's issue, logical job and durable evidence; never claim tokens."""
         row = self._row(item_id)
         issue_row = self._issue_row(row["issue_id"])
         issue = json.loads(issue_row["metadata"])
@@ -2894,7 +3033,11 @@ class Ledger:
         coordination["withdrawn"] = view["withdraw_deadline"] is not None
         authority = self._delegation_session(row["issue_id"], row["session_id"])
         owner = _owner(issue, self._owner_delegation(row["issue_id"]))
+        from .workflow import task_views
         return {"issue": issue, "fingerprint": issue_row["fingerprint"], "coordination": coordination,
+                "tasks": task_views(self, item_id) if row["skill"] == "work" or row["parent_id"] else [],
+                "parent_job": self._view(self._row(row["parent_id"])) if row["parent_id"] else None,
+                "predecessor_tasks": task_views(self, row["predecessor_id"]) if row["skill"] == "work" and row["predecessor_id"] else [],
                 "handoff": handoff, "conversation_history": self._conversation_history(row["issue_id"]),
                 "delegation_session": authority["session_id"] if authority else None,
                 "owner": owner, "creator": _issue_creator(issue, owner),

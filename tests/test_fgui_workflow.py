@@ -74,6 +74,32 @@ class UiWorkflowTests(unittest.TestCase):
     def workflow(self):
         return UiWorkflow(self.ledger, self.item, self.token, self.config, self.skill, lambda: self.api)
 
+    def make_general_task(self):
+        # Rehouse this existing source fixture as an internal task. The real Git
+        # move updates ownership pointers; no second writable checkout is made.
+        self.ledger.connection.execute("UPDATE work_items SET state='blocked' WHERE id=?", (self.item,))
+        parent = self.ledger.create_work_item(issue_id=self.fixture.item["issue_id"], session_id="ui-session", skill="work")
+        parent_token = self.ledger.claim(parent["id"], worker_id="general")["token"]
+        self.ledger.checkpoint(parent["id"], parent_token, {"plan": {"stages": {"A": "done"}}})
+        self.ledger.connection.execute("UPDATE work_items SET state='running',parent_id=?,task_key='ui',task_request=? WHERE id=?",
+            (parent["id"], json.dumps({"key": "ui", "capability": "fgui", "instructions": "shared spec"}), self.item))
+        moved = self.paths.worktrees / parent["id"] / "farmgui"
+        moved.parent.mkdir()
+        self.git(self.trees.clone_path("farmgui"), "worktree", "move", str(self.path), str(moved))
+        self.path = moved
+        self.config.enabled_skills = ["chat", "work"]
+        return parent
+
+    def test_general_job_task_reuses_owned_source_and_certified_review_export(self):
+        self.make_general_task()
+        # Preview allocation now accepts the capability through its parent.
+        self.uploaded = self.fixture.upload()
+        review = self.review()
+        self.approve(review)
+        receipt = self.export(review)
+        self.assertEqual(receipt["authority"]["head"], self.head)
+        self.assertEqual(self.publisher.call_args.args[0], self.path)
+
     def review(self, number=1):
         return self.workflow().review(packages=self.packages, preview=self.preview,
                                       asset_url=self.uploaded["asset_url"], round=number)

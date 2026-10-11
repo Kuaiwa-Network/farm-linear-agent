@@ -1,0 +1,14 @@
+{
+  "name": "scene",
+  "trigger": ["delegation"],
+  "intents": [],
+  "writes": ["Farm-Client"],
+  "initial_root": "Farm-Client",
+  "staged": true,
+  "reads": ["Farm-Contract", "farmgui"],
+  "resources": ["unity_slot"],
+  "gates": ["answers", "pr_review"],
+  "mcp": [],
+  "budget": {"lease_seconds": 2700, "max_hours": 6, "renew_minutes": 10},
+  "opt_in": true
+}

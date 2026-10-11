@@ -107,16 +107,24 @@ def plan_work(plan):
 
 
 def _lineage(ledger, item_id):
-    """The item and the predecessors it continues, newest first."""
-    items, seen, current = [], set(), item_id
-    while current and current not in seen:
+    """The logical job, its presentation tasks and their retained predecessors."""
+    items, seen, pending = [], set(), [item_id]
+    while pending:
+        current = pending.pop(0)
+        if not current or current in seen:
+            continue
         seen.add(current)
         try:
             row = ledger.item(current)
         except LedgerError:
             break
         items.append(row)
-        current = row.get("predecessor_id")
+        pending.append(row.get("predecessor_id"))
+        if row.get("parent_id"):
+            pending.append(row["parent_id"])
+        elif row["skill"] == "work":
+            from .workflow import task_views
+            pending.extend(task["id"] for task in task_views(ledger, current))
     return items
 
 

@@ -17,6 +17,7 @@ from .memory import publish_snapshot
 from .publication import SUFFIXES, issue_branch, suffix_of
 from .stages import current_root, runtime_can_launch, write_repositories
 from .withdrawal import NOTICE_REASONS, notice as withdrawal_notice
+from .workflow import JobWorktrees, client_ready, repository_busy, repository_owner, task_views, wake_parent
 
 TERMINAL = ("delivered", "blocked", "cancelled", "failed")
 WAITING = ("awaiting_input", "awaiting_resource")
@@ -37,7 +38,9 @@ class Scheduler:
         self.ledger = ledger
         self.launcher = launcher
         self.skills = skills
-        self.worktrees = worktrees
+        # Pure branch-policy callers may supply no ledger; execution always has
+        # one and resolves presentation ownership only through its trusted rows.
+        self.worktrees = JobWorktrees(worktrees, ledger) if ledger is not None else worktrees
         self.skill_root = skill_root
         self.db_path = db_path
         self.runtime_name = runtime_name
@@ -85,7 +88,9 @@ class Scheduler:
                 branch = recorded.get(skill.initial_root, branch)
             for repo in skill.writes:
                 options = {"refresh": False} if item["publication_retries"] else {}
-                if skill.name in ("feature", "fgui") and repo == "Farm-Client":
+                if skill.name in ("work", "feature", "fgui", "scene") and repo == "Farm-Client":
+                    if (skill.name == "work" or item.get("parent_id")) and current_root(item.get("root_repo"), skill) != repo:
+                        continue
                     target = item.get("target")
                     if (current_root(item.get("root_repo"), skill) != repo
                             and not (target or {}).get("issue_branch")):
@@ -93,12 +98,16 @@ class Scheduler:
                     if target is None:
                         if current_root(item.get("root_repo"), skill) != repo:
                             continue  # main may advance during server work; the client stage has not begun
-                        baseline = self.worktrees.stage_base(repo, item["id"], branch)
-                        item = self.ledger.pin_staged_client(item["id"], item["generation"], {
+                        owner = self.ledger.item(repository_owner(item))
+                        shared = owner.get("target")
+                        baseline = (shared["commit_sha"] if shared and shared.get("issue_branch")
+                                    else self.worktrees.stage_base(repo, item["id"], branch))
+                        selected = shared if shared and shared.get("issue_branch") else {
                             "repository": repo, "requested_ref": "default", "commit_sha": baseline,
                             "server_environment": self.default_server_environment,
-                            "selected_at": datetime.now(timezone.utc).isoformat()},
-                            branch=branch, issue_prefix=self.issue_prefix)
+                            "selected_at": datetime.now(timezone.utc).isoformat()}
+                        item = self.ledger.pin_staged_client(item["id"], item["generation"], selected,
+                            branch=selected.get("issue_branch", branch), issue_prefix=self.issue_prefix)
                         target = item["target"]
                     saved_branch = target.get("issue_branch")
                     if (target.get("repository") != repo or not saved_branch
@@ -111,6 +120,10 @@ class Scheduler:
                         options["recorded"] = True
                     paths[repo] = self.worktrees.add_stage(repo, item["id"], saved_branch,
                                                          target["commit_sha"], **options)
+                    if item.get("parent_id") and not item.get("task_client_base"):
+                        head = self.worktrees.head(paths[repo])
+                        self.worktrees.verification_commit(repo, item["id"], head, expected_branch=saved_branch)
+                        item = self.ledger.pin_task_client_base(item["id"], item["generation"], head)
                     continue
                 if repo in recorded:
                     paths[repo] = self.worktrees.add(repo, item["id"], recorded[repo], attach=True, **options)
@@ -129,8 +142,14 @@ class Scheduler:
     def _reads_for(self, skill, item):
         """{repo: path} of the read-only default-branch checkouts the manifest's `reads` names (spec §9.6), made or
         refreshed for this launch. A publication retry reuses those it has without a fetch, as it reuses worktrees."""
+        repositories = list(skill.reads)
+        if item.get("parent_id") and "Farm-Contract" not in repositories:
+            # The parent may have settled an unmerged OpenSpec. This detached
+            # checkout borrows its clone's objects, so read-only Git can inspect
+            # that recorded commit without changing the default-branch checkout.
+            repositories.append("Farm-Contract")
         return {repo: self.worktrees.read_checkout(repo, item["id"], refresh=not item["publication_retries"])
-                for repo in skill.reads}
+                for repo in repositories}
 
     @staticmethod
     def _batch_result(state_dir):
@@ -153,6 +172,11 @@ class Scheduler:
         if not runtime_can_launch(skill, self.runtime_name):
             raise RuntimeError(f"repository-staged {skill.name} requires the Codex workspace-write sandbox")
         root = current_root(item.get("root_repo"), skill)
+        if skill.name == "work" or item.get("parent_id"):
+            if repository_busy(self.ledger, item, self.skills, self.active, self.launcher):
+                return None
+            if root == "Farm-Client":
+                client_ready(self.ledger, self.ledger._row(item["id"]))
         write_repos = write_repositories(item, skill)
         issue = self.ledger.issue(item["issue_id"])
         paths = self._worktrees_for(skill, item, issue)
@@ -219,10 +243,10 @@ class Scheduler:
         if kw_ops_grant.server is not None:
             servers[KW_OPS_SERVER] = kw_ops_grant.server
         tools = {KW_OPS_SERVER: kw_ops_grant.tools} if kw_ops_grant.tools is not None else {}
-        if skill.name in ("fix", "feature") and root == "farm-hive":
+        if skill.name in ("work", "fix", "feature") and root == "farm-hive":
             tools["server_tests"] = {"status": "configured" if self.server_slots_root else "unavailable",
                                      "resource": "server_slot"}
-        if skill.name == "feature" and root == "Farm-Client":
+        if skill.name in ("work", "feature") and root == "Farm-Client":
             # A configured slot may supply read-only generated projects/DLLs even before a reservation. This
             # exposes no Editor command or writable slot root, and the delivered typecheck validates readiness.
             writable_roots = [Path(self.db_path).parent.resolve(), *(Path(p).resolve() for p in source_roots)]
@@ -328,6 +352,9 @@ class Scheduler:
             return False
         try:
             item = item or self.ledger.item(item_id)
+            if item.get("parent_id"):
+                kind = "thought"
+                body = f"[{item['task_key']}] {body}"
             if str(item["session_id"]).startswith("local-"):
                 self.api.create_comment(item["issue_id"], body)
             else:
@@ -399,12 +426,19 @@ class Scheduler:
         control = self.control_ledger_factory() if self.control_ledger_factory else self.ledger
         destination = item_id
         cancelled = None
+        children = []
         try:
             try:
                 cancelled = control.cancel(item_id, reason, states=states, drop_progress=notice is not None,
                                            authority=authority, created_before=created_before)
                 if cancelled is not None:
                     destination = cancelled["id"]
+            except LedgerError:
+                pass
+            try:
+                if control.item(destination)["skill"] == "work":
+                    children = [task["id"] for task in task_views(control, destination)
+                                if not (control.cleanup_record(task["id"]) or {}).get("done")]
             except LedgerError:
                 pass
         finally:
@@ -424,7 +458,7 @@ class Scheduler:
         # batch run in flight — this is one dict lookup that returns False. Killing it first also releases
         # the pool thread from `process.wait()` sooner, and the sooner that returns the sooner the slot can
         # settle. `SlotPool.run_batch` closes the other half: the window before the Editor is registered.
-        for stopped_id in dict.fromkeys((destination, item_id)):
+        for stopped_id in dict.fromkeys((*children, destination, item_id)):
             self.launcher.stop_unsandboxed(stopped_id)
             # Signal both ends if read-only execution handed off during Stop.
             self.launcher.stop(stopped_id)
@@ -606,6 +640,17 @@ class Scheduler:
             self.launcher.assert_quiescent(item_id, pid, result.get("processes", []), **extra)
             if self.ledger.active_reservation(item_id) is not None:
                 raise RuntimeError("reservation awaits quiescence")
+            item = self.ledger.item(item_id)
+            if item.get("parent_id"):
+                # The parent retains the shared repository history. A child may
+                # certify its process teardown, never remove its siblings' files.
+                self.worktrees.remove_reads(item_id)
+                self.ledger.record_cleanup(item_id, result, done=True)
+                return
+            if item["skill"] == "work":
+                if any(not (self.ledger.cleanup_record(t["id"]) or {}).get("done")
+                       for t in task_views(self.ledger, item_id)):
+                    raise RuntimeError("presentation task teardown is not yet certified")
             saved = self.worktrees.preserve(item_id)
             # A prior removal may have succeeded for only some repositories. Keep their manifest.
             for key in ("committed", "refs"):
@@ -677,11 +722,16 @@ class Scheduler:
             reaped = self._reap()
             recovered = self._recover()
             self._sweep_worktrees()
+            for row in self.ledger.status()["items"]:
+                if row["skill"] == "work":
+                    wake_parent(self.ledger, row["id"])
             queue = self.ledger.queue()
         launched = 0
         for item in queue:
             with self.lock:
-                if item["skill"] in self.skills and item["skill"] not in self.enabled_skills:
+                task_enabled = (item.get("parent_id") and "work" in self.enabled_skills
+                                and self.ledger.item(item["parent_id"])["state"] not in TERMINAL)
+                if item["skill"] in self.skills and item["skill"] not in self.enabled_skills and not task_enabled:
                     # Ahead of the cap: a refusal takes no worker slot and must not wait for one.
                     self._refuse_disabled(item["id"], item["skill"])
                     continue
@@ -691,8 +741,22 @@ class Scheduler:
                     continue
                 # At most one attempt of any exclusive skill at a time (spec §5.8, D16; P8). A waiting one is only
                 # passed over, so it keeps its place in the queue, and fix and chat go on up to max_concurrent.
-                if self.skills[item["skill"]].exclusive and self._exclusive_running():
+                if not item.get("parent_id") and self.skills[item["skill"]].exclusive and self._exclusive_running():
                     continue
+                root = current_root(item.get("root_repo"), self.skills[item["skill"]])
+                if item["skill"] == "work" or item.get("parent_id"):
+                    owner = repository_owner(item)
+                    if item.get("parent_id"):
+                        parent = self.ledger.item(owner)
+                        if parent["state"] not in ("queued", "running", "awaiting_input", "awaiting_resource") or parent["withdraw_deadline"] is not None:
+                            continue
+                    if root == "Farm-Client":
+                        try:
+                            client_ready(self.ledger, self.ledger._row(item["id"]))
+                        except LedgerError:
+                            continue
+                    if repository_busy(self.ledger, item, self.skills, self.active, self.launcher):
+                        continue
                 if item.get("predecessor_id"):
                     cleanup = self.ledger.cleanup_record(item["predecessor_id"])
                     if not cleanup or not cleanup["done"]:
