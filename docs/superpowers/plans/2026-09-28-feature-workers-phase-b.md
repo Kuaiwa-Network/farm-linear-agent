@@ -1770,6 +1770,158 @@ still release prerequisites. GitHub CI remains deferred and Unix runtime/degrada
 checks pending. The production installation, managed issue worktree and frozen
 TestBot runtime were unchanged; TestBot stayed parked with its recovery evidence.
 
+### Follow-up full game-repository repair and integration (2026-10-11)
+
+This follow-up supersedes the unresolved **server/client test-failure status** of
+the preceding records, retaining their failed measurements and recovery evidence.
+The separate development checkouts are on the Windows PC that also hosts
+production FarmBot. Production configuration, services, credentials and ledger
+were unchanged. No Bash/MSYS/WSL ran on Windows.
+
+**Merged baseline repairs.** [server #391](https://github.com/Kuaiwa-Network/farm-hive/pull/391)
+merged as `82d45b42abdee127194005371bba15c866b7c354`. Its final native required-service
+race source `08e796d4c718bda542fd6d538bf199e75c092f5e` passed **19,536 PASS / zero
+FAIL / 12 existing SKIP** terminal actions in **843.943 seconds**. UTF-8 log
+SHA-256 `28a9133b9819f2af499af196a34ebf858278e1569fa8f132e2e63062de2f1f4c`.
+The cache collision follow-up retains exclusive private user + SYSTEM creation,
+atomic reader semantics and stale recovery bytes; five focused race runs passed
+915 terminal actions. Existing Linux degradation anchors were updated to the
+actual write/retry expressions; the final functional build and native Windows CI
+jobs passed. An earlier triage run was rejected before execution by account
+billing/spending limits and is not counted as successful CI.
+
+[client #1463](https://github.com/Kuaiwa-Network/Farm-Client/pull/1463) merged as
+`b52d5572a8714189bb49df90eeee60218c489ffa`; the related source repair is merged
+[internal farmgui #152](https://github.com/Kuaiwa-Network/farmgui/pull/152),
+`449183747e9fd459b39ba4132e730358176569bf`. The repairs settle concurrent dress-up
+waiters after preview commit, reject stale seven-day presentation, follow current
+furniture/underline relationships and repair fixtures against current independent
+config inputs, dependencies and resource lifetimes. Native FairyGUI export and
+Unity checks verify authored alert geometry and HUD clipping. Baseline full
+PlayMode passed 1,261 cases with zero failures and 29 existing skips; full .NET
+passed 6,622 with zero failures and six existing cases not executed. All three
+HotUpdate assemblies compile with zero errors. No skips were added or authority
+checks weakened. Functional client CI passed.
+
+**FARM-1461 integration.** The independent server candidate includes latest main
+`a5c74063f66be260e8fa3f77bd05e23ff173c2c5`. Main replaced the old gifting coordinator; this integration
+preserves its current transaction, ownership, revision and deferred-delivery
+behavior. Analytics run after a successful commit from immutable receipt items,
+preserving reward order and duplicates; rejection, rollback, retry and replay
+do not emit a second observation. Replay coverage compares every field in its
+persisted BSON shape. The inherited Rank correction is included.
+
+The feature server [393](https://github.com/Kuaiwa-Network/farm-hive/pull/393) merged as
+`6ec8168dd7ce532486957dde88cb463848589de7`; client
+[1464](https://github.com/Kuaiwa-Network/Farm-Client/pull/1464) merged as
+`75f0105d70dcf75a49bd8361d5a0d7425f01c92b` after the current self-hosted functional
+checks passed. While verification was running, separately merged server #392
+advanced main to `a5c74063f66be260e8fa3f77bd05e23ff173c2c5` and moved its workflows to self-hosted Linux
+and Windows runners. This new main was integrated before merging; its 14-file
+CI/documentation delta changes no Go source, go.mod/go.sum, Python or protocol
+inputs. The complete Linux pipeline, Windows devctl and all six triggered
+Linux/Windows protocol matrix jobs passed at `d33b4faca1bccbf95332409630c2649a16b40648`. Server triage's
+unit tests passed, but both live classification attempts failed with an incomplete
+external HTTP response (zero bytes); that check remains failed and is deferred
+under the existing unavailable-CI instruction. UTF-8 failure log SHA-256s are
+`485a95d8f760ab9ab631bd2f9217ee167aab393e07766f16efb97c7b4666d96a` and
+`75df94d31d1bddf197eea24f48625b9f1d451b5ed339c7e1c1dc60466b4c8f14`.
+All four client functional checks passed at `5520059cc6927c3a01fdb48d287c0bc345b61b17`. Ten older hosted
+server triage/matrix jobs at `0cc44b2dfb6e0a0bb42f1bdeb271d38fdd7f2252` were rejected
+before execution by billing/spending limits and remain retained as failed historical
+measurements, not successful CI. No macOS runner is in the current server matrix,
+so this follow-up does not claim new macOS execution.
+
+The original draft #386 advanced externally during this verification to
+`79dbbbeb93b8d4bea61d6df5b168c73a3b9b17b4` and remains open. Its branch and
+managed checkpoint are preserved, not overwritten or closed. A fresh read-only
+development snapshot still found the selected TestBot job awaiting input, no
+active workers and all 25 recorded native Jobs empty. The independent integration
+does not certify the newer draft's changed protocol pin or its alternate fixtures;
+reconcile it against the merged tested integration before another merge.
+
+Both consumers use manifest-valid Contract `9433c1e4a162b67bc7956ffe7d3ccf98a802068b`.
+Observed latest main `498e34deee4218490b4449d3dae04314c79d7846` has no proto/ or
+MANIFEST.sha256 drift from that pin. SpiritCollection has no server handlers and
+is unrelated to FARM-1461; the server removes the accidentally consumed module
+and reports it unconsumed through the existing provenance gate. The strict
+handler census remains. The client exporter still generates its complete protocol
+set without implementing or calling that independent module.
+
+| Gate | Exact tested source | Measured result | Seconds | Evidence SHA-256 |
+|---|---|---|---:|---|
+| Full native required-service server race suite | `593e65c51dfd788bddd536a7a89e2b0d3af5e8cd` | 19,585 PASS / 0 FAIL / 12 SKIP terminal actions | 810.871 | `8017e31acbb7793e5d30db786b175f48c3ebb2cab8f655e78dd279b9aa10e8b4` |
+| Final ordinary guild race package | `f7c9c806cf1eccfbf74a2ebbd2836b6d7a4cf59c` | 1,319 PASS / 0 FAIL / 0 SKIP | 96.574 | `3bef3e7c32ae9feee37a35862515cef75432384523ff29a84245325040794803` |
+| Final forced-remote guild/config race packages | `f7c9c806cf1eccfbf74a2ebbd2836b6d7a4cf59c` | 3,608 PASS / 0 FAIL / 4 existing config SKIP | 251.466 | `e2ba6f6639e671d05190370fdc3328c22ca2a8f214eb7cd35a3b7e17022600fe` |
+| Full flower race package after exact fault-injection restoration | `f9af361f36fce444454d4c7b049f94ffa9be8040` | 100 PASS / 0 FAIL / 0 SKIP | 5.927 | `c72a6d239b5880f8ff9b1333a006434aaa5ab133e7801057e8c91febfb8b09e1` |
+| Full client .NET | `4d0a64aa3008a594ef12be1a81e9b57fbdfaf052` | 6,633 PASS / 0 FAIL / 6 not executed | 25.119 | TRX `dfdfbb69a3ca6ea72d847e58fb34eb3dddd6bfcf0c390e4ed1d2ed14e7868257` |
+| Full client PlayMode | `4d0a64aa3008a594ef12be1a81e9b57fbdfaf052` | 1,270 PASS / 0 FAIL / 29 existing SKIP | 127.084 | XML `68e122d04c74dc05c31166626b9464ab81360d035aeb815fb792abdf7853230b` |
+| Three client HotUpdate assemblies | `4d0a64aa3008a594ef12be1a81e9b57fbdfaf052` | All succeeded; zero errors | 10.005 | `c79e52f9ad617600b67f4189391a32c41d5f36b2f4c76fc203f849b88e8e5f56` |
+| Guide rules/generated-network EditMode | `4d0a64aa3008a594ef12be1a81e9b57fbdfaf052` | 13 PASS / 0 FAIL / 0 SKIP | 0.076239 | XML `c7b4b072925423a9757a161aec83c416960236185af11660c69bda92e9c5c78f` |
+
+The server command was `go test -race -p=2 -timeout 300s -json -count=1 ./...`.
+Native Go 1.25.1, Python 3.13.16, Git 2.54.0.windows.1 and LFS 3.7.1 were selected
+explicitly with sanitized environments and owned Job Objects. Dedicated local
+Mongo replica-set, Redis, etcd and NATS checks were required. The nine additional
+native gates passed: Contract provenance, message reproduction, registry
+reproduction, designer provenance, config manifest, config reproduction, vet,
+build and crosscall lint. This does not claim execution of Unix-only shell gates
+on Windows. An additional remote run exposed a race in the existing archive
+time-budget fixture: its 2.2-second intentional fold outlasted the test transport's
+0.5-second timeout. A focused run reproduced the failure; the fixture now waits
+for the slow fold before observing results and asserts that it actually finished.
+Five forced-remote focused repetitions passed, followed by both complete package
+runs above. This is the only Go source change after the full suite; application code,
+generator inputs and provenance remain identical. Linux CI then passed its complete
+race suite, remote equivalence and reproduction/provenance steps, but found one
+stale flower duplicate-resource-row injection anchor. The existing case now anchors
+the unique final dispatch, independently of the new telemetry. Native literal
+verification confirmed one match; the declared injection made the original test
+fail for two resource rows, then exact restoration and the complete flower race
+package passed. Gate/assertion bytes were preserved, no debt/skip/waiver was added,
+and the complete Linux CI rerun passed before merging. Existing containment, timeout,
+ownership and archive-budget behavior is unchanged. The ordinary config baseline
+was queried from the full JSON rather than redundantly rerun. Every new feature behavior test is checked against the full run's
+actual passing events. All nine GuideObservation PlayMode cases ran. The client
+includes latest main `b52d5572a8714189bb49df90eeee60218c489ffa` without changing the complete tested tree.
+The later client smoke-test provenance comment was corrected to match its exact
+generated Contract header. Follow-ups change that comment, its report and whitespace
+in three new Unity metadata files. Executable code, assertions, generated protocols
+and LFS objects are unchanged; metadata GUIDs and field values are preserved.
+Its 5980 LFS files (1161266088 bytes) match exact object hashes.
+
+The first client test-runner initialization timed out during domain reload before
+any test began; fresh idle/error inspection preceded its successful retry. Every
+existing server/client skip and reason is retained in the independent
+[server report](https://github.com/Kuaiwa-Network/farm-hive/pull/393) and [client report](https://github.com/Kuaiwa-Network/Farm-Client/pull/1464). Skipped cases
+are not executed coverage. Earlier failures, raw UTF-8 logs, pins, timestamps,
+source audits and process/recovery evidence remain private.
+
+**Storage and runtime.** The retention repair is already merged in
+[FarmBot #233](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/233), with its
+separately recorded complete offline verification. Earlier authorized maintenance
+reclaimed 49 certified stale Codex executable copies while archiving four exact
+binary hashes; one uncertain copy stayed held. This follow-up did not repeat that
+cleanup. C: later fell below the 10 GiB test reserve during Go compilation. A fresh
+read-only development snapshot showed the selected job awaiting input, no active
+workers and 25 empty recorded native Jobs. Its idle **9.44 GiB**
+Go cache (28,686 files) was moved intact to the owned development root
+on D:, and the independent harness explicitly selects it. The original location
+remains an empty cache directory for a future cold rebuild. TestBot's receiver
+stayed running; no credentials, logs, checkpoints, production resource or active
+runtime binary was moved. C: had **18.14 GiB** free immediately
+afterward. This preserves data rather than deleting recovery evidence.
+
+**Remaining release prerequisites.** Reconcile the parked TestBot job through its supported
+checkpoint path; verify real client/server analytics rows and dictionary/JSON
+acceptance against the selected requirement rulings; complete any applicable
+remaining runtime/CI checks, including the external server PR classification if
+required by the release policy; then perform a separately authorized settled
+FarmBot release, including retention/slot-recovery code and storage placement.
+This record does not enable feature in production, deploy, restart a service,
+change a webhook or certify live production readiness. FARM-1419 still awaits
+its art/UI input, and no parked neighboring issue was resumed.
+
 ## Scope
 
 In Phase B (spec §13, item 2):
