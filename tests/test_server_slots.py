@@ -14,6 +14,7 @@ from agent.ledger import Ledger, LedgerError
 from agent.resource_admission import ResourceAdmission, validate_settings as validate_admission
 from agent.resource_recovery import RecoveryStore
 from agent.server_slots import DockerServices, ServerSlotPool, ServerSlotError, read_resource, validate_settings
+from agent.server_slots import relay_source_digest
 from agent.skills import load_skills
 from agent.slots import SlotPool
 from test_ledger import issue, PIN
@@ -379,3 +380,49 @@ class SettingsTests(unittest.TestCase):
                 {"Endpoints": {"docker": {"Host": "npipe:////remote/pipe/docker_engine"}}}])):
             with self.assertRaisesRegex(ServerSlotError, "local"):
                 services.binding()
+
+    def test_relay_source_provenance_is_canonical_across_checkout_line_endings(self):
+        with patch.object(Path, "read_bytes", return_value=b"fixed source\r\n"):
+            windows = relay_source_digest()
+        with patch.object(Path, "read_bytes", return_value=b"fixed source\n"):
+            self.assertEqual(relay_source_digest(), windows)
+
+    def test_wrong_relay_provenance_is_a_read_only_preflight_failure(self):
+        services = DockerServices(SETTINGS)
+        def command(*args, **options):
+            if args[0] == "context":
+                return json.dumps([{"Endpoints": {"docker": {"Host": "npipe:////./pipe/local"}}}])
+            if args[0] == "info":
+                return json.dumps({"OSType": "linux", "ID": "fixture", "MemTotal": 16 * 1024**3})
+            self.assertEqual(args[:2], ("image", "inspect"))
+            role = next(role for role, identity in IMAGES.items() if identity == args[2])
+            entrypoint = {"etcd": ["/etcd"], "nats": ["/nats-server"], "proxy": ["/server-proxy"]}.get(role)
+            return json.dumps([{"Os": "linux", "Config": {"Entrypoint": entrypoint, "Labels": {}}}])
+        with patch.object(services, "command", side_effect=command):
+            with self.assertRaisesRegex(ServerSlotError, "provenance"):
+                services.preflight(3)
+
+
+class ToolPreparationTests(unittest.TestCase):
+    def test_packaging_cannot_adopt_existing_state_or_accept_relative_tools(self):
+        from agent.server_slot_tools import prepare
+        with tempfile.TemporaryDirectory() as temporary, patch("agent.server_slot_tools.DockerServices") as docker:
+            root = Path(temporary).resolve()
+            with self.assertRaises(ValueError):
+                prepare("go", root / "docker", root / "new")
+            with self.assertRaises(ValueError):
+                prepare(root / "go", root / "docker", root)
+            docker.assert_not_called()
+
+    def test_wrong_go_version_stops_before_build_or_image_mutation(self):
+        from agent.server_slot_tools import prepare
+        with tempfile.TemporaryDirectory() as temporary, patch("agent.server_slot_tools.DockerServices") as docker:
+            root = Path(temporary).resolve()
+            docker.return_value.binding.return_value = {"daemon_id": "fixture"}
+            docker.return_value.command.return_value = json.dumps({"Architecture": "x86_64"})
+            with patch("agent.server_slot_tools.subprocess.check_output", return_value="go version go1.26.5 windows/amd64"), \
+                    patch("agent.server_slot_tools.subprocess.run") as run:
+                with self.assertRaisesRegex(ValueError, "pinned Go"):
+                    prepare(root / "go", root / "docker", root / "new")
+                run.assert_not_called()
+            self.assertTrue(all(call.args[0] == "info" for call in docker.return_value.command.call_args_list))

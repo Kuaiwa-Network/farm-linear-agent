@@ -602,7 +602,15 @@ etcd image has `/etcd` as entrypoint and `/etcdctl`; NATS uses `/nats-server`.
 The fixed `proxy` image uses `/server-proxy`, built from
 [`agent/probes/server-proxy`](agent/probes/server-proxy/main.go) with the pinned Go
 and its Dockerfile. Hash the source and binary, retain build/test evidence, inspect
-the resulting image ID and write that ID to private config. The serving Python
+the resulting image ID and write that ID to private config. The trusted operator
+can run `python3 -m agent.server_slot_tools --go /absolute/go --docker /absolute/docker --output /absolute/new-build-directory`
+(Windows: use the configured Python and native executable paths). It verifies
+Go 1.26.6/local Docker, tests the relay natively, cross-builds for that Linux
+backend, and builds only the fixed scratch image with network/pulls disabled.
+The output directory must be new; the private receipt retains hashes, identity
+and UTF-8 logs. It reads no bot config or credentials and starts no services.
+Doctor checks the relay's canonical source digest against its image provenance.
+The serving Python
 controller requires Docker and installed images, not a Go compiler.
 
 A conservative starting admission block for a 32 GiB development PC is:

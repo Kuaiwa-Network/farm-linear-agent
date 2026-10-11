@@ -21,6 +21,12 @@ LIMITS = {"mongo": 1536, "redis": 256, "etcd": 512, "nats": 256}
 IMAGE = re.compile(r"(?:sha256:[0-9a-f]{64}|[a-zA-Z0-9./:_-]+@sha256:[0-9a-f]{64})\Z")
 
 
+def relay_source_digest():
+    source = Path(__file__).parent / "probes" / "server-proxy"
+    return hashlib.sha256(b"".join((source / name).read_bytes().replace(b"\r\n", b"\n")
+                                  for name in ("main.go", "go.mod", "Dockerfile"))).hexdigest()
+
+
 class ServerSlotError(RuntimeError):
     pass
 
@@ -135,9 +141,7 @@ class DockerServices:
             if expected and found.get("Config", {}).get("Entrypoint") != expected:
                 raise ServerSlotError("server image lacks the supported pinned service entrypoint: " + role)
             if role == "proxy":
-                source = Path(__file__).parent / "probes" / "server-proxy"
-                digest = hashlib.sha256(b"".join((source / name).read_bytes()
-                                                for name in ("main.go", "go.mod", "Dockerfile"))).hexdigest()
+                digest = relay_source_digest()
                 if (found.get("Config", {}).get("Labels") or {}).get("farmbot.server.proxy.source_sha256") != digest:
                     raise ServerSlotError("relay image provenance does not match this FarmBot revision")
 
