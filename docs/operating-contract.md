@@ -1405,6 +1405,10 @@ admission serializes both pool threads, counts nonclosed/held resources and idle
 Editors, and checks actual host physical/Windows commit headroom. Its estimate
 budget is per instance, not a host-wide atomic quota. Operators sharing a PC
 must divide that budget across bots. Missing observations leave work queued.
+Headroom is checked before admission; these estimates do not impose process
+memory limits or continuously stop a running workload. Cold Unity imports and
+multi-node race tests include descendant processes whose peaks must be measured
+on the intended host before promoting concurrency settings.
 Only verified idle Editors may close to reclaim headroom. Cheap work remains
 independent of the heavy pools; slot counts are ceilings, not guaranteed full
 concurrency on a 32 GiB host.

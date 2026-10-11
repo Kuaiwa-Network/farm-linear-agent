@@ -613,17 +613,26 @@ Doctor checks the relay's canonical source digest against its image provenance.
 The serving Python
 controller requires Docker and installed images, not a Go compiler.
 
-A conservative starting admission block for a 32 GiB development PC is:
+A TestBot trial on a 32 GiB PC used this admission block after measuring native
+workloads:
 
 ```json
-{"max_reserved_mib": 16384, "min_available_mib": 4096,
- "min_commit_mib": 4096, "unity_mib": 4096, "server_mib": 4608}
+{"max_reserved_mib": 13824, "min_available_mib": 4096,
+ "min_commit_mib": 4096, "unity_mib": 8192, "server_mib": 8192}
 ```
 
-These are estimates to be tuned from measured peak loads, not six-stage readiness
-certification. Switching, busy and held resources consume budget; idle open
+This budget admits at most one heavy stage at a time, even with three configured
+slots of each kind. The earlier 4096/4608 MiB estimates did not cover simultaneous
+cold Unity imports or full multi-node Go race tests on that PC. Measure the
+complete native process tree and
+Docker services, then tune the costs and shared budget on the intended host.
+The [native capacity record](docs/superpowers/plans/2026-09-28-feature-workers-phase-b.md#actual-windows-workload-trial-after-testbot-only-approval-2026-10-12)
+records host measurements separately from the example. Switching, busy and held
+resources consume budget; idle open
 Editors also count. Windows checks available physical RAM **and** commit
-headroom. Missing memory observations hold the queue. The two controller pool
+headroom before granting a request. Admission is not a process memory cap or a
+runtime watchdog: an admitted workload can grow afterward. Missing memory
+observations hold the queue. The two controller pool
 threads share one admission lock. The reservation budget is per instance, not
 an atomic cross-instance host quota; when several bots share a PC, divide that
 budget explicitly and retain host headroom for the other bot and applications.
