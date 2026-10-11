@@ -446,9 +446,11 @@ class SkillAuthorityTests(unittest.TestCase):
     def test_the_kw_ops_grant_is_per_skill_and_the_rest_is_common(self):
         self.assertEqual(set(dispatch.SKILL_AUTHORITY), {"fix", "chat", "work", "feature", "fgui", "scene"})
         self.assertNotIn("kw_ops", dispatch.COMMON_AUTHORITY + dispatch.AUTHORITY_REFERENCE)
-        for skill in ("fix", "chat", "work"):
+        for skill in ("fix", "chat"):
             with self.subTest(skill=skill):
                 self.assertIn("tools.kw_ops.access", dispatch.SKILL_AUTHORITY[skill])
+        self.assertNotIn("tools.kw_ops.access", dispatch.SKILL_AUTHORITY["work"])
+        self.assertIn("no standing MCP or kw_ops grant exists", dispatch.SKILL_AUTHORITY["work"])
 
     def test_a_skill_without_an_authority_entry_is_refused_when_the_payload_is_built(self):
         for item in ({"id": "i", "skill": "uninstalled"}, {"id": "i"}):
