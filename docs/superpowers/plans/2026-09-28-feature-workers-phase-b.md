@@ -2010,6 +2010,94 @@ bundle. Real game-service deployment and visual guide acceptance are independent
 of installing FarmBot. This record enables no production skill, restarts no
 service and changes no webhook, credential or production resource.
 
+### Native runtime rehearsal and completed Code trial (2026-10-11)
+
+These measurements are from the production Windows PC, using independent
+owned development checkouts and TestBot state. Production was not deployed or
+restarted; its config, task action and listener were preserved. The exact
+executable candidate remains `c32cda32898dfdebdabfef0cc37e7b4e1ad9e6ef`, with
+the full CI and focused host results recorded immediately above.
+
+- Staged the accepted native tools on D: and compared every copied file:
+  22,383 SDK/package files, 1.06 GiB, 235.342 seconds. Added one identical signed
+  Codex CLI copy and the existing origin-scoped native Git/LFS callbacks.
+  Active tool sources and existing credentials were preserved; no credential
+  setup, Feishu authentication or global app setting change ran. The owned
+  release stage has private Windows permissions for the selected account,
+  SYSTEM and Administrators.
+- Both development and production-candidate read-only toolchain preflights
+  reported no missing feature tools: Go 1.26.6, protoc 35.1, buf 1.72.0,
+  Node 24.19.0, OpenSpec 1.7.0, LFS 3.7.1, Python 3.13.16, .NET SDK 8.0.423
+  and lark-cli 1.0.82. Development UI tool/export diagnostics also passed.
+  Windows used native tools; Bash/MSYS/WSL was neither required nor used.
+- Staged signed `codex-cli 0.162.0-alpha.17.2` passed a native Job Object version
+  probe and a model-only rehearsal using the normal launcher's isolated home
+  and existing approved Codex authentication. `latest-sol` / `xhigh` resolved
+  to `gpt-6.1-sol` / `xhigh` in the log. The rehearsal returned the exact expected
+  response in 11.477 seconds, exited zero, was verified inside its native Job,
+  left that Job empty and changed no files in its Unicode/spaces working
+  directory. Private logs and hashes remain local.
+- Prepared and checked the receiver task action, supervisor, native environment
+  and config. Account/triggers are identical; only the supervisor argument
+  changes in the prepared task. Proposed config changes are exactly enabled
+  skills (chat/fix/feature) and the existing `farmbot` Lark profile. Ten workers,
+  two Unity slots, the legacy production profile and native `unelevated` worker
+  setting remain. Ledger/config implementation files are unchanged from
+  deployed `3aed7d8`, so this adds no state schema migration. Rollback requires
+  settling new work and restoring config/task; it cannot erase later activity
+  or restore discarded disposable CLI copies.
+- The operator's selected Windows account and per-user DPAPI profile remain.
+  A separate HOME would not isolate Windows lark-cli credentials. Current code
+  supports the opt-in `app_id`/`secret_env` alternative, unlike the historical
+  Task 17 entry; it is not selected or configured here.
+
+FARM-1461's authenticated continuation reached normal **delivered** state;
+the existing TestBot session completed, F/G completed, its Unity reservation
+was released quiescent and all recorded native worker Jobs were empty. Reviewed
+Server #393/main and Client #1464/main were adopted without republishing consumer
+changes or overwriting predecessor work.
+
+Actual Client head was local `3a9b4158a5170059c8254e96fd614630cdf2040a`; its entire
+tree equals reviewed/public `5520059` and merged/main `75f0105`:
+`d5de125e80809a6095f97b3ecc787a958d5bd322`. Independent receipt auditing verified
+hashes and every unique result leaf: PlayMode **1,270 Passed / 0 Failed / 29
+existing Skipped:Ignored** out of 1,299, 132.3898516 seconds; fresh guide fixture
+**9/9 Passed**, zero skips/inconclusive, 0.3160184 seconds, before final EditMode
+**13/13 Passed**, zero skips, 0.6303301 seconds. Unit TRX has **6,633 Passed /
+0 Failed / 6 NotExecuted** out of 6,639, including all 11 guide logic/wiring
+cases. Exclusions are five existing Unix cases and the unprovided real common
+artifact test. Complete skip lists and earlier failure/inconclusive/zero-selection
+and recovery evidence remain. No assertion or skip was weakened; a later pass
+does not establish the earlier framework failure's cause.
+
+[Contract write-back #343](https://github.com/Kuaiwa-Network/Farm-Contract/pull/343)
+was independently reviewed and merged as `9906f2480a0b2c5f0bd1c6fafbd4b0ee71af4fb9`.
+Proposal/design/delta and proto/MANIFEST bytes are preserved; the flat spec
+retains 9 requirements, 28 scenarios and 32 DECIDED markers. Thirty-nine named
+tests and three public Client links were verified. Links use the published
+identical-tree commit; receipts retain the actual local test head. All twelve
+Contract CI gates passed on final `23e42f01`; four relevant native documentation
+gates and whitespace also passed after the link repair. Backend dictionary/real
+JSON receiver acceptance and original guide presentation QA remain **game-release**
+tasks; archiving does not certify them.
+
+After delivery, a fresh handoff fence checked zero unsettled jobs, open
+reservations, active recoveries or busy/held development slots, and all 88
+recorded native Jobs empty. The verified development controller was fenced and
+replaced without stopping shared Editors. TestBot serves exact `c32cda32898d`
+with the sealed D: native environment, a fresh serving heartbeat, zero loop
+errors and no workers. Development config/identity and production config/listener
+stayed unchanged. Local HTTP health was checked separately, not as full readiness.
+
+Remaining **FarmBot host-release** prerequisites: separately approved production
+cutover, guarded recovery of its two held Unity slots, and post-cutover
+capacity/tool/slot/heartbeat verification. Read-only checks found no production
+jobs/reservations and all 299 recorded native Jobs empty. Closed slot 1 needs
+importer-only metadata preserved before committed metadata restoration;
+clean/open slot 2 needs exact-project identity and quiescence validation.
+Historical cleanup uncertainty, failed/blocked records and parked issues remain
+evidence, not targets for deletion or resumption.
+
 ## Scope
 
 In Phase B (spec §13, item 2):
