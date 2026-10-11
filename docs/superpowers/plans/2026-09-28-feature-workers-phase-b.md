@@ -2098,6 +2098,77 @@ clean/open slot 2 needs exact-project identity and quiescence validation.
 Historical cleanup uncertainty, failed/blocked records and parked issues remain
 evidence, not targets for deletion or resumption.
 
+### Approved production cutover (2026-10-11)
+
+The operator approved production cutover and guarded recovery of both held
+Unity slots. This was executed and checked on the **production Windows PC**,
+following the [completed runtime rehearsal record](https://github.com/Kuaiwa-Network/farm-linear-agent/pull/240).
+FarmBot-Receiver now serves exact candidate
+`c32cda32898dfdebdabfef0cc37e7b4e1ad9e6ef`, with **chat/fix/feature enabled,
+10 workers and 2 Unity slots**. The serving checkout remains clean and pinned;
+later documentation commits do not change that executable candidate.
+
+- Installed the reviewed native environment on D: and the prepared config.
+  The config changes are enabled skills and the existing `farmbot` Lark profile;
+  the receiver task changes only its supervisor argument. The selected Windows
+  account, task privileges/triggers, legacy production state root, credentials,
+  production webhook and tunnel were preserved. Per-user DPAPI remains the
+  credential boundary; a separate HOME does not isolate it. TestBot's process,
+  identity and config were preserved. Native Windows tools were used throughout.
+- Guarded recovery checked controller ownership, physically empty native Jobs,
+  reservations and recovery locks before modifying resources. Closed slot 1's
+  1,832 importer-only tracked metadata changes were preserved under an immutable
+  recovery ref and a private manifest before restoring committed metadata and
+  clearing the verified stale lock. Its HEAD was unchanged; it is `idle_closed`.
+  Clean/open slot 2 passed exact-project identity and quiescence validation and
+  is `idle_open`; its shared Editor was not restarted. Both original recovery
+  histories, attempt counts and failure evidence remain. Existing work-item
+  states/checkpoints were unchanged by the guarded recovery.
+- Preserved consistent SQLite backups, original config/task/supervisor, resource
+  evidence and the previous executable revision. No state schema migration was
+  introduced. Rollback still requires settling newly accepted work and restoring
+  the reviewed config/task; an older checkout does not undo later activity.
+- At the final post-cutover check, all six controller loops were healthy and
+  applied capacity was 10 workers / 2 slots. Local and public health returned
+  HTTP 200. There were zero active jobs, open reservations or active recoveries;
+  all **299 recorded production native Jobs** were verified empty. These checks
+  were evaluated together; HTTP health alone was not treated as readiness.
+
+An actual isolated native worker command exposed a packaging omission that the
+earlier version/model-only rehearsal could not detect: the copied CLI lacked
+`codex-code-mode-host.exe`, so its first command probe produced no tool result.
+That failure and its logs were preserved. Added five matching, signed,
+hash-verified companion executables from the already selected CLI package
+(160,819,696 bytes, about 153.4 MiB): the code-mode host, command runner, Windows
+sandbox service/setup executables and `rg.exe`. No sandbox setup command,
+credential setup, permission weakening or desktop UI automation ran.
+
+The repeated probe used the normal launcher, isolated worker home, native
+`unelevated` sandbox and Windows Job Object. Signed CLI
+`0.162.0-alpha.17.2` resolved `latest-sol` / `xhigh` to `gpt-6.1-sol` / `xhigh`.
+It executed all nine native feature tool checks successfully in **19.102 seconds**,
+with UTF-8 enabled, the prepared script unchanged and the exact expected reply.
+The worker's controlled write outside its allowed root was denied and the
+sentinel remained unchanged; its native Job was empty after exit. TestBot's
+native feature/UI preflight also passed using its reviewed virtual-environment
+launcher. Private logs, executable hashes and earlier harness failures remain.
+
+Private cutover helpers paused safely for a verified Windows console child and
+a PowerShell 5 security-module import failure. The console child was recognized
+only after matching signed system executable, ownership, ancestry and creation
+time; the ACL operation used the configured native PowerShell and retained the
+original permissions. Previous receiver operation was restored during the
+interrupted attempt. A startup health timeout subsequently resolved without
+another restart; the final task/config/process/heartbeat checks passed.
+
+Read-only `doctor` remains **incomplete** for retained historical findings:
+24 failed jobs, 2 blocked jobs, 1 unverified worker cleanup, 1 pending cleanup,
+1 issue-status error and 2 long-parked jobs. No historical uncertainty was
+deleted, and no parked issue was resumed. This completes the approved FarmBot
+host-release checks. FARM-1461's backend dictionary, real JSON receiver and
+original guide presentation acceptance remain separate **game-release** tasks;
+this cutover did not deploy game services or enable the production UI worker.
+
 ## Scope
 
 In Phase B (spec §13, item 2):
