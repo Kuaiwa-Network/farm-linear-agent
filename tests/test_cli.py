@@ -368,6 +368,11 @@ class CliTests(unittest.TestCase):
         args = parser().parse_args(["--db", str(self.db), "await-resource", "--item", item, "--token", token,
                                     "--resource", "server_slot", "--mode", "batch", "--commit", candidate])
         with patch("agent.__main__.load_config", return_value=config):
+            config.server_slots = {}
+            with self.assertRaisesRegex(LedgerError, "no configured server"):
+                run(args, ledger, lambda: None)
+            self.assertEqual(ledger.reservations(), [])
+            config.server_slots = SETTINGS
             (path / "server.txt").write_text("uncommitted\n", encoding="utf-8")
             with self.assertRaisesRegex(WorktreeError, "clean worktree"):
                 run(args, ledger, lambda: None)

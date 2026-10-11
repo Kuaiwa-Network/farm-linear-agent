@@ -1423,6 +1423,8 @@ Neither worker nor operator recovery uses global Docker prune/force removal.
 
 Server slots are opt-in and default off, and require explicit admission budgets,
 an absolute Docker CLI, a local Linux backend and installed digest-pinned images.
+Server write-stage workers see configuration availability in `tools.server_tests`;
+the CLI refuses disabled pools instead of queueing an impossible request.
 Doctor probes backend capacity and image prerequisites read-only; a listener's
 health response does not certify Docker, game tests or all heavy slots. Images
 are shared, writable data is per lease. Docker's VM disk location is independent

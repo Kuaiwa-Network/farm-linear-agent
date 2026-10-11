@@ -692,7 +692,7 @@ section. A contract change enters farm-hive at its plan: its behaviour is settle
    MongoDB, Redis and cluster services: the PR body lists every step and service-backed variant not run. A step that
    cannot run in your sandbox (a module download refused, a tool missing or at another version) is named there as
    not run, with its error; never skip one silently.
-   When this host configures server slots, commit the intended server candidate,
+   When `tools.server_tests.status` is `configured`, commit the intended server candidate,
    checkpoint its SHA and service-backed test selection, request
    `await-resource --resource server_slot --mode batch --commit FULL_HEAD_SHA`, and
    exit. On resume verify `resource.commit`, use only `resource.environment` for

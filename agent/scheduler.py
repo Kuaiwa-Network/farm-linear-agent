@@ -219,6 +219,9 @@ class Scheduler:
         if kw_ops_grant.server is not None:
             servers[KW_OPS_SERVER] = kw_ops_grant.server
         tools = {KW_OPS_SERVER: kw_ops_grant.tools} if kw_ops_grant.tools is not None else {}
+        if skill.name in ("fix", "feature") and root == "farm-hive":
+            tools["server_tests"] = {"status": "configured" if self.server_slots_root else "unavailable",
+                                     "resource": "server_slot"}
         if skill.name == "feature" and root == "Farm-Client":
             # A configured slot may supply read-only generated projects/DLLs even before a reservation. This
             # exposes no Editor command or writable slot root, and the delivered typecheck validates readiness.

@@ -429,6 +429,9 @@ or ask for host intervention. A fresh worker receives the exact retried commit a
 For service-backed server tests, `fix` and `feature` may checkpoint and request
 `await-resource --resource server_slot --mode batch --commit FULL_SERVER_HEAD_SHA`
 only from their `farm-hive` write stage on a host with configured server slots. The
+launch message's `tools.server_tests.status` is `configured` or `unavailable` in
+that stage; this describes configuration, not backend readiness. The CLI refuses
+a disabled pool before queueing. It grants no live-service fallback. The
 CLI verifies their own clean managed worktree at that commit; the scheduler checks
 it again before launch. Save the test plan, then exit after requesting. The resumed
 worker receives `resource.kind: "server_slot"`, `resource.commit`, a deadline and

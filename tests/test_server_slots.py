@@ -75,7 +75,7 @@ class ServerPoolFixture(unittest.TestCase):
         self.addCleanup(pool.close)
         return pool
 
-    def request(self, commit="a" * 40, *, root="farm-hive", mode="batch", skill="fix"):
+    def request(self, commit="a" * 40, *, root="farm-hive", mode="batch", skill="fix", reserve=True):
         self.sequence += 1
         number = self.sequence
         identity = str(uuid4())
@@ -83,6 +83,8 @@ class ServerPoolFixture(unittest.TestCase):
         self.ledger.ensure_session(identity, identity, delegation=True)
         item = self.ledger.create_work_item(issue_id=identity, session_id=identity, skill=skill, target=PIN)
         self.ledger.connection.execute("UPDATE work_items SET root_repo=? WHERE id=?", (root, item["id"]))
+        if not reserve:
+            return item["id"]
         token = self.ledger.claim(item["id"], worker_id="worker")["token"]
         self.ledger.await_resource(item["id"], token, "server_slot", mode, skill=SKILLS[skill], commit_sha=commit)
         return item["id"]
@@ -274,6 +276,25 @@ class PoolTests(ServerPoolFixture):
         self.assertTrue(Path(launcher.spawn_env["GOCACHE"]).is_relative_to(launcher.state_dir(item)))
         self.assertEqual(launcher.spawned[0][2], {})
         self.assertFalse(any(self.root.is_relative_to(Path(path)) for path in launcher.spawn_writable))
+
+    def test_server_capability_reports_configuration_without_granting_endpoints_or_a_resource(self):
+        from agent.scheduler import Scheduler
+        from test_scheduler import FakeLauncher, FakeWorktrees
+        for skill in ("fix", "feature"):
+            for configured in (True, False):
+                with self.subTest(skill=skill, configured=configured):
+                    item = self.request(skill=skill, reserve=False)
+                    launcher = FakeLauncher(self.root.parent / "runs")
+                    scheduler = Scheduler(self.ledger, launcher, SKILLS, FakeWorktrees(self.root.parent / "worktrees"),
+                        skill_root=Path(__file__).resolve().parents[1] / "skills", db_path=self.db,
+                        runtime_name="fake", host="test", server_slots_root=self.root if configured else None)
+                    scheduler.launch(self.ledger.item(item))
+                    payload = json.loads(launcher.spawned[-1][1].split("\n\n", 1)[1])
+                    self.assertEqual(payload["tools"]["server_tests"],
+                        {"status": "configured" if configured else "unavailable", "resource": "server_slot"})
+                    self.assertIsNone(payload["resource"])
+                    self.assertNotIn("MONGO_URI", launcher.spawn_env)
+                    self.assertEqual(self.ledger.reservations(), [])
 
 
 class AdmissionTests(ServerPoolFixture):
