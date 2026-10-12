@@ -14,6 +14,10 @@ design references. Missing art is a human question; save it with the task key an
 park only this task. The parent routes actual attributed answers, retains partial
 decisions and continues independent server work. All existing visual/export and
 Client checks below still apply.
+After validating an actual answer to every part of `human_question`, acknowledge
+your own round with `resolve-question` and its current ID/attributed inbox IDs
+(see `references/worker-cli.md`). A location-only or partial answer keeps the
+remaining question and `待回复`; neither a checkpoint nor a parent wake resolves it.
 Internal tasks also receive `reads.Farm-Contract`. Read the parent's recorded
 settled contract commit and scenario/file references with read-only Git, including
 `git show COMMIT:path` for an unmerged OpenSpec; never change the read checkout or

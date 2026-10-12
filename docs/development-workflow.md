@@ -61,7 +61,7 @@ What does not separate them:
   Triggers).
 - Both bots use `farmbot/<lowercase-key>` branches, with `-config`, `-waivers` and
   `-followup` suffixes for Code jobs, in the same repositories.
-- The development bot's comments, agent sessions, `needs-more-info` labels,
+- The development bot's comments, agent sessions, `待回复` labels,
   branches and draft PRs are real and visible to the team.
 - Both bots read the same labels. A label or label-group change in Linear, such
   as the rename of 功能 to Bot, reaches both at their next read of a card, while

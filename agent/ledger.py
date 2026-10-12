@@ -20,6 +20,7 @@ import time
 from uuid import UUID, uuid4
 
 from . import memory
+from .attention import QUESTION_KEY, question_from
 from .publication import SUFFIXES, PublicationError, is_issue_branch, issue_branch, suffix_of
 from .resource_recovery import RecoveryStore, SCHEMA as RECOVERY_SCHEMA
 from .router import CONVERSATION_SKILLS, WRITE_SKILLS
@@ -733,6 +734,19 @@ class Ledger:
         with self._transaction():
             self._audit(item_id, kind, reason, details)
 
+    def human_question(self, item_id):
+        question = question_from(self._view(self._row(item_id)))
+        if question and question["id"].startswith("legacy-"):
+            # Do not let pre-upgrade, already-consumed rulings acknowledge a
+            # later question merely because the old checkpoint has no round id.
+            asked = self.connection.execute("SELECT MAX(created_at) FROM audit WHERE item_id=? "
+                "AND reason='human gate'", (item_id,)).fetchone()[0]
+            if asked is not None:
+                floor = self.connection.execute("SELECT COALESCE(MAX(id),0) FROM inbox WHERE item_id=? "
+                    "AND consumed_at<=?", (item_id, asked)).fetchone()[0]
+                question = {**question, "after_message_id": floor}
+        return question
+
     def noted_since(self, item_id, kind, since):
         """Whether the job has an audit row of `kind` at or after `since`: how a line that a job gets at most once in
         a while finds its last one (silent-delegation design §3.3)."""
@@ -1401,6 +1415,11 @@ class Ledger:
             row = self._owned(item_id, token)
             previous = json.loads(row["checkpoint"])
             progress = dict(progress)
+            # A resume/checkpoint is not confirmation that a human question was
+            # answered. Only resolve-question may acknowledge the current round.
+            progress.pop(QUESTION_KEY, None)
+            if QUESTION_KEY in previous or (question := self.human_question(item_id)):
+                progress[QUESTION_KEY] = previous.get(QUESTION_KEY) if QUESTION_KEY in previous else question
             progress.pop("waiting_tasks", None)
             progress.pop("task_wake", None)
             if "task_wake" in previous:
@@ -1714,6 +1733,10 @@ class Ledger:
             checkpoint = json.loads(row["checkpoint"])
             checkpoint["pending_question"] = question
             checkpoint["pending_reason"] = reason
+            if reason == "question":
+                after = self.connection.execute("SELECT COALESCE(MAX(id),0) FROM inbox "
+                    "WHERE item_id=? AND consumed_at IS NOT NULL", (item_id,)).fetchone()[0]
+                checkpoint[QUESTION_KEY] = {"id": str(uuid4()), "body": question, "after_message_id": after}
             # Linear may deliver the answer between posting the question and this
             # transaction. Do not strand that reply behind an awaiting-input gate.
             pending = self.connection.execute("SELECT 1 FROM inbox WHERE item_id=? AND consumed_at IS NULL",
@@ -1724,6 +1747,31 @@ class Ledger:
                             resume_authorized=int(pending), checkpoint=_json(checkpoint),
                             **(self._new_stage_allowances(row) if pending else {}))
             return self._view(self._row(row["id"]))
+
+    def resolve_question(self, item_id, token, question_id, message_ids):
+        """A worker confirms its entire current question round against actual human replies."""
+        if not message_ids or any(type(mid) is not int or mid <= 0 for mid in message_ids):
+            raise LedgerError("resolve-question requires positive inbox message ids")
+        with self._transaction():
+            row = self._owned(item_id, token)
+            self._refuse_withdrawn(row)
+            question = self.human_question(item_id)
+            if not question or question["id"] != question_id:
+                raise LedgerError("resolve-question requires the current human_question id")
+            for mid in set(message_ids):
+                message = self.connection.execute("SELECT author_json FROM inbox WHERE item_id=? AND id=?",
+                                                  (item_id, mid)).fetchone()
+                if not message or not message["author_json"] or mid <= question["after_message_id"]:
+                    raise LedgerError("resolve-question requires this round's actual attributed human replies")
+            checkpoint = json.loads(row["checkpoint"])
+            checkpoint[QUESTION_KEY] = None
+            checkpoint.pop("pending_question", None)
+            checkpoint.pop("pending_reason", None)
+            self.connection.execute("UPDATE work_items SET checkpoint=?,updated_at=? WHERE id=?",
+                                    (_json(checkpoint), self.clock(), item_id))
+            self._audit(item_id, "question_resolved", "worker confirmed all questions answered",
+                        {"question_id": question_id, "message_ids": sorted(set(message_ids))})
+            return self._view(self._row(item_id))
 
     RESERVATION_OPEN = ("queued", "active", "cancel_requested")
 
@@ -3148,6 +3196,7 @@ class Ledger:
                     "SELECT id,body,author_json,created_at FROM inbox WHERE item_id=? ORDER BY id", (item_id,))],
                 "pending_question": checkpoint.get("pending_question"),
                 "pending_reason": checkpoint.get("pending_reason"),
+                "human_question": self.human_question(item_id),
                 "plan": checkpoint.get("plan"),
                 "notices": [{key: notice[key] for key in ("request_id", "kind", "remote_id", "created_at", "confirmed_at")}
                             for notice in self.notices(item_id)],

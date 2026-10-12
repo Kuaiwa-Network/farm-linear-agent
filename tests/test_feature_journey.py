@@ -684,7 +684,7 @@ class CodeJobJourneyTests(unittest.TestCase):
         self.assertEqual((current["state"], current["root_repo"], current["stage"]),
                          ("awaiting_input", None, "contract"))
         self.assertEqual((self.context(item)["pending_reason"], self.plan["pause"]["kind"]), ("question", "answers"))
-        self.assertEqual(len(self.calls("needs_more_info")), 1)
+        self.assertEqual(len(self.calls("awaiting_reply")), 1)
         self.assertEqual(self.notices(item), [("questions-1", "question", True)])
 
         # The designer answers in a comment and the owner resumes the job with a reply (§5.1).
@@ -728,7 +728,7 @@ class CodeJobJourneyTests(unittest.TestCase):
         self.assertEqual((current["state"], current["root_repo"], current["stage"]),
                          ("awaiting_input", "common", "declarations"))
         self.assertEqual(self.context(item)["pending_reason"], "waiting")
-        self.assertEqual(len(self.calls("needs_more_info")), 1)           # a waiting pause adds no label
+        self.assertEqual(len(self.calls("awaiting_reply")), 1)           # a waiting pause adds no label
         self.assertEqual(self.context(item)["published_prs"], sorted([PRS["Farm-Contract"], PRS["common"]]))
 
         # Config ready: the designer names a branch, and stage C runs in the resumed common-rooted attempt.

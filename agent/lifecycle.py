@@ -4,6 +4,7 @@ import time
 
 from .ledger import ACTIVE_STATES, TERMINAL_STATUS_TYPES, StaleRouting
 from .linear_api import LinearError
+from .attention import reconcile_reply_label
 # UNDELEGATED is the text notice() gives a write job whose delegation went, the one the lifecycle posted before; it
 # stays importable here.
 from .withdrawal import UNDELEGATED, grace_seconds, notice
@@ -56,6 +57,17 @@ class Lifecycle:
                 # (silent-delegation design P11). Nothing starts or is posted here.
                 self.ledger.clear_undelegated(issue_id, observed_at=started)
             self.ledger.finish_status_check(issue_id, self.interval)
+            # A label failure must not masquerade as a failed status read or
+            # block an otherwise valid launch. Every status pass retries it.
+            sync = getattr(self.api, 'awaiting_reply', None)
+            if sync is not None:
+                try:
+                    reconcile_reply_label(self.ledger, self.api, issue_id)
+                except Exception as exc:
+                    root = self.ledger.connection.execute("SELECT id FROM work_items WHERE issue_id=? "
+                        "AND parent_id IS NULL ORDER BY created_at DESC LIMIT 1", (issue_id,)).fetchone()
+                    if root:
+                        self.ledger.note(root['id'], 'reply_label_sync_failed', type(exc).__name__)
             return current, delegate
         except Exception as exc:
             unreachable = isinstance(exc, LinearError) and exc.kind == 'not_found'

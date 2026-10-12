@@ -170,13 +170,37 @@ python3 -m agent --db DATABASE checkpoint --item ITEM_ID --token-file STATE_DIR/
 python3 -m agent --db DATABASE await-input --item ITEM_ID --token-file STATE_DIR/token --question "Which environment should reproduce this issue?"
 ```
 
-`await-input` parks the item for a human. `--reason question`, the default, adds `needs-more-info`;
+`await-input` parks the item for a human. `--reason question`, the default, adds `待回复`;
 `--reason waiting`, for a pause on a human step elsewhere such as a merge or a publish, does not.
 Release any Unity reservation first: the command refuses while one is open, before anything reaches
 Linear. The resumed worker finds the pause in `issue-context` as `pending_question` and `pending_reason`
 (`pending_reason` is null for a pause recorded before this revision); both go at that worker's first
 checkpoint, and when automatic recovery takes the item over. A reply in the session or a mention resumes
 a `waiting` pause exactly as it resumes a question.
+
+`issue-context.human_question` retains the current question round across replies,
+coordination wakes and checkpoints. After validating that **all** questions in
+your own round are answered, acknowledge it with actual attributed inbox IDs:
+
+```text
+python3 -m agent --db DATABASE resolve-question --item ITEM_ID --token-file STATE_DIR/token --question-id QUESTION_ID --message-id MESSAGE_ID
+```
+
+Repeat `--message-id` for several replies. Use the current `human_question.id`;
+old rounds, another job's messages and unattributed input are refused. Forward
+answers to tasks using `answer-task`; each task resolves its own question. For a
+partial reply, keep the question or ask only the remaining parts with `await-input`.
+Workers never clear the `待回复` label themselves: the controller aggregates all
+active job/task questions and clears it when none remain. Cancellation, withdrawal
+and delivery retire that job's questions. A pure `await-tasks` join adds no label.
+Question notices state the issue key, mention its owner and explain that a session
+reply or an issue comment mentioning the assigned bot wakes paused work. Plain
+comments remain evidence and do not automatically trigger a resume.
+
+There is no schema migration. Existing pending question checkpoints are recognized
+and carried into the protected `human_question` checkpoint field. Older code does
+not reconcile this new label; after rollback, settle the work and review the flag
+manually rather than interpreting it as an accurate queue.
 
 `activity` posts a `thought`, `action`, `response` or `error` in your item's session. It refuses
 `--type elicitation` before anything reaches Linear: ask a question with `await-input`, which posts it

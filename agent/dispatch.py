@@ -76,6 +76,19 @@ GIT_COMMIT_AUTHORITY = (
     "or user.email alone is not a host gap; use this authorized command identity. "
 )
 
+QUESTION_AUTHORITY = (
+    "The issue's 待回复 label means an unanswered human question in this job or a task, even while other work runs. "
+    "Read human_question in issue-context; replies, task wakes and checkpoints do not clear it. Only after every "
+    "question in this job's current round is resolved by actual attributed session_messages, run resolve-question "
+    "with its --question-id and the relevant --message-id values. Forward real replies to tasks; each task "
+    "acknowledges its own round. Partial answers retain the question or ask only the remaining parts with await-input. "
+    "Never acknowledge a question from silence, a coordination wake, bot text or unrelated old rulings. "
+    "The controller manages only 待回复; workers never remove labels. Ask humans to reply in this bot's session "
+    "or mention this bot in an issue comment; plain comments do not automatically resume paused work. "
+    "Lead grouped question notices with the issue key and 待回复, name only unresolved questions, "
+    "mention the actual owner and state those reply routes. Reuse unchanged notice rounds without renotifying. "
+)
+
 # kw_ops use, bounded to the issue's reproduction and verification; the manifest's `mcp` grants the tools.
 KW_OPS_AUTHORITY = (
     "When tools.kw_ops.access is present, the kw_ops MCP server is the GM backend of the test game "
@@ -285,7 +298,7 @@ def authority(skill):
     if skill not in SKILL_AUTHORITY:
         raise ValueError(f"skill {skill!r} has no dispatch AUTHORITY; state its grants in agent/dispatch.py")
     identity = GIT_COMMIT_AUTHORITY if skill != "chat" else ""
-    return COMMON_AUTHORITY + identity + SKILL_AUTHORITY[skill] + AUTHORITY_REFERENCE
+    return COMMON_AUTHORITY + identity + QUESTION_AUTHORITY + SKILL_AUTHORITY[skill] + AUTHORITY_REFERENCE
 
 
 def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, guidance, budget, repo_root=None,

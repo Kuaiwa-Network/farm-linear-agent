@@ -369,10 +369,12 @@ class SkillAuthorityTests(unittest.TestCase):
     def test_the_frozen_copy_is_the_a29d078_text(self):
         self.assertEqual(hashlib.sha256(AUTHORITY_AT_A29D078.encode("utf-8")).hexdigest(), AUTHORITY_AT_A29D078_SHA256)
 
-    def test_chat_receives_the_a29d078_authority_byte_for_byte(self):
-        """Historical bytes plus the explicitly reviewed server restrictions and withdrawal sentence."""
-        self.assertEqual(self.message({"id": "i", "skill": "chat"}).split("\n\n", 1)[0],
+    def test_chat_keeps_historical_restrictions_and_receives_question_authority(self):
+        """Keep the historical restrictions pinned independently of the new question protocol."""
+        self.assertEqual(dispatch.COMMON_AUTHORITY + dispatch.SKILL_AUTHORITY["chat"] + dispatch.AUTHORITY_REFERENCE,
                          with_withdrawal(AUTHORITY_AT_A29D078))
+        self.assertEqual(self.message({"id": "i", "skill": "chat"}).split("\n\n", 1)[0],
+                         dispatch.COMMON_AUTHORITY + dispatch.QUESTION_AUTHORITY + dispatch.SKILL_AUTHORITY["chat"] + dispatch.AUTHORITY_REFERENCE)
 
     def test_write_workers_receive_fixed_per_command_identity_in_authority(self):
         for skill in ("fix", "work", "feature", "fgui", "scene"):
@@ -390,7 +392,7 @@ class SkillAuthorityTests(unittest.TestCase):
         with the fixed per-command commit identity supplied to write workers."""
         reference = dispatch.AUTHORITY_REFERENCE
         self.assertEqual(self.message({"id": "i", "skill": "fix"}).split("\n\n", 1)[0],
-                         dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.KW_OPS_AUTHORITY
+                         dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.QUESTION_AUTHORITY + dispatch.KW_OPS_AUTHORITY
                          + FGUI_EXPORT_AT_D18 + reference)
         self.assertEqual(dispatch.FGUI_EXPORT_AUTHORITY, FGUI_EXPORT_AT_D18)
         self.assertNotIn("FairyGUI", dispatch.COMMON_AUTHORITY + dispatch.SKILL_AUTHORITY["chat"])
@@ -403,7 +405,7 @@ class SkillAuthorityTests(unittest.TestCase):
         self.assertEqual(dispatch.FEATURE_AUTHORITY, FEATURE_AUTHORITY_WITH_SERVER_SLOTS)
         self.assertIs(dispatch.SKILL_AUTHORITY["feature"], dispatch.FEATURE_AUTHORITY)
         self.assertEqual(self.message({"id": "i", "skill": "feature"}).split("\n\n", 1)[0],
-                         dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY
+                         dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.QUESTION_AUTHORITY
                          + FEATURE_AUTHORITY_WITH_SERVER_SLOTS + dispatch.AUTHORITY_REFERENCE)
 
     def test_the_feature_part_states_its_limits_and_carries_no_other_skills_grants(self):
@@ -444,7 +446,7 @@ class SkillAuthorityTests(unittest.TestCase):
                          "6ed311ec903b32ca5810d8ed8a3ff036c5914424e289889567273644a09b5018")
         self.assertIs(dispatch.SKILL_AUTHORITY["fgui"], part)
         self.assertEqual(self.message({"id":"i", "skill":"fgui"}).split("\n\n", 1)[0],
-                         dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + part + dispatch.AUTHORITY_REFERENCE)
+                         dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.QUESTION_AUTHORITY + part + dispatch.AUTHORITY_REFERENCE)
         self.assertNotIn("\n", part)
         for phrase in ("starting in its farmgui worktree", "read-only integration context", "review-ui",
                        "export-ui", "install-ui", "verify-ui-guards", "verify-ui-loading", "unity_slot interactive",
@@ -482,14 +484,14 @@ class SkillAuthorityTests(unittest.TestCase):
         for name in ("feature", "fgui"):
             with self.subTest(skill=name), patch.dict(dispatch.SKILL_AUTHORITY, {name: "Own grants. "}):
                 text = self.message({"id": "i", "skill": name}).split("\n\n", 1)[0]
-                self.assertEqual(text, dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY
+                self.assertEqual(text, dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.QUESTION_AUTHORITY
                                  + "Own grants. " + dispatch.AUTHORITY_REFERENCE)
                 self.assertNotIn("kw_ops", text)
 
     def test_no_part_carries_a_token_a_url_or_a_host_path(self):
         """Spec §12: the per-skill AUTHORITY is free of tokens and signed URLs. Every part is text that ends in
         the space the next part expects."""
-        parts = {"common": dispatch.COMMON_AUTHORITY, "git_commit": dispatch.GIT_COMMIT_AUTHORITY,
+        parts = {"common": dispatch.COMMON_AUTHORITY, "git_commit": dispatch.GIT_COMMIT_AUTHORITY, "question": dispatch.QUESTION_AUTHORITY,
                  **dispatch.SKILL_AUTHORITY}
         for name, part in {**parts, "reference": dispatch.AUTHORITY_REFERENCE}.items():
             with self.subTest(part=name):

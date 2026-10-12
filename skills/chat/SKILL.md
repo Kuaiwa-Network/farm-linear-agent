@@ -93,7 +93,7 @@ state-changing tools are not.
 5. Post the answer as a session activity: `python3 -m agent --db DATABASE activity --item ITEM_ID --token-file STATE_DIR/token --type response --body-file ANSWER.md`.
    When you need clarification, instead run
    `python3 -m agent --db DATABASE await-input --item ITEM_ID --token-file STATE_DIR/token --question TEXT` and exit.
-   It adds `needs-more-info`, posts the question once in Linear, and parks this chat for the answer.
+   It adds `待回复`, posts the question once in Linear, and parks this chat for the answer.
 6. Finish with `python3 -m agent --db DATABASE finish --item ITEM_ID --token-file STATE_DIR/token --outcome delivered --input OUTCOME.json`
    where the JSON is `{"summary": "...", "comment_action_id": null, "verification": "answered in session", "prs": []}`.
    Chat deliveries carry no PR and no issue comment; the ledger accepts an empty `prs` array for the `chat` skill.

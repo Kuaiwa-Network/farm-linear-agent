@@ -453,7 +453,7 @@ run `feature` it says that; an unknown Bot child or two name no workflow and are
 commands are refused before Linear is read on an instance that runs none of `fix`, `feature` or `fgui`; one
 that runs `feature` but not `fix` reads the card, then refuses a first fix. The acknowledgement in
 the session reads 「已排队开始或继续修改…」 for a fix and 「已排队开始或继续这项工作…」 for other work. FarmBot never sets a
-Bot label; the one label it writes is `needs-more-info`. `resume-work` remains a resume-only
+Bot label; the one label it writes is `待回复`. `resume-work` remains a resume-only
 compatibility command. Cancelled jobs stay cancelled and receive a fresh successor ID; other
 terminal jobs keep their ID. A write job's successor reports in the card's latest delegation session
 a person opened, which a re-delegation may have replaced since the job started; an operator-enqueued
@@ -554,9 +554,18 @@ branch from the default branch, named `farmbot/<key>-<job>` when FarmBot's clone
 
 A fix worker may update Farm-Contract in its Contract-root attempt for a confirmed requirement of
 the issue, a defect or a requested change, before the affected implementation. Uncertain behaviour
-or missing information is a question in Linear via `await-input`, which adds `needs-more-info`,
+or missing information is a question in Linear via `await-input`, which adds `待回复`,
 emits the elicitation and parks the item. A reply resumes it; insufficient answers lead to another
-question. The label is not automatically removed just because a reply arrived. Every question
+question. The controller reconciles the `待回复` label from all active parent and task questions
+on each successful status pass (normally within `reconcile_seconds`). A reply, wake or checkpoint
+does not clear a question. The worker acknowledges its fully answered round with `resolve-question`,
+using its current `human_question.id` and actual attributed inbox message IDs. Partial answers keep
+the flag; only the resolved worker's own round clears. Terminal/withdrawn work no longer contributes,
+and joins/resources and `--reason waiting` do not create questions. Other labels, status and assignee
+remain untouched; a card delegated to another bot is not reconciled by this instance. The controller
+records ownership when it manages this signal and removes no preexisting unowned flag from historical
+issues. Existing same-named labels are reused; new team labels default to red. Label failures
+are audited and retried without changing launch eligibility. Every question
 elicitation adds it, including chat and intake. `await-input --reason waiting` parks the same way
 without the label, for a pause that waits on a human step elsewhere rather than on an answer; the
 checkpoint records the reason as `pending_reason` beside `pending_question`. `await-input` refuses
@@ -745,7 +754,7 @@ human step elsewhere. A general job's `waiting_tasks: true` checkpoint is the
 explicit internal task join and emits no human elicitation. This supersedes the original
 operator-only slot recovery policy. Workers checkpoint, release `unclean`, and exit immediately.
 The release revokes both their claim and reservation token. Never request a human to operate
-Unity or add `needs-more-info` for this condition.
+Unity or add `待回复` for this condition.
 
 An Editor startup failure also quarantines its slot at the requested commit, using
 the preparation recovery budget. A missing MCP instance at the startup deadline
@@ -1277,7 +1286,7 @@ design documents. Follow the tested command, staging and validation workflow in
 worktree and verify them. Never hand-edit generated `.bytes`/atlases or claim runtime verification
 against stale outputs. Missing or failed export tooling calls for diagnosis, not a code workaround
 for a structural defect or change. If the intended UI is unclear, ask in Linear using
-`await-input --reason question` (which adds `needs-more-info`).
+`await-input --reason question` (which adds `待回复`).
 
 ## The Code worker (`feature`)
 
@@ -1761,7 +1770,7 @@ takes the answer to a later event of the thread; and a response owed for no job,
 that found nothing to stop, once the thread reaches active work. Such an error or response does not
 take the place of what closes the thread for a job that ended there. A thought and an
 operator-enqueued job's comment are not owed.
-FarmBot never closes a PR, deletes a branch, removes a label, delegates to itself or changes status or
+FarmBot never closes a PR, deletes a branch, removes other labels, delegates to itself or changes status or
 assignee because work was withdrawn; branches, draft PRs, checkpoints, plans, messages and cleanup
 evidence stay.
 

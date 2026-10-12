@@ -141,7 +141,7 @@ class UiJobJourneyTests(unittest.TestCase):
         run, payload = self.question(item)
         self.assert_scope(item, run, payload)
         self.assertEqual(j.context(item)["pending_reason"], "question")
-        self.assertEqual(len(j.calls("needs_more_info")), 1)
+        self.assertEqual(len(j.calls("awaiting_reply")), 1)
         j.human_comment("A red placeholder is acceptable for this authoring round.", author=DESIGNER)
         j.c.lifecycle.tick()
         self.assertEqual(j.c.ledger.item(item)["state"], "awaiting_input")

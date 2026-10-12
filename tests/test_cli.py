@@ -16,6 +16,12 @@ HOST = "test-host"
 STUB_APP = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
 
 
+def expected_question(body):
+    from types import SimpleNamespace
+    from agent.attention import question_notice
+    return question_notice(SimpleNamespace(issue_context=lambda _: {}), {"id": "fixture", "identifier": "FARM-1"}, body, "FarmBot")
+
+
 class CliTests(unittest.TestCase):
     def publication_fixture(self, issue_prefix='FARM'):
         from types import SimpleNamespace
@@ -757,7 +763,7 @@ class CliTests(unittest.TestCase):
                                "--request-id", "greeting-1", "--body-file", str(body), success=False)
         self.assertIn("invalid choice", refused.stderr)
 
-    def test_only_a_question_pause_adds_needs_more_info(self):
+    def test_only_a_question_pause_adds_awaiting_reply(self):
         self.stub_card(delegate_id=STUB_APP)  # a fix pauses only on a card still delegated here (design J1)
         question = self.seeded_item()
         waiting = self.seeded_item(issue_id=OTHER, session="session-2")
@@ -767,9 +773,32 @@ class CliTests(unittest.TestCase):
                                   "--question", "等待确认。")
             self.assertEqual((parked["state"], parked["checkpoint"]["pending_reason"]), ("awaiting_input", reason))
             self.assertEqual(self.run_cli("issue-context", "--item", item)["pending_reason"], reason)
-        self.assertEqual([c["issue_id"] for c in self.calls() if c["method"] == "needs_more_info"], [ISSUE])
+        self.assertEqual([c["issue_id"] for c in self.calls() if c["method"] == "awaiting_reply"], [ISSUE])
         self.assertEqual([c["content"]["type"] for c in self.calls() if c["method"] == "create_activity"],
                          ["elicitation", "elicitation"])
+
+    def test_resolve_question_cli_acknowledges_only_real_reply_to_current_round(self):
+        from agent.ledger import Ledger
+        from test_ledger import OWNER
+        self.stub_card(delegate_id=STUB_APP)
+        item = self.seeded_item()
+        token = self.run_cli("claim", "--item", item, "--worker-id", "first")["token"]
+        self.run_cli("await-input", "--item", item, "--token", token, "--question", "Q1 asset? Q2 layout?")
+        question = self.run_cli("issue-context", "--item", item)["human_question"]
+        ledger = Ledger(self.db)
+        try:
+            ledger.push_inbox(item, "Both decisions confirmed", author=OWNER, resume_waiting=True)
+            mid = ledger.issue_context(item)["session_messages"][-1]["id"]
+        finally:
+            ledger.close()
+        token = self.run_cli("claim", "--item", item, "--worker-id", "resumed")["token"]
+        saved = self.root / "acknowledgment-checkpoint.json"
+        saved.write_text("{}", encoding="utf-8")
+        self.run_cli("checkpoint", "--item", item, "--token", token, "--input", str(saved))
+        self.assertEqual(self.run_cli("issue-context", "--item", item)["human_question"], question)
+        self.run_cli("resolve-question", "--item", item, "--token", token, "--question-id", question["id"],
+                     "--message-id", str(mid))
+        self.assertIsNone(self.run_cli("issue-context", "--item", item)["human_question"])
 
     def test_await_input_refuses_before_posting_while_a_reservation_is_open(self):
         from agent.ledger import Ledger
@@ -801,7 +830,7 @@ class CliTests(unittest.TestCase):
         parked = self.run_cli("await-input", "--item", item, "--token", token, "--question", "需要哪个环境？")
         self.assertEqual(parked["state"], "awaiting_input")
         self.assertEqual(self.calls()[-1]["content"]["type"], "elicitation")
-        self.assertTrue(any(c["method"] == "needs_more_info" and c["issue_id"] == ISSUE for c in self.calls()))
+        self.assertTrue(any(c["method"] == "awaiting_reply" and c["issue_id"] == ISSUE for c in self.calls()))
 
     def test_activity_refuses_an_elicitation(self):
         """Silent-delegation design A8, P9: a question that parks nothing leaves its thread waiting for an answer no
@@ -861,7 +890,7 @@ class CliTests(unittest.TestCase):
                 on_post(body)
             return "comment-1"
         return SimpleNamespace(app_user_id=STUB_APP, create_activity=create_activity, create_comment=create_comment,
-                               needs_more_info=lambda issue_id: None, fetch_issue=read,
+                               awaiting_reply=lambda issue_id: None, fetch_issue=read,
                                issue_status=lambda issue_id: {**read(issue_id), "updated_at": "2026-09-21T00:00:00Z"})
 
     @staticmethod
@@ -900,7 +929,7 @@ class CliTests(unittest.TestCase):
                 with self.assertRaisesRegex(LedgerError, "running claim"):
                     self.in_process(ledger, api, "await-input", "--item", item, "--token", token,
                                     "--question", "哪个服？")
-                self.assertEqual(posted, [(session, {"type": "elicitation", "body": "哪个服？"}),
+                self.assertEqual(posted, [(session, {"type": "elicitation", "body": expected_question("哪个服？")}),
                                           (session, {"type": "response", "body": text})])
                 self.assertEqual(ledger.item(item)["state"], state)
         self.assertEqual(self.closures(ledger), [])
@@ -923,7 +952,7 @@ class CliTests(unittest.TestCase):
         api = self.linear(posted, on_post=taken_over_in_place, delegate_id=STUB_APP)
         with self.assertRaisesRegex(LedgerError, "running claim"):
             self.in_process(ledger, api, "await-input", "--item", item, "--token", token, "--question", "哪个服？")
-        self.assertEqual(posted, [("session-1", {"type": "elicitation", "body": "哪个服？"})])
+        self.assertEqual(posted, [("session-1", {"type": "elicitation", "body": expected_question("哪个服？")})])
         current = ledger.active_item_for_session("session-1")
         self.assertEqual((ledger.item(item)["state"], current["skill"], current["state"], current["session_id"]),
                          ("cancelled", "fix", "queued", "session-1"))
@@ -951,7 +980,7 @@ class CliTests(unittest.TestCase):
         api = self.linear(posted, on_post=handed_over, delegate_id=STUB_APP)
         with self.assertRaisesRegex(LedgerError, "running claim"):
             self.in_process(ledger, api, "await-input", "--item", chat, "--token", token, "--question", "哪个服？")
-        self.assertEqual(posted, [("mention", {"type": "elicitation", "body": "哪个服？"}),
+        self.assertEqual(posted, [("mention", {"type": "elicitation", "body": expected_question("哪个服？")}),
                                   ("mention", {"type": "response", "body": QUESTION_WITHDRAWN_CHAT})])
         current = ledger.active_item_for_session("mention")
         self.assertEqual((ledger.item(chat)["state"], current["skill"], current["session_id"]),
@@ -1006,7 +1035,7 @@ class CliTests(unittest.TestCase):
                 with self.assertRaisesRegex(LedgerError, refusal):
                     self.in_process(ledger, api, "await-input", "--item", item, "--token", token,
                                     "--question", "哪个服？")
-                self.assertEqual(posted, [(session, {"type": "elicitation", "body": "哪个服？"})])
+                self.assertEqual(posted, [(session, {"type": "elicitation", "body": expected_question("哪个服？")})])
                 self.assertEqual(ledger.item(item)["state"], state)
         self.assertEqual(self.closures(ledger), [])
 
@@ -1280,7 +1309,7 @@ class CliTests(unittest.TestCase):
         mention_token = self.run_cli("claim", "--item", mention, "--worker-id", "w2")["token"]
         parked = self.run_cli("await-input", "--item", mention, "--token", mention_token, "--question", "哪个服？")
         self.assertEqual((parked["state"], parked["authority"]), ("awaiting_input", "mention"))
-        self.assertEqual([c["issue_id"] for c in self.calls() if c["method"] == "needs_more_info"], [OTHER])
+        self.assertEqual([c["issue_id"] for c in self.calls() if c["method"] == "awaiting_reply"], [OTHER])
 
     def withdrawal_fixture(self):
         """A claimed fix whose worker saved a checkpoint, and the path of its token file."""

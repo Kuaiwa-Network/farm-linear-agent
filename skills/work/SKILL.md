@@ -81,6 +81,15 @@ fabricate an attributed answer, interpret silence as approval, or make people
 repeat saved answers. Comments remain evidence; a session reply or bot mention
 supplies the continuation. Consolidate related questions into readable rounds.
 
+Read `human_question` as well as `pending_question`. A reply, checkpoint or task
+wake does not clear that round. Once every question in your own round is resolved
+by actual attributed inbox replies, use `resolve-question` with the current
+question ID and those message IDs; tasks acknowledge their own rounds. Partial
+answers retain the round or ask only what remains. The controller manages the
+issue's `待回复` label across all jobs/tasks; never remove it yourself. Question
+notices lead with the issue key and `待回复` and explain the session/mention reply
+routes. See `references/worker-cli.md` for the command and upgrade behavior.
+
 Missing artwork/assets are a normal question: name exactly what is missing,
 where it is used, required dimensions/format when known, and ask for the files or
 their location. Re-download and verify current uploads on resume. Never invent

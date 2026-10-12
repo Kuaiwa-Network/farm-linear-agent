@@ -108,7 +108,7 @@ If intended behaviour is unclear, the issue lacks necessary detail, or you canno
 contract or implementation is wrong, or where a requested change belongs, checkpoint the exact clause,
 evidence and pending question, then confirm the checkpoint succeeded before running
 `await-input --question TEXT` and exiting.
-This command adds `needs-more-info` and posts the question in the Linear session; write the question
+This command adds `待回复` and posts the question in the Linear session; write the question
 so that it mentions the people it asks (see "Deciders and mentions"). Do not separately post an
 elicitation first, and do not finish blocked merely
 because a human answer is needed. A reply in the session or a mention of `bot_name` resumes this item;
@@ -129,7 +129,7 @@ was posted.
 Use `await-input --reason waiting --question TEXT` only when you need no answer but must wait for a
 named human step elsewhere that you cannot perform, such as a merge, a designer or Jenkins publish, or
 an export: say what you wait for and who should reply when it is done. It posts the same session
-elicitation without adding `needs-more-info`. Missing information or a decision is always a question.
+elicitation without adding `待回复`. Missing information or a decision is always a question.
 Release any Unity reservation (`release-resource --outcome quiescent`) before either kind of pause.
 
 An explicit human decision can resolve a contract conflict: record it in the checkpoint and the
@@ -240,7 +240,7 @@ Run each check in the repository's own stage. Cheapest sufficient check first, a
    Leave the Editor in Edit Mode with nothing compiling, then
    `release-resource --outcome quiescent`; if you cannot, `--outcome unclean`, which quarantines the slot,
    revokes your claim and resource token, and queues automatic controller recovery. **Exit immediately
-   after an unclean release. Do not call `await-input`, add `needs-more-info`, or ask anyone to operate
+   after an unclean release. Do not call `await-input`, add `待回复`, or ask anyone to operate
    the Unity host.** The controller proves worker teardown, preserves diagnostics, retries the exact
    reservation commit on a healthy slot, and repairs the affected bot-owned editor independently.
    On resume inspect `resource_recovery` in `issue-context`; interrupted tests are verification gaps,
@@ -337,7 +337,7 @@ means the host has preserved and delayed the job and retired this claim: stop an
 do not publish, call `await-input`, or keep using the old token. `status: retry_exhausted` likewise
 requires exit; the host records an infrastructure failure after three delayed job retries.
 For non-transient verification failures (such as a wrong destination or denied access), preserve local
-work and explain the specific gap through `await-input` (which adds `needs-more-info`);
+work and explain the specific gap through `await-input` (which adds `待回复`);
 revoked delegation is never a question; follow the withdrawal rule above. If automatic approval
 rejects the action, keep the rejection in the report; gather the missing evidence or request concrete
 approval. Never switch execution paths to bypass it.

@@ -78,7 +78,7 @@ The fix manifest includes a readable Farm-Contract worktree. Switch with `handof
 to start a fresh worker rooted there before editing or invoking its OpenSpec process; cwd matters.
 Contract-root workers must follow Contract's restrictions on Superpowers and consumer code.
 For the delegated bug or change, resolve
-uncertain behaviour by asking in Linear with `await-input` (which adds `needs-more-info`).
+uncertain behaviour by asking in Linear with `await-input` (which adds `待回复`).
 Once the human decision is clear, update the relevant contract first, then the affected client,
 server and configuration sources. Link draft PRs and record dependencies and the decision's
 source. Do not invent `DECIDED` attribution, merge, deploy, or open another task just to edit
