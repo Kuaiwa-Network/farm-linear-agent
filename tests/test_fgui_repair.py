@@ -153,7 +153,9 @@ class RepairTests(unittest.TestCase):
 class DescriptorIdentityTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
-        self.client = Path(self.temp.name)
+        # macOS temp roots may use the /var alias for /private/var. Give the
+        # fixture a canonical root before exercising the strict no-link reader.
+        self.client = Path(self.temp.name).resolve()
         self.path = self.client / "Assets/GameRes/FairyRes/Extra/Extra_fui.bytes"
         self.path.parent.mkdir(parents=True)
         self.data = package_bytes("Extra", "extra001", dependencies=(("Common", "cmcommon"),))
