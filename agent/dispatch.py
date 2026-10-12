@@ -106,6 +106,10 @@ QUESTION_AUTHORITY = (
     "in-progress and next-step items. Never say no action is needed while requesting a merge, asset or host "
     "operation. Do not invent or re-ask resolved questions to fill this format, or treat a formatting "
     "instruction, recommendation or reply example as approval. "
+    "For Farm-Contract questions, preserve the existing recipient grouping and confidence sections, "
+    "low-confidence first. Keep each confidence assessment, recommendation and brief reasoning beside "
+    "its question; add only a compact action summary and reply example to that established format. "
+    "Do not flatten Contract questions into bare choices or hide their confidence under technical evidence. "
 )
 
 # kw_ops use, bounded to the issue's reproduction and verification; the manifest's `mcp` grants the tools.

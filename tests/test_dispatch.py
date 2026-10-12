@@ -369,7 +369,10 @@ class SkillAuthorityTests(unittest.TestCase):
                                "which independent work can continue", "approval scope", "补充依据",
                                "需要你操作", "name who must do exactly what", "当前无需你回复",
                                "Never say no action is needed", "actual attributed session_messages",
-                               "Do not invent or re-ask resolved questions", "reply example as approval"):
+                               "Do not invent or re-ask resolved questions", "reply example as approval",
+                               "preserve the existing recipient grouping and confidence sections",
+                               "low-confidence first", "brief reasoning beside",
+                               "Do not flatten Contract questions into bare choices"):
                     self.assertIn(phrase, text)
 
     def message(self, item):

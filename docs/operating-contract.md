@@ -568,6 +568,10 @@ completed work, current work and the next step. Formatting does not re-ask resol
 or turn examples, recommendations or format instructions into approval. These are shared
 worker instructions; the controller preserves the worker's question text rather than
 rewriting its meaning or treating the template as proof of model compliance.
+Farm-Contract questions retain the existing recipient grouping and confidence sections,
+low-confidence first, with each confidence assessment, recommendation and brief reasoning
+beside its question. The clearer format adds only a compact action summary and reply example
+to those questions; it does not flatten them into bare choices or bury confidence in evidence.
 
 The controller reconciles the `待回复` label from all active parent and task questions
 on each successful status pass (normally within `reconcile_seconds`). A reply, wake or checkpoint

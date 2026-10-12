@@ -219,6 +219,10 @@ Put the human request before technical progress and evidence. In the human's lan
 
 Formatting creates no new questions or authority. Do not re-ask answered questions,
 renumber unresolved questions, or treat recommendations/examples as approval.
+Farm-Contract questions retain their established grouping by recipient and confidence
+(low-confidence first). Keep confidence assessments, recommendations and brief reasoning
+beside each question. Add only the compact action summary and reply example; do not replace
+the existing format with bare choices or bury confidence in technical evidence.
 
 There is no schema migration. Existing pending question checkpoints are recognized
 and carried into the protected `human_question` checkpoint field. Older code does
