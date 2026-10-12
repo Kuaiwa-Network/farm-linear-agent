@@ -529,6 +529,19 @@ consume the execution budget. Exhaustion reports its phase and latest cause. Rep
 attempts back off 60 then 180 seconds. An interrupted repair lease expires after 15 minutes.
 Repeated stalls or exhaustion of every configured slot produce an explicit infrastructure
 failure with saved work and diagnostics. Genuine questions remain `awaiting_input`.
+Exhausted quarantined Editors also produce an explicit failure when their retained
+memory reservation prevents any alternative slot from starting. Budgets are never
+weakened or released without process/resource evidence. A parked general job keeps
+reporting its active presentation tasks, including Unity recovery, every ten minutes;
+its actual human questions remain intact. Child failures report in the shared session
+without closing the parent conversation.
+
+Before starting a closed slot Editor, the controller detects relocated Bee state
+from its location marker or an old absolute `Library/Bee` path in the startup log.
+It archives only that generated build cache within the slot Library and retains a
+receipt; source, `.meta`, other Library state and approvals are preserved. The
+configured Editor must be proven stopped before the archive. Startup, compilation,
+identity and exact-commit verification remain required after regeneration.
 Workers must checkpoint before `release-resource --outcome unclean`, then exit; no host
 operation or “continue verification” reply is required. Diagnostics live under
 `.local/agent/resource-recovery/` and in `issue-context.resource_recovery`.

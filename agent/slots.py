@@ -705,6 +705,8 @@ class SlotPool:
         slot's startup deadline bounds the wait; the returned instance id is what the worker
         pins its own MCP session with."""
         try:
+            from .unity_cache import archive_relocated_bee
+            archive_relocated_bee(slot["folder"], editor_open=lambda: self.editor_is_open(slot))
             return self.mcp.start(slot, entry)
         except Exception as exc:
             raise self._collaborator_error(slot["slot_id"], exc, stage="editor",

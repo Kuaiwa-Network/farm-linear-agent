@@ -106,6 +106,7 @@ def build(config, runtime_override=None):
     recovery_ledger = Ledger(paths.ledger, check_same_thread=False)
     recovery_pool = SlotPool(recovery_ledger, worktrees, entries, host=config.host, editors_root=paths.editors,
                             state_dir=launcher.state_dir,
+                            admission=admission,
                             mcp=UnityIdentity(ROOT / 'agent' / 'probes' / 'editor-readiness.cs.txt',
                                               token_env=token_env, secret_env=config.lark_cli.get("secret_env")),
                             editor_pid=lambda folder: editor_holds_project(folder, strict=True))

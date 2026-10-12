@@ -321,6 +321,35 @@ class RecoveryTests(LedgerBase):
         self.assertEqual(store.pending('test'), [])
         self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'held')
 
+    def test_exhausted_held_budget_reports_failure_even_with_idle_alternative(self):
+        from agent.resource_admission import ResourceAdmission
+        item, _, r = self.running_with_slot()
+        self.ledger.hold(r['reservation_id'], 'Editor did not connect', recovery_kind='setup')
+        store = self.store(); recovery = store.pending('test')[0]
+        record = store.begin(recovery['id']); store.detach(record['id'], record['attempts'])
+        self.ledger.connection.execute("UPDATE resource_recoveries SET state='exhausted',lease_until=0 WHERE id=?", (record['id'],))
+        self.ledger.ensure_slot('unity_slot:2', kind='unity_slot', host='test', folder=str(self.path.parent / 'slot2'))
+        admission = ResourceAdmission({'unity_mib': 8192, 'max_reserved_mib': 13824})
+        store.fail_unserviceable('test', admission=admission)
+        self.assertEqual(self.ledger.item(item)['stage'], 'verification-infrastructure-failed')
+        self.assertIn('reservation budget', self.ledger.item(item)['evidence']['summary'])
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'held')
+
+    def test_pending_repair_and_sufficient_alternative_budget_do_not_fail_job(self):
+        from agent.resource_admission import ResourceAdmission
+        item, _, r = self.running_with_slot()
+        self.ledger.hold(r['reservation_id'], 'Editor did not connect', recovery_kind='setup')
+        store = self.store(); record = store.begin(store.pending('test')[0]['id'])
+        store.detach(record['id'], record['attempts'])
+        self.ledger.ensure_slot('unity_slot:2', kind='unity_slot', host='test', folder=str(self.path.parent / 'slot2'))
+        admission = ResourceAdmission({'unity_mib': 8192, 'max_reserved_mib': 13824})
+        store.fail_unserviceable('test', admission=admission)
+        self.assertEqual(self.ledger.item(item)['state'], 'awaiting_resource')
+        self.ledger.connection.execute("UPDATE resource_recoveries SET state='exhausted',lease_until=0 WHERE id=?", (record['id'],))
+        admission.settings['max_reserved_mib'] = 16384
+        store.fail_unserviceable('test', admission=admission)
+        self.assertEqual(self.ledger.item(item)['state'], 'awaiting_resource')
+
     def test_two_recovery_consumers_cannot_lease_the_same_repair(self):
         _, _, r = self.running_with_slot()
         self.ledger.hold(r['reservation_id'], 'stalled')

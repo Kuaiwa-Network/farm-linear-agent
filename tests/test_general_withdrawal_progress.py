@@ -21,6 +21,7 @@ class GeneralWithdrawalProgressTests(unittest.TestCase):
         self.ledger.set_worker(self.parent, 501, "h", lease_seconds=2700)
         self.token = self.ledger.claim(self.parent, worker_id="coordinator")["token"]
         self.ledger.checkpoint(self.parent, self.token, {"plan": {"stages": {"A": "done"}}, "handoff": HANDOFF})
+        self.child_tokens = {}
         self.child = self.task("scene")
         self.sent = []
         self.api = SimpleNamespace(create_activity=self.send)
@@ -31,6 +32,7 @@ class GeneralWithdrawalProgressTests(unittest.TestCase):
                              {"key": key, "capability": "scene", "instructions": "Follow the shared spec."})
         self.ledger.set_worker(task["id"], 502, "h", lease_seconds=2700)
         token = self.ledger.claim(task["id"], worker_id=key)["token"]
+        self.child_tokens[task['id']] = token
         if waiting:
             self.ledger.await_input(task["id"], token, "Where is the missing asset?")
         return task["id"]
@@ -47,6 +49,43 @@ class GeneralWithdrawalProgressTests(unittest.TestCase):
         self.withdraw()
         self.assertTrue(self.progress.tick())
         self.assertEqual([entry[1] for entry in self.sent], [{"type": "thought", "body": HEARTBEAT_WITHDRAWING}])
+        self.assertFalse(self.progress.tick())
+
+    def test_parked_parent_reports_live_child_without_renewing_either_claim(self):
+        child_lease = self.ledger.item(self.child)['lease_expires_at']
+        await_tasks(self.ledger, self.parent, self.token)
+        self.fixture.now += 20
+        self.assertTrue(self.progress.tick())
+        self.assertEqual(self.sent[-1][1]['type'], 'thought')
+        self.assertIn('scene', self.sent[-1][1]['body'])
+        self.assertIn('正在执行', self.sent[-1][1]['body'])
+        self.assertEqual(self.ledger.item(self.child)['lease_expires_at'], child_lease)
+        self.assertEqual(self.ledger.item(self.parent)['state'], 'awaiting_input')
+
+    def test_child_infrastructure_failure_is_reported_without_closing_parent(self):
+        from agent.resource_recovery import RecoveryController, RecoveryStore
+        await_tasks(self.ledger, self.parent, self.token)
+        self.ledger._set_state(self.child, 'awaiting_resource', 'fixture', token=None,
+                               lease_expires_at=None, worker_pid=None)
+        RecoveryStore(self.ledger)._fail_job(self.child, 'Unity recovery exhausted')
+        controller = RecoveryController(self.ledger, None, host='h', evidence_root=self.fixture.path.parent,
+                                        inspect=lambda slot: {}, repair=lambda r: None,
+                                        fence=lambda r: None, api=self.api)
+        controller.report()
+        self.assertEqual(self.sent[-1][1]['type'], 'thought')
+        self.assertIn('scene', self.sent[-1][1]['body'])
+        self.assertIn('Unity recovery exhausted', self.sent[-1][1]['body'])
+        self.assertEqual(self.ledger.item(self.parent)['state'], 'awaiting_input')
+
+    def test_child_progress_preserves_parent_question_and_stops_after_child_waits(self):
+        self.ledger.await_input(self.parent, self.token, 'Which environment?')
+        self.fixture.now += 20
+        self.assertTrue(self.progress.tick())
+        self.assertEqual(self.sent[-1][1]['type'], 'elicitation')
+        self.assertIn('Which environment?', self.sent[-1][1]['body'])
+        child_token = self.child_tokens[self.child]
+        self.ledger.await_input(self.child, child_token, 'Missing asset?')
+        self.fixture.now += 20
         self.assertFalse(self.progress.tick())
 
     def test_inflight_heartbeat_is_corrected_with_a_thought_after_withdrawal_park(self):
