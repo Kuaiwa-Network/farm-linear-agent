@@ -72,7 +72,7 @@ def verify_no_change(ledger, item_id, token, config, api_factory, reason):
     from .config import Paths
     from .ledger import TERMINAL_STATUS_TYPES
     from .publication import is_issue_branch
-    from .workflow import JobWorktrees, repository_path
+    from .workflow import JobWorktrees, repository_path, source_entry
     from .worktrees import Worktrees
     paths = Paths(config)
     trees = JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger)
@@ -94,16 +94,25 @@ def verify_no_change(ledger, item_id, token, config, api_factory, reason):
         return row, issue
 
     row, issue = fence()
+    entry = source_entry(ledger, item_id)
+    if entry is None:
+        raise LedgerError("UI no-change delivery requires its controller-recorded source entry")
+    recorded = ledger.recorded_branches(item_id, issue_prefix=config.issue_prefix)
+    if recorded.get("farmgui", entry["branch"]) != entry["branch"]:
+        raise LedgerError("UI no-change delivery must retain its recorded source branch")
     heads, branches = {}, {}
     repositories = ["farmgui", *(["Farm-Client"] if row["task_client_base"] else [])]
     for repo in repositories:
         path = repository_path(trees, repo, item_id)
         head = trees.head(path)
         branch = (ledger.staged_client_branch(item_id, issue_prefix=config.issue_prefix) if repo == "Farm-Client"
-                  else trees.git_in(path, "branch", "--show-current"))
+                  else entry["branch"])
         if not is_issue_branch(branch, issue["identifier"], config.issue_prefix):
             raise LedgerError("UI no-change delivery requires its owned issue branch")
         trees.verification_commit(repo, item_id, head, expected_branch=branch)
+        if repo == "farmgui" and trees.git_in(path, "diff", "--name-only", "--no-renames", "--no-ext-diff",
+                                              "--no-textconv", entry["commit"], head):
+            raise LedgerError("UI no-change delivery must retain zero source diff from its original task entry")
         if repo == "Farm-Client" and trees.git_in(path, "diff", "--name-only", "--no-renames", "--no-ext-diff",
                 "--no-textconv", row["task_client_base"], head):
             raise LedgerError("UI no-change delivery must retain zero Client diff from its original task baseline")
@@ -113,7 +122,7 @@ def verify_no_change(ledger, item_id, token, config, api_factory, reason):
         trees.verification_commit(repo, item_id, head, expected_branch=branches[repo])
     proof = {"delivery_id": uuid4().hex, "generation": row["generation"],
              "fingerprint": row["claimed_fingerprint"], "heads": heads, "branches": branches,
-             "baseline": row["task_client_base"], "no_change": reason}
+             "baseline": row["task_client_base"], "source_entry": entry, "no_change": reason}
     with ledger._transaction():
         ledger._owned(item_id, token)
         ledger._audit(item_id, "fgui_no_change_verified", details=proof)

@@ -32,14 +32,18 @@ the issue outcome, including every task's PRs. Stop/failure cancels the whole jo
 withdrawal preserves the shared claimed-worker grace, including parked
 coordinators and queued/parked children through quick re-delegation. Shared source
 is cleaned only after certified child teardown. Successor UI recovery retains the
-original baseline, accepts only matching certified installation history, and
+original source entry branch/commit and Client entry baseline, accepts only
+matching certified installation history, and
 requires fresh approval/export/guards/Unity proofs. Scene delivery binds a clean
 owned Client HEAD to the actual open draft; no-change delivery proves zero task
 diff. Delivered tasks are rechecked at their exact clean source/Client HEADs after
-process quiescence. Late writes invalidate that task's delivery while preserving
-the candidate and certified teardown for attributed human retry. Internal UI
-no-change delivery requires clean owned source and zero original-baseline Client
-diff when it entered Client. Optional progress posts cannot fail an already durable transition.
+process quiescence. Proven late writes invalidate that task's delivery while
+preserving the candidate and certified teardown for attributed human retry. Internal UI
+no-change delivery requires clean owned source on its controller-recorded entry
+branch, zero tree diff from the immutable source entry commit, and zero
+original-baseline Client diff when it entered Client. Unknown verification errors
+retain delivery and pending cleanup for a later check, holding subsequent writers.
+Optional progress posts cannot fail an already durable transition.
 Native FGUI export remains serialized by the host mutex with fenced bounded waits;
 UI authoring and server work still run concurrently.
 
@@ -1551,7 +1555,11 @@ work. It reports the recorded state and checkpoint age without extending the wor
 or claiming new results. A queued job's heartbeat names what holds it back, the first of a retry
 delay, its predecessor's cleanup, a failing status read and, for work the delegation authorised, a
 card no longer delegated here; a worker told to withdraw reports that it is saving its progress and
-stopping. Awaiting-input, terminal and synthetic local sessions receive no
+stopping. Withdrawal flags take priority over ordinary active-state content,
+including a coordinator parked while children save and stop. Pending content is
+rechecked when that flag changes; a saved stale question is replaced by a thought,
+and a question already in flight receives a correcting thought. Awaiting-input,
+terminal and synthetic local sessions receive no
 regular heartbeat. Timing and pending activity IDs survive restarts; a failed send retries
 after sixty seconds, and each further failure in a row doubles the wait, up to the ten-minute
 interval, until a send succeeds. A state change while an activity is in flight is followed by a durable
@@ -1599,6 +1607,17 @@ an unreachable issue withdraws a mention's or the operator's conversation.
 | queued (launched or not, delayed, or with a repository handoff pending), awaiting_input, awaiting_resource | cancelled at once through the scheduler's stop, which kills a spawned or retiring worker and cancels or settles the job's reservation; one response in its session (none when the issue is unreachable) |
 | running | flagged with a deadline of twice the skill's `renew_minutes` (20 minutes for `fix`, 10 for `chat`). `fetch-issue` prints `withdrawn: true`; `verify-publication`, `handoff-repository`, `await-input` and `await-resource` refuse with `delegation withdrawn`. The worker saves a checkpoint and runs `withdraw`, which ends its claim as cancelled and posts the response; at the deadline the controller cancels and kills it as Stop does. A flagged worker that finishes blocked is recorded cancelled, so a later delegation continues its plan. Flagged work that goes back to the queue never launches |
 | blocked | unchanged; closure, or an unreachable issue, cancels it silently |
+
+A general job is reconciled as one group: a parked coordinator and its queued or
+waiting tasks share claimed workers' grace. A coordinator's voluntary `withdraw`
+retires its claim while running children save progress, without a closing response
+or human elicitation. It clears obsolete pending-question and task-join fields;
+task join logic does not relaunch it during withdrawal. The group ends
+when claimed children stop or the deadline expires. Quick re-delegation clears the
+flags and resumes a coordinator parked by `withdraw`; a later genuine human wait
+keeps waiting. Read authority/time guards cover every unfinished child, and work
+outside those guards defers the group to the next deciding read. Explicit Stop
+still cancels the entire owned job immediately.
 
 **Confirmation.** The first status read that finds the card not delegated to this app records
 `issue_checks.undelegated_since`. A later read, started at least `reconcile_seconds` after that,

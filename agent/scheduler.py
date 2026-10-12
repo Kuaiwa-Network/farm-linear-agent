@@ -17,12 +17,18 @@ from .memory import publish_snapshot
 from .publication import SUFFIXES, issue_branch, suffix_of
 from .stages import current_root, runtime_can_launch, write_repositories
 from .withdrawal import NOTICE_REASONS, notice as withdrawal_notice
-from .workflow import JobWorktrees, client_ready, repository_busy, repository_owner, task_views, wake_parent
+from .worktrees import VerificationMismatch
+from .workflow import (JobWorktrees, client_ready, pin_source_entry, repository_busy, repository_owner,
+                       source_recovery, task_views, wake_parent)
 
 TERMINAL = ("delivered", "blocked", "cancelled", "failed")
 WAITING = ("awaiting_input", "awaiting_resource")
 READ_REPO = "Farm-Client"
 DEFAULT_CODEX_MODEL_SETTINGS = {"model": "latest-sol", "reasoning_effort": "xhigh"}
+
+
+class TaskDeliveryMismatch(LedgerError):
+    """Trusted delivery evidence no longer binds the retired task's candidate."""
 
 
 class Scheduler:
@@ -125,10 +131,19 @@ class Scheduler:
                         self.worktrees.verification_commit(repo, item["id"], head, expected_branch=saved_branch)
                         item = self.ledger.pin_task_client_base(item["id"], item["generation"], head)
                     continue
-                if repo in recorded:
+                retained_source = (source_recovery(self.ledger, item["id"], issue_prefix=self.issue_prefix)
+                                   if repo == "farmgui" and skill.name == "fgui" and item.get("parent_id") else None)
+                if retained_source and retained_source["branch"]:
+                    paths[repo] = self.worktrees.add(repo, item["id"], retained_source["branch"], attach=True, **options)
+                elif repo in recorded:
                     paths[repo] = self.worktrees.add(repo, item["id"], recorded[repo], attach=True, **options)
                 else:
                     paths[repo] = self.worktrees.add(repo, item["id"], branch, **options)
+                if repo == "farmgui" and skill.name == "fgui" and item.get("parent_id"):
+                    pin_source_entry(self.ledger, item["id"], item["generation"], self.worktrees.head(paths[repo]),
+                                     self.worktrees.git_in(paths[repo], "branch", "--show-current"),
+                                     issue_prefix=self.issue_prefix,
+                                     legacy_base=lambda: self.worktrees.resolve_commit("farmgui"))
         else:
             paths[READ_REPO] = self.worktrees.add_detached(READ_REPO, item["id"])
         return paths
@@ -649,7 +664,7 @@ class Scheduler:
                 if item["state"] == "delivered":
                     try:
                         self._verify_retired_task_delivery(item)
-                    except Exception as exc:
+                    except (VerificationMismatch, TaskDeliveryMismatch) as exc:
                         delivery_error = str(exc)[:500]
                         with self.ledger._transaction():
                             current = self.ledger._row(item_id)
@@ -701,38 +716,38 @@ class Scheduler:
             kind, evidence_key = (("fgui_no_change_verified", "ui_no_change_id") if evidence.get("no_change") else
                                   ("fgui_delivery_verified", "ui_delivery_id"))
         else:
-            raise LedgerError("presentation delivery has no supported controller proof")
+            raise TaskDeliveryMismatch("presentation delivery has no supported controller proof")
         proofs = [json.loads(record["details"]) for record in self.ledger.connection.execute(
             "SELECT details FROM audit WHERE item_id=? AND kind=? ORDER BY id DESC", (item["id"], kind))]
         proof = next((value for value in proofs if value.get("delivery_id") == evidence.get(evidence_key)
                       and value.get("generation") == row["generation"]
                       and value.get("fingerprint") == row["claimed_fingerprint"]), None)
         if proof is None:
-            raise LedgerError("presentation teardown requires its current controller delivery proof")
+            raise TaskDeliveryMismatch("presentation teardown requires its current controller delivery proof")
         if kind == "fgui_no_change_verified":
             heads, branches = proof.get("heads"), proof.get("branches")
             if proof.get("baseline") != item.get("task_client_base"):
-                raise LedgerError("unchanged UI teardown must retain its original Client entry baseline")
+                raise TaskDeliveryMismatch("unchanged UI teardown must retain its original Client entry baseline")
             required = {"farmgui"}
             if item.get("task_client_base"):
                 required.add("Farm-Client")
             if (not isinstance(heads, dict) or set(heads) != required
                     or not isinstance(branches, dict) or set(branches) != required):
-                raise LedgerError("unchanged UI teardown requires its exact certified checkout heads and branches")
+                raise TaskDeliveryMismatch("unchanged UI teardown requires its exact certified checkout heads and branches")
         elif kind == "fgui_delivery_verified":
             recorded = self.ledger.recorded_branches(item["id"], issue_prefix=self.issue_prefix)
             source_branch = recorded.get("farmgui")
             if not source_branch:
-                raise LedgerError("UI teardown requires its controller-recorded source branch")
+                raise TaskDeliveryMismatch("UI teardown requires its controller-recorded source branch")
             heads = {"farmgui": proof.get("source_head"), "Farm-Client": proof.get("commit")}
             branches = {"farmgui": source_branch,
                         "Farm-Client": self.ledger.staged_client_branch(item["id"], issue_prefix=self.issue_prefix)}
         else:
             if proof.get("baseline") != item.get("task_client_base"):
-                raise LedgerError("scene teardown must retain its original entry baseline")
+                raise TaskDeliveryMismatch("scene teardown must retain its original entry baseline")
             branch = self.ledger.staged_client_branch(item["id"], issue_prefix=self.issue_prefix)
             if proof.get("branch") != branch:
-                raise LedgerError("scene teardown must retain its certified Client branch")
+                raise TaskDeliveryMismatch("scene teardown must retain its certified Client branch")
             heads, branches = {"Farm-Client": proof.get("commit")}, {"Farm-Client": branch}
         for repo, head in heads.items():
             self.worktrees.verification_commit(repo, item["id"], head, expected_branch=branches[repo])

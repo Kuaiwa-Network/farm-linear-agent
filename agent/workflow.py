@@ -54,6 +54,128 @@ def task_views(ledger, item_id):
         "SELECT * FROM work_items WHERE parent_id=? ORDER BY created_at,rowid", (parent,))]
 
 
+def source_entry(ledger, item_id):
+    """The controller's immutable source scope, not a worker checkpoint."""
+    from .ledger import COMMIT_SHA, LedgerError
+    records = [json.loads(row["details"]) for row in ledger.connection.execute(
+        "SELECT details FROM audit WHERE item_id=? AND kind='task_source_entry' ORDER BY id", (item_id,))]
+    if not records:
+        return None
+    if (len(records) != 1 or not isinstance(records[0], dict)
+            or not isinstance(records[0].get("commit"), str) or not COMMIT_SHA.fullmatch(records[0]["commit"])
+            or not isinstance(records[0].get("branch"), str) or not records[0]["branch"]):
+        raise LedgerError("presentation source entry evidence is damaged; preserve recovery records")
+    return records[0]
+
+
+def source_recovery(ledger, item_id, *, issue_prefix="FARM"):
+    """Select retained source identity before the controller chooses a checkout."""
+    from .ledger import LedgerError, plan_issue_branches
+    row = ledger._row(item_id)
+    if row["skill"] != "fgui" or not row["parent_id"]:
+        raise LedgerError("source recovery requires an internal UI task")
+    identifier = ledger.issue(row["issue_id"])["identifier"]
+
+    def branch_for(task, entry):
+        recorded = ledger.recorded_branches(task["id"], issue_prefix=issue_prefix).get("farmgui")
+        branch = entry["branch"] if entry else recorded
+        if branch:
+            plan_issue_branches({"prs": {"farmgui": [{"role": "issue", "branch": branch}]}},
+                                identifier, issue_prefix, reserved=True)
+        if entry and recorded and recorded != branch:
+            raise LedgerError("source entry disagrees with its recorded branch; preserve recovery evidence")
+        return branch
+
+    def attempted(task, entry):
+        return bool(entry or ledger.last_worker_pid(task["id"]) is not None
+                    or json.loads(task["checkpoint"]).get("worker_id"))
+
+    prior = source_entry(ledger, item_id)
+    if prior:
+        return {"branch": branch_for(row, prior), "commit": prior["commit"], "legacy": False,
+                "predecessor_tasks": prior.get("predecessor_tasks", []), "entry": prior}
+    if attempted(row, None):
+        return {"branch": branch_for(row, None), "commit": None, "legacy": True,
+                "predecessor_tasks": [item_id], "entry": None}
+    parent = ledger._row(row["parent_id"])
+    siblings = ledger.connection.execute("SELECT * FROM work_items WHERE parent_id=? AND skill='fgui' AND id<>?",
+                                         (parent["id"], item_id)).fetchall()
+    if any(task["state"] == "delivered" and (ledger.cleanup_record(task["id"]) or {}).get("done") for task in siblings):
+        return {"branch": None, "commit": None, "legacy": False, "predecessor_tasks": [], "entry": None}
+    previous, seen = parent["predecessor_id"], set()
+    while previous and previous not in seen:
+        seen.add(previous)
+        predecessor = ledger._row(previous)
+        tasks = ledger.connection.execute("SELECT * FROM work_items WHERE parent_id=? AND skill='fgui' "
+                                          "ORDER BY created_at,rowid", (previous,)).fetchall()
+        if predecessor["skill"] == "fgui":
+            tasks = [predecessor, *tasks]
+        unfinished = []
+        for task in tasks:
+            entry = source_entry(ledger, task["id"])
+            if task["state"] != "delivered" and attempted(task, entry):
+                unfinished.append((task, entry))
+        if unfinished:
+            if any(not (ledger.cleanup_record(task["id"]) or {}).get("done") for task, _ in unfinished):
+                raise LedgerError("source baseline recovery waits for certified predecessor teardown")
+            branches = {branch_for(task, entry) for task, entry in unfinished}
+            if None in branches or len(branches) != 1:
+                raise LedgerError("interrupted source branches are unknown or ambiguous; preserve recovery evidence")
+            entries = [entry for _, entry in unfinished]
+            legacy = any(entry is None for entry in entries)
+            commits = {entry["commit"] for entry in entries if entry}
+            if not legacy and len(commits) != 1:
+                raise LedgerError("interrupted source baselines are ambiguous; preserve recovery evidence")
+            return {"branch": branches.pop(), "commit": None if legacy else commits.pop(), "legacy": legacy,
+                    "predecessor_tasks": [task["id"] for task, _ in unfinished], "entry": None}
+        if any(task["state"] == "delivered" for task in tasks):
+            break
+        previous = predecessor["predecessor_id"]
+    return {"branch": None, "commit": None, "legacy": False, "predecessor_tasks": [], "entry": None}
+
+
+def pin_source_entry(ledger, item_id, generation, commit, branch, *, issue_prefix="FARM", legacy_base=None):
+    """Capture scope before a source worker can write, retaining interrupted work."""
+    from .ledger import ACTIVE_STATES, COMMIT_SHA, LedgerError, plan_issue_branches
+    if not isinstance(commit, str) or not COMMIT_SHA.fullmatch(commit):
+        raise LedgerError("presentation source entry requires a full commit")
+    recovery = source_recovery(ledger, item_id, issue_prefix=issue_prefix)
+    baseline = recovery["commit"] or commit
+    if recovery["legacy"]:
+        # Resolve/fetch before the SQLite write transaction. The recovery
+        # metadata is rechecked atomically before the controller records it.
+        baseline = legacy_base() if legacy_base is not None else None
+        if not isinstance(baseline, str) or not COMMIT_SHA.fullmatch(baseline):
+            raise LedgerError("legacy interrupted source requires a freshly verified default baseline")
+    with ledger._transaction():
+        row = ledger._row(item_id)
+        if (row["skill"] != "fgui" or not row["parent_id"] or row["state"] != "queued"
+                or row["generation"] != generation or row["token"] is not None or row["worker_pid"] is not None
+                or row["next_root_repo"] is not None):
+            raise LedgerError("presentation source entry requires its queued source generation")
+        parent = ledger._row(row["parent_id"])
+        if parent["state"] not in ACTIVE_STATES or parent["skill"] != "work":
+            raise LedgerError("presentation source entry requires its active general job")
+        ledger._refuse_withdrawn(row)
+        ledger._refuse_withdrawn(parent)
+        identifier = ledger.issue(row["issue_id"])["identifier"]
+        plan_issue_branches({"prs": {"farmgui": [{"role": "issue", "branch": branch}]}},
+                            identifier, issue_prefix, reserved=True)
+        prior = source_entry(ledger, item_id)
+        if prior:
+            if prior["branch"] != branch:
+                raise LedgerError("presentation source entry branch is immutable")
+            return prior
+        if source_recovery(ledger, item_id, issue_prefix=issue_prefix) != recovery:
+            raise LedgerError("source recovery changed during baseline selection; retry without discarding evidence")
+        if recovery["branch"] and recovery["branch"] != branch:
+            raise LedgerError("presentation must reattach its retained source branch")
+        proof = {"commit": baseline, "branch": branch, "entry_head": commit,
+                 "predecessor_tasks": recovery["predecessor_tasks"]}
+        ledger._audit(item_id, "task_source_entry", details=proof)
+        return proof
+
+
 def delegate_task(ledger, item_id, token, request):
     from .ledger import LedgerError, REQUEST_ID, _json, _text
     if not isinstance(request, dict) or set(request) != {"key", "capability", "instructions"}:

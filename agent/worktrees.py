@@ -75,6 +75,10 @@ class WorktreeError(RuntimeError):
     pass
 
 
+class VerificationMismatch(WorktreeError):
+    """A successful Git read proved the candidate differs from its required state."""
+
+
 def _git(*args, cwd, env=GIT_ENV, timeout=600, config=(), input_text=None):
     """`config` is further `-c` settings placed before the subcommand, after HOOKS_OFF, which every call has."""
     # Farm-Client's nested paths exceed MAX_PATH under an isolated state root. Git for Windows needs this
@@ -530,12 +534,12 @@ class Worktrees:
         except WorktreeError as exc:
             raise WorktreeError(f"verification worktree does not belong to FarmBot's configured clone: {exc}") from exc
         if (expected_branch is not None
-                and self.git_in(path, "symbolic-ref", "--quiet", "--short", "HEAD") != expected_branch):
-            raise WorktreeError("verification requires the controller-recorded client issue branch")
+                and self.git_in(path, "branch", "--show-current") != expected_branch):
+            raise VerificationMismatch("verification requires the controller-recorded client issue branch")
         if self.git_in(path, "rev-parse", "HEAD") != commit:
-            raise WorktreeError("verification commit must equal the item's current worktree HEAD")
+            raise VerificationMismatch("verification commit must equal the item's current worktree HEAD")
         if self.git_in(path, "status", "--porcelain", "--untracked-files=all"):
-            raise WorktreeError("verification requires a clean worktree; commit all intended changes first")
+            raise VerificationMismatch("verification requires a clean worktree; commit all intended changes first")
         return commit
 
     # A failed item's worktrees are swept, so anything only in them is gone; the commit below is what keeps

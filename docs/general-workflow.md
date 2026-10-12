@@ -95,16 +95,24 @@ that HEAD, so earlier delivered scene/UI work does not expand its allowed scope.
 Later tasks build on the prior committed output. No branch resets to newer main.
 FGUI also retains its reviewed source through Client verification and certified
 delivery; another UI task cannot invalidate that source during an approval wait.
+Before the first internal FGUI source worker can write, the controller records
+its immutable source entry commit and issue branch in audit state. Retries and
+successors retain that scope; worker checkpoints cannot replace it.
 
 Scene delivery verifies a clean owned Client HEAD and its exact open draft in the
 configured repository. A no-change result verifies zero diff from its original
 task entry baseline. Worker prose and an unrelated PR cannot certify delivery or
 release a dirty candidate to another writer.
+Internal UI no-change tasks require clean source on the controller-recorded
+source entry branch and zero tree diff from the original immutable source entry
+commit. If the task entered Client, its clean Client checkout must also have zero
+diff from its original Client entry baseline. Committing source edits alone does
+not make them a no-change result.
 After the worker exits, cleanup rechecks delivered source/Client HEADs and
-cleanliness. Late writes invalidate the task delivery and preserve its candidate
-and certified process teardown for an attributed human retry. Internal UI
-no-change tasks also prove clean source and zero original-baseline Client diff
-when they entered Client.
+cleanliness. Proven late writes invalidate the task delivery and preserve its
+candidate and certified process teardown for an attributed human retry. An
+unknown verification error leaves cleanup pending for a later check; it does not
+invalidate delivery or certify teardown. Subsequent writers remain held back.
 
 The parent can enter Client gameplay only after configuration stages B/C and
 server stage D are done or explicitly skipped with reasons, and every required
@@ -121,7 +129,11 @@ as one job: if the parent or any child has a claimed attempt, the coordinator an
 its queued/parked siblings retain their state under shared withdrawal flags while
 claimed workers save progress during grace. A quick re-delegation clears the
 flags and preserves those tasks. A coordinator that runs `withdraw` before its
-running children finish parks without closing the shared conversation. The group
+running children finish parks without closing the shared conversation or asking
+for a human reply. The park clears obsolete pending-question and task-join fields;
+pending heartbeats render the withdrawal flag as a thought, and a question already
+in flight receives a correcting thought. Quick re-delegation resumes that saved
+coordinator while preserving a later genuine human wait. The group
 ends when those children withdraw or grace expires. Read authority/cutoff guards
 cover every unfinished child; a newer or excluded child defers the group to a
 fresh deciding read. Explicit Stop remains immediate. Children certify
@@ -133,10 +145,13 @@ A terminal task retry requires an attributed human request to the parent and
 certified teardown, through `retry-task`; creating another key to bypass a retry
 gate is forbidden. A cancelled root gets the existing linked successor, whose
 matched tasks retain predecessor evidence and require fresh validation.
-An interrupted predecessor's unverified Client changes cannot become a fresh UI
-entry baseline, even under a new task key. After certified predecessor teardown,
-the successor retains the original task baseline and can revalidate the complete
-candidate with fresh review/export/install/guards/Unity checks. Historical
+An interrupted predecessor's unverified source or Client changes cannot become
+a fresh UI entry baseline, even under a new task key. After certified predecessor
+teardown, the successor retains the original source entry branch/commit and Client
+entry baseline, then revalidates the complete candidate with fresh
+review/export/install/guards/Unity checks. An older interrupted source attempt
+without a recorded entry uses the verified default branch as its comparison baseline rather
+than treating its candidate edits as unchanged. Historical
 certified installation records justify existing files/deletions only; their
 approval and verification proofs never transfer. Dirty partial installations or
 unexplained files remain preserved for recovery; no branch reset or fresh baseline

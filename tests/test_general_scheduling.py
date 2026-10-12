@@ -14,6 +14,7 @@ from agent import fgui_publisher as publisher
 from agent.ledger import LedgerError
 from agent.scheduler import Scheduler
 from agent.workflow import JobWorktrees, await_tasks, delegate_task, retry_task, wake_parent
+from agent.worktrees import WorktreeError
 import test_ledger as ledger_fixtures
 import test_scheduler as scheduler_fixtures
 import test_worktrees as git_fixtures
@@ -144,6 +145,63 @@ class GeneralSchedulingTests(unittest.TestCase):
         self.assertIsNone(cleanup["error"])
         self.assertEqual(fixture.trees.head(path), proof["commit"])
 
+    def test_temporary_git_reads_leave_delivery_and_cleanup_pending_until_recheck_succeeds(self):
+        fixture, task, path, proof, evidence = self.delivered_scene()
+        errors = (subprocess.TimeoutExpired(["git", "status"], .1),
+                  PermissionError("temporary filesystem access denial"),
+                  WorktreeError("index temporarily locked"))
+        for error in errors:
+            with self.subTest(error=type(error).__name__):
+                original = fixture.trees.git_in
+                def unavailable(checkout, *args, **kwargs):
+                    if args == ("status", "--porcelain", "--untracked-files=all"):
+                        raise error
+                    return original(checkout, *args, **kwargs)
+                with patch.object(fixture.trees, "git_in", side_effect=unavailable):
+                    self.scheduler._retire(task["id"], "delivered")
+                current, cleanup = self.ledger.item(task["id"]), self.ledger.cleanup_record(task["id"])
+                self.assertEqual(current["state"], "delivered")
+                self.assertEqual(current["evidence"], evidence)
+                self.assertFalse(cleanup["done"])
+                self.assertTrue(cleanup["error"])
+                self.assertEqual(self.ledger.connection.execute("SELECT COUNT(*) FROM audit WHERE item_id=? "
+                    "AND kind='task_delivery_invalidated'", (task["id"],)).fetchone()[0], 0)
+                self.assertEqual(fixture.trees.head(path), proof["commit"])
+        self.scheduler._retire(task["id"], "delivered")
+        self.assertEqual(self.ledger.item(task["id"])["state"], "delivered")
+        self.assertTrue(self.ledger.cleanup_record(task["id"])["done"])
+        self.assertIsNone(self.ledger.cleanup_record(task["id"])["error"])
+
+    def test_unavailable_ownership_verification_keeps_delivery_fenced_until_recheck(self):
+        fixture, task, path, proof, evidence = self.delivered_scene()
+        sibling = self.task("next-scene", "scene")
+        with patch.object(fixture.trees, "worktree_entry", side_effect=WorktreeError("clone ownership cannot be checked")):
+            self.scheduler._retire(task["id"], "delivered")
+        self.assertEqual(self.ledger.item(task["id"])["state"], "delivered")
+        self.assertFalse(self.ledger.cleanup_record(task["id"])["done"])
+        self.assertIsNone(self.scheduler.launch(sibling))
+        self.scheduler._retire(task["id"], "delivered")
+        self.assertTrue(self.ledger.cleanup_record(task["id"])["done"])
+        self.assertEqual(self.ledger.item(task["id"])["evidence"], evidence)
+
+    def test_actual_post_finish_branch_change_invalidates_the_delivery_without_resetting_branch(self):
+        fixture, task, path, proof, evidence = self.delivered_scene()
+        git_fixtures.git("checkout", "-qb", "unverified-branch", cwd=path)
+        self.scheduler._retire(task["id"], "delivered")
+        self.assertEqual(self.ledger.item(task["id"])["state"], "failed")
+        self.assertTrue(self.ledger.cleanup_record(task["id"])["done"])
+        self.assertEqual(fixture.trees.git_in(path, "branch", "--show-current"), "unverified-branch")
+        self.assertEqual(fixture.trees.head(path), proof["commit"])
+
+    def test_detached_post_finish_head_is_a_proven_branch_mismatch(self):
+        fixture, task, path, proof, evidence = self.delivered_scene()
+        git_fixtures.git("checkout", "--quiet", "--detach", proof["commit"], cwd=path)
+        self.scheduler._retire(task["id"], "delivered")
+        self.assertEqual(self.ledger.item(task["id"])["state"], "failed")
+        self.assertTrue(self.ledger.cleanup_record(task["id"])["done"])
+        self.assertEqual(fixture.trees.git_in(path, "branch", "--show-current"), "")
+        self.assertEqual(fixture.trees.head(path), proof["commit"])
+
     def test_dirty_post_finish_scene_fails_with_evidence_and_original_baseline_retained_for_retry(self):
         fixture, task, path, proof, evidence = self.delivered_scene()
         sibling = self.task("next-scene", "scene")
@@ -252,7 +310,7 @@ class ExportResourceWaitTests(unittest.TestCase):
         lock, fence = Mock(), Mock()
         with patch.object(publisher, "_WindowsLock", side_effect=[publisher.ExportLockBusy("busy"),
                 publisher.ExportLockBusy("busy"), lock]), \
-                patch.object(publisher.time, "monotonic", side_effect=[0, .1, .2]), \
+                patch.object(publisher.time, "monotonic", return_value=0), \
                 patch.object(publisher.time, "sleep") as sleep, patch.object(publisher.subprocess, "Popen") as process:
             self.assertIs(publisher._acquire_export_lock(fence, 5), lock)
         self.assertEqual(fence.call_count, 2)

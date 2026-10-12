@@ -2458,8 +2458,11 @@ class Ledger:
                         if row["withdraw_deadline"] is None:
                             self._flag_withdrawal_group(row, children, reason, self.clock() + grace_seconds)
                         # The coordinator saved its own work, but its siblings still need their grace to save theirs.
+                        checkpoint = json.loads(row["checkpoint"])
+                        for key in ("pending_question", "pending_reason", "waiting_tasks"):
+                            checkpoint.pop(key, None)
                         self._set_state(item_id, "awaiting_input", "coordinator saved progress; waiting for task withdrawal",
-                                        token=None, lease_expires_at=None, worker_pid=None)
+                                        token=None, lease_expires_at=None, worker_pid=None, checkpoint=_json(checkpoint))
                         self._audit(item_id, "withdrawn", reason, {"waiting_tasks": True})
                         return self._view(self._row(item_id)), reason
                 self._cancel_row(row, f"withdrawn by its worker: {reason}", drop_progress=True)

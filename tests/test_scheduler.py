@@ -150,11 +150,15 @@ class FakeWorktrees:
         self.attached = []  # the add calls that re-attach to a plan's issue branch (spec §5.7)
         self.reads = []  # (repo, item_id, refresh) for each read-only checkout made or refreshed (spec §9.6)
         self.reads_removed = []
+        self.branches = {}
         self.fail_on = None
         self.commit_fails = False
 
     def clone_path(self, repo):
         return self.root / "repos" / f"{repo}.git"
+
+    def head(self, path):
+        return "a" * 40
 
     def writable_parts(self, repo, path):
         clone = self.clone_path(repo)
@@ -165,6 +169,7 @@ class FakeWorktrees:
             raise RuntimeError("boom")
         path = self.root / item_id / repo
         path.mkdir(parents=True, exist_ok=True)
+        self.branches.setdefault(path, branch)
         self.added.append((repo, item_id, branch))
         if attach:
             self.attached.append((repo, item_id, branch))
@@ -172,6 +177,11 @@ class FakeWorktrees:
 
     def add_detached(self, repo, item_id):
         return self.add(repo, item_id, "detached")
+
+    def git_in(self, path, *args, **kwargs):
+        if args == ("branch", "--show-current"):
+            return self.branches[Path(path)]
+        raise AssertionError(f"unsupported fake Git read: {args}")
 
     def read_checkout(self, repo, item_id, *, refresh=True):
         self.reads.append((repo, item_id, refresh))

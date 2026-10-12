@@ -16,7 +16,7 @@ python3 -m agent --db DATABASE checkpoint --help
 | `resume-work` | Legacy resume-only command: claim-token arguments and `--message-id LATEST_MESSAGE_ID`; cannot start a first repair |
 | `memory-list`, `memory-read`, `memory-save`, `memory-forget` | Same claim-token arguments; see `references/memory.md` |
 | `release-resource` | `--item ITEM_ID --token-file RESOURCE_TOKEN_FILE`, using `resource.token_file`, plus `--outcome quiescent` or `--outcome unclean` |
-| `withdraw` | `--item ITEM_ID --token-file STATE_DIR/token`; ends your claim as cancelled after the delegation was removed or superseded; save a checkpoint first; exit after it succeeds |
+| `withdraw` | `--item ITEM_ID --token-file STATE_DIR/token`; releases your claim after the delegation was removed or superseded; a general coordinator may park for running children's grace; save a checkpoint first; exit after it succeeds |
 | `tasks` | `--item ITEM_ID`; reads this logical job's durable presentation tasks |
 | `delegate-task` | General job claim-token arguments and `--input FILE`; exact JSON keys `key`, `capability` (`fgui` or `scene`), `instructions`; requires settled shared behavior in plan stage A |
 | `answer-task`, `retry-task` | General job claim-token arguments, `--task KEY --message-id ID`; uses an actual attributed message from this job's inbox; retry also requires certified teardown |
@@ -35,6 +35,12 @@ Internal tasks post progress thoughts and visual notices, not outcome comments o
 session-closing responses. Their `finish` evidence carries summary/verification
 and verified PRs (or an explicit no_change reason), without comment_action_id.
 FGUI still requires the full current controller delivery proof for a changed UI.
+Internal UI no-change delivery requires clean source on its controller-recorded
+source entry branch and zero tree diff from the immutable source entry commit;
+if Client was entered, it also requires clean Client and zero diff from its
+original Client entry baseline. Stop successors retain both original entry scopes,
+including when a new task key is used. A clean committed source edit is still a
+change and requires normal UI delivery.
 The parent delivery includes every task's PRs. Shared worktrees remain owned by
 the parent; task reports, tokens, receipts and read snapshots are task-specific.
 
@@ -68,12 +74,20 @@ they do not certify isolation from other users of the service account.
 
 `withdraw` reads the card afresh and ends your claim as cancelled when your work is withdrawn, the
 card is closed, or, for work the delegation authorised, the card is no longer delegated to this app.
-It posts the one notice that says so, and a later delegation continues the job from your
+For a standalone job it posts the one notice that says so, and a later delegation continues the job from your
 checkpoint's plan. It refuses while nothing withdrew the work, and when the card is delegated to
 this app again; then continue. `verify-publication`, `handoff-repository`, `await-input` and
 `await-resource` refuse withdrawn work with `delegation withdrawn`, and `await-input` refuses work
 the delegation authorised on a card no longer delegated here or closed, before anything reaches
 Linear.
+
+For a general coordinator with running children, successful `withdraw` releases
+the claim and parks the coordinator while those children save progress. It posts
+no closing response or elicitation. Obsolete pending-question/task-join fields
+are cleared; pending heartbeat retries show a withdrawal thought, and an already
+in-flight question receives a correcting thought. The group ends after its
+running children stop or grace expires. Quick re-delegation resumes this saved
+coordinator, while later genuine human questions keep their normal wait.
 
 ```bash
 python3 -m agent --db DATABASE withdraw --item ITEM_ID --token-file STATE_DIR/token
@@ -111,6 +125,10 @@ successful state transition fail; the general job reads that state and owns
 human-facing questions and outcome reporting. `local-` tasks post issue comments.
 Scene `finish` additionally verifies clean owned Client HEAD and the exact actual
 open draft; no-change evidence requires zero diff from its task entry baseline.
+After process quiescence, task cleanup rechecks certified source/Client heads.
+A proven mismatch invalidates delivery and retains the candidate for attributed
+human retry. An unknown verification error instead leaves cleanup pending for
+another check; it does not fail delivery or certify teardown.
 The parent Client join checks explicit B/C configuration and D server completion.
 
 Each `session_messages` entry, like each message in `conversation_history`, is

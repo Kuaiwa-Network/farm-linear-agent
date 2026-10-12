@@ -291,7 +291,7 @@ class NativePublisherTests(unittest.TestCase):
         def fence():
             nonlocal calls
             calls += 1
-            if calls == 2:
+            if calls == 3:
                 raise LedgerError("stopped before gate")
         with self.assertRaisesRegex(LedgerError, "stopped before gate"):
             self.invoke(f'from pathlib import Path\nPath({str(marker)!r}).touch()\n', fence=fence)
@@ -367,6 +367,46 @@ class NativePublisherTests(unittest.TestCase):
         self.assertTrue(ready.exists())
         with self.assertRaisesRegex(LedgerError, "machine export lock"):
             self.invoke('raise SystemExit(0)\n')
+        self.assertIsNone(owner.poll())
+
+    def test_native_waiting_export_observes_parent_stop_without_starting_a_process(self):
+        from agent.workflow import delegate_task
+        import test_ledger as fixtures
+        fixture = fixtures.LedgerBase()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        ledger = fixture.ledger
+        parent = fixture.new_item("work", target=None)
+        parent_token = ledger.claim(parent["id"], worker_id="general")["token"]
+        ledger.checkpoint(parent["id"], parent_token, {"plan": {"stages": {"A": "done"}}})
+        task = delegate_task(ledger, parent["id"], parent_token,
+                             {"key": "ui", "capability": "fgui", "instructions": "Approved UI export"})
+        token = ledger.claim(task["id"], worker_id="waiting-export")["token"]
+        module_root = str(Path(__file__).resolve().parents[1])
+        ready = self.root / "lock-ready"
+        script = (f'import sys,time\nfrom pathlib import Path\nsys.path.insert(0,{module_root!r})\n'
+                  'from agent.fgui_publisher import _WindowsLock\n'
+                  f'with _WindowsLock({self.lock_name!r}):\n Path({str(ready)!r}).touch()\n time.sleep(60)\n')
+        owner = subprocess.Popen([sys.executable, "-c", script], creationflags=subprocess.CREATE_NO_WINDOW)
+        self.addCleanup(lambda: (owner.terminate(), owner.wait()) if owner.poll() is None else None)
+        deadline = time.monotonic() + 5
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(.02)
+        self.assertTrue(ready.exists())
+        calls = 0
+
+        def fence():
+            nonlocal calls
+            ledger.renew(task["id"], token)
+            calls += 1
+            if calls == 1:
+                ledger.cancel(parent["id"], "Stop while export waits for the native mutex")
+
+        with patch.object(subprocess, "Popen") as process, self.assertRaises(LedgerError):
+            self.invoke("raise SystemExit(0)\n", fence=fence)
+        process.assert_not_called()
+        self.assertEqual(ledger.item(parent["id"])["state"], "cancelled")
+        self.assertEqual(ledger.item(task["id"])["state"], "cancelled")
         self.assertIsNone(owner.poll())
 
     def test_native_nested_job_inside_owned_worker(self):

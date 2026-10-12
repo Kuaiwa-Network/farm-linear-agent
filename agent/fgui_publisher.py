@@ -191,16 +191,32 @@ def _acquire_export_lock(fence, timeout):
     across controllers through the same machine mutex, including process teardown.
     A cancelled or stale claimant leaves this wait before creating any process.
     """
-    deadline = time.monotonic() + timeout
+    next_fence = time.monotonic()
+    deadline = next_fence + timeout
     while True:
+        if time.monotonic() >= deadline:
+            raise ExportLockBusy("timed out waiting for the machine export lock")
         try:
-            return _WindowsLock()
+            lock = _WindowsLock()
         except ExportLockBusy:
-            fence()
+            if time.monotonic() >= next_fence:
+                fence()
+                next_fence = time.monotonic() + 1
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise ExportLockBusy("timed out waiting for the machine export lock") from None
             time.sleep(min(.1, remaining))
+        else:
+            try:
+                # Authority may have changed between the last bounded renewal
+                # and acquisition. Never start a publisher with that stale check.
+                fence()
+                if time.monotonic() >= deadline:
+                    raise ExportLockBusy("timed out waiting for the machine export lock")
+            except BaseException:
+                lock.__exit__(*sys.exc_info())
+                raise
+            return lock
 
 
 def _foreign_editors(owned=()):

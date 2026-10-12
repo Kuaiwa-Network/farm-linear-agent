@@ -347,6 +347,11 @@ On Stop, checkpoint if the claim is still valid and exit through the existing
 cancellation/withdrawal rules. Retry/recovery reads the complete current or
 predecessor plan, heads, notices and private evidence; never reconstruct approval
 from a PNG's presence. Preserve recovery evidence when cleanup is uncertain.
+Internal tasks retain the controller's original source entry branch/commit and
+Client entry baseline after Stop, including successors under another task key.
+An interrupted candidate is not a fresh no-change baseline. Unknown teardown
+verification errors leave cleanup pending; do not discard evidence or bypass the
+held candidate with another task.
 Reports use `STATE_DIR/report.md`, then `STATE_DIR/report-2.md` on a later attempt;
 follow the evidence/memory references and keep them out of repository commits.
 
@@ -354,5 +359,9 @@ For an internal task, do not post a started/blocker/delivery outcome comment or
 close the parent session. Visual-round notices remain required. After the same
 two-draft delivery verification, `finish` takes summary, verification, both PRs
 and normal UI proof; no `comment_action_id` is required. A genuine no-change task
-records its reason. The parent owns the issue's final delivery and Client gameplay
-integration. Normal progress is a task-prefixed thought.
+records its reason and no PRs. The controller requires clean source on its recorded
+source entry branch and zero tree diff from the immutable source entry commit;
+if Client was entered, it also requires clean Client and zero diff from the
+original Client entry baseline. Committed source changes still require the normal
+visual approval/export/install/delivery path. The parent owns the issue's final
+delivery and Client gameplay integration. Normal progress is a task-prefixed thought.

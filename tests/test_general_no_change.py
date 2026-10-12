@@ -14,6 +14,10 @@ class GeneralUiNoChangeTests(unittest.TestCase):
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)
         self.source = fixture.source
+        # Represent source delivered before this no-change task's first entry.
+        # Later source commits must remain visible against this controller pin.
+        self.source.ledger.note(fixture.item, "task_source_entry", details={
+            "commit": self.source.head, "branch": self.source.branch, "predecessor_tasks": []})
 
     def verify(self):
         f = self.fixture
@@ -39,4 +43,28 @@ class GeneralUiNoChangeTests(unittest.TestCase):
         self.fixture.installed()
         self.source.commit(self.fixture.client)
         with self.assertRaisesRegex(LedgerError, "zero Client diff"):
+            self.verify()
+
+    def test_clean_committed_source_edit_cannot_be_called_no_change(self):
+        panel = self.source.path / "assets/One/Panel.xml"
+        panel.write_text('<component size="7,2"/>', encoding="utf-8")
+        self.source.commit(self.source.path)
+        with self.assertRaisesRegex(LedgerError, "zero source diff"):
+            self.verify()
+
+    def test_alternate_issue_branch_cannot_replace_source_entry_branch(self):
+        self.source.git(self.source.path, "switch", "-c", self.source.branch + "-alternate")
+        with self.assertRaisesRegex(WorktreeError, "branch"):
+            self.verify()
+
+    def test_recorded_source_branch_disagreement_is_refused(self):
+        self.source.plan["prs"]["farmgui"][0]["branch"] = self.source.branch + "-alternate"
+        self.source.save_plan()
+        with self.assertRaisesRegex(LedgerError, "recorded source branch"):
+            self.verify()
+
+    def test_missing_controller_source_entry_cannot_certify_no_change(self):
+        self.source.ledger.connection.execute("DELETE FROM audit WHERE item_id=? AND kind='task_source_entry'",
+                                             (self.fixture.item,))
+        with self.assertRaisesRegex(LedgerError, "controller-recorded source entry"):
             self.verify()
