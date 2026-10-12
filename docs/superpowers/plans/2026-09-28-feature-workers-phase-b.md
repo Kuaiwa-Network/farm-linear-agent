@@ -3121,6 +3121,126 @@ prepared third-Unity production configuration is still unapplied. This record
 changes documentation only; relative links, relevant skill/reference tests
 and whitespace are checked before publication.
 
+### Production capacity rollout and actual native toolchain follow-up (2026-10-12)
+
+The operator then authorized proceeding with the guarded production rollout.
+Production now serves the verified executable candidate
+`5cd7b2b75cfa21ee948f85e0babfb9176adac3e3`, tree
+`a1696d5cea98753b46ed7b354c9cf1fbff0a2dba`, from a separate frozen production
+checkout on D:. The earlier offline/hosted evidence for this exact code remains
+unchanged. The [farm-hive fixture fix #394](https://github.com/Kuaiwa-Network/farm-hive/pull/394)
+merged as `ff568afd5630abb9b781aff26e7f461396cf6532` after its build, Windows
+devctl and triage checks passed. Its merged tree matches the tested candidate
+`cea1deae687c1477e305d25cf434e1a55a317b14` exactly.
+
+Production's native environment already selected Go **1.26.6**, whereas the
+previous two-server trial explicitly selected Go 1.25.1. That environment also
+lacked a C compiler selection for race tests. One copy of the previously verified
+native compiler SDK was staged on D: (**11873 files, 915.91 MiB**); every copied
+file matched its source digest. The existing production Go and other tools were
+retained. The candidate environment explicitly selects that compiler and uses
+`GOMAXPROCS=2`, `GOMEMLIMIT=1536MiB`, `CGO_ENABLED=1` and default `GOFLAGS=-p=1`.
+The Go memory setting is a soft runtime target; these settings do not introduce
+a hard native process-memory cap or prevent explicit command-line overrides.
+
+Before switching production, two native workers repeated the same four-package
+race selection with Go 1.26.6 and the staged compiler. Each had its own owned
+MongoDB replica set, Redis, etcd and NATS stack; the fixed game candidate and
+fresh disposable fixture ledgers were used. Each worker passed **806
+tests/subtests**, skipped the same four existing cases listed above, had zero
+failures and exited 0. Worker durations were **308.080/308.126 seconds**;
+actual server-package execution overlapped for **78.635 seconds**. Setup,
+execution and cleanup together took **334.401 seconds**. Minimum available
+physical/commit headroom was **6204/5220 MiB**, above the unchanged 4096 MiB
+floor and 4608 MiB early stop buffer. The new Go version required more cold
+build work than the earlier warm-cache trial; the longer duration is not a
+claim that both game servers were running for that entire period.
+
+Membership-verified Win32 observations across 523 samples measured peak Job
+commit of **5745.38/5911.62 MiB**. Both exact Jobs were independently verified
+quiescent, and all containers, networks and volumes for those two leases were
+independently verified removed. Cleaned journals and strictly decoded UTF-8
+logs remain preserved. Final actual-toolchain log SHA-256 receipts:
+
+- Worker 1:
+  `3ea22ac816e210621f3cd5c3aada74c8b99d7b895d691b66cf8ef2ae605ed657`.
+- Worker 2:
+  `d79c37406ef61d976c3f8e21e202f56baf96759bc415b89b2965daea08c610eb`.
+
+Production's private configuration changes only `slots`, `server_slots` and
+`resource_admission`:
+
+- **10 model workers**, preserving chat/fix/feature and the existing model settings.
+- **3 configured Unity slots**, preserving both old entries and adding the
+  third managed project on D: at Client main
+  `14da81ba8820f78a14e56093d0ad54172153ff7f`. Its files were prepared without
+  starting an Editor or copying runtime state from another slot.
+- **3 configured isolated server slots**, with the verified local Docker
+  backend and digest-pinned images.
+- **16384 MiB** shared reservation budget, **8192 MiB** estimated per Unity or
+  server resource, and **4096 MiB** physical/commit floors. At most two heavy
+  resources may occupy this budget, including idle-open Editors and held
+  resources; observed headroom may reduce actual concurrency further.
+
+Admission remains per instance. To avoid competing heavy budgets on this PC,
+the settled TestBot receiver and its verified interpreter relay were put in
+standby. Its configuration, ledger, 88 historical empty Jobs, closed resources
+and recovery evidence remain unchanged. TestBot has no automatic receiver
+restart task and is not scheduled to resume. A future development resumption
+must coordinate heavy budgets with production, rather than simply starting
+both full profiles together.
+
+Immediately before the switch, read-only snapshots found zero active jobs,
+open reservations and active recoveries on either instance. All 300 production
+historical native Jobs were empty. One older awaiting-input item's unfinished
+preservation record was not active removal: its worker was unset, removal was
+not in progress, no cleanup error was recorded and its saved repository refs
+matched their commits. That record, checkpoints and refs were preserved; the
+rollout neither resumed nor cleaned the parked item.
+
+The new config was validated against a consistent copied ledger before the
+cutover; existing job fields and table counts were preserved. The cutover
+retained and checked actual process handles and creation identities, fenced
+the settled receivers and production supervisor, took a fresh consistent
+ledger/configuration backup under the controller lock, then changed the
+receiver task's supervisor selection. The Windows account, privilege, task
+settings and triggers were preserved. Credentials, repository destinations,
+state root, webhook and tunnel settings remained identical. Protected Editors,
+tunnel processes and the broker were not stopped. No new game issue, Feishu
+authentication, account setup or game-service deployment was part of this work.
+
+A path error in the private backup helper stopped the first apply attempt
+before the candidate configuration was installed. The original production
+configuration/task were automatically restored and served again. That
+attempt's backup and diagnostics were retained; the helper was corrected and
+the rollout retried from a fresh settled snapshot. No ledger rollback or
+credential/recovery cleanup was performed.
+
+The new production receiver started at **2026-10-12 01:44:20 UTC**. Measured
+post-start evidence confirms its exact candidate and clean source, original
+account, selected absolute config, **seven healthy controller loops**, ten
+workers, three Unity slots and three server slots in the heartbeat. Both local
+and unchanged public `/health` returned **HTTP 200**. The receiver task's
+principal/settings/triggers and the complete tunnel task matched their prior
+values. Docker/image preflight reported the three-slot pool ready, and the
+copied compiler remains selected on D:.
+
+Doctor remains **incomplete** because the historical `cleanup_pending`,
+`cleanup_worker_unverified`, `issue_status_error`, `job_blocked`, `job_failed`
+and `long_parked` findings remain. The exact set of codes was the same before
+and after this rollout; there were no new tool or server-slot findings. This
+is not a declaration that every historical issue has been resolved.
+
+The capacity rollout is applied and checked. Two simultaneous **selected
+server suites** are measured with the actual native tools. Three simultaneous
+full heavy stages, Unity/server overlap and three-Editor acceptance remain
+unverified. The twenty-five client-main findings recorded earlier remain
+outside this server/configuration rollout. No new production issue acceptance
+run was claimed. Rollback still requires settled server leases and preserved
+journals; checking out older code alone does not reverse configuration or
+remove the registered resource rows. This is a documentation-only record;
+relevant skill/reference tests, relative links and whitespace were checked.
+
 ## Scope
 
 In Phase B (spec §13, item 2):
