@@ -1557,6 +1557,11 @@ it cannot be claimed or launched until the controller certifies teardown and cle
 An item in awaiting_resource holds a queued reservation; only the pool's grant turns
 it back into queued work. A launched worker must claim its item within 10 minutes or it is stopped and the item fails. A confirmed terminal Codex model-capacity error returns the same queued or running item to the queue after 60, 180, then 600 seconds, with at most three automatic retries. The old claim is revoked; worktrees, checkpoints, model settings and reservations are retained. Retry timing is durable and all normal concurrency/delegation checks still apply. Cancelled, completed, waiting and deliberately stopped work is not automatically retried. Other pre-claim exits fail the item; a worker that dies with an expired lease requeues the item once for a fresh worker. A queued item whose skill is loaded but not in `enabled_skills` fails before launch.
 
+Capacity classification reads only the bounded stderr tail, accepting the exact terminal
+capacity diagnostic after removing the token-count footer and Codex's timestamped
+`failed to record rollout items: thread <UUID> not found` shutdown diagnostic.
+Other trailing errors, quoted capacity messages and successful exits do not qualify.
+
 The automatic-retry allowances (three capacity retries, three publication retries, and the
 Unity execution and preparation budgets of Automatic Unity resource recovery) last a fix's
 whole job; `retry` and a requested continuation reset them for any skill. For a skill that
