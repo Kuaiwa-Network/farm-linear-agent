@@ -47,6 +47,17 @@ Optional progress posts cannot fail an already durable transition.
 Native FGUI export remains serialized by the host mutex with fenced bounded waits;
 UI authoring and server work still run concurrently.
 
+New task questions, failures and certified completion wake a parked coordinator
+once per actionable round, including when it used ordinary `await-input` for its
+own human question. That question remains saved; a coordination wake is not an
+answer and does not resume dependent work. Withdrawn jobs and open resource
+reservations cannot be revived through this wake path.
+
+All write workers receive the fixed per-command Git commit identity
+`FarmBot <farmbot@localhost>` in their launch authority, including TestBot.
+Ambient author settings are unnecessary; workers keep the existing Git safety
+flags and never edit global or clone configuration to supply an identity.
+
 Enable `work` explicitly; hosts without it retain the legacy routing described
 below. Existing jobs retain their profile, which must stay enabled to continue
 them. See [activation, concurrency and schema recovery](general-workflow.md).

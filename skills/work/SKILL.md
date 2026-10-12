@@ -100,6 +100,10 @@ new task questions, failures or certified completion; no live polling process
 waits for a human. Replies arrive at the general job and are routed with
 `answer-task`. If every remaining task needs human input, use the normal grouped
 `await-input` question instead, preserving all task keys and pending decisions.
+The controller also wakes you for a new task question while your own human
+question is pending. Consolidate the new task questions with your saved question;
+the wake is not an answer. Preserve unanswered decisions and park again without
+rerunning work that still depends on them.
 For a failed/blocked task, inspect retained evidence and ask for the missing
 decision/tool/asset. A named human's retry request in this job's inbox authorizes
 `retry-task --task KEY --message-id ID` after certified cleanup. Never retry a

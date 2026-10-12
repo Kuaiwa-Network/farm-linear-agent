@@ -80,6 +80,22 @@ class GeneralSchedulingTests(unittest.TestCase):
             self.scheduler.tick()
         wake.assert_called_once_with(self.ledger, self.parent)
 
+    def test_tick_wakes_a_coordinator_waiting_on_its_own_answer_for_a_later_child_question(self):
+        task = self.task()
+        self.ledger.await_input(self.parent, self.token, "Server Go cache is missing", reason="waiting")
+        child_token = self.ledger.claim(task["id"], worker_id="ui")["token"]
+        self.ledger.await_input(task["id"], child_token, "Provide the badge asset")
+        with patch.object(self.scheduler, "_expire_withdrawals"), patch.object(self.scheduler, "_stop_cancelled"), \
+                patch.object(self.scheduler, "_reap", return_value=0), patch.object(self.scheduler, "_recover", return_value=0), \
+                patch.object(self.scheduler, "_sweep_worktrees"), patch.object(self.ledger, "queue", return_value=[]), \
+                patch.object(self.ledger, "status", side_effect=AssertionError("wake scan must not decode history")), \
+                patch("agent.scheduler.wake_parent", wraps=wake_parent) as wake:
+            self.scheduler.tick()
+        wake.assert_called_once_with(self.ledger, self.parent)
+        self.assertEqual(self.ledger.item(self.parent)["state"], "queued")
+        self.assertEqual(self.ledger.item(self.parent)["checkpoint"]["pending_question"], "Server Go cache is missing")
+        self.assertEqual(self.ledger.item(task["id"])["state"], "awaiting_input")
+
     def test_crashed_scene_retains_dirty_candidate_and_retry_reopens_its_original_baseline(self):
         fixture = git_fixtures.WorktreeTests()
         fixture.setUp()

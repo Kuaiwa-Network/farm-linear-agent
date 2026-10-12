@@ -27,8 +27,11 @@ ignore Bot labels. Legacy jobs still continue under their original profile. The
 parent reads `issue-context.tasks`, `parent_job` is available to each task, and a
 successor sees `predecessor_tasks`. Replies reach the parent and `answer-task`
 preserves their original author/time; do not synthesize answers or re-ask accepted
-ones. `await-tasks` marks `waiting_tasks: true`; the controller wakes the parent
-once per new question/failure or on certified completion. Client gameplay handoff
+ones. `await-tasks` marks `waiting_tasks: true`; the controller also wakes a parent
+parked through ordinary `await-input` once per new task question/failure or on
+certified completion. Its own unanswered question remains saved. A coordination
+wake supplies no human answer: consolidate the new questions, retain pending
+decisions, and park again without repeating blocked work. Client gameplay handoff
 requires done/skipped stage D and delivered, safely retired tasks.
 
 Internal tasks post progress thoughts and visual notices, not outcome comments or
@@ -53,6 +56,20 @@ the saved context; its `coordination.authority` says what authorised your work: 
 Neither `fetch-issue` nor `issue-context` accepts `--token-file`.
 Tokens never belong in argv as `--token` values.
 The argument table does not grant additional authority; use only your delegated item.
+
+## Git commit identity
+
+Write workers use the fixed FarmBot identity for already-authorized commits,
+including when the Linear instance is named TestBot:
+
+```text
+git -c user.name=FarmBot -c user.email=farmbot@localhost commit ...
+```
+
+Keep the existing Git safety flags and repository scope. These options apply only
+to this command; do not change global or clone configuration, credential helpers,
+or a human's identity. Missing ambient `user.name`/`user.email` alone does not
+require host setup. This recipe grants no additional write or publishing scope.
 
 ## Claim-token storage
 

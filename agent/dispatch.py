@@ -68,6 +68,14 @@ COMMON_AUTHORITY = (
     "command and exit. "
 )
 
+GIT_COMMIT_AUTHORITY = (
+    "For commits already authorized in stage.write_repositories, use the fixed bot identity with "
+    "git -c user.name=FarmBot -c user.email=farmbot@localhost commit, retaining the existing Git safety flags. "
+    "This identity also applies when bot_name is TestBot. It is per-command configuration: never change "
+    "global or clone Git configuration or borrow a human's identity to commit. Missing ambient user.name "
+    "or user.email alone is not a host gap; use this authorized command identity. "
+)
+
 # kw_ops use, bounded to the issue's reproduction and verification; the manifest's `mcp` grants the tools.
 KW_OPS_AUTHORITY = (
     "When tools.kw_ops.access is present, the kw_ops MCP server is the GM backend of the test game "
@@ -249,6 +257,9 @@ WORK_AUTHORITY = (
     "presentation completion. The controller serializes writes to each job-owned repository and "
     "preserves one immutable Client baseline and issue branch. Retain UI export, approval, resource "
     "and verification evidence; full completion covers the parent and all required tasks. "
+    "A new task question may wake you while your own human question remains unanswered. Consolidate "
+    "the task questions with your saved question; a coordination wake is not a human answer and does "
+    "not authorize resuming work blocked on that answer. "
 )
 SKILL_AUTHORITY["work"] = (WORK_AUTHORITY + FEATURE_AUTHORITY.replace(
     "This is a feature job: one Linear issue labelled Bot/Code, carried through repository stages with one fresh ",
@@ -273,7 +284,8 @@ def authority(skill):
     """The AUTHORITY block one skill's workers receive."""
     if skill not in SKILL_AUTHORITY:
         raise ValueError(f"skill {skill!r} has no dispatch AUTHORITY; state its grants in agent/dispatch.py")
-    return COMMON_AUTHORITY + SKILL_AUTHORITY[skill] + AUTHORITY_REFERENCE
+    identity = GIT_COMMIT_AUTHORITY if skill != "chat" else ""
+    return COMMON_AUTHORITY + identity + SKILL_AUTHORITY[skill] + AUTHORITY_REFERENCE
 
 
 def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, guidance, budget, repo_root=None,
