@@ -440,6 +440,63 @@ class LinearAPI:
             raise RuntimeError("Linear sent no status for the session")
         return {"status": status, "archived": session.get("archivedAt") is not None}
 
+    def awaiting_reply(self, issue_id, waiting=True):
+        """Reconcile only FarmBot's current human-attention label, preserving other labels."""
+        from .attention import REPLY_LABEL
+        if not self.app_user_id:
+            raise RuntimeError("reply label requires verified app identity")
+        after, candidates = None, []
+        while True:
+            data = self.graphql("""query FarmBotReplyLabel($id: String!, $name: String!, $after: String) {
+                issue(id: $id) { team { id } delegate { id } archivedAt state { type }
+                    labels { nodes { id name } } }
+                issueLabels(filter: {name: {eq: $name}}, first: 100, after: $after) {
+                    nodes { id team { id } } pageInfo { hasNextPage endCursor }
+                } }""", {"id": issue_id, "name": REPLY_LABEL, "after": after})
+            issue = data["issue"]
+            if issue is None:
+                raise RuntimeError("Issue not found")
+            delegate = (issue.get("delegate") or {}).get("id")
+            if delegate and delegate != self.app_user_id:
+                return False  # another bot may have its own unanswered question
+            if waiting and (issue.get("archivedAt") or (issue.get("state") or {}).get("type")
+                            in ("completed", "canceled", "duplicate")):
+                return False
+            present = [v for v in issue["labels"]["nodes"] if v["name"] == REPLY_LABEL]
+            if present or not waiting:
+                break
+            candidates.extend(data["issueLabels"]["nodes"])
+            page = data["issueLabels"]["pageInfo"]
+            if not page["hasNextPage"]:
+                break
+            after = page["endCursor"]
+        if not waiting:
+            for label in present:
+                result = self.graphql("""mutation FarmBotRemoveReplyLabel($id: String!, $label: String!) {
+                    issueRemoveLabel(id: $id, labelId: $label) { success } }""",
+                    {"id": issue_id, "label": label["id"]})["issueRemoveLabel"]
+                if result.get("success") is not True:
+                    raise RuntimeError("Linear did not confirm reply label removal")
+            return True
+        if present:
+            return True
+        team = issue["team"]["id"]
+        label = next((v for v in candidates if (v.get("team") or {}).get("id") == team), None)
+        label = label or next((v for v in candidates if v.get("team") is None), None)
+        if label is None:
+            created = self.graphql("""mutation FarmBotCreateReplyLabel($input: IssueLabelCreateInput!) {
+                issueLabelCreate(input: $input) { success issueLabel { id } } }""",
+                {"input": {"name": REPLY_LABEL, "teamId": team, "color": "#E5484D"}})["issueLabelCreate"]
+            if not created.get("success") or not created.get("issueLabel", {}).get("id"):
+                raise RuntimeError("Linear did not confirm reply label creation")
+            label = created["issueLabel"]
+        result = self.graphql("""mutation FarmBotAddReplyLabel($id: String!, $label: String!) {
+            issueAddLabel(id: $id, labelId: $label) { success } }""",
+            {"id": issue_id, "label": label["id"]})["issueAddLabel"]
+        if result.get("success") is not True:
+            raise RuntimeError("Linear did not confirm reply label addition")
+        return True
+
     def needs_more_info(self, issue_id):
         """Add the clarification label without replacing any existing labels."""
         after, labels = None, []

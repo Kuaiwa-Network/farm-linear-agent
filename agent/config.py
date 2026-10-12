@@ -334,6 +334,10 @@ class StubLinear:
     def needs_more_info(self, issue_id):
         self._record("needs_more_info", issue_id=issue_id)
 
+    def awaiting_reply(self, issue_id, waiting=True):
+        self._record("awaiting_reply", issue_id=issue_id, waiting=waiting)
+        return True
+
     def upload_image(self, image, *, keepalive=None):
         """Offline preview fixture; stores exact bytes and unsigned metadata, never a signed URL."""
         if keepalive:

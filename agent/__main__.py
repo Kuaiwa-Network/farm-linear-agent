@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from .config import Config, Paths, linear_api, load_config
+from .attention import mark_reply_label, question_notice
 from .ledger import ACTIVE_STATES, AWAIT_REASONS, NOTICE_KINDS, TERMINAL_STATUS_TYPES, Ledger, LedgerError, require_listed_resource
 from .memory import prune_snapshots
 from .router import CONVERSATION_SKILLS, WRITE_SKILLS, continuation_refusal
@@ -91,7 +92,9 @@ def parser():
                           help="the activity's kind; ask a question with await-input, which posts it and parks the job")
     pause = cmd("await-input", "--item", "--question", token=True)
     pause.add_argument("--reason", choices=AWAIT_REASONS, default="question",
-                       help="question (default) adds needs-more-info; waiting, for a human step elsewhere, does not")
+                       help="question (default) adds 待回复; waiting, for a human step elsewhere, does not")
+    resolved = cmd("resolve-question", "--item", "--question-id", token=True)
+    resolved.add_argument("--message-id", type=int, action="append", required=True)
     resume = cmd("resume-work", "--item", token=True)
     resume.add_argument("--message-id", type=int, required=True)
     repair = cmd("request-repair", "--item", "--summary-file", token=True)
@@ -366,7 +369,9 @@ def task_progress(ledger, api_factory, item, body, *, question=False):
             return False
         api = api_factory()
         if question:
-            api.needs_more_info(item["issue_id"])
+            if api.awaiting_reply(item["issue_id"]) is not False:
+                mark_reply_label(ledger, item["id"])
+            body = question_notice(ledger, item, body, configured_bot_name())
         if str(item["session_id"]).startswith("local-"):
             api.create_comment(item["issue_id"], body)
         else:
@@ -601,6 +606,8 @@ def run(args, ledger, api_factory):
             return (api.create_comment(item["issue_id"], body) if str(item["session_id"]).startswith("local-") else
                     api.create_activity(item["session_id"], {"type": "thought", "body": body}))
         return api_factory().create_activity(item["session_id"], {"type": args.type, "body": read_text(args.body_file)})
+    if c == "resolve-question":
+        return ledger.resolve_question(args.item, resolve_token(args), args.question_id, args.message_id)
     if c == "await-input":
         token = resolve_token(args)
         ledger.renew(args.item, token)
@@ -623,9 +630,12 @@ def run(args, ledger, api_factory):
                           question=args.reason == "question")
             return view
         if args.reason == "question":
-            api.needs_more_info(item["issue_id"])
+            if api.awaiting_reply(item["issue_id"]) is not False:
+                mark_reply_label(ledger, item["id"])
+        body = (question_notice(ledger, item, args.question, configured_bot_name())
+                if args.reason == "question" else args.question)
         content = ({"type": "thought", "body": f"[{item['task_key']}] {args.question}"}
-                   if item.get("parent_id") else {"type": "elicitation", "body": args.question})
+                   if item.get("parent_id") else {"type": "elicitation", "body": body})
         if str(item["session_id"]).startswith("local-"):
             api.create_comment(item["issue_id"], content["body"])
         else:

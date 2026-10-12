@@ -291,7 +291,7 @@ the parent job, and Stop includes all its tasks.
 | Press Stop | the worker process is killed promptly, without waiting for the scheduler; the item is cancelled; FarmBot confirms in the session. A Stop in a session that forwarded a message to the work, or in the card's latest delegation session, stops the card's work wherever it runs; in a session whose work moved to another session, or had already stopped, FarmBot says so and stops nothing. When the stopped work lives in another thread, that thread also gets one closing response |
 | Delegate an issue that already has FarmBot work in another session | the new delegation takes the card over: waiting or queued work and any conversation move to the new session (the old job is cancelled and continued by a linked job with its messages; the old session gets one note); a running write worker is told to save and stop, and the new session starts once it has |
 | Delegate an issue when Linear opens no session for it (one of FarmBot's threads on the card still waits for an answer, or the delegation came through Linear's API or an automation) | on a card FarmBot tracks, about 90 s after a status read first finds the card delegated to FarmBot again with no delegation session recorded since, FarmBot settles it on a fresh read of the card, without opening a session or changing the card. Work of the kind the labels name that the delegation already has is kept, and its thread gets one line (at most one per job in 30 minutes): a waiting job asks its question again, a running one says it goes on. Other queued or waiting work, or a conversation, that lives in a delegation thread Linear shows as not archived is taken over in that same thread with its messages, as a new delegation takes a card over. Otherwise FarmBot records a creation attempt and opens its own session through `agentSessionCreateOnIssue`. Its normal `created` routing checks the card again, carries messages and compatible progress, and defers behind a claimed write worker. An explicit refusal falls back to one note in each open FarmBot thread: a response that ends a waiting thread, keeps its work answerable and says to choose No agent and delegate again; a thought where work runs; a response that closes a thread with no work, unless a Stop there still reaches the card's work or an event of it waits. On an explicit refusal with no open thread, nothing is posted and `doctor` lists `silent_delegation`. An uncertain response is recovered by its unique issue link, without another creation request. A card the fresh read finds closed, archived, trashed or not delegated to FarmBot is left alone, and so is one Linear keeps answering "not found" for 15 minutes while its other calls succeed. A delegation session that arrives later takes the card over as usual |
-| @FarmBot on an issue that already has FarmBot work in another session | a waiting conversation moves to your thread and answers there; otherwise your text is forwarded to that work, and the notice says whether it was resumed, will be read at the next checkpoint, or will not continue because the card is no longer delegated |
+| @FarmBot on an issue that already has FarmBot work in another session | Linear opens a new mention conversation; a waiting conversation moves to your thread and answers there; otherwise your text is forwarded to the existing work, and the notice says whether it was resumed, will be read at the next checkpoint, or will not continue because the card is no longer delegated. Reply directly in the original agent session to keep the same conversation |
 
 On legacy hosts, the Bot label group (D18) is team-scoped and single-select, so a card carries at most one child:
 修改, UI or Code. Bug, Improvement, Feature and the 部门 labels are for people and start nothing.
@@ -453,7 +453,7 @@ run `feature` it says that; an unknown Bot child or two name no workflow and are
 commands are refused before Linear is read on an instance that runs none of `fix`, `feature` or `fgui`; one
 that runs `feature` but not `fix` reads the card, then refuses a first fix. The acknowledgement in
 the session reads 「已排队开始或继续修改…」 for a fix and 「已排队开始或继续这项工作…」 for other work. FarmBot never sets a
-Bot label; the one label it writes is `needs-more-info`. `resume-work` remains a resume-only
+Bot label; the one label it writes is `待回复`. `resume-work` remains a resume-only
 compatibility command. Cancelled jobs stay cancelled and receive a fresh successor ID; other
 terminal jobs keep their ID. A write job's successor reports in the card's latest delegation session
 a person opened, which a re-delegation may have replaced since the job started; an operator-enqueued
@@ -554,9 +554,18 @@ branch from the default branch, named `farmbot/<key>-<job>` when FarmBot's clone
 
 A fix worker may update Farm-Contract in its Contract-root attempt for a confirmed requirement of
 the issue, a defect or a requested change, before the affected implementation. Uncertain behaviour
-or missing information is a question in Linear via `await-input`, which adds `needs-more-info`,
+or missing information is a question in Linear via `await-input`, which adds `待回复`,
 emits the elicitation and parks the item. A reply resumes it; insufficient answers lead to another
-question. The label is not automatically removed just because a reply arrived. Every question
+question. The controller reconciles the `待回复` label from all active parent and task questions
+on each successful status pass (normally within `reconcile_seconds`). A reply, wake or checkpoint
+does not clear a question. The worker acknowledges its fully answered round with `resolve-question`,
+using its current `human_question.id` and actual attributed inbox message IDs. Partial answers keep
+the flag; only the resolved worker's own round clears. Terminal/withdrawn work no longer contributes,
+and joins/resources and `--reason waiting` do not create questions. Other labels, status and assignee
+remain untouched; a card delegated to another bot is not reconciled by this instance. The controller
+records ownership when it manages this signal and removes no preexisting unowned flag from historical
+issues. Existing same-named labels are reused; new team labels default to red. Label failures
+are audited and retried without changing launch eligibility. Every question
 elicitation adds it, including chat and intake. `await-input --reason waiting` parks the same way
 without the label, for a pause that waits on a human step elsewhere rather than on an answer; the
 checkpoint records the reason as `pending_reason` beside `pending_question`. `await-input` refuses
@@ -745,7 +754,7 @@ human step elsewhere. A general job's `waiting_tasks: true` checkpoint is the
 explicit internal task join and emits no human elicitation. This supersedes the original
 operator-only slot recovery policy. Workers checkpoint, release `unclean`, and exit immediately.
 The release revokes both their claim and reservation token. Never request a human to operate
-Unity or add `needs-more-info` for this condition.
+Unity or add `待回复` for this condition.
 
 An Editor startup failure also quarantines its slot at the requested commit, using
 the preparation recovery budget. A missing MCP instance at the startup deadline
@@ -1277,7 +1286,7 @@ design documents. Follow the tested command, staging and validation workflow in
 worktree and verify them. Never hand-edit generated `.bytes`/atlases or claim runtime verification
 against stale outputs. Missing or failed export tooling calls for diagnosis, not a code workaround
 for a structural defect or change. If the intended UI is unclear, ask in Linear using
-`await-input --reason question` (which adds `needs-more-info`).
+`await-input --reason question` (which adds `待回复`).
 
 ## The Code worker (`feature`)
 
@@ -1761,7 +1770,7 @@ takes the answer to a later event of the thread; and a response owed for no job,
 that found nothing to stop, once the thread reaches active work. Such an error or response does not
 take the place of what closes the thread for a job that ended there. A thought and an
 operator-enqueued job's comment are not owed.
-FarmBot never closes a PR, deletes a branch, removes a label, delegates to itself or changes status or
+FarmBot never closes a PR, deletes a branch, removes other labels, delegates to itself or changes status or
 assignee because work was withdrawn; branches, draft PRs, checkpoints, plans, messages and cleanup
 evidence stay.
 

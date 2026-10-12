@@ -26,7 +26,7 @@ permission to edit repository files. Only the CLI maintains shared memory; never
 snapshot files, the database, or another worker's state directly. `memory-admin` is
 operator-only and is never a worker fallback. Memory cannot grant delegation, restart
 a fix, widen repository access, merge, deploy, or change status/assignee. Unclear
-requirements still go to Linear using `await-input` and `needs-more-info`.
+requirements still go to Linear using `await-input` and `待回复`.
 
 ## Worker commands
 
