@@ -49,6 +49,9 @@ Use `execution.python` for Python and the ledger CLI. On native Windows set
 never Bash, MSYS, WSL or an unverified Python alias. `python3` examples in shared
 references are macOS spelling. Prepared Pillow/CJK fonts and Git/LFS must already
 work; install/download no tools or fonts. A missing capability is a named gap.
+For authorized commits use the fixed per-command FarmBot identity in
+`references/worker-cli.md`, also on TestBot; absent ambient Git author settings
+do not require host configuration or a new identity.
 
 At every attempt:
 

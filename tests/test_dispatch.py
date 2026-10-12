@@ -374,25 +374,37 @@ class SkillAuthorityTests(unittest.TestCase):
         self.assertEqual(self.message({"id": "i", "skill": "chat"}).split("\n\n", 1)[0],
                          with_withdrawal(AUTHORITY_AT_A29D078))
 
+    def test_write_workers_receive_fixed_per_command_identity_in_authority(self):
+        for skill in ("fix", "work", "feature", "fgui", "scene"):
+            with self.subTest(skill=skill):
+                authority = self.message({"id": "i", "skill": skill}).split("\n\n", 1)[0]
+                self.assertIn("git -c user.name=FarmBot -c user.email=farmbot@localhost commit", authority)
+                self.assertIn("This identity also applies when bot_name is TestBot", authority)
+                self.assertIn("never change global or clone Git configuration", authority)
+                self.assertIn("Missing ambient user.name or user.email alone is not a host gap", authority)
+        self.assertNotIn(dispatch.GIT_COMMIT_AUTHORITY, dispatch.authority("chat"))
+
     def test_fix_receives_the_a29d078_authority_plus_the_fgui_export_grant_before_the_reference(self):
         """D18 h and question 5: the approval reviewer trusts only this text, so the export grant farmgui's rules
-        record is stated here for fix alone; everything else is the a29d078 text, byte for byte, with the
-        withdrawal sentence and reviewed server resource restrictions."""
+        record is stated here for fix alone; the common restrictions remain pinned separately,
+        with the fixed per-command commit identity supplied to write workers."""
         reference = dispatch.AUTHORITY_REFERENCE
         self.assertEqual(self.message({"id": "i", "skill": "fix"}).split("\n\n", 1)[0],
-                         with_withdrawal(AUTHORITY_AT_A29D078)[:-len(reference)] + FGUI_EXPORT_AT_D18 + reference)
+                         dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.KW_OPS_AUTHORITY
+                         + FGUI_EXPORT_AT_D18 + reference)
         self.assertEqual(dispatch.FGUI_EXPORT_AUTHORITY, FGUI_EXPORT_AT_D18)
         self.assertNotIn("FairyGUI", dispatch.COMMON_AUTHORITY + dispatch.SKILL_AUTHORITY["chat"])
 
     def test_feature_receives_the_common_part_its_own_part_and_the_reference(self):
         """Feature limits including spreadsheet reads are pinned word for word;
-        the common part and fix's and chat's bytes stay as the tests above pin them."""
+        the common restrictions and chat's bytes stay as the tests above pin them."""
         self.assertEqual(hashlib.sha256(FEATURE_AUTHORITY_WITH_SHEETS.encode("utf-8")).hexdigest(),
                          FEATURE_AUTHORITY_WITH_SHEETS_SHA256)
         self.assertEqual(dispatch.FEATURE_AUTHORITY, FEATURE_AUTHORITY_WITH_SERVER_SLOTS)
         self.assertIs(dispatch.SKILL_AUTHORITY["feature"], dispatch.FEATURE_AUTHORITY)
         self.assertEqual(self.message({"id": "i", "skill": "feature"}).split("\n\n", 1)[0],
-                         dispatch.COMMON_AUTHORITY + FEATURE_AUTHORITY_WITH_SERVER_SLOTS + dispatch.AUTHORITY_REFERENCE)
+                         dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY
+                         + FEATURE_AUTHORITY_WITH_SERVER_SLOTS + dispatch.AUTHORITY_REFERENCE)
 
     def test_the_feature_part_states_its_limits_and_carries_no_other_skills_grants(self):
         part = dispatch.SKILL_AUTHORITY["feature"]
@@ -432,7 +444,7 @@ class SkillAuthorityTests(unittest.TestCase):
                          "6ed311ec903b32ca5810d8ed8a3ff036c5914424e289889567273644a09b5018")
         self.assertIs(dispatch.SKILL_AUTHORITY["fgui"], part)
         self.assertEqual(self.message({"id":"i", "skill":"fgui"}).split("\n\n", 1)[0],
-                         dispatch.COMMON_AUTHORITY + part + dispatch.AUTHORITY_REFERENCE)
+                         dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + part + dispatch.AUTHORITY_REFERENCE)
         self.assertNotIn("\n", part)
         for phrase in ("starting in its farmgui worktree", "read-only integration context", "review-ui",
                        "export-ui", "install-ui", "verify-ui-guards", "verify-ui-loading", "unity_slot interactive",
@@ -470,13 +482,15 @@ class SkillAuthorityTests(unittest.TestCase):
         for name in ("feature", "fgui"):
             with self.subTest(skill=name), patch.dict(dispatch.SKILL_AUTHORITY, {name: "Own grants. "}):
                 text = self.message({"id": "i", "skill": name}).split("\n\n", 1)[0]
-                self.assertEqual(text, dispatch.COMMON_AUTHORITY + "Own grants. " + dispatch.AUTHORITY_REFERENCE)
+                self.assertEqual(text, dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY
+                                 + "Own grants. " + dispatch.AUTHORITY_REFERENCE)
                 self.assertNotIn("kw_ops", text)
 
     def test_no_part_carries_a_token_a_url_or_a_host_path(self):
         """Spec §12: the per-skill AUTHORITY is free of tokens and signed URLs. Every part is text that ends in
         the space the next part expects."""
-        parts = {"common": dispatch.COMMON_AUTHORITY, **dispatch.SKILL_AUTHORITY}
+        parts = {"common": dispatch.COMMON_AUTHORITY, "git_commit": dispatch.GIT_COMMIT_AUTHORITY,
+                 **dispatch.SKILL_AUTHORITY}
         for name, part in {**parts, "reference": dispatch.AUTHORITY_REFERENCE}.items():
             with self.subTest(part=name):
                 self.assertIsInstance(part, str)

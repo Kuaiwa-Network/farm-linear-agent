@@ -812,9 +812,9 @@ class Scheduler:
             reaped = self._reap()
             recovered = self._recover()
             self._sweep_worktrees()
-            parents = self.ledger.connection.execute("SELECT id FROM work_items "
-                "WHERE parent_id IS NULL AND skill='work' AND state='awaiting_input' "
-                "AND json_extract(checkpoint,'$.waiting_tasks')=1").fetchall()
+            parents = self.ledger.connection.execute("SELECT id FROM work_items w "
+                "WHERE parent_id IS NULL AND skill='work' AND state='awaiting_input' AND withdraw_deadline IS NULL "
+                "AND EXISTS (SELECT 1 FROM work_items t WHERE t.parent_id=w.id)").fetchall()
             for row in parents:
                 wake_parent(self.ledger, row["id"])
             queue = self.ledger.queue()

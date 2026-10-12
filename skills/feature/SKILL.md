@@ -46,6 +46,9 @@ native Python/CMD/Go entry points, never Git Bash, MSYS or WSL.
 Read the current repository entry points and pins first. A missing native tool,
 entry point, prepared dependency cache or sandbox access is a named verification
 gap; never install/upgrade tools or weaken containment/ownership to proceed.
+For authorized commits use the fixed per-command FarmBot identity in
+`references/worker-cli.md`, also on TestBot; missing ambient Git author settings
+alone are not a host gap and do not authorize editing Git configuration.
 For stage D's unpublished designer digest, the native `designer-digest.py` reads
 the exact config SHA's committed blobs and prints the same `ds_content_digest`
 value; no shell extraction is needed. Native pinned config generation stages

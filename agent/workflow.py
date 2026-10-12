@@ -390,7 +390,8 @@ def wake_parent(ledger, parent_id):
     with ledger._transaction():
         row = ledger._row(parent_id)
         checkpoint = json.loads(row["checkpoint"])
-        if row["state"] != "awaiting_input" or not checkpoint.get("waiting_tasks"):
+        if (row["state"] != "awaiting_input" or row["skill"] != "work" or row["parent_id"]
+                or row["withdraw_deadline"] is not None or ledger.active_reservation(parent_id) is not None):
             return False
         tasks = task_views(ledger, parent_id)
         settled = _tasks_settled(ledger, tasks)
@@ -415,6 +416,9 @@ def wake_parent(ledger, parent_id):
             return False
         observed.update((entry[0], entry) for entry in signature)
         checkpoint["task_wake"] = list(observed.values())
+        # A coordinator can wait for its own human answer while a child raises
+        # another question. Keep that gate: this wake consolidates task progress
+        # without treating an unanswered decision as permission to continue.
         checkpoint.pop("waiting_tasks", None)
         ledger._set_state(parent_id, "queued", "presentation task progress", token=None, lease_expires_at=None,
                           worker_pid=None, checkpoint=_json(checkpoint))
