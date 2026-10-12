@@ -457,7 +457,7 @@ class SkillAuthorityTests(unittest.TestCase):
     def test_ui_authority_is_pinned_to_certified_export_client_and_unity_loading(self):
         part = dispatch.FGUI_AUTHORITY
         self.assertEqual(hashlib.sha256(part.encode("utf-8")).hexdigest(),
-                         "6ed311ec903b32ca5810d8ed8a3ff036c5914424e289889567273644a09b5018")
+                         "376edd0ecf304b4a67d71691364f286075e6ad5d6fadbb9e64337332bb14661b")
         self.assertIs(dispatch.SKILL_AUTHORITY["fgui"], part)
         self.assertEqual(self.message({"id":"i", "skill":"fgui"}).split("\n\n", 1)[0],
                          dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.QUESTION_AUTHORITY + part + dispatch.AUTHORITY_REFERENCE)
@@ -470,6 +470,11 @@ class SkillAuthorityTests(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, part)
         self.assertNotIn("tools.kw_ops.access", part)  # D16: no operator-tool grant
+
+    def test_recovery_authority_assigns_the_bounded_repair_to_the_job(self):
+        self.assertIn("authorize-ui-guard-repair", dispatch.FGUI_AUTHORITY)
+        self.assertIn("instead of asking the human to find another engineer", dispatch.FGUI_AUTHORITY)
+        self.assertIn("Own technical blockers and their recovery", dispatch.WORK_AUTHORITY)
 
     def test_the_kw_ops_grant_is_per_skill_and_the_rest_is_common(self):
         self.assertEqual(set(dispatch.SKILL_AUTHORITY), {"fix", "chat", "work", "feature", "fgui", "scene"})

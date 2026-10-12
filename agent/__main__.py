@@ -74,6 +74,7 @@ def parser():
     verify_ui.add_argument("--commit", required=True)
     cmd("verify-ui-loading", "--item", "--receipt-id", token=True)
     cmd("verify-ui-guards", "--item", "--receipt-id", token=True)
+    cmd("authorize-ui-guard-repair", "--item", "--receipt-id", "--input", token=True)
     uploads.add_argument("--url", action="append",
                          help="one of the claimed issue's upload URLs, unsigned as issue-context shows it; repeatable; "
                               "default: every upload in its description and human comments")
@@ -685,7 +686,7 @@ def run(args, ledger, api_factory):
                 # own thread the acknowledgement is a thought, and the job speaks there next.
                 owe_closing(ledger, item, content, exc)
         return resumed
-    if c in ("review-ui", "export-ui", "install-ui", "verify-ui", "verify-ui-loading", "verify-ui-guards"):
+    if c in ("review-ui", "export-ui", "install-ui", "verify-ui", "verify-ui-loading", "verify-ui-guards", "authorize-ui-guard-repair"):
         token = resolve_token(args)
         ledger.renew(args.item, token)
         config = load_config(secure_permissions=False)
@@ -698,6 +699,9 @@ def run(args, ledger, api_factory):
         skill = load_skills(ROOT / "skills").get(ledger.item(args.item)["skill"])
         workflow = UiWorkflow(ledger, args.item, token, config, skill, api_factory,
                               stage="farmgui" if c in ("review-ui", "export-ui") else "Farm-Client")
+        if c == "authorize-ui-guard-repair":
+            from .fgui_repair import authorize_repair
+            return authorize_repair(workflow, args.receipt_id, read_packages(args.input, paths.runs / args.item))
         if c == "install-ui":
             from .fgui_client import install
             return install(workflow, args.receipt_id)

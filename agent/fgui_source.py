@@ -34,11 +34,11 @@ def _name(name):
     return name
 
 
-def _git(trees, path, args, data=None, *, limit=4 << 20):
+def _git(trees, path, args, data=None, *, limit=4 << 20, repo="farmgui"):
     # Explicit repo identity prevents the worker-controlled .git pointer or
     # commondir from selecting another clone, config or process hook.
-    entry = trees.worktree_entry("farmgui", path)
-    clone = trees._clone("farmgui")
+    entry = trees.worktree_entry(repo, path)
+    clone = trees._clone(repo)
     env = {**_environment(), "GIT_DIR": str(entry), "GIT_COMMON_DIR": str(clone), "GIT_WORK_TREE": str(path),
            "GIT_NO_LAZY_FETCH": "1", "GIT_NO_REPLACE_OBJECTS": "1", "GIT_CONFIG_COUNT": "0",
            "GIT_TERMINAL_PROMPT": "0", "GIT_LFS_SKIP_SMUDGE": "1"}

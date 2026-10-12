@@ -220,6 +220,11 @@ FGUI_AUTHORITY = (
     "export-ui for actual source/image/human evidence, install-ui for changed package assets and stable Unity "
     "metadata, and verify-ui for the exact committed Client scope. Client writes are limited to certified "
     "Assets/GameRes/FairyRes packages and reasoned changed-package entries in FguiDependencyGuardTests; "
+    "for missing registrations already present in unchanged baseline packages, use authorize-ui-guard-repair "
+    "with audited source/reference and lifetime reasons. Apply only its exact controller-qualified proposal, "
+    "then commit and rerun verify-ui and both actual guards. This adds no assets, gameplay, test-code, "
+    "persistent-package or baseline-reset permission. Own this bounded engineering repair instead of asking "
+    "the human to find another engineer or supply controller commands. Other unrelated failures remain gaps; "
     "never gameplay, generated bindings or another Code issue. Use verify-ui-guards for both actual hydrated "
     "guards; skipped or Inconclusive is pending. Then request only unity_slot interactive at that exact "
     "commit, use verify-ui-loading through the controller's pinned MCP session, and release through the "
@@ -296,6 +301,11 @@ WORK_AUTHORITY = (
     "A new task question may wake you while your own human question remains unanswered. Consolidate "
     "the task questions with your saved question; a coordination wake is not a human answer and does "
     "not authorize resuming work blocked on that answer. "
+    "Own technical blockers and their recovery. For a task blocked on missing unchanged-baseline FGUI "
+    "dependency registrations, have that task audit the references and use authorize-ui-guard-repair; "
+    "it retains its original baseline and must rerun the normal guards/loading/delivery gates. Do not park "
+    "waiting for an unnamed engineer, ask the human for hashes/controller procedures, or create replacement "
+    "tasks to evade scope. For an unsupported repair, explain the specific decision or host capability needed. "
 )
 SKILL_AUTHORITY["work"] = (WORK_AUTHORITY + FEATURE_AUTHORITY.replace(
     "This is a feature job: one Linear issue labelled Bot/Code, carried through repository stages with one fresh ",

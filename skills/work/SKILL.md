@@ -114,7 +114,16 @@ question is pending. Consolidate the new task questions with your saved question
 the wake is not an answer. Preserve unanswered decisions and park again without
 rerunning work that still depends on them.
 For a failed/blocked task, inspect retained evidence and ask for the missing
-decision/tool/asset. A named human's retry request in this job's inbox authorizes
+decision/tool/asset when one is actually required. Own ordinary engineering
+recovery instead of waiting for an unnamed engineer or asking the issue owner
+to find hashes/controller commands. For missing dependency registrations already
+present in unchanged Client baseline packages, direct the retained UI task to
+audit source references/lifetime and use `authorize-ui-guard-repair`. That bounded
+controller step preserves its entry HEAD and approval, and requires fresh exact
+commit scope, both actual guards and Unity loading before delivery. Route the
+actual continuation to the original task; do not create a replacement task or
+reset the baseline. Other unrelated fixes do not gain write scope from this command.
+A named human's retry request in this job's inbox authorizes
 `retry-task --task KEY --message-id ID` after certified cleanup. Never retry a
 terminal task by inventing a new key to bypass that human gate.
 
