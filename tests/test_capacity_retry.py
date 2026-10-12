@@ -6,7 +6,12 @@ import unittest
 from pathlib import Path
 from agent.launcher import Launcher, RUNTIMES, Finished
 from agent.ledger import Ledger, LedgerError
+from agent.workflow import delegate_task
 import test_scheduler
+
+CAPACITY = "ERROR: Selected model is at capacity. Please try a different model.\n"
+ROLLOUT_NOT_FOUND = ("2026-10-12T13:00:49.179447Z ERROR codex_core::session: "
+                     "failed to record rollout items: thread 01a1302b-0ccd-7421-97b4-756cf1e1e7ce not found\n")
 
 
 class CapacitySchedulerTests(unittest.TestCase):
@@ -53,6 +58,27 @@ class CapacitySchedulerTests(unittest.TestCase):
         self.scheduler.tick()
         self.capacity_exit(item)
         self.assertEqual(self.ledger.item(item["id"])["state"], "failed")
+
+    def test_parent_capacity_retry_keeps_running_presentation_task_and_claim(self):
+        parent = self.item(skill="work")
+        self.ledger.set_worker(parent["id"], 101, "h")
+        token = self.ledger.claim(parent["id"], worker_id="general")["token"]
+        self.ledger.checkpoint(parent["id"], token, {"plan": {"stages": {"A": "done"}}})
+        child = delegate_task(self.ledger, parent["id"], token,
+                              {"key": "ui", "capability": "fgui", "instructions": "Continue approved UI."})
+        self.ledger.set_worker(child["id"], 102, "h")
+        child_token = self.ledger.claim(child["id"], worker_id="presentation")["token"]
+        self.ledger.checkpoint(child["id"], child_token, {"stage": "client-handoff"})
+        checkpoint = self.ledger.item(child["id"])["checkpoint"]
+
+        self.capacity_exit(parent)
+
+        self.assertEqual(self.ledger.item(parent["id"])["state"], "queued")
+        self.assertEqual(self.ledger.item(child["id"])["state"], "running")
+        self.assertEqual(self.ledger.item(child["id"])["checkpoint"], checkpoint)
+        self.ledger.renew(child["id"], child_token)
+        self.assertIsNone(self.ledger.cleanup_record(child["id"]))
+        self.assertFalse(any(r[0] == "removed" for r in self.trees.added))
 
     def test_cancelled_capacity_exit_is_not_requeued(self):
         item = self.item()
@@ -148,6 +174,24 @@ class CapacityLauncherTests(unittest.TestCase):
         result = self.run_cli("ERROR: Selected model is at capacity. Please try a different model.\n\ntokens used\n245,179\n")
         self.assertEqual(result.failure_kind, "model_capacity")
         self.assertFalse(result.killed)
+
+    def test_capacity_with_shutdown_recording_error_is_classified(self):
+        for footer in ("", "\ntokens used\n163,110\n"):
+            with self.subTest(footer=footer):
+                result = self.run_cli(CAPACITY * 2 + ROLLOUT_NOT_FOUND + footer)
+                self.assertEqual(result.failure_kind, "model_capacity")
+                self.assertFalse(result.killed)
+
+    def test_shutdown_recording_error_does_not_hide_other_failures(self):
+        for text, code in (
+                (ROLLOUT_NOT_FOUND, 1),
+                (CAPACITY + ROLLOUT_NOT_FOUND, 0),
+                ("docs: " + CAPACITY + ROLLOUT_NOT_FOUND, 1),
+                (CAPACITY + "ERROR: Unauthorized\n" + ROLLOUT_NOT_FOUND, 1),
+                (CAPACITY + ROLLOUT_NOT_FOUND + "ERROR: Unauthorized\n", 1),
+                (CAPACITY + ROLLOUT_NOT_FOUND.replace("not found", "permission denied"), 1)):
+            with self.subTest(text=text, code=code):
+                self.assertIsNone(self.run_cli(text, code).failure_kind)
 
     def test_quoted_or_nonterminal_message_and_success_are_not_capacity(self):
         msg = "ERROR: Selected model is at capacity. Please try a different model.\n"
