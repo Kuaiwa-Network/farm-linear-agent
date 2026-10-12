@@ -323,6 +323,20 @@ class CodeJobJourneyTests(unittest.TestCase):
         return [["file", str(path), json.dumps(body, ensure_ascii=False)],
                 ["checkpoint", "--item", "{item}", "--token", "{token}", "--input", str(path)]]
 
+    def resolved_question(self, item_id):
+        """These scripted success stages have validated all answers; use the real acknowledgment CLI."""
+        context = self.context(item_id)
+        question = context["human_question"]
+        if question is None:
+            return []
+        messages = [m["id"] for m in context["session_messages"]
+                    if m["author"] and m["id"] > question["after_message_id"]]
+        self.assertTrue(messages, "a scripted success stage needs an actual human answer")
+        command = ["resolve-question", "--item", "{item}", "--token", "{token}", "--question-id", question["id"]]
+        for mid in messages:
+            command += ["--message-id", str(mid)]
+        return [command]
+
     @staticmethod
     def pause(reason, question):
         return [["await-input", "--item", "{item}", "--token", "{token}", "--question", question, "--reason", reason]]
@@ -376,7 +390,7 @@ class CodeJobJourneyTests(unittest.TestCase):
         if first:
             self.begin()
         self.plan.pop("pause", None)
-        steps = [*self.intake(), *(self.started() if first else [])]
+        steps = [*self.intake(), *self.resolved_question(item_id), *(self.started() if first else [])]
         if then == "farm-hive":
             self.plan["stages"].update(B=SKIPPED, C=SKIPPED)
             steps += self.notice("stage", "stage-B", "阶段 B（配表声明）跳过：这次变更不需要新的配置表；"
@@ -728,7 +742,8 @@ class CodeJobJourneyTests(unittest.TestCase):
         self.assertEqual((current["state"], current["root_repo"], current["stage"]),
                          ("awaiting_input", "common", "declarations"))
         self.assertEqual(self.context(item)["pending_reason"], "waiting")
-        self.assertEqual(len(self.calls("awaiting_reply")), 1)           # a waiting pause adds no label
+        self.assertIsNone(self.context(item)["human_question"])  # the answered round was explicitly acknowledged
+        self.assertFalse(self.calls("awaiting_reply")[-1]["waiting"])  # controller cleared its signal; waiting adds none
         self.assertEqual(self.context(item)["published_prs"], sorted([PRS["Farm-Contract"], PRS["common"]]))
 
         # Config ready: the designer names a branch, and stage C runs in the resumed common-rooted attempt.

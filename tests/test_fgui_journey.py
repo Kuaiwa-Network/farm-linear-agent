@@ -99,7 +99,7 @@ class UiJobJourneyTests(unittest.TestCase):
         checkpoint = j.work/f"checkpoint-round-{number}.json"
         notice = j.work/f"visual-{number}.md"
         saved = j.save(f"round-{number}", stage="ui_visual", next_action="Wait for attributed visual approval", published=[PR])
-        run, payload = j.attempt(item, [*j.intake(),
+        run, payload = j.attempt(item, [*j.intake(), *j.resolved_question(item),
             *j.commit_and_push("farmgui", f"UI source round {number}"), saved[0],
             ["python", "-B", str(ROOT/"skills/fgui/tools/preview.py"), "--project-root", str(j.tree(item,"farmgui")),
              "--package", "Reward", "--component", "panel", "--output-root", str(output)],
