@@ -1,7 +1,7 @@
 """Route lifecycle events; workers interpret natural-language intent."""
 from dataclasses import dataclass
 
-WRITE_SKILLS = ("fix", "fgui", "feature")
+WRITE_SKILLS = ("work", "fix", "fgui", "feature", "scene")
 # The team label group Bot and the skill each child starts (D18; feature spec §4.1, §4.3). Linear returns a child
 # under its own short name, so a label counts only together with this parent: a standalone "UI" or "Code" label is
 # not one. Bug, Improvement, Feature and the other labels for people never route. The group was named 功能 before
@@ -13,7 +13,7 @@ BOT_SKILLS = {"修改": "fix", "UI": "fgui", "Code": "feature"}
 # The write skills a request in a conversation may start or continue (spec §9.4; D18 f): it continues the
 # delegation's earlier job whatever the card's label now says, and otherwise starts the job the label names. fgui
 # is opt-in, like feature; a host that does not enable it still starts no UI work.
-CONVERSATION_SKILLS = ("fix", "feature", "fgui")
+CONVERSATION_SKILLS = ("work", "fix", "feature", "fgui")
 
 
 @dataclass(frozen=True)
@@ -60,6 +60,8 @@ def start_refusal(children, available_skills):
     D18 f (design §4.4): the card's Bot label chooses the workflow, where this instance runs it and a conversation
     may start it (CONVERSATION_SKILLS): no Bot child, or only 修改, `fix`; Code, `feature`; UI, `fgui`.
     An unknown child or two children name no workflow."""
+    if "work" in available_skills:
+        return None
     skill = start_skill(children)
     if skill in CONVERSATION_SKILLS and skill in available_skills:
         return None
@@ -94,6 +96,8 @@ def route(*, action, is_delegation, text, labels, active_state, terminal_exists,
             return Decision("resume", None, text)
         return Decision("steer", None, text)
     if is_delegation and (action == "created" or reroute):
+        if "work" in available_skills:
+            return Decision("work", "work")
         # A Bot child chooses the workflow, so the delegation's text never diverts it to chat (spec §4.4, D18).
         children = bot_children(label_groups)
         if children:

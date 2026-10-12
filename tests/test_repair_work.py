@@ -488,7 +488,7 @@ class RepairWorkTests(LedgerBase):
     def test_the_ledger_starts_only_what_a_conversation_may_start_and_continues_whatever_it_finds(self):
         chat, token = self.conversation()
         message = self.ledger.issue_context(chat["id"])["session_messages"][-1]["id"]
-        with self.assertRaisesRegex(LedgerError, "a conversation starts only fix or feature or fgui work"):
+        with self.assertRaisesRegex(LedgerError, "a conversation starts only work or fix or feature or fgui work"):
             self.ledger.request_repair(chat["id"], token, message, APP, "Make the panel.", start_skill="uninstalled")
         self.assertEqual(self.ledger.item(chat["id"])["state"], "running")
         self.ledger.cancel(chat["id"], "next case")

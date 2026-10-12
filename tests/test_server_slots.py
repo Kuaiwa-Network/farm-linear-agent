@@ -90,6 +90,16 @@ class ServerPoolFixture(unittest.TestCase):
         return item["id"]
 
 class PoolTests(ServerPoolFixture):
+    def test_general_job_can_reserve_server_services_at_its_exact_candidate(self):
+        item = self.request(skill="work")
+        self.assertEqual(self.pool.tick()["granted"], 1)
+        self.assertEqual(self.services.started[0]["commit"], "a" * 40)
+        self.assertEqual(self.ledger.item(item)["state"], "queued")
+        self.ledger.cancel(item, "general issue stopped")
+        self.assertEqual(self.pool.tick()["settled"], 1)
+        self.assertEqual(len(self.services.cleaned), 1)
+        self.assertEqual(self.services.cleaned[0]["reservation_id"], self.services.started[0]["reservation_id"])
+
     def test_three_candidates_receive_distinct_services_and_fourth_waits(self):
         items = [self.request(str(index) * 40) for index in range(1, 5)]
         self.assertEqual(self.pool.tick()["granted"], 3)
@@ -280,7 +290,7 @@ class PoolTests(ServerPoolFixture):
     def test_server_capability_reports_configuration_without_granting_endpoints_or_a_resource(self):
         from agent.scheduler import Scheduler
         from test_scheduler import FakeLauncher, FakeWorktrees
-        for skill in ("fix", "feature"):
+        for skill in ("work", "fix", "feature"):
             for configured in (True, False):
                 with self.subTest(skill=skill, configured=configured):
                     item = self.request(skill=skill, reserve=False)

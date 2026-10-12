@@ -2,6 +2,7 @@
 import json
 from uuid import uuid4
 
+from .ledger import ACTIVE_STATES
 from .withdrawal import (HEARTBEAT_PREDECESSOR, HEARTBEAT_STATUS_ERROR, HEARTBEAT_UNDELEGATED,
                          HEARTBEAT_WITHDRAWING)
 
@@ -43,12 +44,13 @@ class SessionProgress:
 
     def _content(self, item):
         state = item["state"]
+        if state in ACTIVE_STATES and item["withdraw_deadline"] is not None:
+            # A parked coordinator can be waiting for its children to save and stop; it needs no human answer.
+            return {"type": "thought", "body": HEARTBEAT_WITHDRAWING}
         if state == "queued":
             body = self._queued_body(item)
         elif state == "awaiting_resource":
             body = "工作已保留，正在等待 Unity 验证资源。"
-        elif state == "running" and item["withdraw_deadline"] is not None:
-            body = HEARTBEAT_WITHDRAWING  # its worker saves its progress and runs `withdraw` (design P2)
         elif state == "running":
             body = f"工作仍在处理中；已记录阶段：{item['stage'][:120]}。"
             checkpoint = self.db.execute("SELECT max(created_at) FROM audit WHERE item_id=? AND kind='checkpoint'",
@@ -56,6 +58,8 @@ class SessionProgress:
             body += (f"最近保存检查点距今 {max(0, int((self.ledger.clock() - checkpoint) / 60))} 分钟。"
                      if checkpoint is not None else "尚未保存新的检查点。")
         elif state == "awaiting_input":
+            if item["checkpoint"].get("waiting_tasks"):
+                return {"type": "thought", "body": "工作已保存，正在等待本 issue 的界面/场景任务完成。"}
             return {"type": "elicitation", "body": item["checkpoint"].get("pending_question") or "正在等待你的回复。"}
         else:
             # A heartbeat can cross a worker's final activity in flight. Restore
@@ -75,7 +79,9 @@ class SessionProgress:
         # A cross-session handoff does complete the source session, however.
         if active and active["session_id"] == item["session_id"]:
             item = active
-        return item, f"{item['id']}:{item['state']}:{item['generation']}"
+        # Flags can change while the item remains awaiting_input, including between a question's reservation and
+        # its retry. Reevaluate that content instead of sending an obsolete elicitation during withdrawal grace.
+        return item, f"{item['id']}:{item['state']}:{item['generation']}:{item['withdraw_reason']}:{item['withdraw_deadline']}"
 
     def _reserve(self, item_id, content, status_key):
         """The new send's activity id, or None when the item's row is gone: a cancellation that posted its own
@@ -151,7 +157,7 @@ class SessionProgress:
         with self.ledger._transaction():
             self.db.execute("""INSERT OR IGNORE INTO session_progress(item_id,due_at)
                 SELECT id,created_at+? FROM work_items
-                WHERE state IN ('queued','running','awaiting_resource') AND session_id NOT LIKE 'local-%'""",
+                WHERE parent_id IS NULL AND state IN ('queued','running','awaiting_resource') AND session_id NOT LIKE 'local-%'""",
                 (self.interval,))
             row = self.db.execute("""SELECT p.* FROM session_progress p JOIN work_items w ON w.id=p.item_id
                 WHERE p.due_at<=? AND (p.content IS NOT NULL OR w.state IN ('queued','running','awaiting_resource'))

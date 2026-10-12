@@ -16,7 +16,33 @@ python3 -m agent --db DATABASE checkpoint --help
 | `resume-work` | Legacy resume-only command: claim-token arguments and `--message-id LATEST_MESSAGE_ID`; cannot start a first repair |
 | `memory-list`, `memory-read`, `memory-save`, `memory-forget` | Same claim-token arguments; see `references/memory.md` |
 | `release-resource` | `--item ITEM_ID --token-file RESOURCE_TOKEN_FILE`, using `resource.token_file`, plus `--outcome quiescent` or `--outcome unclean` |
-| `withdraw` | `--item ITEM_ID --token-file STATE_DIR/token`; ends your claim as cancelled after the delegation was removed or superseded; save a checkpoint first; exit after it succeeds |
+| `withdraw` | `--item ITEM_ID --token-file STATE_DIR/token`; releases your claim after the delegation was removed or superseded; a general coordinator may park for running children's grace; save a checkpoint first; exit after it succeeds |
+| `tasks` | `--item ITEM_ID`; reads this logical job's durable presentation tasks |
+| `delegate-task` | General job claim-token arguments and `--input FILE`; exact JSON keys `key`, `capability` (`fgui` or `scene`), `instructions`; requires settled shared behavior in plan stage A |
+| `answer-task`, `retry-task` | General job claim-token arguments, `--task KEY --message-id ID`; uses an actual attributed message from this job's inbox; retry also requires certified teardown |
+| `await-tasks` | General job claim-token arguments; valid checkpoint and no open reservation; parks the coordinator while tasks continue; exit immediately |
+
+With `work` enabled, new delegations and first authorized conversation requests
+ignore Bot labels. Legacy jobs still continue under their original profile. The
+parent reads `issue-context.tasks`, `parent_job` is available to each task, and a
+successor sees `predecessor_tasks`. Replies reach the parent and `answer-task`
+preserves their original author/time; do not synthesize answers or re-ask accepted
+ones. `await-tasks` marks `waiting_tasks: true`; the controller wakes the parent
+once per new question/failure or on certified completion. Client gameplay handoff
+requires done/skipped stage D and delivered, safely retired tasks.
+
+Internal tasks post progress thoughts and visual notices, not outcome comments or
+session-closing responses. Their `finish` evidence carries summary/verification
+and verified PRs (or an explicit no_change reason), without comment_action_id.
+FGUI still requires the full current controller delivery proof for a changed UI.
+Internal UI no-change delivery requires clean source on its controller-recorded
+source entry branch and zero tree diff from the immutable source entry commit;
+if Client was entered, it also requires clean Client and zero diff from its
+original Client entry baseline. Stop successors retain both original entry scopes,
+including when a new task key is used. A clean committed source edit is still a
+change and requires normal UI delivery.
+The parent delivery includes every task's PRs. Shared worktrees remain owned by
+the parent; task reports, tokens, receipts and read snapshots are task-specific.
 
 `fetch-issue` refreshes the ledger from Linear and prints `delegated`: `true` while the issue is
 delegated to this FarmBot app, `false` once someone removed the delegation or gave it to another
@@ -48,12 +74,20 @@ they do not certify isolation from other users of the service account.
 
 `withdraw` reads the card afresh and ends your claim as cancelled when your work is withdrawn, the
 card is closed, or, for work the delegation authorised, the card is no longer delegated to this app.
-It posts the one notice that says so, and a later delegation continues the job from your
+For a standalone job it posts the one notice that says so, and a later delegation continues the job from your
 checkpoint's plan. It refuses while nothing withdrew the work, and when the card is delegated to
 this app again; then continue. `verify-publication`, `handoff-repository`, `await-input` and
 `await-resource` refuse withdrawn work with `delegation withdrawn`, and `await-input` refuses work
 the delegation authorised on a card no longer delegated here or closed, before anything reaches
 Linear.
+
+For a general coordinator with running children, successful `withdraw` releases
+the claim and parks the coordinator while those children save progress. It posts
+no closing response or elicitation. Obsolete pending-question/task-join fields
+are cleared; pending heartbeat retries show a withdrawal thought, and an already
+in-flight question receives a correcting thought. The group ends after its
+running children stop or grace expires. Quick re-delegation resumes this saved
+coordinator, while later genuine human questions keep their normal wait.
 
 ```bash
 python3 -m agent --db DATABASE withdraw --item ITEM_ID --token-file STATE_DIR/token
@@ -69,20 +103,33 @@ snapshot predates these fields.
 
 `request-repair` refreshes Linear, then atomically retires read-only execution and queues the same
 issue's work: it continues the delegation's earlier job, `resumable_work` in `issue-context` (a fix,
-`feature` or `fgui` job), whatever the card's label now says, or else starts a first job. It requires
+`work`, `feature` or `fgui` job), whatever the card's label now says, or else starts a first job. It requires
 recorded delegation provenance and current delegation, but no prior fix or Bot label. It carries all
 current messages and the investigation summary into `issue-context`. Success retires your token:
 exit immediately. A newer-message refusal means reread the conversation before deciding again.
 `conversation_history` provides earlier answers/findings across execution profiles; only current
 `session_messages` authorize a request.
 
-On a host whose `enabled_skills` names none of `fix`, `feature` or `fgui`, `request-repair` and
+On a host whose `enabled_skills` names none of `work`, `fix`, `feature` or `fgui`, `request-repair` and
 `resume-work` are refused before anything changes; tell the human instead of retrying. The card's
-Bot label decides what a first request starts, on a host that runs it: with Bot/修改 or no Bot label,
+first request starts `work` when enabled, regardless of labels. On legacy hosts its
+Bot label decides what starts, on a host that runs it: with Bot/修改 or no Bot label,
 `fix`; with Bot/Code, `feature`; with Bot/UI, `fgui`. With Bot children that name no workflow, or a workflow the
 host does not run, it refuses to start a first job. Either command continues `resumable_work` only
 on a host that runs its skill; elsewhere it refuses, and starts nothing else. Relay a refusal's
 message, which says why, and do not retry.
+
+Internal presentation task finish/question state is durable before its optional
+progress thought is sent. A failed thought is diagnosed without making the
+successful state transition fail; the general job reads that state and owns
+human-facing questions and outcome reporting. `local-` tasks post issue comments.
+Scene `finish` additionally verifies clean owned Client HEAD and the exact actual
+open draft; no-change evidence requires zero diff from its task entry baseline.
+After process quiescence, task cleanup rechecks certified source/Client heads.
+A proven mismatch invalidates delivery and retains the candidate for attributed
+human retry. An unknown verification error instead leaves cleanup pending for
+another check; it does not fail delivery or certify teardown.
+The parent Client join checks explicit B/C configuration and D server completion.
 
 Each `session_messages` entry, like each message in `conversation_history`, is
 `{"id", "body", "author", "created_at"}`, and so is each entry of the launch message's
@@ -426,7 +473,7 @@ The controller handles editor recovery and job continuation. Do not follow it wi
 or ask for host intervention. A fresh worker receives the exact retried commit and can read
 `issue-context.resource_recovery` for prior attempts and retained diagnostics.
 
-For service-backed server tests, `fix` and `feature` may checkpoint and request
+For service-backed server tests, `work`, `fix` and `feature` may checkpoint and request
 `await-resource --resource server_slot --mode batch --commit FULL_SERVER_HEAD_SHA`
 only from their `farm-hive` write stage on a host with configured server slots. The
 launch message's `tools.server_tests.status` is `configured` or `unavailable` in

@@ -132,7 +132,8 @@ class PublicationVerifier:
         configured = self.worktrees.remotes.get(repo)
         expected = github_repository(configured)
         root = self.worktrees.worktrees_root.resolve()
-        path = root / item_id / repo
+        from .workflow import repository_path
+        path = repository_path(self.worktrees, repo, item_id)
         if not path.is_dir() or path.resolve() != path or not path.is_relative_to(root):
             raise PublicationError("publication requires this job's own configured worktree")
         try:

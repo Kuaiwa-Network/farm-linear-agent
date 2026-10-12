@@ -162,7 +162,11 @@ FEATURE_AUTHORITY = (
 )
 
 FGUI_AUTHORITY = (
-    "This is an opt-in fgui job for exactly one Linear issue labelled Bot/UI, starting in its farmgui worktree. "
+    "This is the fgui capability for exactly one delegated Linear issue, starting in its farmgui worktree. "
+    "An internal presentation task belongs to the general job and needs no Bot label; its parent coordinates "
+    "shared OpenSpec behavior and receives attributed answers. Report task progress without closing the "
+    "parent session or posting a separate issue outcome comment. Pure visual corrections check existing "
+    "requirements; new interactions/states follow the parent's shared OpenSpec, never invent their behavior. "
     "Listed Farm-Client main checkouts are read-only integration context. A named human's unqualified "
     "confirmation of the unchanged current visual round includes export and scoped Client continuation "
     "when that round's notice explains this meaning and names the verified destination and packages. "
@@ -228,6 +232,42 @@ AUTHORITY_REFERENCE = "Use references/worker-cli.md for command arguments and th
 SKILL_AUTHORITY = {"fix": KW_OPS_AUTHORITY + FGUI_EXPORT_AUTHORITY, "chat": KW_OPS_AUTHORITY,
                    "feature": FEATURE_AUTHORITY, "fgui": FGUI_AUTHORITY}
 
+# General jobs reuse the proven code grants and controller-certified UI
+# capability. A presentation task has its own scoped claim; parent authority
+# never expands a child's sandbox or gives it the parent's token.
+WORK_AUTHORITY = (
+    "This is one general delegated issue job, regardless of its Bug/Feature or Bot labels. "
+    "You may implement the issue's existing or new behavior through the required repository stages. "
+    "Use the shared OpenSpec for new or changed behavior, including UI-only behavior; pure visual fixes "
+    "check existing requirements and visual references without inventing a contract change. "
+    "After settling the shared behavior, use delegate-task to start controller-managed fgui or scene "
+    "presentation subagents and continue independent server work in parallel. Use tasks and answer-task "
+    "to route actual attributed human messages to the relevant tasks, and await-tasks to checkpoint "
+    "and release an attempt while tasks continue. Missing assets are human questions: request the "
+    "required files or their location, pause only dependent work, and invent no final art or placeholder "
+    "permission. Client gameplay implementation waits for required server/config and certified "
+    "presentation completion. The controller serializes writes to each job-owned repository and "
+    "preserves one immutable Client baseline and issue branch. Retain UI export, approval, resource "
+    "and verification evidence; full completion covers the parent and all required tasks. "
+)
+SKILL_AUTHORITY["work"] = (WORK_AUTHORITY + FEATURE_AUTHORITY.replace(
+    "This is a feature job: one Linear issue labelled Bot/Code, carried through repository stages with one fresh ",
+    "This is a general issue job carried through repository stages with one fresh ").replace(
+    "create no other task or issue", "create no separate issue; delegate only through the general job's task CLI"))
+SKILL_AUTHORITY["scene"] = (
+    "This is a scene/prefab/display presentation task owned by one delegated general issue job. "
+    "Follow the recorded settled shared OpenSpec and actual design references. Author only this task's "
+    "Client presentation assets and references in the current scoped repository. Never implement "
+    "unrelated gameplay/server work, export FairyGUI, merge, deploy or configure the host. Missing "
+    "assets or unclear design are questions: save a checkpoint, ask through await-input and exit. "
+    "The parent may continue server work and forwards attributed human answers. Never invent art or "
+    "infer permission for a placeholder. Request Unity only through the controller at your own clean "
+    "committed issue-branch HEAD; use only its reservation-bound MCP and existing release checks. "
+    "Publish this task's Client draft only through verify-publication. Task delivery leaves final "
+    "integration and issue completion to the parent job. Fetch issue uploads with download-uploads; "
+    "upload only this task's PNG/JPEG presentation previews from state_dir with upload-image. "
+)
+
 
 def authority(skill):
     """The AUTHORITY block one skill's workers receive."""
@@ -264,6 +304,10 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
         "publication": publication if publication is not None else {"repositories": {}},
         "user_requests": user_requests or [],
         "prior_context": prior_context,
+        "task": ({"parent_id": item["parent_id"], **(item.get("task_request") or {})}
+                 if item.get("parent_id") else None),
+        "capabilities": ({name: str(root / "skills" / name / "SKILL.md")
+                          for name in ("feature", "fgui", "scene")} if item.get("skill") == "work" else {}),
         # The reservation this worker holds, or None. It carries the token's *path* and never the token, and
         # in neither mode does it carry an argv or the Editor's own path: a worker never starts Unity.
         "resource": resource,
@@ -277,7 +321,7 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
         "renew_minutes": budget["renew_minutes"],
         "guidance": guidance or "",
     }
-    if item.get("skill") in ("feature", "fgui"):
+    if item.get("skill") in ("work", "feature", "fgui", "scene"):
         # Bind Python to the controller rather than a Windows Store/python3
         # alias. This describes execution; it adds no roots or authority.
         payload["execution"] = {"platform": sys.platform, "python": sys.executable}

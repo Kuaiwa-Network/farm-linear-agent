@@ -114,7 +114,7 @@ class WorkerCliReferenceTests(unittest.TestCase):
 
 class ClaimTokenInstructionTests(unittest.TestCase):
     def test_every_claiming_skill_distinguishes_posix_mode_from_windows_acl(self):
-        for skill in ("chat", "fix", "feature", "fgui"):
+        for skill in ("chat", "work", "fix", "feature", "fgui", "scene"):
             with self.subTest(skill=skill):
                 text = (ROOT / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
                 self.assertIn("on POSIX use mode 0600; on Windows keep the inherited DACL", text)
@@ -278,7 +278,7 @@ class WithdrawalInstructionTests(unittest.TestCase):
 class SkillRegistryTests(unittest.TestCase):
     def test_repository_skills_load_with_expected_authority(self):
         skills = load_skills(ROOT / "skills")
-        self.assertEqual(set(skills), {"chat", "feature", "fix", "fgui"})
+        self.assertEqual(set(skills), {"chat", "work", "feature", "fix", "fgui", "scene"})
         self.assertEqual(skills["fix"].trigger, ("delegation",))
         self.assertIn("Farm-Client", skills["fix"].writes)
         self.assertEqual(skills["fix"].resources, ("unity_slot", "server_slot"))

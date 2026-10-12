@@ -33,7 +33,8 @@ TARGET_REPO = "Farm-Client"
 PIN_TIMEOUT = 8
 # {bot} is the instance's configured Linear app name: a development instance shares the workspace with
 # production, and an acknowledgement in the wrong name gets the wrong bot stopped.
-ACK = {"fix": "{bot} 已收到委派，正在排队处理这张修改卡。进展和草稿 PR 会更新在这里。",
+ACK = {"work": "{bot} 已收到委派，会按本 issue 的需要处理契约、服务器、界面/场景和客户端工作；进展、问题和草稿 PR 会更新在这里。",
+       "fix": "{bot} 已收到委派，正在排队处理这张修改卡。进展和草稿 PR 会更新在这里。",
        "fgui": "{bot} 已收到委派，正在排队处理这张 UI 卡。进展、预览和草稿 PR 会更新在这里。",
        "feature": "{bot} 已收到委派，正在排队处理这张功能卡。进展、问题和草稿 PR 会更新在这里。",
        "chat": "{bot} 已收到，正在查看。", "qa": "{bot} 已收到测试请求，正在排队。"}
@@ -383,9 +384,9 @@ class Receiver:
             # steers or resumes that work; nor does a mention in another session that is forwarded to a feature
             # job. No acknowledgement of such an event carries a target line.
             forwarded = decision.kind == "chat" and elsewhere is not None and elsewhere["session_id"] != session_id
-            feature_work = ((decision.kind == "work" and decision.skill in ("feature", "fgui"))
-                            or any(entry["skill"] in ("feature", "fgui") for entry in history)
-                            or (forwarded and elsewhere["skill"] in ("feature", "fgui")))
+            feature_work = ((decision.kind == "work" and decision.skill in ("work", "feature", "fgui"))
+                            or any(entry["skill"] in ("work", "feature", "fgui") for entry in history)
+                            or (forwarded and elsewhere["skill"] in ("work", "feature", "fgui")))
             return active, decision, elsewhere, feature_work, reroute
 
         routed = routing()
@@ -742,7 +743,7 @@ class Receiver:
                     # The thread's stored target, as a conversation's first repair takes it: nothing is pinned anew.
                     self.ledger.supersede(active["id"], ACTIVE_STATES if conversation else UNCLAIMED,
                                           session_id=thread, skill=skill, reason=IN_PLACE_REASON,
-                                          target=None if skill in ("chat", "feature", "fgui") else session["target"],
+                                          target=None if skill in ("chat", "work", "feature", "fgui") else session["target"],
                                           authority="delegation", episode=since)
                     self._say(thread, {"type": "thought", "body": IN_PLACE_NOTE.format(bot=self.bot_name) + "\n"
                                        + self._opening(decision, "")})

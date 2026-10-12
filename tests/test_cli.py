@@ -343,6 +343,12 @@ class CliTests(unittest.TestCase):
         return item, token, baseline, fixed, path
 
     def test_server_resource_verifies_own_clean_head_and_configured_ledger(self):
+        self.check_server_resource_candidate("fix")
+
+    def test_general_server_resource_preserves_head_and_host_ownership_gates(self):
+        self.check_server_resource_candidate("work")
+
+    def check_server_resource_candidate(self, skill):
         from unittest.mock import patch
         from agent.__main__ import parser, run
         from agent.config import load_config, Paths
@@ -350,7 +356,7 @@ class CliTests(unittest.TestCase):
         from agent.worktrees import Worktrees, WorktreeError
         from test_worktrees import git
         from test_server_slots import SETTINGS
-        item, token, baseline, fixed, _ = self.verification_fixture()
+        item, token, baseline, fixed, _ = self.verification_fixture(skill=skill)
         config = load_config(self.env["FARMBOT_CONFIG"])
         config.repos["farm-hive"] = config.repos["Farm-Client"]
         config.server_slots = SETTINGS

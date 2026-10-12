@@ -1,35 +1,32 @@
 # farm-linear-agent
 
 One Linear agent for the 农场 team. Delegate an issue to it for work, @mention it to
-talk. The issue's label from the Bot group says what work: Bot/修改 for a bug fix or a
-small change to existing code or UI, Bot/Code for a new feature's code and Bot/UI for its
-new UI. The Code worker runs only on a host that enables it; in this revision it takes a
-feature from its Farm-Contract change through farm-common declarations, farm-hive and
-Farm-Client, with human UI-ready confirmation and committed-HEAD verification. It opens
-drafts and a Contract acceptance/archive draft; people review, merge and accept them.
-The UI worker (`fgui`) is also opt-in. It starts in farmgui, opens a source
-draft and posts clearly labeled approximate previews for explicit human visual
-approval. Replies resume it; comments alone do not. Corrections require a fresh
-preview round. Each round's notice names the Client branch and changed package
-paths. A named human's confirmation of that unchanged round includes export and
-scoped Client continuation; an explicit visual-only reply leaves export pending.
-The recorded approval and export request allow
-the configured licensed native Windows publisher to export the changed packages.
-The controller then permits a scoped Farm-Client stage, actual Client guards and
-reserved exact-commit Unity package loading before two-draft delivery. Missing
-host prerequisites park the work; package loading does not certify target-panel
-rendering or human visual/runtime acceptance. The
-[Phase E record](docs/superpowers/plans/2026-10-06-feature-workers-phase-e.md)
-records the verified offline implementation and remaining live/release checks.
-Without a Bot label a delegation opens a conversation. Capabilities are added as skills on
-a shared identity, ledger, worker runtime and desktop-resource locks: chat, QA, bug fixes
-and small changes, FGUI, then whole features.
+talk. The opt-in general workflow (`enabled_skills: ["chat", "work"]`) owns one
+job per issue and ignores Bot labels. Bug fixes and new features use the same
+capabilities, with only the required stages. Shared OpenSpec defines new or
+changed behavior, including UI interactions; visual-only edits check existing
+requirements and actual design references.
 
-FarmBot keeps one conversation across read-only investigation and writable repair execution.
-An authorized “fix it” reply can start the first repair on a card labelled Bot/修改 or with
-no Bot label, or resume previous work without re-delegating. The host carries messages and
+After the behavior is settled, the job can delegate durable FGUI/scene tasks
+while continuing independent server/config work. Each task has its own claim,
+checkpoint and questions in the same conversation. Missing assets are a human
+question; partial answers retain attribution. Client gameplay waits for server
+work and verified presentation completion. FGUI keeps its named visual approval,
+certified native export, scoped Client installation, guards and reserved Unity
+loading checks. Package loading alone does not certify gameplay or visual
+acceptance. People review, merge and accept the drafts.
+
+See [general workflow and migration](docs/general-workflow.md) for activation,
+concurrency, recovery and validation boundaries. This checkout changes no running
+service or Linear labels. Hosts without `work` retain legacy label routing and
+profiles so unfinished jobs can continue during a controlled rollout.
+
+FarmBot keeps one conversation across read-only investigation and writable execution.
+An authorized “fix it” reply can start a general job with `work` enabled, or resume
+previous work without re-delegating. Legacy hosts start the first repair on a card
+labelled Bot/修改 or with no Bot label. The host carries messages and
 findings across the change of execution profile and posts recorded session progress every
-ten minutes while work is active or queued. Fix work starts with read-only investigation,
+ten minutes while work is active or queued. Legacy fix work starts with read-only investigation,
 then uses a fresh Codex worker rooted in each repository it needs to change. The controller
 keeps one Linear work item across those switches.
 

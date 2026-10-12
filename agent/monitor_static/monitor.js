@@ -15,7 +15,7 @@
     ok: ["正常", "ok"], attention: ["需要关注", "warn"], starting: ["正在启动", "info"],
     unresponsive: ["无响应", "bad"], stopped: ["已停止", "bad"], unknown: ["未知", "neutral"],
   };
-  const SKILL = {fix: "修改", feature: "Code", fgui: "UI", chat: "对话"};
+  const SKILL = {work: "任务", scene: "场景表现", fix: "修改", feature: "Code", fgui: "UI", chat: "对话"};
   const FAILURE = {
     worker_launch_failed: ["工作进程启动失败", "请联系管理员检查执行器 CLI 和启动环境；修复后在 Linear 回复「重试」。"],
     worker_start_failed: ["工作进程在认领前退出", "请联系管理员检查执行器 CLI、登录状态和启动环境；修复后在 Linear 回复「重试」。"],

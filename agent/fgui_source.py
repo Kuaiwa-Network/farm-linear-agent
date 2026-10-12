@@ -142,7 +142,8 @@ def owned_source(trees, item_id, branch, packages, *, expected_head):
         raise LedgerError("UI source requires explicit scoped package identities")
     for name, identity in packages.items():
         _package(name, identity)
-    path = trees.worktrees_root.resolve() / item_id / "farmgui"
+    from .workflow import repository_path
+    path = repository_path(trees, "farmgui", item_id)
     _plain_path(path)
     if path.resolve() != path or not path.is_dir() or path.parent.parent != trees.worktrees_root.resolve():
         raise LedgerError("UI source must be this item's owned farmgui checkout")
@@ -212,7 +213,8 @@ def changed_packages(trees, item_id, branch, *, head, base):
     """
     if any(not isinstance(v, str) or not re.fullmatch(r"[0-9a-f]{40}", v) for v in (head, base)):
         raise LedgerError("UI source diff requires full reviewed HEAD and trusted main commits")
-    path = trees.worktrees_root.resolve() / item_id / "farmgui"
+    from .workflow import repository_path
+    path = repository_path(trees, "farmgui", item_id)
     _plain_path(path)
     if (_git(trees, path, ["rev-parse", "HEAD"]).decode("ascii").strip() != head
             or _git(trees, path, ["symbolic-ref", "--quiet", "--short", "HEAD"]).decode("utf-8").strip() != branch):

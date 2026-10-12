@@ -15,7 +15,9 @@ import test_fgui_guards as guard_fixtures
 
 class UiDeliveryTests(unittest.TestCase):
     def setUp(self):
-        self.guard_fixture = g = guard_fixtures.UiGuardWorkflowTests(); g.setUp(); self.addCleanup(g.doCleanups)
+        self.guard_fixture = g = guard_fixtures.UiGuardWorkflowTests()
+        g.internal = getattr(self, "internal", False)
+        g.setUp(); self.addCleanup(g.doCleanups)
         self.fixture = f = g.fixture; self.ledger, self.item, self.receipt = f.ledger, f.item, f.exported['receipt_id']
         self.head = f.source.git(f.client, 'rev-parse', 'HEAD')
         self.client_url = 'https://github.com/example/Farm-Client/pull/2'
@@ -55,6 +57,15 @@ class UiDeliveryTests(unittest.TestCase):
     def evidence(self, proof=None):
         return {'summary': 'Both UI drafts ready for human merges', 'verification': 'Guard and actual package-loading checks passed',
                 'prs': self.urls, 'ui_delivery_id': (proof or {}).get('delivery_id', 'forged'), 'comment_action_id': 'not-posted'}
+
+    def test_general_task_delivers_only_after_full_checks_without_parent_outcome_comment(self):
+        task = UiDeliveryTests(); task.internal = True; task.setUp(); self.addCleanup(task.doCleanups)
+        proof = task.complete_checks()
+        evidence = task.evidence(proof); evidence.pop('comment_action_id')
+        delivered = task.ledger.finish(task.item, task.fixture.source.token, 'delivered', evidence)
+        self.assertEqual(delivered['state'], 'delivered')
+        self.assertEqual(task.ledger.item(task.fixture.parent)['state'], 'running')
+        self.assertEqual(task.ledger.connection.execute('SELECT count(*) FROM outbox WHERE item_id=?', (task.item,)).fetchone()[0], 0)
 
     def configured_github_origins(self):
         # Local owned clones and scripted API; no network or live publication.

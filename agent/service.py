@@ -23,6 +23,7 @@ from .resource_admission import ResourceAdmission
 from .server_slots import ServerSlotPool, ServerSlotError
 from .receiver import Receiver, make_server
 from .router import BOT_GROUP, BOT_SKILLS, WRITE_SKILLS, bot_children
+from .workflow import JobWorktrees
 from .scheduler import Scheduler
 from .session_progress import SessionProgress
 from .skills import enabled_skills, load_skills
@@ -70,7 +71,7 @@ def build(config, runtime_override=None):
                           slot_entries={entry["id"]: entry for entry in entries},
                           guidance_for=lambda item: (ledger.session(item["session_id"]) or {}).get("guidance") or "",
                           api=api, control_ledger_factory=lambda: Ledger(paths.ledger),
-                          publication=PublicationVerifier(worktrees, issue_prefix=config.issue_prefix))
+                          publication=PublicationVerifier(JobWorktrees(worktrees, ledger), issue_prefix=config.issue_prefix))
     lifecycle = Lifecycle(Ledger(paths.ledger, check_same_thread=False), api, scheduler,
                           interval=config.reconcile_seconds)
 
@@ -157,6 +158,8 @@ def enqueue(config, *, issue_ref, skill, commit=None, session=None):
     scheduler and the worker both read that prefix and report through an issue comment instead.
     """
     check_ownership(config, require_initialized=True)
+    if skill == "scene":
+        raise RuntimeError("scene is an internal presentation capability; delegate it from a general job")
     loaded = load_skills(ROOT / "skills")
     enabled = enabled_skills(loaded, config.enabled_skills, authority=SKILL_AUTHORITY)
     require_lark_cli(config, enabled)
@@ -166,7 +169,7 @@ def enqueue(config, *, issue_ref, skill, commit=None, session=None):
                 if skill in loaded and loaded[skill].opt_in else "enabled_skills in the private config chooses them")
         raise RuntimeError(f"{skill} is not a skill this instance runs ({', '.join(sorted(enabled))}); {rule} "
                            "(spec §9.11)")
-    if skill in ("feature", "fgui") and commit is not None:
+    if skill in ("work", "feature", "fgui", "scene") and commit is not None:
         # Initial Code/UI authoring has no Client verification target.
         raise RuntimeError(f"--commit pins a fix's Farm-Client target, and a {skill} job takes none")
     api = linear_api(config)
@@ -191,7 +194,7 @@ def enqueue(config, *, issue_ref, skill, commit=None, session=None):
         session = session or f"local-{observed['id']}"
         ledger.ensure_session(session, observed["id"], delegated)
         target = None
-        if skill not in ("feature", "fgui"):
+        if skill not in ("work", "feature", "fgui", "scene"):
             # Initial Code/UI work gets no Client target, as for a delegation.
             trees = Worktrees(paths.repos, paths.worktrees, config.repos)
             target = {"repository": "Farm-Client", "requested_ref": "default",

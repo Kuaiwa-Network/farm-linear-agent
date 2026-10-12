@@ -1,7 +1,7 @@
 """Verify committed UI-only Client output before Unity or draft delivery."""
 import re
 
-from .fgui_client import _client, assert_installed, installation_record, installation_records
+from .fgui_client import _client, assert_installed, installation_record, installation_history
 from .ledger import LedgerError
 
 GUARD = "tests/Farm.Tests.Unit/FguiDependencyGuardTests.cs"
@@ -66,7 +66,7 @@ def installed_scope(workflow, installed, *, expected_commit=None):
     allowed = {"Assets/GameRes/FairyRes/" + entry["file"] for entry in installed["files"]}
     # Earlier complete installs may have removed artifacts absent from the new
     # plan. Those paths remain authorized deletions, never new arbitrary writes.
-    for previous in installation_records(workflow.ledger, workflow.item_id):
+    for previous in installation_history(workflow.ledger, workflow.item_id):
         allowed.update("Assets/GameRes/FairyRes/" + name for name in previous["plan"]["deletes"])
     if set(changed) - allowed - {GUARD}:
         raise LedgerError("UI Client diff contains changes outside certified package outputs and dependency-guard reasons")
