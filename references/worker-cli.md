@@ -304,6 +304,7 @@ uses the selected executable on either host. Each command also takes
 <selected-python> -B -m agent --db DATABASE install-ui --item ITEM_ID --token-file STATE_DIR/token --receipt-id RECEIPT_ID
 <selected-python> -B -m agent --db DATABASE verify-ui --item ITEM_ID --token-file STATE_DIR/token --receipt-id RECEIPT_ID --commit FULL_SHA
 <selected-python> -B -m agent --db DATABASE verify-ui-guards --item ITEM_ID --token-file STATE_DIR/token --receipt-id RECEIPT_ID
+<selected-python> -B -m agent --db DATABASE authorize-ui-guard-repair --item ITEM_ID --token-file STATE_DIR/token --receipt-id RECEIPT_ID --input STATE_DIR/baseline-reasons.json
 <selected-python> -B -m agent --db DATABASE verify-ui-loading --item ITEM_ID --token-file STATE_DIR/token --receipt-id RECEIPT_ID
 ```
 
@@ -348,6 +349,20 @@ journals/backups. Only exact changed-package dependency entries with new-edge
 reasons may be edited; no gameplay or generated bindings. Commit and `verify-ui`
 the exact full head. Hydrate guard inputs with the owned native Git/LFS route,
 then `verify-ui-guards`; both actual named methods must pass in complete TRX.
+
+For an unchanged package whose published baseline descriptor has missing guard
+registrations, `authorize-ui-guard-repair` accepts a bounded JSON map of package
+names to audited source/reference and AddRef lifetime reasons. It requires the
+clean certified Client candidate and no reservation. It qualifies only missing
+actual baseline edges, checking hydrated bytes against raw Git/LFS identity; no
+edge removal, changed-package entry, test logic, asset or baseline change is
+allowed. Its controller audit binds exact literal entries and descriptor hashes
+to the original baseline/branch. Apply the returned private `proposal_path` only
+after checking `proposal_sha256`, commit, and rerun all normal gates. Repeating
+the same request recovers the retained authorization after interruption. This
+engineering step requires no new product/visual answer and grants no permission
+to merge or claim a guard pass. Future scope checks still account for the entire
+diff from the original baseline and require those exact qualified entries.
 Skipped or Inconclusive is pending.
 
 Hydration requires actual bytes, not only exit zero. If the supplied verified

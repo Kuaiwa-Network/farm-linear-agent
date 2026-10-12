@@ -1222,7 +1222,23 @@ output at the same baseline; an unrelated Client commit or uncertified interrupt
 write refuses continuation. New packages require Common. `verify-ui` checks the
 clean exact committed candidate, installed bytes/GUIDs and entire baseline diff.
 Only certified outputs/metadata and literal changed-package dependency-guard
-entries with reasons may change. This scope proof does not establish hydrated
+entries are ordinarily allowed. `authorize-ui-guard-repair` adds one bounded
+engineering recovery for missing registrations already present in unchanged
+baseline packages. The worker supplies audited reference/lifetime reasons; the
+controller verifies hydrated descriptor bytes against the immutable Git/LFS
+baseline, derives the exact existing edges, and records exact proposed literal
+entries in checksummed audit evidence. It changes no checkout itself. A worker
+may apply only that proposal to the existing guard and commit normally. Scope
+checks account for those precise entries while retaining the original entry HEAD,
+approved assets and all other guard/test restrictions. No baseline reset, edge
+removal, persistent registration, runtime/source edit or guard waiver is added.
+Both actual guards and Unity loading must run on the final exact committed head.
+The coordinator owns this supported recovery; it must not wait for an unnamed
+engineer or ask the issue owner to invent hashes or controller procedures.
+This adds audit evidence, not a database schema migration. Keep that evidence on
+rollback: an older controller cannot certify the additional repaired entries.
+It must remain parked rather than reset the baseline or discard the repair.
+This scope proof does not establish hydrated
 dotnet guard success or Unity loading.
 
 `verify-ui-guards` runs the selected native `dotnet` executable against only

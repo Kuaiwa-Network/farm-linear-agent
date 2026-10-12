@@ -307,7 +307,8 @@ license, account, environment selectors or watched output during a job.
    and metadata plus `tests/Farm.Tests.Unit/FguiDependencyGuardTests.cs` entries for
    the actually changed packages. Each `_allowed` entry must equal that package's
    descriptor dependencies, with a concrete reason for every new edge. Preserve
-   unrelated entries and all guard implementation. New packages declare Common.
+   unrelated entries and all guard implementation, except exact controller-qualified
+   baseline registrations described below. New packages declare Common.
    Never modify gameplay, View/Popup bindings, Client docs, CI or another test to
    make checks pass. Commit the candidate, checkpoint its exact head and run
    `verify-ui --receipt-id ID --commit FULL_SHA`.
@@ -316,6 +317,23 @@ license, account, environment selectors or watched output during a job.
    `verify-ui-guards --receipt-id ID`: it runs only the two actual repository guard
    tests and records a complete passing TRX bound to this receipt/commit. Missing,
    skipped or Inconclusive results are pending, never a pass. Logs stay private.
+
+If the dependency guard exposes registrations missing from unchanged baseline
+packages, own the engineering repair. Audit the actual source references and
+published descriptors: explain why each edge is needed, baked loader defaults,
+and the package's AddRef lifetime/transitive cost. Do not blindly register edges
+to make a test green. For this narrow metadata repair, write a package-to-reason
+JSON map in STATE_DIR and run `authorize-ui-guard-repair --receipt-id ID --input FILE`.
+The controller verifies the clean certified candidate, derives dependencies from
+immutable baseline descriptors and returns an exact private `proposal_path` plus
+hash. Copy only those verified bytes to FguiDependencyGuardTests.cs, commit, and
+rerun `verify-ui` and `verify-ui-guards` at the new full HEAD before Unity.
+This is a separate controller-audited repair step; it neither resets the baseline
+nor changes the approved assets/round. Retain its repair hash in the handoff. An
+interrupted attempt can repeat the same request. It cannot repair changed-package
+edges, remove registrations, alter test logic, register persistent packages, or
+change other assets/runtime behavior. Those failures need their actual decision
+or capability gap, not an instruction to the owner to invent recovery commands.
 
 ## Unity loading and two-draft delivery
 
