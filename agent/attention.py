@@ -58,6 +58,7 @@ def question_notice(ledger, item, body, bot_name):
     if item.get("task_key"):
         heading += f" [{item['task_key']}]"
     instructions = (f"请直接在 {bot_name} 的会话中回复，或在本 issue 评论中 @{bot_name} 并写明问题编号和答案。"
+                    "@提及会新开 Linear 会话，答案会转给原工作项；直接回复原会话可保持同一会话。"
                     "普通评论不自动唤醒暂停任务；部分答复只解决已回答的问题。")
     parts = [heading]
     if mention and mention not in body:

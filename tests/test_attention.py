@@ -90,6 +90,7 @@ class QuestionTests(LedgerBase):
         self.assertIn("Q6: badge?", body)
         self.assertIn("TestBot 的会话", body)
         self.assertIn("@TestBot", body)
+        self.assertIn("@提及会新开 Linear 会话，答案会转给原工作项", body)
         self.assertIn("普通评论不自动唤醒", body)
         self.assertEqual(question_notice(context, self.ledger.item(self.item), OWNER["url"] + " Q6?", "TestBot")
                          .count(OWNER["url"]), 1)

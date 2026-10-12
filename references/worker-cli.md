@@ -190,12 +190,16 @@ Repeat `--message-id` for several replies. Use the current `human_question.id`;
 old rounds, another job's messages and unattributed input are refused. Forward
 answers to tasks using `answer-task`; each task resolves its own question. For a
 partial reply, keep the question or ask only the remaining parts with `await-input`.
+Match each numbered answer to the original numbered question. An agreement for
+another question in the same reply does not approve this task's question.
 Workers never clear the `待回复` label themselves: the controller aggregates all
 active job/task questions and clears it when none remain. Cancellation, withdrawal
 and delivery retire that job's questions. A pure `await-tasks` join adds no label.
 Question notices state the issue key, mention its owner and explain that a session
 reply or an issue comment mentioning the assigned bot wakes paused work. Plain
 comments remain evidence and do not automatically trigger a resume.
+An @mention opens a new Linear conversation and forwards its message to existing
+work. Reply directly in the original agent session to keep the same conversation.
 
 There is no schema migration. Existing pending question checkpoints are recognized
 and carried into the protected `human_question` checkpoint field. Older code does

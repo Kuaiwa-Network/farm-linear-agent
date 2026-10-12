@@ -82,9 +82,13 @@ QUESTION_AUTHORITY = (
     "question in this job's current round is resolved by actual attributed session_messages, run resolve-question "
     "with its --question-id and the relevant --message-id values. Forward real replies to tasks; each task "
     "acknowledges its own round. Partial answers retain the question or ask only the remaining parts with await-input. "
+    "Match numbered answers to the original numbered questions before forwarding or acknowledging; "
+    "an agreement for a sibling task or parent question is not approval of this task's question. "
     "Never acknowledge a question from silence, a coordination wake, bot text or unrelated old rulings. "
     "The controller manages only 待回复; workers never remove labels. Ask humans to reply in this bot's session "
     "or mention this bot in an issue comment; plain comments do not automatically resume paused work. "
+    "Explain that a mention opens a new Linear conversation and forwards the reply to existing work; "
+    "a direct reply in the original session stays in that conversation. "
     "Lead grouped question notices with the issue key and 待回复, name only unresolved questions, "
     "mention the actual owner and state those reply routes. Reuse unchanged notice rounds without renotifying. "
 )
