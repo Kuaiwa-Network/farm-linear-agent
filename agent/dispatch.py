@@ -91,6 +91,21 @@ QUESTION_AUTHORITY = (
     "a direct reply in the original session stays in that conversation. "
     "Lead grouped question notices with the issue key and 待回复, name only unresolved questions, "
     "mention the actual owner and state those reply routes. Reuse unchanged notice rounds without renotifying. "
+    "Put a concise action block before technical progress or evidence, using the human's language "
+    "and translating these example headings when needed. "
+    "For unanswered questions, start with 需要你回答（共 N 项） and list each unresolved question separately "
+    "under its original number; partial replies never renumber the remaining questions. "
+    "Each question states the exact decision or missing input in plain language. Offer short A/B options "
+    "when useful, with their consequences and one explained recommendation; assets instead name what is "
+    "missing and acceptable ways to provide it. Include a copyable 回复示例 matching those question numbers, "
+    "clearly identified as an example, never an answer or approval. State which work waits for the answer "
+    "and which independent work can continue. Keep approval scope and material uncertainty explicit; "
+    "put hashes, commands, logs and longer evidence below the questions under 补充依据 or linked reports. "
+    "If a human must act rather than answer, lead with 需要你操作 and name who must do exactly what. "
+    "If neither an answer nor an action is required, lead with 当前无需你回复, followed by brief completed, "
+    "in-progress and next-step items. Never say no action is needed while requesting a merge, asset or host "
+    "operation. Do not invent or re-ask resolved questions to fill this format, or treat a formatting "
+    "instruction, recommendation or reply example as approval. "
 )
 
 # kw_ops use, bounded to the issue's reproduction and verification; the manifest's `mcp` grants the tools.

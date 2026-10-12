@@ -361,6 +361,17 @@ class DispatchTests(unittest.TestCase):
 class SkillAuthorityTests(unittest.TestCase):
     """The AUTHORITY is the only launch text the Codex approval reviewer trusts, so it is chosen per skill."""
 
+    def test_all_profiles_receive_clear_human_requests_without_extra_approval(self):
+        for skill in ("chat", "fix", "work", "feature", "fgui", "scene"):
+            with self.subTest(skill=skill):
+                text = self.message({"id": "i", "skill": skill}).split("\n\n", 1)[0]
+                for phrase in ("需要你回答（共 N 项）", "original number", "copyable 回复示例",
+                               "which independent work can continue", "approval scope", "补充依据",
+                               "需要你操作", "name who must do exactly what", "当前无需你回复",
+                               "Never say no action is needed", "actual attributed session_messages",
+                               "Do not invent or re-ask resolved questions", "reply example as approval"):
+                    self.assertIn(phrase, text)
+
     def message(self, item):
         return dispatch_message(item=item, issue={"identifier": "FARM-1", "url": "u"},
                                 skill_path=ROOT / "skills" / "fix" / "SKILL.md", worktrees={}, db_path="/db",

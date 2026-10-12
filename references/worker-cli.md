@@ -201,6 +201,25 @@ comments remain evidence and do not automatically trigger a resume.
 An @mention opens a new Linear conversation and forwards its message to existing
 work. Reply directly in the original agent session to keep the same conversation.
 
+Put the human request before technical progress and evidence. In the human's language:
+
+- Questions start with **需要你回答（共 N 项）**. List each unresolved question separately
+  under its original number, saying what decision or input is needed. Give short choices,
+  consequences and an explained recommendation when useful; asset requests instead name the
+  missing resource and acceptable ways to provide it.
+- Include a copyable **回复示例** using the actual question numbers and explicitly label it
+  as an example, not an answer or approval. Partial replies keep the remaining numbers.
+- State what waits for the answer and what can continue. Preserve approval scope and material
+  uncertainty in plain language; put hashes, commands, logs and fuller evidence under
+  **补充依据** or in linked reports.
+- For an external human action, lead with **需要你操作** and name who does exactly what.
+  When no answer or action is needed, lead with **当前无需你回复**, then briefly list completed
+  work, current work and the next step. Do not combine that statement with a request to merge,
+  provide assets or operate the host.
+
+Formatting creates no new questions or authority. Do not re-ask answered questions,
+renumber unresolved questions, or treat recommendations/examples as approval.
+
 There is no schema migration. Existing pending question checkpoints are recognized
 and carried into the protected `human_question` checkpoint field. Older code does
 not reconcile this new label; after rollback, settle the work and review the flag

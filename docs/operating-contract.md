@@ -556,7 +556,20 @@ A fix worker may update Farm-Contract in its Contract-root attempt for a confirm
 the issue, a defect or a requested change, before the affected implementation. Uncertain behaviour
 or missing information is a question in Linear via `await-input`, which adds `待回复`,
 emits the elicitation and parks the item. A reply resumes it; insufficient answers lead to another
-question. The controller reconciles the `待回复` label from all active parent and task questions
+question. Worker notices put a concise human request before technical progress and evidence:
+`需要你回答（共 N 项）` with one decision or missing input per original question number,
+useful choices and consequences, an explained recommendation when available, and a copyable
+`回复示例` explicitly identified as an example. Partial replies keep the remaining numbers.
+Approval scope, material uncertainty and what waits for the answer stay explicit in plain
+language; hashes, commands, logs and full evidence go under `补充依据` or in linked reports.
+An external human action starts with `需要你操作`, naming who does exactly what. When no
+answer or action is required, the notice starts with `当前无需你回复`, then briefly lists
+completed work, current work and the next step. Formatting does not re-ask resolved questions
+or turn examples, recommendations or format instructions into approval. These are shared
+worker instructions; the controller preserves the worker's question text rather than
+rewriting its meaning or treating the template as proof of model compliance.
+
+The controller reconciles the `待回复` label from all active parent and task questions
 on each successful status pass (normally within `reconcile_seconds`). A reply, wake or checkpoint
 does not clear a question. The worker acknowledges its fully answered round with `resolve-question`,
 using its current `human_question.id` and actual attributed inbox message IDs. Partial answers keep
