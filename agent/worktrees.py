@@ -1,5 +1,6 @@
 """FarmBot-owned bare clones and per-item worktrees (spec §8). Never touches human checkouts."""
 from pathlib import Path
+import contextlib
 import hashlib
 import json
 import os
@@ -147,6 +148,29 @@ class Worktrees:
         self.remotes = dict(remotes)
         self._head_cache = {}
         self._checked = {}  # repo -> the state of its clone's config and info/ when last found clean
+        # The scheduler, the receiver and the slot pool share one instance on their own threads, so the clones
+        # fetched inside a one_fetch_per_clone block are recorded per thread.
+        self._fetch_scope = threading.local()
+
+    @contextlib.contextmanager
+    def one_fetch_per_clone(self):
+        """Within this block, on this thread, each clone is fetched from origin at most once. One launch prepares
+        several checkouts of a clone, and each step fetched it again moments after the last (stage_base and then
+        add_stage, a new clone and then add) to the same end. Another thread's fetch is never skipped, and the
+        record ends with the outermost block, so the next launch's first fetch of a clone is made as before."""
+        fetched = getattr(self._fetch_scope, "fetched", None)
+        if fetched is not None:
+            yield
+            return
+        self._fetch_scope.fetched = set()
+        try:
+            yield
+        finally:
+            self._fetch_scope.fetched = None
+
+    def _fetched_in_scope(self):
+        """The repos fetched in this thread's one_fetch_per_clone block, or None outside one."""
+        return getattr(self._fetch_scope, "fetched", None)
 
     def clone_path(self, repo):
         if repo not in self.remotes:
@@ -312,22 +336,32 @@ class Worktrees:
             shutil.rmtree(staging, ignore_errors=True)  # another run finished first; keep theirs
         else:
             staging.rename(path)
+            fetched = self._fetched_in_scope()
+            if fetched is not None:
+                fetched.add(repo)  # the origin fetch above is the one fetch() makes
         return path
 
     def fetch(self, repo, *, config=()):
-        """Fetch origin into the clone, one FarmBot fetch per clone at a time (_fetch_lock). A lost ref-lock race
-        (REF_RACE) is retried once; losing the retry too raises FetchRaced."""
+        """Fetch origin into the clone, made first if it must be, one FarmBot fetch per clone at a time
+        (_fetch_lock). A lost ref-lock race (REF_RACE) is retried once; losing the retry too raises FetchRaced.
+        Inside one_fetch_per_clone, only the first successful call for each clone fetches; a fetch that failed or
+        raced is not recorded, so a later call tries again."""
         clone = self.ensure_clone(repo)
+        fetched = self._fetched_in_scope()
+        if fetched is not None and repo in fetched:
+            return
         with _fetch_lock(clone):
             for attempt in (1, 2):
                 try:
                     _git("fetch", "--quiet", "--prune", "origin", cwd=clone, env=FETCH_ENV, config=config)
-                    return
+                    break
                 except WorktreeError as exc:
                     if not REF_RACE.search(str(exc)):
                         raise
                     if attempt == 2:
                         raise FetchRaced(str(exc)) from exc
+        if fetched is not None:
+            fetched.add(repo)
 
     def default_branch(self, repo, *, config=()):
         return self._origin_head(repo, config=config)[0]
@@ -361,20 +395,22 @@ class Worktrees:
 
     def resolve_commit(self, repo, ref=None):
         """A pinned target is always a full commit: git refuses the same branch in two worktrees (spec §8).
-        This is the pool's path: it clones if it must and fetches every time, so it may take minutes.
+        This is the pool's path: it clones if it must and fetches every time, so it may take minutes. A clone
+        made by this call is not fetched again at once.
 
         After a FetchRaced, origin's default head comes from ls-remote, and it is used when the clone already holds
         it. The remote-tracking ref is not read: the other fetch may be a worker's, and a worker can write refs."""
-        clone = self.ensure_clone(repo)
-        try:
-            self.fetch(repo)
-        except FetchRaced:
-            if ref is not None:
-                raise
-            commit = self._origin_head(repo)[1]
-            if not self.has_commit(repo, commit):
-                raise
-            return commit
+        with self.one_fetch_per_clone():
+            clone = self.ensure_clone(repo)
+            try:
+                self.fetch(repo)
+            except FetchRaced:
+                if ref is not None:
+                    raise
+                commit = self._origin_head(repo)[1]
+                if not self.has_commit(repo, commit):
+                    raise
+                return commit
         ref = ref or f"origin/{self.default_branch(repo)}"
         commit = _git("rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}", cwd=clone)
         if not self.COMMIT.match(commit):
@@ -784,8 +820,9 @@ class Worktrees:
         It is a repository of the controller's own, fetched from the configured remote, and never a worktree of
         FarmBot's bare clone: a worker rooted in that repository can write the clone, its config, hooks and
         attributes included, and git would honour them here. It borrows only the clone's objects (alternates), so
-        a large history is not fetched again. Every call runs with READ_ONLY_GIT and GIT_ENV. Each call fetches
-        and checks out the default branch again; with `refresh` False an existing checkout is returned as it is,
+        a large history is not fetched again. Every call runs with READ_ONLY_GIT and GIT_ENV. Each call asks
+        origin for its default branch and that branch's tip again, fetches unless this checkout already has that
+        tip, and checks it out; with `refresh` False an existing checkout is returned as it is,
         as a publication retry reuses its worktrees. It holds none of the job's work, so it gets no recovery ref.
         Anything else found at the path, such as a half-made checkout or one of another remote or clone, is
         replaced.
@@ -809,19 +846,44 @@ class Worktrees:
             info.mkdir(parents=True, exist_ok=True)
             # A bare newline on every platform: git keeps a carriage return in the path and ignores the store.
             (info / "alternates").write_text(f"{objects}\n", encoding="utf-8", newline="\n")
-        default = None
+        default = tip = None
         for line in _git("ls-remote", "--symref", "origin", "HEAD", cwd=path, config=READ_ONLY_GIT).splitlines():
             if line.startswith("ref:"):
                 default = line.split()[1].removeprefix("refs/heads/")
+            else:
+                sha, _, name = line.partition("\t")
+                tip = sha if name == "HEAD" and self.COMMIT.match(sha) else tip
         if not default or not SAFE_BRANCH.match(default):
             raise WorktreeError(f"{repo}: origin has no usable HEAD")
         tracking = f"refs/remotes/origin/{default}"
+
+        def check_out():
+            commit = _git("rev-parse", "--verify", "--end-of-options", f"{tracking}^{{commit}}", cwd=path,
+                          config=READ_ONLY_GIT)
+            _git("checkout", "--quiet", "--detach", "--force", commit, cwd=path, config=READ_ONLY_GIT)
+
+        # The ls-remote above is this call's question to origin. When this checkout's own tracking ref already
+        # names the tip origin gave, the fetch would bring nothing; if the checkout then fails, an object borrowed
+        # from the clone has gone, and the fetch below brings back what is missing as it always has.
+        if tip is not None and self._read_tip(path, tracking) == tip:
+            try:
+                check_out()
+                return path
+            except WorktreeError:
+                pass
         _git("fetch", "--quiet", "--no-tags", "origin", f"+refs/heads/{default}:{tracking}", cwd=path,
              config=READ_ONLY_GIT)
-        commit = _git("rev-parse", "--verify", "--end-of-options", f"{tracking}^{{commit}}", cwd=path,
-                      config=READ_ONLY_GIT)
-        _git("checkout", "--quiet", "--detach", "--force", commit, cwd=path, config=READ_ONLY_GIT)
+        check_out()
         return path
+
+    @staticmethod
+    def _read_tip(path, tracking):
+        """The commit a read-only checkout's tracking ref names, or None when it has none it can resolve."""
+        try:
+            return _git("rev-parse", "--verify", "--quiet", "--end-of-options", f"{tracking}^{{commit}}", cwd=path,
+                        config=READ_ONLY_GIT)
+        except WorktreeError:
+            return None
 
     @staticmethod
     def _own_read_checkout(path, url, objects):

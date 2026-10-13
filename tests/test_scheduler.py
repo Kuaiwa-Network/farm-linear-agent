@@ -157,6 +157,8 @@ class FakeWorktrees:
     def clone_path(self, repo):
         return self.root / "repos" / f"{repo}.git"
 
+    one_fetch_per_clone = staticmethod(contextlib.nullcontext)  # nothing here fetches
+
     def head(self, path):
         return "a" * 40
 
@@ -251,6 +253,27 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(self.launcher.spawned[-1][4], str(self.launcher.state_dir(chat["id"])))
         self.assertEqual(self.launcher.spawn_writable, [str(Path(self.tmp.name))])
         self.assertEqual(set(payload["worktrees"]), {"Farm-Client"})
+
+    def test_a_launch_prepares_its_worktrees_inside_one_fetch_per_clone(self):
+        """Worktrees.one_fetch_per_clone is how one launch fetches each clone once; the block ends with the
+        preparation, so the next launch fetches again."""
+        trees = self.trees
+        inside, blocks = [], []
+
+        @contextlib.contextmanager
+        def one_fetch_per_clone():
+            blocks.append("open")
+            try:
+                yield
+            finally:
+                blocks.append("closed")
+
+        real_add = trees.add
+        trees.one_fetch_per_clone = one_fetch_per_clone
+        trees.add = lambda *args, **kwargs: (inside.append(blocks[-1:] == ["open"]), real_add(*args, **kwargs))[1]
+        self.item()
+        self.assertEqual(self.scheduler.tick()["launched"], 1)
+        self.assertEqual((len(inside), set(inside), blocks), (5, {True}, ["open", "closed"]))
 
     def test_first_repair_launch_gets_write_profile_budget_and_conversation(self):
         app = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"

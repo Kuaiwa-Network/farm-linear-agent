@@ -525,10 +525,12 @@ fetched again, and nothing else of it; git lists the clone's ref tips there to t
 the checkout has. Every git call in the checkout runs with hooks and fsmonitor off and the LFS
 filter emptied, so LFS files stay pointers and no filter program runs, and its config holds only
 git's defaults and its origin, so no repository credential, URL-rewrite or LFS setting reaches it;
-the fetch authenticates through the host's global git configuration, as every FarmBot fetch does. It
-is not a writable root and keeps no recovery ref. A publication retry reuses it without a fetch, as
-it reuses worktrees. It lives beside the job's worktree directory, not in it, and is removed when
-those worktrees are. Rolling back to an earlier revision leaves such directories behind; delete them
+the fetch authenticates through the host's global git configuration, as every FarmBot fetch does.
+Each launch asks origin for its default branch and that branch's tip (`git ls-remote`) and fetches
+only when the checkout's `origin/<default>` does not already name that tip, or when checking the tip
+out fails; either way the checkout is forced back to it. It is not a writable root and keeps no
+recovery ref. A publication retry reuses it without a fetch, as it reuses worktrees. It lives
+beside the job's worktree directory, not in it, and is removed when those worktrees are. Rolling back to an earlier revision leaves such directories behind; delete them
 once their jobs have ended.
 
 A change to the issue during an attempt (title, description, attachments, or a comment that is
@@ -740,7 +742,9 @@ renames it over the old name. Whatever the worker left at that name, a FIFO or a
 replaced, never opened or written through. This does not extend to a worker that replaces a directory on the
 path, such as its run directory, with a symlink.
 These guards apply to every terminal retirement path. The scheduler retries pending cleanup. Slots still require the
-existing quiescence probe; held slots enter controller-owned recovery. No log, run report, ledger history or
+existing quiescence probe; held slots enter controller-owned recovery. A queued job whose reservation is on a
+held slot, or was granted to an earlier attempt generation, is not launched, and its checkouts are not
+prepared or fetched, until recovery or a new grant settles it. No log, run report, ledger history or
 memory snapshot is removed by closure cleanup. Every worker attempt gets its own log directory.
 
 On native Windows, normal Codex worker reaping also reclaims only that attempt's
@@ -1992,7 +1996,12 @@ Permission/destination mismatches and certificate errors remain fail-closed and 
 Missing initial Unity target pins remain recorded verification gaps, not publication blockers.
 Publication retries reuse preserved worktrees without an origin fetch. Their allowance counts
 launched attempts; a failed host Linear delegation preflight keeps the job queued under the
-existing lifecycle backoff without consuming another worker attempt.
+existing lifecycle backoff without consuming another worker attempt. Outside a publication retry,
+preparing a worktree fetches its FarmBot clone with `--prune`, a worktree that already exists
+included, except a worktree outside the Client stage restarted from the item's recovery ref, which
+is made from that commit without a fetch. A launch makes that fetch at most once per clone: a second
+checkout of the same clone in that launch (a Client stage's baseline and its worktree, a clone made by
+that launch) uses it.
 
 ## Status monitor
 
