@@ -6,6 +6,15 @@
 Windows compatibility. Hosted runner images and the Python patch can change, so
 retain the versions recorded with each candidate's test evidence.
 
+macOS runs the full suite in one job. Windows runs two isolated jobs: sorted test
+module names are distributed by alternating index, keeping every class and module
+fixture together. Their union is the full discovered suite; no tests are excluded.
+Each shard must execute every selected test, and the shard containing native
+Windows Job Object tests must run all of them without skips. The original Windows
+check name is retained by an aggregate gate requiring the entire matrix to succeed.
+This avoids the serial Windows suite's 60-minute cancellation near its final module
+in PR #260 while keeping the same timeout and checks in each job.
+
 The workflow separately tests the fixed TCP service relay with Go 1.26.6 on both
 hosts and cross-builds its static Linux binary. This package has no external Go
 modules; `GOENV=off`, `GOWORK=off`, `GOTOOLCHAIN=local`, `GOPROXY=off` and
@@ -52,12 +61,14 @@ failures behind broad skips or treat a headless CI job as desktop Unity acceptan
 Test reports are uploaded for 14 days even when tests fail. They contain only
 offline test output, version/result metadata and per-test timings, not `.local`
 state or live configuration. Each job uploads `reports/offline/` as the artifact
-`offline-<os>-python-3.13`:
+`offline-<os>-python-3.13-shard-<index>` (zero-based):
 
 - `unittest.log`: the verbose unittest output, which the job log also prints.
 - `summary.json`: Python, platform, Git and Git LFS versions, the revision, the
   run's seconds, the test count, failed and errored test ids, skip reasons, the
   native Windows tests and whether they ran, and `slowest`, the 20 slowest tests.
+  It also records the shard index/count, full catalogue count, selected modules
+  and selected test IDs so complete coverage can be checked across Windows artifacts.
 - `durations.json`: every executed test id in execution order, with `started`,
   seconds from the start of the run (discovery included, as for the summary's
   `seconds`), and `seconds`, its duration including setUp, tearDown and

@@ -11,6 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import agent.worktrees
 from agent.launcher import Launcher, RUNTIMES, Unsandboxed
 from agent.ledger import Ledger
 from agent.slots import SlotError, SlotPool, UnityIdentity, slot_entry
@@ -1472,6 +1473,122 @@ class PoolTests(SlotFixture):
         result = stranded.tick()
         self.assertEqual((result["settled"], result["parked"]), (1, 0))
         self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "held")
+
+    def racing_fetches(self, losses=None):
+        """agent.worktrees._git, except that a controller fetch into the clone loses the ref-lock race to a worker's:
+        the worker's own fetch (plain git, as from its sandbox) moves origin's refs, then the controller's fails as
+        git reports that race. `losses` counts the fetches that lose; None means every one does."""
+        real, clone, left = agent.worktrees._git, self.trees.clone_path("Farm-Client"), [losses]
+
+        def run(*args, **kwargs):
+            if args[0] == "fetch" and Path(kwargs["cwd"]) == clone and left[0] != 0:
+                left[0] = None if left[0] is None else left[0] - 1
+                git("fetch", "--quiet", "--prune", "origin", cwd=clone)
+                raise WorktreeError(f"git fetch failed: error: cannot lock ref 'refs/remotes/origin/main': "
+                                    f"is at {'a' * 40} but expected {'b' * 40}")
+            return real(*args, **kwargs)
+        return patch("agent.worktrees._git", run)
+
+    def stalled_fetches(self):
+        """agent.worktrees._git, except that every fetch outlives its timeout, which _git raises as
+        subprocess.TimeoutExpired and not as a WorktreeError."""
+        real = agent.worktrees._git
+
+        def run(*args, **kwargs):
+            if args[0] == "fetch":
+                raise subprocess.TimeoutExpired(["git", *args], kwargs.get("timeout", 600))
+            return real(*args, **kwargs)
+        return patch("agent.worktrees._git", run)
+
+    def test_a_fetch_that_loses_a_ref_lock_race_neither_fails_the_switch_nor_holds_the_slot(self):
+        """Two fetches into one bare clone race on its ref locks, and a worker fetches there outside the
+        controller's lock. A lost race used to fail the switch at the git stage (a requeue, then a verification
+        gap) and the park (a healthy slot held, then opened by recovery). Losing once is retried. Losing the
+        retry too leaves the refs the worker's fetch moved, so the switch checks the clone for its pin and the
+        park takes origin's head from ls-remote."""
+        for losses in (1, None):
+            with self.subTest(losses=losses):
+                self.setUp()
+                self.pool().ensure()
+                pinned = self.commit("fix")
+                item = self.waiting(ISSUE, pinned, "batch")
+                pool = self.pool(mcp=FakeMcp())
+                with self.racing_fetches(losses):
+                    self.assertEqual(pool.tick()["granted"], 1)
+                self.assertEqual(self.trees.head(self.root / "editors" / "slot-1"), pinned)
+                self.finish_worker(item)
+                main = self.commit("main-moved-on")
+                with self.racing_fetches(losses):
+                    self.assertEqual(pool.tick(), {"settled": 1, "granted": 0, "parked": 1})
+                slot = self.ledger.slot("unity_slot:1")
+                self.assertEqual((slot["state"], slot["parked_commit"]), ("idle_closed", main))
+                self.assertEqual(self.trees.head(self.root / "editors" / "slot-1"), main)
+
+    def test_a_switch_whose_fetch_stalls_requeues_the_item_instead_of_wedging_the_slot(self):
+        """A stalled fetch escaped switch() as subprocess.TimeoutExpired, which _hand_over does not catch: the
+        slot stayed `switching`, the reservation `active` and the item `awaiting_resource` across ticks. As a
+        git-stage failure it is retried once at the tail, then fails the item, with the slot back in the pool."""
+        self.pool().ensure()
+        item = self.waiting(ISSUE, self.commit("fix"), "batch")
+        pool = self.pool(mcp=FakeMcp())
+        with self.stalled_fetches():
+            self.assertEqual(pool.tick()["granted"], 0)
+            self.assertEqual([(r["item_id"], r["attempts"]) for r in self.ledger.reservations()
+                              if r["state"] == "queued"], [(item, 1)])
+            self.assertEqual(self.ledger.item(item)["state"], "awaiting_resource")
+            self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "idle_closed")
+            self.assertEqual(pool.tick()["granted"], 0)
+        self.assertEqual(self.ledger.item(item)["state"], "failed")
+        self.assertIsNone(self.ledger.active_reservation_on("unity_slot:1"))
+        self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "idle_closed")
+        reasons = [row["reason"] for row in self.ledger.connection.execute(
+            "SELECT reason FROM audit WHERE item_id=?", (item,))]
+        self.assertTrue(any("verification gap" in r and "timed out" in r for r in reasons), reasons)
+
+    def test_a_park_that_stalls_or_cannot_remove_the_lock_holds_the_slot_instead_of_failing_every_pass(self):
+        """park_idle catches SlotError only. A stalled fetch, or a Temp/UnityLockfile that cannot be removed (on
+        Windows, a sharing violation), escaped it, and every pool pass fetched again with the slot `switching`.
+        Both now hold the slot, as a park that cannot reach main does."""
+        self.pool().ensure()
+        item = self.waiting(ISSUE, self.commit("fix"), "batch")
+        pool = self.pool(mcp=FakeMcp())
+        pool.tick()
+        self.finish_worker(item)
+        with self.stalled_fetches():
+            result = pool.tick()
+        self.assertEqual((result["settled"], result["parked"]), (1, 0))
+        self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "held")
+
+        self.setUp()
+        self.pool().ensure()
+        item = self.waiting(ISSUE, self.commit("fix"), "interactive")
+        mcp = FakeMcp()
+        pool = self.pool(mcp=mcp)
+        self.assertEqual(pool.tick()["granted"], 1)
+        lock = self.root / "editors" / "slot-1" / "Temp" / "UnityLockfile"
+        lock.unlink()
+        lock.mkdir()                        # unlink() of a directory fails with an OSError on every platform
+        mcp.open_folders.clear()            # the Editor died, so park closes the slot and clears its lock
+        self.ledger.release(self.ledger.active_reservation(item)["reservation_id"],
+                            pool.token_path(item).read_text(encoding="utf-8"), "worker reported quiescent")
+        self.assertEqual(pool.tick()["parked"], 0)
+        self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "held")
+
+    def test_a_lock_the_switch_cannot_remove_holds_the_slot_instead_of_escaping_the_hand_over(self):
+        """The batch branch clears a dead Editor's lock after the checkout. An unlink that fails there raised a
+        bare OSError out of the hand-over. It is the editor-stage failure close_editor already reports for a
+        lock that survives: the slot is held for recovery, never released under whatever still holds the file."""
+        self.pool().ensure()
+        lock = self.root / "editors" / "slot-1" / "Temp" / "UnityLockfile"
+        lock.mkdir(parents=True)
+        item = self.waiting(ISSUE, self.commit("fix"), "batch")
+        pool = self.pool(mcp=FakeMcp())
+        self.assertEqual(pool.tick()["granted"], 0)
+        self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "held")
+        self.assertEqual(self.ledger.active_reservation(item)["resource"], "unity_slot:1")
+        [held] = [json.loads(row["details"]) for row in self.ledger.connection.execute(
+            "SELECT details FROM audit WHERE item_id=? AND reason='held'", (item,))]
+        self.assertIn("UnityLockfile could not be removed", held["reason"])
 
     def test_a_hand_over_that_fails_after_the_switch_gives_the_slot_back_instead_of_wedging_it(self):
         """The window between a successful switch and resume() is the one place a raise wedges the only
