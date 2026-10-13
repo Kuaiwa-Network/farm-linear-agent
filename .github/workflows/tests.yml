@@ -15,18 +15,32 @@ concurrency:
 
 jobs:
   offline:
-    name: Offline / ${{ matrix.os }} / Python 3.13
+    name: Offline / ${{ matrix.os }} / Python 3.13${{ matrix.suffix }}
     runs-on: ${{ matrix.os }}
-    # PR #78's Windows run hit 30 minutes before reaching native containment tests.
-    # Keep every check and allow slower hosted runners to finish the full suite.
+    # The serial Windows suite reached 60 minutes near its final module in PR #260.
+    # Keep every check, with whole test modules split across isolated Windows jobs.
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        include:
+          - os: macos-latest
+            shard: 0
+            shards: 1
+            suffix: ''
+          - os: windows-latest
+            shard: 0
+            shards: 2
+            suffix: ' / shard 1'
+          - os: windows-latest
+            shard: 1
+            shards: 2
+            suffix: ' / shard 2'
     env:
       PYTHONUTF8: "1"
       PYTHONUNBUFFERED: "1"
+      OFFLINE_SHARD: ${{ matrix.shard }}
+      OFFLINE_SHARDS: ${{ matrix.shards }}
     steps:
       - name: Check out candidate
         uses: actions/checkout@v7
@@ -143,16 +157,39 @@ jobs:
           started = time.monotonic()
           with (reports / "unittest.log").open("w", encoding="utf-8") as log:
               with contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
-                  suite = unittest.defaultTestLoader.discover("tests")
+                  def cases(suite):
+                      for entry in suite:
+                          if isinstance(entry, unittest.TestSuite):
+                              yield from cases(entry)
+                          else:
+                              yield entry
+
+                  catalogue = list(cases(unittest.defaultTestLoader.discover("tests")))
+                  module = lambda test: test.id().rsplit(".", 2)[0]
+                  modules = sorted({module(test) for test in catalogue})
+                  shard, shards = int(os.environ["OFFLINE_SHARD"]), int(os.environ["OFFLINE_SHARDS"])
+                  assert shards > 0 and 0 <= shard < shards
+                  selected_modules = set(modules[shard::shards])
+                  selected = [test for test in catalogue if module(test) in selected_modules]
+                  selected_ids = [test.id() for test in selected]
+                  native_catalogue = [test.id() for test in catalogue if test.id().startswith("test_windows_workers.")]
+                  suite = unittest.TestSuite(selected)
                   result = unittest.TextTestRunner(
                       stream=log, verbosity=2, resultclass=RecordedResult).run(suite)
           skipped = {test.id(): reason for test, reason in result.skipped}
           native = [name for name in result.executed if name.startswith("test_windows_workers.")]
-          native_ok = os.name != "nt" or (bool(native) and not any(name in skipped for name in native))
+          expected_native = [name for name in selected_ids if name.startswith("test_windows_workers.")]
+          native_ok = os.name != "nt" or (bool(native_catalogue) and native == expected_native
+                                          and not any(name in skipped for name in expected_native))
           summary = {
               **versions,
               "seconds": time.monotonic() - started,
               "tests": result.testsRun,
+              "shard": shard,
+              "shards": shards,
+              "catalogue_tests": len(catalogue),
+              "selected_modules": sorted(selected_modules),
+              "selected_tests": selected_ids,
               "failures": [test.id() for test, _ in result.failures],
               "errors": [test.id() for test, _ in result.errors],
               "skipped": skipped,
@@ -176,13 +213,26 @@ jobs:
               print(f"{entry['seconds']:10.3f} {entry['started']:10.3f}  {name}")
           if not native_ok:
               print("Windows Job Object tests were missing or skipped", file=sys.stderr)
-          sys.exit(0 if result.wasSuccessful() and result.testsRun and native_ok else 1)
+          complete = result.executed == selected_ids
+          sys.exit(0 if result.wasSuccessful() and result.testsRun and native_ok and complete else 1)
 
       - name: Upload test evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: offline-${{ matrix.os }}-python-3.13
+          name: offline-${{ matrix.os }}-python-3.13-shard-${{ matrix.shard }}
           path: reports/offline/
           if-no-files-found: warn
           retention-days: 14
+
+  windows-status:
+    # Preserve the original Windows check name; every matrix job must succeed.
+    name: Offline / windows-latest / Python 3.13
+    needs: offline
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require complete offline matrix
+        env:
+          OFFLINE_RESULT: ${{ needs.offline.result }}
+        run: test "$OFFLINE_RESULT" = success

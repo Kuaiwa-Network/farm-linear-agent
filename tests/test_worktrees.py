@@ -65,6 +65,41 @@ class WorktreeTests(unittest.TestCase):
         self.assertEqual(self.trees.head(restored), preserved)
         self.assertEqual((restored / "client.txt").read_text(encoding="utf-8"), "recovery work\n")
 
+    def test_new_stage_preserves_retained_branch_and_starts_fresh_at_current_main(self):
+        old = self.trees.add("Farm-Client", "prior-job", "farmbot/farm-1")
+        (old / "retained.txt").write_text("prior unmerged work\n", encoding="utf-8")
+        git("add", ".", cwd=old)
+        git("commit", "-qm", "retained candidate", cwd=old)
+        retained = self.trees.head(old)
+        (self.origin / "main.txt").write_text("new main\n", encoding="utf-8")
+        git("add", ".", cwd=self.origin)
+        git("commit", "-qm", "advance main", cwd=self.origin)
+        baseline, branch = self.trees.stage_start("Farm-Client", "new-job", "farmbot/farm-1")
+        self.assertEqual((baseline, branch), (self.trees.head(self.origin), "farmbot/farm-1-new-job"))
+        path = self.trees.add_stage("Farm-Client", "new-job", branch, baseline)
+        self.assertEqual(self.trees.head(path), baseline)
+        self.assertFalse((path / "retained.txt").exists())
+        self.assertEqual(self.trees.head(old), retained)
+        self.assertEqual(git("symbolic-ref", "--short", "HEAD", cwd=old), "farmbot/farm-1")
+
+    def test_new_stage_refuses_occupied_suffix_and_unpinned_existing_checkout(self):
+        for branch in ("farmbot/farm-1", "farmbot/farm-1-new-job"):
+            git("branch", branch, cwd=self.origin)
+        with self.assertRaisesRegex(WorktreeError, "existing suffixed"):
+            self.trees.stage_start("Farm-Client", "new-job", "farmbot/farm-1")
+        old = self.trees.add("Farm-Client", "other-job", "farmbot/farm-2")
+        with self.assertRaisesRegex(WorktreeError, "unpinned"):
+            self.trees.stage_start("Farm-Client", "other-job", "farmbot/farm-2")
+        self.assertTrue(old.is_dir())
+
+    def test_new_stage_avoids_a_remote_only_retained_issue_branch(self):
+        git("branch", "farmbot/farm-1", cwd=self.origin)
+        baseline, branch = self.trees.stage_start("Farm-Client", "new-job", "farmbot/farm-1")
+        self.assertEqual(branch, "farmbot/farm-1-new-job")
+        self.assertEqual(baseline, self.trees.head(self.origin))
+        clone = self.trees.clone_path("Farm-Client")
+        self.assertEqual(git("rev-parse", "refs/remotes/origin/farmbot/farm-1", cwd=clone), baseline)
+
     def test_stage_and_verification_refuse_wrong_branch_without_resetting_it(self):
         baseline = self.trees.stage_base("Farm-Client", "item-1", "farmbot/farm-1")
         path = self.trees.add_stage("Farm-Client", "item-1", "farmbot/farm-1", baseline)

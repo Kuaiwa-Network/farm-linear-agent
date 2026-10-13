@@ -27,6 +27,11 @@ serialize, including attempts recovered after restart; a presentation retains it
 Client stage across human/resource waits and terminal task retries until delivery.
 FGUI retains its reviewed source through certified delivery. The job keeps one immutable Client pin,
 and each presentation task retains a clean entry HEAD for its own scoped diff.
+On first Client entry, a general job whose preferred issue branch already exists
+selects a fresh branch suffixed with its owning job ID at current trusted main.
+It records that branch and baseline before checkout, leaving retained branches
+and commits intact. A pre-existing suffixed branch, unpinned worktree or recorded
+Client plan without its baseline is still refused; retries retain the saved pin.
 Tasks report progress without closing the shared session. Only the parent posts
 the issue outcome, including every task's PRs. Stop/failure cancels the whole job;
 withdrawal preserves the shared claimed-worker grace, including parked

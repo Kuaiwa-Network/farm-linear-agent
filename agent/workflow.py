@@ -26,7 +26,7 @@ class JobWorktrees:
     Run directories, tokens and audit records remain task-specific. Use this
     adapter only with the trusted ledger; no worker-provided path chooses an owner.
     """
-    _second = {"add", "add_stage", "stage_base", "add_detached", "verification_commit"}
+    _second = {"add", "add_stage", "stage_base", "stage_start", "add_detached", "verification_commit"}
 
     def __init__(self, trees, ledger):
         self.trees, self.ledger = trees, ledger

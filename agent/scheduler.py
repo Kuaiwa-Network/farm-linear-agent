@@ -107,8 +107,12 @@ class Scheduler:
                             continue  # main may advance during server work; the client stage has not begun
                         owner = self.ledger.item(repository_owner(item))
                         shared = owner.get("target")
-                        baseline = (shared["commit_sha"] if shared and shared.get("issue_branch")
-                                    else self.worktrees.stage_base(repo, item["id"], branch))
+                        if shared and shared.get("issue_branch"):
+                            baseline = shared["commit_sha"]
+                        elif (skill.name == "work" or item.get("parent_id")) and repo not in recorded:
+                            baseline, branch = self.worktrees.stage_start(repo, item["id"], branch)
+                        else:
+                            baseline = self.worktrees.stage_base(repo, item["id"], branch)
                         selected = shared if shared and shared.get("issue_branch") else {
                             "repository": repo, "requested_ref": "default", "commit_sha": baseline,
                             "server_environment": self.default_server_environment,

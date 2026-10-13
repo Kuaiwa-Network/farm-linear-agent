@@ -43,6 +43,69 @@ class GeneralSchedulingTests(unittest.TestCase):
         return delegate_task(self.ledger, parent or self.parent, token or self.token,
             {"key": key, "capability": capability, "instructions": "Use the settled shared spec."})
 
+    def retained_client_branch(self):
+        fixture = git_fixtures.WorktreeTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.trees.remotes.update({repo: str(fixture.origin) for repo in SKILLS["work"].writes})
+        self.scheduler.worktrees = JobWorktrees(fixture.trees, self.ledger)
+        issue = self.ledger.issue(self.ledger.item(self.parent)["issue_id"])
+        branch = self.scheduler._branch(issue)
+        path = fixture.trees.add("Farm-Client", "legacy-job", branch)
+        (path / "retained.txt").write_text("previous job's unmerged candidate\n", encoding="utf-8")
+        git_fixtures.git("add", ".", cwd=path)
+        git_fixtures.git("commit", "-qm", "retain legacy candidate", cwd=path)
+        return fixture, issue, branch, path
+
+    def test_first_general_client_entry_pins_fresh_branch_without_adopting_legacy_candidate(self):
+        fixture, issue, preferred, old = self.retained_client_branch()
+        retained = fixture.trees.head(old)
+        self.ledger.connection.execute("UPDATE work_items SET state='queued',token=NULL,worker_pid=NULL,"
+                                       "next_root_repo=NULL,root_repo='Farm-Client' "
+                                       "WHERE id=?", (self.parent,))
+        item = self.ledger.item(self.parent)
+        paths = self.scheduler._worktrees_for(SKILLS["work"], item, issue)
+        target = self.ledger.item(self.parent)["target"]
+        self.assertEqual(target["issue_branch"], preferred + "-" + self.parent)
+        self.assertEqual(target["commit_sha"], fixture.trees.head(fixture.origin))
+        self.assertEqual(fixture.trees.head(paths["Farm-Client"]), target["commit_sha"])
+        self.assertFalse((paths["Farm-Client"] / "retained.txt").exists())
+        self.assertEqual(fixture.trees.head(old), retained)
+        with patch.object(fixture.trees, "stage_start", side_effect=AssertionError("must keep saved pin")):
+            resumed = self.scheduler._worktrees_for(SKILLS["work"], self.ledger.item(self.parent), issue)
+        self.assertEqual(resumed["Farm-Client"], paths["Farm-Client"])
+        self.assertEqual(self.ledger.item(self.parent)["target"], target)
+
+    def test_first_presentation_entry_uses_parent_suffix_and_shares_immutable_client_pin(self):
+        fixture, issue, preferred, old = self.retained_client_branch()
+        retained = fixture.trees.head(old)
+        first = self.task("scene-first", "scene")
+        paths = self.scheduler._worktrees_for(SKILLS["scene"], first, issue)
+        parent = self.ledger.item(self.parent)
+        child = self.ledger.item(first["id"])
+        self.assertEqual(parent["target"]["issue_branch"], preferred + "-" + self.parent)
+        self.assertEqual(child["target"], parent["target"])
+        self.assertEqual(child["task_client_base"], fixture.trees.head(fixture.origin))
+        self.assertEqual(paths["Farm-Client"].parent.name, self.parent)
+        second = self.task("scene-second", "scene")
+        with patch.object(fixture.trees, "stage_start", side_effect=AssertionError("must share parent pin")):
+            with self.assertRaisesRegex(LedgerError, "another presentation task retains"):
+                self.scheduler._worktrees_for(SKILLS["scene"], second, issue)
+        self.assertEqual(self.ledger.item(second["id"])["target"], parent["target"])
+        self.assertIsNone(self.ledger.item(second["id"])["task_client_base"])
+        self.assertEqual(fixture.trees.head(old), retained)
+
+    def test_recorded_client_branch_without_baseline_still_refuses_fresh_selection(self):
+        fixture, issue, preferred, old = self.retained_client_branch()
+        first = self.task("scene-first", "scene")
+        with patch.object(self.scheduler, "_recorded_branches", return_value={"Farm-Client": preferred}), \
+                patch.object(fixture.trees, "stage_start", side_effect=AssertionError("saved plan needs recovery")):
+            with self.assertRaisesRegex(WorktreeError, "existing issue branch"):
+                self.scheduler._worktrees_for(SKILLS["scene"], first, issue)
+        self.assertIsNone(self.ledger.item(self.parent)["target"])
+        self.assertIsNone(self.ledger.item(first["id"])["target"])
+        self.assertTrue((old / "retained.txt").exists())
+
     def test_concurrent_ui_authoring_does_not_hold_the_legacy_exclusive_lane(self):
         first = self.task()
         other = self.fixture.item(issue_id=ledger_fixtures.OTHER, session="other-job", identifier="FARM-2", skill="work")
