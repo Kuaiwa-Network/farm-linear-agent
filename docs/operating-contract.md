@@ -228,6 +228,14 @@ sandbox tool access or actual worker readiness. This adds no write roots or gran
 fix/chat authority and containment are unchanged.
 
 Hosts may opt into [Go dependency preparation](go-dependency-preparation.md).
+Each startup validates the configured native tools and Go digest before creating
+or marking fresh/empty cache and preparation roots. Existing ownership markers
+must match the instance and absolute state root; nonempty unmarked storage still
+requires explicit operator adoption. Links and foreign markers remain refused.
+No missing config, tools, credentials or permissions are selected/repaired by
+startup. Read-only `doctor` reports configured storage/tool readiness without
+initializing it. The [host startup guide](startup.md) covers this alongside Unity
+slot preparation and the configured on-demand or persistent Editor pool mode.
 Workers request only a configured module at their clean committed HEAD. A separate
 controller loop parses/downloads/verifies those immutable module inputs using
 existing pinned native tools, isolated staging and explicitly owned cache roots

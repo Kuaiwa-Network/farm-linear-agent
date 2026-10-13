@@ -42,8 +42,14 @@ The module map names only repositories already present in `repos`.
 ```
 
 On Windows use the configured Python executable and Windows absolute paths.
-On macOS use `python3`. Initialize ownership explicitly before starting a
-settled service with the updated config:
+On macOS use `python3`. Once configured, every `serve` startup validates the
+native tools and pinned Go digest, initializes missing or empty cache/preparation
+roots, and verifies existing ownership markers. It preserves already prepared
+cache contents. See the [host startup guide](startup.md) for Go and Unity setup,
+routine startup and readiness checks.
+
+The operator can also initialize ownership explicitly, including before starting
+an older service revision that requires marked roots:
 
 ```sh
 python3 -m agent.go_dependencies --config /absolute/private-config.json
@@ -51,8 +57,9 @@ python3 -m agent.go_dependencies --config /absolute/private-config.json
 
 Add `--adopt-existing` only to explicitly adopt an existing host-prepared cache.
 An existing ownership marker for another instance is always rejected. `serve`
-refuses an unmarked, linked or incorrectly owned root, missing native tools, or a
-changed Go executable digest. It never adopts storage at startup. Host `gh`
+refuses a nonempty unmarked, linked or incorrectly owned root, missing native
+tools, or a changed Go executable digest. It never adopts existing unmarked
+content at startup. Host `gh`
 authentication must already be available; no login or credential setup runs.
 
 ## Preparation and recovery
