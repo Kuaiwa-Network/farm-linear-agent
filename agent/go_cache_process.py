@@ -25,11 +25,22 @@ def run(argv, *, cwd, env, log, cancelled=lambda: False, timeout=600):
                 job.assign(process)
                 job.resume(process)
             deadline = time.monotonic() + timeout
-            while process.poll() is None:
+            code = None
+            while code is None:
+                if os.name == 'nt':
+                    code = process.poll()
+                else:
+                    # Keep the group leader unreaped until its group is drained;
+                    # otherwise a reused PID could identify an unrelated group.
+                    info = os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+                    if info is not None:
+                        code = info.si_status if info.si_code == os.CLD_EXITED else -info.si_status
+                if code is not None:
+                    break
                 if cancelled() or time.monotonic() >= deadline:
                     raise RuntimeError('Go dependency preparation cancelled or timed out')
                 time.sleep(.1)
-            if process.returncode:
+            if code:
                 raise RuntimeError('Go dependency command failed; retained host diagnostics')
         finally:
             if job is not None:

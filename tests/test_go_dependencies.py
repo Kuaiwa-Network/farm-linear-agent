@@ -56,6 +56,11 @@ class StorageTests(Fixture):
         Path(self.config.go_dependencies['go']).write_bytes(b'new executable')
         with self.assertRaisesRegex(ValueError, 'digest'): dep.roots(self.config)
 
+    def test_storage_cannot_be_shared_by_same_app_at_another_state_root(self):
+        dep.initialize(self.config)
+        self.config.local_root=self.root/'different-state'
+        with self.assertRaisesRegex(ValueError,'ownership'): dep.roots(self.config)
+
     def test_no_module_path_or_private_prefix_injection(self):
         for value in ('../foreign', '/foreign', 'designer/../foreign', 'dir;cmd', 'a\\b'):
             with self.subTest(value=value), self.assertRaises(ValueError): dep.module_path(value)
@@ -246,6 +251,12 @@ class RequestTests(LedgerBase):
         self.controller(stop).tick()
         self.assertEqual(dep.status(self.ledger,self.config,self.item_id,result['id'])['state'],'cancelled')
 
+    def test_new_claim_in_same_generation_fences_old_preparation(self):
+        result=self.request()
+        self.ledger.connection.execute("UPDATE work_items SET token='new-claim-digest' WHERE id=?",(self.item_id,))
+        preparer=Mock(); self.controller(preparer).tick(); preparer.assert_not_called()
+        self.assertEqual(dep.status(self.ledger,self.config,self.item_id,result['id'])['state'],'cancelled')
+
     def test_failure_redaction_and_bounded_corrected_retry(self):
         preparer = Mock(side_effect=RuntimeError('SECRET token and signed URL'))
         for number in range(3):
@@ -259,6 +270,13 @@ class RequestTests(LedgerBase):
         (self.path/'go.mod').write_text('changed')
         preparer = Mock(); self.controller(preparer).tick(); preparer.assert_not_called()
         self.assertEqual(dep.status(self.ledger,self.config,self.item_id,result['id'])['state'],'failed')
+
+    def test_host_settings_change_invalidates_request_and_cached_readiness(self):
+        original=self.request()
+        self.config.go_dependencies['go_sha256']='a'*64
+        preparer=Mock(); self.controller(preparer).tick(); preparer.assert_not_called()
+        self.assertEqual(dep.status(self.ledger,self.config,self.item_id,original['id'])['state'],'failed')
+        self.assertNotEqual(self.request()['id'],original['id'])
 
     def test_authenticated_worker_cli_request_and_poll(self):
         from agent.__main__ import parser, run

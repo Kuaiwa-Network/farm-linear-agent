@@ -79,7 +79,11 @@ def validate_settings(block, local_root, repos):
 
 def owner(config):
     return {'schema': 'farmbot-go-dependencies-v1', 'instance_id': config.instance_id,
-            'app_user_id': config.expected_app_user_id}
+            'app_user_id': config.expected_app_user_id, 'local_root':str(Path(config.local_root).resolve())}
+
+
+def settings_digest(config):
+    return digest(json.dumps(config.go_dependencies,sort_keys=True).encode('utf-8'))
 
 
 def initialize(config, *, adopt_existing=False):
@@ -147,12 +151,14 @@ def request(ledger, trees, config, item_id, token, module, commit, *, retry=Fals
     with ledger._transaction():
         row = ledger._owned(item_id, token)
         ledger._refuse_withdrawn(row)
+        ledger.require_no_reservation(item_id)
         matching = []
         for record in ledger.connection.execute('SELECT details FROM audit WHERE item_id=? AND kind=? ORDER BY id DESC',
                                                 (item_id, REQUEST)):
             prior = json.loads(record['details'])
             if (prior['generation'] == item['generation'] and prior['repo'] == item['root_repo']
-                    and prior['module'] == module and prior['commit'] == commit and prior['inputs'] == inputs):
+                    and prior['module'] == module and prior['commit'] == commit and prior['inputs'] == inputs
+                    and prior.get('settings') == settings_digest(config)):
                 matching.append(prior)
         if matching:
             result = status(ledger, config, item_id, matching[0]['id'])
@@ -161,7 +167,8 @@ def request(ledger, trees, config, item_id, token, module, commit, *, retry=Fals
             if len(matching) >= 3:
                 raise LedgerError('Go dependency preparation retry limit reached; retain evidence for host maintenance')
         details = {'id': str(uuid4()), 'repo': item['root_repo'], 'module': module, 'commit': commit,
-                   'generation': row['generation'], 'inputs': inputs}
+                   'generation': row['generation'], 'inputs': inputs, 'settings':settings_digest(config),
+                   'claim_fence':digest(row['token'].encode('utf-8'))}
         ledger._audit(item_id, REQUEST, 'host Go cache preparation', details)
     return {'id': details['id'], 'state': 'pending'}
 
@@ -367,9 +374,11 @@ class Controller:
 
     def active(self, item_id, request):
         item = self.ledger.item(item_id)
+        claim = self.ledger._row(item_id)['token']
         return (not self.stop() and item['state'] == 'running' and item['generation'] == request['generation']
                 and item['root_repo'] == request['repo'] and item['withdraw_deadline'] is None
-                and item['lease_expires_at'] > self.ledger.clock())
+                and item['lease_expires_at'] > self.ledger.clock() and claim
+                and digest(claim.encode('utf-8')) == request.get('claim_fence'))
 
     def tick(self):
         rows = self.ledger.connection.execute('SELECT item_id,details FROM audit WHERE kind=? ORDER BY id', (REQUEST,)).fetchall()
@@ -381,6 +390,8 @@ class Controller:
             else:
                 try:
                     item = self.ledger.item(item_id)
+                    if value.get('settings') != settings_digest(self.config):
+                        raise LedgerError('Go dependency host settings changed; request the current configuration')
                     if value['module'] not in self.config.go_dependencies['modules'].get(value['repo'], []):
                         raise LedgerError('Go module is no longer configured')
                     values = snapshot(self.trees, item, value['module'], value['commit'])

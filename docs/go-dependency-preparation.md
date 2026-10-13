@@ -7,6 +7,10 @@ running claim, validates the owned clean worktree, reads regular committed
 `go.mod`/`go.sum` blobs through the existing clone trust checks, and records a
 durable request. The controller handles one request at a time on a separate loop;
 the scheduler, receiver, progress reporting and Stop continue independently.
+Requests must precede resource reservations and bind the current claim and host
+settings. A replacement claim cancels old pending preparation; changed host
+settings cannot reuse an old request's readiness. Storage ownership also binds
+the instance's absolute state root, so two roots cannot share it under one app ID.
 
 Workers poll `go-dependencies` while retaining/renewing their claim and doing
 independent work. Pending host preparation needs no human reply. Once ready, the
@@ -68,6 +72,9 @@ conflicting existing immutable bytes and preserves existing version indexes.
 Final offline module graph and checksum checks run against the published cache.
 Workers gain no cache write root, network capability, credential or tool-install
 authority. Worker-owned HOME, build cache and temporary storage remain private.
+Offline checks override private-module proxy bypass with `GONOPROXY=none` and
+disable every VCS route with `GOVCS=*:off`, in addition to proxy/checksum services
+being off. Complete caches are reverified offline without downloads or expansion.
 
 Native Windows Go/Git descendants run in a suspended-created, non-breakaway Job
 Object. POSIX processes use an owned process group. Timeout, Stop, withdrawal,
