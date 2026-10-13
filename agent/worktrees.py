@@ -60,6 +60,23 @@ LFS_POINTER = b"version https://git-lfs"
 CREDENTIAL_FAILURE = re.compile(r"401|Authoriz|credential", re.I)
 TRANSFER_FAILURE = re.compile(r"lfs|smudge|connect|resolve|timed out|timeout|unable to access|"
                               r"could not read|not found|access denied", re.I)
+# Two fetches into one clone race on its ref locks: the loser finds a ref the winner has just moved and fails
+# (two concurrent `fetch --prune` after an origin update: 40 of 80 runs failed on git 2.43, 80 of 80 on 2.54).
+# Only this compare-and-swap form is a race. A lock file that already exists may be one a killed git left behind, which no
+# retry clears. Git translates the message under a non-English locale, so FarmBot's fetch runs with LC_ALL=C.
+REF_RACE = re.compile(r"cannot lock ref '[^']*': is at [0-9a-f]+ but expected [0-9a-f]+")
+FETCH_ENV = {**GIT_ENV, "LC_ALL": "C"}
+# The scheduler's launches and the slot pool fetch into the same clone from different threads. One lock per clone
+# path, held by the process rather than by a Worktrees, serializes FarmBot's own fetches. A worker fetches from its
+# sandbox outside it, hence the retry in Worktrees.fetch.
+_FETCH_LOCKS = {}
+_FETCH_LOCKS_GUARD = threading.Lock()
+
+
+def _fetch_lock(clone):
+    key = os.path.normcase(os.path.abspath(clone))
+    with _FETCH_LOCKS_GUARD:
+        return _FETCH_LOCKS.setdefault(key, threading.Lock())
 
 
 def _branch_safe(name):
@@ -79,6 +96,11 @@ class WorktreeError(RuntimeError):
 
 class VerificationMismatch(WorktreeError):
     """A successful Git read proved the candidate differs from its required state."""
+
+
+class FetchRaced(WorktreeError):
+    """A fetch into a clone lost the ref-lock race to another fetch there twice: that fetch moved the refs this one
+    meant to. A caller that needs one commit may check the clone for it (has_commit) instead of failing."""
 
 
 def _git(*args, cwd, env=GIT_ENV, timeout=600, config=(), input_text=None):
@@ -320,33 +342,75 @@ class Worktrees:
         return path
 
     def fetch(self, repo, *, config=()):
-        """`fetch --prune origin` into the clone, made first if it must be; inside one_fetch_per_clone, only the
-        first call for each clone fetches. A failed fetch is not recorded, so a later call tries again."""
+        """Fetch origin into the clone, made first if it must be, one FarmBot fetch per clone at a time
+        (_fetch_lock). A lost ref-lock race (REF_RACE) is retried once; losing the retry too raises FetchRaced.
+        Inside one_fetch_per_clone, only the first successful call for each clone fetches; a fetch that failed or
+        raced is not recorded, so a later call tries again."""
         clone = self.ensure_clone(repo)
         fetched = self._fetched_in_scope()
         if fetched is not None and repo in fetched:
             return
-        _git("fetch", "--quiet", "--prune", "origin", cwd=clone, config=config)
+        with _fetch_lock(clone):
+            for attempt in (1, 2):
+                try:
+                    _git("fetch", "--quiet", "--prune", "origin", cwd=clone, env=FETCH_ENV, config=config)
+                    break
+                except WorktreeError as exc:
+                    if not REF_RACE.search(str(exc)):
+                        raise
+                    if attempt == 2:
+                        raise FetchRaced(str(exc)) from exc
         if fetched is not None:
             fetched.add(repo)
 
     def default_branch(self, repo, *, config=()):
+        return self._origin_head(repo, config=config)[0]
+
+    def _origin_head(self, repo, *, config=()):
+        """origin's default branch and the commit it names (None if not listed), from one ls-remote in the clone."""
         clone = self.ensure_clone(repo)
         out = _git("ls-remote", "--symref", "origin", "HEAD", cwd=clone, config=config)
+        branch = commit = None
         for line in out.splitlines():
+            fields = line.split()
             if line.startswith("ref:"):
-                return line.split()[1].removeprefix("refs/heads/")
-        raise WorktreeError("origin has no HEAD")
+                branch = fields[1].removeprefix("refs/heads/")
+            elif fields[1:] == ["HEAD"]:
+                commit = fields[0]
+        if branch is None:
+            raise WorktreeError("origin has no HEAD")
+        return branch, commit
 
     COMMIT = re.compile(r"^[0-9a-f]{40}$")
+
+    def has_commit(self, repo, commit):
+        """Whether the clone already holds `commit`, a full SHA, as a commit. Nothing is fetched."""
+        if not self.COMMIT.fullmatch(commit or ""):
+            return False
+        try:
+            return _git("rev-parse", "--verify", "--quiet", "--end-of-options", f"{commit}^{{commit}}",
+                        cwd=self.ensure_clone(repo)) == commit
+        except WorktreeError:
+            return False
 
     def resolve_commit(self, repo, ref=None):
         """A pinned target is always a full commit: git refuses the same branch in two worktrees (spec §8).
         This is the pool's path: it clones if it must and fetches every time, so it may take minutes. A clone
-        made by this call is not fetched again at once."""
+        made by this call is not fetched again at once.
+
+        After a FetchRaced, origin's default head comes from ls-remote, and it is used when the clone already holds
+        it. The remote-tracking ref is not read: the other fetch may be a worker's, and a worker can write refs."""
         with self.one_fetch_per_clone():
             clone = self.ensure_clone(repo)
-            self.fetch(repo)
+            try:
+                self.fetch(repo)
+            except FetchRaced:
+                if ref is not None:
+                    raise
+                commit = self._origin_head(repo)[1]
+                if not self.has_commit(repo, commit):
+                    raise
+                return commit
         ref = ref or f"origin/{self.default_branch(repo)}"
         commit = _git("rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}", cwd=clone)
         if not self.COMMIT.match(commit):

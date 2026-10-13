@@ -1106,6 +1106,132 @@ class ReadCheckoutTests(unittest.TestCase):
         self.assertEqual(kept.read_text(encoding="utf-8"), "not FarmBot's\n")
 
 
+def lost_race(at="a" * 40, expected="b" * 40):
+    """What _git raises for a fetch that lost a ref-lock race (git 2.43 and 2.54 print it the same way)."""
+    return WorktreeError(f"git fetch failed: error: cannot lock ref 'refs/remotes/origin/main': is at {at} "
+                         f"but expected {expected}")
+
+
+class FetchRaceTests(unittest.TestCase):
+    """The scheduler's launches and the slot pool fetch into one bare clone from different threads, and a worker
+    fetches there from its sandbox. Two concurrent `fetch --prune` race on the clone's ref locks and the loser
+    fails; a review measured 40 of 80 runs on git 2.43, and 80 of 80 failed on git 2.54."""
+
+    def setUp(self):
+        WorktreeTests.setUp(self)
+        self.clone = self.trees.ensure_clone("Farm-Client")
+
+    def advance(self, name):
+        (self.origin / name).write_text(name, encoding="utf-8")
+        git("add", ".", cwd=self.origin)
+        git("commit", "-qm", name, cwd=self.origin)
+        return git("rev-parse", "HEAD", cwd=self.origin)
+
+    def worker_fetch(self):
+        """A worker's fetch into the clone: plain git, as from its sandbox, outside the controller's lock."""
+        git("fetch", "--quiet", "--prune", "origin", cwd=self.clone)
+
+    def fetches(self, *failures, worker="fetch"):
+        """agent.worktrees._git, except that the controller's fetches into the clone fail with `failures`, one per
+        fetch, each after `worker` ran (by default worker_fetch; None for nothing). Returns the patch and the env
+        of every controller fetch into the clone."""
+        real, left, envs = agent.worktrees._git, list(failures), []
+        worker = self.worker_fetch if worker == "fetch" else worker
+
+        def run(*args, **kwargs):
+            if args[0] == "fetch" and Path(kwargs["cwd"]) == self.clone:
+                envs.append(kwargs.get("env"))
+                if left:
+                    if worker is not None:
+                        worker()
+                    raise left.pop(0)
+            return real(*args, **kwargs)
+        return patch("agent.worktrees._git", run), envs
+
+    def tracking(self):
+        return git("rev-parse", "refs/remotes/origin/main", cwd=self.clone)
+
+    def test_a_fetch_that_loses_the_ref_lock_race_is_retried_once(self):
+        head = self.advance("later.txt")
+        patched, envs = self.fetches(lost_race())
+        with patched:
+            self.trees.fetch("Farm-Client")
+        self.assertEqual(len(envs), 2)
+        self.assertEqual(self.tracking(), head)
+        # The race is recognized by git's English message, which a translated locale would change.
+        self.assertTrue(all(env["LC_ALL"] == "C" for env in envs), envs)
+
+    def test_losing_the_retry_raises_fetch_raced_and_nothing_else_is_retried(self):
+        patched, envs = self.fetches(lost_race(), lost_race())
+        with patched, self.assertRaises(agent.worktrees.FetchRaced):
+            self.trees.fetch("Farm-Client")
+        self.assertEqual(len(envs), 2)
+        stale = WorktreeError("git fetch failed: error: cannot lock ref 'refs/remotes/origin/main': Unable to "
+                              "create '/clone/refs/remotes/origin/main.lock': File exists.")
+        for failure in (WorktreeError("git fetch failed: fatal: unable to access origin"), stale):
+            with self.subTest(failure=str(failure)):
+                # A lock file that is already there may be one a killed git left: no retry clears it.
+                patched, envs = self.fetches(failure, worker=None)
+                with patched, self.assertRaises(WorktreeError) as caught:
+                    self.trees.fetch("Farm-Client")
+                self.assertNotIsInstance(caught.exception, agent.worktrees.FetchRaced)
+                self.assertEqual(len(envs), 1)
+
+    def test_resolve_commit_settles_a_lost_race_with_origins_own_head_never_the_tracking_ref(self):
+        """The other fetch may be a worker's, and a worker can write refs/remotes/origin/main: after a FetchRaced the
+        head comes from ls-remote, and it counts only once the clone holds that commit."""
+        first = self.tracking()
+        head = self.advance("later.txt")
+
+        def fetch_then_rewind():
+            self.worker_fetch()
+            git("update-ref", "refs/remotes/origin/main", first, cwd=self.clone)
+
+        patched, _ = self.fetches(lost_race(), lost_race(), worker=fetch_then_rewind)
+        with patched:
+            self.assertEqual(self.trees.resolve_commit("Farm-Client"), head)
+        self.assertEqual(self.tracking(), first)
+        self.assertTrue(self.trees.has_commit("Farm-Client", head))
+        missing = self.advance("unfetched.txt")
+        self.assertFalse(self.trees.has_commit("Farm-Client", missing))
+        self.assertFalse(self.trees.has_commit("Farm-Client", "not-a-sha"))
+        patched, _ = self.fetches(lost_race(), lost_race(), worker=None)
+        with patched, self.assertRaises(agent.worktrees.FetchRaced):
+            self.trees.resolve_commit("Farm-Client")
+
+    def test_the_controllers_own_fetches_into_one_clone_take_turns(self):
+        real, entered, release, order = agent.worktrees._git, threading.Event(), threading.Event(), []
+
+        def gated(*args, **kwargs):
+            if args[0] == "fetch":
+                order.append(threading.current_thread().name)
+                if len(order) == 1:
+                    entered.set()
+                    release.wait(30)
+            return real(*args, **kwargs)
+
+        # Through a second Worktrees: the lock belongs to the clone path, not to one object.
+        other = Worktrees(self.trees.repos_root, self.trees.worktrees_root, {"Farm-Client": str(self.origin)})
+        first = threading.Thread(target=self.trees.fetch, args=("Farm-Client",), name="first")
+        second = threading.Thread(target=other.fetch, args=("Farm-Client",), name="second")
+
+        def finish():
+            release.set()
+            for thread in (first, second):
+                if thread.ident is not None:
+                    thread.join(30)
+
+        with patch("agent.worktrees._git", gated):
+            self.addCleanup(finish)         # before the temporary directory goes, even when an assertion fails
+            first.start()
+            self.assertTrue(entered.wait(30))
+            second.start()
+            second.join(0.5)
+            self.assertEqual(order, ["first"])
+            finish()
+        self.assertEqual(order, ["first", "second"])
+
+
 class ControllerGitTests(unittest.TestCase):
     """Plan P10: FarmBot's own git runs outside every worker sandbox, in clones and worktrees a worker writes parts of.
     Nothing a worker could write there may make it run a program, read another repository or be sent elsewhere."""
