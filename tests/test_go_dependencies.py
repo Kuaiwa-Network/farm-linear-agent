@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -224,9 +225,27 @@ class RequestTests(LedgerBase):
         control = self.controller(preparer)
         self.assertTrue(control.tick()); self.assertFalse(control.tick())
         self.assertEqual(self.request()['state'], 'ready')
-        self.assertEqual(preparer.call_args.args[1]['go.mod'], (self.path/'go.mod').read_bytes())
+        # Preparation uses committed bytes; Git may convert LF to CRLF in the worktree.
+        expected = {name: subprocess.check_output(['git', 'show', f'{self.head}:{name}'], cwd=self.path)
+                    for name in ('go.mod', 'go.sum')}
+        self.assertEqual(preparer.call_args.args[1], expected)
         self.assertEqual(self.ledger.item(self.item_id)['state'], 'running')
         self.assertIsNone(self.ledger.human_question(self.item_id))
+
+    def test_preparer_receives_committed_inputs_with_crlf_checkout(self):
+        (self.path/'.gitattributes').write_bytes(b'go.mod text eol=crlf\n')
+        committed = b'module fixture\n\ngo 1.25.1\n'
+        (self.path/'go.mod').write_bytes(committed)
+        git('add', '.gitattributes', 'go.mod', cwd=self.path)
+        git('commit', '-qm', 'CRLF checkout', cwd=self.path)
+        (self.path/'go.mod').unlink()
+        git('checkout', '--', 'go.mod', cwd=self.path)
+        self.head = self.trees.head(self.path)
+        self.assertEqual((self.path/'go.mod').read_bytes(), committed.replace(b'\n', b'\r\n'))
+        self.request()
+        preparer = Mock(return_value={'state':'ready','cache_root':'fixture'})
+        self.assertTrue(self.controller(preparer).tick())
+        self.assertEqual(preparer.call_args.args[1], {'go.mod':committed, 'go.sum':b''})
 
     def test_dirty_candidate_and_wrong_claim_are_refused(self):
         (self.path/'uncommitted').write_text('keep')
