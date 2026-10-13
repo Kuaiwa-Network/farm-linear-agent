@@ -46,6 +46,13 @@ native Python/CMD/Go entry points, never Git Bash, MSYS or WSL.
 Read the current repository entry points and pins first. A missing native tool,
 entry point, prepared dependency cache or sandbox access is a named verification
 gap; never install/upgrade tools or weaken containment/ownership to proceed.
+When dispatch supplies configured `tools.go_dependencies`, use the host request
+and polling commands in `references/worker-cli.md` before verification and after
+dependency pins change. Pending preparation is controller work, not a human
+question. Continue independent work and renew the claim while waiting; the
+worker still uses read-only modules and offline verification. Unconfigured or
+failed host preparation remains a named gap; do not install tools or download
+modules yourself.
 For authorized commits use the fixed per-command FarmBot identity in
 `references/worker-cli.md`, also on TestBot; missing ambient Git author settings
 alone are not a host gap and do not authorize editing Git configuration.

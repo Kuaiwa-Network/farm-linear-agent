@@ -16,6 +16,10 @@ certified native export, scoped Client installation, guards and reserved Unity
 loading checks. Package loading alone does not certify gameplay or visual
 acceptance. People review, merge and accept the drafts.
 
+Hosts can opt into [automatic Go dependency preparation](docs/go-dependency-preparation.md)
+for clean committed candidates. The controller fills an explicitly owned cache;
+workers retain read-only, offline access and run their own verification gates.
+
 See [general workflow and migration](docs/general-workflow.md) for activation,
 concurrency, recovery and validation boundaries. This checkout changes no running
 service or Linear labels. Hosts without `work` retain legacy label routing and

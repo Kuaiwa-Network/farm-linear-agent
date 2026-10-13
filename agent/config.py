@@ -108,6 +108,8 @@ class Config:
     lark_cli: dict = field(default_factory=dict)
     # Optional native UI publisher selection; never selects a tool automatically.
     fgui_export: dict = field(default_factory=dict)
+    # Opt-in host preparation; no tool selection/installation or worker cache write grant.
+    go_dependencies: dict = field(default_factory=dict)
     # Names of the skills this instance runs (spec §9.11); None runs every skill in the checkout's skills/ but the
     # opt-in ones (Phase B plan, P1).
     enabled_skills: list | None = None
@@ -170,6 +172,8 @@ class Config:
         if self.fgui_export != {}:
             from .fgui_settings import validate_settings
             validate_settings(self.fgui_export)
+        from .go_dependencies import validate_settings as validate_go_dependencies
+        validate_go_dependencies(self.go_dependencies, self.local_root, self.repos)
         if self.lark_cli.get("secret_env") and self.lark_cli["secret_env"] == self.kw_ops.get("token_env"):
             raise ValueError("lark_cli secret_env must differ from kw_ops token_env")
         if self.enabled_skills is not None and (

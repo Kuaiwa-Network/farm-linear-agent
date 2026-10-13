@@ -183,6 +183,17 @@ WSL or GNU utilities. A version inventory does not certify prepared module cache
 sandbox tool access or actual worker readiness. This adds no write roots or grants;
 fix/chat authority and containment are unchanged.
 
+Hosts may opt into [Go dependency preparation](go-dependency-preparation.md).
+Workers request only a configured module at their clean committed HEAD. A separate
+controller loop parses/downloads/verifies those immutable module inputs using
+existing pinned native tools, isolated staging and explicitly owned cache roots
+outside worker write roots. No repository tool/build runs on the host. Preparation
+is durable, bounded and cancellation-fenced; pending requests require no human
+reply. Workers remain offline with read-only dependencies and perform the actual
+gates themselves. Failed host preparation remains a named verification gap.
+This adds audit kinds, not a schema migration; rollback requires settling workers
+and removing the optional config block while preserving cache/recovery evidence.
+
 The optional [native Windows Git/LFS callback](windows-native-git.md) is built
 and selected separately; `serve` and `doctor` do not install or activate it.
 Its GitHub route remains HTTPS github.com only. An optional private companion

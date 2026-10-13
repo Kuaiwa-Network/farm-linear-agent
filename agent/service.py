@@ -32,13 +32,16 @@ from .worktrees import Worktrees
 from .unity import editor_holds_project
 
 Components = namedtuple("Components",
-                        "config paths api ledger skills worktrees launcher scheduler receiver server pool lifecycle progress recovery server_pool",
-                        defaults=(None, None, None, None))
+                        "config paths api ledger skills worktrees launcher scheduler receiver server pool lifecycle progress recovery server_pool go_dependencies",
+                        defaults=(None, None, None, None, None))
 
 
 def build(config, runtime_override=None):
     validate_runtime(config, runtime_override)
     check_ownership(config, require_initialized=True)
+    if config.go_dependencies:
+        from .go_dependencies import roots as dependency_roots
+        dependency_roots(config)
     skills = load_skills(ROOT / "skills")
     # spec §9.11, before any client or state exists: a name the checkout lacks, or a skill the dispatch cannot
     # brief, stops startup.
@@ -65,6 +68,7 @@ def build(config, runtime_override=None):
                           bot_name=config.expected_bot_name,
                           kw_ops=config.kw_ops,
                           lark_cli=config.lark_cli,
+                          go_dependencies=config.go_dependencies,
                           default_server_environment=config.default_server_environment,
                           server_slots_root=paths.server_slots if config.server_slots else None,
                           enabled_skills=set(enabled),
@@ -116,9 +120,13 @@ def build(config, runtime_override=None):
                                  host=config.host, root=paths.server_slots, state_dir=launcher.state_dir,
                                  quiescent=scheduler.resource_quiescent, admission=admission)
                    if config.server_slots else None)
+    dependencies = None
+    if config.go_dependencies:
+        from .go_dependencies import Controller as DependencyController
+        dependencies = DependencyController(Ledger(paths.ledger, check_same_thread=False), worktrees, config)
     # `skills` is the enabled set the ready line reports, not every manifest the checkout loads.
     return Components(config, paths, api, ledger, set(enabled), worktrees, launcher, scheduler, receiver, server, pool,
-                      lifecycle, progress, recovery, server_pool)
+                      lifecycle, progress, recovery, server_pool, dependencies)
 
 
 def seed_clones(config, source_root=None):
@@ -312,6 +320,11 @@ def _serve(components):
             components.recovery.tick()
             return 15.0
         threads.append(threading.Thread(target=guarded('resource_recovery', recover_resources_once), daemon=True))
+    if components.go_dependencies is not None:
+        components.go_dependencies.stop = stop.is_set
+        def dependencies_once():
+            return .1 if components.go_dependencies.tick() else 2.0
+        threads.append(threading.Thread(target=guarded('go_dependencies', dependencies_once), daemon=True))
     if components.server_pool is not None:
         def server_pool_once():
             if not components.server_pool.ready:
@@ -394,6 +407,8 @@ def _serve(components):
                 components.recovery.close()
             if components.server_pool is not None:
                 components.server_pool.close()
+            if components.go_dependencies is not None:
+                components.go_dependencies.ledger.close()
         finally:
             beat_stop.set()  # also when a join or close raised, so the beat thread stops with serve
             if main_thread:
