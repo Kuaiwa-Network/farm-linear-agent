@@ -302,10 +302,26 @@ class RecoveryStore:
         with self.ledger._transaction():
             self.db.execute('UPDATE resource_recoveries SET evidence=? WHERE id=?', (str(path), recovery_id))
 
-    def fail_unserviceable(self, host):
+    def fail_unserviceable(self, host, admission=None):
         """Do not leave jobs queued forever once every local slot exhausted repair."""
         with self.ledger._transaction():
             slots = self.ledger.slots(host=host)
+            if admission is not None:
+                # A held Editor continues to consume budget. Idle alternatives
+                # cannot help when exhausted held slots alone prevent any grant.
+                held = [s for s in slots if s['kind'] == 'unity_slot' and s['state'] == 'held']
+                exhausted_held = []
+                for slot in held:
+                    latest = self.db.execute("SELECT state FROM resource_recoveries WHERE slot_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
+                                             (slot['slot_id'],)).fetchone()
+                    if latest and latest['state'] == 'exhausted':
+                        exhausted_held.append(slot)
+                settings = admission.settings
+                healthy_open = any(s['kind'] == 'unity_slot' and s['state'] == 'idle_open' for s in slots)
+                extra = 0 if healthy_open else settings['unity_mib']
+                if exhausted_held and len(exhausted_held) * settings['unity_mib'] + extra > settings['max_reserved_mib']:
+                    for row in list(self.db.execute("SELECT r.item_id FROM reservations r JOIN work_items w ON w.id=r.item_id WHERE r.kind='unity_slot' AND r.state='queued' AND (w.host=? OR w.host IS NULL)", (host,))):
+                        self._fail_job(row['item_id'], 'Unity recovery exhausted; quarantined Editors retain the reservation budget, so another slot cannot start')
             for kind in {s['kind'] for s in slots}:
                 candidates = [s for s in slots if s['kind'] == kind]
                 if any(s['state'] != 'held' for s in candidates):
@@ -394,7 +410,10 @@ class RecoveryController:
                 if item['session_id'].startswith('local-'):
                     self.api.create_comment(item['issue_id'], notice['body'])
                 else:
-                    self.api.create_activity(item['session_id'], {'type': 'error', 'body': notice['body']}, activity_id=notice['id'])
+                    # A child's failure must not close its coordinator's session.
+                    content = {'type': 'thought' if item.get('parent_id') else 'error',
+                               'body': (item['task_key'] + ': ' if item.get('parent_id') else '') + notice['body']}
+                    self.api.create_activity(item['session_id'], content, activity_id=notice['id'])
             except Exception:
                 # The server may have accepted a request whose response was
                 # lost. A timeout is not proof that session state was unchanged.
@@ -417,7 +436,7 @@ class RecoveryController:
         active = self.ledger.active_item_for_session(item['session_id'])
         return (item['generation'] == notice['generation'] and item['state'] == 'failed'
                 and item['stage'] == 'verification-infrastructure-failed'
-                and (active is None or active['id'] == item['id']))
+                and (active is None or active['id'] == item['id'] or item.get('parent_id') == active['id']))
 
     def tick(self):
         self.store.discover(self.host)
@@ -433,7 +452,7 @@ class RecoveryController:
                 with repair_lock(self.evidence_root / candidate['id'] / '.lock') as acquired:
                     if acquired:
                         repaired += self._revalidate(candidate['id'])
-        self.store.fail_unserviceable(self.host)
+        self.store.fail_unserviceable(self.host, admission=getattr(self.pool, 'admission', None))
         self.report()
         return {'repaired': repaired}
 

@@ -827,6 +827,13 @@ configured project from the current instance listing and rejects a conflicting r
 Process ownership, project locks and the full grant identity probe still apply. Closing the last
 pool editor does not reap its broker while an unrelated editor is present.
 
+Before starting a closed slot Editor, the controller detects relocated Bee build
+state using a private location marker or startup-log evidence of an old absolute
+`Library/Bee` path. It archives only that generated cache within the verified slot
+Library, with a receipt, after checking that the configured Editor remains stopped.
+No source, importer metadata or other Library state is discarded. Regenerated
+startup still requires compilation, identity and exact-commit verification.
+
 There are two automatic execution retries per job, three separate preparation retries, and three
 attempts per slot recovery, with 60/180-second repair backoff persisted across restarts. Repair
 leases expire after 15 minutes if a controller dies. Exhaustion produces an explicit failure,
@@ -834,6 +841,11 @@ preserves work, and reports through Linear; it never masquerades as a question. 
 questions are not automatically resumed. Grant-probe failures before execution and explicit legacy
 adoption use the preparation budget; worker unclean releases, watchdog stalls and already-started
 batch runs use execution. Terminal messages name the exhausted phase and latest recorded cause.
+An exhausted held Editor retains its memory budget. When those permanent held
+costs alone prevent an alternative slot grant, queued Unity verification fails
+explicitly with saved evidence rather than waiting forever beside idle slots.
+Internal task infrastructure notices are thoughts in the parent session, preserving
+the parent conversation; they do not disappear behind the active coordinator.
 Explicit retry resets both budgets, and so does each new stage of a job whose skill starts at an
 initial root (see Work item states). The additive migration preserves existing counts and defaults
 historical records to execution; it does not infer old failure categories or automatically restart
@@ -1620,8 +1632,11 @@ card no longer delegated here; a worker told to withdraw reports that it is savi
 stopping. Withdrawal flags take priority over ordinary active-state content,
 including a coordinator parked while children save and stop. Pending content is
 rechecked when that flag changes; a saved stale question is replaced by a thought,
-and a question already in flight receives a correcting thought. Awaiting-input,
-terminal and synthetic local sessions receive no
+and a question already in flight receives a correcting thought. A parked general
+coordinator with queued, running or resource-waiting children keeps the same
+ten-minute progress cadence for their states and recovery. This neither renews
+claims nor replaces the parent's actual pending human question. Withdrawal stops
+that periodic child reporting. Other awaiting-input, terminal and synthetic local sessions receive no
 regular heartbeat. Timing and pending activity IDs survive restarts; a failed send retries
 after sixty seconds, and each further failure in a row doubles the wait, up to the ten-minute
 interval, until a send succeeds. A state change while an activity is in flight is followed by a durable

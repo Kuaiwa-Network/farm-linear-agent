@@ -42,6 +42,26 @@ class SessionProgress:
             return HEARTBEAT_UNDELEGATED
         return "工作仍在排队，等待可用的执行资源。"
 
+    def _tasks(self, item):
+        if item.get('parent_id') or item['skill'] != 'work':
+            return []
+        return [self.ledger.item(r['id']) for r in self.db.execute(
+            "SELECT id FROM work_items WHERE parent_id=? AND state IN ('queued','running','awaiting_resource') ORDER BY created_at,id",
+            (item['id'],))]
+
+    def _task_body(self, tasks):
+        rows = []
+        for task in tasks:
+            status = {'queued': '排队继续执行', 'running': '正在执行',
+                      'awaiting_resource': '等待 Unity 验证资源'}[task['state']]
+            if task['stage'] == 'waiting_for_recovery':
+                recovery = self.db.execute("SELECT state,attempts FROM resource_recoveries WHERE item_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
+                                           (task['id'],)).fetchone()
+                status = ('Unity 自动恢复已失败，验证仍受阻，成果已保存' if recovery and recovery['state'] == 'exhausted'
+                          else 'Unity 正在自动恢复，成果已保存')
+            rows.append(f"- {task['task_key']}：{status}。")
+        return '\n'.join(rows)
+
     def _content(self, item):
         state = item["state"]
         if state in ACTIVE_STATES and item["withdraw_deadline"] is not None:
@@ -58,6 +78,12 @@ class SessionProgress:
             body += (f"最近保存检查点距今 {max(0, int((self.ledger.clock() - checkpoint) / 60))} 分钟。"
                      if checkpoint is not None else "尚未保存新的检查点。")
         elif state == "awaiting_input":
+            tasks = self._tasks(item)
+            if tasks:
+                question = item['checkpoint'].get('pending_question')
+                if question and not item['checkpoint'].get('waiting_tasks'):
+                    return {'type': 'elicitation', 'body': question}
+                return {'type': 'thought', 'body': '工作已保存，子任务状态：\n' + self._task_body(tasks)}
             if item["checkpoint"].get("waiting_tasks"):
                 return {"type": "thought", "body": "工作已保存，正在等待本 issue 的界面/场景任务完成。"}
             return {"type": "elicitation", "body": item["checkpoint"].get("pending_question") or "正在等待你的回复。"}
@@ -81,7 +107,8 @@ class SessionProgress:
             item = active
         # Flags can change while the item remains awaiting_input, including between a question's reservation and
         # its retry. Reevaluate that content instead of sending an obsolete elicitation during withdrawal grace.
-        return item, f"{item['id']}:{item['state']}:{item['generation']}:{item['withdraw_reason']}:{item['withdraw_deadline']}"
+        tasks = [(t['id'], t['state'], t['generation'], t['stage']) for t in self._tasks(item)]
+        return item, f"{item['id']}:{item['state']}:{item['generation']}:{item['withdraw_reason']}:{item['withdraw_deadline']}:{tasks}"
 
     def _reserve(self, item_id, content, status_key):
         """The new send's activity id, or None when the item's row is gone: a cancellation that posted its own
@@ -157,10 +184,15 @@ class SessionProgress:
         with self.ledger._transaction():
             self.db.execute("""INSERT OR IGNORE INTO session_progress(item_id,due_at)
                 SELECT id,created_at+? FROM work_items
-                WHERE parent_id IS NULL AND state IN ('queued','running','awaiting_resource') AND session_id NOT LIKE 'local-%'""",
+                WHERE parent_id IS NULL AND session_id NOT LIKE 'local-%' AND
+                  (state IN ('queued','running','awaiting_resource') OR
+                   (state='awaiting_input' AND withdraw_deadline IS NULL AND EXISTS(SELECT 1 FROM work_items t WHERE t.parent_id=work_items.id
+                     AND t.state IN ('queued','running','awaiting_resource'))))""",
                 (self.interval,))
             row = self.db.execute("""SELECT p.* FROM session_progress p JOIN work_items w ON w.id=p.item_id
-                WHERE p.due_at<=? AND (p.content IS NOT NULL OR w.state IN ('queued','running','awaiting_resource'))
+                WHERE p.due_at<=? AND (p.content IS NOT NULL OR w.state IN ('queued','running','awaiting_resource')
+                  OR (w.parent_id IS NULL AND w.state='awaiting_input' AND w.withdraw_deadline IS NULL AND EXISTS(SELECT 1 FROM work_items t WHERE t.parent_id=w.id
+                    AND t.state IN ('queued','running','awaiting_resource'))))
                 ORDER BY p.due_at,w.created_at LIMIT 1""", (now,)).fetchone()
             if row is None:
                 return False
