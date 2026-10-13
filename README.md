@@ -109,6 +109,28 @@ changing the config while its controller or workers are running is unsafe.
 
 Behaviour: `docs/operating-contract.md`. Plans: `docs/superpowers/plans/`.
 
+On native Windows, `scripts/install-controller-supervisor.ps1` installs a separate
+controller guard under the current interactive user's Task Scheduler account.
+Pass absolute `-ConfigPath`, `-Python` and `-SourceRoot` paths; use `-CheckOnly`
+before installation. An optional `-EnvironmentFile` is hash-pinned. A legacy
+installation requires `-LaunchManifest` with the sealed release's `source_root`,
+`production_config`, `new_production_config_sha256`, `environment`,
+`environment_sha256`, `pins`, `candidate` and `tree` fields, and the matching
+environment file. The guard verifies these inputs before launching a controller.
+Keep the accepted controller release separate from the guard's development checkout.
+
+Only one restart mechanism should own an instance: retire its previous receiver
+supervisor during settled maintenance before installing the guard. The guard
+respects the OS controller lock, restarts an exited controller with a 10–300 second
+backoff, and never kills a live controller or opens the ledger. Place a regular
+`supervisor.pause` file under `local_root` to suppress restarts for maintenance;
+it does not stop a running controller. To change pinned config, tools, environment
+or release, pause first, settle the controller, preserve the old task, and explicitly
+replace the installation. The installer refuses to overwrite an existing guard task.
+Controller crash recovery uses `serve`'s existing worker/slot fencing; a stale
+heartbeat alone never triggers a kill or a duplicate controller. Guard events are
+appended to `<local_root>/agent/logs/supervisor.jsonl`.
+
 For Mac development alongside Windows production, follow the
 [development workflow](docs/development-workflow.md): offline tests first, then live
 tests with the TestBot app in the same Linear workspace, on real issues you choose

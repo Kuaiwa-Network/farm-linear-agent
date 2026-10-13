@@ -2114,3 +2114,36 @@ clean shutdown writes the `stopped` heartbeat. A clean shutdown closes the recei
 SIGKILL once the job's exit timeout has passed. The plists do not set it, so the system default applies.
 A drain longer than that ends without a `stopped` heartbeat, so the page shows 无响应 instead of 已停止
 once the last heartbeat is 60 seconds old.
+
+## Optional host controller guard
+
+`agent/supervisor.py` runs independently of the controller and never opens its
+ledger, modifies ownership markers, kills processes, or releases resources. On
+Windows the installer copies it outside the release checkout and registers a task
+under the current interactive user, with a logon trigger, unlimited runtime,
+single task instance and restart-on-failure. Installation is an explicit operator
+action, separate from a controller code upgrade. Replace an older receiver restart
+loop during settled maintenance; do not run competing supervisors.
+
+The guard respects `.controller.lock` before starting `serve`; `serve` acquires
+the lock again and retains API identity and pre-ledger checks. An already running
+controller is left alone. Child exits, including exit zero, trigger delays of 10,
+20, 40, 80, 160 and at most 300 seconds; five minutes of child uptime resets that
+backoff. A regular `supervisor.pause` file suppresses new launches, without stopping
+an existing child. `.supervisor.lock` excludes a second guard. `receiver.pid` is a
+diagnostic hint only and never establishes ownership.
+
+Config and optional private environment are hash-pinned. Legacy profiles require
+an absolute state root and a sealed launch manifest binding the config, private
+environment, accepted source commit/tree and tool file hashes. The accepted source
+must be clean before a launch. A changed pinned input refuses a launch until an
+operator completes settled maintenance and replaces the installation. This does
+not migrate an existing profile or relabel its state. Fake workers and Linear stub
+selectors are rejected. Errors log their type without private values; events append
+to `agent/logs/supervisor.jsonl` under the state root.
+
+After an accidental controller exit, the restarted `serve` reconciles durable
+work through its existing lease, owned-process, Windows Job Object and resource
+quiescence checks. The guard does not require an empty ledger to start that recovery
+and does not certify workers or Unity slots itself. It does not detect or kill a
+hung controller: heartbeat/loop diagnostics remain the monitor's responsibility.
