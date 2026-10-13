@@ -192,11 +192,13 @@ class UnityRecovery:
         baseline = self.candidate_baseline(recovery, slot, entry, evidence_dir)
         reusable = False
         if pool.editor_is_open(slot):
-            pool.mcp.cancel_tests(slot)
             try:
+                pool.mcp.cancel_tests(slot)
                 pool.wait_for_quiet(slot, min(10, entry['quiet_timeout']))
                 reusable = recovery['attempts'] == 1 and pool.mcp.quiescent(slot, 'interactive')
-            except SlotError:
+            except Exception:
+                # An unreachable MCP cannot certify idle reuse. Process ownership
+                # and confirmed exit still fence the shutdown fallback below.
                 reusable = False
         if not reusable and pool.editor_is_open(slot):
             pool.mcp.terminate(slot, entry['close_timeout'])

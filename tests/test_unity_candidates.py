@@ -215,6 +215,15 @@ class CandidateRepairTests(SlotFixture):
         self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'idle_open')
         self.assertTrue(any(c[0] == 'terminate' for c in self.mcp.calls))
 
+    def test_unreachable_cancellation_uses_owned_restart_and_preserves_metadata(self):
+        self.fail_candidate()
+        self.mcp.cancel_tests = lambda slot: (_ for _ in ()).throw(TimeoutError('MCP unreachable'))
+        self.assertEqual(self.controller().tick()['repaired'], 1)
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'idle_open')
+        self.assertEqual(self.ledger.slot('unity_slot:1')['parked_commit'], self.main)
+        self.assertTrue(any(c[0] == 'terminate' for c in self.mcp.calls))
+        self.assertTrue((self.root / 'recovery evidence' / self.record['id'] / 'source-meta.json').is_file())
+
     def test_post_execution_metadata_becomes_candidate_repair_before_same_sha_retry(self):
         self.candidates()
         self.mcp.failed_commit = None
