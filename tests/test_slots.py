@@ -82,7 +82,9 @@ class SlotFixture(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.root = Path(self.tmp.name)
+        # macOS temporary roots may use /var -> /private/var. Canonicalize the
+        # fixture before the slot's strict no-link cache checks inspect it.
+        self.root = Path(self.tmp.name).resolve()
         self.origin = self.root / "origin"
         self.origin.mkdir(parents=True)
         git("init", "-q", "-b", "main", ".", cwd=self.origin)

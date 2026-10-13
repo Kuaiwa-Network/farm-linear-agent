@@ -38,7 +38,9 @@ class Fixture:
     def build_environment(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        root = Path(self.tmp.name)
+        # macOS temporary roots may use /var -> /private/var. Canonicalize the
+        # fixture before the slot's strict no-link cache checks inspect it.
+        root = Path(self.tmp.name).resolve()
         remotes = {}
         for repo in REPOS:
             origin = root / "origins" / repo
