@@ -287,6 +287,49 @@ class PoolTests(ServerPoolFixture):
         self.assertEqual(launcher.spawned[0][2], {})
         self.assertFalse(any(self.root.is_relative_to(Path(path)) for path in launcher.spawn_writable))
 
+    def test_a_held_or_stale_reservation_stops_the_launch_before_any_checkout(self):
+        """A held slot keeps its reservation active until recovery: a launch that will not run must not prepare,
+        and so fetch, the job's worktrees and read-only checkouts on every scheduler tick."""
+        from agent.scheduler import Scheduler
+        from test_scheduler import FakeLauncher, FakeWorktrees
+        for stale in (False, True):
+            with self.subTest(stale=stale):
+                item = self.request(skill="work")
+                self.pool.tick()
+                reservation = self.ledger.active_reservation(item)
+                if stale:
+                    self.ledger.connection.execute("UPDATE work_items SET generation=generation+1 WHERE id=?", (item,))
+                else:
+                    self.ledger.set_slot_state(reservation["resource"], "held")
+                launcher, trees = FakeLauncher(self.root.parent / "runs"), FakeWorktrees(self.root.parent / "worktrees")
+                scheduler = Scheduler(self.ledger, launcher, SKILLS, trees,
+                                      skill_root=Path(__file__).resolve().parents[1] / "skills", db_path=self.db,
+                                      runtime_name="codex", host="test", server_slots_root=self.root)
+                self.assertIsNone(scheduler.launch(self.ledger.item(item)))
+                self.assertEqual((trees.added, trees.reads, launcher.spawned), ([], [], []))
+
+    def test_a_slot_held_while_the_checkouts_are_prepared_still_stops_the_launch(self):
+        """The check before the checkouts does not replace the one after them: preparing a first Farm-Client clone
+        can take minutes, and recovery may hold the slot meanwhile."""
+        from agent.scheduler import Scheduler
+        from test_scheduler import FakeLauncher, FakeWorktrees
+        item = self.request(skill="work")
+        self.pool.tick()
+        reservation = self.ledger.active_reservation(item)
+
+        class HeldMeanwhile(FakeWorktrees):
+            def add(inner, *args, **kwargs):
+                self.ledger.set_slot_state(reservation["resource"], "held")
+                return super().add(*args, **kwargs)
+
+        launcher, trees = FakeLauncher(self.root.parent / "runs"), HeldMeanwhile(self.root.parent / "worktrees")
+        scheduler = Scheduler(self.ledger, launcher, SKILLS, trees,
+                              skill_root=Path(__file__).resolve().parents[1] / "skills", db_path=self.db,
+                              runtime_name="codex", host="test", server_slots_root=self.root)
+        self.assertIsNone(scheduler.launch(self.ledger.item(item)))
+        self.assertTrue(trees.added)
+        self.assertEqual(launcher.spawned, [])
+
     def test_server_capability_reports_configuration_without_granting_endpoints_or_a_resource(self):
         from agent.scheduler import Scheduler
         from test_scheduler import FakeLauncher, FakeWorktrees

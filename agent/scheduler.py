@@ -167,6 +167,14 @@ class Scheduler:
         return {repo: self.worktrees.read_checkout(repo, item["id"], refresh=not item["publication_retries"])
                 for repo in repositories}
 
+    def _reservation_stops_launch(self, item):
+        """(the item's active reservation or None, whether it stops this launch): one granted to an earlier
+        generation of the item, or on a slot held for recovery, is not this attempt's to use."""
+        reservation = self.ledger.active_reservation(item["id"])
+        stops = reservation is not None and (reservation["generation"] != item["generation"]
+                                             or self.ledger.slot(reservation["resource"])["state"] == "held")
+        return reservation, stops
+
     @staticmethod
     def _batch_result(state_dir):
         """What the pool's own run left behind. Missing is itself a verification gap the worker must report,
@@ -195,7 +203,15 @@ class Scheduler:
                 client_ready(self.ledger, self.ledger._row(item["id"]))
         write_repos = write_repositories(item, skill)
         issue = self.ledger.issue(item["issue_id"])
-        paths = self._worktrees_for(skill, item, issue)
+        # Asked again below, after the checkouts. Asked first so a launch that will stop there fetches nothing:
+        # a held slot keeps its reservation active until recovery, and every tick would otherwise refresh each of
+        # the job's repositories from origin and throw the result away.
+        if self._reservation_stops_launch(current)[1]:
+            return None
+        # Preparing one job's checkouts fetched the same clone again moments after the last fetch (stage_base,
+        # then add_stage; a new clone, then add). A checkout that fetched before still fetches its clone, once.
+        with self.worktrees.one_fetch_per_clone():
+            paths = self._worktrees_for(skill, item, issue)
         # Client preparation may persist this item's baseline, never the session's intake target.
         item = self.ledger.item(item["id"])
         if (item["state"] != "queued" or item["generation"] != current["generation"]
@@ -211,10 +227,8 @@ class Scheduler:
         # give every fix worker the Unity MCP whether or not it holds a slot. The isolated home alone does
         # not make that repository file inert: codex exec trusts an undecided cwd and then loads it, so
         # Launcher.spawn records the cwd as untrusted in that home.
-        reservation = self.ledger.active_reservation(item["id"])
-        if reservation is not None and reservation["generation"] != item["generation"]:
-            return None
-        if reservation is not None and self.ledger.slot(reservation['resource'])['state'] == 'held':
+        reservation, stops = self._reservation_stops_launch(item)
+        if stops:
             return None
         servers, resource = {}, None
         if reservation is not None and reservation["kind"] in skill.resources:

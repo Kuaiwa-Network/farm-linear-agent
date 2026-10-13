@@ -5,6 +5,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -411,6 +412,75 @@ class WorktreeTests(unittest.TestCase):
         with self.assertRaises(WorktreeError):
             self.trees.resolve_commit("Farm-Client", "origin/no-such-branch")
 
+    def origin_fetches(self, action):
+        """The `fetch ... origin` calls into FarmBot's clones that `action` makes."""
+        calls, real = [], agent.worktrees._git
+
+        def recording(*args, cwd, **kwargs):
+            calls.append(args)
+            return real(*args, cwd=cwd, **kwargs)
+
+        with patch("agent.worktrees._git", recording):
+            action()
+        return sum(1 for args in calls if args[0] == "fetch" and "origin" in args)
+
+    def test_resolve_commit_fetches_a_clone_it_has_just_made_once_and_an_existing_one_every_time(self):
+        self.assertEqual(self.origin_fetches(lambda: self.trees.resolve_commit("Farm-Client")), 1)
+        (self.origin / "later.txt").write_text("main advanced\n", encoding="utf-8")
+        git("add", ".", cwd=self.origin)
+        git("commit", "-qm", "advance", cwd=self.origin)
+        commit = []
+        self.assertEqual(self.origin_fetches(lambda: commit.append(self.trees.resolve_commit("Farm-Client"))), 1)
+        self.assertEqual(commit, [self.trees.head(self.origin)])
+
+    def test_one_launch_fetches_each_clone_once_and_the_next_launch_fetches_again(self):
+        """Inside one_fetch_per_clone a clone already fetched is not fetched again, nested blocks included; the
+        record ends with the block, so the next launch fetches with --prune as every launch did."""
+        def first_launch():
+            with self.trees.one_fetch_per_clone():
+                self.trees.add("Farm-Client", "item-1", "farmbot/farm-1")  # makes the clone: its fetch is the one
+                with self.trees.one_fetch_per_clone():
+                    self.trees.add("Farm-Client", "item-2", "farmbot/farm-2")
+                baseline = self.trees.stage_base("Farm-Client", "item-3", "farmbot/farm-3")
+                self.trees.add_stage("Farm-Client", "item-3", "farmbot/farm-3", baseline)
+        self.assertEqual(self.origin_fetches(first_launch), 1)
+        git("branch", "gone", cwd=self.origin)
+
+        def next_launch():
+            with self.trees.one_fetch_per_clone():
+                self.trees.add("Farm-Client", "item-1", "farmbot/farm-1")
+                self.trees.add("Farm-Client", "item-2", "farmbot/farm-2")
+        self.assertEqual(self.origin_fetches(next_launch), 1)
+        clone = self.trees.clone_path("Farm-Client")
+        self.assertTrue(git("rev-parse", "--verify", "--quiet", "refs/remotes/origin/gone", cwd=clone))
+        git("branch", "-D", "gone", cwd=self.origin)
+        self.assertEqual(self.origin_fetches(next_launch), 1)  # and with --prune: the deleted branch goes
+        self.assertEqual(git("rev-parse", "--verify", "--quiet", "refs/remotes/origin/gone", cwd=clone,
+                             allow_failure=True), "")
+        self.assertEqual(self.origin_fetches(lambda: self.trees.fetch("Farm-Client")), 1)  # outside a block: always
+
+    def test_a_failed_fetch_is_not_recorded_and_another_threads_fetch_is_never_skipped(self):
+        self.trees.ensure_clone("Farm-Client")
+        real, failed = agent.worktrees._git, []
+
+        def failing_once(*args, cwd, **kwargs):
+            if args[0] == "fetch" and not failed:
+                failed.append(args)
+                raise WorktreeError("git fetch failed: origin unreachable")
+            return real(*args, cwd=cwd, **kwargs)
+
+        other = []
+        with self.trees.one_fetch_per_clone():
+            with patch("agent.worktrees._git", failing_once), self.assertRaises(WorktreeError):
+                self.trees.fetch("Farm-Client")
+            self.assertEqual(self.origin_fetches(lambda: self.trees.fetch("Farm-Client")), 1)
+            self.assertEqual(self.origin_fetches(lambda: self.trees.fetch("Farm-Client")), 0)
+            thread = threading.Thread(target=lambda: other.append(
+                self.origin_fetches(lambda: self.trees.fetch("Farm-Client"))))
+            thread.start()
+            thread.join()
+        self.assertEqual(other, [1])
+
     def test_remote_head_resolves_without_cloning_or_fetching(self):
         trees = Worktrees(Path(self.tmp.name) / "empty-repos", self.trees.worktrees_root,
                           {"Farm-Client": str(self.origin)})
@@ -784,7 +854,83 @@ class ReadCheckoutTests(unittest.TestCase):
                 self.trees.read_checkout(repo, "item-1")
         self.assertEqual({config for _, config in calls}, {agent.worktrees.READ_ONLY_GIT})
         names = [name for name, _ in calls]
-        self.assertEqual((names.count("init"), names.count("fetch")), (2, 4))  # made once each, fetched each call
+        # Made once each and asked of origin at every call; fetched only while a checkout lacks origin's tip.
+        self.assertEqual((names.count("init"), names.count("ls-remote"), names.count("fetch")), (2, 4, 2))
+
+    def calls_of(self, repo, item_id):
+        """The git subcommands one read_checkout call runs, and its path."""
+        names, real = [], agent.worktrees._git
+
+        def recording(*args, cwd, **kwargs):
+            names.append(args[0])
+            return real(*args, cwd=cwd, **kwargs)
+
+        with patch("agent.worktrees._git", recording):
+            path = self.trees.read_checkout(repo, item_id)
+        return names, path
+
+    def test_a_refresh_asks_origin_each_time_and_fetches_only_when_its_tip_moved(self):
+        """Spec §9.6's latest default branch at each launch is the ls-remote; a fetch that could bring nothing is
+        not made, and a moved tip is fetched and checked out as before."""
+        self.trees.ensure_clone("Farm-Contract")  # the clone's own first fetch is not the checkout's
+        first, path = self.calls_of("Farm-Contract", "item-1")
+        self.assertEqual((first.count("ls-remote"), first.count("fetch")), (1, 1))
+        unchanged, _ = self.calls_of("Farm-Contract", "item-1")
+        self.assertEqual((unchanged.count("ls-remote"), unchanged.count("fetch"), unchanged.count("checkout")), (1, 0, 1))
+        self.assertEqual(self.trees.head(path), self.main(self.contract))
+        later = self.contract_moves_on()
+        moved, _ = self.calls_of("Farm-Contract", "item-1")
+        self.assertEqual((moved.count("ls-remote"), moved.count("fetch")), (1, 1))
+        self.assertEqual((self.trees.head(path), git("rev-parse", "origin/main", cwd=path)), (later, later))
+
+    def test_a_tip_whose_borrowed_commit_has_gone_from_the_clone_is_fetched_again(self):
+        """The clone's objects are a worker's to write: a refresh must not fail on an unchanged tip whose commit is
+        no longer there, but fetch it into the checkout as it did before."""
+        path = self.trees.read_checkout("Farm-Contract", "item-1")
+        tip = self.main(self.contract)
+        objects = self.trees.clone_path("Farm-Contract") / "objects"
+        loose = objects / tip[:2] / tip[2:]
+        if not loose.exists():  # packed under a lowered unpackLimit: unpack, so the one commit can be removed
+            for pack in (objects / "pack").glob("*.pack"):
+                data = pack.read_bytes()
+                for name in (pack, pack.with_suffix(".idx"), pack.with_suffix(".rev")):
+                    if name.exists():
+                        name.chmod(stat.S_IWRITE)  # git writes packs read-only; Windows refuses to unlink those
+                        name.unlink()
+                subprocess.run(["git", "unpack-objects", "-q"], input=data, cwd=objects.parent, check=True)
+        loose.chmod(stat.S_IWRITE)
+        loose.unlink()
+        names, again = self.calls_of("Farm-Contract", "item-1")
+        self.assertEqual(again, path)
+        self.assertEqual(names.count("fetch"), 1)
+        self.assertEqual(self.trees.head(path), tip)
+
+    def test_a_clone_already_at_origins_tip_does_not_stand_in_for_the_checkouts_own_fetch(self):
+        """The fast path compares origin's tip with the checkout's own tracking ref. The clone's refs are a
+        worker's to write, and a clone fetched since (by another launch or the slot pool) names the new tip
+        while this checkout still names the old one."""
+        path = self.trees.read_checkout("Farm-Contract", "item-1")
+        later = self.contract_moves_on()
+        self.trees.fetch("Farm-Contract")
+        self.assertEqual(git("rev-parse", "refs/remotes/origin/main", cwd=self.trees.clone_path("Farm-Contract")), later)
+        names, _ = self.calls_of("Farm-Contract", "item-1")
+        self.assertEqual(names.count("fetch"), 1)
+        self.assertEqual(self.trees.head(path), later)
+
+    def test_a_checkout_that_fails_on_an_unchanged_tip_fetches_and_checks_out_once_more(self):
+        path = self.trees.read_checkout("Farm-Contract", "item-1")
+        names, real = [], agent.worktrees._git
+
+        def failing_first_checkout(*args, cwd, **kwargs):
+            names.append(args[0])
+            if args[0] == "checkout" and names.count("checkout") == 1:
+                raise WorktreeError("git checkout failed: unable to read tree")
+            return real(*args, cwd=cwd, **kwargs)
+
+        with patch("agent.worktrees._git", failing_first_checkout):
+            self.assertEqual(self.trees.read_checkout("Farm-Contract", "item-1"), path)
+        self.assertEqual((names.count("fetch"), names.count("checkout")), (1, 2))
+        self.assertEqual(self.trees.head(path), self.main(self.contract))
 
     @unittest.skipIf(os.name == "nt", "the hooks, fsmonitor and filters here are shell scripts")
     def test_no_hook_fsmonitor_filter_or_setting_of_the_host_or_the_clone_runs(self):
