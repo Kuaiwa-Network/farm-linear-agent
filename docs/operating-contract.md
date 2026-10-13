@@ -337,6 +337,12 @@ every sandbox: fetches, new worktrees, the publication check at launch, cleanup'
 commits and the Unity slots' checkouts. Workers push by refspec and never change the clone's config,
 so `git push -u`, deleting a branch and a full `git gc` fail inside a worker, and git may print a
 harmless `packed-refs.lock` error after a commit or fetch that succeeded (the `fix` skill says so).
+Two fetches into one clone race on its ref locks, and the loser fails. FarmBot runs one of its own
+fetches per clone at a time and retries once a fetch that lost that race (`cannot lock ref '…': is at
+… but expected …`, read under `LC_ALL=C`); a worker fetches outside that lock and can still lose. If
+the retry loses too, a slot switch goes on when the clone already holds the pinned commit, and the
+default head is origin's own from `ls-remote` when the clone holds that commit. FarmBot does not read
+the remote-tracking ref then, because a worker can write it.
 Every git call FarmBot itself makes runs with hooks and fsmonitor off. On Windows these calls also
 pass `core.longpaths=true` for nested repository files under the isolated state root; this changes
 neither host Git settings nor the clone config allowlist. In a job's worktree it names
@@ -1931,7 +1937,10 @@ refuses to prepare new ones.
   own ledger connection, and keeps its slot reserved until execution and evidence writing finish.
   Stop targets the selected job's owned process. Service shutdown fences new launches and joins
   batch executions before closing state or releasing its controller lock; uncertain quiescence holds
-  the affected slot for recovery.
+  the affected slot for recovery. A switch's git step that fails, outlives its timeout or meets a
+  filesystem error returns the slot to the pool and requeues the job once; a second failure is a
+  verification gap. A park that cannot return the slot to main holds it, and a switch or park that
+  cannot remove a dead Editor's `Temp/UnityLockfile` holds it too.
   **A worker never starts a Unity process**: the Editor does not work inside a
   worker's sandbox, so FarmBot performs a batch run itself, outside that sandbox, between the request and
   the worker that reads its results — one grant is one run. A failing probe, and an unclean release, hold
