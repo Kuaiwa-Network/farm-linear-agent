@@ -270,6 +270,19 @@ class RequestTests(LedgerBase):
             self.assertEqual(failed['state'],'failed'); self.assertNotIn('SECRET',json.dumps(failed))
         with self.assertRaisesRegex(LedgerError,'retry limit'): self.request(retry=True)
 
+    def test_cancelled_preparations_do_not_consume_host_failure_budget(self):
+        preparer = Mock(return_value={'state':'ready'})
+        for number in range(4):
+            result = self.request(retry=number>0)
+            self.ledger.connection.execute("UPDATE work_items SET token='retired-claim' WHERE id=?", (self.item_id,))
+            self.controller(preparer).tick()
+            self.assertEqual(dep.status(self.ledger,self.config,self.item_id,result['id'])['state'],'cancelled')
+            self.ledger.connection.execute("UPDATE work_items SET token=NULL,state='queued' WHERE id=?", (self.item_id,))
+            self.token = self.ledger.claim(self.item_id, worker_id='replacement')['token']
+        preparer.assert_not_called()
+        result = self.request(retry=True); self.controller(preparer).tick()
+        self.assertEqual(dep.status(self.ledger,self.config,self.item_id,result['id'])['state'],'ready')
+
     def test_controller_refuses_candidate_changed_after_request(self):
         result = self.request()
         (self.path/'go.mod').write_text('changed')

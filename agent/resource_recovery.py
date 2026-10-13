@@ -129,6 +129,22 @@ class RecoveryStore:
         with self.ledger._transaction():
             return self.request_in_transaction(slot_id, reason, adopt=True, recovery_kind='setup')
 
+    def quarantine_source(self, slot_id, reason, observation):
+        """An unreserved warm Editor changed its inputs; retain it without another importer retry."""
+        with self.ledger._transaction():
+            if self.ledger.active_reservation_on(slot_id):
+                raise ValueError('source quarantine requires an unreserved warm Editor')
+            recovery = self.request_in_transaction(slot_id, reason, recovery_kind='setup')
+            if recovery['item_id'] or recovery['reservation_id']:
+                raise ValueError('source quarantine cannot replace an execution recovery')
+            # No worker was detached. Exclude late-connection validation: source correction
+            # needs explicit continuation, rather than a transport retry.
+            self.db.execute('UPDATE resource_recoveries SET detached=0 WHERE id=?', (recovery['id'],))
+            self._exhaust(recovery, reason)
+            self.ledger._audit(slot_id, 'unity_editor_source_blocked', reason,
+                               {'recovery_id': recovery['id'], 'observation': observation})
+            return self.get(recovery['id'])
+
     def discover(self, host):
         """Migrate pre-existing holds, retaining genuine human questions and exhausted holds."""
         with self.ledger._transaction():

@@ -164,7 +164,8 @@ def request(ledger, trees, config, item_id, token, module, commit, *, retry=Fals
             result = status(ledger, config, item_id, matching[0]['id'])
             if not retry or result['state'] not in ('failed', 'cancelled'):
                 return result
-            if len(matching) >= 3:
+            if sum(status(ledger, config, item_id, prior['id'])['state'] == 'failed'
+                   for prior in matching) >= 3:
                 raise LedgerError('Go dependency preparation retry limit reached; retain evidence for host maintenance')
         details = {'id': str(uuid4()), 'repo': item['root_repo'], 'module': module, 'commit': commit,
                    'generation': row['generation'], 'inputs': inputs, 'settings':settings_digest(config),
