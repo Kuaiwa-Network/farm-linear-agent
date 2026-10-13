@@ -48,8 +48,8 @@ $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
 if ($task -and -not $ReplaceExisting) { throw "Task already exists: $taskName. Inspect it before an explicit update." }
 if ($ReplaceExisting) {
     $pause = Get-Item -LiteralPath (Join-Path $profile.local_root 'supervisor.pause') -ErrorAction Stop
-    if ($pause.PSIsContainer -or $pause.LinkType -or ($task -and $task.State -eq 'Running')) {
-        throw 'Replacing a guard requires a regular maintenance pause file and a stopped guard task.'
+    if ($pause.PSIsContainer -or $pause.LinkType -or ($task -and $task.State -ne 'Disabled')) {
+        throw 'Replacing a guard requires a regular maintenance pause file and a disabled guard task.'
     }
 }
 $setupRoot = Join-Path $profile.local_root 'supervisor'
@@ -77,11 +77,14 @@ $nativeArguments = ($arguments | ForEach-Object { Quote-Argument $_ }) -join ' '
 $action = New-ScheduledTaskAction -Execute $supervisorPython -Argument $nativeArguments -WorkingDirectory $setupRoot
 $user = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
-$trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
+$minuteTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1)
+$minuteTrigger.Repetition.StopAtDurationEnd = $false
+$triggers = @((New-ScheduledTaskTrigger -AtLogOn -User $user), $minuteTrigger)
 $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) `
     -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -StartWhenAvailable `
     -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Trigger $trigger `
+Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Trigger $triggers `
     -Settings $settings -Force:$ReplaceExisting -Description 'Owns this FarmBot instance controller; never kills an existing controller.' | Out-Null
+Enable-ScheduledTask -TaskName $taskName | Out-Null
 Start-ScheduledTask -TaskName $taskName
 [pscustomobject]@{ TaskName=$taskName; StateRoot=$profile.local_root; Supervisor=$installedScript } | ConvertTo-Json -Compress

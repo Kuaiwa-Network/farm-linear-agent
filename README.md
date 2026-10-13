@@ -114,6 +114,9 @@ controller guard under the current interactive user's Task Scheduler account.
 The task uses the installation's `pythonw.exe` so closing a console cannot stop
 the guard; controller children use the supplied, hash-pinned `python.exe` with
 no console window and captured logs.
+An indefinite one-minute trigger restores the guard if its task exits; `IgnoreNew`
+and the guard lock prevent a second guard while it is running. Keep the task disabled
+while replacing its installation during maintenance.
 Pass absolute `-ConfigPath`, `-Python` and `-SourceRoot` paths; use `-CheckOnly`
 before installation. An optional `-EnvironmentFile` is hash-pinned. A legacy
 installation requires `-LaunchManifest` with the sealed release's `source_root`,
@@ -130,7 +133,7 @@ backoff, and never kills a live controller or opens the ledger. Place a regular
 it does not stop a running controller. To change pinned config, tools, environment
 or release, pause first, settle the controller, preserve the old task, and explicitly
 replace the installation. The installer refuses to overwrite an existing guard task
-unless `-ReplaceExisting` is explicit, the task is stopped and the pause file exists.
+unless `-ReplaceExisting` is explicit, the task is disabled and the pause file exists.
 Controller crash recovery uses `serve`'s existing worker/slot fencing; a stale
 heartbeat alone never triggers a kill or a duplicate controller. Guard events are
 appended to `<local_root>/agent/logs/supervisor.jsonl`.

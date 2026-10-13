@@ -2122,6 +2122,10 @@ ledger, modifies ownership markers, kills processes, or releases resources. On
 Windows the installer copies it outside the release checkout and registers a task
 under the current interactive user, with a logon trigger, unlimited runtime,
 single task instance and restart-on-failure.
+An additional indefinite one-minute trigger restores an exited guard even when
+Task Scheduler's restart-on-failure does not relaunch the terminated action.
+`IgnoreNew` leaves a running task alone, and the guard lock fences other launches.
+Disable the task during settled replacement so this trigger cannot race the update.
 The task uses `pythonw.exe`, and child controllers use the separately selected,
 hash-pinned `python.exe` without a console window. Console closure therefore
 does not stop the guard. Captured child output remains in the private log directory.
