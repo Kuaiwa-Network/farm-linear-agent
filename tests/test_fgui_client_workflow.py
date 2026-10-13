@@ -27,6 +27,9 @@ class UiClientWorkflowTests(unittest.TestCase):
         source.plan["ui"]["receipt_id"] = self.exported["receipt_id"]; source.save_plan()
         fixture = installer_fixtures.FguiInstallTests(); fixture.setUp(); self.addCleanup(fixture.doCleanups)
         origin = source.root / "Client origin"; shutil.copytree(fixture.client, origin)
+        prepare = getattr(self, "prepare_baseline", None)
+        if prepare:
+            prepare(origin)
         if getattr(self, "new_package", False):
             shutil.rmtree(origin / "Assets/GameRes/FairyRes/One")
             (origin / "Assets/GameRes/FairyRes/One.meta").unlink()

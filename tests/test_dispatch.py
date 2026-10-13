@@ -361,6 +361,20 @@ class DispatchTests(unittest.TestCase):
 class SkillAuthorityTests(unittest.TestCase):
     """The AUTHORITY is the only launch text the Codex approval reviewer trusts, so it is chosen per skill."""
 
+    def test_all_profiles_receive_clear_human_requests_without_extra_approval(self):
+        for skill in ("chat", "fix", "work", "feature", "fgui", "scene"):
+            with self.subTest(skill=skill):
+                text = self.message({"id": "i", "skill": skill}).split("\n\n", 1)[0]
+                for phrase in ("需要你回答（共 N 项）", "original number", "copyable 回复示例",
+                               "which independent work can continue", "approval scope", "补充依据",
+                               "需要你操作", "name who must do exactly what", "当前无需你回复",
+                               "Never say no action is needed", "actual attributed session_messages",
+                               "Do not invent or re-ask resolved questions", "reply example as approval",
+                               "preserve the existing recipient grouping and confidence sections",
+                               "low-confidence first", "brief reasoning beside",
+                               "Do not flatten Contract questions into bare choices"):
+                    self.assertIn(phrase, text)
+
     def message(self, item):
         return dispatch_message(item=item, issue={"identifier": "FARM-1", "url": "u"},
                                 skill_path=ROOT / "skills" / "fix" / "SKILL.md", worktrees={}, db_path="/db",
@@ -443,7 +457,7 @@ class SkillAuthorityTests(unittest.TestCase):
     def test_ui_authority_is_pinned_to_certified_export_client_and_unity_loading(self):
         part = dispatch.FGUI_AUTHORITY
         self.assertEqual(hashlib.sha256(part.encode("utf-8")).hexdigest(),
-                         "6ed311ec903b32ca5810d8ed8a3ff036c5914424e289889567273644a09b5018")
+                         "376edd0ecf304b4a67d71691364f286075e6ad5d6fadbb9e64337332bb14661b")
         self.assertIs(dispatch.SKILL_AUTHORITY["fgui"], part)
         self.assertEqual(self.message({"id":"i", "skill":"fgui"}).split("\n\n", 1)[0],
                          dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.QUESTION_AUTHORITY + part + dispatch.AUTHORITY_REFERENCE)
@@ -456,6 +470,11 @@ class SkillAuthorityTests(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, part)
         self.assertNotIn("tools.kw_ops.access", part)  # D16: no operator-tool grant
+
+    def test_recovery_authority_assigns_the_bounded_repair_to_the_job(self):
+        self.assertIn("authorize-ui-guard-repair", dispatch.FGUI_AUTHORITY)
+        self.assertIn("instead of asking the human to find another engineer", dispatch.FGUI_AUTHORITY)
+        self.assertIn("Own technical blockers and their recovery", dispatch.WORK_AUTHORITY)
 
     def test_the_kw_ops_grant_is_per_skill_and_the_rest_is_common(self):
         self.assertEqual(set(dispatch.SKILL_AUTHORITY), {"fix", "chat", "work", "feature", "fgui", "scene"})

@@ -73,15 +73,20 @@ def installed_scope(workflow, installed, *, expected_commit=None):
     packages = installed["packages"]
     dependencies = installed["dependencies"]
     guard = []
+    repairs, repair_hashes = [], []
     if GUARD in changed:
         before = workflow.trees.git_in(client, "show", baseline + ":" + GUARD)
         after = workflow.trees.git_in(client, "show", commit + ":" + GUARD)
+        from .fgui_repair import repaired_baseline
+        before, repairs, repair_hashes = repaired_baseline(workflow, installed, client, baseline, before, after)
         guard = dependency_guard_change(before, after, dependencies)
     workflow.fence(refresh=True)
     proof = {"format": "farmbot-fgui-client-scope-v1", "receipt_id": installed["receipt_id"],
              "installation_id": installed["installation_id"], "commit": commit, "baseline": baseline,
              "branch": branch, "source_head": installed["source_head"],
              "changed_packages": sorted(packages), "changed_client_files": sorted(changed), "guard_packages": guard}
+    if repair_hashes:
+        proof.update(baseline_guard_repairs=repairs, baseline_guard_repair_sha256=repair_hashes)
     return proof
 
 

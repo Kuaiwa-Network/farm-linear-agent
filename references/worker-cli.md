@@ -201,6 +201,29 @@ comments remain evidence and do not automatically trigger a resume.
 An @mention opens a new Linear conversation and forwards its message to existing
 work. Reply directly in the original agent session to keep the same conversation.
 
+Put the human request before technical progress and evidence. In the human's language:
+
+- Questions start with **需要你回答（共 N 项）**. List each unresolved question separately
+  under its original number, saying what decision or input is needed. Give short choices,
+  consequences and an explained recommendation when useful; asset requests instead name the
+  missing resource and acceptable ways to provide it.
+- Include a copyable **回复示例** using the actual question numbers and explicitly label it
+  as an example, not an answer or approval. Partial replies keep the remaining numbers.
+- State what waits for the answer and what can continue. Preserve approval scope and material
+  uncertainty in plain language; put hashes, commands, logs and fuller evidence under
+  **补充依据** or in linked reports.
+- For an external human action, lead with **需要你操作** and name who does exactly what.
+  When no answer or action is needed, lead with **当前无需你回复**, then briefly list completed
+  work, current work and the next step. Do not combine that statement with a request to merge,
+  provide assets or operate the host.
+
+Formatting creates no new questions or authority. Do not re-ask answered questions,
+renumber unresolved questions, or treat recommendations/examples as approval.
+Farm-Contract questions retain their established grouping by recipient and confidence
+(low-confidence first). Keep confidence assessments, recommendations and brief reasoning
+beside each question. Add only the compact action summary and reply example; do not replace
+the existing format with bare choices or bury confidence in technical evidence.
+
 There is no schema migration. Existing pending question checkpoints are recognized
 and carried into the protected `human_question` checkpoint field. Older code does
 not reconcile this new label; after rollback, settle the work and review the flag
@@ -281,6 +304,7 @@ uses the selected executable on either host. Each command also takes
 <selected-python> -B -m agent --db DATABASE install-ui --item ITEM_ID --token-file STATE_DIR/token --receipt-id RECEIPT_ID
 <selected-python> -B -m agent --db DATABASE verify-ui --item ITEM_ID --token-file STATE_DIR/token --receipt-id RECEIPT_ID --commit FULL_SHA
 <selected-python> -B -m agent --db DATABASE verify-ui-guards --item ITEM_ID --token-file STATE_DIR/token --receipt-id RECEIPT_ID
+<selected-python> -B -m agent --db DATABASE authorize-ui-guard-repair --item ITEM_ID --token-file STATE_DIR/token --receipt-id RECEIPT_ID --input STATE_DIR/baseline-reasons.json
 <selected-python> -B -m agent --db DATABASE verify-ui-loading --item ITEM_ID --token-file STATE_DIR/token --receipt-id RECEIPT_ID
 ```
 
@@ -325,6 +349,20 @@ journals/backups. Only exact changed-package dependency entries with new-edge
 reasons may be edited; no gameplay or generated bindings. Commit and `verify-ui`
 the exact full head. Hydrate guard inputs with the owned native Git/LFS route,
 then `verify-ui-guards`; both actual named methods must pass in complete TRX.
+
+For an unchanged package whose published baseline descriptor has missing guard
+registrations, `authorize-ui-guard-repair` accepts a bounded JSON map of package
+names to audited source/reference and AddRef lifetime reasons. It requires the
+clean certified Client candidate and no reservation. It qualifies only missing
+actual baseline edges, checking hydrated bytes against raw Git/LFS identity; no
+edge removal, changed-package entry, test logic, asset or baseline change is
+allowed. Its controller audit binds exact literal entries and descriptor hashes
+to the original baseline/branch. Apply the returned private `proposal_path` only
+after checking `proposal_sha256`, commit, and rerun all normal gates. Repeating
+the same request recovers the retained authorization after interruption. This
+engineering step requires no new product/visual answer and grants no permission
+to merge or claim a guard pass. Future scope checks still account for the entire
+diff from the original baseline and require those exact qualified entries.
 Skipped or Inconclusive is pending.
 
 Hydration requires actual bytes, not only exit zero. If the supplied verified

@@ -556,7 +556,24 @@ A fix worker may update Farm-Contract in its Contract-root attempt for a confirm
 the issue, a defect or a requested change, before the affected implementation. Uncertain behaviour
 or missing information is a question in Linear via `await-input`, which adds `待回复`,
 emits the elicitation and parks the item. A reply resumes it; insufficient answers lead to another
-question. The controller reconciles the `待回复` label from all active parent and task questions
+question. Worker notices put a concise human request before technical progress and evidence:
+`需要你回答（共 N 项）` with one decision or missing input per original question number,
+useful choices and consequences, an explained recommendation when available, and a copyable
+`回复示例` explicitly identified as an example. Partial replies keep the remaining numbers.
+Approval scope, material uncertainty and what waits for the answer stay explicit in plain
+language; hashes, commands, logs and full evidence go under `补充依据` or in linked reports.
+An external human action starts with `需要你操作`, naming who does exactly what. When no
+answer or action is required, the notice starts with `当前无需你回复`, then briefly lists
+completed work, current work and the next step. Formatting does not re-ask resolved questions
+or turn examples, recommendations or format instructions into approval. These are shared
+worker instructions; the controller preserves the worker's question text rather than
+rewriting its meaning or treating the template as proof of model compliance.
+Farm-Contract questions retain the existing recipient grouping and confidence sections,
+low-confidence first, with each confidence assessment, recommendation and brief reasoning
+beside its question. The clearer format adds only a compact action summary and reply example
+to those questions; it does not flatten them into bare choices or bury confidence in evidence.
+
+The controller reconciles the `待回复` label from all active parent and task questions
 on each successful status pass (normally within `reconcile_seconds`). A reply, wake or checkpoint
 does not clear a question. The worker acknowledges its fully answered round with `resolve-question`,
 using its current `human_question.id` and actual attributed inbox message IDs. Partial answers keep
@@ -1205,7 +1222,23 @@ output at the same baseline; an unrelated Client commit or uncertified interrupt
 write refuses continuation. New packages require Common. `verify-ui` checks the
 clean exact committed candidate, installed bytes/GUIDs and entire baseline diff.
 Only certified outputs/metadata and literal changed-package dependency-guard
-entries with reasons may change. This scope proof does not establish hydrated
+entries are ordinarily allowed. `authorize-ui-guard-repair` adds one bounded
+engineering recovery for missing registrations already present in unchanged
+baseline packages. The worker supplies audited reference/lifetime reasons; the
+controller verifies hydrated descriptor bytes against the immutable Git/LFS
+baseline, derives the exact existing edges, and records exact proposed literal
+entries in checksummed audit evidence. It changes no checkout itself. A worker
+may apply only that proposal to the existing guard and commit normally. Scope
+checks account for those precise entries while retaining the original entry HEAD,
+approved assets and all other guard/test restrictions. No baseline reset, edge
+removal, persistent registration, runtime/source edit or guard waiver is added.
+Both actual guards and Unity loading must run on the final exact committed head.
+The coordinator owns this supported recovery; it must not wait for an unnamed
+engineer or ask the issue owner to invent hashes or controller procedures.
+This adds audit evidence, not a database schema migration. Keep that evidence on
+rollback: an older controller cannot certify the additional repaired entries.
+It must remain parked rather than reset the baseline or discard the repair.
+This scope proof does not establish hydrated
 dotnet guard success or Unity loading.
 
 `verify-ui-guards` runs the selected native `dotnet` executable against only
