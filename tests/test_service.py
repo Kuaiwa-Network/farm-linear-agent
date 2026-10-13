@@ -71,6 +71,56 @@ class ServeTests(unittest.TestCase):
                       components.recovery.close, components.pool.close, components.receiver.close,
                       components.ledger.close, components.server.server_close):
             self.addCleanup(close)
+        if components.go_dependencies is not None:
+            self.addCleanup(components.go_dependencies.ledger.close)
+
+    def dependency_config(self):
+        from test_go_dependencies import settings
+        # macOS exposes its temp root through /var -> /private/var. Host tool
+        # paths must be canonical so the link checks still protect real inputs.
+        fixture = Path(self.tmp.name).resolve()/'Go setup and 中文'
+        fixture.mkdir()
+        block = settings(fixture).go_dependencies
+        return Config(client_id='client', client_secret='s', webhook_secret='signing-secret', host='test',
+                      runtime='fake', repos=self.c.config.repos, port=0,
+                      local_root=Path(self.tmp.name)/'go-service', go_dependencies=block)
+
+    def test_build_prepares_configured_go_storage_and_reuses_it_on_restart(self):
+        config = self.dependency_config()
+        first = build(config)
+        self.close_later(first)
+        cache = Path(config.go_dependencies['cache_root'])
+        marker = cache/'.farmbot-go-dependencies.json'
+        before = marker.read_bytes()
+        (cache/'module').write_bytes(b'cached source')
+        second = build(config)
+        self.close_later(second)
+        self.assertEqual(marker.read_bytes(), before)
+        self.assertEqual((cache/'module').read_bytes(), b'cached source')
+        self.assertEqual(second.scheduler.go_dependencies, config.go_dependencies)
+        self.assertIsNotNone(second.go_dependencies)
+
+    def test_build_refuses_unknown_go_cache_before_api_or_ledger(self):
+        config = self.dependency_config()
+        cache = Path(config.go_dependencies['cache_root'])
+        cache.mkdir()
+        (cache/'unknown').write_bytes(b'preserve')
+        with patch('agent.service.linear_api') as api, patch('agent.service.Ledger') as ledger:
+            with self.assertRaisesRegex(ValueError, 'adoption'):
+                build(config)
+        api.assert_not_called()
+        ledger.assert_not_called()
+        self.assertFalse(Paths(config).ledger.exists())
+        self.assertEqual((cache/'unknown').read_bytes(), b'preserve')
+
+    def test_build_does_not_guess_go_configuration(self):
+        with patch('agent.go_dependencies.ensure') as initialize:
+            service = build(Config(client_id='client', client_secret='s', webhook_secret='signing-secret',
+                                   host='test', runtime='fake', repos=self.c.config.repos, port=0,
+                                   local_root=Path(self.tmp.name)/'no-go-config'))
+            self.close_later(service)
+        initialize.assert_not_called()
+        self.assertIsNone(service.go_dependencies)
 
     def drain_workers(self):
         """A tick may have launched the fake worker before shutdown; never leave a child unreaped."""

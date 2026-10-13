@@ -34,6 +34,73 @@ class Fixture(unittest.TestCase):
 
 
 class StorageTests(Fixture):
+    def test_startup_creates_fresh_roots_and_preserves_owned_cache_on_restart(self):
+        dep.ensure(self.config)
+        cache = Path(self.config.go_dependencies['cache_root'])
+        marker = cache/'.farmbot-go-dependencies.json'
+        before = marker.read_bytes()
+        cached = cache/'module source'
+        cached.write_bytes(b'preserved module')
+        dep.ensure(self.config)
+        self.assertEqual(marker.read_bytes(), before)
+        self.assertEqual(cached.read_bytes(), b'preserved module')
+        dep.roots(self.config)
+
+    def test_startup_marks_existing_empty_roots(self):
+        for key in ('cache_root', 'work_root'):
+            Path(self.config.go_dependencies[key]).mkdir()
+        dep.ensure(self.config)
+        dep.roots(self.config)
+
+    def test_startup_refuses_unmarked_content_without_adopting_or_changing_it(self):
+        cache = Path(self.config.go_dependencies['cache_root'])
+        cache.mkdir()
+        existing = cache/'unknown source'
+        existing.write_bytes(b'preserve')
+        with self.assertRaisesRegex(ValueError, 'adoption'):
+            dep.ensure(self.config)
+        self.assertEqual(existing.read_bytes(), b'preserve')
+        self.assertFalse((cache/'.farmbot-go-dependencies.json').exists())
+        self.assertFalse(Path(self.config.go_dependencies['work_root']).exists())
+
+    def test_startup_refuses_foreign_ownership_and_preserves_markers(self):
+        dep.initialize(self.config)
+        marker = Path(self.config.go_dependencies['cache_root'])/'.farmbot-go-dependencies.json'
+        before = marker.read_bytes()
+        self.config.local_root = self.root/'another state'
+        with self.assertRaisesRegex(ValueError, 'another instance'):
+            dep.ensure(self.config)
+        self.assertEqual(marker.read_bytes(), before)
+
+    def test_startup_checks_missing_tools_and_digest_before_creating_storage(self):
+        go = Path(self.config.go_dependencies['go'])
+        for value in (b'changed executable', None):
+            with self.subTest(value=value):
+                if value is None:
+                    go.unlink()
+                else:
+                    go.write_bytes(value)
+                with self.assertRaisesRegex(ValueError, 'digest|tool unavailable'):
+                    dep.ensure(self.config)
+                for key in ('cache_root', 'work_root'):
+                    self.assertFalse(Path(self.config.go_dependencies[key]).exists())
+
+    def test_startup_refuses_linked_ownership_marker(self):
+        cache = Path(self.config.go_dependencies['cache_root'])
+        cache.mkdir()
+        foreign = self.root/'foreign-marker.json'
+        foreign.write_text(json.dumps(dep.owner(self.config)), encoding='utf-8')
+        marker = cache/'.farmbot-go-dependencies.json'
+        try:
+            marker.symlink_to(foreign)
+        except OSError as exc:
+            self.skipTest('directory host cannot create symlinks: ' + str(exc))
+        before = foreign.read_bytes()
+        with self.assertRaisesRegex(LedgerError, 'links'):
+            dep.ensure(self.config)
+        self.assertEqual(foreign.read_bytes(), before)
+        self.assertFalse(Path(self.config.go_dependencies['work_root']).exists())
+
     def test_explicit_adoption_and_instance_ownership(self):
         cache = Path(self.config.go_dependencies['cache_root']); cache.mkdir()
         (cache/'previous').write_text('preserved')

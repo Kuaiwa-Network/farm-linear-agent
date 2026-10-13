@@ -19,6 +19,8 @@ acceptance. People review, merge and accept the drafts.
 Hosts can opt into [automatic Go dependency preparation](docs/go-dependency-preparation.md)
 for clean committed candidates. The controller fills an explicitly owned cache;
 workers retain read-only, offline access and run their own verification gates.
+The [host startup guide](docs/startup.md) covers first-time configuration and the
+automatic Go storage, Unity slot and server-pool preparation on each start.
 
 See [general workflow and migration](docs/general-workflow.md) for activation,
 concurrency, recovery and validation boundaries. This checkout changes no running

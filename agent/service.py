@@ -40,8 +40,8 @@ def build(config, runtime_override=None):
     validate_runtime(config, runtime_override)
     check_ownership(config, require_initialized=True)
     if config.go_dependencies:
-        from .go_dependencies import roots as dependency_roots
-        dependency_roots(config)
+        from .go_dependencies import ensure as ensure_dependencies
+        ensure_dependencies(config)
     skills = load_skills(ROOT / "skills")
     # spec §9.11, before any client or state exists: a name the checkout lacks, or a skill the dispatch cannot
     # brief, stops startup.

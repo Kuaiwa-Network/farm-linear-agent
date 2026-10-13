@@ -28,6 +28,37 @@ ROOT = Path(__file__).resolve().parents[1]
 THIRD = "10000000-0000-4000-8000-000000000003"
 
 
+class GoDependencyDoctorTests(unittest.TestCase):
+    def setUp(self):
+        from test_go_dependencies import settings
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        fixture = settings(Path(tmp.name).resolve())
+        self.config = Config(client_id='fixture', client_secret='fixture', webhook_secret='fixture',
+                             local_root=fixture.local_root, repos=fixture.repos, enabled_skills=['chat'],
+                             go_dependencies=fixture.go_dependencies)
+        ledger = Ledger(Paths(self.config).ledger)
+        self.addCleanup(ledger.close)
+
+    def test_doctor_reports_missing_roots_without_initializing_them(self):
+        with patch('agent.go_dependencies.initialize', side_effect=AssertionError('doctor wrote storage')):
+            report = diagnose(self.config)
+        self.assertEqual(report['tools']['go_dependencies'], {'configured': True, 'ready': False})
+        self.assertIn('go_dependency_preparation_unready', {f['code'] for f in report['findings']})
+        for key in ('cache_root', 'work_root'):
+            self.assertFalse(Path(self.config.go_dependencies[key]).exists())
+
+    def test_doctor_verifies_owned_storage_and_reports_changed_tool(self):
+        from agent.go_dependencies import ensure
+        ensure(self.config)
+        report = diagnose(self.config)
+        self.assertEqual(report['tools']['go_dependencies'], {'configured': True, 'ready': True})
+        Path(self.config.go_dependencies['go']).write_bytes(b'changed executable')
+        report = diagnose(self.config)
+        self.assertEqual(report['tools']['go_dependencies'], {'configured': True, 'ready': False})
+        self.assertIn('go_dependency_preparation_unready', {f['code'] for f in report['findings']})
+
+
 class DoctorTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

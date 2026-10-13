@@ -87,7 +87,7 @@ def settings_digest(config):
 
 
 def initialize(config, *, adopt_existing=False):
-    """Explicit trusted operator action; serve never adopts an unmarked cache."""
+    """Mark fresh storage; adopting existing unmarked content is operator-only."""
     validate_settings(config.go_dependencies, config.local_root, config.repos)
     if not config.go_dependencies:
         raise ValueError('Go dependency preparation is not configured')
@@ -96,6 +96,7 @@ def initialize(config, *, adopt_existing=False):
         _plain_path(path)
         path.mkdir(parents=True, exist_ok=True)
         marker = path / '.farmbot-go-dependencies.json'
+        _plain_path(marker)
         if marker.exists():
             if json.loads(marker.read_text(encoding='utf-8')) != owner(config):
                 raise ValueError('Go dependency storage belongs to another instance')
@@ -107,19 +108,38 @@ def initialize(config, *, adopt_existing=False):
     return {'initialized': True}
 
 
-def roots(config):
-    block = config.go_dependencies
-    for key in ('cache_root', 'work_root'):
-        root = Path(block[key]); _plain_path(root)
-        marker = root / '.farmbot-go-dependencies.json'; _plain_path(marker)
-        if json.loads(marker.read_text(encoding='utf-8')) != owner(config):
-            raise ValueError('Go dependency storage ownership mismatch')
+def _tools(block):
     for key in ('go', 'git', 'gh'):
         tool = Path(block[key]); _plain_path(tool)
         if not tool.is_file():
             raise ValueError('Configured Go dependency tool unavailable')
     if digest(Path(block['go']).read_bytes()) != block['go_sha256']:
         raise ValueError('Configured Go executable digest changed')
+
+
+def roots(config):
+    """Read-only validation, also used by diagnostics and cache publication."""
+    block = config.go_dependencies
+    for key in ('cache_root', 'work_root'):
+        root = Path(block[key]); _plain_path(root)
+        marker = root / '.farmbot-go-dependencies.json'; _plain_path(marker)
+        if json.loads(marker.read_text(encoding='utf-8')) != owner(config):
+            raise ValueError('Go dependency storage ownership mismatch')
+    _tools(block)
+
+
+def ensure(config):
+    """Startup preparation of explicitly configured fresh or already owned roots.
+
+    Validate native tools before writing any marker. Never adopt unmarked
+    content, install tools, download modules or repair another instance's state.
+    """
+    validate_settings(config.go_dependencies, config.local_root, config.repos)
+    if not config.go_dependencies:
+        raise ValueError('Go dependency preparation is not configured')
+    _tools(config.go_dependencies)
+    initialize(config)
+    roots(config)
 
 
 def snapshot(trees, item, module, commit):

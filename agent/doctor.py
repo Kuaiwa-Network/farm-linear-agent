@@ -450,6 +450,17 @@ def diagnose(config, *, now=None):
     report["tools"] = {"kw_ops": ({"configured": True, "token_env": kw_ops["token_env"],
                                    "token_set_in_doctor_environment": bool(os.environ.get(kw_ops["token_env"], "").strip())}
                                   if kw_ops else {"configured": False})}
+    if config.go_dependencies:
+        from .go_dependencies import roots as dependency_roots
+        try:
+            dependency_roots(config)
+        except (OSError, ValueError, RuntimeError):
+            report["tools"]["go_dependencies"] = {"configured": True, "ready": False}
+            _finding(report, "go_dependency_preparation_unready",
+                     "Check pinned Go/Git/gh tools and cache/preparation ownership. Startup initializes only fresh "
+                     "configured roots; adopting existing unmarked content requires operator maintenance.")
+        else:
+            report["tools"]["go_dependencies"] = {"configured": True, "ready": True}
     # spec §9.11: which of this checkout's skills the config runs; serve refuses a list it cannot honour.
     configured = config.enabled_skills is not None
     loaded = {}
