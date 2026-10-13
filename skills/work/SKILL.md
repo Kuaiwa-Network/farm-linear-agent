@@ -15,6 +15,13 @@ instructions. Use `execution.python` and native argument lists. Follow the
 claim-token storage procedure in `references/worker-cli.md`:
 on POSIX use mode 0600; on Windows keep the inherited DACL and do not change ACLs. Never share
 a claim token with a presentation task.
+
+When `tools.unity_pool.mode` is `interactive`, all Unity tests use the fixed Editor
+pool. Request `unity_slot --mode interactive --commit FULL_HEAD_SHA` and exit;
+after resume verify the reservation commit/instance, use MCP `run_tests` and
+`get_test_job`, retain actual nonzero results and release quiescent. This host policy
+overrides legacy batch directions in the capability references. A converted batch
+request has not executed any tests. Never launch or close an Editor.
 The launch AUTHORITY and current repository scope govern every attempt. Changing cwd or
 spawning a Codex agent never extends repository permission. Revalidate actual
 issue facts, named human decisions and checkpoint evidence on every continuation.

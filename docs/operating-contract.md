@@ -70,6 +70,45 @@ This is offline implementation, not evidence of deployment or live acceptance.
 
 ## Host configuration
 
+### Fixed Unity Editor pool
+
+`unity_pool: {"editors": 2}` enables a persistent interactive-only pool; 3 or
+another positive count up to the configured slot count is accepted. The first N
+entries in `slots` select the owned projects; other recorded closed slots are
+never opened or granted. Startup opens selected Editors sequentially, verifies
+their clean commit and MCP identity, and retains them between jobs. Each grant
+still switches to and verifies the exact reserved candidate. On release the slot
+retains its last clean candidate, avoiding an extra return-to-main import.
+
+Memory admission gates new Editor startup, not repeated process launches for each
+test. Reuse charges no additional Editor estimate. If only one can start, jobs
+continue through it while other starts wait for headroom; idle Editors are not
+closed for server requests or failed admission checks. Server capacity must be
+budgeted alongside the permanently retained Editor pool. Configurations whose
+fixed Editor estimates exceed the shared reservation budget are refused.
+
+All Unity tests use worker MCP `run_tests`/`get_test_job` after instance and commit
+verification. Queued Unity batch requests are converted in place to interactive,
+preserving ID, candidate, generation and FIFO. Conversion is not execution or test
+evidence. Server-slot batch mode is unchanged. Without `unity_pool`, legacy hosts
+retain their existing batch/interactive behavior during migration.
+
+Edit the profile and restart only after the controller's workers have settled,
+with active Unity reservations settled and all projects outside the selected
+count closed. A violating startup leaves the fixed pool
+unavailable; ticks cannot bypass that guard. Interrupted starts preserve the
+project in held state for the existing bounded preparation recovery; failed
+Editors never count as test passes and healthy selected Editors remain usable.
+Workers cannot launch, stop or restart Editors. Stop, withdrawal, claim fencing,
+identity, exact-commit and quiescence checks remain in force.
+
+No schema migration is introduced. Settled queued batch rows change their mode
+to interactive when this policy is enabled; older code already understands that
+mode on rollback. Existing active batch executions must finish before activation.
+This implementation has offline tests, not real Editor or production acceptance.
+
+### Profile selection
+
 File selection is explicit `--config`, then `FARMBOT_CONFIG`, then the checkout's
 default `.local/agent/config.json`. The loader expands `~` and captures an absolute
 path. A service built from that loaded config passes its path to every worker

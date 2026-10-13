@@ -806,7 +806,11 @@ id, result/evidence) before requesting, releasing or publishing, so retries cann
 6. Run the repository's full .NET unit command with the verified `FARM_CONFIG_ARTIFACT_ROOT` when applicable.
    Keep raw UTF-8 logs privately; record discovered/pass/failure/skip counts, every skip and input/tool identities.
    Typecheck compiles both test assemblies without executing Unity tests; it cannot stand in for them.
-7. Commit intended code/generated artifacts, using Git LFS's existing clean filter for tracked binary data,
+7. When `tools.unity_pool.mode` is `interactive`, all Unity tests use the fixed
+   Editor pool: request `--mode interactive`, follow the reservation-bound MCP
+   `run_tests`/`get_test_job` procedure in fix, and retain actual test results. This
+   overrides the legacy batch option below; converted requests have not run tests.
+   Commit intended code/generated artifacts, using Git LFS's existing clean filter for tracked binary data,
    never raw bytes or credential setup. Check clean status including untracked files. Save the committed HEAD,
    checkpoint and request `await-resource --resource unity_slot --mode batch --commit FULL_HEAD_SHA` (or
    interactive when the required checks need it), then exit. The CLI validates this item's configured owned
