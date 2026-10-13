@@ -65,9 +65,6 @@ class ResourceAdmission:
                 return None
             costs = {"unity_slot": self.settings["unity_mib"], "server_slot": self.settings["server_mib"]}
             cost = costs[kind]
-            # Open Editors retain RAM after release. Count them until the pool closes them.
-            used = sum(costs.get(slot["kind"], 0) for slot in ledger.slots(host=options["host"])
-                       if slot["state"] != "idle_closed")
             # Reusing an idle-open Unity slot does not reserve another Editor's budget.
             reuse = kind == "unity_slot" and any(slot["state"] == "idle_open"
                         and slot["slot_id"] not in options.get("exclude_resources", ())
@@ -79,17 +76,27 @@ class ResourceAdmission:
                     slot["slot_id"] for slot in ledger.slots(kind=kind, host=options["host"])
                     if slot["state"] == "idle_closed")
             extra = 0 if reuse else cost
-            try:
-                memory = self.observe()
-                okay = (used + extra <= self.settings["max_reserved_mib"]
-                        and memory["available_mib"] >= self.settings["min_available_mib"] + extra
-                        and (memory["commit_mib"] is None
-                             or memory["commit_mib"] >= self.settings["min_commit_mib"] + extra))
-            except Exception:
-                self.last_reason = "memory observation unavailable"
+            if not self._permits(ledger, options["host"], extra):
                 return None
-            if not okay:
-                self.last_reason = "waiting for physical/commit headroom or reservation budget"
-                return None
-            self.last_reason = None
             return ledger.acquire(kind, **options)
+
+    def can_start_editor(self, ledger, *, host):
+        """Starting a second warm Editor always costs another Editor, even with an idle one open."""
+        with self.lock:
+            return self._permits(ledger, host, self.settings["unity_mib"])
+
+    def _permits(self, ledger, host, extra):
+        costs = {"unity_slot": self.settings["unity_mib"], "server_slot": self.settings["server_mib"]}
+        used = sum(costs.get(slot["kind"], 0) for slot in ledger.slots(host=host)
+                   if slot["state"] != "idle_closed")
+        try:
+            memory = self.observe()
+            okay = (used + extra <= self.settings["max_reserved_mib"]
+                    and memory["available_mib"] >= self.settings["min_available_mib"] + extra
+                    and (memory["commit_mib"] is None
+                         or memory["commit_mib"] >= self.settings["min_commit_mib"] + extra))
+        except Exception:
+            self.last_reason = "memory observation unavailable"
+            return False
+        self.last_reason = None if okay else "waiting for physical/commit headroom or reservation budget"
+        return okay

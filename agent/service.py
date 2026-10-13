@@ -27,7 +27,7 @@ from .workflow import JobWorktrees
 from .scheduler import Scheduler
 from .session_progress import SessionProgress
 from .skills import enabled_skills, load_skills
-from .slots import SlotError, SlotPool, UnityIdentity, slot_entry
+from .slots import SlotError, SlotPool, UnityIdentity, fixed_editor_count, slot_entry
 from .worktrees import Worktrees
 from .unity import editor_holds_project
 
@@ -60,6 +60,9 @@ def build(config, runtime_override=None):
     # One list of entries, read by both: the pool switches and runs the slots it describes, and the
     # scheduler tells the worker which -buildTarget that slot was switched to.
     entries = [slot_entry(raw) for raw in config.slots]
+    editor_count = fixed_editor_count(config.unity_pool, config.slots)
+    if editor_count:
+        entries = entries[:editor_count]
     scheduler = Scheduler(ledger, launcher, skills, worktrees, skill_root=ROOT / "skills", db_path=paths.ledger,
                           runtime_name=runtime.name, host=config.host, max_concurrent=config.max_concurrent,
                           codex_workers=config.codex_workers,
@@ -73,6 +76,7 @@ def build(config, runtime_override=None):
                           server_slots_root=paths.server_slots if config.server_slots else None,
                           enabled_skills=set(enabled),
                           slot_entries={entry["id"]: entry for entry in entries},
+                          unity_pool=config.unity_pool,
                           guidance_for=lambda item: (ledger.session(item["session_id"]) or {}).get("guidance") or "",
                           api=api, control_ledger_factory=lambda: Ledger(paths.ledger),
                           publication=PublicationVerifier(JobWorktrees(worktrees, ledger), issue_prefix=config.issue_prefix))
@@ -104,6 +108,7 @@ def build(config, runtime_override=None):
                     run_unsandboxed=launcher.run_unsandboxed,
                     concurrent_batches=True,
                     admission=admission,
+                    keep_open=bool(editor_count),
                     mcp=UnityIdentity(ROOT / "agent" / "probes" / "editor-readiness.cs.txt",
                                       token_env=token_env, secret_env=config.lark_cli.get("secret_env")))
     progress = SessionProgress(Ledger(paths.ledger, check_same_thread=False), api)
@@ -111,6 +116,7 @@ def build(config, runtime_override=None):
     recovery_pool = SlotPool(recovery_ledger, worktrees, entries, host=config.host, editors_root=paths.editors,
                             state_dir=launcher.state_dir,
                             admission=admission,
+                            keep_open=bool(editor_count),
                             mcp=UnityIdentity(ROOT / 'agent' / 'probes' / 'editor-readiness.cs.txt',
                                               token_env=token_env, secret_env=config.lark_cli.get("secret_env")),
                             editor_pid=lambda folder: editor_holds_project(folder, strict=True))
@@ -240,7 +246,8 @@ def _serve(components):
     heartbeat = Heartbeat(runtime=components.launcher.runtime.name, revision=source_revision(ROOT),
                           workers=components.launcher.running,
                           capacity={"max_workers": components.config.max_concurrent,
-                                    "unity_slots": len(components.config.slots),
+                                    "unity_slots": (components.config.unity_pool.get("editors")
+                                                    or len(components.config.slots)),
                                     "server_slots": components.config.server_slots.get("count", 0),
                                     "enabled_skills": sorted(components.skills)})
     heartbeat_path = Paths(components.config).heartbeat

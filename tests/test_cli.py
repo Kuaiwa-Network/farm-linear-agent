@@ -23,6 +23,21 @@ def expected_question(body):
 
 
 class CliTests(unittest.TestCase):
+    def test_fixed_pool_cli_converts_unity_batch_request_before_enqueueing(self):
+        self.db = self.root / "host" / "agent" / "ledger.sqlite3"
+        config_path = self.root / "fixed-profile.json"
+        config_path.write_text(json.dumps({"client_id": "c", "client_secret": "s", "webhook_secret": "w",
+            "runtime": "fake", "local_root": str(self.root / "host"),
+            "slots": [{"id": "unity_slot:1"}, {"id": "unity_slot:2"}], "unity_pool": {"editors": 2}}),
+            encoding="utf-8")
+        self.env["FARMBOT_CONFIG"] = str(config_path)
+        item = self.seeded_item(target=PIN)
+        token = self.run_cli("claim", "--item", item, "--worker-id", "w")["token"]
+        result = self.run_cli("await-resource", "--item", item, "--token", token,
+                              "--resource", "unity_slot", "--mode", "batch")
+        self.assertEqual(result["needs_resource"], "unity_slot:interactive")
+        self.assertEqual(self.run_cli("reservations")[0]["mode"], "interactive")
+
     def publication_fixture(self, issue_prefix='FARM'):
         from types import SimpleNamespace
         from agent.config import load_config

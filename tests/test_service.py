@@ -83,6 +83,18 @@ class ServeTests(unittest.TestCase):
                 "organizationId": "org", "oauthClientId": "client", "appUserId": APP,
                 "agentSession": {"id": "session-serve", "issue": {"id": ISSUE, "identifier": "FARM-1", "url": "u"}}}
 
+    def test_build_applies_same_fixed_pool_to_scheduler_and_recovery_without_batch_executor(self):
+        from dataclasses import replace
+        config = replace(self.c.config, slots=[{"id": f"unity_slot:{n}"} for n in (1, 2, 3)],
+                         unity_pool={"editors": 2})
+        fixed = build(config)
+        self.close_later(fixed)
+        self.assertEqual(list(fixed.pool.entries), ["unity_slot:1", "unity_slot:2"])
+        self.assertEqual(fixed.scheduler.unity_pool, {"editors": 2})
+        self.assertTrue(fixed.pool.keep_open)
+        self.assertTrue(fixed.recovery.editor.pool.keep_open)
+        self.assertIsNone(fixed.pool._batch_executor)
+
     def test_serve_answers_health_accepts_a_signed_webhook_and_shuts_down(self):
         failures = []
 

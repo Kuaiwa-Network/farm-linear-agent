@@ -92,6 +92,19 @@ def slot_entry(raw):
     return entry
 
 
+def fixed_editor_count(settings, entries):
+    """An absent block retains legacy execution for installations awaiting migration."""
+    if settings == {}:
+        return 0
+    if (not isinstance(settings, dict) or set(settings) != {"editors"} or not isinstance(entries, list)
+            or type(settings["editors"]) is not int or not 1 <= settings["editors"] <= len(entries)):
+        raise ValueError("unity_pool requires editors between 1 and the configured slot count")
+    selected = [slot_entry(entry) for entry in entries[:settings["editors"]]]
+    if any(entry["kind"] != "unity_slot" for entry in selected) or len({entry["id"] for entry in selected}) != len(selected):
+        raise ValueError("unity_pool requires distinct Unity slots")
+    return settings["editors"]
+
+
 class SlotPool:
     BUSY = ("interactive_busy", "batch_busy", "switching", "held")
 
@@ -99,7 +112,7 @@ class SlotPool:
 
     def __init__(self, ledger, worktrees, entries, *, host, editors_root, unity=None, mcp=None, clock=time.time,
                  sleep=None, editor_scan=None, editor_pid=None, state_dir=None, owner="pool",
-                 run_unsandboxed=None, concurrent_batches=False, admission=None):
+                 run_unsandboxed=None, concurrent_batches=False, admission=None, keep_open=False):
         # `ledger` may be a Ledger or a zero-argument factory. The pool runs on its own thread beside the
         # receiver's and the scheduler's, and two threads on one sqlite3.Connection do not get two
         # transactions: _transaction() is a bare BEGIN IMMEDIATE/COMMIT, so one thread's BEGIN can land
@@ -107,7 +120,7 @@ class SlotPool:
         # already takes a factory for exactly this, and service.build passes the pool one too. A pool handed
         # a Ledger *object* borrows it and must not close it — that one belongs to the scheduler.
         self._owns_ledger = callable(ledger) and not isinstance(ledger, Ledger)
-        if concurrent_batches and not self._owns_ledger:
+        if concurrent_batches and not keep_open and not self._owns_ledger:
             raise ValueError("concurrent batches require a separate Ledger connection factory")
         self._ledger_factory = ledger if self._owns_ledger else None
         self.ledger = ledger() if self._owns_ledger else ledger
@@ -123,7 +136,7 @@ class SlotPool:
         self.sleep = sleep or time.sleep
         self.editor_scan = editor_scan or (lambda folder: other_editor_project(
             folder, allowed_projects=[self.folder(entry) for entry in self.entries.values()], strict=True))
-        self.editor_pid = editor_pid or editor_holds_project
+        self.editor_pid = editor_pid or (lambda folder: editor_holds_project(folder, strict=keep_open))
         # A callable taking an item id and returning that item's private directory: Launcher.state_dir in
         # production. The reservation token is written there and nowhere else.
         self.state_dir = state_dir
@@ -133,11 +146,13 @@ class SlotPool:
         self.run_unsandboxed = run_unsandboxed
         self.owner = owner
         self.admission = admission
+        self.keep_open = keep_open
+        self._fixed_prepared = False
         self.last_observation = None
         self._batches = {}
         self._batch_executor = (ThreadPoolExecutor(max_workers=max(1, len(self.entries)),
                                                   thread_name_prefix="farmbot-unity")
-                                if concurrent_batches and len(self.entries) > 1 else None)
+                                  if concurrent_batches and not keep_open and len(self.entries) > 1 else None)
         self._draining_batches = False
 
     @staticmethod
@@ -165,6 +180,17 @@ class SlotPool:
     def ensure(self):
         """Register every configured slot and make sure its folder is usable. Idempotent, and a restart never
         moves a folder something else is using."""
+        if self.keep_open:
+            self._fixed_prepared = False
+            folders = [self.folder(entry).resolve() for entry in self.entries.values()]
+            if len(set(folders)) != len(folders):
+                raise SlotError("fixed Unity slots must use distinct project folders")
+            outside = [slot for slot in self.ledger.slots(kind="unity_slot", host=self.host)
+                       if slot["slot_id"] not in self.entries and slot["state"] != "idle_closed"]
+            if outside or any(r["kind"] == "unity_slot" and r["mode"] == "batch" and r["host"] == self.host
+                              for r in self.ledger.reservations(states=("active", "cancel_requested"))):
+                raise SlotError("settle active or open Unity resources before changing the fixed pool")
+            self.ledger.interactive_unity_requests(self.host)
         views = []
         for slot_id, entry in self.entries.items():
             folder = self.folder(entry)
@@ -173,6 +199,16 @@ class SlotPool:
                                              mcp_address=entry["mcp_address"], account=entry["account"],
                                              instance=entry["instance"])
             if record["state"] in self.BUSY:
+                if self.keep_open and not self.ledger.active_reservation_on(slot_id):
+                    last = self.ledger.connection.execute("""SELECT kind FROM audit WHERE item_id=?
+                        AND kind IN ('unity_editor_start','unity_editor_ready') ORDER BY id DESC LIMIT 1""",
+                        (slot_id,)).fetchone()
+                    if last and last["kind"] == "unity_editor_start":
+                        from .resource_recovery import RecoveryStore
+                        with self.ledger._transaction():
+                            RecoveryStore(self.ledger).request_in_transaction(slot_id,
+                                "persistent Editor startup interrupted by controller restart", recovery_kind="setup")
+                        record = self.ledger.slot(slot_id)
                 views.append(record)
                 continue
             fresh = not folder.exists()
@@ -195,7 +231,56 @@ class SlotPool:
             if fresh or record["state"] == "idle_closed":
                 record = self.ledger.set_slot_state(slot_id, "idle_closed", parked_commit=parked)
             views.append(record)
+        if self.keep_open:
+            self._fixed_prepared = True
+            self.warm_editors()
+            views = [self.ledger.slot(entry) for entry in self.entries]
         return views
+
+    def warm_editors(self):
+        """Open each owned project once; a failed start uses the existing bounded recovery lane."""
+        if not self.keep_open or not self._fixed_prepared:
+            return 0
+        from contextlib import nullcontext
+        from .resource_recovery import RecoveryStore
+        opened = 0
+        for slot_id, entry in self.entries.items():
+            slot = self.ledger.slot(slot_id)
+            if slot is None or self.ledger.active_reservation_on(slot_id):
+                continue
+            if slot["state"] == "idle_open":
+                try:
+                    if self.editor_is_open(slot):
+                        continue
+                except UnityError as exc:
+                    with self.ledger._transaction():
+                        RecoveryStore(self.ledger).request_in_transaction(slot_id,
+                            f"persistent Editor process observation unavailable: {exc}", recovery_kind="setup")
+                    continue  # an unknown process is never closed, reopened or granted
+                self.ledger.set_slot_state(slot_id, "idle_closed")
+            elif slot["state"] != "idle_closed":
+                continue
+            # The admission lock covers recording 'switching', so the server pool cannot spend the
+            # same memory budget while this Editor starts outside a worker's process containment.
+            with self.admission.lock if self.admission else nullcontext():
+                if self.admission and not self.admission.can_start_editor(self.ledger, host=self.host):
+                    continue
+                slot = self.ledger.begin_editor_warmup(slot_id, host=self.host)
+            if slot is None:
+                continue
+            try:
+                commit = self.worktrees.head(Path(slot["folder"]))
+                self.ledger.set_slot_state(slot_id, "switching", parked_commit=commit)
+                self.switch(slot_id, commit, "interactive")
+            except Exception as exc:
+                with self.ledger._transaction():
+                    RecoveryStore(self.ledger).request_in_transaction(slot_id,
+                        f"persistent Editor preparation failed: {type(exc).__name__}: {exc}", recovery_kind="setup")
+            else:
+                self.ledger.set_slot_state(slot_id, "idle_open", parked_commit=commit)
+                self.ledger._audit(slot_id, "unity_editor_ready", "persistent Editor ready")
+                opened += 1
+        return opened
 
     def token_path(self, item_id):
         return Path(self.state_dir(item_id)) / "reservation.token"
@@ -224,13 +309,18 @@ class SlotPool:
         Completed executions are handed over first. Settlement and parking preserve
         quiescence checks; a newly parked slot becomes available on the next tick.
         """
+        if self.keep_open and not self._fixed_prepared:
+            return {"settled": 0, "granted": 0, "parked": 0}
         completed = self._finish_batches()
+        if self.keep_open:
+            self.ledger.interactive_unity_requests(self.host)
+            self.warm_editors()
         self.close_idle_for_memory()
         return {"settled": self.settle(), "granted": completed + self.grant(), "parked": self.park_idle()}
 
     def close_idle_for_memory(self):
         """Configured heavy-resource admission may reclaim idle Editors, after the ordinary ownership probe."""
-        if self.admission is None:
+        if self.keep_open or self.admission is None:
             return
         queued = self.ledger.reservations(states=("queued",))
         if not queued:
@@ -303,13 +393,21 @@ class SlotPool:
         granted = 0
         if self._draining_batches:
             return granted
+        if self.keep_open and not self._fixed_prepared:
+            return granted
+        if self.keep_open:
+            self.ledger.interactive_unity_requests(self.host)
+        excluded = set(self._batches) if self.keep_open else self._batches
+        if self.keep_open:
+            excluded.update(s["slot_id"] for s in self.ledger.slots(kind="unity_slot", host=self.host)
+                            if s["slot_id"] not in self.entries or s["state"] != "idle_open")
         for kind in sorted({entry["kind"] for entry in self.entries.values()}):
             for _ in range(len(self.entries)):
                 acquire = self.admission.acquire if self.admission else None
                 reservation = (acquire(self.ledger, kind, owner=self.owner, host=self.host,
-                                       exclude_resources=self._batches) if acquire else
+                                       exclude_resources=excluded) if acquire else
                                self.ledger.acquire(kind, owner=self.owner, host=self.host,
-                                                   exclude_resources=self._batches))
+                                                   exclude_resources=excluded))
                 if reservation is None:
                     break
                 granted += int(self._hand_over(reservation))
@@ -514,6 +612,8 @@ class SlotPool:
         for slot in self.ledger.slots(host=self.host):
             if slot["kind"] != "unity_slot":
                 continue
+            if self.keep_open and slot["slot_id"] not in self.entries:
+                continue
             if slot["slot_id"] in self._batches:
                 continue
             if slot["state"] != "switching" or self.ledger.active_reservation_on(slot["slot_id"]):
@@ -540,12 +640,21 @@ class SlotPool:
         the transient 'switching'. It is a question about the host: is a Unity process alive on this folder?
         See `editor_is_open` for why it is not a question about Temp/UnityLockfile.
         """
+        if self.keep_open and mode != "interactive":
+            raise SlotError("the fixed Unity pool accepts interactive reservations only")
+        if self.keep_open and slot_id not in self.entries:
+            raise SlotError("slot is outside the configured fixed Unity pool")
         slot = self.ledger.slot(slot_id)
         if slot is None:
             raise SlotError(f"unknown slot: {slot_id}")
         folder = Path(slot["folder"])
         entry = self.entries.get(slot_id, DEFAULTS)
-        was_open = bool(self.mcp is not None and self.editor_is_open(slot))
+        try:
+            was_open = bool(self.mcp is not None and self.editor_is_open(slot))
+        except UnityError as exc:
+            raise SlotError(f"{slot_id}: Editor process observation unavailable: {exc}", stage="probe") from exc
+        if self.keep_open and not was_open and self.ledger.active_reservation_on(slot_id):
+            raise SlotError(f"{slot_id}: persistent Editor exited before hand-over", stage="editor")
         # Other project folders can coexist. Process checks apply to this folder;
         # UnityIdentity pins every MCP call to its verified project instance.
         try:
@@ -618,6 +727,8 @@ class SlotPool:
         property this redesign rests on: only controller-composed Unity runs escape
         the worker seatbelt, and no part of their command line is a value a worker chose.
         """
+        if self.keep_open:
+            raise SlotError("batch execution is disabled for the fixed Unity pool")
         if self.run_unsandboxed is None:
             raise SlotError(f"{slot['slot_id']}: no unsandboxed runner; a batch slot cannot be granted",
                             stage="editor")
@@ -846,11 +957,20 @@ class SlotPool:
         entry = self.entries.get(slot_id, DEFAULTS)
         folder = Path(slot["folder"])
         try:
-            commit = self.worktrees.resolve_commit(entry["repo"])
+            if self.keep_open:
+                # Retain the last verified candidate; returning to main between queued tests would
+                # cause an unnecessary import/compile round before the next exact-commit switch.
+                if not self.worktrees.slot_clean(folder):
+                    raise SlotError(f"{slot_id}: dirty slot source retained for recovery")
+                commit = self.worktrees.head(folder)
+            else:
+                commit = self.worktrees.resolve_commit(entry["repo"])
             if self.worktrees.head(folder) != commit:
                 self.worktrees.checkout_commit(folder, commit)
         except GIT_FAILURES as exc:
             raise SlotError(f"{slot_id}: could not park on the default branch: {exc}", stage="git") from exc
+        if self.keep_open:
+            self.ledger.set_slot_state(slot_id, "switching", parked_commit=commit)
         state = self._idle_state(slot, mode)
         if state == "idle_closed":
             # Never `lambda: False`. spec §7 removes the lock "only after confirming the process is gone",
@@ -864,7 +984,10 @@ class SlotPool:
         run left an Editor that is really still on the folder. One spelling, because park() and the
         give-back in _switch_failed must not disagree about it — they used to, and the disagreement was
         `idle_closed` written over a live Editor."""
-        return "idle_open" if mode == "interactive" and self.editor_is_open(slot) else "idle_closed"
+        try:
+            return "idle_open" if mode == "interactive" and self.editor_is_open(slot) else "idle_closed"
+        except UnityError as exc:
+            raise SlotError(f"{slot['slot_id']}: Editor process observation unavailable: {exc}", stage="probe") from exc
 
     def _clear_stale_lock(self, slot):
         """clear_stale_lock on the slot's folder, with the process listing deciding. An unlink that fails (on

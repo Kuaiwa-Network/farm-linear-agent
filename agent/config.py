@@ -98,6 +98,8 @@ class Config:
     local_root: Path = ROOT / ".local"
     default_server_environment: str = "公共测试服"
     slots: list = field(default_factory=list)
+    # Opt-in persistent, interactive-only Unity pool; the first N configured slots are owned by it.
+    unity_pool: dict = field(default_factory=dict)
     server_slots: dict = field(default_factory=dict)
     resource_admission: dict = field(default_factory=dict)
     tunnel: dict = field(default_factory=dict)
@@ -128,9 +130,13 @@ class Config:
     def __post_init__(self):
         from .server_slots import validate_settings as validate_server_slots
         from .resource_admission import validate_settings as validate_admission
+        from .slots import fixed_editor_count
+        editor_count = fixed_editor_count(self.unity_pool, self.slots)
         validate_server_slots(self.server_slots)
         if self.resource_admission:
-            validate_admission(self.resource_admission)
+            budgets = validate_admission(self.resource_admission)
+            if editor_count * budgets["unity_mib"] > budgets["max_reserved_mib"]:
+                raise ValueError("unity_pool exceeds resource_admission max_reserved_mib")
         if self.server_slots and not self.resource_admission:
             raise ValueError("server_slots requires explicit resource_admission budgets")
         if self.environment not in ('legacy', 'development', 'production', 'offline'):

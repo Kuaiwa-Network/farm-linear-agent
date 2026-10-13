@@ -85,6 +85,19 @@ and writes that into every agent it writes. It refuses to write anything when th
 `cloudflared` is not on that PATH. It writes the serve and tunnel agents, and a monitor agent when the
 config has a non-empty `monitor` block, and prints the `launchctl bootstrap` lines to load them.
 Logs land in `<local_root>/agent/logs/` (`.local/agent/logs/` by default), the monitor agent's included.
+
+For a fixed pool of two persistent Unity Editors, add `"unity_pool": {"editors": 2}`
+to the private host config; use 3 for three Editors. The first N configured `slots`
+are selected. Their Editors open sequentially, stay open between jobs, and serve
+queued EditMode/PlayMode tests through the worker's reserved Unity MCP connection.
+Unity batch execution is disabled in this mode; ungranted older batch requests
+convert to interactive without executing tests. Server test slots retain their
+existing execution mode. Size `resource_admission.max_reserved_mib` for all
+retained Editors plus any server capacity; startup still observes host headroom,
+and one healthy Editor can serve the queue while another awaits capacity.
+See [pool activation and recovery](docs/operating-contract.md#fixed-unity-editor-pool).
+Activate after active Unity work settles; this checkout does not change a running
+instance or its private configuration.
 With no `tunnel` key in the host config it runs a quick tunnel, whose hostname
 changes at every restart and must be pasted into the Linear app settings again; set
 `"tunnel": {"name": "<tunnel>"}` once a named Cloudflare tunnel exists and the hostname stops moving.

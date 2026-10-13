@@ -175,6 +175,12 @@ carry no `author`.
 
 ## Verification ladder
 
+Host policy takes precedence: when `tools.unity_pool.mode` is `interactive`, every
+Unity test below (EditMode and PlayMode included) requests `--mode interactive`.
+Follow step 5's reservation-bound MCP procedure and retain test results yourself;
+no batch test ran before your resume and `resource.batch_result` is null. Keep the
+Editor open. Server-slot batch requests are unchanged.
+
 For post-fix Unity verification, first commit all intended Farm-Client changes and leave that
 worktree clean. Read its full HEAD SHA and request the slot with `--commit FIX_SHA` on
 `await-resource` (batch or interactive) from the Farm-Client stage. The CLI verifies that SHA is the clean HEAD of your own

@@ -588,6 +588,16 @@ path. `recover-server-slot` is a trusted service command, not a worker command.
 `await-resource` refuses a resource your skill's `skill.json` does not list under `resources`, and a
 Unity request from any root but a neutral start or Farm-Client.
 
+On a host configured with `unity_pool: {"editors": 2}` (or 3), every Unity request
+uses a persistent interactive Editor. Request `--mode interactive`; the CLI and
+controller also convert older ungranted Unity `--mode batch` requests, preserving
+the reservation ID, FIFO order and candidate commit. Conversion executes no tests.
+The resumed worker selects its reserved MCP instance, runs EditMode/PlayMode via
+`run_tests`, polls `get_test_job` with a bounded `wait_timeout`, retains actual test
+results/commit/reservation identity, and releases only after tests and compilation
+are quiet. The controller retains the Editor at its last clean candidate until
+the next reservation. Server integration `--mode batch` is unaffected.
+
 For `feature`, the session and initial stages have no client pin. First Client-stage entry creates the
 owned branch from the controller's latest trusted main and records `target.commit_sha` (the immutable
 baseline) and `target.issue_branch`; retries retain both. Always supply `--commit FULL_SHA` for feature

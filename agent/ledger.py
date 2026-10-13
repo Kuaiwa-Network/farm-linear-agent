@@ -1857,6 +1857,33 @@ class Ledger:
                         "commit_sha": selected_commit, "baseline_commit": target["commit_sha"]})
             return self._view(self._row(row["id"]))
 
+    def begin_editor_warmup(self, slot_id, *, host):
+        """Controller-only claim of an idle project before opening its persistent Editor."""
+        with self._transaction():
+            slot = self._slot_row(slot_id)
+            if (slot["host"] != host or slot["kind"] != "unity_slot" or slot["state"] != "idle_closed"
+                    or self.active_reservation_on(slot_id)):
+                return None
+            self.connection.execute("UPDATE slots SET state='switching',updated_at=? WHERE slot_id=?",
+                                    (self.clock(), slot_id))
+            self._audit(slot_id, "unity_editor_start", "persistent Editor startup")
+            return self.slot(slot_id)
+
+    def interactive_unity_requests(self, host):
+        """Retain FIFO, candidates and claims while migrating only ungranted local Unity requests."""
+        with self._transaction():
+            rows = self.connection.execute("""SELECT r.reservation_id,r.item_id FROM reservations r
+                JOIN work_items w ON w.id=r.item_id WHERE r.kind='unity_slot' AND r.mode='batch'
+                AND r.state='queued' AND (w.host=? OR w.host IS NULL)""", (host,)).fetchall()
+            for row in rows:
+                self.connection.execute("UPDATE reservations SET mode='interactive' WHERE reservation_id=?",
+                                        (row["reservation_id"],))
+                self.connection.execute("""UPDATE work_items SET needs_resource='unity_slot:interactive'
+                    WHERE id=? AND state='awaiting_resource'""", (row["item_id"],))
+                self._audit(row["item_id"], "unity_mode", "fixed pool converted queued batch to interactive",
+                            {"reservation_id": row["reservation_id"]})
+            return len(rows)
+
     def acquire(self, kind, *, owner, host, exclude_resources=()):
         """Grant the oldest queued request of this kind a free slot. FIFO by arrival, never by item priority.
 

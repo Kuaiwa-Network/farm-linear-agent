@@ -339,6 +339,20 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
                      bot_name="FarmBot", write_repositories=(), root_repository=None, prior_context=None,
                      tools=None, reads=None):
     text = authority(item.get("skill"))  # refuses a skill that states no grants, before any payload exists
+    if (tools or {}).get("unity_pool", {}).get("mode") == "interactive":
+        text += (
+            " This host uses a fixed pool of persistent Unity Editors. All Unity verification, including "
+            "EditMode and PlayMode fixtures, must request unity_slot --mode interactive at the exact committed "
+            "candidate and exit. This host policy replaces legacy skill instructions to request Unity batch "
+            "runs. Queued legacy Unity batch requests are converted to interactive; no tests ran during that "
+            "conversion. After the reservation-bound resume, pin resource.instance with set_active_instance, "
+            "verify resource.commit, run the required tests with Unity MCP run_tests and poll get_test_job with "
+            "wait_timeout. Retain nonzero test counts, selections, failures/skips and reservation/commit identity "
+            "in private evidence. resource.batch_result is null and is never a test pass. Leave the Editor in "
+            "Edit Mode with tests finished and compilation quiet before a quiescent release. Never start, stop "
+            "or restart an Editor yourself. Server integration reservations keep their existing batch mode; "
+            "this policy changes only Unity execution. "
+        )
     if (tools or {}).get('go_dependencies', {}).get('status') == 'configured':
         text += (
             ' Host Go dependency preparation is configured. Before Go verification, and after a dependency pin '
