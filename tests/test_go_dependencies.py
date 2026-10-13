@@ -278,6 +278,11 @@ class RequestTests(LedgerBase):
         self.assertEqual(dep.status(self.ledger,self.config,self.item_id,original['id'])['state'],'failed')
         self.assertNotEqual(self.request()['id'],original['id'])
 
+    def test_poll_does_not_return_readiness_for_previous_host_settings(self):
+        original=self.request(); self.controller(Mock(return_value={'state':'ready'})).tick()
+        self.config.go_dependencies['go_sha256']='a'*64
+        self.assertEqual(dep.status(self.ledger,self.config,self.item_id,original['id'])['state'],'cancelled')
+
     def test_authenticated_worker_cli_request_and_poll(self):
         from agent.__main__ import parser, run
         self.config.repos['farm-hive']=str(self.root/'origin')

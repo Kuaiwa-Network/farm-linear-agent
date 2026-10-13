@@ -176,12 +176,15 @@ def request(ledger, trees, config, item_id, token, module, commit, *, retry=Fals
 def status(ledger, config, item_id, request_id):
     requests = [json.loads(r['details']) for r in ledger.connection.execute(
         'SELECT details FROM audit WHERE item_id=? AND kind=?', (item_id, REQUEST))]
-    if not any(r['id'] == request_id for r in requests):
+    matching = next((r for r in requests if r['id'] == request_id), None)
+    if matching is None:
         raise LedgerError('Unknown Go dependency request for this item')
     for row in ledger.connection.execute('SELECT details FROM audit WHERE item_id=? AND kind=? ORDER BY id DESC',
                                          (item_id, RESULT)):
         result = json.loads(row['details'])
         if result['id'] == request_id:
+            if result['state'] == 'ready' and matching.get('settings') != settings_digest(config):
+                return {'id':request_id, 'state':'cancelled', 'reason':'Host settings changed; request the currently configured cache.'}
             return result
     return {'id': request_id, 'state': 'pending'}
 
