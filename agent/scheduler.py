@@ -36,7 +36,7 @@ class Scheduler:
                  max_concurrent=2, guidance_for=lambda item: "", claim_timeout=600, api=None,
                  slot_entries=None, preflight=None, control_ledger_factory=None, publication=None, codex_workers=None,
                  config_path=None, issue_prefix='FARM', bot_name='FarmBot', kw_ops=None, enabled_skills=None,
-                 lark_cli=None, default_server_environment="公共测试服", server_slots_root=None):
+                 lark_cli=None, default_server_environment="公共测试服", server_slots_root=None, go_dependencies=None):
         self.publication = publication
         self.preflight = preflight
         self.control_ledger_factory = control_ledger_factory
@@ -60,6 +60,7 @@ class Scheduler:
         self.lark_cli = dict(lark_cli or {})
         self.default_server_environment = default_server_environment
         self.server_slots_root = server_slots_root
+        self.go_dependencies = go_dependencies or {}
         # The loaded skills this host runs (spec §9.11); tick() refuses a queued item of any other loaded skill.
         # Without a set, every loaded skill but the opt-in ones, as skills.enabled_skills decides (P1).
         self.enabled_skills = ({name for name, skill in (skills or {}).items() if not skill.opt_in}
@@ -261,6 +262,11 @@ class Scheduler:
         if skill.name in ("work", "fix", "feature") and root == "farm-hive":
             tools["server_tests"] = {"status": "configured" if self.server_slots_root else "unavailable",
                                      "resource": "server_slot"}
+        if skill.name in ('work', 'feature', 'fix') and root in self.go_dependencies.get('modules', {}):
+            tools['go_dependencies'] = {'status':'configured', 'modules':self.go_dependencies['modules'][root],
+                                        'cache_root':self.go_dependencies['cache_root'],
+                                        'go':self.go_dependencies['go'],
+                                        'request':'prepare-go-dependencies', 'poll':'go-dependencies'}
         if skill.name in ("work", "feature") and root == "Farm-Client":
             # A configured slot may supply read-only generated projects/DLLs even before a reservation. This
             # exposes no Editor command or writable slot root, and the delivered typecheck validates readiness.

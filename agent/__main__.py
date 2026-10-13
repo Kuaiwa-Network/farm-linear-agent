@@ -55,6 +55,9 @@ def parser():
     cmd("revalidate", "--item", "--fingerprint", token=True)
     cmd("issue-context", "--item")
     cmd("pop-inbox", "--item", token=True)
+    dependency = cmd("prepare-go-dependencies", "--item", "--module", "--commit", token=True)
+    dependency.add_argument("--retry", action="store_true", help="retry a failed/cancelled request after host correction; at most three")
+    cmd("go-dependencies", "--item", "--request-id", token=True)
     cmd("tasks", "--item")
     cmd("delegate-task", "--item", "--input", token=True)
     cmd("await-tasks", "--item", token=True)
@@ -447,6 +450,22 @@ def post_notice(ledger, api, notice):
 
 def run(args, ledger, api_factory):
     c = args.command
+    if c in ('prepare-go-dependencies', 'go-dependencies'):
+        from .go_dependencies import request, status
+        from .workflow import JobWorktrees
+        from .worktrees import Worktrees
+        token = resolve_token(args)
+        ledger.renew(args.item, token)
+        config = load_config(secure_permissions=False)
+        paths = Paths(config)
+        if Path(args.db).resolve() != paths.ledger.resolve():
+            raise LedgerError('Go dependency request must use the configured host ledger')
+        if not config.go_dependencies:
+            raise LedgerError('Host Go dependency preparation is not configured')
+        if c == 'go-dependencies':
+            return status(ledger, config, args.item, args.request_id)
+        trees = JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger)
+        return request(ledger, trees, config, args.item, token, args.module, args.commit, retry=args.retry)
     if c == "memory-list":
         return ledger.memory_list(args.item, resolve_token(args))
     if c == "memory-read":

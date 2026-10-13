@@ -18,6 +18,8 @@ python3 -m agent --db DATABASE checkpoint --help
 | `release-resource` | `--item ITEM_ID --token-file RESOURCE_TOKEN_FILE`, using `resource.token_file`, plus `--outcome quiescent` or `--outcome unclean` |
 | `withdraw` | `--item ITEM_ID --token-file STATE_DIR/token`; releases your claim after the delegation was removed or superseded; a general coordinator may park for running children's grace; save a checkpoint first; exit after it succeeds |
 | `tasks` | `--item ITEM_ID`; reads this logical job's durable presentation tasks |
+| `prepare-go-dependencies` | Claim-token arguments, `--module` from dispatch's configured module list, `--commit CLEAN_HEAD`; queues host-only preparation and returns request ID/state; optional `--retry` after a failed/cancelled request's host correction, at most three requests per candidate |
+| `go-dependencies` | Claim-token arguments, `--request-id ID`; returns this item's pending/ready/failed/cancelled preparation result |
 | `delegate-task` | General job claim-token arguments and `--input FILE`; exact JSON keys `key`, `capability` (`fgui` or `scene`), `instructions`; requires settled shared behavior in plan stage A |
 | `answer-task`, `retry-task` | General job claim-token arguments, `--task KEY --message-id ID`; uses an actual attributed message from this job's inbox; retry also requires certified teardown |
 | `await-tasks` | General job claim-token arguments; valid checkpoint and no open reservation; parks the coordinator while tasks continue; exit immediately |

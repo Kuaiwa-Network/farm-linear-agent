@@ -339,6 +339,21 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
                      bot_name="FarmBot", write_repositories=(), root_repository=None, prior_context=None,
                      tools=None, reads=None):
     text = authority(item.get("skill"))  # refuses a skill that states no grants, before any payload exists
+    if (tools or {}).get('go_dependencies', {}).get('status') == 'configured':
+        text += (
+            ' Host Go dependency preparation is configured. Before Go verification, and after a dependency pin '
+            'changes, commit the intended candidate and call prepare-go-dependencies with your claim, '
+            '--module from tools.go_dependencies.modules and --commit equal to clean HEAD. Poll '
+            'go-dependencies --request-id with the same claim until ready, renewing normally and continuing '
+            'independent work. Pending preparation needs no human reply. The controller downloads only module '
+            'inputs; you never download dependencies, install tools or write the prepared cache. A ready result '
+            'selects tools.go_dependencies.cache_root for GOMODCACHE; keep GOPROXY/GOSUMDB off, modules '
+            'readonly, set GONOPROXY=none and GOVCS=*:off, use your own HOME/GOCACHE/TEMP, and run the actual '
+            'repository gates yourself. A changed '
+            'candidate needs its own request. A failed request names a host gap: preserve the evidence and '
+            'ask for the concrete host correction; --retry is bounded and only for a corrected failed/cancelled '
+            'request. Never park for human input while a preparation request is pending. '
+        )
     root = Path(repo_root) if repo_root is not None else Path(skill_path).parent.parent.parent
     payload = {
         "item_id": item["id"],
