@@ -855,7 +855,8 @@ The startup deadline defaults to 300 seconds, reflecting a measured 170-second
 native Windows startup. A slot's `start_timeout` may explicitly select a positive
 number up to 600 seconds; it is separate from individual MCP request timeouts.
 
-In a persistent pool, compilation failure or changed source with every other
+During reserved candidate preparation in a persistent pool, compilation failure
+or changed source with every other
 identity check matching is a **candidate** failure. The controller fences the old
 worker, cancels that reservation and queues its owner for source diagnosis, retaining
 the writable repository, checkpoint and publication scope. It never rewrites the

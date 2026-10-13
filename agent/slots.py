@@ -750,7 +750,7 @@ class SlotPool:
         if observation.get("aggregate") != "match":
             raise SlotError(f"{slot_id}: identity probe did not match: {observation.get('checks')}",
                             stage="probe")
-        return self.ledger.set_slot_state(slot_id, self.BUSY_FOR[mode], parked_commit=commit, last_switch_at=self.clock())
+        return self.ledger.set_slot_state(slot_id, self.BUSY_FOR[mode], last_switch_at=self.clock())
 
     def run_batch(self, slot, reservation):
         """The batch run itself, performed by the launcher outside any sandbox and never by the worker.
