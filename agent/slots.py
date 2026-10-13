@@ -20,7 +20,12 @@ from .ledger import Ledger, LedgerError
 from .unity import (UnityError, batch_test_command, editor_holds_project, editor_path, other_editor_project,
                     read_results)
 from .unity_mcp import UnityMcp
-from .worktrees import WorktreeError
+from .worktrees import FetchRaced, WorktreeError
+
+# What a slot path's git work raises: _git raises subprocess.TimeoutExpired rather than WorktreeError when a call
+# outlives its timeout, and a filesystem step raises OSError. switch, park and ensure turn each into a git-stage
+# SlotError, because anything else escapes the pool with the slot `switching` and is retried every pass.
+GIT_FAILURES = (WorktreeError, subprocess.TimeoutExpired, OSError)
 
 DEFAULTS = {
     "kind": "unity_slot",
@@ -179,7 +184,7 @@ class SlotPool:
                 # from the folder, never assumed to be the head just resolved.
                 parked = self.worktrees.head(folder)
                 pointers = self.worktrees.pointers_remain(folder)
-            except WorktreeError as exc:
+            except GIT_FAILURES as exc:
                 # All four parts of slot creation are inside this guard, because the contract is that a slot
                 # which cannot be made usable fails as a SlotError naming the slot: a bare WorktreeError at
                 # service start does not say which folder the operator has to go and look at.
@@ -544,7 +549,13 @@ class SlotPool:
         # Other project folders can coexist. Process checks apply to this folder;
         # UnityIdentity pins every MCP call to its verified project instance.
         try:
-            self.worktrees.fetch(entry["repo"])   # the pin may post-date the clone's last fetch
+            try:
+                self.worktrees.fetch(entry["repo"])   # the pin may post-date the clone's last fetch
+            except FetchRaced:
+                # Another fetch into the clone, a worker's from its sandbox, moved the refs this one meant to.
+                # The pin is all this fetch was for, so the clone holding it settles the switch.
+                if not self.worktrees.has_commit(entry["repo"], commit):
+                    raise
             if not self.worktrees.slot_clean(folder):
                 raise SlotError(f"{slot_id}: tracked files are dirty; a human edited the slot folder")
             if mode == "batch" and was_open:
@@ -553,7 +564,7 @@ class SlotPool:
             self.worktrees.checkout_commit(folder, commit)
             if self.worktrees.pointers_remain(folder):
                 raise SlotError(f"{slot_id}: git-lfs pointers survived the checkout")
-        except WorktreeError as exc:
+        except GIT_FAILURES as exc:
             raise SlotError(f"{slot_id}: git stage failed: {exc}", stage="git") from exc
         if mode == "batch":
             # A batch run needs no MCP at all; its result is a results file and an exit code (spec §7). The
@@ -561,7 +572,7 @@ class SlotPool:
             # is the process listing and never `lambda: False`: spec §7 removes the lock "only after
             # confirming the process is gone", and `was_open` above is guarded by `self.mcp is not None`, so
             # a pool built without an MCP client would otherwise assert "gone" without ever asking.
-            self.clear_stale_lock(folder, lambda: self.editor_is_open(slot))
+            self._clear_stale_lock(slot)
             return self.ledger.set_slot_state(slot_id, self.BUSY_FOR[mode], last_switch_at=self.clock())
         instance = slot.get("instance")
         if not was_open:
@@ -569,7 +580,7 @@ class SlotPool:
             # +32 s). Nothing holds this folder, so the litter goes before the new Editor can meet it —
             # otherwise a surviving lock blocks the start and holds the only slot at the probe stage after
             # any crash. Same guard as everywhere else: the process listing decides, not an assertion.
-            self.clear_stale_lock(folder, lambda: self.editor_is_open(slot))
+            self._clear_stale_lock(slot)
             instance = self.open_editor(slot, entry)
         try:
             self.mcp.refresh(slot)
@@ -739,7 +750,7 @@ class SlotPool:
         # terminate() is supposed to have confirmed the pid is gone, but it is asked again rather than
         # asserted: `lambda: False` here would delete a live Editor's lock whenever terminate returned
         # without actually killing anything, and that file is what enforces one Editor per folder.
-        self.clear_stale_lock(folder, lambda: self.editor_is_open(slot))
+        self._clear_stale_lock(slot)
         if (folder / "Temp" / "UnityLockfile").exists():
             # Deliberately the file and not editor_is_open: what is checked here is that the litter Unity
             # leaves behind is actually gone, because the next `Unity -batchmode` on a folder whose lock
@@ -838,14 +849,14 @@ class SlotPool:
             commit = self.worktrees.resolve_commit(entry["repo"])
             if self.worktrees.head(folder) != commit:
                 self.worktrees.checkout_commit(folder, commit)
-        except WorktreeError as exc:
+        except GIT_FAILURES as exc:
             raise SlotError(f"{slot_id}: could not park on the default branch: {exc}", stage="git") from exc
         state = self._idle_state(slot, mode)
         if state == "idle_closed":
             # Never `lambda: False`. spec §7 removes the lock "only after confirming the process is gone",
             # and a departing mode of "batch" says nothing about the host: park(slot, "batch") against a
             # live Editor would delete the very file that enforces Unity's one-Editor-per-folder guarantee.
-            self.clear_stale_lock(folder, lambda: self.editor_is_open(slot))
+            self._clear_stale_lock(slot)
         return self.ledger.set_slot_state(slot_id, state, parked_commit=commit, last_switch_at=self.clock())
 
     def _idle_state(self, slot, mode):
@@ -854,6 +865,16 @@ class SlotPool:
         give-back in _switch_failed must not disagree about it — they used to, and the disagreement was
         `idle_closed` written over a live Editor."""
         return "idle_open" if mode == "interactive" and self.editor_is_open(slot) else "idle_closed"
+
+    def _clear_stale_lock(self, slot):
+        """clear_stale_lock on the slot's folder, with the process listing deciding. An unlink that fails (on
+        Windows, a sharing violation) leaves the folder claimed, which close_editor already treats as an
+        editor-stage failure: the slot is held rather than released, and no OSError escapes the pool."""
+        try:
+            return self.clear_stale_lock(slot["folder"], lambda: self.editor_is_open(slot))
+        except OSError as exc:
+            raise SlotError(f"{slot['slot_id']}: Temp/UnityLockfile could not be removed: {exc}",
+                            stage="editor") from exc
 
     @staticmethod
     def clear_stale_lock(folder, alive):
