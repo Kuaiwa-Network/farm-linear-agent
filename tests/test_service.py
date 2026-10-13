@@ -76,7 +76,9 @@ class ServeTests(unittest.TestCase):
 
     def dependency_config(self):
         from test_go_dependencies import settings
-        fixture = Path(self.tmp.name)/'Go setup and 中文'
+        # macOS exposes its temp root through /var -> /private/var. Host tool
+        # paths must be canonical so the link checks still protect real inputs.
+        fixture = Path(self.tmp.name).resolve()/'Go setup and 中文'
         fixture.mkdir()
         block = settings(fixture).go_dependencies
         return Config(client_id='client', client_secret='s', webhook_secret='signing-secret', host='test',
