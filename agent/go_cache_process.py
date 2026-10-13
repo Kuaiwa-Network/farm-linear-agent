@@ -6,6 +6,31 @@ import subprocess
 import time
 
 
+def _drain_posix(process):
+    # The leader is still unreaped, so its process-group ID cannot be reused.
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        # macOS can report EPERM for a group containing only zombies. This is
+        # not evidence of quiescence: reap our child, then require ESRCH below.
+        pass
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.wait(timeout=5)
+    deadline = time.monotonic() + 5
+    while True:
+        try:
+            os.killpg(process.pid, 0)
+        except ProcessLookupError:
+            return
+        except PermissionError:
+            pass  # A denied probe proves neither absence nor quiescence.
+        if time.monotonic() >= deadline:
+            raise RuntimeError('Go preparation process group did not drain; preserve evidence')
+        time.sleep(.05)
+
+
 def run(argv, *, cwd, env, log, cancelled=lambda: False, timeout=600):
     """Drain owned descendants before allowing cache publication, including Stop."""
     job = process = None
@@ -49,25 +74,12 @@ def run(argv, *, cwd, env, log, cancelled=lambda: False, timeout=600):
                 finally:
                     job.close()
             elif process is not None:
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            if process is not None:
+                _drain_posix(process)
+            if process is not None and os.name == 'nt':
                 # Assignment failure still owns this suspended creation object.
                 if process.poll() is None:
                     process.kill()
                 process.wait(timeout=5)
-                if os.name != 'nt':
-                    deadline = time.monotonic() + 5
-                    while True:
-                        try:
-                            os.killpg(process.pid, 0)
-                        except ProcessLookupError:
-                            break
-                        if time.monotonic() >= deadline:
-                            raise RuntimeError('Go preparation process group did not drain; preserve evidence')
-                        time.sleep(.05)
     if stdout.stat().st_size > 16 << 20:
         raise RuntimeError('Go dependency output exceeded host limit')
     return stdout.read_bytes()

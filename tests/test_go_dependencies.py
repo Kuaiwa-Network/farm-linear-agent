@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from agent import go_dependencies as dep
-from agent.go_cache_process import run as native_run
+from agent.go_cache_process import _drain_posix, run as native_run
 from agent.ledger import LedgerError
 from agent.worktrees import Worktrees, WorktreeError
 from agent.workflow import JobWorktrees
@@ -314,3 +314,51 @@ class ProcessTests(unittest.TestCase):
         with patch('agent.go_cache_process.subprocess.Popen') as spawn, self.assertRaises(RuntimeError):
             native_run([sys.executable],cwd=self.root,env={},log=self.root/'cancel',cancelled=lambda:True)
         spawn.assert_not_called()
+
+
+class PosixProcessTests(unittest.TestCase):
+    def setUp(self):
+        # Exercise the POSIX cleanup branches on Windows without native signals.
+        sigkill = patch('agent.go_cache_process.signal.SIGKILL', 9, create=True)
+        sigkill.start()
+        self.addCleanup(sigkill.stop)
+
+    def test_posix_zombie_permission_error_requires_group_absence_after_reap(self):
+        process = Mock(pid=123, poll=Mock(return_value=0))
+        def signal_group(pid, sig):
+            self.assertEqual(pid, process.pid)
+            if sig:
+                process.wait.assert_not_called()
+                raise PermissionError()
+            process.wait.assert_called_once_with(timeout=5)
+            raise ProcessLookupError()
+        with patch('agent.go_cache_process.os.killpg', side_effect=signal_group, create=True):
+            _drain_posix(process)
+        process.kill.assert_not_called()
+
+    def test_posix_denied_or_present_group_never_certifies_drain(self):
+        for probe in (PermissionError(), None):
+            with self.subTest(probe=type(probe).__name__):
+                process = Mock(pid=123, poll=Mock(return_value=None))
+                with patch('agent.go_cache_process.os.killpg', side_effect=[PermissionError(), probe], create=True), \
+                        patch('agent.go_cache_process.time.monotonic', side_effect=[0, 6]), \
+                        self.assertRaisesRegex(RuntimeError, 'did not drain'):
+                    _drain_posix(process)
+                process.kill.assert_called_once_with()
+                process.wait.assert_called_once_with(timeout=5)
+
+    def test_posix_zombie_probe_is_retried_until_group_absent(self):
+        process = Mock(pid=123, poll=Mock(return_value=0))
+        with patch('agent.go_cache_process.os.killpg',
+                   side_effect=[PermissionError(), PermissionError(), ProcessLookupError()], create=True) as killpg, \
+                patch('agent.go_cache_process.time.sleep'):
+            _drain_posix(process)
+        self.assertEqual(killpg.call_count, 3)
+
+    def test_posix_unexpected_signal_error_reaps_child_and_fails(self):
+        process = Mock(pid=123, poll=Mock(return_value=None))
+        with patch('agent.go_cache_process.os.killpg', side_effect=OSError('unexpected'), create=True), \
+                self.assertRaisesRegex(OSError, 'unexpected'):
+            _drain_posix(process)
+        process.kill.assert_called_once_with()
+        process.wait.assert_called_once_with(timeout=5)
