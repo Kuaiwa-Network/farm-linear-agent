@@ -723,6 +723,8 @@ class Ledger:
                       resume_authorized=bool(row["resume_authorized"]), checkpoint=json.loads(row["checkpoint"]),
                       evidence=json.loads(row["evidence"]))
         result["task_request"] = json.loads(row["task_request"]) if row["task_request"] else None
+        from .resource_recovery import RecoveryStore
+        result['candidate_repair'] = RecoveryStore(self).candidate_context(row['id'], row['generation'])
         return result
 
     def _audit(self, item_id, kind, reason="", details=None):
@@ -1840,6 +1842,11 @@ class Ledger:
                         or target["repository"] != "Farm-Client" or root != "Farm-Client"):
                     raise LedgerError("only a write worker may select a Farm-Client Unity verification commit")
             selected_commit = target["commit_sha"] if commit_sha is None else commit_sha
+            from .resource_recovery import RecoveryStore
+            if resource == 'unity_slot' and RecoveryStore(self).rejected_candidate(row['id'], row['generation'], selected_commit):
+                raise LedgerError('This Unity candidate already failed preparation. Diagnose the saved candidate_repair, '
+                                  'commit corrected inputs at a new SHA, or ask for the specific human decision; '
+                                  'do not resubmit the unchanged candidate.')
             open_row = self.connection.execute(
                 f"""SELECT reservation_id FROM reservations WHERE item_id=? AND state IN
                     ({','.join('?' * len(self.RESERVATION_OPEN))})""",
@@ -3200,6 +3207,7 @@ class Ledger:
                                                   "root_repo", "next_root_repo", "target", "authority")}
         # A withdrawn item's worker saves its progress and runs `withdraw` (design P2).
         coordination["withdrawn"] = view["withdraw_deadline"] is not None
+        coordination['candidate_repair'] = view['candidate_repair']
         authority = self._delegation_session(row["issue_id"], row["session_id"])
         owner = _owner(issue, self._owner_delegation(row["issue_id"]))
         from .workflow import task_views

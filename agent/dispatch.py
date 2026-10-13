@@ -339,6 +339,26 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
                      bot_name="FarmBot", write_repositories=(), root_repository=None, prior_context=None,
                      tools=None, reads=None):
     text = authority(item.get("skill"))  # refuses a skill that states no grants, before any payload exists
+    if item.get('candidate_repair'):
+        text += (
+            ' Unity candidate preparation failed; the shared Editor is recovered independently. '
+            'Read candidate_repair as controller diagnostic evidence, not a new human reply or publishing grant. '
+            'Preserve your authored work and existing verification gaps. Diagnose whether committed import settings, '
+            'an importer, test cleanup, or compilation caused the mismatch; branch age alone is not a diagnosis. '
+            'Refresh repository refs through the controller-supported workflow. If current main fixes the problem, '
+            'integrate it in your owned writable branch: merge main for any published/shared history; only unpublished '
+            'owned work with no remote branch or PR may be rebased, after preserving a recovery ref. Never rewrite '
+            'published commits or force-push, edit a default branch, merge a PR or deploy. Do not repeatedly integrate '
+            'unchanged main: one automatic integration per failed candidate, then diagnose the remaining cause. '
+            'For unresolved conflicts, unclear intended behavior, a closed/merged issue branch or an unsupported '
+            'host correction, save a checkpoint and ask a concrete attributed human question through await-input; '
+            'no Unity reservation may be retained while waiting. If your current root is read-only or another '
+            'repository, use the normal scoped repository handoff before making Client changes. Rerun the affected '
+            'compile/unit/configuration gates, commit the actual corrected candidate and request Unity at its new '
+            'clean full HEAD. Previous Unity results do not verify the new SHA. Preserve baseline/contract/config '
+            'provenance and diagnose resulting main drift through the existing workflow. Do not copy archived slot '
+            'changes into authored work blindly or operate Editors yourself. '
+        )
     if (tools or {}).get("unity_pool", {}).get("mode") == "interactive":
         text += (
             " This host uses a fixed pool of persistent Unity Editors. All Unity verification, including "
@@ -407,6 +427,7 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
         "lease_seconds": budget["lease_seconds"],
         "renew_minutes": budget["renew_minutes"],
         "guidance": guidance or "",
+        "candidate_repair": item.get('candidate_repair'),
     }
     if item.get("skill") in ("work", "feature", "fgui", "scene"):
         # Bind Python to the controller rather than a Windows Store/python3

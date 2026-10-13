@@ -855,11 +855,42 @@ The startup deadline defaults to 300 seconds, reflecting a measured 170-second
 native Windows startup. A slot's `start_timeout` may explicitly select a positive
 number up to 600 seconds; it is separate from individual MCP request timeouts.
 
-In a persistent pool, a startup probe that observes changed source keeps that
-Editor fenced and retains its source evidence. It does not repeatedly close the
-Editor, restore importer metadata and reopen the same inputs. Correct the committed
-inputs and explicitly retry the slot. Controller startup preserves an existing
-held recovery; only an interrupted `switching` warmup enters startup recovery.
+In a persistent pool, compilation failure or changed source with every other
+identity check matching is a **candidate** failure. The controller fences the old
+worker, cancels that reservation and queues its owner for source diagnosis, retaining
+the writable repository, checkpoint and publication scope. It never rewrites the
+worker's branch. `candidate_repair` in dispatch and issue-context records the failed
+SHA and cause independently of checkpoints. That generation cannot resubmit the
+unchanged SHA. Other jobs requesting a known bad candidate are also returned to
+their owner before checkout, rather than repeating the same import on every Editor.
+
+Editor recovery runs independently. After verified worker teardown, cooperative
+test cancellation and an idle probe, it suspends automatic asset refresh, archives
+eligible metadata, checks the snapshot again and restores a clean baseline. It
+prefers current main, falling back to a previously fully verified compatible
+candidate; the failed or another known bad SHA is excluded. A persisted recovery
+plan keeps that choice stable across interrupted attempts. It reenables refresh,
+requires compilation and the full identity/source probe, then returns the same
+live Editor to the pool. Unknown/stalled Editors and attempts after an interruption
+require verified shutdown and restart. Missing baseline, archive failures or
+non-metadata changes preserve evidence and the hold; they never count as availability.
+Only configured slots participate in pool exhaustion checks, so an unused closed
+slot cannot leave verification queued forever.
+
+The owning worker diagnoses the actual cause and integrates current main when it
+fixes that cause: merge for published/shared history, rebase only unpublished owned
+work after preserving a recovery ref. It commits corrected inputs and requests
+verification at the new clean full HEAD. Existing Unity evidence does not verify
+that SHA. Read-only or other repository roots require the normal scoped handoff.
+Unresolved conflicts or unclear behavior require a saved checkpoint and a specific
+attributed human question, without retaining a Unity reservation. Candidate failures
+do not consume the infrastructure retry budgets; Stop, newer generations and human
+questions remain fenced. Controller startup preserves existing held recovery.
+
+This adds a `candidate` value to the existing recovery-kind column, with no new
+schema columns. Settle candidate recoveries before rolling back: older code does
+not implement candidate return or understand its retry accounting. Never rewind
+live data or discard recovery refs to make rollback appear compatible.
 
 An exhausted, detached preparation recovery is rechecked at most once per minute
 for an Editor that connected late. This path only inspects: it never starts or stops
@@ -875,11 +906,12 @@ still goes through the existing authority checks. No new ledger schema is needed
 existing typed preparation recoveries are eligible, and older code stops these
 late-connection checks without reversing saved work or diagnostics.
 
-After certifying the worker's process tree has stopped, the controller detaches the old
+For infrastructure failures, after certifying the worker's process tree has stopped, the controller detaches the old
 reservation and queues its exact commit and mode. A healthy second slot may resume that job
 while an independent service loop repairs the first. Only configured local slot editors may
 be stopped; uncertain process inspection, surviving processes and identity mismatches keep
-the slot quarantined. After proving the Editor has exited, recovery may archive changes confined
+the slot quarantined. After proving the Editor has exited (or, for candidate recovery,
+proving it idle with automatic refresh suspended), recovery may archive changes confined
 to `Assets/*.meta`: tracked changes under a dedicated Git recovery ref, newly created metadata
 under private recovery evidence. It checks the source snapshot again before restoring those
 files from the held commit, then returns the clean slot closed. A failed archive or any other

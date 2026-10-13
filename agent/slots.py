@@ -13,7 +13,8 @@ import time
 import urllib.parse
 from pathlib import Path
 
-from .identity import collect, quiet, ready
+from contextlib import contextmanager
+from .identity import CHECKS, collect, quiet, ready
 from .kw_ops import child_environment
 from .launcher import _read_worker_text, _write_worker_file
 from .ledger import Ledger, LedgerError
@@ -109,6 +110,12 @@ class SlotPool:
     BUSY = ("interactive_busy", "batch_busy", "switching", "held")
 
     BUSY_FOR = {"interactive": "interactive_busy", "batch": "batch_busy"}
+
+    @staticmethod
+    def source_candidate_failure(observation):
+        checks = observation.get('checks') or {}
+        return (checks.get('source_clean') == 'mismatch'
+                and all(checks.get(key) == 'match' for key in CHECKS if key != 'source_clean'))
 
     def __init__(self, ledger, worktrees, entries, *, host, editors_root, unity=None, mcp=None, clock=time.time,
                  sleep=None, editor_scan=None, editor_pid=None, state_dir=None, owner="pool",
@@ -275,11 +282,10 @@ class SlotPool:
                 self.switch(slot_id, commit, "interactive")
             except Exception as exc:
                 observation = self.last_observation or {}
-                checks = observation.get("checks")
                 if (isinstance(exc, SlotError) and exc.stage == "probe"
-                        and isinstance(checks, dict) and checks.get("source_clean") == "mismatch"):
+                        and self.source_candidate_failure(observation)):
                     RecoveryStore(self.ledger).quarantine_source(slot_id,
-                        "persistent Editor startup changed committed source; correct the inputs before an explicit retry",
+                        "persistent Editor startup changed committed source; preserve inputs and recover a clean baseline",
                         observation)
                     continue
                 with self.ledger._transaction():
@@ -287,6 +293,8 @@ class SlotPool:
                         f"persistent Editor preparation failed: {type(exc).__name__}: {exc}", recovery_kind="setup")
             else:
                 self.ledger.set_slot_state(slot_id, "idle_open", parked_commit=commit)
+                self.ledger.note(slot_id, 'unity_editor_verified', 'persistent Editor baseline verified',
+                                 {'observation': self.last_observation})
                 self.ledger._audit(slot_id, "unity_editor_ready", "persistent Editor ready")
                 opened += 1
         return opened
@@ -439,6 +447,17 @@ class SlotPool:
         """
         item_id, slot_id = reservation["item_id"], reservation["resource"]
         self.last_observation = None
+        if self.keep_open:
+            from .resource_recovery import RecoveryStore
+            entry = self.entries[slot_id]
+            peers = [key for key, value in self.entries.items()
+                     if (value['repo'], value['build_target']) == (entry['repo'], entry['build_target'])]
+            known = RecoveryStore(self.ledger).known_candidate(self.host, peers, reservation['commit_sha'])
+            if known:
+                self.ledger.hold(reservation['reservation_id'],
+                                 f"Candidate previously failed Unity preparation: {known['reason'][:300]}",
+                                 recovery_kind='candidate')
+                return False
         try:
             self.switch(slot_id, reservation["commit_sha"], reservation["mode"])
         except SlotError as exc:
@@ -523,6 +542,10 @@ class SlotPool:
 
     def _switch_failed(self, reservation, exc, *, recovery_kind='setup'):
         reason = str(exc)[:400]
+        if self.keep_open and (exc.stage == 'compile' or
+                (exc.stage == 'probe' and self.source_candidate_failure(self.last_observation or {}))):
+            self.ledger.hold(reservation['reservation_id'], reason, recovery_kind='candidate')
+            return
         if exc.stage == "probe" or (exc.stage == "editor" and recovery_kind == "setup"):
             # Preparation failures have their own bounded budget: no worker has
             # received this grant yet. A batch run that already began is execution.
@@ -727,7 +750,7 @@ class SlotPool:
         if observation.get("aggregate") != "match":
             raise SlotError(f"{slot_id}: identity probe did not match: {observation.get('checks')}",
                             stage="probe")
-        return self.ledger.set_slot_state(slot_id, self.BUSY_FOR[mode], last_switch_at=self.clock())
+        return self.ledger.set_slot_state(slot_id, self.BUSY_FOR[mode], parked_commit=commit, last_switch_at=self.clock())
 
     def run_batch(self, slot, reservation):
         """The batch run itself, performed by the launcher outside any sandbox and never by the worker.
@@ -1144,11 +1167,34 @@ class UnityIdentity:
             return
         os.kill(pid, signal.SIGTERM)
         deadline = self.clock() + timeout
-        while editor_holds_project(slot["folder"], strict=True) is not None:
+        while True:
+            try:
+                if editor_holds_project(slot['folder'], strict=True) is None:
+                    return
+            except UnityError:
+                # A quitting Windows process can briefly lose its command line.
+                # Unknown remains fenced until a later strict observation proves exit.
+                if self.clock() >= deadline:
+                    raise
             if self.clock() >= deadline:
                 raise SlotError(f"Unity pid {pid} still holds {slot['folder']} {timeout}s after SIGTERM",
                                 stage="editor")
             self.sleep(1.0)
+
+    @contextmanager
+    def suspend_imports(self, slot):
+        """Only an idle, reservation-detached Editor may enter this controller-owned section."""
+        client = self._client(slot)
+        def execute(method):
+            result = client.call_tool('execute_code', {'action': 'execute', 'safety_checks': True,
+                'code': f'UnityEditor.AssetDatabase.{method}(); return "{method}";'})
+            if result.get('result') != method:
+                raise SlotError(f'Editor did not confirm {method}', stage='editor')
+        execute('DisallowAutoRefresh')
+        try:
+            yield
+        finally:
+            execute('AllowAutoRefresh')
 
     def recovery_snapshot(self, slot):
         client = self._client(slot)

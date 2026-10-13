@@ -997,12 +997,13 @@ class Worktrees:
         return _git("status", "--porcelain=v1", "--untracked-files=no", cwd=path, env=SLOT_ENV) == ""
 
     def reconcile_slot_meta(self, repo, path, recovery_id, evidence_dir):
-        """Archive importer-dirty Assets metadata before returning a closed slot to the pool.
+        """Archive importer-dirty Assets metadata before restoring the controlled slot.
 
         A dedicated slot starts clean at switch time. If Unity later changes only existing or
         newly generated .meta files, the requested commit cannot pass source identity. Keep
         the exact tracked tree under an immutable recovery ref and copy untracked metadata
-        before restoring it. Any other change remains quarantined for human review.
+        before restoring it. The caller proves the Editor exited or is idle with automatic
+        refresh suspended. Any other change remains quarantined for human review.
         """
         from .identity import source_snapshot
 

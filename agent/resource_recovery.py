@@ -10,6 +10,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from uuid import uuid4
 
+from .identity import CHECKS
+
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS resource_recoveries (
@@ -87,7 +89,7 @@ class RecoveryStore:
 
     def request_in_transaction(self, slot_id, reason, *, adopt=False, recovery_kind='execution'):
         """Called by hold() inside its transaction; never infer intent from prose."""
-        if recovery_kind not in ('execution', 'setup'):
+        if recovery_kind not in ('execution', 'setup', 'candidate'):
             raise ValueError('unknown resource recovery kind')
         slot = self.ledger._slot_row(slot_id)
         existing = self.db.execute("SELECT * FROM resource_recoveries WHERE slot_id=? AND state IN ('pending','repairing')",
@@ -130,20 +132,69 @@ class RecoveryStore:
             return self.request_in_transaction(slot_id, reason, adopt=True, recovery_kind='setup')
 
     def quarantine_source(self, slot_id, reason, observation):
-        """An unreserved warm Editor changed its inputs; retain it without another importer retry."""
+        """Fence changed startup inputs for preservation and recovery on a clean baseline."""
         with self.ledger._transaction():
             if self.ledger.active_reservation_on(slot_id):
                 raise ValueError('source quarantine requires an unreserved warm Editor')
-            recovery = self.request_in_transaction(slot_id, reason, recovery_kind='setup')
+            recovery = self.request_in_transaction(slot_id, reason, recovery_kind='candidate')
             if recovery['item_id'] or recovery['reservation_id']:
                 raise ValueError('source quarantine cannot replace an execution recovery')
-            # No worker was detached. Exclude late-connection validation: source correction
-            # needs explicit continuation, rather than a transport retry.
-            self.db.execute('UPDATE resource_recoveries SET detached=0 WHERE id=?', (recovery['id'],))
-            self._exhaust(recovery, reason)
             self.ledger._audit(slot_id, 'unity_editor_source_blocked', reason,
                                {'recovery_id': recovery['id'], 'observation': observation})
             return self.get(recovery['id'])
+
+    def candidate_context(self, item_id, generation):
+        """Controller facts survive worker checkpoint replacement; they grant no new authority."""
+        row = self.db.execute("""SELECT r.id,r.commit_sha,r.reason,r.state,r.evidence,r.created_at FROM resource_recoveries r
+            JOIN reservations q ON q.reservation_id=r.reservation_id
+            WHERE r.recovery_kind='candidate' AND r.item_id=? AND q.generation=?
+            ORDER BY r.created_at DESC,r.rowid DESC LIMIT 1""", (item_id, generation)).fetchone()
+        if row is None:
+            return None
+        for verified in self.db.execute("""SELECT o.result_json FROM identity_observations o
+            JOIN reservations q ON q.reservation_id=o.reservation_id
+            WHERE o.item_id=? AND q.generation=? AND o.created_at>=?""", (item_id, generation, row['created_at'])):
+            observation = json.loads(verified['result_json'])
+            commit = (observation.get('expected') or {}).get('commit_sha')
+            if (observation.get('aggregate') == 'match' and commit and commit != row['commit_sha']
+                    and all((observation.get('checks') or {}).get(key) == 'match' for key in CHECKS)
+                    and (observation.get('source_after') or {}).get('commit_sha') == commit):
+                return None
+        return {'recovery_id': row['id'], 'failed_commit': row['commit_sha'], 'reason': row['reason'],
+                'editor_recovery_state': row['state'],
+                'metadata_ref_hint': f"refs/farmbot/slot-recovery/{row['id']}",
+                'next_action': 'diagnose inputs, integrate current main when appropriate, commit the correction and request a new SHA'}
+
+    def rejected_candidate(self, item_id, generation, commit):
+        return self.db.execute("""SELECT 1 FROM resource_recoveries r
+            JOIN reservations q ON q.reservation_id=r.reservation_id
+            WHERE r.recovery_kind='candidate' AND r.item_id=? AND q.generation=? AND r.commit_sha=? LIMIT 1""",
+            (item_id, generation, commit)).fetchone() is not None
+
+    def mark_candidate(self, recovery_id, attempt):
+        """A fenced execution changed only metadata; stop its unchanged-pin retry."""
+        with self.ledger._transaction():
+            r = self._attempt(recovery_id, attempt)
+            self.db.execute("UPDATE resource_recoveries SET recovery_kind='candidate' WHERE id=?", (recovery_id,))
+            if r['detached'] and r['item_id'] and r['reservation_id']:
+                old = self.ledger.reservation(r['reservation_id'])
+                item = self.ledger.item(r['item_id'])
+                active = self.db.execute("SELECT 1 FROM reservations WHERE item_id=? AND state IN ('active','cancel_requested')", (item['id'],)).fetchone()
+                if (r['resume_job'] and not active and item['state'] == 'awaiting_resource'
+                        and item['stage'] == 'waiting_for_recovery' and item['generation'] == old['generation']):
+                    self.db.execute("UPDATE reservations SET state='cancelled',released_at=?,release_reason=? "
+                        "WHERE item_id=? AND generation=? AND commit_sha=? AND state='queued'",
+                        (self.ledger.clock(), 'candidate source requires correction', item['id'], old['generation'], old['commit_sha']))
+                    self.ledger._set_state(item['id'], 'queued', 'Unity inputs changed; resume candidate repair',
+                        stage='unity-candidate-repair', needs_resource=None, token=None, lease_expires_at=None, worker_pid=None)
+            return self.get(recovery_id)
+
+    def known_candidate(self, host, slot_ids, commit):
+        if not slot_ids:
+            return None
+        return self.db.execute(f"""SELECT id,reason FROM resource_recoveries WHERE host=?
+            AND slot_id IN ({','.join('?' for _ in slot_ids)}) AND recovery_kind='candidate' AND commit_sha=?
+            ORDER BY created_at DESC,rowid DESC LIMIT 1""", (host, *slot_ids, commit)).fetchone()
 
     def discover(self, host):
         """Migrate pre-existing holds, retaining genuine human questions and exhausted holds."""
@@ -243,11 +294,20 @@ class RecoveryStore:
             old = self.ledger.reservation(r['reservation_id']) if r['reservation_id'] else None
             if old:
                 cancelled = old['state'] == 'cancel_requested'
+                candidate = r['recovery_kind'] == 'candidate'
                 self.db.execute("UPDATE reservations SET state=?,released_at=?,release_reason=? WHERE reservation_id=? AND state IN ('active','cancel_requested')",
-                                ('cancelled' if cancelled else 'released', self.ledger.clock(), 'controller detached quarantined editor', old['reservation_id']))
+                                ('cancelled' if cancelled or candidate else 'released', self.ledger.clock(), 'controller detached quarantined editor', old['reservation_id']))
                 item = self.ledger.item(r['item_id'])
                 if (r['resume_job'] and not cancelled and item['state'] == 'awaiting_resource'
-                        and item['stage'] == 'waiting_for_recovery'):
+                        and item['stage'] == 'waiting_for_recovery' and item['generation'] == old['generation']):
+                    if candidate:
+                        self.ledger._set_state(item['id'], 'queued', 'Unity candidate requires source repair; shared Editor recovery is independent',
+                                               stage='unity-candidate-repair', needs_resource=None, token=None,
+                                               lease_expires_at=None, worker_pid=None)
+                        self.ledger._audit(item['id'], 'unity_candidate_repair', r['reason'],
+                                           {'recovery_id': recovery_id, 'failed_commit': old['commit_sha']})
+                        self.db.execute('UPDATE resource_recoveries SET detached=1,updated_at=? WHERE id=?', (self.ledger.clock(), recovery_id))
+                        return
                     setup = r['recovery_kind'] == 'setup'
                     limit = MAX_SETUP_RETRIES if setup else MAX_JOB_RETRIES
                     if self.job_attempts(item['id'], recovery_kind=r['recovery_kind']) >= limit:
@@ -318,10 +378,12 @@ class RecoveryStore:
         with self.ledger._transaction():
             self.db.execute('UPDATE resource_recoveries SET evidence=? WHERE id=?', (str(path), recovery_id))
 
-    def fail_unserviceable(self, host, admission=None):
+    def fail_unserviceable(self, host, admission=None, slot_ids=None):
         """Do not leave jobs queued forever once every local slot exhausted repair."""
         with self.ledger._transaction():
             slots = self.ledger.slots(host=host)
+            if slot_ids is not None:
+                slots = [slot for slot in slots if slot['slot_id'] in slot_ids]
             if admission is not None:
                 # A held Editor continues to consume budget. Idle alternatives
                 # cannot help when exhausted held slots alone prevent any grant.
@@ -468,7 +530,8 @@ class RecoveryController:
                 with repair_lock(self.evidence_root / candidate['id'] / '.lock') as acquired:
                     if acquired:
                         repaired += self._revalidate(candidate['id'])
-        self.store.fail_unserviceable(self.host, admission=getattr(self.pool, 'admission', None))
+        self.store.fail_unserviceable(self.host, admission=getattr(self.pool, 'admission', None),
+                                     slot_ids=set(self.pool.entries) if getattr(self.pool, 'entries', None) is not None else None)
         self.report()
         return {'repaired': repaired}
 
@@ -499,6 +562,9 @@ class RecoveryController:
             # ends only after process teardown, before a successor can launch.
             if not recovery['detached']:
                 self.fence(recovery)
+                if (getattr(self.pool, 'keep_open', False) and recovery['recovery_kind'] != 'candidate'
+                        and hasattr(self, 'editor') and self.editor.metadata_candidate(recovery)):
+                    recovery = self.store.mark_candidate(recovery_id, attempt)
                 self.store.detach(recovery_id, attempt)
             slot = self.ledger.slot(recovery['slot_id'])
             try:
@@ -512,7 +578,12 @@ class RecoveryController:
         except SourceMetaReconciled as exc:
             try:
                 self._save(recovery, 'source-meta-reconciled.json', exc.evidence)
-                self.store.complete_closed(recovery_id, attempt, exc.evidence['head'], exc.evidence)
+                if getattr(self.pool, 'keep_open', False):
+                    recovery = self.store.mark_candidate(recovery_id, attempt)
+                    commit, instance = self.repair(dict(recovery, evidence_dir=str(self.evidence_root / recovery_id)))
+                    self.store.complete(recovery_id, attempt, commit, instance)
+                else:
+                    self.store.complete_closed(recovery_id, attempt, exc.evidence['head'], exc.evidence)
                 return 1
             except Exception as failure:
                 self.store.failed(recovery_id, attempt, f'{type(failure).__name__}: {failure}')

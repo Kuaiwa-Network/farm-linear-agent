@@ -83,6 +83,17 @@ the repository map's config routing rule, and art the issue needs but does not c
 A handoff's facts are prior assertions with evidence; its hypotheses are unverified. `stale: true` means
 the issue changed since it was written. Recheck repository heads, branches and test artifacts yourself.
 
+When dispatch or `issue-context.coordination` carries `candidate_repair`, the old Unity
+reservation was cancelled and Editor recovery is independent. Diagnose its failed
+SHA and cause before requesting tests again. Integrate current main only when it
+addresses that cause: merge published/shared history; rebase only unpublished owned
+work after preserving a recovery ref. Follow the normal scoped repository handoff
+when your root is read-only or another repository. Commit the actual correction and
+request a new clean full HEAD; never resubmit the unchanged failed SHA or reuse old
+Unity evidence as its verification. Preserve publication, contract and configuration
+gates. For unresolved conflicts or unclear behavior, checkpoint and ask a specific
+attributed human question without a Unity reservation. Do not operate Editors.
+
 ## Repository stages and contract consistency
 
 The first fix attempt starts in STATE_DIR with no repository write access. Investigate the relevant

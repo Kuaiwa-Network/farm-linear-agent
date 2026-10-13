@@ -119,18 +119,19 @@ class FixedEditorPoolTests(SlotFixture):
 
     def test_dirty_source_startup_keeps_editor_fenced_across_ticks_and_restart(self):
         from agent.resource_recovery import RecoveryStore
+        from agent.identity import CHECKS
         class DirtySource(FakeMcp):
             def probe(self, slot, target):
                 if slot['slot_id'] == 'unity_slot:1':
-                    return {'aggregate':'mismatch', 'checks':{'source_clean':'mismatch'}}
+                    return {'aggregate':'mismatch', 'checks':dict.fromkeys(CHECKS, 'match') | {'source_clean':'mismatch'}}
                 return super().probe(slot, target)
         pool = self.fixed_pool(mcp=DirtySource())
         pool.ensure()
         self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'held')
         self.assertEqual(self.ledger.slot('unity_slot:2')['state'], 'idle_open')
         recovery = self.ledger.connection.execute("SELECT * FROM resource_recoveries WHERE slot_id='unity_slot:1'").fetchone()
-        self.assertEqual((recovery['state'], recovery['detached']), ('exhausted', 0))
-        item = self.waiting(ISSUE, self.trees.head(self.origin))
+        self.assertEqual((recovery['state'], recovery['detached'], recovery['recovery_kind']), ('pending', 0, 'candidate'))
+        item = self.waiting(ISSUE, self.commit('new clean candidate'))
         for _ in range(3): pool.tick()
         pool.ensure()
         self.assertEqual(self.ledger.active_reservation(item)['resource'], 'unity_slot:2')
@@ -140,7 +141,7 @@ class FixedEditorPoolTests(SlotFixture):
         self.assertEqual(len(list(self.ledger.connection.execute("SELECT id FROM resource_recoveries WHERE slot_id='unity_slot:1'"))), 1)
         self.assertEqual(RecoveryStore(self.ledger).late_candidates('test'), [])
 
-    def test_source_quarantine_requires_explicit_retry_after_source_is_corrected(self):
+    def test_incomplete_source_identity_still_requires_editor_recovery(self):
         class DirtySource(FakeMcp):
             dirty = True
             def probe(self, slot, target):
@@ -150,9 +151,11 @@ class FixedEditorPoolTests(SlotFixture):
         pool.ensure(); mcp.dirty = False
         pool.tick(); pool.ensure()
         self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'held')
-        self.ledger.recover_slot('unity_slot:1', 'operator verified corrected source')
-        pool.ensure()
-        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'idle_open')
+        self.assertEqual(self.ledger.connection.execute('SELECT recovery_kind FROM resource_recoveries').fetchone()[0], 'setup')
+        from agent.ledger import LedgerError
+        with self.assertRaisesRegex(LedgerError, 'automatic recovery'):
+            self.ledger.recover_slot('unity_slot:1', 'operator verified corrected source and project identity')
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'held')
         self.assertFalse(any(c[0] == 'terminate' for c in mcp.calls))
 
     def test_unselected_closed_slot_is_never_opened_or_granted(self):
