@@ -93,6 +93,11 @@ Client entry, possibly during presentation. Each presentation task additionally
 gets an immutable clean entry HEAD: its certified UI-only diff is measured against
 that HEAD, so earlier delivered scene/UI work does not expand its allowed scope.
 Later tasks build on the prior committed output. No branch resets to newer main.
+If a prior job retained the preferred issue branch, first Client entry selects a
+fresh branch with the owning job ID suffix at current trusted main and saves its
+baseline before creating the checkout. It preserves the old branch and commits.
+An occupied suffixed branch or an unpinned existing worktree still requires
+recovery; a saved Client plan without its pin is never replaced by fresh main.
 FGUI also retains its reviewed source through Client verification and certified
 delivery; another UI task cannot invalidate that source during an approval wait.
 Before the first internal FGUI source worker can write, the controller records

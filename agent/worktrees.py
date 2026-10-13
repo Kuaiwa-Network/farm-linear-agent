@@ -351,6 +351,13 @@ class Worktrees:
 
     def stage_base(self, repo, item_id, branch):
         """Select latest trusted main only on first entry, without creating an issue branch."""
+        return self._stage_start(repo, item_id, branch, allow_suffix=False)[0]
+
+    def stage_start(self, repo, item_id, branch):
+        """Select a fresh first-entry branch when a prior job retained the preferred name."""
+        return self._stage_start(repo, item_id, branch, allow_suffix=True)
+
+    def _stage_start(self, repo, item_id, branch, *, allow_suffix):
         path = self._stage_path(repo, item_id)
         if path.exists():
             raise WorktreeError("refusing an unpinned existing stage worktree")
@@ -358,8 +365,13 @@ class Worktrees:
         _git("check-ref-format", "--branch", branch, cwd=clone)
         baseline = self.resolve_commit(repo)
         if self._ref_commit(clone, f"refs/heads/{branch}") or self._ref_commit(clone, f"refs/remotes/origin/{branch}"):
-            raise WorktreeError("refusing an existing issue branch without a controller stage baseline")
-        return baseline
+            if not allow_suffix:
+                raise WorktreeError("refusing an existing issue branch without a controller stage baseline")
+            branch = f"{branch}-{item_id}"
+            _git("check-ref-format", "--branch", branch, cwd=clone)
+            if self._ref_commit(clone, f"refs/heads/{branch}") or self._ref_commit(clone, f"refs/remotes/origin/{branch}"):
+                raise WorktreeError("refusing an existing suffixed issue branch without a controller stage baseline")
+        return baseline, branch
 
     def add_stage(self, repo, item_id, branch, baseline, *, refresh=True, recorded=False):
         """Create/restore the exact recorded client branch at its durable baseline; never reset it to main."""
