@@ -73,6 +73,7 @@ def selected_environment(config_path, environment_file=None, environment_sha256=
 class Supervisor:
     def __init__(self, config, source_root, config_path, environment, *, config_sha256,
                  launch_manifest=None, launch_manifest_sha256=None,
+                 controller_python=None, controller_python_sha256=None,
                  spawn=subprocess.Popen, clock=time.monotonic):
         from agent.environment import check_ownership, validate_runtime
         validate_runtime(config)
@@ -86,6 +87,8 @@ class Supervisor:
             raise ValueError('controller supervision requires live integrations')
         self.launch_manifest = Path(launch_manifest).resolve() if launch_manifest else None
         self.launch_manifest_sha256 = launch_manifest_sha256
+        self.controller_python = str(Path(controller_python).resolve()) if controller_python else sys.executable
+        self.controller_python_sha256 = controller_python_sha256
         self.root = Path(config.local_root).resolve()
         self.pause_path = self.root / 'supervisor.pause'
         self.log_dir = self.root / 'agent' / 'logs'
@@ -98,6 +101,8 @@ class Supervisor:
 
     def validate_launch(self):
         """Preserve sealed host inputs without touching its ledger or worker processes."""
+        if self.controller_python_sha256 and digest(self.controller_python) != self.controller_python_sha256:
+            raise ValueError('controller Python changed')
         if self.launch_manifest is None:
             return
         if digest(self.launch_manifest) != self.launch_manifest_sha256:
@@ -172,10 +177,11 @@ class Supervisor:
         self.log_dir.mkdir(parents=True, exist_ok=True)
         with (self.log_dir / 'controller.out.log').open('ab', buffering=0) as stdout, \
                 (self.log_dir / 'controller.err.log').open('ab', buffering=0) as stderr:
-            self.child = self.spawn([sys.executable, '-X', 'utf8', '-u', '-B', '-m', 'agent.service',
+            self.child = self.spawn([self.controller_python, '-X', 'utf8', '-u', '-B', '-m', 'agent.service',
                                      'serve', '--config', str(self.config_path)],
                                     cwd=self.source_root, env=self.environment,
-                                    stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr)
+                                    stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr,
+                                    **({'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}))
         self.started_at = now
         from agent.config import Paths
         # A diagnostic hint only. The controller lock remains restart authority.
@@ -193,6 +199,8 @@ def main(argv=None):
     parser.add_argument('--environment-sha256')
     parser.add_argument('--launch-manifest')
     parser.add_argument('--launch-manifest-sha256')
+    parser.add_argument('--controller-python')
+    parser.add_argument('--controller-python-sha256')
     parser.add_argument('--check', action='store_true')
     args = parser.parse_args(argv)
     try:
@@ -203,6 +211,9 @@ def main(argv=None):
             raise ValueError('source root has no controller entry')
         if digest(config_path) != args.config_sha256:
             raise ValueError('config digest differs from installation')
+        if args.controller_python and (not Path(args.controller_python).is_absolute()
+                                       or not args.controller_python_sha256):
+            raise ValueError('selected controller Python requires an absolute path and digest')
         if args.launch_manifest:
             if digest(args.launch_manifest) != args.launch_manifest_sha256:
                 raise ValueError('launch manifest digest differs from installation')
@@ -223,7 +234,9 @@ def main(argv=None):
             raise ValueError('legacy supervision requires a sealed launch manifest and absolute state root')
         supervisor = Supervisor(config, source_root, config_path, env, config_sha256=args.config_sha256,
                                 launch_manifest=args.launch_manifest,
-                                launch_manifest_sha256=args.launch_manifest_sha256)
+                                launch_manifest_sha256=args.launch_manifest_sha256,
+                                controller_python=args.controller_python,
+                                controller_python_sha256=args.controller_python_sha256)
         supervisor.validate_launch()
         if args.check:
             print(json.dumps({'environment': config.environment, 'instance_id': config.instance_id,

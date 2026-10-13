@@ -169,6 +169,20 @@ class SupervisorTests(unittest.TestCase):
         self.assertEqual(self.supervisor.tick(), 'child_running')
         self.assertEqual(self.spawn.call_count, 1)
 
+    def test_console_free_guard_keeps_the_selected_controller_interpreter(self):
+        chosen = Path(self.tmp.name) / 'controller python.exe'
+        chosen.write_bytes(b'pinned interpreter fixture')
+        self.supervisor.controller_python = str(chosen)
+        self.supervisor.controller_python_sha256 = digest(chosen)
+        self.supervisor.tick()
+        args,options=self.spawn.call_args
+        self.assertEqual(args[0][0],str(chosen))
+        if os.name=='nt':
+            self.assertEqual(options['creationflags'],subprocess.CREATE_NO_WINDOW)
+        chosen.write_bytes(b'changed')
+        with self.assertRaisesRegex(ValueError,'Python changed'):
+            self.supervisor.validate_launch()
+
     def test_private_environment_is_pinned_and_conflicting_selectors_removed(self):
         path = Path(self.tmp.name) / 'private env.json'
         path.write_text(json.dumps({'PATH': 'selected path', 'FARMBOT_CONFIG': 'wrong'}), encoding='utf-8')

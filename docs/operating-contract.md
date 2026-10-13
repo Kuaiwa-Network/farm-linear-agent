@@ -2121,8 +2121,12 @@ once the last heartbeat is 60 seconds old.
 ledger, modifies ownership markers, kills processes, or releases resources. On
 Windows the installer copies it outside the release checkout and registers a task
 under the current interactive user, with a logon trigger, unlimited runtime,
-single task instance and restart-on-failure. Installation is an explicit operator
-action, separate from a controller code upgrade. Replace an older receiver restart
+single task instance and restart-on-failure.
+The task uses `pythonw.exe`, and child controllers use the separately selected,
+hash-pinned `python.exe` without a console window. Console closure therefore
+does not stop the guard. Captured child output remains in the private log directory.
+Installation is an explicit operator action, separate from a controller code upgrade.
+Replace an older receiver restart
 loop during settled maintenance; do not run competing supervisors.
 
 The guard respects `.controller.lock` before starting `serve`; `serve` acquires
