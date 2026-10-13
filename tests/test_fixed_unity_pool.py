@@ -117,6 +117,44 @@ class FixedEditorPoolTests(SlotFixture):
         self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "held")
         self.assertEqual(len([c for c in self.mcp.calls if c[0] == "start"]), 1)
 
+    def test_dirty_source_startup_keeps_editor_fenced_across_ticks_and_restart(self):
+        from agent.resource_recovery import RecoveryStore
+        class DirtySource(FakeMcp):
+            def probe(self, slot, target):
+                if slot['slot_id'] == 'unity_slot:1':
+                    return {'aggregate':'mismatch', 'checks':{'source_clean':'mismatch'}}
+                return super().probe(slot, target)
+        pool = self.fixed_pool(mcp=DirtySource())
+        pool.ensure()
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'held')
+        self.assertEqual(self.ledger.slot('unity_slot:2')['state'], 'idle_open')
+        recovery = self.ledger.connection.execute("SELECT * FROM resource_recoveries WHERE slot_id='unity_slot:1'").fetchone()
+        self.assertEqual((recovery['state'], recovery['detached']), ('exhausted', 0))
+        item = self.waiting(ISSUE, self.trees.head(self.origin))
+        for _ in range(3): pool.tick()
+        pool.ensure()
+        self.assertEqual(self.ledger.active_reservation(item)['resource'], 'unity_slot:2')
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'held')
+        self.assertEqual(len([c for c in self.mcp.calls if c[0] == 'start']), 2)
+        self.assertFalse(any(c[0] == 'terminate' for c in self.mcp.calls))
+        self.assertEqual(len(list(self.ledger.connection.execute("SELECT id FROM resource_recoveries WHERE slot_id='unity_slot:1'"))), 1)
+        self.assertEqual(RecoveryStore(self.ledger).late_candidates('test'), [])
+
+    def test_source_quarantine_requires_explicit_retry_after_source_is_corrected(self):
+        class DirtySource(FakeMcp):
+            dirty = True
+            def probe(self, slot, target):
+                if self.dirty: return {'aggregate':'mismatch', 'checks':{'source_clean':'mismatch'}}
+                return super().probe(slot, target)
+        mcp = DirtySource(); pool = self.fixed_pool(1, mcp=mcp)
+        pool.ensure(); mcp.dirty = False
+        pool.tick(); pool.ensure()
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'held')
+        self.ledger.recover_slot('unity_slot:1', 'operator verified corrected source')
+        pool.ensure()
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'idle_open')
+        self.assertFalse(any(c[0] == 'terminate' for c in mcp.calls))
+
     def test_unselected_closed_slot_is_never_opened_or_granted(self):
         self.ledger.ensure_slot("unity_slot:3", kind="unity_slot", host="test", folder=str(self.root / "extra"))
         pool = self.fixed_pool()

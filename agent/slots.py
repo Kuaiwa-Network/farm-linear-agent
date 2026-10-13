@@ -199,7 +199,7 @@ class SlotPool:
                                              mcp_address=entry["mcp_address"], account=entry["account"],
                                              instance=entry["instance"])
             if record["state"] in self.BUSY:
-                if self.keep_open and not self.ledger.active_reservation_on(slot_id):
+                if self.keep_open and record["state"] == "switching" and not self.ledger.active_reservation_on(slot_id):
                     last = self.ledger.connection.execute("""SELECT kind FROM audit WHERE item_id=?
                         AND kind IN ('unity_editor_start','unity_editor_ready') ORDER BY id DESC LIMIT 1""",
                         (slot_id,)).fetchone()
@@ -268,11 +268,20 @@ class SlotPool:
                 slot = self.ledger.begin_editor_warmup(slot_id, host=self.host)
             if slot is None:
                 continue
+            self.last_observation = None
             try:
                 commit = self.worktrees.head(Path(slot["folder"]))
                 self.ledger.set_slot_state(slot_id, "switching", parked_commit=commit)
                 self.switch(slot_id, commit, "interactive")
             except Exception as exc:
+                observation = self.last_observation or {}
+                checks = observation.get("checks")
+                if (isinstance(exc, SlotError) and exc.stage == "probe"
+                        and isinstance(checks, dict) and checks.get("source_clean") == "mismatch"):
+                    RecoveryStore(self.ledger).quarantine_source(slot_id,
+                        "persistent Editor startup changed committed source; correct the inputs before an explicit retry",
+                        observation)
+                    continue
                 with self.ledger._transaction():
                     RecoveryStore(self.ledger).request_in_transaction(slot_id,
                         f"persistent Editor preparation failed: {type(exc).__name__}: {exc}", recovery_kind="setup")
@@ -714,10 +723,10 @@ class SlotPool:
         except Exception as exc:
             raise self._collaborator_error(slot_id, exc, stage="probe",
                                            doing="running the identity probe") from exc
+        self.last_observation = observation
         if observation.get("aggregate") != "match":
             raise SlotError(f"{slot_id}: identity probe did not match: {observation.get('checks')}",
                             stage="probe")
-        self.last_observation = observation
         return self.ledger.set_slot_state(slot_id, self.BUSY_FOR[mode], last_switch_at=self.clock())
 
     def run_batch(self, slot, reservation):

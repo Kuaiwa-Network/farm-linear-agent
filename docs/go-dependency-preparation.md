@@ -16,7 +16,9 @@ Workers poll `go-dependencies` while retaining/renewing their claim and doing
 independent work. Pending host preparation needs no human reply. Once ready, the
 worker selects the returned cache for its own offline gates. A changed candidate
 requires a new request. Failed/cancelled requests can be retried after host
-correction, with a maximum of three requests for the same candidate/module.
+correction, with a maximum of three failed preparations for the same candidate/module.
+Cancelled requests retain their claim fencing and evidence without consuming that
+failure budget, so controller maintenance does not exhaust dependency preparation.
 Preparation certifies dependencies only; it does not replace build, generation,
 tests, actual sandbox access or reserved server/Unity verification.
 

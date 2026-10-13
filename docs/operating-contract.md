@@ -855,6 +855,12 @@ The startup deadline defaults to 300 seconds, reflecting a measured 170-second
 native Windows startup. A slot's `start_timeout` may explicitly select a positive
 number up to 600 seconds; it is separate from individual MCP request timeouts.
 
+In a persistent pool, a startup probe that observes changed source keeps that
+Editor fenced and retains its source evidence. It does not repeatedly close the
+Editor, restore importer metadata and reopen the same inputs. Correct the committed
+inputs and explicitly retry the slot. Controller startup preserves an existing
+held recovery; only an interrupted `switching` warmup enters startup recovery.
+
 An exhausted, detached preparation recovery is rechecked at most once per minute
 for an Editor that connected late. This path only inspects: it never starts or stops
 an Editor, refreshes assets, or changes source. It requires the latest recovery for
