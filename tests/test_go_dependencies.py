@@ -203,8 +203,11 @@ class RequestTests(LedgerBase):
         self.ledger.connection.execute("UPDATE work_items SET root_repo='farm-hive' WHERE id=?", (self.item_id,))
         self.token = self.ledger.claim(self.item_id, worker_id='worker')['token']
         source = self.root/'origin'; source.mkdir(); git('init','-b','main',cwd=source)
-        (source/'go.mod').write_text('module fixture\n\ngo 1.25.1\n')
-        (source/'go.sum').write_text('')
+        self.inputs = {'go.mod':b'module fixture\n\ngo 1.25.1\n', 'go.sum':b''}
+        for name, value in self.inputs.items():
+            (source/name).write_bytes(value)
+        # Exercise checkout conversion on every host, independently of core.autocrlf.
+        (source/'.gitattributes').write_text('go.mod text eol=crlf\n', encoding='utf-8', newline='\n')
         git('add','.',cwd=source); git('commit','-qm','inputs',cwd=source)
         self.trees = Worktrees(self.root/'clones', self.root/'worktrees', {'farm-hive':str(source)})
         self.path = self.trees.add('farm-hive', self.item_id, 'farmbot/farm-1')
@@ -224,7 +227,9 @@ class RequestTests(LedgerBase):
         control = self.controller(preparer)
         self.assertTrue(control.tick()); self.assertFalse(control.tick())
         self.assertEqual(self.request()['state'], 'ready')
-        self.assertEqual(preparer.call_args.args[1]['go.mod'], (self.path/'go.mod').read_bytes())
+        self.assertEqual((self.path/'go.mod').read_bytes(), self.inputs['go.mod'].replace(b'\n', b'\r\n'))
+        # Preparation must receive the committed bytes, not converted checkout bytes.
+        self.assertEqual(preparer.call_args.args[1], self.inputs)
         self.assertEqual(self.ledger.item(self.item_id)['state'], 'running')
         self.assertIsNone(self.ledger.human_question(self.item_id))
 
