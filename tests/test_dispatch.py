@@ -201,6 +201,20 @@ def payload_of(message):
 
 
 class DispatchTests(unittest.TestCase):
+    def test_candidate_repair_preserves_permissions_and_requires_new_evidence(self):
+        diagnostic = {'failed_commit': 'a' * 40, 'reason': 'source changed', 'editor_recovery_state': 'repaired'}
+        message = dispatch_message(item={'id': 'i', 'skill': 'fix', 'candidate_repair': diagnostic},
+            issue={'identifier': 'FARM-1', 'url': 'u'}, skill_path=ROOT / 'skills/fix/SKILL.md',
+            worktrees={}, db_path='/db', runtime='codex', guidance='',
+            budget={'lease_seconds': 1, 'renew_minutes': 1}, root_repository=None, write_repositories=())
+        payload = payload_of(message)
+        self.assertEqual(payload['candidate_repair'], diagnostic)
+        self.assertEqual(payload['stage']['write_repositories'], [])
+        for instruction in ('not a new human reply or publishing grant', 'merge main for any published/shared history',
+                            'only unpublished', 'normal scoped repository handoff', 'new clean full HEAD',
+                            'ask a concrete attributed human question', 'no Unity reservation may be retained'):
+            self.assertIn(instruction, message)
+
     def test_feature_uses_the_controller_interpreter_and_native_host_commands(self):
         for skill in ('feature', 'fgui', 'fix', 'chat'):
             message = dispatch_message(item={'id': 'i', 'skill': skill},

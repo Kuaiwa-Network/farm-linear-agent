@@ -27,6 +27,16 @@ to newer main. The session has no intake client pin. Listing `unity_slot` permit
 `stage.write_repositories` may be edited, committed or published in this attempt; every other path, `reads`
 included, is read-only.
 
+When `candidate_repair` is present, Editor recovery is independent of correcting
+this job's source. Diagnose the recorded failed SHA and cause. Integrate current
+main only when needed on the owned writable branch, merging published/shared
+history and rebasing only unpublished owned work after preserving a recovery ref.
+This does not reset the immutable target baseline or waive contract/configuration
+drift checks. Commit corrected inputs, rerun affected gates and request Unity at
+the new clean full HEAD. Never resubmit the unchanged failed SHA. Preserve scoped
+handoffs and draft publication checks; unresolved conflicts or unclear behavior
+require a checkpoint and a specific attributed human question without a slot.
+
 A human delegated the card to `bot_name`; that delegation and the `feature` part of the dispatch AUTHORITY are your
 authority, for this card only. They do not let you merge, deploy, run Jenkins or any CI job, change CI, change the
 card's status, assignee or labels (other than the `待回复` that `await-input --reason question` adds),

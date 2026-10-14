@@ -557,6 +557,16 @@ Its `recovery_queued` response revokes the worker claim and reservation token: e
 The controller handles editor recovery and job continuation. Do not follow it with `await-input`
 or ask for host intervention. A fresh worker receives the exact retried commit and can read
 `issue-context.resource_recovery` for prior attempts and retained diagnostics.
+In a fixed pool, candidate compilation or source failures instead cancel the old
+reservation and resume scoped source work. Read dispatch `candidate_repair` or
+`issue-context.coordination.candidate_repair` for the failed SHA and cause. The
+`metadata_ref_hint` names a possible archive, not proof one exists; confirm retained
+evidence before using it. Diagnose the cause, integrate main when appropriate,
+commit the correction and request `await-resource` at its new clean full SHA.
+The same generation's unchanged failed SHA is refused. Preserve published history
+and normal repository handoff/publication fences. If a real conflict or behavior
+decision needs a human, checkpoint and use attributed `await-input` without a slot.
+Editor repair is independent and grants no worker process-control authority.
 
 For service-backed server tests, `work`, `fix` and `feature` may checkpoint and request
 `await-resource --resource server_slot --mode batch --commit FULL_SERVER_HEAD_SHA`

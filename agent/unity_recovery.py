@@ -1,7 +1,9 @@
 """Host-only editor repair. Workers never get process-control authority."""
+from contextlib import nullcontext
+import json
 from pathlib import Path
 
-from .identity import source_snapshot
+from .identity import CHECKS, source_snapshot
 from .slots import SlotError
 
 
@@ -64,6 +66,8 @@ class UnityRecovery:
         return commit, instance
 
     def repair(self, recovery):
+        if recovery.get('recovery_kind') == 'candidate':
+            return self.repair_candidate(recovery)
         pool = self.pool
         slot, entry = self._slot(recovery['slot_id'])
         if slot['state'] != 'held' or pool.ledger.active_reservation_on(slot['slot_id']):
@@ -126,3 +130,126 @@ class UnityRecovery:
         if result.get('aggregate') != 'match':
             raise SlotError('recovered editor identity did not match', stage='probe')
         return commit, instance
+
+    def candidate_baseline(self, recovery, slot, entry, evidence_dir):
+        """Keep the selected clean baseline stable across interrupted repair attempts."""
+        pool = self.pool
+        plan = evidence_dir / 'candidate-baseline.json'
+        if plan.exists():
+            if plan.is_symlink() or not plan.is_file():
+                raise SlotError('candidate recovery plan is not a regular owned file', stage='git')
+            data = json.loads(plan.read_text(encoding='utf-8'))
+            if data.get('failed_commit') != recovery['commit_sha'] or data.get('slot_id') != slot['slot_id']:
+                raise SlotError('candidate recovery plan does not match its fenced inputs', stage='git')
+            baseline = data['baseline_commit']
+        else:
+            main = pool.worktrees.resolve_commit(entry['repo'])
+            choices = [main]
+            peers = {key for key, value in pool.entries.items()
+                     if (value['repo'], value['build_target']) == (entry['repo'], entry['build_target'])}
+            for row in pool.ledger.connection.execute('SELECT slot_id,result_json FROM identity_observations ORDER BY created_at DESC'):
+                if row['slot_id'] not in peers:
+                    continue
+                observation = json.loads(row['result_json'])
+                if self.verified_baseline(observation, entry):
+                    choices.append((observation.get('expected') or {}).get('commit_sha'))
+            for row in pool.ledger.connection.execute("SELECT item_id,details FROM audit WHERE kind='unity_editor_verified' ORDER BY id DESC"):
+                if row['item_id'] in peers:
+                    observation = json.loads(row['details']).get('observation') or {}
+                    if self.verified_baseline(observation, entry):
+                        choices.append((observation.get('expected') or {}).get('commit_sha'))
+            from .resource_recovery import RecoveryStore
+            store = RecoveryStore(pool.ledger)
+            baseline = next((commit for commit in choices if pool.worktrees.COMMIT.fullmatch(commit or '')
+                and commit != recovery['commit_sha'] and not store.known_candidate(pool.host, peers, commit)), None)
+            if baseline is None:
+                raise SlotError('No clean baseline distinct from the failed candidate is available; correct main or provide a verified candidate', stage='git')
+            data = {'slot_id': slot['slot_id'], 'failed_commit': recovery['commit_sha'], 'baseline_commit': baseline}
+            plan.write_text(json.dumps(data, indent=2), encoding='utf-8')
+        if (not pool.worktrees.COMMIT.fullmatch(baseline or '') or baseline == recovery['commit_sha']
+                or not pool.worktrees.has_commit(entry['repo'], baseline)):
+            raise SlotError('candidate recovery baseline is not a verified clone commit', stage='git')
+        return baseline
+
+    @staticmethod
+    def verified_baseline(observation, entry):
+        expected = observation.get('expected') or {}
+        return (observation.get('aggregate') == 'match'
+                and all((observation.get('checks') or {}).get(key) == 'match' for key in CHECKS)
+                and expected.get('build_target') == entry['build_target']
+                and (observation.get('source_after') or {}).get('commit_sha') == expected.get('commit_sha'))
+
+    def repair_candidate(self, recovery):
+        """Preserve failed inputs and reuse an idle Editor independently of branch repair."""
+        pool = self.pool
+        slot, entry = self._slot(recovery['slot_id'])
+        if slot['state'] != 'held' or pool.ledger.active_reservation_on(slot['slot_id']):
+            raise SlotError('candidate repair requires a detached held slot', stage='probe')
+        folder = Path(slot['folder'])
+        pool.worktrees.worktree_entry(entry['repo'], folder)
+        evidence_dir = Path(recovery['evidence_dir'])
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+        baseline = self.candidate_baseline(recovery, slot, entry, evidence_dir)
+        reusable = False
+        if pool.editor_is_open(slot):
+            try:
+                pool.mcp.cancel_tests(slot)
+                pool.wait_for_quiet(slot, min(10, entry['quiet_timeout']))
+                reusable = recovery['attempts'] == 1 and pool.mcp.quiescent(slot, 'interactive')
+            except Exception:
+                # An unreachable MCP cannot certify idle reuse. Process ownership
+                # and confirmed exit still fence the shutdown fallback below.
+                reusable = False
+        if not reusable and pool.editor_is_open(slot):
+            pool.mcp.terminate(slot, entry['close_timeout'])
+        if not reusable:
+            if pool.editor_is_open(slot):
+                raise SlotError('Editor survived candidate recovery; source and lock retained', stage='editor')
+            pool.clear_stale_lock(folder, lambda: pool.editor_is_open(slot))
+        # Suspending automatic refresh prevents an idle live importer from observing the
+        # intermediate metadata restoration. A restart after interruption resets its native
+        # refresh counter; attempts after the first never reuse that uncertain Editor.
+        guard = pool.mcp.suspend_imports(slot) if reusable else nullcontext()
+        with guard:
+            before = source_snapshot(folder)
+            if before['commit_sha'] not in (recovery['commit_sha'], baseline):
+                # A known-input refusal can arrive while this slot is still at another
+                # verified clean candidate; dirty foreign inputs are never discarded.
+                if before['dirty']:
+                    raise SlotError('dirty slot moved away from the fenced candidate; source retained', stage='git')
+            if before['dirty']:
+                archive_id = recovery['id'] if before['commit_sha'] == recovery['commit_sha'] else f"{recovery['id']}-baseline-{recovery['attempts']}"
+                archive = pool.worktrees.reconcile_slot_meta(entry['repo'], folder, archive_id,
+                    evidence_dir if archive_id == recovery['id'] else evidence_dir / archive_id)
+                if archive is None:
+                    raise SlotError('non-metadata source changes retained for human review', stage='git')
+            if pool.worktrees.head(folder) != baseline:
+                pool.worktrees.checkout_commit(folder, baseline)
+            if not pool.worktrees.slot_clean(folder) or pool.worktrees.pointers_remain(folder):
+                raise SlotError('candidate recovery did not produce hydrated clean baseline inputs', stage='git')
+        instance = pool.mcp.discover_instance(slot) if reusable else pool.open_editor(slot, entry)
+        pool.ledger.set_slot_state(slot['slot_id'], 'held', instance=instance)
+        slot = pool.ledger.slot(slot['slot_id'])
+        pool.mcp.refresh(slot)
+        pool.wait_for_quiet(slot, entry['quiet_timeout'])
+        errors = pool.mcp.console_errors_since(slot, baseline)
+        if errors:
+            raise SlotError(f'baseline compilation failed: {errors[0]}', stage='compile')
+        observation = pool.mcp.probe(slot, {'repository': str(folder), 'commit_sha': baseline,
+                                           'build_target': entry.get('build_target')})
+        if observation.get('aggregate') != 'match' or source_snapshot(folder)['dirty']:
+            raise SlotError('candidate recovery baseline identity did not match', stage='probe')
+        pool.ledger.note(slot['slot_id'], 'unity_editor_verified', 'candidate recovery baseline verified',
+                         {'observation': observation, 'recovery_id': recovery['id']})
+        return baseline, instance
+
+    def metadata_candidate(self, recovery):
+        """Inspect after worker fencing, before queuing an unchanged execution retry."""
+        slot, entry = self._slot(recovery['slot_id'])
+        folder = Path(slot['folder'])
+        self.pool.worktrees.worktree_entry(entry['repo'], folder)
+        snapshot = source_snapshot(folder)
+        return (snapshot['commit_sha'] == recovery['commit_sha'] and bool(snapshot['dirty'])
+                and all(row['path'].startswith('Assets/') and row['path'].casefold().endswith('.meta')
+                    and row['status'] in (' M', 'M ', 'MM', '??') and row['sha256'] is not None
+                    for row in snapshot['dirty']))

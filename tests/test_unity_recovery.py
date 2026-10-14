@@ -2,6 +2,7 @@ import subprocess
 import json
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from agent.identity import source_snapshot
 from agent.unity import UnityError, editor_holds_project, other_editor_project
@@ -239,6 +240,30 @@ class EditorRecoveryTests(SlotFixture):
 
 
 class StrictEditorInspectionTests(unittest.TestCase):
+    def test_verified_shutdown_retries_transient_unknown_inspection_without_treating_it_as_exit(self):
+        from agent.slots import UnityIdentity
+        now = [0]
+        identity = UnityIdentity(Path('probe'), clock=lambda: now[0], sleep=lambda seconds: now.__setitem__(0, now[0] + seconds))
+        with patch('agent.slots.editor_holds_project', side_effect=[123, UnityError('quitting command line unavailable'), None]), \
+                patch('agent.slots.os.kill') as kill:
+            identity.terminate({'folder': 'owned slot'}, 2)
+        kill.assert_called_once()
+        self.assertEqual(now[0], 1)
+
+    def test_unknown_initial_ownership_never_kills_and_persistent_unknown_never_proves_exit(self):
+        from agent.slots import UnityIdentity
+        now = [0]
+        identity = UnityIdentity(Path('probe'), clock=lambda: now[0], sleep=lambda seconds: now.__setitem__(0, now[0] + seconds))
+        with patch('agent.slots.editor_holds_project', side_effect=UnityError('unknown')), patch('agent.slots.os.kill') as kill:
+            with self.assertRaises(UnityError):
+                identity.terminate({'folder': 'owned slot'}, 2)
+            kill.assert_not_called()
+        with patch('agent.slots.editor_holds_project', side_effect=[123, UnityError('unknown'), UnityError('unknown'), UnityError('unknown')]), \
+                patch('agent.slots.os.kill') as kill:
+            with self.assertRaises(UnityError):
+                identity.terminate({'folder': 'owned slot'}, 2)
+            kill.assert_called_once()
+
     def test_outside_editor_scan_does_not_treat_a_timeout_as_no_editor(self):
         def unavailable():
             raise subprocess.TimeoutExpired('process listing', 5)

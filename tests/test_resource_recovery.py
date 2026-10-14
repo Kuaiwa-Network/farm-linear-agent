@@ -8,6 +8,34 @@ from test_ledger import LedgerBase, PIN, SKILLS
 
 
 class RecoveryTests(LedgerBase):
+    def test_candidate_detach_preserves_work_and_does_not_consume_infrastructure_retries(self):
+        item, token, reservation = self.running_with_slot()
+        self.ledger.hold(reservation['reservation_id'], 'candidate compile error', recovery_kind='candidate')
+        with self.assertRaises(LedgerError):
+            self.ledger.checkpoint(item, token, {'overwrite': True})
+        repair = self.begin()
+        self.store().detach(repair['id'], repair['attempts'])
+        view = self.ledger.item(item)
+        self.assertEqual((view['state'], view['root_repo']), ('queued', 'Farm-Client'))
+        self.assertEqual(view['checkpoint']['saved'], 'keep me')
+        self.assertEqual(view['candidate_repair']['failed_commit'], 'b' * 40)
+        self.assertEqual(self.store().job_attempts(item), 0)
+        self.assertEqual(self.ledger.reservation(reservation['reservation_id'])['state'], 'cancelled')
+
+    def test_candidate_return_never_overrides_a_new_generation_or_human_question(self):
+        for newer in (True, False):
+            item, _, reservation = self.running_with_slot()
+            self.ledger.hold(reservation['reservation_id'], 'candidate changed inputs', recovery_kind='candidate')
+            repair = self.begin()
+            if newer:
+                self.ledger.connection.execute('UPDATE work_items SET generation=generation+1 WHERE id=?', (item,))
+            else:
+                self.legacy_pause(item, 'Which behavior should the correction preserve?')
+            self.store().detach(repair['id'], repair['attempts'])
+            self.assertEqual(self.ledger.item(item)['state'], 'awaiting_resource' if newer else 'awaiting_input')
+            self.store().complete(repair['id'], repair['attempts'], PIN['commit_sha'], 'healthy')
+            self.ledger.cancel(item, 'fixture complete')
+
     def test_upgrade_preserves_existing_retry_counts_and_pending_recovery(self):
         item, _, r = self.running_with_slot()
         self.ledger.hold(r['reservation_id'], 'old execution stalled')
