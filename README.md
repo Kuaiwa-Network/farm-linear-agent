@@ -52,6 +52,11 @@ python3 -m agent.service doctor                    # read-only JSON diagnostics 
 python3 -m agent --db .local/agent/ledger.sqlite3 status
 ```
 
+To prepare a dedicated npm Codex runtime, use the
+[runtime preparation command](docs/codex-runtime.md). It installs the latest
+release into a fresh candidate directory and records the exact version and package
+hashes. Runtime promotion remains a settled host deployment.
+
 On the installed Windows production host, reload the revision already checked out
 after work has settled with one PowerShell command:
 

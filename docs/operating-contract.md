@@ -2255,6 +2255,18 @@ backoff. A regular `supervisor.pause` file suppresses new launches, without stop
 an existing child. `.supervisor.lock` excludes a second guard. `receiver.pid` is a
 diagnostic hint only and never establishes ownership.
 
+`python -m agent.codex_runtime prepare` installs a separate npm Codex candidate
+into a fresh absolute directory outside checkouts, with `latest` selected at
+installation time or an explicit release. Its receipt records the resolved
+version, native executable/PATH directories and the complete package hashes.
+Linked package files and directories are refused; `verify` checks receipt metadata
+and package hashes without running a CLI. Preparation runs only npm and the
+native version probe: it loads no host config or ledger, copies no authentication
+and activates no service. Promotion follows [the runtime upgrade procedure](codex-runtime.md)
+during separately authorized settled maintenance, retaining the previous runtime
+and sealed launch inputs for rollback. No controller schema or worker authority
+changes are introduced by candidate preparation.
+
 Config and optional private environment are hash-pinned. Legacy profiles require
 an absolute state root and a sealed launch manifest binding the config, private
 environment, accepted source commit/tree and tool file hashes. The accepted source
