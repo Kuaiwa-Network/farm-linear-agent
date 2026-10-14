@@ -60,6 +60,211 @@ class UiClientWorkflowTests(unittest.TestCase):
     def installed(self):
         return install(self.workflow, self.exported["receipt_id"])
 
+    def interrupt_certification(self):
+        retained = self.workflow.retained_export
+        calls = 0
+
+        def unavailable(receipt):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise LedgerError("UI source Git read is unavailable or timed out")
+            return retained(receipt)
+
+        with patch.object(self.workflow, "retained_export", side_effect=unavailable):
+            with self.assertRaisesRegex(LedgerError, "timed out"):
+                self.installed()
+        self.assertIsNone(installation_record(self.ledger, self.item, self.exported["receipt_id"]))
+        prepared = [json.loads(row["details"]) for row in self.ledger.connection.execute(
+            "SELECT details FROM audit WHERE kind='fgui_install_prepared'")]
+        matches = [p["proof"] for p in prepared if p["proof"]["receipt_id"] == self.exported["receipt_id"]]
+        self.assertEqual(len(matches), 1)
+        journal = self.paths.runs / self.item / "ui-installations" / matches[0]["installation_id"] / "journal.json"
+        self.assertEqual(json.loads(journal.read_text(encoding="utf-8"))["state"], "complete")
+        return journal
+
+    def test_failure_before_any_write_can_retry_from_the_unchanged_clean_before_state(self):
+        with patch("agent.fgui_client.apply_install", side_effect=OSError("before recovery creation")):
+            with self.assertRaises(OSError):
+                self.installed()
+        self.assertEqual(self.source.git(self.client, "status", "--porcelain"), "")
+        proof = self.installed()
+        self.assertEqual(proof["receipt_id"], self.exported["receipt_id"])
+        self.assertEqual(self.ledger.connection.execute(
+            "SELECT COUNT(*) FROM audit WHERE kind='fgui_install_abandoned'").fetchone()[0], 1)
+
+    def test_retry_certifies_completed_writes_after_source_timeout_without_reapplying(self):
+        journal = self.interrupt_certification()
+        before = {p.name: p.read_bytes() for p in journal.parent.iterdir()}
+        with patch("agent.fgui_client.apply_install") as apply:
+            proof = self.installed()
+        apply.assert_not_called()
+        self.assertEqual(proof["receipt_id"], self.exported["receipt_id"])
+        self.assertEqual(proof["baseline"], self.baseline)
+        self.assertEqual({p.name: p.read_bytes() for p in journal.parent.iterdir()}, before)
+        self.assertEqual(self.installed(), proof)
+        self.assertEqual(self.ledger.connection.execute(
+            "SELECT COUNT(*) FROM audit WHERE kind='fgui_install_complete'").fetchone()[0], 1)
+
+    def test_correction_retry_retains_original_baseline_and_prior_committed_head(self):
+        self.installed(); self.source.commit(self.client)
+        head = self.source.git(self.client, "rev-parse", "HEAD")
+        self.correction(); self.interrupt_certification()
+        proof = self.installed()
+        self.assertEqual(proof["initial_head"], head)
+        self.assertEqual(proof["baseline"], self.baseline)
+
+    def test_internal_task_recovers_with_a_fresh_claim_after_an_attributed_resume(self):
+        from test_ledger import DESIGNER
+        fixture = UiClientWorkflowTests(); fixture.internal = True; fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.interrupt_certification()
+        old_token = fixture.source.token
+        fixture.ledger.pop_inbox(fixture.item, old_token)
+        fixture.ledger.checkpoint(fixture.item, old_token, {"summary": "complete writes await certification",
+            "plan": fixture.source.plan})
+        fixture.ledger.await_input(fixture.item, old_token, "retry source check", reason="waiting")
+        fixture.ledger.push_inbox(fixture.item, "continue", author=DESIGNER, resume_waiting=True)
+        token = fixture.ledger.claim(fixture.item, worker_id="fresh-ui-attempt")["token"]
+        self.assertNotEqual(token, old_token)
+        fixture.workflow = UiWorkflow(fixture.ledger, fixture.item, token, fixture.source.config,
+            fixture.source.skill, lambda: fixture.source.api, stage="Farm-Client")
+        with patch("agent.fgui_client.apply_install") as apply:
+            proof = fixture.installed()
+        apply.assert_not_called()
+        self.assertEqual(proof["baseline"], fixture.ledger.item(fixture.item)["task_client_base"])
+
+    def test_recovery_refuses_changed_backup_and_preserves_journal(self):
+        journal = self.interrupt_certification()
+        saved = journal.read_bytes()
+        (journal.parent / "0").write_bytes(b"changed backup")
+        with self.assertRaisesRegex(LedgerError, "backup changed"):
+            self.installed()
+        self.assertEqual(journal.read_bytes(), saved)
+        self.assertIsNone(installation_record(self.ledger, self.item, self.exported["receipt_id"]))
+
+    def test_recovery_refuses_journal_that_omits_a_completed_write(self):
+        journal = self.interrupt_certification()
+        value = json.loads(journal.read_text(encoding="utf-8")); value["completed"].pop()
+        journal.write_text(json.dumps(value), encoding="utf-8")
+        with self.assertRaisesRegex(LedgerError, "exact complete journal"):
+            self.installed()
+
+    def test_recovery_refuses_changed_installed_files(self):
+        self.interrupt_certification()
+        Image.new("RGBA", (2, 2), "red").save(self.client / "Assets/GameRes/FairyRes/One/One_atlas0.png")
+        with self.assertRaisesRegex(LedgerError, "controller-certified"):
+            self.installed()
+
+    def test_recovery_refuses_unrelated_dirty_work(self):
+        self.interrupt_certification()
+        (self.client / "Gameplay.cs").write_text("unrelated work", encoding="utf-8")
+        with self.assertRaisesRegex(LedgerError, "unrelated Client changes"):
+            self.installed()
+
+    def test_recovery_refuses_staged_files_or_changed_head(self):
+        self.interrupt_certification()
+        self.source.git(self.client, "add", "--all")
+        with self.assertRaisesRegex(LedgerError, "unchanged index"):
+            self.installed()
+        self.source.git(self.client, "commit", "-qm", "uncertified installation")
+        with self.assertRaisesRegex(LedgerError, "identity changed"):
+            self.installed()
+
+    def test_recovery_requires_unchanged_staging_and_source(self):
+        self.interrupt_certification()
+        stage = self.paths.runs / self.item / "ui-exports" / self.exported["receipt_id"] / "staging"
+        image = stage / "One_atlas0.png"; before = image.read_bytes()
+        Image.new("RGBA", (2, 2), "red").save(image)
+        with self.assertRaisesRegex(LedgerError, "immutable controller export"):
+            self.installed()
+        image.write_bytes(before)
+        (self.source.path / "assets/One/Panel.xml").write_text('<component size="5,2"/>', encoding="utf-8")
+        with self.assertRaisesRegex(LedgerError, "uncommitted"):
+            self.installed()
+
+    def test_private_complete_journal_cannot_replace_missing_controller_intent(self):
+        self.interrupt_certification()
+        self.ledger.connection.execute("DELETE FROM audit WHERE kind='fgui_install_prepared'")
+        with self.assertRaisesRegex(LedgerError, "clean owned Client"):
+            self.installed()
+
+    def test_recovery_refuses_damaged_prepared_audit(self):
+        self.interrupt_certification()
+        row = self.ledger.connection.execute("SELECT id,details FROM audit WHERE kind='fgui_install_prepared'").fetchone()
+        value = json.loads(row["details"]); value["proof"]["baseline"] = "a" * 40
+        self.ledger.connection.execute("UPDATE audit SET details=? WHERE id=?", (json.dumps(value), row["id"]))
+        with self.assertRaisesRegex(LedgerError, "damaged prepared"):
+            self.installed()
+
+    def test_recovery_rechecks_files_after_final_source_validation(self):
+        self.interrupt_certification()
+        retained = self.workflow.retained_export
+        calls = 0
+
+        def changed_after_check(receipt):
+            nonlocal calls
+            calls += 1
+            result = retained(receipt)
+            if calls == 2:
+                Image.new("RGBA", (2, 2), "red").save(self.client / "Assets/GameRes/FairyRes/One/One_atlas0.png")
+            return result
+
+        with patch.object(self.workflow, "retained_export", side_effect=changed_after_check):
+            with self.assertRaisesRegex(LedgerError, "controller-certified"):
+                self.installed()
+        self.assertIsNone(installation_record(self.ledger, self.item, self.exported["receipt_id"]))
+
+    def test_recovery_rechecks_head_after_the_last_metadata_inventory(self):
+        from agent.fgui_install import _metadata_guids
+        self.interrupt_certification()
+        calls = 0
+
+        def head_changes(client):
+            nonlocal calls
+            calls += 1
+            result = _metadata_guids(client)
+            if calls == 2:
+                self.source.git(self.client, "commit", "--allow-empty", "-qm", "concurrent HEAD change")
+            return result
+
+        with patch("agent.fgui_client._metadata_guids", side_effect=head_changes):
+            with self.assertRaisesRegex(LedgerError, "identity changed"):
+                self.installed()
+        self.assertIsNone(installation_record(self.ledger, self.item, self.exported["receipt_id"]))
+
+    def test_partial_write_interruption_cannot_be_certified_or_reapplied(self):
+        def interrupted(plan, recovery, *, fence):
+            def unavailable():
+                journal = recovery / "journal.json"
+                if journal.exists() and json.loads(journal.read_text(encoding="utf-8"))["completed"]:
+                    raise LedgerError("simulated write interruption")
+                fence()
+            return apply_install(plan, recovery, fence=unavailable)
+        with patch("agent.fgui_client.apply_install", side_effect=interrupted), self.assertRaisesRegex(LedgerError, "write interruption"):
+            self.installed()
+        with patch("agent.fgui_client.apply_install") as apply, self.assertRaisesRegex(LedgerError, "exact complete journal"):
+            self.installed()
+        apply.assert_not_called()
+        self.assertIsNone(installation_record(self.ledger, self.item, self.exported["receipt_id"]))
+
+    def test_stop_after_writes_cannot_create_success_or_resume_without_a_live_claim(self):
+        retained = self.workflow.retained_export
+        calls = 0
+
+        def stopped(receipt):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                self.ledger.cancel(self.item, "Stop after writes")
+            return retained(receipt)
+
+        with patch.object(self.workflow, "retained_export", side_effect=stopped), self.assertRaises(LedgerError):
+            self.installed()
+        with self.assertRaises(LedgerError):
+            self.installed()
+        self.assertIsNone(installation_record(self.ledger, self.item, self.exported["receipt_id"]))
+
     def test_internal_task_installs_on_prior_scene_without_expanding_ui_diff_scope(self):
         fixture = UiClientWorkflowTests(); fixture.internal = True; fixture.setUp(); self.addCleanup(fixture.doCleanups)
         proof = fixture.installed()

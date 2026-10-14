@@ -1367,8 +1367,21 @@ The Client handoff requires its real controller export receipt. Installation
 uses the immutable controller baseline/branch and the exact staging inventory,
 touches only changed packages and preserves the installer's per-write claim
 fences and journal. A second approved round may build on clean committed certified
-output at the same baseline; an unrelated Client commit or uncertified interrupted
-write refuses continuation. New packages require Common. `verify-ui` checks the
+output at the same baseline. Before writing, the controller records a checksummed
+installation plan bound to the receipt, source, branch, baseline and initial HEAD.
+If final certification fails after every write completed, retrying `install-ui`
+with the same receipt validates that plan, the exact complete journal, every old
+backup, current installed bytes/GUIDs, unchanged HEAD/index and absence of unrelated
+Client changes, then repeats current source/approval and claim/Stop checks before
+recording success. Recovery does not rewrite files or replace the baseline.
+If no writes remain and the clean checkout exactly matches the recorded before
+inventory, directories and global GUID digest, the controller retires the unused
+plan in audit and prepares a fresh one, preserving the earlier recovery files.
+Partial writes, legacy journals without the pre-write controller record, changed
+evidence and unrelated Client work still refuse continuation and retain recovery
+evidence. This adds audit records, not a schema migration; older code cannot finalize
+these interrupted writes, so retain their records and journals across rollback.
+New packages require Common. `verify-ui` checks the
 clean exact committed candidate, installed bytes/GUIDs and entire baseline diff.
 Only certified outputs/metadata and literal changed-package dependency-guard
 entries are ordinarily allowed. `authorize-ui-guard-repair` adds one bounded
