@@ -359,6 +359,16 @@ Only exact changed-package dependency entries with new-edge
 reasons may be edited; no gameplay or generated bindings. Commit and `verify-ui`
 the exact full head. Hydrate guard inputs with the owned native Git/LFS route,
 then `verify-ui-guards`; both actual named methods must pass in complete TRX.
+Before new verification, integrate fetched remote main on the owned issue branch.
+`verify-ui` retains the original `baseline` and installation, but records
+`main_integration`, `scope_base`, the committed global GUID digest, inherited
+presentation files and `scope_sha256`. Imported main files are allowed only by
+actual remote ancestry and an exact candidate delta; authored changes retain the
+UI limits. Certified output bytes/directories stay exact, and untracked/hidden
+metadata cannot replace committed GUIDs. A completed same-receipt `install-ui`
+retry can qualify the committed integration without rewriting its installation.
+Existing active exact-commit Unity reservations retain qualified scope evidence
+if main advances; after release, new verification requires current main again.
 
 For an unchanged package whose published baseline descriptor has missing guard
 registrations, `authorize-ui-guard-repair` accepts a bounded JSON map of package
@@ -372,7 +382,9 @@ after checking `proposal_sha256`, commit, and rerun all normal gates. Repeating
 the same request recovers the retained authorization after interruption. This
 engineering step requires no new product/visual answer and grants no permission
 to merge or claim a guard pass. Future scope checks still account for the entire
-diff from the original baseline and require those exact qualified entries.
+original baseline and require those exact qualified entries. After main
+integration, guard edits compare against the verified upstream guard and cannot
+carry old unrelated registrations or test changes over newer main.
 Skipped or Inconclusive is pending.
 
 Hydration requires actual bytes, not only exit zero. If the supplied verified

@@ -325,6 +325,18 @@ license, account, environment selectors or watched output during a job.
    Never modify gameplay, View/Popup bindings, Client docs, CI or another test to
    make checks pass. Commit the candidate, checkpoint its exact head and run
    `verify-ui --receipt-id ID --commit FULL_SHA`.
+   Before new verification, fetch and integrate the configured remote default
+   branch into this owned issue branch using the existing native Git authority.
+   Preserve the immutable task baseline and exact certified output inventory;
+   keep unrelated upstream files as fetched. The controller qualifies imported
+   main files separately from worker changes, verifies committed GUIDs and still
+   limits authored changes to certified outputs and literal dependency reasons.
+   Retain earlier presentation output only when unchanged from the task entry and
+   untouched upstream. Conflicts involving source or visual intent require a named
+   human decision and fresh review; never guess an asset conflict, reset baseline
+   pins, or edit controller evidence. A same-receipt completed install retry can
+   qualify an already committed integration without rewriting assets or its old
+   installation proof. Rerun both actual guards and loading at the new full HEAD.
 4. Hydrate the Client FairyRes inputs required by both repository guards with
    native Git LFS using the verified origin and owned callback. Run
    `verify-ui-guards --receipt-id ID`: it runs only the two actual repository guard

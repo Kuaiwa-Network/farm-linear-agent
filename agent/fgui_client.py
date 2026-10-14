@@ -104,13 +104,18 @@ def installation_history(ledger, item_id):
     return retained(item_id)
 
 
-def assert_installed(workflow, proof):
+def _installed_files(workflow, proof):
     client, branch, baseline = _client(workflow)
     if proof["branch"] != branch or proof["baseline"] != baseline:
         raise LedgerError("UI installation cannot change its controller-selected Client baseline")
     files, dirs = _selected(client / "Assets/GameRes/FairyRes", proof["packages"])
     if _inventory(files) != proof["files"] or sorted(dirs) != proof["directories"]:
         raise LedgerError("Client files differ from the controller-certified UI installation")
+    return client, branch, baseline
+
+
+def assert_installed(workflow, proof):
+    client, _, _ = _installed_files(workflow, proof)
     if _guid_digest(_metadata_guids(client)) != proof["global_guid_digest"]:
         raise LedgerError("Client global metadata identity changed after UI installation")
     workflow.fence()
@@ -243,7 +248,15 @@ def install(workflow, receipt_id):
     client, branch, baseline = _client(workflow)
     previous = installation_record(workflow.ledger, workflow.item_id, receipt_id)
     if previous is not None:
-        return assert_installed(workflow, previous)
+        _installed_files(workflow, previous)
+        if _guid_digest(_metadata_guids(client)) != previous["global_guid_digest"]:
+            # Completed installs retain their original proof. Only the normal scope
+            # verifier can qualify metadata inherited by a later clean main integration.
+            from .fgui_scope import verify_candidate
+            verify_candidate(workflow, receipt_id)
+        else:
+            workflow.fence()
+        return previous
     workflow.ledger.require_no_reservation(workflow.item_id)
     selected = {p["name"]: p["id"] for p in exported["publisher"]["export"]["packages"]}
     stage = workflow.paths.runs / workflow.item_id / "ui-exports" / receipt_id / "staging"

@@ -1399,7 +1399,20 @@ evidence and unrelated Client work still refuse continuation and retain recovery
 evidence. This adds audit records, not a schema migration; older code cannot finalize
 these interrupted writes, so retain their records and journals across rollback.
 New packages require Common. `verify-ui` checks the
-clean exact committed candidate, installed bytes/GUIDs and entire baseline diff.
+clean exact committed candidate and installed bytes/GUIDs. New verification
+requires ancestry of the actual configured remote default HEAD. The immutable
+task baseline and installation proof remain unchanged: scope compares the
+candidate to that controller-verified main commit to distinguish imported files
+from worker changes. Earlier presentation files are inherited only when unchanged
+from the task entry and untouched by upstream. The global GUID inventory must be
+unique and exactly match the committed candidate; ignored or assume-unchanged
+metadata cannot qualify as upstream. Certified package files/directories remain
+byte-exact. The controller records the main commit, scope base and GUID digest in
+checksummed scope evidence. An active exact-commit Unity reservation reuses that
+qualified main snapshot when main advances; new checks after release use current
+remote main. Legacy reservations retain only their original certified scope.
+A completed same-receipt installer retry may record this normal scope qualification
+without rewriting assets or replacing its original installation proof.
 Only certified outputs/metadata and literal changed-package dependency-guard
 entries are ordinarily allowed. `authorize-ui-guard-repair` adds one bounded
 engineering recovery for missing registrations already present in unchanged
@@ -1416,6 +1429,10 @@ The coordinator owns this supported recovery; it must not wait for an unnamed
 engineer or ask the issue owner to invent hashes or controller procedures.
 This adds audit evidence, not a database schema migration. Keep that evidence on
 rollback: an older controller cannot certify the additional repaired entries.
+Main integration adds scope audit fields without a schema migration. Preserve
+integrated worktrees and scope evidence across rollback; older controllers may
+refuse imported files/GUIDs rather than certify them. Source/visual conflicts
+still need their actual human decision and fresh review, not a baseline reset.
 It must remain parked rather than reset the baseline or discard the repair.
 This scope proof does not establish hydrated
 dotnet guard success or Unity loading.
