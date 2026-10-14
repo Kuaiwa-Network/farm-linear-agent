@@ -50,6 +50,7 @@ def parser():
     cmd("fetch-issue", "--item")
     cmd("claim", "--item", "--worker-id")
     cmd("renew", "--item", token=True)
+    cmd("document-reader-status", "--item", token=True)
     cmd("checkpoint", "--item", "--input", token=True)
     cmd("handoff-repository", "--item", "--to", token=True)
     cmd("revalidate", "--item", "--fingerprint", token=True)
@@ -450,6 +451,19 @@ def post_notice(ledger, api, notice):
 
 def run(args, ledger, api_factory):
     c = args.command
+    if c == "document-reader-status":
+        from .lark_cli import SKILLS
+        from .lark_diagnostics import profile_status
+        token = resolve_token(args)
+        ledger.renew(args.item, token)
+        if ledger.item(args.item)["skill"] not in SKILLS:
+            raise LedgerError("document reader diagnostics require a document-reading claim")
+        config = load_config(secure_permissions=False)
+        if Path(args.db).resolve() != Paths(config).ledger.resolve():
+            raise LedgerError("document reader diagnostics must use the configured host ledger")
+        result = profile_status(config.lark_cli)
+        ledger.renew(args.item, token)
+        return result
     if c in ('prepare-go-dependencies', 'go-dependencies'):
         from .go_dependencies import request, status
         from .workflow import JobWorktrees

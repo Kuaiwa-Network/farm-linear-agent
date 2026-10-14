@@ -445,7 +445,8 @@ class SkillAuthorityTests(unittest.TestCase):
         self.assertIs(dispatch.SKILL_AUTHORITY["feature"], dispatch.FEATURE_AUTHORITY)
         self.assertEqual(self.message({"id": "i", "skill": "feature"}).split("\n\n", 1)[0],
                          dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.QUESTION_AUTHORITY
-                         + FEATURE_AUTHORITY_WITH_SERVER_SLOTS + dispatch.AUTHORITY_REFERENCE)
+                         + FEATURE_AUTHORITY_WITH_SERVER_SLOTS + dispatch.DOCUMENT_READER_DIAGNOSTIC_AUTHORITY
+                         + dispatch.AUTHORITY_REFERENCE)
 
     def test_the_feature_part_states_its_limits_and_carries_no_other_skills_grants(self):
         part = dispatch.SKILL_AUTHORITY["feature"]
@@ -485,7 +486,8 @@ class SkillAuthorityTests(unittest.TestCase):
                          "376edd0ecf304b4a67d71691364f286075e6ad5d6fadbb9e64337332bb14661b")
         self.assertIs(dispatch.SKILL_AUTHORITY["fgui"], part)
         self.assertEqual(self.message({"id":"i", "skill":"fgui"}).split("\n\n", 1)[0],
-                         dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.QUESTION_AUTHORITY + part + dispatch.AUTHORITY_REFERENCE)
+                         dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.QUESTION_AUTHORITY + part
+                         + dispatch.DOCUMENT_READER_DIAGNOSTIC_AUTHORITY + dispatch.AUTHORITY_REFERENCE)
         self.assertNotIn("\n", part)
         for phrase in ("starting in its farmgui worktree", "read-only integration context", "review-ui",
                        "export-ui", "install-ui", "verify-ui-guards", "verify-ui-loading", "unity_slot interactive",
@@ -500,6 +502,16 @@ class SkillAuthorityTests(unittest.TestCase):
         self.assertIn("authorize-ui-guard-repair", dispatch.FGUI_AUTHORITY)
         self.assertIn("instead of asking the human to find another engineer", dispatch.FGUI_AUTHORITY)
         self.assertIn("Own technical blockers and their recovery", dispatch.WORK_AUTHORITY)
+
+    def test_only_document_readers_receive_controlled_credential_diagnostic_authority(self):
+        for skill in dispatch.SKILL_AUTHORITY:
+            with self.subTest(skill=skill):
+                text = dispatch.authority(skill)
+                self.assertEqual("document-reader-status" in text, skill in {"work", "feature", "fgui"})
+        grant = dispatch.DOCUMENT_READER_DIAGNOSTIC_AUTHORITY
+        for phrase in ("controlled offline check", "for this claimed item", "no direct credential-store inspection",
+                       "availability does not establish authentication", "successful full-document read"):
+            self.assertIn(phrase, grant)
 
     def test_the_kw_ops_grant_is_per_skill_and_the_rest_is_common(self):
         self.assertEqual(set(dispatch.SKILL_AUTHORITY), {"fix", "chat", "work", "feature", "fgui", "scene"})
@@ -530,13 +542,14 @@ class SkillAuthorityTests(unittest.TestCase):
             with self.subTest(skill=name), patch.dict(dispatch.SKILL_AUTHORITY, {name: "Own grants. "}):
                 text = self.message({"id": "i", "skill": name}).split("\n\n", 1)[0]
                 self.assertEqual(text, dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.QUESTION_AUTHORITY
-                                 + "Own grants. " + dispatch.AUTHORITY_REFERENCE)
+                                 + "Own grants. " + dispatch.DOCUMENT_READER_DIAGNOSTIC_AUTHORITY + dispatch.AUTHORITY_REFERENCE)
                 self.assertNotIn("kw_ops", text)
 
     def test_no_part_carries_a_token_a_url_or_a_host_path(self):
         """Spec §12: the per-skill AUTHORITY is free of tokens and signed URLs. Every part is text that ends in
         the space the next part expects."""
         parts = {"common": dispatch.COMMON_AUTHORITY, "git_commit": dispatch.GIT_COMMIT_AUTHORITY, "question": dispatch.QUESTION_AUTHORITY,
+                 "document_reader_diagnostic": dispatch.DOCUMENT_READER_DIAGNOSTIC_AUTHORITY,
                  **dispatch.SKILL_AUTHORITY}
         for name, part in {**parts, "reference": dispatch.AUTHORITY_REFERENCE}.items():
             with self.subTest(part=name):

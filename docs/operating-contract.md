@@ -209,7 +209,21 @@ write this Windows setting. No state schema changes; an older revision ignores t
 uses its own sandbox selection, so settle workers and verify that selection before rollback.
 This adds no schema migration. Rollback requires settling workers and restoring a profile-only config
 before running a revision that rejects the environment variant. An older revision ignores the key and
-passes credential variables on. On a host that enables
+passes credential variables on.
+
+After document authentication failures, a live `work`, `feature` or `fgui` claim may invoke
+`document-reader-status` against its configured host ledger. This controlled offline diagnostic supports
+native Windows profile mode only: exactly one matching strict bot app, no user identities, and its own
+`appsecret:<appId>` keychain reference. It checks the selected LarkCli registry value and DPAPI using
+lark-cli 1.0.82's service/account entropy; it copies no plaintext into Python values and clears/frees the
+native output buffer. It returns only availability, stage and an optional numeric Windows error code,
+never app IDs, secrets, ciphertext, lengths or fingerprints. It makes no network request or credential
+change. Unsupported platforms/routes gain no fallback. The CLI checks the claim before the probe and
+again before returning; direct worker credential-store inspection remains forbidden. A successful
+availability check is neither authentication nor full-document acceptance. This adds no schema migration;
+older worker CLIs lack the command and must not be replaced by an ad hoc credential-reading script.
+
+On a host that enables
 `feature`, `doctor` adds `tools.feature`, the version of each tool its workers run against the
 repositories' pins and whether the configured lark-cli profile exists, or whether the configured
 environment source is present in doctor's process, with

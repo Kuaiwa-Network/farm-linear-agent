@@ -277,6 +277,15 @@ FGUI_AUTHORITY = (
     "Package loading does not establish gameplay or visual acceptance; human merges and live QA remain. "
 )
 
+DOCUMENT_READER_DIAGNOSTIC_AUTHORITY = (
+    "After a document authentication failure, you may run document-reader-status for this claimed item "
+    "through the worker CLI. This controlled offline check returns only credential availability, a failure "
+    "stage and an optional numeric Windows error code for the configured isolated bot profile. "
+    "It grants no direct credential-store inspection, authentication changes or alternate identity. "
+    "Save its sanitized result with the failed read; availability does not establish authentication "
+    "or a successful full-document read. "
+)
+
 AUTHORITY_REFERENCE = "Use references/worker-cli.md for command arguments and the exact handoff JSON shape."
 
 # Per-skill grants, chosen by the item's skill. A skill without an entry is refused when its launch message
@@ -334,7 +343,8 @@ def authority(skill):
     if skill not in SKILL_AUTHORITY:
         raise ValueError(f"skill {skill!r} has no dispatch AUTHORITY; state its grants in agent/dispatch.py")
     identity = GIT_COMMIT_AUTHORITY if skill != "chat" else ""
-    return COMMON_AUTHORITY + identity + QUESTION_AUTHORITY + SKILL_AUTHORITY[skill] + AUTHORITY_REFERENCE
+    diagnostic = DOCUMENT_READER_DIAGNOSTIC_AUTHORITY if skill in {"work", "feature", "fgui"} else ""
+    return COMMON_AUTHORITY + identity + QUESTION_AUTHORITY + SKILL_AUTHORITY[skill] + diagnostic + AUTHORITY_REFERENCE
 
 
 def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, guidance, budget, repo_root=None,
