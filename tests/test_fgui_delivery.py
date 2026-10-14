@@ -2,6 +2,7 @@
 import unittest
 import hashlib
 import json
+from pathlib import Path
 from unittest.mock import Mock, patch, create_autospec
 
 from agent.fgui_delivery import verify_delivery
@@ -9,6 +10,7 @@ from agent.fgui_unity import verify_loading
 from agent.fgui_workflow import UiWorkflow
 from agent.ledger import LedgerError
 from agent.publication import PublicationVerifier, PublicationError
+from agent.worktrees import Worktrees
 from test_ledger import DESIGNER
 import test_fgui_guards as guard_fixtures
 
@@ -67,9 +69,27 @@ class UiDeliveryTests(unittest.TestCase):
         self.assertEqual(task.ledger.item(task.fixture.parent)['state'], 'running')
         self.assertEqual(task.ledger.connection.execute('SELECT count(*) FROM outbox WHERE item_id=?', (task.item,)).fetchone()[0], 0)
 
+    def test_integrated_main_runs_fresh_guards_loading_and_delivery_at_new_head(self):
+        f = self.fixture; origin = Path(f.source.config.repos['Farm-Client'])
+        (origin / 'Assets/Upstream.cs').write_text('trusted upstream gameplay', encoding='utf-8')
+        (origin / 'Assets/Upstream.cs.meta').write_text('guid: ' + 'd' * 32 + '\n', encoding='utf-8')
+        f.source.commit(origin); f.workflow.trees.fetch('Farm-Client')
+        f.source.git(f.client, 'merge', '--no-edit', 'origin/main')
+        previous = self.head; self.head = f.source.git(f.client, 'rev-parse', 'HEAD')
+        f.source.plan['prs']['Farm-Client'][0]['head'] = self.head; f.source.save_plan()
+        self.verifier.verify.return_value = {'head': self.head}
+        proof = self.complete_checks()
+        self.assertNotEqual(self.head, previous)
+        self.assertEqual(proof['commit'], self.head)
+        self.assertEqual(f.ledger.item(self.item)['target']['commit_sha'], f.baseline)
+
     def configured_github_origins(self):
         # Local owned clones and scripted API; no network or live publication.
         f = self.fixture
+        heads = {repo: f.source.trees._origin_head(repo) for repo in ('farmgui', 'Farm-Client')}
+        self.enterContext(patch.object(Worktrees, 'fetch', autospec=True, return_value=None))
+        self.enterContext(patch.object(Worktrees, '_origin_head', autospec=True,
+                                      side_effect=lambda trees, repo, **options: heads[repo]))
         for repo, path in (('farmgui', f.source.path), ('Farm-Client', f.client)):
             remote = 'https://github.com/example/' + repo + '.git'
             f.source.config.repos[repo] = remote

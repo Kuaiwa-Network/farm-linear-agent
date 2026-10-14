@@ -1,10 +1,17 @@
 """Verify committed UI-only Client output before Unity or draft delivery."""
+from collections import Counter
+import hashlib
+import json
 import re
 
-from .fgui_client import _client, assert_installed, installation_record, installation_history
+from .fgui_client import _installed_files, _guid_digest, installation_record, installation_history
+from .fgui_install import _GUID, _metadata_guids
+from .fgui_records import _canonical
 from .ledger import LedgerError
+from .worktrees import GIT_ENV
 
 GUARD = "tests/Farm.Tests.Unit/FguiDependencyGuardTests.cs"
+_NO_REPLACE = {**GIT_ENV, "GIT_NO_REPLACE_OBJECTS": "1"}
 _BLOCK = re.compile(r"(^[ \t]*private static readonly Dictionary<string, string\[\]> _allowed = new\(\)\n"
                     r"[ \t]*\{\n)(.*?)(^[ \t]*\};)", re.M | re.S)
 _ENTRY = re.compile(r'\["([A-Za-z][A-Za-z0-9_]{0,63})"\]\s*=\s*new\[\]\s*\{([^{}]*)\},\s*(?://.*)?$')
@@ -54,39 +61,105 @@ def dependency_guard_change(before, after, dependencies):
     return sorted(touched)
 
 
+def _delta(workflow, client, before, after):
+    return set(workflow.trees.git_in(client, "diff", "--name-only", "--no-renames", "--no-ext-diff",
+                                     "--no-textconv", before, after, env=_NO_REPLACE).splitlines())
+
+
+def _integrated_main(workflow, installed, client, commit):
+    # An active reservation keeps its already qualified immutable input when main moves.
+    reservation = workflow.ledger.active_reservation(workflow.item_id)
+    if (reservation and reservation["state"] == "active" and reservation["kind"] == "unity_slot"
+            and reservation["commit_sha"] == commit):
+        for row in workflow.ledger.connection.execute(
+                "SELECT details FROM audit WHERE item_id=? AND kind='fgui_client_scope' ORDER BY id DESC",
+                (workflow.item_id,)):
+            prior = json.loads(row["details"])
+            if (prior.get("commit") != commit or prior.get("installation_id") != installed["installation_id"]
+                    or prior.get("receipt_id") != installed["receipt_id"]):
+                continue
+            if "main_integration" not in prior:
+                if any(key in prior for key in ("scope_sha256", "scope_base", "global_guid_digest", "inherited_client_files")):
+                    raise LedgerError("UI main integration has damaged controller evidence; preserve recovery records")
+                # Legacy scope evidence can retain only the original, unchanged installation
+                # at its existing reservation. It cannot authorize any imported metadata.
+                if prior.get("baseline") == installed["baseline"] and prior.get("source_head") == installed["source_head"]:
+                    return None
+                continue
+            raw = {k: v for k, v in prior.items() if k != "scope_sha256"}
+            if hashlib.sha256(_canonical(raw).encode("utf-8")).hexdigest() != prior.get("scope_sha256"):
+                raise LedgerError("UI main integration has damaged controller evidence; preserve recovery records")
+            authority = prior["main_integration"]
+            if (not isinstance(authority, dict) or prior.get("scope_base") != authority.get("commit")
+                    or prior.get("baseline") != installed["baseline"] or prior.get("source_head") != installed["source_head"]
+                    or prior.get("branch") != installed["branch"] or authority.get("candidate") != commit
+                    or not workflow.trees.has_commit("Farm-Client", authority.get("commit"))
+                    or workflow.trees.git_in(client, "merge-base", "--all", authority["commit"], commit,
+                        env=_NO_REPLACE).splitlines() != [authority["commit"]]):
+                raise LedgerError("UI reserved main integration identity changed")
+            return authority
+    return workflow.trees.require_main_integration("Farm-Client", client, commit)
+
+
 def installed_scope(workflow, installed, *, expected_commit=None):
     """Prove current committed output using complete prior install records too."""
-    assert_installed(workflow, installed)
-    client, branch, baseline = _client(workflow)
+    client, branch, baseline = _installed_files(workflow, installed)
     commit = workflow.trees.git_in(client, "rev-parse", "HEAD")
     if expected_commit is not None and expected_commit != commit:
         raise LedgerError("UI verification commit differs from its actual committed Client HEAD")
     workflow.trees.verification_commit("Farm-Client", workflow.item_id, commit, expected_branch=branch)
-    changed = workflow.trees.git_in(client, "diff", "--name-only", "--no-renames", "--no-ext-diff", "--no-textconv", baseline, commit).splitlines()
+    changed = _delta(workflow, client, baseline, commit)
     allowed = {"Assets/GameRes/FairyRes/" + entry["file"] for entry in installed["files"]}
     # Earlier complete installs may have removed artifacts absent from the new
     # plan. Those paths remain authorized deletions, never new arbitrary writes.
     for previous in installation_history(workflow.ledger, workflow.item_id):
         allowed.update("Assets/GameRes/FairyRes/" + name for name in previous["plan"]["deletes"])
-    if set(changed) - allowed - {GUARD}:
-        raise LedgerError("UI Client diff contains changes outside certified package outputs and dependency-guard reasons")
+    guid_digest = _guid_digest(_metadata_guids(client))
+    integration = _integrated_main(workflow, installed, client, commit)
+    scope_base = baseline; inherited = set()
+    if integration is not None:
+        scope_base = integration["commit"]
+        integrated_delta = _delta(workflow, client, scope_base, commit)
+        # Earlier presentation output in the immutable task entry remains authorized only
+        # when it is byte/mode-identical to that entry and upstream never changed its path.
+        stage_base = workflow.ledger.item(workflow.item_id)["target"]["commit_sha"]
+        inherited = (_delta(workflow, client, stage_base, baseline)
+                     - _delta(workflow, client, stage_base, scope_base) - changed) & integrated_delta
+        if integrated_delta - allowed - {GUARD} - inherited:
+            raise LedgerError("UI Client diff contains changes outside certified package outputs and dependency-guard reasons")
+        changed = integrated_delta - inherited
+        # Clean Git status can omit ignored files or assume-unchanged entries. Upstream
+        # provenance may change the GUID set only to the exact committed candidate set.
+        committed = workflow.trees.git_in(client, "grep", "-h", "-I", "-E",
+            "^guid:[[:space:]]*[[:xdigit:]]{32}[[:space:]]*$", commit, "--", ":(glob)Assets/**/*.meta",
+            env=_NO_REPLACE)
+        if _guid_digest(Counter(value.lower() for value in _GUID.findall(committed))) != guid_digest:
+            raise LedgerError("UI Client metadata GUIDs differ from the committed integrated candidate")
+    elif changed - allowed - {GUARD} or guid_digest != installed["global_guid_digest"]:
+        raise LedgerError("legacy UI reservation cannot authorize changes outside its original certified scope")
     packages = installed["packages"]
     dependencies = installed["dependencies"]
     guard = []
     repairs, repair_hashes = [], []
     if GUARD in changed:
-        before = workflow.trees.git_in(client, "show", baseline + ":" + GUARD)
-        after = workflow.trees.git_in(client, "show", commit + ":" + GUARD)
+        before = workflow.trees.git_in(client, "show", scope_base + ":" + GUARD, env=_NO_REPLACE)
+        after = workflow.trees.git_in(client, "show", commit + ":" + GUARD, env=_NO_REPLACE)
         from .fgui_repair import repaired_baseline
-        before, repairs, repair_hashes = repaired_baseline(workflow, installed, client, baseline, before, after)
+        if scope_base == baseline:
+            before, repairs, repair_hashes = repaired_baseline(workflow, installed, client, baseline, before, after)
         guard = dependency_guard_change(before, after, dependencies)
     workflow.fence(refresh=True)
+    workflow.trees.verification_commit("Farm-Client", workflow.item_id, commit, expected_branch=branch)
     proof = {"format": "farmbot-fgui-client-scope-v1", "receipt_id": installed["receipt_id"],
              "installation_id": installed["installation_id"], "commit": commit, "baseline": baseline,
              "branch": branch, "source_head": installed["source_head"],
              "changed_packages": sorted(packages), "changed_client_files": sorted(changed), "guard_packages": guard}
     if repair_hashes:
         proof.update(baseline_guard_repairs=repairs, baseline_guard_repair_sha256=repair_hashes)
+    if integration is not None:
+        proof.update(main_integration=integration, scope_base=scope_base, global_guid_digest=guid_digest,
+                     inherited_client_files=sorted(inherited))
+        proof["scope_sha256"] = hashlib.sha256(_canonical(proof).encode("utf-8")).hexdigest()
     return proof
 
 

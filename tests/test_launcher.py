@@ -660,6 +660,29 @@ class LauncherTests(unittest.TestCase):
             b"tool output\n" * (2 * agent.launcher._WORKER_FILE_LIMIT // 12) + CAPACITY.encode() + b"\n")
         self.assertEqual([f.failure_kind for f in codex.poll()], ["model_capacity"])
 
+    def test_terminal_rate_limit_uses_bounded_capacity_retry_classification(self):
+        codex = Launcher(self.runs, RUNTIMES["codex"]._replace(command=RUNTIMES["fake"].command, seed_files={}),
+                         host="test-host")
+        handle = codex.spawn("item-429", self.message, {}, budget_seconds=60, cwd=self.tmp.name,
+                             extra_env={"FAKE_CLI_MODE": "crash"})
+        self.wait_exited(handle)
+        (handle.run_dir / "stderr.log").write_text(
+            "ERROR: exceeded retry limit, last status: 429 Too Many Requests\n" * 2, encoding="utf-8")
+        self.assertEqual([f.failure_kind for f in codex.poll()], ["model_capacity"])
+
+    def test_quoted_rate_limit_or_other_terminal_error_does_not_qualify(self):
+        from types import SimpleNamespace
+        codex = Launcher(self.runs, RUNTIMES["codex"], host="test-host")
+        self.runs.mkdir(parents=True, exist_ok=True)
+        handle = SimpleNamespace(run_dir=self.runs)
+        diagnostic = "ERROR: exceeded retry limit, last status: 429 Too Many Requests"
+        for text in ("tool quoted: " + diagnostic, diagnostic + "\nERROR: authentication failed"):
+            (self.runs / "stderr.log").write_text(text, encoding="utf-8")
+            self.assertIsNone(codex._failure_kind(handle, 1, "exited"))
+        (self.runs / "stderr.log").write_text(diagnostic, encoding="utf-8")
+        self.assertIsNone(codex._failure_kind(handle, 0, "exited"))
+        self.assertIsNone(codex._failure_kind(handle, 1, "stopped"))
+
     @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFOs in a directory are POSIX")
     def test_stop_does_not_block_on_a_fifo_teardown_record_and_holds_cleanup(self):
         handle = self.launcher.spawn("item-1", self.message, {}, budget_seconds=60, cwd=self.tmp.name,
