@@ -417,6 +417,13 @@ command-only HOME rule to these reads. Redirect every response to a UTF-8 file u
   `author.name`, or "issue description") and the fetch time in UTC. Every stage that reads the 策划案 fetches it
   again and notes what changed since the previous copy; a successor of cancelled work has a new STATE_DIR and
   fetches it anew.
+- After an authentication failure, run the worker CLI's `document-reader-status` with this item's claim
+  and save its sanitized JSON beside the failed read. This offline check reports only the selected bot
+  credential's availability, failure stage and optional numeric Windows error code. It supports native
+  Windows isolated keychain profiles only; `unsupported` adds no alternate authentication route. Never
+  inspect the credential store directly. `available` does not mean the app authenticated or read the
+  document; the original full-document read remains required. Retain answered questions and the human's
+  chosen recovery route rather than asking the same question again merely to attach this evidence.
 - Stage A reads the original in full, its own open items (Q-0xx, TBD, 待确认) included, as Farm-Contract's rules
   require: never draft from a paraphrase.
 - A card that names a 策划案 without a link, a link the app cannot read, a `tools.lark_cli` without a profile or

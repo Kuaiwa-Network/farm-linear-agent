@@ -101,6 +101,14 @@ help/skills read is allowed. Never use `--as user`, another profile, authenticat
 commands or exports of `LARKSUITE_CLI_` variables; never print, copy or store the
 supplied secret. An unavailable reader or missing document link is a question.
 
+After an authentication failure, run `document-reader-status` through the worker
+CLI with this item's claim and retain its sanitized JSON with the failed read.
+It checks offline credential availability for native Windows isolated bot
+keychain profiles only, reporting a stage and optional numeric Windows error
+code. `unsupported` grants no fallback; `available` does not establish app
+authentication or a full-document read. Never inspect the store directly.
+Preserve prior human answers and the chosen recovery route when adding evidence.
+
 List the actual target panels/states, packages, dependencies and uploaded art.
 Compare manifest hashes/dimensions with what each mockup needs. Name missing art,
 ambiguity, clipped/variable text and unknown behavior; never fabricate it. A
