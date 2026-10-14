@@ -846,6 +846,14 @@ operator-only slot recovery policy. Workers checkpoint, release `unclean`, and e
 The release revokes both their claim and reservation token. Never request a human to operate
 Unity or add `待回复` for this condition.
 
+A successful slot switch records its candidate commit in `slots.parked_commit` together
+with the busy state. For interactive switches this follows the full identity probe;
+batch switches record the prepared checkout without claiming test success. After a
+reservation is released, recovery uses this recorded commit even if parking fails on
+importer metadata. A previous idle commit must never replace the verified candidate.
+Existing exhausted recoveries retain their recorded target and evidence; this change
+does not rewrite historical recovery requests or reset their retry budgets.
+
 An Editor startup failure also quarantines its slot at the requested commit, using
 the preparation recovery budget. A missing MCP instance at the startup deadline
 does not prove the Editor exited; the failure path does not park on main or discard

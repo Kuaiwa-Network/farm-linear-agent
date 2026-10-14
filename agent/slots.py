@@ -714,7 +714,8 @@ class SlotPool:
             # confirming the process is gone", and `was_open` above is guarded by `self.mcp is not None`, so
             # a pool built without an MCP client would otherwise assert "gone" without ever asking.
             self._clear_stale_lock(slot)
-            return self.ledger.set_slot_state(slot_id, self.BUSY_FOR[mode], last_switch_at=self.clock())
+            return self.ledger.set_slot_state(slot_id, self.BUSY_FOR[mode], parked_commit=commit,
+                                              last_switch_at=self.clock())
         instance = slot.get("instance")
         if not was_open:
             # A crash or an unreaped close leaves Unity's lock behind (Task 0 Step 5: still present at
@@ -750,7 +751,11 @@ class SlotPool:
         if observation.get("aggregate") != "match":
             raise SlotError(f"{slot_id}: identity probe did not match: {observation.get('checks')}",
                             stage="probe")
-        return self.ledger.set_slot_state(slot_id, self.BUSY_FOR[mode], last_switch_at=self.clock())
+        # A released reservation no longer supplies recovery's target. Record the
+        # verified candidate now: parking may fail on importer metadata before
+        # it can update the old idle commit.
+        return self.ledger.set_slot_state(slot_id, self.BUSY_FOR[mode], parked_commit=commit,
+                                          last_switch_at=self.clock())
 
     def run_batch(self, slot, reservation):
         """The batch run itself, performed by the launcher outside any sandbox and never by the worker.

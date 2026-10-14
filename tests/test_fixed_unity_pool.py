@@ -8,7 +8,7 @@ from agent.dispatch import dispatch_message
 from agent.resource_admission import ResourceAdmission
 from agent.slots import SlotError, SlotPool, fixed_editor_count, slot_entry
 from test_ledger import ISSUE, OTHER, SELECTED_AT, SKILLS, issue
-from test_slots import FakeMcp, FakeUnity, SlotFixture
+from test_slots import FakeMcp, FakeUnity, SlotFixture, git
 
 
 class FixedEditorPoolTests(SlotFixture):
@@ -72,6 +72,49 @@ class FixedEditorPoolTests(SlotFixture):
         self.assertEqual(len([c for c in self.mcp.calls if c[0] == "start"]), 2)
         self.assertFalse(any(c[0] == "terminate" for c in self.mcp.calls))
         self.assertEqual(self.unity.argv, [])
+
+    def test_metadata_dirty_release_recovers_the_verified_candidate_not_the_previous_idle_commit(self):
+        from agent.identity import source_snapshot
+        from agent.resource_recovery import RecoveryStore
+        from agent.unity_recovery import SourceMetaReconciled, UnityRecovery
+
+        relative = Path("Assets") / "资源 图集" / "texture.png.meta"
+        (self.origin / relative).parent.mkdir(parents=True)
+        (self.origin / relative).write_text("textureCompression: 1\n", encoding="utf-8")
+        git("add", ".", cwd=self.origin)
+        git("commit", "-qm", "initial metadata", cwd=self.origin)
+        pool = self.fixed_pool()
+        previous = pool.ensure()[0]["parked_commit"]
+        candidate = self.commit("candidate")
+        self.assertNotEqual(previous, candidate)
+        item = self.waiting(ISSUE, candidate, "interactive")
+        pool.tick()
+        reservation = self.ledger.active_reservation(item)
+        slot = self.ledger.slot(reservation["resource"])
+        folder = Path(slot["folder"])
+        self.assertEqual(slot["parked_commit"], candidate)
+
+        (folder / relative).write_text("textureCompression: 0\n", encoding="utf-8")
+        token = pool.token_path(item).read_text(encoding="utf-8").strip()
+        self.ledger.release(reservation["reservation_id"], token, "tests complete")
+        self.assertEqual(pool.park_idle(), 0)
+        self.assertEqual(self.ledger.slot(slot["slot_id"])["state"], "held")
+        self.assertIsNone(self.ledger.active_reservation_on(slot["slot_id"]))
+        store = RecoveryStore(self.ledger)
+        store.discover("test")
+        recovery = store.pending("test")[0]
+        self.assertEqual(recovery["commit_sha"], candidate)
+        evidence = self.root / "resource recovery" / recovery["id"]
+        with self.assertRaises(SourceMetaReconciled) as caught:
+            UnityRecovery(pool).repair({**recovery, "evidence_dir": str(evidence)})
+        self.assertEqual(caught.exception.evidence["head"], candidate)
+        self.assertEqual(self.trees.head(folder), candidate)
+        self.assertEqual(source_snapshot(folder)["dirty"], [])
+        self.assertTrue((evidence / "source-meta.json").is_file())
+        self.assertEqual((folder / relative).read_text(encoding="utf-8"), "textureCompression: 1\n")
+        other = self.ledger.slot("unity_slot:2")
+        self.assertIn(other["folder"], self.mcp.open_folders)
+        self.assertFalse(any(call == ("terminate", "unity_slot:2") for call in self.mcp.calls))
 
     def test_low_headroom_retains_first_editor_and_serves_queue_without_opening_second(self):
         memory = {"available_mib": 20000, "commit_mib": 20000}

@@ -37,8 +37,8 @@ class UiUnityTests(unittest.TestCase):
         self.reservation["token"] = pool.token_path(self.item).read_text(encoding="utf-8")
         self.slot_folder = f.source.root / "Editor slot 空间"
         slot = self.ledger.slot(entry["id"])
-        self.assertEqual(slot["parked_commit"], f.baseline)
-        self.assertNotEqual(slot["parked_commit"], self.head)
+        self.assertEqual(slot["parked_commit"], self.head)
+        self.assertNotEqual(f.baseline, self.head)
         self.assertEqual(f.source.git(self.slot_folder, "rev-parse", "HEAD"), self.head)
         f.source.token = self.ledger.claim(self.item, worker_id="ui-unity-fixture")["token"]
         self.workflow = UiWorkflow(self.ledger, self.item, f.source.token, f.source.config, f.source.skill,
@@ -70,6 +70,21 @@ class UiUnityTests(unittest.TestCase):
     def test_wrong_or_ended_reservation_never_executes_loading(self):
         self.ledger.release(self.reservation["reservation_id"], self.reservation["token"], "fixture release")
         with self.assertRaisesRegex(LedgerError, "active interactive"): self.verify()
+        self.client.call_tool.assert_not_called()
+
+    def test_stale_recorded_slot_commit_still_requires_the_actual_reserved_candidate(self):
+        # Older controllers can leave the previous idle pin in the slot row.
+        # Actual owned HEAD and the reservation still establish the candidate.
+        self.ledger.set_slot_state("unity_slot:1", "interactive_busy", parked_commit=self.fixture.baseline)
+        proof = self.verify()
+        self.assertEqual(proof["commit"], self.head)
+        self.assertEqual(proof["reservation_id"], self.reservation["reservation_id"])
+        self.client.call_tool.assert_called_once()
+
+        self.fixture.source.git(self.slot_folder, "checkout", "--detach", self.fixture.baseline)
+        self.client.call_tool.reset_mock()
+        with self.assertRaisesRegex(LedgerError, "actual committed candidate"):
+            self.verify()
         self.client.call_tool.assert_not_called()
 
     def test_actual_slot_commit_mismatch_refuses_even_with_candidate_in_parked_field(self):
