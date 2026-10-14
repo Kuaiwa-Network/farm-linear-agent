@@ -1016,7 +1016,9 @@ class Launcher:
         # Ignore only that exact diagnostic; other trailing errors still take precedence.
         while lines and _CODEX_ROLLOUT_NOT_FOUND.fullmatch(lines[-1]):
             lines.pop()
-        if lines and lines[-1] == "ERROR: Selected model is at capacity. Please try a different model.":
+        if lines and lines[-1] in (
+                "ERROR: Selected model is at capacity. Please try a different model.",
+                "ERROR: exceeded retry limit, last status: 429 Too Many Requests"):
             return "model_capacity"
         return None
 
