@@ -50,9 +50,9 @@ def _reservation(workflow, commit):
     if (entry["kind"] != "unity_slot" or entry["repo"] != "Farm-Client"
             or Path(slot["folder"]).resolve() != folder.resolve() or slot["mcp_address"] != entry["mcp_address"]):
         raise LedgerError("UI loading slot identity differs from its current configured Client slot")
-    # parked_commit describes the last idle park, not the subsequent active
-    # switch. Read this slot's actual HEAD through its verified clone/entry;
-    # never let its .git pointer select another repository or configuration.
+    # Successful switches record the candidate, but older controllers can leave
+    # a stale parked_commit. Read actual HEAD through the verified clone/entry;
+    # never trust the recorded commit or let .git select another repository.
     try:
         git_entry = workflow.trees.worktree_entry("Farm-Client", folder)
         clone = workflow.trees._clone("Farm-Client")
