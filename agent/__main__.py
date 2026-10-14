@@ -107,6 +107,8 @@ def parser():
     resource = cmd("await-resource", "--item", "--resource", token=True)
     resource.add_argument("--mode", required=True, choices=["interactive", "batch"])
     resource.add_argument("--commit", help="full SHA of the clean Farm-Client worktree HEAD to verify; default: baseline")
+    resource.add_argument("--baseline", action="store_true",
+                          help="test trusted remote main for comparison; --commit still names the owned candidate")
     release = cmd("release-resource", "--item", token=True)
     release.add_argument("--outcome", required=True, choices=["quiescent", "unclean"])
     cmd("withdraw", "--item", token=True)
@@ -895,6 +897,10 @@ def run(args, ledger, api_factory):
                     raise LedgerError("verification must use the configured host ledger")
                 mode = "interactive"
         request_options = {}
+        selected_commit = args.commit
+        if args.baseline and (args.resource != "unity_slot" or args.commit is None
+                              or item["skill"] not in ("work", "fix", "feature")):
+            raise LedgerError("baseline comparison requires a work/fix/feature Unity request with --commit candidate")
         if args.commit is not None:
             from .worktrees import Worktrees
             server_request = args.resource == "server_slot"
@@ -928,9 +934,14 @@ def run(args, ledger, api_factory):
                 installed = installation_record(ledger, args.item, receipt)
                 verification_record(workflow, "fgui_guards_complete", "guards_sha256", receipt, scope, installed)
             from .workflow import JobWorktrees
-            JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger).verification_commit(
-                "farm-hive" if server_request else "Farm-Client", args.item, args.commit,
-                require_main=not server_request, **options)
+            trees = JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger)
+            if args.baseline:
+                selected_commit = trees.verification_baseline(
+                    "Farm-Client", args.item, args.commit, **options)
+                request_options["comparison_candidate"] = args.commit
+            else:
+                trees.verification_commit("farm-hive" if server_request else "Farm-Client",
+                                          args.item, args.commit, require_main=not server_request, **options)
         elif (args.resource == "unity_slot" and item["skill"] == "fix"
                 and current_root(item["root_repo"], skill) == "Farm-Client"
                 and (item.get("target") or {}).get("repository") == "Farm-Client"):
@@ -945,7 +956,7 @@ def run(args, ledger, api_factory):
                 "Farm-Client", args.item, item["target"]["commit_sha"], require_main=True)
         # Ownership is checked again after Git validation, fencing a concurrent stop/closure.
         return ledger.await_resource(args.item, token, args.resource, mode, skill=skill,
-                                     commit_sha=args.commit, **request_options)
+                                     commit_sha=selected_commit, **request_options)
     if c == "release-resource":
         # The worker's own verdict, not the pool's: the pool re-checks quiescence before acting on a slot
         # this worker may have wedged (spec §7). Both outcomes are verified against the reservation's own

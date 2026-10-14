@@ -1783,7 +1783,8 @@ class Ledger:
                                           "resource", "host", "commit_sha", "state", "attempts", "created_at",
                                           "acquired_at", "released_at", "release_reason")}
 
-    def await_resource(self, item_id, token, resource, mode, *, skill, commit_sha=None, issue_prefix="FARM"):
+    def await_resource(self, item_id, token, resource, mode, *, skill, commit_sha=None, issue_prefix="FARM",
+                       comparison_candidate=None):
         """Park the claimed item until the pool grants `resource`.
 
         The ledger reads no manifests: `skill` is the item's loaded skill, which the worker CLI passes, as for
@@ -1805,6 +1806,11 @@ class Ledger:
                 raise LedgerError("a resource request requires the work item's own skill manifest")
             require_listed_resource(skill, resource)
             root = current_root(row["root_repo"], skill)
+            if comparison_candidate is not None and (
+                    resource != "unity_slot" or row["skill"] not in ("work", "fix", "feature")
+                    or root != "Farm-Client" or not isinstance(comparison_candidate, str)
+                    or not COMMIT_SHA.fullmatch(comparison_candidate)):
+                raise LedgerError("baseline comparison requires an owned committed Client candidate")
             if resource == "server_slot":
                 if row["skill"] not in ("work", "fix", "feature") or root != "farm-hive":
                     raise LedgerError("server integration requires a farm-hive write stage")
@@ -1861,8 +1867,29 @@ class Ledger:
             self._set_state(row["id"], "awaiting_resource", f"needs {resource}:{mode}", token=None,
                             lease_expires_at=None, worker_pid=None, needs_resource=f"{resource}:{mode}")
             self._audit(row["id"], "reservation", "queued", details={"reservation_id": reservation_id, "mode": mode,
-                        "commit_sha": selected_commit, "baseline_commit": target["commit_sha"]})
+                        "commit_sha": selected_commit, "baseline_commit": target["commit_sha"],
+                        **({"comparison_candidate": comparison_candidate} if comparison_candidate else {})})
             return self._view(self._row(row["id"]))
+
+    def reservation_comparison(self, reservation_id):
+        """Controller-written comparison identity; no schema migration or checkpoint authority."""
+        reservation = self.reservation(reservation_id)
+        if reservation is None:
+            return None
+        for row in self.connection.execute(
+                "SELECT details FROM audit WHERE item_id=? AND kind='reservation' "
+                "AND reason IN ('queued','requeued') ORDER BY id DESC",
+                (reservation["item_id"],)):
+            details = json.loads(row["details"])
+            if details.get("reservation_id") == reservation_id:
+                candidate = details.get("comparison_candidate")
+                if candidate is None:
+                    return None
+                if (not isinstance(candidate, str) or not COMMIT_SHA.fullmatch(candidate)
+                        or details.get("commit_sha") != reservation["commit_sha"]):
+                    raise LedgerError("baseline comparison identity is damaged; preserve recovery evidence")
+                return {"verification_role": "baseline", "candidate_commit": candidate}
+        return None
 
     def begin_editor_warmup(self, slot_id, *, host):
         """Controller-only claim of an idle project before opening its persistent Editor."""
@@ -2080,6 +2107,7 @@ class Ledger:
                                           (reservation_id,)).fetchone()
             if row is None or row["state"] not in ("released", "cancelled"):
                 raise LedgerError("only a closed reservation can be re-queued")
+            comparison = self.reservation_comparison(reservation_id)
             fresh = str(uuid4())
             self.connection.execute(
                 """INSERT INTO reservations(reservation_id,item_id,generation,kind,mode,commit_sha,state,
@@ -2087,7 +2115,8 @@ class Ledger:
                 (fresh, row["item_id"], row["generation"], row["kind"], row["mode"], row["commit_sha"],
                  row["attempts"] + 1, self.clock()))
             self._audit(row["item_id"], "reservation", "requeued", details={"reservation_id": fresh,
-                                                                            "reason": reason[:200]})
+                "reason": reason[:200], **({"commit_sha": row["commit_sha"],
+                "comparison_candidate": comparison["candidate_commit"]} if comparison else {})})
             return fresh
 
     def recover_slot(self, slot_id, reason):

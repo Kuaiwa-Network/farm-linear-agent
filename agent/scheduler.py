@@ -257,6 +257,9 @@ class Scheduler:
                         "batch_result": (self._batch_result(state_dir)
                                          if reservation["mode"] == "batch" else None),
                         "results_dir": str(state_dir)}
+            comparison = self.ledger.reservation_comparison(reservation["reservation_id"])
+            if comparison:
+                resource.update(comparison)
             if reservation["kind"] == "server_slot":
                 # The controller journal is outside worker write roots. Reconstruct endpoints from it,
                 # never from a worker-writable result file or inherited production environment.

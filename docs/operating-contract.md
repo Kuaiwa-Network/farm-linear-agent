@@ -1083,6 +1083,28 @@ publication is not refused on it.
 
 ## Unity verification commits
 
+### Existing failures and draft delivery
+
+Client work/fix/feature jobs may request `await-resource --baseline --commit CANDIDATE` for a comparison.
+The CLI validates the same clean owned candidate/branch, configured clone and actual remote-main ancestry,
+then queues trusted remote main without resetting the candidate or immutable target. Controller audit records
+bind the baseline reservation to the candidate; dispatch marks it `verification_role=baseline` and supplies
+`candidate_commit`. The worker tests the reserved baseline, saves complete results, releases and waits for
+settlement before requesting the candidate normally. Claim, delegation, process and resource fencing remain.
+
+A complete full suite with unrelated existing failures need not block a draft when
+`python -m agent.test_baseline` returns `draft_eligible=true`: distinct recorded commits, identical selection
+and environment/config/package identities, complete nonzero leaf outcomes, no new/changed failures or skips,
+no removed tests, all affected tests passed, every matched failure reviewed against the actual diff, and all
+other required local checks passed. Missing/incomparable results remain gaps. The comparator is a read-only
+decision aid; it grants no publication authority and does not replace fresh `verify-publication` or main
+integration. The verdict is `passed_with_existing_failures`, with `full_suite_passed=false` and all retained
+failures/skips explicitly listed in the draft. No merge/deploy waiver, suppressed tests or unrelated fixes.
+See [evidence schema and procedure](../references/test-baseline.md). No schema migration: identity lives in
+audit details. Settle active comparison reservations before rollback to code that lacks comparison dispatch.
+
+### Candidate identity
+
 The issue target remains the immutable baseline for the job. A `feature` session has no intake pin:
 the receiver pins no Farm-Client commit in a session whose delegation starts it, nor on any
 later event in that session or for a mention in another session that it forwards to the job, and no

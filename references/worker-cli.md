@@ -658,7 +658,11 @@ baseline) and `target.issue_branch`; retries retain both. Always supply `--commi
 Unity verification. The CLI requires that exact branch, a clean current HEAD in this item's configured
 owned worktree, then rechecks the claim after Git. The reservation records the verification commit
 separately from the baseline. A plan, intake target or read-only typecheck reference grants no reservation.
-Fix's existing optional baseline request is unchanged.
+Fix's existing neutral optional baseline request is unchanged. In an owned Client stage, work/fix/feature
+can add `--baseline --commit CANDIDATE` to reserve trusted remote main for a comparison, while retaining the
+clean candidate, recorded issue branch and immutable target. A comparison resource carries
+`verification_role=baseline` and `candidate_commit`; verify its actual `resource.commit`, release and wait
+for settlement before requesting the candidate normally. See [comparison evidence and draft verdict](test-baseline.md).
 
 ## Notices
 

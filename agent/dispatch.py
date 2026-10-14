@@ -294,6 +294,23 @@ DOCUMENT_READER_DIAGNOSTIC_AUTHORITY = (
 
 AUTHORITY_REFERENCE = "Use references/worker-cli.md for command arguments and the exact handoff JSON shape."
 
+BASELINE_AUTHORITY = (
+    " For work, feature and fix Client jobs, unrelated existing full-suite failures may accompany a draft PR "
+    "only with complete per-test baseline/candidate evidence from distinct recorded commits, the same "
+    "mode, selection and environment, passing affected tests and all other required checks. Use "
+    "python -m agent.test_baseline with private evidence and an audited scope; only draft_eligible=true "
+    "permits this exception. Review each matched failure against the actual source diff and record why it "
+    "is unrelated. New/changed failures, affected failures, new skips, missing tests or mismatched evidence "
+    "remain blockers. Never suppress tests, change expected results or fix unrelated issues to make a gate green. "
+    "The draft must say full_suite_passed=false and list every retained failure and skip with both SHAs. "
+    "This grants neither merge nor deployment authority. Request a comparison baseline with await-resource "
+    "--baseline --commit CANDIDATE; the controller selects actual remote main without changing the owned "
+    "candidate, branch or immutable target. A resource with verification_role=baseline intentionally differs "
+    "from the source candidate: test only resource.commit, preserve candidate_commit, record complete outcomes, "
+    "release and wait for controller settlement before requesting candidate verification. Do not edit the "
+    "slot or start/stop an Editor. Baseline evidence alone never certifies the candidate. "
+)
+
 # Per-skill grants, chosen by the item's skill. A skill without an entry is refused when its launch message
 # is built: state its grants here, never only in its SKILL.md.
 SKILL_AUTHORITY = {"fix": KW_OPS_AUTHORITY + FGUI_EXPORT_AUTHORITY, "chat": KW_OPS_AUTHORITY,
@@ -350,7 +367,8 @@ def authority(skill):
         raise ValueError(f"skill {skill!r} has no dispatch AUTHORITY; state its grants in agent/dispatch.py")
     identity = GIT_COMMIT_AUTHORITY if skill != "chat" else ""
     diagnostic = DOCUMENT_READER_DIAGNOSTIC_AUTHORITY if skill in {"work", "feature", "fgui"} else ""
-    return COMMON_AUTHORITY + identity + QUESTION_AUTHORITY + SKILL_AUTHORITY[skill] + diagnostic + AUTHORITY_REFERENCE
+    baseline = BASELINE_AUTHORITY if skill in {"work", "feature", "fix"} else ""
+    return COMMON_AUTHORITY + identity + QUESTION_AUTHORITY + SKILL_AUTHORITY[skill] + diagnostic + baseline + AUTHORITY_REFERENCE
 
 
 def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, guidance, budget, repo_root=None,

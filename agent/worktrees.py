@@ -688,6 +688,14 @@ class Worktrees:
                 raise VerificationMismatch("verification requires a clean worktree after main integration")
         return commit
 
+    def verification_baseline(self, repo, item_id, candidate, *, expected_branch=None):
+        """Select actual remote main for comparison without changing the owned candidate."""
+        self.verification_commit(repo, item_id, candidate, expected_branch=expected_branch)
+        path = self.worktrees_root.resolve() / item_id / repo
+        main = self.require_main_integration(repo, path, candidate)
+        self.verification_commit(repo, item_id, candidate, expected_branch=expected_branch)
+        return main["commit"]
+
     # A failed item's worktrees are swept, so anything only in them is gone; the commit below is what keeps
     # it. FarmBot commits as itself rather than as the operator, and never relies on a global git identity,
     # which a launchd service does not necessarily have.
