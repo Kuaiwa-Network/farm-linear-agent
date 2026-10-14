@@ -1064,6 +1064,23 @@ commit and the resumed worker sees it as `resource.commit`. Batch summaries addi
 `runs/<job>/unity/<reservation-id>/`. The job-root summary points to the latest run. A baseline
 run cannot establish that a later fix works; reports must name the tested commit and any gaps.
 
+New write-worker Unity requests must include the current remote default branch in their clean
+candidate, including a Client-rooted legacy fix that omits `--commit`. The CLI fetches through
+the verified clone, reads the configured origin's actual default HEAD and checks Git ancestry;
+a worker-written remote-tracking ref cannot supply that proof. A stale candidate is refused
+before a reservation is queued. Workers integrate main on their issue branch and rerun required
+checks at the resulting commit; the controller never merges or resets their work. Neutral
+baseline investigation and read-only chat keep their existing authority.
+
+The claim-authenticated `verify-publication` command repeats this check for source branches and
+returns `main_integration` with the remote branch/commit and candidate SHA. Existing `-config`
+and numbered repin roles remain exact existing-remote-commit publications and do not merge main
+into that pin. Historical PR identity reads and launch destination previews retain their existing
+semantics. Reservation-bound retries keep their exact input; they do not fetch or silently merge
+new main into the running verification. Main advancing afterward can require another integration
+and new verification before publication. This adds no ledger schema or state migration; rollback
+removes this gate, so settle workers and retain their evidence before switching revisions.
+
 ## Linear uploads
 
 Any worker may download the claimed issue's uploads with the claim-authenticated

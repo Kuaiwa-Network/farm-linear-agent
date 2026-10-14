@@ -52,7 +52,8 @@ class PublicationTests(unittest.TestCase):
         host = Path(self.tmp.name) / 'host.gitconfig'
         # Git drops a backslash in a quoted section name unless it is doubled, which a Windows path needs.
         base = str(self.origin).replace('\\', '\\\\').replace('"', '\\"')
-        host.write_text(f'[url "{base}"]\n\tinsteadOf = {self.remote}\n', encoding='utf-8')
+        host.write_text(f'[url "{base}"]\n\tinsteadOf = {self.remote}\n'
+                        f'[url "{self.remote}"]\n\tpushInsteadOf = {self.remote}\n', encoding='utf-8')
         with patch.dict(os.environ, {'GIT_CONFIG_GLOBAL': str(host)}):
             yield
 
@@ -254,6 +255,24 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(scope['repositories']['farmgui']['status'], 'unverified')
         self.assertNotIn('url', scope['repositories']['farmgui'])
 
+    def test_current_publication_requires_actual_remote_main_not_spoofed_tracking_ref(self):
+        candidate = self.trees.head(self.path)
+        (self.origin / 'new-main.txt').write_text('new source', encoding='utf-8')
+        git('add', '.', cwd=self.origin)
+        git('commit', '-qm', 'advance main', cwd=self.origin)
+        main = self.trees.head(self.origin)
+        git('update-ref', 'refs/remotes/origin/main', candidate, cwd=self.path)
+        with self.fetching_from_the_local_origin():
+            with self.assertRaisesRegex(publication.PublicationError, 'fetch and integrate main'):
+                self.verifier.verify('farmgui', 'job', 'FARM-1248', require_main=True)
+            self.assertEqual(self.trees.head(self.path), candidate)
+            git('merge', '-q', '--no-edit', 'origin/main', cwd=self.path)
+            result = self.verifier.verify('farmgui', 'job', 'FARM-1248', require_main=True)
+        self.assertEqual(result['main_integration'], {'branch': 'main', 'commit': main,
+                                                      'candidate': self.trees.head(self.path)})
+        # Historical PR identity reads and launch scope do not invalidate already-recorded output.
+        self.assertEqual(self.verify()['status'], 'verified')
+
 
 class SuffixBranchTests(unittest.TestCase):
     """The named suffix branches of a job with an initial root (spec §6.1, §6.4, §6.8, §11; P4), on local remotes.
@@ -339,6 +358,11 @@ class SuffixBranchTests(unittest.TestCase):
         git('switch', '-q', '-c', 'farmbot/farm-1-config', data, cwd=self.paths['common'])
         result = self.verify('common')
         self.assertEqual((result['status'], result['branch'], result['head']), ('verified', 'farmbot/farm-1-config', data))
+
+        self.commit('common', 'later.txt', 'new unrelated main source', 'advance main', cwd=origin)
+        result = self.verifier.verify('common', 'job', 'FARM-1', suffix_roles=True, require_main=True)
+        self.assertEqual(result['head'], data)
+        self.assertNotIn('main_integration', result)
 
     def test_a_config_branch_that_adds_a_commit_is_refused_for_a_job_with_an_initial_root(self):
         path = self.paths['common']

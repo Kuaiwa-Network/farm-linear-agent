@@ -375,6 +375,16 @@ class DispatchTests(unittest.TestCase):
 class SkillAuthorityTests(unittest.TestCase):
     """The AUTHORITY is the only launch text the Codex approval reviewer trusts, so it is chosen per skill."""
 
+    def test_main_integration_authority_is_scoped_to_write_profiles_and_owned_issue_branch(self):
+        for skill in ("fix", "work", "feature", "fgui", "scene"):
+            with self.subTest(skill=skill):
+                text = dispatch.authority(skill)
+                self.assertIn("Within stage.write_repositories, local merges", text)
+                self.assertIn("owned issue branch are authorized for synchronization", text)
+                self.assertIn("no pull-request merge, default-branch push or force-push", text)
+        self.assertNotIn("local merges", dispatch.authority("chat"))
+        self.assertIn("Never merge pull requests", dispatch.authority("chat"))
+
     def test_all_profiles_receive_clear_human_requests_without_extra_approval(self):
         for skill in ("chat", "fix", "work", "feature", "fgui", "scene"):
             with self.subTest(skill=skill):
@@ -400,7 +410,8 @@ class SkillAuthorityTests(unittest.TestCase):
     def test_chat_keeps_historical_restrictions_and_receives_question_authority(self):
         """Keep the historical restrictions pinned independently of the new question protocol."""
         self.assertEqual(dispatch.COMMON_AUTHORITY + dispatch.SKILL_AUTHORITY["chat"] + dispatch.AUTHORITY_REFERENCE,
-                         with_withdrawal(AUTHORITY_AT_A29D078))
+                         with_withdrawal(AUTHORITY_AT_A29D078).replace(
+                             "Never merge, deploy", "Never merge pull requests, deploy"))
         self.assertEqual(self.message({"id": "i", "skill": "chat"}).split("\n\n", 1)[0],
                          dispatch.COMMON_AUTHORITY + dispatch.QUESTION_AUTHORITY + dispatch.SKILL_AUTHORITY["chat"] + dispatch.AUTHORITY_REFERENCE)
 
@@ -509,7 +520,8 @@ class SkillAuthorityTests(unittest.TestCase):
         checkpoint rule included, and the reference."""
         reference = "Use references/worker-cli.md for command arguments and the exact handoff JSON shape."
         common, marker, rest = AUTHORITY_AT_A29D078.partition("When tools.kw_ops.access is present")
-        self.assertEqual(dispatch.COMMON_AUTHORITY, with_server_slots(common) + WITHDRAWAL_AT_DESIGN)
+        expected = with_server_slots(common).replace("Never merge, deploy", "Never merge pull requests, deploy")
+        self.assertEqual(dispatch.COMMON_AUTHORITY, expected + WITHDRAWAL_AT_DESIGN)
         self.assertEqual(dispatch.AUTHORITY_REFERENCE, reference)
         self.assertEqual(dispatch.KW_OPS_AUTHORITY, marker + rest[:-len(reference)])
 

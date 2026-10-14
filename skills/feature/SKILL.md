@@ -782,6 +782,11 @@ equals `target.issue_branch`; preserve it and any recovery work. Record it in `p
 "Other people's work" passes. Fetch and integrate main drift without resetting or force-pushing, and ask about
 newer designer data rather than reverting it. Respect all stage limits, withdrawal and current claim fences.
 
+New Unity requests and `verify-publication` enforce ancestry of the actual remote main HEAD. If refused,
+integrate main on the preserved issue branch, commit, and repeat required checks at the new HEAD. Do not reset
+the baseline, alter tracking refs to claim synchronization, or reuse old-HEAD results. Reservation-bound
+resumes keep their granted commit; perform integration after that reservation has settled if main advanced.
+
 A reservation-bound resume starts at step 8, without regenerating assets or changing the committed input.
 After a clean release, keep your current claim and continue at step 9 only when the saved verification names the same clean HEAD
 and unchanged input pins, all required checks passed, and the controller has settled the reservation. Otherwise

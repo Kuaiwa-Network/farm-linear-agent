@@ -52,6 +52,13 @@ class CliTests(unittest.TestCase):
         git('branch', '-m', f'farmbot/{issue_prefix.lower()}-1', cwd=path)
         git('remote', 'set-url', 'origin', 'https://github.com/Kuaiwa-Network/Farm-Client.git', cwd=path)
         config = load_config(self.env['FARMBOT_CONFIG'])
+        host_config = self.root / 'publication-host.gitconfig'
+        local_origin = config.repos['Farm-Client'].replace('\\', '\\\\').replace('"', '\\"')
+        host_config.write_text(f'[url "{local_origin}"]\n\tinsteadOf = https://github.com/Kuaiwa-Network/Farm-Client.git\n'
+                               '[url "https://github.com/Kuaiwa-Network/Farm-Client.git"]\n'
+                               '\tpushInsteadOf = https://github.com/Kuaiwa-Network/Farm-Client.git\n',
+                               encoding='utf-8')
+        self.enterContext(patch.dict(os.environ, {'GIT_CONFIG_GLOBAL': str(host_config)}))
         config.issue_prefix = issue_prefix
         config.repos['Farm-Client'] = 'https://github.com/Kuaiwa-Network/Farm-Client.git'
         args = parser().parse_args(['--db', str(self.db), 'verify-publication', '--item', item,
@@ -426,6 +433,24 @@ class CliTests(unittest.TestCase):
         reservation = self.run_cli("reservations")[0]
         self.assertEqual(reservation["commit_sha"], fixed)
 
+    def test_unity_request_refuses_stale_main_with_or_without_explicit_commit(self):
+        from test_worktrees import git
+        item, token, baseline, fixed, path = self.verification_fixture()
+        (self.root / 'origin' / 'later.txt').write_text('later main source', encoding='utf-8')
+        git('add', '.', cwd=self.root / 'origin')
+        git('commit', '-qm', 'advance main', cwd=self.root / 'origin')
+        common = ('await-resource', '--item', item, '--token', token,
+                  '--resource', 'unity_slot', '--mode', 'interactive')
+        self.assertIn('integrate main', self.run_cli(*common, '--commit', fixed, success=False).stderr)
+        git('reset', '--hard', baseline, cwd=path)  # clean legacy default selection in this disposable fixture
+        self.assertIn('integrate main', self.run_cli(*common, success=False).stderr)
+        self.assertEqual(self.run_cli('reservations'), [])
+        git('merge', '-q', '--no-edit', 'origin/main', cwd=path)
+        integrated = git('rev-parse', 'HEAD', cwd=path)
+        result = self.run_cli(*common, '--commit', integrated)
+        self.assertEqual(result['target']['commit_sha'], baseline)
+        self.assertEqual(self.run_cli('reservations')[0]['commit_sha'], integrated)
+
     def test_explicit_commit_refuses_dirty_worktree_and_stale_claim(self):
         item, token, baseline, fixed, path = self.verification_fixture()
         (path / "fix.cs").write_text("not committed")
@@ -498,7 +523,7 @@ class CliTests(unittest.TestCase):
         args = parser().parse_args(["--db", str(self.db), "await-resource", "--item", item, "--token", token,
                                    "--resource", "unity_slot", "--mode", "batch", "--commit", fixed])
         def cancelled(*_, **options):
-            self.assertEqual(options, {"expected_branch": "farmbot/farm-1"})
+            self.assertEqual(options, {"expected_branch": "farmbot/farm-1", "require_main": True})
             ledger.cancel(item, "withdrawn during Git reads")
             return fixed
         with patch("agent.__main__.load_config", return_value=config), \
@@ -526,7 +551,7 @@ class CliTests(unittest.TestCase):
                                    "--token", token, "--resource", "unity_slot", "--mode", "batch", "--commit", fixed])
         ledger = Ledger(self.db)
         self.addCleanup(ledger.close)
-        def cancel_during_git(*_):
+        def cancel_during_git(*_, **options):
             other = Ledger(self.db)
             try:
                 other.cancel(item, "issue closed during checkout validation")
