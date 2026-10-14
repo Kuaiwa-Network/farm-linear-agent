@@ -838,7 +838,8 @@ def run(args, ledger, api_factory):
             from .workflow import JobWorktrees
             trees = JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger)
             result = PublicationVerifier(trees, issue_prefix=config.issue_prefix).verify(
-                args.repo, args.item, issue['identifier'], suffix_roles=skill.initial_root is not None)
+                args.repo, args.item, issue['identifier'], suffix_roles=skill.initial_root is not None,
+                require_main=True)
             ledger.renew(args.item, token)  # fence cancellation while network checks were in progress
             refuse_withdrawn(ledger.item(args.item))  # and a withdrawal flagged meanwhile
             return result
@@ -863,6 +864,7 @@ def run(args, ledger, api_factory):
         token = resolve_token(args)
         ledger.renew(args.item, token)  # authenticate before reading a manifest or any checkout
         item = ledger.item(args.item)
+        refuse_withdrawn(item)
         # The item's own manifest decides what it may wait for (P11), as it decides handoff-repository's stages.
         skill = load_skills(ROOT / "skills").get(item["skill"])
         if skill is None:
@@ -913,7 +915,20 @@ def run(args, ledger, api_factory):
                 verification_record(workflow, "fgui_guards_complete", "guards_sha256", receipt, scope, installed)
             from .workflow import JobWorktrees
             JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger).verification_commit(
-                "farm-hive" if server_request else "Farm-Client", args.item, args.commit, **options)
+                "farm-hive" if server_request else "Farm-Client", args.item, args.commit,
+                require_main=not server_request, **options)
+        elif (args.resource == "unity_slot" and item["skill"] == "fix"
+                and current_root(item["root_repo"], skill) == "Farm-Client"
+                and (item.get("target") or {}).get("repository") == "Farm-Client"):
+            # Legacy fix requests may omit --commit; omission cannot bypass main synchronization.
+            from .worktrees import Worktrees
+            from .workflow import JobWorktrees
+            config = load_config(secure_permissions=False)
+            paths = Paths(config)
+            if Path(args.db).resolve() != paths.ledger.resolve():
+                raise LedgerError("verification must use the configured host ledger")
+            JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger).verification_commit(
+                "Farm-Client", args.item, item["target"]["commit_sha"], require_main=True)
         # Ownership is checked again after Git validation, fencing a concurrent stop/closure.
         return ledger.await_resource(args.item, token, args.resource, mode, skill=skill,
                                      commit_sha=args.commit, **request_options)

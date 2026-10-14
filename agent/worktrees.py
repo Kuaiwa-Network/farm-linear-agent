@@ -635,8 +635,32 @@ class Worktrees:
             return self.git_in(path, "rev-parse", "HEAD")
         return _git("rev-parse", "HEAD", cwd=path)
 
-    def verification_commit(self, repo, item_id, commit, *, expected_branch=None):
-        """Validate a worker's immutable test input without fetching or changing files."""
+    def require_main_integration(self, repo, path, commit, *, default_branch=None):
+        """Prove a candidate includes the actual remote default HEAD, never a worker-written tracking ref.
+
+        Fetch objects only; the controller never merges, resets or changes the candidate.
+        A new worker request/publication uses this gate; reservation-bound recovery keeps its pinned input.
+        """
+        self.worktree_entry(repo, path)
+        if not isinstance(commit, str) or not self.COMMIT.fullmatch(commit):
+            raise VerificationMismatch("main integration requires a full candidate commit")
+        self.fetch(repo)
+        branch, main = self._origin_head(repo)
+        if default_branch is not None and branch != default_branch:
+            raise WorktreeError("remote default branch changed during main integration verification")
+        if not self.has_commit(repo, main):
+            raise WorktreeError("remote main moved during verification; fetch and retry main integration")
+        bases = self.git_in(path, "merge-base", "--all", main, commit,
+                            env={**GIT_ENV, "GIT_NO_REPLACE_OBJECTS": "1"}).splitlines()
+        if main not in bases:
+            raise VerificationMismatch(f"{repo}: candidate must include origin/{branch} at {main}; "
+                                       "fetch and integrate main, then rerun checks at the new clean HEAD")
+        if self.head(path) != commit:
+            raise VerificationMismatch("candidate HEAD changed during main integration verification")
+        return {"branch": branch, "commit": main, "candidate": commit}
+
+    def verification_commit(self, repo, item_id, commit, *, expected_branch=None, require_main=False):
+        """Validate immutable test input; new requests also require current main when explicitly selected."""
         if not isinstance(commit, str) or not self.COMMIT.fullmatch(commit):
             raise WorktreeError("verification commit must be a full lowercase commit SHA")
         root = self.worktrees_root.resolve()
@@ -654,6 +678,11 @@ class Worktrees:
             raise VerificationMismatch("verification commit must equal the item's current worktree HEAD")
         if self.git_in(path, "status", "--porcelain", "--untracked-files=all"):
             raise VerificationMismatch("verification requires a clean worktree; commit all intended changes first")
+        if require_main:
+            self.require_main_integration(repo, path, commit)
+            # Git/network reads can outlive a concurrent edit; do not queue dirty source.
+            if self.git_in(path, "status", "--porcelain", "--untracked-files=all"):
+                raise VerificationMismatch("verification requires a clean worktree after main integration")
         return commit
 
     # A failed item's worktrees are swept, so anything only in them is gone; the commit below is what keeps

@@ -467,6 +467,13 @@ after worker overrides; only an explicit environment grant supplies its configur
 
 ## Suffix branches
 
+New Client write-worker Unity requests and `verify-publication` require the candidate to include the
+configured origin's actual remote default HEAD. The controller fetches/checks ancestry and refuses stale
+source without merging or resetting it. Integrate main on the owned branch and rerun checks at the new clean
+HEAD. Publication returns `main_integration: {branch, commit, candidate}` for source branches. The existing
+exact-commit `-config`/numbered repin roles are exempt; reservation recovery and historical PR identity
+checks retain their pinned inputs. A read-only chat or neutral baseline investigation gains no write authority.
+
 `verify-publication` verifies the branch checked out in your root repository's worktree: the issue
 branch `farmbot/<key>` or any `farmbot/<key>-<suffix>` of it, under the same rules. A job whose skill
 has an initial root also keeps named suffix branches, and its skill says when to make each:

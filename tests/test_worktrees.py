@@ -135,6 +135,52 @@ class WorktreeTests(unittest.TestCase):
         with self.assertRaisesRegex(WorktreeError, "clean"):
             self.trees.verification_commit("Farm-Client", "item-1", fixed)
 
+    def test_new_verification_requires_remote_main_and_preserves_candidate(self):
+        path = self.trees.add("Farm-Client", "item-1", "farmbot/farm-1")
+        baseline = self.trees.head(path)
+        (path / "fix.txt").write_text("issue work", encoding="utf-8")
+        git("add", ".", cwd=path)
+        git("commit", "-qm", "fix", cwd=path)
+        candidate = self.trees.head(path)
+        self.assertEqual(self.trees.verification_commit("Farm-Client", "item-1", candidate,
+                                                      require_main=True), candidate)
+        (self.origin / "main.txt").write_text("new main", encoding="utf-8")
+        git("add", ".", cwd=self.origin)
+        git("commit", "-qm", "advance main", cwd=self.origin)
+        # A worker can rewrite tracking refs; only the server's actual HEAD vouches for main.
+        git("update-ref", "refs/remotes/origin/main", candidate, cwd=path)
+        with self.assertRaisesRegex(WorktreeError, "fetch and integrate main"):
+            self.trees.verification_commit("Farm-Client", "item-1", candidate, require_main=True)
+        main = self.trees.head(self.origin)
+        git("replace", "--graft", candidate, main, cwd=path)
+        self.assertEqual(git("merge-base", main, candidate, cwd=path), main)
+        with self.assertRaisesRegex(WorktreeError, "fetch and integrate main"):
+            self.trees.verification_commit("Farm-Client", "item-1", candidate, require_main=True)
+        git("replace", "-d", candidate, cwd=path)
+        self.assertEqual(self.trees.head(path), candidate)
+        self.assertEqual((path / "fix.txt").read_text(encoding="utf-8"), "issue work")
+        # Recovery still verifies its immutable input after main advances; no network freshness gate here.
+        self.assertEqual(self.trees.verification_commit("Farm-Client", "item-1", candidate), candidate)
+        git("merge", "-q", "--no-edit", "origin/main", cwd=path)
+        integrated = self.trees.head(path)
+        self.assertEqual(self.trees.verification_commit("Farm-Client", "item-1", integrated,
+                                                      require_main=True), integrated)
+        self.assertEqual(git("merge-base", baseline, integrated, cwd=path), baseline)
+
+    def test_main_gate_rejects_unavailable_remote_and_changed_head(self):
+        from unittest.mock import patch
+        path = self.trees.add("Farm-Client", "item-1", "farmbot/farm-1")
+        candidate = self.trees.head(path)
+        with patch.object(self.trees, "fetch", side_effect=WorktreeError("offline")):
+            with self.assertRaisesRegex(WorktreeError, "offline"):
+                self.trees.verification_commit("Farm-Client", "item-1", candidate, require_main=True)
+        with patch.object(self.trees, "head", return_value="f" * 40):
+            with self.assertRaisesRegex(WorktreeError, "HEAD changed"):
+                self.trees.verification_commit("Farm-Client", "item-1", candidate, require_main=True)
+        with patch.object(self.trees, "_origin_head", return_value=("main", "f" * 40)):
+            with self.assertRaisesRegex(WorktreeError, "main moved"):
+                self.trees.verification_commit("Farm-Client", "item-1", candidate, require_main=True)
+
     def test_verification_rejects_foreign_checkout_and_missing_worktree(self):
         sha = self.trees.head(self.origin)
         path = self.trees.worktrees_root / "item-1" / "Farm-Client"

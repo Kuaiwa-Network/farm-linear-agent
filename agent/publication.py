@@ -10,7 +10,7 @@ import subprocess
 from urllib.parse import quote
 
 from .router import WRITE_SKILLS
-from .worktrees import GITHUB_REMOTE, WorktreeError
+from .worktrees import GITHUB_REMOTE, VerificationMismatch, WorktreeError
 
 
 class PublicationError(RuntimeError):
@@ -100,10 +100,12 @@ class PublicationVerifier:
         self.api = api or github_api
         self.issue_prefix = issue_prefix
 
-    def verify(self, repo, item_id, identifier, branch=None, *, suffix_roles=False):
+    def verify(self, repo, item_id, identifier, branch=None, *, suffix_roles=False, require_main=False):
         """Apply suffix roles for a skill with an initial root; fix keeps any suffix Linear suggests."""
         try:
-            return self._verify(repo, item_id, identifier, branch, suffix_roles)
+            return self._verify(repo, item_id, identifier, branch, suffix_roles, require_main)
+        except VerificationMismatch as exc:
+            raise PublicationError(str(exc)) from exc
         except (WorktreeError, OSError, subprocess.TimeoutExpired) as exc:
             raise PublicationError('cannot verify the configured worktree and push destination') from exc
 
@@ -127,7 +129,7 @@ class PublicationVerifier:
             raise PublicationError("PR must be an open draft for this job's exact repository, branch and HEAD")
         return url
 
-    def _verify(self, repo, item_id, identifier, branch, suffix_roles=False):
+    def _verify(self, repo, item_id, identifier, branch, suffix_roles=False, require_main=False):
         prefix = issue_branch(identifier, self.issue_prefix)
         configured = self.worktrees.remotes.get(repo)
         expected = github_repository(configured)
@@ -188,10 +190,17 @@ class PublicationVerifier:
         if remote_branch is not None and (not isinstance(remote_branch, dict)
                                          or remote_branch.get('name') != branch or remote_branch.get('protected') is not False):
             raise PublicationError('publishing to a protected or unverifiable branch is not authorized')
-        return {'status': 'verified', 'repository': metadata['full_name'], 'url': metadata['html_url'],
-                'push_url': push_urls[0], 'push_remote': 'origin', 'branch': branch, 'head': self.worktrees.head(path),
+        head = self.worktrees.head(path)
+        result = {'status': 'verified', 'repository': metadata['full_name'], 'url': metadata['html_url'],
+                'push_url': push_urls[0], 'push_remote': 'origin', 'branch': branch, 'head': head,
                 'base_branch': metadata['default_branch'], 'private': True, 'write_access': True,
                 'verified_at': datetime.now(timezone.utc).isoformat()}
+        # Config publication pins an existing remote commit and must not merge new source into that pin.
+        config_pin = suffix_roles and suffix_of(branch, prefix) in (CONFIG_SUFFIX, CONFIG_REPIN_SUFFIX)
+        if require_main and not config_pin:
+            result['main_integration'] = self.worktrees.require_main_integration(
+                repo, path, head, default_branch=metadata['default_branch'])
+        return result
 
     def scope(self, *, item, issue, paths, delegated, suffix_roles=False):
         scope = {'repositories': {}}
