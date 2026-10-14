@@ -17,7 +17,9 @@ class CodexRuntimeTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.root = Path(self.tmp.name) / "runtime 空间"
+        # macOS exposes /var through a symlink; Windows runners can use an 8.3
+        # TEMP alias. Exercise candidate boundaries under the canonical temp root.
+        self.root = Path(self.tmp.name).resolve() / "runtime 空间"
         self.root.mkdir()
         self.node = self.root / "node tool.exe"
         self.npm = self.root / "npm entry.js"
@@ -217,6 +219,14 @@ class CodexRuntimeTests(unittest.TestCase):
         npm_cli.write_text("fake", encoding="utf-8")
         with patch("agent.codex_runtime.shutil.which", side_effect=[str(self.node), str(tool_dir / "npm.cmd")]):
             self.assertEqual(_npm_tools(), (str(self.node), str(npm_cli)))
+
+    def test_tool_aliases_are_canonicalized_before_subprocess_arguments(self):
+        alias = self.root / "tool alias"
+        alias.symlink_to(self.root, target_is_directory=True)
+        receipt = prepare(self.root / "candidate", node=str(alias / self.node.name),
+                          npm_cli=str(alias / self.npm.name), runner=self.fake_run)
+        self.assertEqual(self.calls[1][0][:3], [str(self.node), str(self.npm), "install"])
+        self.assertEqual(verify(self.root / "candidate" / RECEIPT), receipt)
 
     def test_failed_install_keeps_logs_without_a_verified_receipt(self):
         def failing(argv, **kwargs):
