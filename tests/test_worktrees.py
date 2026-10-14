@@ -1232,6 +1232,28 @@ class FetchRaceTests(unittest.TestCase):
     def tracking(self):
         return git("rev-parse", "refs/remotes/origin/main", cwd=self.clone)
 
+    def test_fetch_updates_refs_without_writing_clone_root_fetch_head(self):
+        # A directory models an unwritable FETCH_HEAD on Windows as well as POSIX, even
+        # when tests run with elevated permissions. Other clone writes remain available.
+        fetch_head = self.clone / "FETCH_HEAD"
+        fetch_head.unlink(missing_ok=True)
+        fetch_head.mkdir()
+        marker = fetch_head / "preserved.txt"
+        marker.write_bytes(b"must not be changed")
+        head = self.advance("later.txt")
+        self.trees.fetch("Farm-Client")
+        self.assertEqual(self.tracking(), head)
+        self.assertTrue(self.trees.has_commit("Farm-Client", head))
+        self.assertEqual(marker.read_bytes(), b"must not be changed")
+
+    def test_fetch_does_not_create_fetch_head(self):
+        fetch_head = self.clone / "FETCH_HEAD"
+        fetch_head.unlink(missing_ok=True)
+        head = self.advance("later.txt")
+        self.trees.fetch("Farm-Client")
+        self.assertEqual(self.tracking(), head)
+        self.assertFalse(fetch_head.exists())
+
     def test_a_fetch_that_loses_the_ref_lock_race_is_retried_once(self):
         head = self.advance("later.txt")
         patched, envs = self.fetches(lost_race())

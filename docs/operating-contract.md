@@ -395,6 +395,9 @@ fetches per clone at a time and retries once a fetch that lost that race (`canno
 the retry loses too, a slot switch goes on when the clone already holds the pinned commit, and the
 default head is origin's own from `ls-remote` when the clone holds that commit. FarmBot does not read
 the remote-tracking ref then, because a worker can write it.
+Controller fetches of an existing clone use `--no-write-fetch-head`, including calls from the
+worker CLI. They update objects and refs without requiring write access to the clone root;
+`FETCH_HEAD` is not verification evidence and worker write roots do not expand for this operation.
 Every git call FarmBot itself makes runs with hooks and fsmonitor off. On Windows these calls also
 pass `core.longpaths=true` for nested repository files under the isolated state root; this changes
 neither host Git settings nor the clone config allowlist. In a job's worktree it names
