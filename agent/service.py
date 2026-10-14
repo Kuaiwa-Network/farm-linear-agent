@@ -110,7 +110,8 @@ def build(config, runtime_override=None):
                     admission=admission,
                     keep_open=bool(editor_count),
                     mcp=UnityIdentity(ROOT / "agent" / "probes" / "editor-readiness.cs.txt",
-                                      token_env=token_env, secret_env=config.lark_cli.get("secret_env")))
+                                      token_env=token_env, secret_env=config.lark_cli.get("secret_env"),
+                                      console_evidence_root=paths.config_dir / 'unity-console'))
     progress = SessionProgress(Ledger(paths.ledger, check_same_thread=False), api)
     recovery_ledger = Ledger(paths.ledger, check_same_thread=False)
     recovery_pool = SlotPool(recovery_ledger, worktrees, entries, host=config.host, editors_root=paths.editors,
@@ -118,7 +119,8 @@ def build(config, runtime_override=None):
                             admission=admission,
                             keep_open=bool(editor_count),
                             mcp=UnityIdentity(ROOT / 'agent' / 'probes' / 'editor-readiness.cs.txt',
-                                              token_env=token_env, secret_env=config.lark_cli.get("secret_env")),
+                                              token_env=token_env, secret_env=config.lark_cli.get("secret_env"),
+                                              console_evidence_root=paths.config_dir / 'unity-console'),
                             editor_pid=lambda folder: editor_holds_project(folder, strict=True))
     recovery = RecoveryController(recovery_ledger, recovery_pool, host=config.host,
                                   evidence_root=paths.config_dir / 'resource-recovery',

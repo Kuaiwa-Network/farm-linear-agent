@@ -102,6 +102,15 @@ Editors never count as test passes and healthy selected Editors remain usable.
 Workers cannot launch, stop or restart Editors. Stop, withdrawal, claim fencing,
 identity, exact-commit and quiescence checks remain in force.
 
+A single persistent Editor is supported with `unity_pool: {"editors": 1}`;
+Unity requests remain FIFO while `max_concurrent` independently controls code
+workers. Settle reservations and close unselected owned Editors before reducing
+the configured pool. An idle Editor whose process ownership cannot be read is
+excluded from grants immediately. A successful observation within 30 seconds
+restores eligibility without restarting it; continuous uncertainty requests the
+existing fenced preparation recovery. Windows process inspection filters Unity
+processes at the provider and allows 15 seconds for the native query.
+
 No schema migration is introduced. Settled queued batch rows change their mode
 to interactive when this policy is enabled; older code already understands that
 mode on rollback. Existing active batch executions must finish before activation.
@@ -862,6 +871,17 @@ explicit internal task join and emits no human elicitation. This supersedes the 
 operator-only slot recovery policy. Workers checkpoint, release `unclean`, and exit immediately.
 The release revokes both their claim and reservation token. Never request a human to operate
 Unity or add `待回复` for this condition.
+
+Interactive preparation and physical recovery establish a fresh Console boundary
+only after verifying tests are inactive and the Editor is in Edit Mode. The
+controller preserves the preceding bounded error entries under
+`<local_root>/agent/unity-console/` before clearing them, then explicitly requests
+script compilation and waits for readiness. Archive or payload failures preserve
+the old Console. Expected errors from earlier tests therefore cannot masquerade
+as the new candidate's compiler failure; a broken unchanged candidate is still
+recompiled and rejected. Read-only late-start revalidation clears nothing and
+continues to inspect retained errors. None of this turns failed test results into
+passes or relaxes the exact-commit/source/assembly identity checks.
 
 A successful slot switch records its candidate commit in `slots.parked_commit` together
 with the busy state. For interactive switches this follows the full identity probe;

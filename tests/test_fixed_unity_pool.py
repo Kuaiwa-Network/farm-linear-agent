@@ -289,16 +289,36 @@ class FixedEditorPoolTests(SlotFixture):
             raise UnityError("process enumeration refused")
         pool.editor_pid = unknown
         pool.tick()
+        self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "idle_open")
+        self.assertIsNone(self.ledger.active_reservation(item))
+        self.advance(31)
+        pool.tick()
         self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "held")
         self.assertEqual(self.ledger.item(item)["state"], "awaiting_resource")
         self.assertEqual(len([c for c in self.mcp.calls if c[0] == "start"]), 1)
         self.assertFalse(any(c[0] == "terminate" for c in self.mcp.calls))
 
+    def test_one_failed_process_read_blocks_grants_then_reuses_the_same_editor(self):
+        from agent.unity import UnityError
+        pool = self.fixed_pool(1)
+        pool.ensure()
+        item = self.waiting(ISSUE, self.trees.head(self.origin))
+        original = pool.editor_pid
+        pool.editor_pid = lambda folder: (_ for _ in ()).throw(UnityError('temporary timeout'))
+        pool.tick()
+        self.assertIsNone(self.ledger.active_reservation(item))
+        self.assertEqual(list(self.ledger.connection.execute('SELECT id FROM resource_recoveries')), [])
+        pool.editor_pid = original
+        pool.tick()
+        self.assertEqual(self.ledger.active_reservation(item)['resource'], 'unity_slot:1')
+        self.assertEqual(len([c for c in self.mcp.calls if c[0] == 'start']), 1)
+        self.assertFalse(any(c[0] == 'terminate' for c in self.mcp.calls))
+
 
 class FixedEditorConfigTests(SlotFixture):
     def test_configuration_selects_two_or_three_and_round_trips_private_file(self):
         entries = [{"id": f"unity_slot:{n}"} for n in (1, 2, 3)]
-        for count in (2, 3):
+        for count in (1, 2, 3):
             block = {"editors": count}
             self.assertEqual(fixed_editor_count(block, entries), count)
             path = self.root / "配置 profile.json"
