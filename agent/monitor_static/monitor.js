@@ -237,14 +237,34 @@
     const capacity = service.capacity;
     if (!capacity) return [row("two", cell("label muted", "能力与容量"), cell("main muted", "此版本未提供"))];
     const enabled = new Set(capacity.enabled_skills);
-    const names = new Set([...Object.keys(SKILL), ...enabled]);
-    const skills = el("div", "pills");
-    skills.append(...[...names].map((name) => pill(`${SKILL[name] || name}${enabled.has(name) ? " 已启用" : " 未启用"}`,
-                                                enabled.has(name) ? "info" : "neutral")));
+    const general = enabled.has("work");
+    const configuredPills = (names) => {
+      const pills = el("div", "pills");
+      pills.append(...names.map((name) => pill(`${SKILL[name] || name}${enabled.has(name) ? " 已启用" : " 未启用"}`,
+                                             enabled.has(name) ? "info" : "neutral")));
+      return pills;
+    };
+    // Internal presentation tasks follow work's admission, regardless of standalone fgui/scene enablement.
+    // Availability to delegate does not certify host tools, visual approval or delivery gates.
+    const tasks = el("div", "pills");
+    tasks.append(...["fgui", "scene"].map((name) => pill(`${SKILL[name]}${general ? " 可委派" : " 未启用"}`,
+                                                       general ? "info" : "neutral")));
+    const other = [...enabled].filter((name) => !["work", "chat", "fix", "feature", "fgui"].includes(name));
     const known = typeof capacity.workers_used === "number";
     const full = known && capacity.workers_used >= capacity.max_workers;
     const usage = `${known ? capacity.workers_used : "?"}/${capacity.max_workers}`;
-    return [row("two", cell("label muted", "本机能力"), cell("main", skills)),
+    return [row("two", cell("label muted", "工作流"),
+                cell("main", configuredPills(["work", "chat"]),
+                     el("p", "muted", general ? "新委派统一使用任务工作流，不按 Bot 标签分流。"
+                                              : "新委派按 Bot 标签选择旧版工作流。"))),
+            row("two", cell("label muted", "任务能力"),
+                cell("main", tasks, el("p", "muted", general ? "由任务工作流委派，具体执行仍需对应工具和审批。"
+                                                             : "启用任务工作流后可委派 UI 和场景表现任务。"))),
+            row("two", cell("label muted", "旧版独立配置"),
+                cell("main", configuredPills(["fix", "feature", "fgui"]),
+                     general ? el("p", "muted", "保留以续接已有旧版工作。") : null)),
+            ...(other.length ? [row("two", cell("label muted", "其他独立配置"),
+                                   cell("main", configuredPills(other)))] : []),
             row("two", cell("label muted", "worker 占用"),
                 cell("main", pill(`${usage}${full ? " · 已满载" : known ? "" : " · 状态未知"}`, full ? "warn" : "neutral"))),
             row("two", cell("label muted", "Unity 容量"),

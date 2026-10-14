@@ -2142,7 +2142,12 @@ from the launcher's tracked workers only when the heartbeat is fresh and `servin
 launched workers that have not claimed a job. Starting, stopped and stale heartbeats, or an unavailable
 worker list, leave usage unknown. Older heartbeats omit capacity and the page shows 此版本未提供.
 Worker and Unity limits are independent; reaching the worker limit reads 已满载 and raises no attention.
-The page distinguishes enabled and disabled 对话/修改/Code/UI capabilities.
+The page separates the 任务/对话 workflows, UI/场景表现 task capabilities and
+legacy standalone 修改/Code/UI profiles. With `work` enabled, new delegations use
+the general workflow regardless of Bot labels; UI and scene tasks read 可委派 even
+when their standalone profiles are disabled. This describes task admission, not
+host-tool readiness or approval. Legacy profile flags remain visible for existing
+jobs, and other explicitly enabled standalone profiles remain visible separately.
 
 Each failed `recent` result carries a `failure_code`, one of `worker_launch_failed`,
 `worker_start_failed`, `worker_claim_timeout`, `worker_exit_failed`, `model_capacity_exhausted`,
