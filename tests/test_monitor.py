@@ -6,6 +6,7 @@ import json
 import os
 import re
 import select
+import shutil
 import socket
 import struct
 import subprocess
@@ -147,6 +148,70 @@ class PageTests(unittest.TestCase):
 
     def test_ui_reads_as_the_bot_label_people_use(self):
         self.assertIn('fgui: "UI"', self.block("const SKILL = {"))
+
+    def capacity_rows(self, capacity):
+        """Run the actual renderer with text-only DOM nodes, without polling a live instance."""
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("Node.js is unavailable for monitor rendering checks")
+        signatures = ("function el(tag, className, content)", "function cell(className, ...parts)",
+                      "function row(className, ...cells)", "function pill(content, tone)",
+                      "function capacityRows(service)")
+        script = """
+            class Element {
+              constructor() { this.children = []; }
+              append(...parts) { this.children.push(...parts); }
+              get textContent() {
+                return this.children.map(part => typeof part === "string" ? part : part.textContent).join("");
+              }
+            }
+            const document = {createElement: () => new Element()};
+        """
+        script += "const SKILL = " + self.block("const SKILL = {") + ";\n"
+        script += "\n".join(signature + " " + self.block(signature + " {") for signature in signatures)
+        script += """
+            console.log(JSON.stringify(capacityRows({capacity: JSON.parse(process.argv[1])}).map(row => ({
+              label: row.children[0].textContent,
+              text: row.children[1].textContent,
+              pills: row.children[1].children.filter(part => part.className === "pills")
+                .flatMap(group => group.children.map(part => [part.textContent, part.className]))
+            }))));
+        """
+        result = subprocess.run([node, "-e", script, json.dumps(capacity)], capture_output=True,
+                                encoding="utf-8", timeout=10, check=True)
+        return {row["label"]: row for row in json.loads(result.stdout)}
+
+    def test_general_work_enables_presentation_tasks_without_standalone_profiles(self):
+        for enabled in (["chat", "work"], ["chat", "fix", "feature", "work"]):
+            with self.subTest(enabled=enabled):
+                rows = self.capacity_rows({"enabled_skills": enabled, "max_workers": 4,
+                                           "workers_used": 4, "unity_slots": 2, "server_slots": 3})
+                self.assertEqual(rows["工作流"]["pills"], [["任务 已启用", "pill info"], ["对话 已启用", "pill info"]])
+                self.assertIn("不按 Bot 标签分流", rows["工作流"]["text"])
+                self.assertEqual(rows["任务能力"]["pills"], [["UI 可委派", "pill info"], ["场景表现 可委派", "pill info"]])
+                self.assertIn("工具和审批", rows["任务能力"]["text"])
+                self.assertIn(["UI 未启用", "pill neutral"], rows["旧版独立配置"]["pills"])
+                self.assertIn("续接已有旧版工作", rows["旧版独立配置"]["text"])
+                self.assertIn("4/4 · 已满载", rows["worker 占用"]["text"])
+                self.assertIn("3 个槽位", rows["服务测试容量"]["text"])
+
+    def test_standalone_ui_and_scene_do_not_enable_general_presentation_tasks(self):
+        rows = self.capacity_rows({"enabled_skills": ["chat", "fix", "feature", "fgui", "scene", "future_skill"],
+                                   "max_workers": 4, "workers_used": None, "unity_slots": 2})
+        self.assertEqual(rows["任务能力"]["pills"], [["UI 未启用", "pill neutral"], ["场景表现 未启用", "pill neutral"]])
+        self.assertIn("启用任务工作流", rows["任务能力"]["text"])
+        self.assertIn("按 Bot 标签选择旧版工作流", rows["工作流"]["text"])
+        self.assertEqual(rows["旧版独立配置"]["pills"],
+                         [["修改 已启用", "pill info"], ["Code 已启用", "pill info"], ["UI 已启用", "pill info"]])
+        self.assertEqual(rows["其他独立配置"]["pills"],
+                         [["场景表现 已启用", "pill info"], ["future_skill 已启用", "pill info"]])
+        self.assertIn("?/4 · 状态未知", rows["worker 占用"]["text"])
+        self.assertNotIn("服务测试容量", rows)
+
+    def test_an_older_heartbeat_does_not_invent_workflow_capabilities(self):
+        rows = self.capacity_rows(None)
+        self.assertEqual(list(rows), ["能力与容量"])
+        self.assertEqual(rows["能力与容量"]["text"], "此版本未提供")
 
     def test_every_outcome_has_a_label(self):
         self.assert_labelled("OUTCOME", OUTCOMES)
