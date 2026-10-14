@@ -3336,6 +3336,28 @@ class ReservationTests(unittest.TestCase):
         self.assertEqual(self.ledger.item(item["id"])["state"], "running")
         self.assertEqual(self.ledger.reservations(), [])
 
+    def test_comparison_identity_survives_retry_and_damaged_audit_cannot_requeue(self):
+        item = self.item(ISSUE, "a" * 40)
+        self.ledger.connection.execute("UPDATE work_items SET root_repo='Farm-Client' WHERE id=?", (item["id"],))
+        token = self.ledger.claim(item["id"], worker_id="w")["token"]
+        self.ledger.await_resource(item["id"], token, "unity_slot", "interactive", commit_sha="a" * 40,
+                                   comparison_candidate="b" * 40, skill=SKILLS["fix"])
+        original = self.ledger.acquire("unity_slot", owner="pool", host="mac")
+        expected = {"verification_role": "baseline", "candidate_commit": "b" * 40}
+        self.assertEqual(self.ledger.reservation_comparison(original["reservation_id"]), expected)
+        self.ledger.release(original["reservation_id"], original["token"], "retryable transport failure")
+        fresh = self.ledger.requeue_reservation(original["reservation_id"], "retry")
+        self.assertEqual(self.ledger.reservation_comparison(fresh), expected)
+        self.assertEqual(self.ledger.reservation(fresh)["commit_sha"], "a" * 40)
+        self.park()
+        retry = self.ledger.acquire("unity_slot", owner="pool", host="mac")
+        self.ledger.release(fresh, retry["token"], "closed")
+        self.ledger.note(item["id"], "reservation", "requeued", {
+            "reservation_id": fresh, "commit_sha": "c" * 40, "comparison_candidate": "b" * 40})
+        with self.assertRaisesRegex(LedgerError, "identity is damaged"):
+            self.ledger.requeue_reservation(fresh, "refuse damaged identity")
+        self.assertEqual(len(self.ledger.reservations()), 2)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)

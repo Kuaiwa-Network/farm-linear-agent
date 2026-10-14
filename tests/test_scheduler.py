@@ -1130,6 +1130,19 @@ class SchedulerTests(unittest.TestCase):
         self.assertIsNone(payload["resource"]["batch_result"])
         self.assertNotIn("batch_command", payload["resource"])
 
+    def test_comparison_reservation_dispatches_controller_identity_without_slot_writes(self):
+        item = self.granted_item(mode="interactive")
+        reservation = self.ledger.active_reservation(item)
+        self.ledger.note(item, "reservation", "queued", {
+            "reservation_id": reservation["reservation_id"], "commit_sha": reservation["commit_sha"],
+            "comparison_candidate": "b" * 40})
+        self.scheduler.tick()
+        payload = json.loads(self.launcher.spawned[-1][1].split("\n\n", 1)[1])
+        self.assertEqual(payload["resource"]["verification_role"], "baseline")
+        self.assertEqual(payload["resource"]["candidate_commit"], "b" * 40)
+        self.assertEqual(payload["resource"]["commit"], "a" * 40)
+        self.assertNotIn(str(self.slot_folder), self.launcher.spawn_writable)
+
     def test_the_injected_server_takes_the_shape_the_claude_runtime_needs(self):
         """§19's first risk is that the default runtime switches after Task 0. write_mcp_config's JSON writer
         emits mcpServers, where an entry with a bare url and no type is not an HTTP server at all, so an

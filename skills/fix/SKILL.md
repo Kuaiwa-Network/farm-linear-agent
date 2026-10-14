@@ -350,6 +350,14 @@ FarmBot's clone behind your worktree is partly read-only to you: its config and 
 cannot be written, so `git push -u`, `git config`, deleting a branch and a full `git gc` fail. Git
 may also print `Unable to create '…/packed-refs.lock'` after a commit, fetch or rebase that
 succeeded; that line is harmless, so check the exit status and the result instead.
+For completed Client full-suite failures outside this issue, use [baseline comparison](../../references/test-baseline.md)
+before blocking delivery. Request trusted remote main with `await-resource --baseline --commit CANDIDATE`;
+preserve the source branch/HEAD and immutable target. Test the reserved baseline, retain complete leaf outcomes,
+release safely and wait for settlement, then test the candidate with identical selection/environment. Only
+`agent.test_baseline`'s `draft_eligible=true`, passing affected tests and every other required check allow a draft
+with reviewed unchanged unrelated failures. New/changed or affected failures, new skips and gaps remain blockers.
+Retain `full_suite_passed=false`, exact SHAs and every failure/skip in the draft; no merge or deployment waiver.
+
 Update only a draft PR whose repository and head match this job. Include the verification evidence
 when an approval reviewer needs the destination and payload context. Review the outgoing changes for
 unrelated files or secrets. The scope covers this fix's source, tests and required generated assets;

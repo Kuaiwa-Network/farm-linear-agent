@@ -796,7 +796,7 @@ resumes keep their granted commit; perform integration after that reservation ha
 
 A reservation-bound resume starts at step 8, without regenerating assets or changing the committed input.
 After a clean release, keep your current claim and continue at step 9 only when the saved verification names the same clean HEAD
-and unchanged input pins, all required checks passed, and the controller has settled the reservation. Otherwise
+and unchanged input pins, the required verification verdict below is satisfied, and the controller has settled the reservation. Otherwise
 repeat verification at a new committed HEAD. Persist `client.verification` (phase, HEAD, input pins, reservation
 id, result/evidence) before requesting, releasing or publishing, so retries cannot duplicate or invent evidence.
 
@@ -839,7 +839,8 @@ id, result/evidence) before requesting, releasing or publishing, so retries cann
    worktree, exact controller-recorded branch and clean HEAD; ownership is checked again after Git. The
    reservation records its tested commit separately from the baseline. Never request a resource before client
    handoff or omit `--commit`, never start Unity directly, and never write the slot folder.
-8. On the reservation-bound resume, confirm `resource.commit` equals the saved client HEAD. Read the pool's
+8. On the reservation-bound resume, first check whether this is a marked comparison baseline (procedure below).
+   For candidate verification, confirm `resource.commit` equals the saved client HEAD. Read the pool's
    `batch_result`/results, or use only the held interactive Unity MCP per the fix verification rules. Run the
    appropriate tests/PlayMode checks for changed behavior; retained results must name this reservation and commit.
    A gap, failed setup/test or untested behavior is reported explicitly. Release the reservation with the actual
@@ -850,8 +851,19 @@ id, result/evidence) before requesting, releasing or publishing, so retries cann
    controller recovery: exit immediately and inspect retained recovery evidence on resume, never publish.
    Never hand off or pause for a human while holding a reservation. Any code/input change requires
    a new committed HEAD and new verification, not reuse of old evidence.
+   A comparison reservation is explicitly marked `resource.verification_role=baseline`; its commit is trusted
+   remote main, and `resource.candidate_commit` preserves the owned candidate. Run the same complete suite on
+   that reserved baseline without changing source, save all leaf results, release and wait for settlement.
+   Then request the preserved candidate normally. Never substitute baseline results for candidate results.
+   When a completed full suite fails outside the issue, follow [baseline comparison](../../references/test-baseline.md)
+   before stopping delivery. A matching failure count alone is insufficient. The affected fixtures and other
+   mandatory local checks must pass. New/changed failures, affected failures, new skips and evidence gaps block.
+   Only the comparator's `draft_eligible=true`, with each matched failure reviewed against the exact source diff,
+   allows `passed_with_existing_failures` for draft delivery. Keep `full_suite_passed=false`; list all failures
+   and skips, both SHAs, same-environment identity and comparison evidence in the draft. No merge/deploy waiver.
 9. Run "Other people's work" again, `verify-publication`, push and open/register the client draft only after the
-   local required checks pass. Its body lists exact unmerged Contract input, common commit/source digest, UI
+   local required checks pass or the narrowly reviewed `passed_with_existing_failures` verdict above applies.
+   Its body lists exact unmerged Contract input, common commit/source digest, UI
    package evidence, unrelated generated changes, verification HEAD/results/skips and merge preconditions.
    A missing mandatory capability leaves a measured blocked result, not a successful stage-by-skip. Mark F done,
    save the plan and continue Closing; a limit after F parks with the client draft and verification evidence.

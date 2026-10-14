@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from test_ledger import ISSUE, OTHER, PIN, issue
@@ -334,7 +335,7 @@ class CliTests(unittest.TestCase):
             with self.assertRaises((RuntimeError, ValueError)):
                 run(args, ledger, lambda: api)
 
-    def verification_fixture(self, skill="fix", *, client_stage=False):
+    def verification_fixture(self, skill="fix", *, client_stage=False, directory_name="local"):
         from agent.worktrees import Worktrees
         from test_worktrees import git
         origin = self.root / "origin"
@@ -344,7 +345,7 @@ class CliTests(unittest.TestCase):
         git("add", ".", cwd=origin)
         git("commit", "-qm", "baseline", cwd=origin)
         baseline = git("rev-parse", "HEAD", cwd=origin)
-        local = self.root / "local"
+        local = self.root / directory_name
         self.db = local / "agent" / "ledger.sqlite3"
         self.env["FARMBOT_CONFIG"] = self.json_file("config.json", {
             "client_id": "test", "client_secret": "test", "webhook_secret": "test",
@@ -510,6 +511,76 @@ class CliTests(unittest.TestCase):
         self.assertEqual((result["target"]["commit_sha"], result["target"]["issue_branch"]),
                          (baseline, "farmbot/farm-1"))
         self.assertEqual(self.run_cli("reservations")[0]["commit_sha"], fixed)
+
+    def test_comparison_reserves_trusted_main_without_changing_candidate_or_target(self):
+        from agent.ledger import Ledger
+        from test_worktrees import git
+        item, token, baseline, fixed, path = self.verification_fixture(
+            skill="feature", client_stage=True, directory_name="local 中文 spaces")
+        origin = self.root / "origin"
+        (origin / "main-only.txt").write_text("main advanced", encoding="utf-8")
+        git("add", ".", cwd=origin)
+        git("commit", "-qm", "advance main", cwd=origin)
+        main = git("rev-parse", "HEAD", cwd=origin)
+        git("fetch", "origin", cwd=path)
+        git("merge", "--no-edit", "origin/main", cwd=path)
+        fixed = git("rev-parse", "HEAD", cwd=path)
+        result = self.run_cli("await-resource", "--item", item, "--token", token,
+                              "--resource", "unity_slot", "--mode", "interactive", "--commit", fixed, "--baseline")
+        self.assertEqual(result["target"]["commit_sha"], baseline)
+        reservation = self.run_cli("reservations")[0]
+        self.assertEqual(reservation["commit_sha"], main)
+        self.assertNotEqual(main, baseline)
+        self.assertEqual(git("rev-parse", "HEAD", cwd=path), fixed)
+        self.assertEqual(git("status", "--porcelain", cwd=path), "")
+        with closing(Ledger(self.db)) as ledger:
+            self.assertEqual(ledger.reservation_comparison(reservation["reservation_id"]),
+                             {"verification_role": "baseline", "candidate_commit": fixed})
+
+    def test_comparison_requires_explicit_candidate_and_unity_before_git_reads(self):
+        from agent.__main__ import parser, run
+        from agent.ledger import Ledger, LedgerError
+        from unittest.mock import patch
+        item, token, baseline, fixed, path = self.verification_fixture(skill="feature", client_stage=True)
+        with closing(Ledger(self.db)) as ledger, patch("agent.worktrees.Worktrees.verification_baseline") as validate:
+            for resource, commit in (("unity_slot", []), ("server_slot", ["--commit", fixed])):
+                with self.subTest(resource=resource), self.assertRaisesRegex(LedgerError, "baseline comparison"):
+                    args = parser().parse_args(["--db", str(self.db), "await-resource", "--item", item,
+                        "--token", token, "--resource", resource, "--mode", "interactive", "--baseline", *commit])
+                    run(args, ledger, lambda: None)
+            validate.assert_not_called()
+            self.assertEqual(ledger.reservations(), [])
+
+    def test_comparison_keeps_clean_branch_and_candidate_validation(self):
+        from test_worktrees import git
+        item, token, baseline, fixed, path = self.verification_fixture(skill="feature", client_stage=True)
+        args = ("await-resource", "--item", item, "--token", token,
+                "--resource", "unity_slot", "--mode", "interactive", "--baseline", "--commit", fixed)
+        (path / "dirty").write_text("uncommitted", encoding="utf-8")
+        self.assertIn("clean", self.run_cli(*args, success=False).stderr)
+        (path / "dirty").unlink()
+        self.assertIn("current worktree HEAD", self.run_cli(*args[:-1], baseline, success=False).stderr)
+        git("switch", "-qc", "wrong", cwd=path)
+        self.assertIn("controller-recorded", self.run_cli(*args, success=False).stderr)
+        self.assertEqual(self.run_cli("reservations"), [])
+
+    def test_comparison_rechecks_claim_after_baseline_git_read(self):
+        from agent.__main__ import parser, run
+        from agent.config import load_config
+        from agent.ledger import Ledger, LedgerError
+        from unittest.mock import patch
+        item, token, baseline, fixed, path = self.verification_fixture(skill="feature", client_stage=True)
+        with closing(Ledger(self.db)) as ledger:
+            def cancel_during_read(*args, **kwargs):
+                ledger.cancel(item, "concurrent Stop")
+                return baseline
+            args = parser().parse_args(["--db", str(self.db), "await-resource", "--item", item, "--token", token,
+                                       "--resource", "unity_slot", "--mode", "interactive", "--commit", fixed, "--baseline"])
+            with patch("agent.__main__.load_config", return_value=load_config(self.env["FARMBOT_CONFIG"])), \
+                    patch("agent.worktrees.Worktrees.verification_baseline", side_effect=cancel_during_read), \
+                    self.assertRaises(LedgerError):
+                run(args, ledger, lambda: None)
+            self.assertEqual(ledger.reservations(), [])
 
     def test_feature_commit_validation_rechecks_claim_after_concurrent_cancel(self):
         from agent.__main__ import parser, run

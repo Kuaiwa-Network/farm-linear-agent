@@ -399,6 +399,16 @@ class SkillAuthorityTests(unittest.TestCase):
                                "Do not flatten Contract questions into bare choices"):
                     self.assertIn(phrase, text)
 
+    def test_only_client_code_workers_receive_reviewed_baseline_draft_exception(self):
+        for skill in ("work", "feature", "fix"):
+            text = dispatch.authority(skill)
+            self.assertIn("draft_eligible=true", text)
+            self.assertIn("full_suite_passed=false", text)
+            self.assertIn("verification_role=baseline", text)
+            self.assertIn("New/changed failures", text)
+        for skill in ("chat", "fgui", "scene"):
+            self.assertNotIn(dispatch.BASELINE_AUTHORITY, dispatch.authority(skill))
+
     def message(self, item):
         return dispatch_message(item=item, issue={"identifier": "FARM-1", "url": "u"},
                                 skill_path=ROOT / "skills" / "fix" / "SKILL.md", worktrees={}, db_path="/db",
@@ -432,7 +442,7 @@ class SkillAuthorityTests(unittest.TestCase):
         reference = dispatch.AUTHORITY_REFERENCE
         self.assertEqual(self.message({"id": "i", "skill": "fix"}).split("\n\n", 1)[0],
                          dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.QUESTION_AUTHORITY + dispatch.KW_OPS_AUTHORITY
-                         + FGUI_EXPORT_AT_D18 + reference)
+                         + FGUI_EXPORT_AT_D18 + dispatch.BASELINE_AUTHORITY + reference)
         self.assertEqual(dispatch.FGUI_EXPORT_AUTHORITY, FGUI_EXPORT_AT_D18)
         self.assertNotIn("FairyGUI", dispatch.COMMON_AUTHORITY + dispatch.SKILL_AUTHORITY["chat"])
 
@@ -446,7 +456,7 @@ class SkillAuthorityTests(unittest.TestCase):
         self.assertEqual(self.message({"id": "i", "skill": "feature"}).split("\n\n", 1)[0],
                          dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.QUESTION_AUTHORITY
                          + FEATURE_AUTHORITY_WITH_SERVER_SLOTS + dispatch.DOCUMENT_READER_DIAGNOSTIC_AUTHORITY
-                         + dispatch.AUTHORITY_REFERENCE)
+                         + dispatch.BASELINE_AUTHORITY + dispatch.AUTHORITY_REFERENCE)
 
     def test_the_feature_part_states_its_limits_and_carries_no_other_skills_grants(self):
         part = dispatch.SKILL_AUTHORITY["feature"]
@@ -541,8 +551,9 @@ class SkillAuthorityTests(unittest.TestCase):
         for name in ("feature", "fgui"):
             with self.subTest(skill=name), patch.dict(dispatch.SKILL_AUTHORITY, {name: "Own grants. "}):
                 text = self.message({"id": "i", "skill": name}).split("\n\n", 1)[0]
+                baseline = dispatch.BASELINE_AUTHORITY if name == "feature" else ""
                 self.assertEqual(text, dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.QUESTION_AUTHORITY
-                                 + "Own grants. " + dispatch.DOCUMENT_READER_DIAGNOSTIC_AUTHORITY + dispatch.AUTHORITY_REFERENCE)
+                                 + "Own grants. " + dispatch.DOCUMENT_READER_DIAGNOSTIC_AUTHORITY + baseline + dispatch.AUTHORITY_REFERENCE)
                 self.assertNotIn("kw_ops", text)
 
     def test_no_part_carries_a_token_a_url_or_a_host_path(self):
