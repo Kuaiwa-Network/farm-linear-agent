@@ -642,7 +642,7 @@ path. `recover-server-slot` is a trusted service command, not a worker command.
 `await-resource` refuses a resource your skill's `skill.json` does not list under `resources`, and a
 Unity request from any root but a neutral start or Farm-Client.
 
-On a host configured with `unity_pool: {"editors": 2}` (or 3), every Unity request
+On a host configured with `unity_pool: {"editors": 1}` (or 2/3), every Unity request
 uses a persistent interactive Editor. Request `--mode interactive`; the CLI and
 controller also convert older ungranted Unity `--mode batch` requests, preserving
 the reservation ID, FIFO order and candidate commit. Conversion executes no tests.
@@ -651,6 +651,35 @@ The resumed worker selects its reserved MCP instance, runs EditMode/PlayMode via
 results/commit/reservation identity, and releases only after tests and compilation
 are quiet. The controller retains the Editor at its last clean candidate until
 the next reservation. Server integration `--mode batch` is unaffected.
+
+Before **each** interactive `run_tests` request, including switching between
+EditMode and PlayMode, establish a separate test-start boundary:
+
+1. Verify the reserved instance, idle Edit Mode and no active runner. Archive the
+   completed run's entire retained error Console before clearing that history.
+   Keep its actual test results before refresh or mode changes.
+2. Call `refresh_unity(mode="if_dirty", scope="all", compile="request",
+   wait_for_ready=true)` once. Wait for the requested compilation and domain reload
+   to finish within the normal bounded readiness deadline. Observe the actual
+   compile/reload cycle; the refresh acknowledgement or an earlier cached idle
+   snapshot alone does not prove completion. A refresh disconnect can accompany
+   domain reload: settle it with read-only state/instance polling, without
+   resending the compilation request or restarting the Editor.
+3. Read a new `mcpforunity://editor/state` and perform a read-only native probe of
+   `EditorApplication.isCompiling`, `isUpdating` and
+   `isPlayingOrWillChangePlaymode`. Require all false, inactive tests,
+   `assets.external_changes_dirty=false`, a responding reserved instance and clean
+   exact source. Capture the fresh compilation Console and refuse actual compiler
+   errors. Only then create the test job.
+
+The installed MCP `run_tests` preflight may request a refresh for dirty assets and
+then use its **pre-refresh** state to dispatch the test. The explicit boundary
+prevents that deferred compilation/reload from racing test creation. Do not use
+the test-start response itself as a compilation wait. If that response is lost,
+preserve the incident and reconcile retained `TestJobManager` jobs and the live
+runner before any further action; an ambiguous start is no test evidence. Never
+blindly repeat `run_tests`, suppress the incident, clear an active job or restart
+the shared Editor. Existing bounded stall and unclean-release rules still apply.
 
 For `feature`, the session and initial stages have no client pin. First Client-stage entry creates the
 owned branch from the controller's latest trusted main and records `target.commit_sha` (the immutable

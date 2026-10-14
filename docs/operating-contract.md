@@ -88,7 +88,17 @@ budgeted alongside the permanently retained Editor pool. Configurations whose
 fixed Editor estimates exceed the shared reservation budget are refused.
 
 All Unity tests use worker MCP `run_tests`/`get_test_job` after instance and commit
-verification. Queued Unity batch requests are converted in place to interactive,
+verification. Before every interactive test start or mode change, workers archive
+the preceding completed run's errors and establish a separate compilation/reload
+boundary as described in `references/worker-cli.md`. A refresh acknowledgement or
+cached idle state is insufficient: fresh state, a native readiness probe, clean
+exact source and the fresh compilation Console must agree before creating a job.
+Expected refresh/reload disconnections are settled through bounded read-only
+polling; workers never resend the compile request or blindly repeat a test start.
+An ambiguous start remains a verification gap until retained jobs and live runner
+state have been reconciled. This adds no Editor lifecycle authority and changes
+no claim, reservation or release fences.
+Queued Unity batch requests are converted in place to interactive,
 preserving ID, candidate, generation and FIFO. Conversion is not execution or test
 evidence. Server-slot batch mode is unchanged. Without `unity_pool`, legacy hosts
 retain their existing batch/interactive behavior during migration.

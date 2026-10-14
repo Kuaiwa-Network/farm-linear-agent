@@ -215,6 +215,32 @@ class DispatchTests(unittest.TestCase):
                             'ask a concrete attributed human question', 'no Unity reservation may be retained'):
             self.assertIn(instruction, message)
 
+    def test_persistent_unity_requires_a_compile_boundary_before_every_test_start(self):
+        # Regression for PR1519 acceptance: the MCP preflight requested compilation
+        # but dispatched a third test start using its earlier idle snapshot. No
+        # job was created, so a disconnect could not stand in for test evidence.
+        for skill in ('fix', 'feature', 'work'):
+            with self.subTest(skill=skill):
+                message = dispatch_message(item={'id': 'i', 'skill': skill},
+                    issue={'identifier': 'FARM-1', 'url': 'u'},
+                    skill_path=ROOT / 'skills' / skill / 'SKILL.md', worktrees={}, db_path='/db',
+                    runtime='codex', guidance='', budget={'lease_seconds': 1, 'renew_minutes': 1},
+                    tools={'unity_pool': {'mode': 'interactive', 'editors': 1}})
+                authority = message.split('\n\n', 1)[0]
+                self.assertIn('Before each run_tests request, including a change of test mode', authority)
+                self.assertLess(authority.index('archive the completed run'),
+                                authority.index('then request refresh_unity'))
+                self.assertIn('Wait for the requested compilation and domain reload to finish', authority)
+                self.assertIn('external_changes_dirty=false', authority)
+                self.assertIn('probe raw EditorApplication.isCompiling', authority)
+                self.assertIn('never resend that compile request', authority)
+                self.assertIn('reconcile retained jobs and live runner state', authority)
+                self.assertIn('never blindly retry run_tests or clear an active job', authority)
+                self.assertIn('Never start, stop or restart an Editor yourself', authority)
+                payload = payload_of(message)
+                self.assertEqual(payload['stage']['write_repositories'], [])
+                self.assertIsNone(payload['resource'])
+
     def test_feature_uses_the_controller_interpreter_and_native_host_commands(self):
         for skill in ('feature', 'fgui', 'fix', 'chat'):
             message = dispatch_message(item={'id': 'i', 'skill': skill},
