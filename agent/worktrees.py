@@ -353,7 +353,10 @@ class Worktrees:
         with _fetch_lock(clone):
             for attempt in (1, 2):
                 try:
-                    _git("fetch", "--quiet", "--prune", "origin", cwd=clone, env=FETCH_ENV, config=config)
+                    # Worker CLI callers can write objects and refs, not the clone root. No caller
+                    # consumes FETCH_HEAD: remote identity comes from ls-remote and explicit refs.
+                    _git("fetch", "--quiet", "--prune", "--no-write-fetch-head", "origin",
+                         cwd=clone, env=FETCH_ENV, config=config)
                     break
                 except WorktreeError as exc:
                     if not REF_RACE.search(str(exc)):
