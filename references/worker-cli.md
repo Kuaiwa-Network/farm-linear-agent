@@ -347,7 +347,14 @@ limit, not permission to invoke the paid CLI directly or configure the host.
 
 In Client, `install-ui` uses only certified changed-package bytes and stable
 metadata on the controller's original baseline/branch. Preserve interrupted
-journals/backups. Only exact changed-package dependency entries with new-edge
+installation journals and backups. When files were fully written but final
+certification failed, retry the same `install-ui --receipt-id`: its pre-write
+controller record binds the receipt and planned files, and the controller checks
+the complete journal, backups, installed inventory/GUIDs, unchanged HEAD/index,
+current source/approval and live claim before finalizing without rewriting files.
+Partial writes, changed evidence and older unbound journals remain refusals;
+workers must not copy backups, reset files or manufacture certification records.
+Only exact changed-package dependency entries with new-edge
 reasons may be edited; no gameplay or generated bindings. Commit and `verify-ui`
 the exact full head. Hydrate guard inputs with the owned native Git/LFS route,
 then `verify-ui-guards`; both actual named methods must pass in complete TRX.

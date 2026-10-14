@@ -300,7 +300,12 @@ license, account, environment selectors or watched output during a job.
    immutable baseline and this issue's branch. The owned Client worktree is the
    installation destination, never a listed read-only main checkout. In the new claimed Client attempt,
    re-read all inputs and call `install-ui --receipt-id ID`. Preserve stable GUIDs,
-   importer metadata and the durable per-operation journal/backups. Refusals or an
+   importer metadata and the durable per-operation journal/backups. If final
+   certification fails after all writes completed, retry the same receipt once
+   after fresh checks. The controller validates its pre-write plan, exact complete
+   journal, backups, installed bytes/GUIDs, HEAD/index and current authority before
+   finalizing without rewriting files. Partial writes or older unbound journals
+   remain a named recovery gap. Refusals or an
    interrupted dirty installation retain recovery evidence; never guess a rollback
    or bypass the recorded installer by copying/deleting files yourself.
 3. Client writes are only the certified `Assets/GameRes/FairyRes/<package>` outputs
