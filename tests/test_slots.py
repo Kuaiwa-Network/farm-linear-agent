@@ -392,6 +392,7 @@ class SwitchTests(SlotFixture):
         pool = self.pool(mcp=FakeMcp())
         slot = pool.switch("unity_slot:1", commit, "batch")
         self.assertEqual(slot["state"], "batch_busy")
+        self.assertEqual(slot["parked_commit"], commit)
         self.assertEqual(self.trees.head(self.root / "editors" / "slot-1"), commit)
         self.assertEqual(pool.mcp.calls, [])  # a batch run on a closed slot needs no MCP at all (spec §7)
 
@@ -401,6 +402,7 @@ class SwitchTests(SlotFixture):
         pool = self.pool(mcp=FakeMcp())
         slot = pool.switch("unity_slot:1", commit, "interactive")
         self.assertEqual(slot["state"], "interactive_busy")
+        self.assertEqual(slot["parked_commit"], commit)
         self.assertEqual([name for name, _ in pool.mcp.calls],
                          ["start", "refresh", "wait_quiet", "console", "probe"])
         # The instance the Editor reported is recorded, so the worker and the next probe can address it.
@@ -465,10 +467,11 @@ class SwitchTests(SlotFixture):
         self.assertEqual(caught.exception.stage, "git")
 
     def test_a_failing_identity_probe_fails_at_the_probe_stage_not_the_git_stage(self):
-        self.pool().ensure()
+        previous = self.pool().ensure()[0]["parked_commit"]
         with self.assertRaises(SlotError) as caught:
             self.pool(mcp=FakeMcp(ready=False)).switch("unity_slot:1", self.commit("fix"), "interactive")
         self.assertEqual(caught.exception.stage, "probe")
+        self.assertEqual(self.ledger.slot("unity_slot:1")["parked_commit"], previous)
 
     def test_a_refresh_that_never_goes_quiet_fails_at_the_probe_stage_before_any_probe(self):
         self.pool().ensure()
