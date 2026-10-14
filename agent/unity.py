@@ -104,19 +104,20 @@ def _editor_processes(system=None, run=None, *, strict=False):
     command = (["pgrep", "-fl", "Unity.app/Contents/MacOS/Unity"] if system == "Darwin" else
                ["pgrep", "-fa", "Unity"] if system != "Windows" else
                ["powershell", "-NoProfile", "-Command",
-                "$ErrorActionPreference='Stop'; (Get-CimInstance Win32_Process | Where-Object Name -eq 'Unity.exe' | "
+                "$ErrorActionPreference='Stop'; (Get-CimInstance Win32_Process -Filter \"Name = 'Unity.exe'\" | "
                 "ForEach-Object { \"$($_.ProcessId) $($_.CommandLine)\" })"])
     try:
         if run:
             out = run()
         else:
-            result = subprocess.run(command, capture_output=True, text=True, timeout=5)
+            result = subprocess.run(command, capture_output=True, text=True,
+                                    timeout=15 if system == 'Windows' else 5)
             if strict and result.returncode != 0 and not (system != 'Windows' and result.returncode == 1):
                 raise UnityError('Unity process inspection failed')
             out = result.stdout
     except (OSError, subprocess.TimeoutExpired) as exc:
         if strict:
-            raise UnityError('Unity process ownership could not be inspected') from exc
+            raise UnityError(f'Unity process ownership could not be inspected: {type(exc).__name__}') from exc
         return []
     found = []
     for line in (out or "").splitlines():

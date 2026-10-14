@@ -10,6 +10,7 @@ import os
 import signal
 import subprocess
 import time
+from uuid import uuid4
 import urllib.parse
 from pathlib import Path
 
@@ -154,6 +155,7 @@ class SlotPool:
         self.owner = owner
         self.admission = admission
         self.keep_open = keep_open
+        self._process_unknown_since = {}
         self._fixed_prepared = False
         self.last_observation = None
         self._batches = {}
@@ -257,9 +259,17 @@ class SlotPool:
                 continue
             if slot["state"] == "idle_open":
                 try:
-                    if self.editor_is_open(slot):
+                    is_open = self.editor_is_open(slot)
+                    self._process_unknown_since.pop(slot_id, None)
+                    if is_open:
                         continue
                 except UnityError as exc:
+                    if slot_id not in self._process_unknown_since:
+                        self.ledger.note(slot_id, 'unity_process_observation_delayed', str(exc),
+                                         {'retry_seconds': 30})
+                    since = self._process_unknown_since.setdefault(slot_id, self.clock())
+                    if self.clock() - since < 30:
+                        continue  # no grant or process control while ownership is unknown
                     with self.ledger._transaction():
                         RecoveryStore(self.ledger).request_in_transaction(slot_id,
                             f"persistent Editor process observation unavailable: {exc}", recovery_kind="setup")
@@ -416,6 +426,7 @@ class SlotPool:
             self.ledger.interactive_unity_requests(self.host)
         excluded = set(self._batches) if self.keep_open else self._batches
         if self.keep_open:
+            excluded.update(self._process_unknown_since)
             excluded.update(s["slot_id"] for s in self.ledger.slots(kind="unity_slot", host=self.host)
                             if s["slot_id"] not in self.entries or s["state"] != "idle_open")
         for kind in sorted({entry["kind"] for entry in self.entries.values()}):
@@ -1066,11 +1077,12 @@ class UnityIdentity:
     """
 
     def __init__(self, probe_path, timeout=120, start_timeout=300, clock=time.time, sleep=time.sleep,
-                 token_env=None, secret_env=None):
+                 token_env=None, secret_env=None, console_evidence_root=None):
         self.probe_path = Path(probe_path)
         self.timeout = timeout
         self.token_env = token_env
         self.secret_env = secret_env
+        self.console_evidence_root = Path(console_evidence_root) if console_evidence_root else None
         # A Windows slot measured 170 seconds to load. Each configured slot may
         # override the five-minute default without changing MCP request timeouts.
         self.start_timeout = start_timeout
@@ -1246,7 +1258,26 @@ class UnityIdentity:
         pidfile.unlink(missing_ok=True)
 
     def refresh(self, slot):
-        self._client(slot).call_tool("refresh_unity", {})
+        client = self._client(slot)
+        state = client.read_resource('mcpforunity://editor/state')
+        if (state.get('tests') or {}).get('is_running') is not False:
+            raise SlotError('Console boundary requires a verified inactive test runner', stage='probe')
+        play = (state.get('editor') or {}).get('play_mode') or {}
+        if play.get('is_playing') is not False or play.get('is_changing') is not False:
+            raise SlotError('Console boundary requires verified Edit Mode', stage='probe')
+        previous = client.call_tool('read_console',
+                                   {'action': 'get', 'types': ['error'], 'count': 50,
+                                    'include_stacktrace': True})
+        self._console_lines(slot, previous)  # refuse an unknown payload before clearing anything
+        root = self.console_evidence_root or Path(slot['folder']) / 'Logs' / 'farmbot-console'
+        root.mkdir(parents=True, exist_ok=True)
+        (root / f'{uuid4().hex}.json').write_text(json.dumps(
+            {'slot_id': slot['slot_id'], 'instance': slot.get('instance'),
+             'observed_at': self.clock(), 'console': previous}, ensure_ascii=False, indent=2), encoding='utf-8')
+        client.call_tool('read_console', {'action': 'clear'})
+        # A reused, already-broken candidate may produce no new compiler output on
+        # a no-op refresh. Request compilation so clearing history cannot hide it.
+        client.call_tool('refresh_unity', {'compile': 'request', 'wait_for_ready': True})
 
     def wait_quiet(self, slot, timeout):
         """One sample of editor/state. The pool's wait_for_quiet owns the loop and the deadline; this raises
@@ -1271,12 +1302,15 @@ class UnityIdentity:
         A shape none of that covers raises rather than returning []: silently reporting a clean console is
         how a commit that does not compile reaches a worker with the pool's blessing.
 
-        `marker` is accepted and deliberately unused. Nothing clears the Console between switches, so this
-        cannot yet be "since" anything; it reads the most recent 50 errors. Making it truly incremental
-        needs a `read_console` clear before the refresh, which belongs with the tool injection in Task 7.
+        refresh() archives and clears history before requesting compilation. This
+        reads only the new check's errors. Read-only late-start validation does not
+        establish a new boundary and conservatively inspects retained errors.
         """
         result = self._client(slot).call_tool("read_console",
                                               {"action": "get", "types": ["error"], "count": 50})
+        return [line for line in self._console_lines(slot, result) if "error CS" in line or "Exception" in line]
+
+    def _console_lines(self, slot, result):
         if isinstance(result, list):
             entries = result
         elif isinstance(result, dict):
@@ -1294,7 +1328,7 @@ class UnityIdentity:
                             stage="probe", fault="farmbot")
         lines = [entry if isinstance(entry, str) else str(entry.get("message", entry))
                  for entry in entries if isinstance(entry, (str, dict))]
-        return [line for line in lines if "error CS" in line or "Exception" in line]
+        return lines
 
     def probe(self, slot, target):
         client = self._client(slot)
