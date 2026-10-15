@@ -17,7 +17,8 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(profile(FOCUSED), "focused")
         self.assertEqual(profile(TARGETED), "targeted")
         for plan in (FULL_PLAN, {**FOCUSED, "race": True}, {**FOCUSED, "packages": ["./modules/..."]},
-                     {**FOCUSED, "packages": ["./server"]},
+                     {**FOCUSED, "packages": ["./server"]}, {**FOCUSED, "packages": ["./SERVER"]},
+                     {**FOCUSED, "packages": ["./SeRvEr/subpackage"]},
                      {**FOCUSED, "packages": ["./a", "./b", "./c", "./d", "./e"]}):
             self.assertEqual(profile(plan), "full")
         self.assertEqual(test_argv(FOCUSED), ["go", "test", "-p=1", "-count=1", "-timeout=600s", "-json", "-run",

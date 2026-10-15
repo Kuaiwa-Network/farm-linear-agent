@@ -27,7 +27,7 @@ def profile(plan):
     plan = validate_plan(plan)
     # This host's measured ./server selection loads the large designer source gate even
     # with -run. Naming one test cannot make that package's initialization lightweight.
-    if (plan["race"] or any("..." in p or p == "./server" or p.startswith("./server/")
+    if (plan["race"] or any("..." in p or p.casefold() == "./server" or p.casefold().startswith("./server/")
                            for p in plan["packages"]) or len(plan["packages"]) > 4):
         return "full"
     if len(plan["packages"]) == 1 and 1 <= len(plan["tests"]) <= 8:
