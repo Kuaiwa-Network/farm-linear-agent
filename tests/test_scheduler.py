@@ -522,8 +522,13 @@ class SchedulerTests(unittest.TestCase):
                                    commit_sha='b' * 40, continuation=(source['reservation_id'], source['token']))
         self.ledger.set_slot_state(source['resource'], 'idle_open')
         self.assertIsNone(self.acquire_unity())
+        ordinary = self.item(issue_id=OTHER, session='s2', skill='chat', priority=0)
+        self.assertEqual(self.ledger.pending_unity_workers('h'), {item['id']})
+        self.assertEqual(self.ledger.item(item['id'])['stage'], 'waiting-for-worker-teardown')
         self.launcher.finished.append(Finished(item['id'], 0, '', False, 'exited'))
         self.scheduler.tick()
+        self.assertEqual(self.ledger.item(ordinary['id'])['state'], 'queued')
+        self.assertEqual(self.ledger.item(ordinary['id'])['worker_pid'], None)
         from unittest.mock import patch
         with patch.object(self.launcher, 'assert_quiescent', side_effect=RuntimeError('descendants remain')):
             self.assertIsNone(self.acquire_unity())

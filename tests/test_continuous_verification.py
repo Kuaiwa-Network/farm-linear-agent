@@ -62,6 +62,8 @@ class ContinuousVerificationTests(ViewBase):
         other_connection = Ledger(self.path, clock=lambda: self.clock)
         self.addCleanup(other_connection.close)
         self.assertEqual(other_connection.reservation_queue('unity_slot')[0]['item_id'], item['id'])
+        self.assertEqual(other_connection.pending_unity_workers('test-host'), {item['id']})
+        self.assertEqual(other_connection.pending_unity_workers('another-host'), set())
         self.ledger.set_slot_state('unity_slot:1', 'idle_open')
         document = self.status()
         self.assertEqual(self.active(document, 'FARM-1')['queue_position'], 1)
@@ -140,6 +142,7 @@ class ContinuousVerificationTests(ViewBase):
         # A failed settlement loses the continuation; another job can use a recovered slot.
         self.ledger.set_slot_state('unity_slot:1', 'held')
         self.assertEqual(self.ledger.reservation_queue('unity_slot')[0]['item_id'], older['id'])
+        self.assertEqual(self.ledger.pending_unity_workers('test-host'), set())
         self.ledger.ensure_slot('unity_slot:2', kind='unity_slot', host='test-host', folder=str(self.path.parent / 'slot2'))
         other = self.ledger.acquire('unity_slot', owner='pool', host='test-host')
         # Simulate an intervening reservation on the original slot (e.g. legacy controller).

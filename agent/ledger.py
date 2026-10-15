@@ -2080,10 +2080,19 @@ class Ledger:
         under the scheduler lock. Existing reservations also reconstruct seats after restart.
         Held/cancelled resources retain their recovery fences, but reserve no future worker.
         """
-        return {r[0] for r in self.connection.execute("""SELECT r.item_id FROM reservations r
+        pending = {r[0] for r in self.connection.execute("""SELECT r.item_id FROM reservations r
             JOIN work_items w ON w.id=r.item_id JOIN slots s ON s.slot_id=r.resource
             WHERE r.kind='unity_slot' AND r.mode='interactive' AND r.state='active' AND r.host=?
             AND s.state<>'held' AND w.state IN ('queued','awaiting_resource') AND w.withdraw_deadline IS NULL""", (host,))}
+        # Keep the departing worker's seat through the short baseline/candidate handoff.
+        # The active/claimed old worker and its continuation share one item ID, hence one
+        # seat. This does not allocate Unity before teardown or grant queue-wide priority.
+        from .resource_queue import continuation_slot, queued_rows
+        for row in queued_rows(self.connection, kind='unity_slot'):
+            slot_id = continuation_slot(self.connection, row)
+            if slot_id and self.slot(slot_id)['host'] == host:
+                pending.add(row['item_id'])
+        return pending
 
     def unity_wait_stage(self, reservation_id, stage):
         if stage not in ("waiting-for-worker", "waiting-for-worker-teardown", "waiting-for-unity"):

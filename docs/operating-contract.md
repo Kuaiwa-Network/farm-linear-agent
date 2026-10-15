@@ -167,6 +167,8 @@ Reservation sequence, distinct run identities and immutable target are preserved
 admission and Monitor share this queue order. Worker exit/containment, worker-seat availability, clean owned
 candidate validation and pool quiescence remain mandatory before the candidate starts. This is a fresh worker
 handoff; it does not permit in-place source switching by a worker. Already queued jobs keep their normal order.
+The valid continuation retains its departing worker's seat (deduplicated with that same active item), so
+ordinary launches cannot take it between teardown and candidate admission. The seat expires with the hint.
 
 Client workers use `verification-progress` for failure review, publication and final recording, and
 `compare-verification` to validate retained files under their state directory against the settled recorded pair.

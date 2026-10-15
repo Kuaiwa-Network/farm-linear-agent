@@ -800,12 +800,17 @@ class Scheduler:
                 return acquire(ledger, kind, **options)
             item = ledger.item(request["item_id"])
             reserved = ledger.pending_unity_workers(self.host)
-            if len(set(self.active) | reserved) >= self.max_concurrent:
-                ledger.unity_wait_stage(request["reservation_id"], "waiting-for-worker")
-                return None
             # await-resource retires the claim before the old process exits.
-            # Do not hand the Editor to its successor until teardown is complete.
-            if item["id"] in self.active or item["worker_pid"] is not None or item["withdraw_deadline"] is not None:
+            # Display this actual blocker even when that old process fills the pool.
+            if item['id'] in self.active or item['worker_pid'] is not None:
+                ledger.unity_wait_stage(request['reservation_id'], 'waiting-for-worker-teardown')
+                return None
+            if item['withdraw_deadline'] is not None:
+                return None
+            # A queued continuation may spend its retained next worker seat after
+            # the departing worker has exited; other reservations still count.
+            if len(set(self.active) | (reserved - {request['item_id']})) >= self.max_concurrent:
+                ledger.unity_wait_stage(request["reservation_id"], "waiting-for-worker")
                 return None
             try:
                 self.launcher.assert_quiescent(item["id"], ledger.last_worker_pid(item["id"]))
