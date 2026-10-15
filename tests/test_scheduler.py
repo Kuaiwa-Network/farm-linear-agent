@@ -447,6 +447,120 @@ class SchedulerTests(unittest.TestCase):
         self.ledger.resume(item_id, "unity_slot:1 acquired")
         return item_id
 
+    def acquire_unity(self, ledger=None):
+        ledger = ledger or self.ledger
+        ledger.ensure_slot("unity_slot:1", kind="unity_slot", host="h", folder=str(self.slot_folder),
+                           mcp_address="http://127.0.0.1:8080/mcp", instance="slot-1@0123456789abcdef")
+        return self.scheduler.acquire_unity(ledger, lambda db, kind, **kw: db.acquire(kind, **kw),
+                                            "unity_slot", owner="pool", host="h")
+
+    def test_interactive_unity_waits_for_worker_before_acquiring_or_switching(self):
+        busy = self.item(issue_id=OTHER, session="s2", skill="chat")
+        self.scheduler.tick()
+        waiting = self.waiting_item("interactive")
+        self.assertIsNone(self.acquire_unity())
+        self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "idle_closed")
+        self.assertEqual(self.ledger.item(waiting)["stage"], "waiting-for-worker")
+        self.assertEqual(self.ledger.reservations()[0]["state"], "queued")
+        self.scheduler.stop(busy["id"], "make room")
+        self.scheduler.tick()
+        self.assertIsNotNone(self.acquire_unity())
+        self.assertEqual(self.ledger.item(waiting)["stage"], "unity-preparing")
+
+    def test_unity_seat_survives_prepare_and_restart_and_cannot_be_stolen_by_priority(self):
+        waiting = self.waiting_item("interactive")
+        reservation = self.acquire_unity()
+        # A second ledger sees the durable seat, without sharing a connection.
+        other = Ledger(Path(self.tmp.name) / "ledger.sqlite3")
+        self.addCleanup(other.close)
+        self.assertEqual(other.pending_unity_workers("h"), {waiting})
+        ordinary = self.item(issue_id=OTHER, session="s2", skill="chat", priority=0)
+        self.assertEqual(self.scheduler.tick()["launched"], 0)  # still preparing
+        self.ledger.set_slot_state(reservation["resource"], "interactive_busy")
+        self.ledger.resume(waiting, "prepared", stage="unity-worker-ready")
+        self.assertEqual(self.scheduler.tick()["launched"], 1)
+        self.assertEqual(self.launcher.spawned[-1][0], waiting)
+        self.assertEqual(self.ledger.item(ordinary["id"])["state"], "queued")
+        self.assertEqual(self.ledger.item(waiting)["stage"], "unity-worker-starting")
+        self.ledger.claim(waiting, worker_id="resumed")
+        self.assertEqual(self.ledger.item(waiting)["stage"], "unity-verifying")
+        self.assertEqual(self.ledger.pending_unity_workers("h"), set())
+
+    def test_unity_grant_during_unlocked_preflight_keeps_its_worker_seat(self):
+        waiting = self.waiting_item("interactive")
+        ordinary = self.item(issue_id=OTHER, session="s2", skill="chat")
+        def crossing(item):
+            self.assertIsNotNone(self.acquire_unity())
+            return True
+        self.scheduler.preflight = crossing
+        self.assertEqual(self.scheduler.tick()["launched"], 0)
+        self.assertEqual(self.ledger.item(ordinary["id"])["state"], "queued")
+        self.assertEqual(self.ledger.pending_unity_workers("h"), {waiting})
+
+    def test_old_resource_worker_must_exit_before_its_successor_can_acquire(self):
+        item = self.item()
+        self.scheduler.tick()
+        token = self.ledger.claim(item["id"], worker_id="old")["token"]
+        self.ledger.await_resource(item["id"], token, "unity_slot", "interactive", skill=SKILLS["fix"])
+        self.assertIsNone(self.acquire_unity())
+        self.launcher.finished.append(Finished(item["id"], 0, "", False, "exited"))
+        self.scheduler.tick()
+        self.assertIsNotNone(self.acquire_unity())
+
+    def test_unverified_old_descendants_keep_unity_free(self):
+        waiting = self.waiting_item("interactive")
+        with patch.object(self.launcher, 'assert_quiescent', side_effect=RuntimeError('descendant still alive')):
+            self.assertIsNone(self.acquire_unity())
+        self.assertEqual(self.ledger.item(waiting)['stage'], 'waiting-for-worker-teardown')
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'idle_closed')
+        self.assertIsNotNone(self.acquire_unity())
+
+    def test_cancel_or_held_unity_preparation_returns_the_worker_seat(self):
+        waiting = self.waiting_item("interactive")
+        reservation = self.acquire_unity()
+        self.assertEqual(self.ledger.pending_unity_workers("h"), {waiting})
+        self.ledger.set_slot_state(reservation["resource"], "held")
+        self.assertEqual(self.ledger.pending_unity_workers("h"), set())
+        self.ledger.set_slot_state(reservation["resource"], "interactive_busy")
+        self.ledger.cancel(waiting, "Stop during preparation")
+        self.assertEqual(self.ledger.pending_unity_workers("h"), set())
+        self.item(issue_id=OTHER, session="s2", skill="chat")
+        self.assertEqual(self.scheduler.tick()["launched"], 1)
+
+    def test_two_free_editors_cannot_reserve_the_same_last_worker_seat(self):
+        self.waiting_item("interactive")
+        self.waiting_item("interactive", issue_id=OTHER, session="s2")
+        self.ledger.ensure_slot("unity_slot:2", kind="unity_slot", host="h", folder=str(self.slot_folder / 'second'))
+        self.assertIsNotNone(self.acquire_unity())
+        self.assertIsNone(self.acquire_unity())
+        self.assertEqual(self.ledger.slot("unity_slot:2")["state"], "idle_closed")
+
+    def test_concurrent_pool_connections_cannot_overbook_worker_capacity(self):
+        self.waiting_item('interactive')
+        self.waiting_item('interactive', issue_id=OTHER, session='s2')
+        for n in (1, 2):
+            self.ledger.ensure_slot(f'unity_slot:{n}', kind='unity_slot', host='h', folder=str(self.slot_folder / str(n)))
+        barrier, results, errors = threading.Barrier(2), [], []
+        def acquire():
+            db = Ledger(Path(self.tmp.name) / 'ledger.sqlite3')
+            try:
+                barrier.wait(timeout=3)
+                reservation = self.scheduler.acquire_unity(db, lambda conn, kind, **kw: conn.acquire(kind, **kw),
+                                                          'unity_slot', owner='pool', host='h')
+                results.append(reservation is not None)
+            except Exception as exc:
+                errors.append(type(exc).__name__)
+            finally:
+                db.close()
+        threads = [threading.Thread(target=acquire) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(5)
+        self.assertFalse(any(thread.is_alive() for thread in threads))
+        self.assertEqual(errors, [])
+        self.assertEqual(sorted(results), [False, True])
+
     def test_new_launch_gets_current_memory_snapshot(self):
         from test_memory import NOTE, replacement
         note = self.ledger.memory_admin("save", value=NOTE)

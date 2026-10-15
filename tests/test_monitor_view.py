@@ -167,6 +167,24 @@ class CapacityAndFailureTests(ViewBase):
 
 
 class ActiveWorkTests(ViewBase):
+    def test_unity_status_follows_grant_launch_and_claim_instead_of_old_checkpoint_stage(self):
+        job = self.job()
+        claim = self.claim(job)
+        self.ledger.checkpoint(job['id'], claim['token'], {'stage': 'client-awaiting-new-comparison-baseline'})
+        self.ledger.await_resource(job['id'], claim['token'], 'unity_slot', 'interactive', skill=SKILLS['fix'])
+        self.ledger.unity_wait_stage(self.ledger.reservations()[0]['reservation_id'], 'waiting-for-worker')
+        self.assertEqual(self.active(self.status(), 'FARM-1')['display_state'], 'waiting_worker')
+        self.ledger.ensure_slot('unity_slot:1', kind='unity_slot', host='test-host', folder=str(self.path.parent / 'editor'))
+        self.ledger.acquire('unity_slot', owner='pool', host='test-host')
+        self.assertEqual(self.active(self.status(), 'FARM-1')['display_state'], 'preparing_resource')
+        self.ledger.resume(job['id'], 'prepared', stage='unity-worker-ready')
+        self.assertEqual(self.active(self.status(), 'FARM-1')['display_state'], 'resource_ready')
+        self.ledger.set_worker(job['id'], 515152, 'test-host')
+        self.assertEqual(self.active(self.status(), 'FARM-1')['display_state'], 'launching')
+        self.ledger.claim(job['id'], worker_id='new')
+        row = self.active(self.status(), 'FARM-1')
+        self.assertEqual((row['display_state'], row['stage']), ('running', 'unity-verifying'))
+
     def test_running_and_waiting_jobs_show_identity_stage_and_timing(self):
         running, waiting = self.job(), self.job(skill="chat")
         self.clock = NOW - 1800

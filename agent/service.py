@@ -109,6 +109,7 @@ def build(config, runtime_override=None):
                     concurrent_batches=True,
                     admission=admission,
                     keep_open=bool(editor_count),
+                    worker_acquire=scheduler.acquire_unity,
                     mcp=UnityIdentity(ROOT / "agent" / "probes" / "editor-readiness.cs.txt",
                                       token_env=token_env, secret_env=config.lark_cli.get("secret_env"),
                                       console_evidence_root=paths.config_dir / 'unity-console'))

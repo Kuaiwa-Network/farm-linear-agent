@@ -40,7 +40,18 @@ class SessionProgress:
             return HEARTBEAT_STATUS_ERROR
         if check.get("undelegated_since") is not None and item["authority"] == "delegation":
             return HEARTBEAT_UNDELEGATED
+        reservation = self.ledger.active_reservation(item["id"])
+        if reservation and reservation["kind"] == "unity_slot" and reservation["mode"] == "interactive":
+            return ("Unity 验证资源已就绪，worker 正在启动。" if item["worker_pid"] is not None else
+                    "Unity 验证资源已就绪，正在启动已预留名额的 worker。")
         return "工作仍在排队，等待可用的执行资源。"
+
+    @staticmethod
+    def _resource_body(item):
+        return {"waiting-for-worker": "工作已保留，正在等待可用的 worker 名额；尚未占用 Unity。",
+                "waiting-for-worker-teardown": "工作已保留，正在等待旧 worker 的进程清理确认；尚未占用 Unity。",
+                "unity-preparing": "Unity 验证资源已分配，正在准备项目和编译。"}.get(
+                    item["stage"], "工作已保留，正在等待 Unity 验证资源。")
 
     def _tasks(self, item):
         if item.get('parent_id') or item['skill'] != 'work':
@@ -54,6 +65,8 @@ class SessionProgress:
         for task in tasks:
             status = {'queued': '排队继续执行', 'running': '正在执行',
                       'awaiting_resource': '等待 Unity 验证资源'}[task['state']]
+            if task['state'] == 'awaiting_resource':
+                status = self._resource_body(task).removesuffix('。')
             if task['stage'] == 'waiting_for_recovery':
                 recovery = self.db.execute("SELECT state,attempts FROM resource_recoveries WHERE item_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1",
                                            (task['id'],)).fetchone()
@@ -70,7 +83,7 @@ class SessionProgress:
         if state == "queued":
             body = self._queued_body(item)
         elif state == "awaiting_resource":
-            body = "工作已保留，正在等待 Unity 验证资源。"
+            body = self._resource_body(item)
         elif state == "running":
             body = f"工作仍在处理中；已记录阶段：{item['stage'][:120]}。"
             checkpoint = self.db.execute("SELECT max(created_at) FROM audit WHERE item_id=? AND kind='checkpoint'",
@@ -108,7 +121,7 @@ class SessionProgress:
         # Flags can change while the item remains awaiting_input, including between a question's reservation and
         # its retry. Reevaluate that content instead of sending an obsolete elicitation during withdrawal grace.
         tasks = [(t['id'], t['state'], t['generation'], t['stage']) for t in self._tasks(item)]
-        return item, f"{item['id']}:{item['state']}:{item['generation']}:{item['withdraw_reason']}:{item['withdraw_deadline']}:{tasks}"
+        return item, f"{item['id']}:{item['state']}:{item['generation']}:{item['stage']}:{item['worker_pid']}:{item['withdraw_reason']}:{item['withdraw_deadline']}:{tasks}"
 
     def _reserve(self, item_id, content, status_key):
         """The new send's activity id, or None when the item's row is gone: a cancellation that posted its own

@@ -784,14 +784,68 @@ class Scheduler:
         for repo, head in heads.items():
             self.worktrees.verification_commit(repo, item["id"], head, expected_branch=branches[repo])
 
-    def _exclusive_running(self):
+    def acquire_unity(self, ledger, acquire, kind, **options):
+        """Reserve a worker seat atomically with an interactive Unity grant.
+
+        Only the short admission/acquire step holds the launch lock. Switching,
+        compilation and MCP stay on the pool thread outside it. The active
+        reservation is the durable seat; ordinary launches cannot spend it.
+        Batch runs execute in the pool without a worker and keep their own capacity.
+        """
+        with self.lock:
+            request = next((r for r in ledger.reservations(states=("queued",)) if r["kind"] == kind), None)
+            if request is None:
+                return None
+            if request["mode"] != "interactive":
+                return acquire(ledger, kind, **options)
+            item = ledger.item(request["item_id"])
+            reserved = ledger.pending_unity_workers(self.host)
+            if len(set(self.active) | reserved) >= self.max_concurrent:
+                ledger.unity_wait_stage(request["reservation_id"], "waiting-for-worker")
+                return None
+            # await-resource retires the claim before the old process exits.
+            # Do not hand the Editor to its successor until teardown is complete.
+            if item["id"] in self.active or item["worker_pid"] is not None or item["withdraw_deadline"] is not None:
+                return None
+            try:
+                self.launcher.assert_quiescent(item["id"], ledger.last_worker_pid(item["id"]))
+            except Exception:
+                ledger.unity_wait_stage(request["reservation_id"], "waiting-for-worker-teardown")
+                return None
+            skill = self.skills.get(item["skill"])
+            # Disabled skills retain the existing queued-launch refusal/cleanup
+            # path after hand-over, rather than getting stranded in resource wait.
+            if skill and not item.get("parent_id") and skill.exclusive and self._exclusive_running(ledger=ledger):
+                return None
+            if item.get("predecessor_id") and not (ledger.cleanup_record(item["predecessor_id"]) or {}).get("done"):
+                return None
+            if skill and (item["skill"] == "work" or item.get("parent_id")):
+                if item.get("parent_id"):
+                    parent = ledger.item(item["parent_id"])
+                    if parent["state"] not in ACTIVE_STATES or parent["withdraw_deadline"] is not None:
+                        return None
+                try:
+                    client_ready(ledger, ledger._row(item["id"]))
+                except LedgerError:
+                    return None
+                if repository_busy(ledger, item, self.skills, self.active, self.launcher):
+                    return None
+            reservation = acquire(ledger, kind, **options)
+            if reservation is None:
+                ledger.unity_wait_stage(request["reservation_id"], "waiting-for-unity")
+            return reservation
+
+    def _exclusive_running(self, *, ledger=None, exclude=None):
         """Keep the legacy exclusive lane independent of general-job capabilities.
 
         Native UI export owns its machine mutex separately. A general job's UI
         authoring must not prevent an unrelated legacy server attempt from running.
         """
-        for item_id in self.active:
-            item = self.ledger.item(item_id)
+        ledger = ledger or self.ledger
+        for item_id in set(self.active) | ledger.pending_unity_workers(self.host):
+            if item_id == exclude:
+                continue
+            item = ledger.item(item_id)
             if item.get("parent_id"):
                 continue
             skill = self.skills.get(item["skill"])
@@ -859,13 +913,16 @@ class Scheduler:
                     # Ahead of the cap: a refusal takes no worker slot and must not wait for one.
                     self._refuse_disabled(item["id"], item["skill"])
                     continue
+                reserved = self.ledger.pending_unity_workers(self.host)
                 if len(self.active) >= self.max_concurrent:
                     break
+                if item["id"] not in reserved and len(set(self.active) | reserved) >= self.max_concurrent:
+                    continue  # a prepared Unity worker later in the queue owns this seat
                 if item["skill"] not in self.skills or item["id"] in self.active:
                     continue
                 # At most one attempt of any exclusive skill at a time (spec §5.8, D16; P8). A waiting one is only
                 # passed over, so it keeps its place in the queue, and fix and chat go on up to max_concurrent.
-                if not item.get("parent_id") and self.skills[item["skill"]].exclusive and self._exclusive_running():
+                if not item.get("parent_id") and self.skills[item["skill"]].exclusive and self._exclusive_running(exclude=item["id"]):
                     continue
                 root = current_root(item.get("root_repo"), self.skills[item["skill"]])
                 if item["skill"] == "work" or item.get("parent_id"):
@@ -893,6 +950,15 @@ class Scheduler:
                 continue
             with self.lock:
                 if self.ledger.item(item["id"])["state"] != "queued":
+                    continue
+                # Preflight runs without the lock. The pool may have reserved a
+                # seat while Linear was being read; recheck before spawning.
+                reserved = self.ledger.pending_unity_workers(self.host)
+                if (len(self.active) >= self.max_concurrent or
+                        item["id"] not in reserved and len(set(self.active) | reserved) >= self.max_concurrent):
+                    continue
+                if (not item.get("parent_id") and self.skills[item["skill"]].exclusive
+                        and self._exclusive_running(exclude=item["id"])):
                     continue
                 try:
                     if self.launch(item) is not None:

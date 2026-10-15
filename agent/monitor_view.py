@@ -175,7 +175,16 @@ def _display_state(row, now):
             return "switching_repo" if row["next_root_repo"] else "launching"
         if (_time(row["retry_not_before"]) or 0) > now:
             return "retry_wait"
+        if row["stage"] == "unity-worker-ready":
+            return "resource_ready"
         return "queued"
+    if row["state"] == "awaiting_resource":
+        if row["stage"] == "waiting-for-worker":
+            return "waiting_worker"
+        if row["stage"] == "waiting-for-worker-teardown":
+            return "waiting_worker_cleanup"
+        if row["stage"] == "unity-preparing":
+            return "preparing_resource"
     if row["state"] == "awaiting_resource" and row["stage"] == "waiting_for_recovery":
         return "waiting_for_recovery"
     return row["state"]
