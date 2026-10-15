@@ -1446,9 +1446,19 @@ recording success. Recovery does not rewrite files or replace the baseline.
 If no writes remain and the clean checkout exactly matches the recorded before
 inventory, directories and global GUID digest, the controller retires the unused
 plan in audit and prepares a fresh one, preserving the earlier recovery files.
-Partial writes, legacy journals without the pre-write controller record, changed
-evidence and unrelated Client work still refuse continuation and retain recovery
-evidence. This adds audit records, not a schema migration; older code cannot finalize
+For a single complete legacy journal without a pre-write controller record,
+the controller can independently reconstruct a first installation at its original
+pinned HEAD. Every retained backup must match the full selected-package Git tree
+or its LFS OID/size; unchanged Unity metadata may retain native CRLF. The certified
+export must replace exactly the existing artifact set, with no added/deleted files,
+directories or metadata. The exact journal, backups, installed bytes, baseline
+global GUID inventory, HEAD/index, unrelated-change checks and current authority
+are rechecked before success. The installation proof records the reconstruction
+method and journal hash; no pre-write audit is backdated and no Client or recovery
+file is rewritten. Multiple journals, corrections, partial writes, structural or
+metadata changes, changed evidence and unrelated Client work still refuse this
+legacy path and retain recovery evidence.
+This adds audit records, not a schema migration; older code cannot finalize
 these interrupted writes, so retain their records and journals across rollback.
 New packages require Common. `verify-ui` checks the
 clean exact committed candidate and installed bytes/GUIDs. New verification

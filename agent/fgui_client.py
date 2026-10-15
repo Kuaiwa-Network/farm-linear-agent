@@ -177,20 +177,24 @@ def _abandon_unapplied(workflow, exported, prepared):
 
 
 def _completed_install(workflow, exported, prepared):
-    """Read-only recovery of a complete write phase bound to a pre-write audit.
+    """Validate complete writes against a pre-write audit or baseline reconstruction.
 
-    Private journals alone cannot authorize dirty work. Partial writes and legacy
-    unbound journals remain preserved for operator investigation.
+    Private journals alone cannot authorize dirty work. A legacy reconstruction
+    must independently prove its before state against the immutable Git baseline.
     """
     client, proof = _prepared_identity(workflow, exported, prepared)
     recovery = workflow.paths.runs / workflow.item_id / "ui-installations" / proof["installation_id"]
     try:
-        journal = json.loads(_bytes(recovery / "journal.json", 4 << 20).decode("utf-8"))
+        raw_journal = _bytes(recovery / "journal.json", 4 << 20)
+        journal = json.loads(raw_journal.decode("utf-8"))
     except (OSError, ValueError):
         raise LedgerError("UI installation recovery journal is unavailable; preserve recovery evidence") from None
     before = [{"file": entry["file"], "backup": str(i), "sha256": entry["sha256"]}
               for i, entry in enumerate(prepared["before_files"])]
     plan = proof["plan"]
+    if (proof.get("recovery") is not None and hashlib.sha256(raw_journal).hexdigest()
+            != proof["recovery"]["journal_sha256"]):
+        raise LedgerError("UI installation recovery journal changed; preserve recovery evidence")
     completed = ([{"mkdir": n} for n in sorted(plan["created_directories"], key=lambda n: (n.count("/"), n))]
                  + [{"write": entry["file"]} for entry in plan["writes"]]
                  + [{"delete": n} for n in sorted(plan["deletes"], key=lambda n: (-n.count("/"), n))]
@@ -269,7 +273,10 @@ def install(workflow, receipt_id):
         return _certify(workflow, exported, proof, prepared=prepared)
     initial_head = workflow.trees.git_in(client, "rev-parse", "HEAD")
     if workflow.trees.git_in(client, "status", "--porcelain"):
-        raise LedgerError("first UI installation requires a clean owned Client at its pinned baseline; preserve interrupted work")
+        from .fgui_legacy_install import reconstruct
+        prepared = reconstruct(workflow, exported, snapshot, client, branch, baseline)
+        proof = _completed_install(workflow, exported, prepared)
+        return _certify(workflow, exported, proof, prepared=prepared)
     if initial_head != baseline:
         records = installation_history(workflow.ledger, workflow.item_id)
         if not records:

@@ -353,7 +353,11 @@ certification failed, retry the same `install-ui --receipt-id`: its pre-write
 controller record binds the receipt and planned files, and the controller checks
 the complete journal, backups, installed inventory/GUIDs, unchanged HEAD/index,
 current source/approval and live claim before finalizing without rewriting files.
-Partial writes, changed evidence and older unbound journals remain refusals;
+Complete legacy journals can also recover at the original pinned HEAD when Git
+independently proves every backup and the certified export replaces exactly the
+existing artifacts without metadata or directory changes. The controller records
+that reconstruction, preserves all files and repeats the same final checks.
+Partial writes, changed evidence and other unbound journals remain refusals;
 workers must not copy backups, reset files or manufacture certification records.
 Only exact changed-package dependency entries with new-edge
 reasons may be edited; no gameplay or generated bindings. Commit and `verify-ui`

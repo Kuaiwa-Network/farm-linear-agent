@@ -72,7 +72,8 @@ class FguiScopeTests(unittest.TestCase):
                        "never guess a rollback", "pinned MCP session", "Do not ask for a second reply",
                        "仅确认视觉，暂不导出", "validated same-issue branch", "installation destination",
                        "--prefix=NEW_PRIVATE_STAGE/ -z --stdin", "whose current disk bytes match their committed LFS pointers",
-                       "never `--all`"):
+                       "never `--all`", "legacy complete journal", "every backup matches Git",
+                       "no files, directories or metadata were added or removed"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase.casefold(), text.casefold())
         self.assertNotIn("--type elicitation", text)
