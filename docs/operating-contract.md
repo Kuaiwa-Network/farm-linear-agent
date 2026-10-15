@@ -1137,7 +1137,7 @@ settlement before requesting the candidate normally. Claim, delegation, process 
 
 A complete full suite with unrelated existing failures need not block a draft when
 `python -m agent.test_baseline` returns `draft_eligible=true`: distinct recorded commits, identical selection
-and environment/config/package identities, complete nonzero leaf outcomes, no new/changed failures or skips,
+and stable environment/config/package identities, complete nonzero leaf outcomes, no new/changed failures or skips,
 no removed tests, all affected tests passed, every matched failure reviewed against the actual diff, and all
 other required local checks passed. Missing/incomparable results remain gaps. The comparator is a read-only
 decision aid; it grants no publication authority and does not replace fresh `verify-publication` or main
@@ -1145,6 +1145,19 @@ integration. The verdict is `passed_with_existing_failures`, with `full_suite_pa
 failures/skips explicitly listed in the draft. No merge/deploy waiver, suppressed tests or unrelated fixes.
 See [evidence schema and procedure](../references/test-baseline.md). No schema migration: identity lives in
 audit details. Settle active comparison reservations before rollback to code that lacks comparison dispatch.
+
+UI resources changed by the candidate are distinguished from environment drift only with both complete
+package inventories bound to their original recorded digests. Every observed changed path must be an exact
+Git change under `Assets/GameRes/FairyRes/`, with a reason/evidence review in `ui_resource_changes`. Retained
+failures also require individual `resource_review` evidence of unchanged complete resource dependencies,
+shared setup and loaders. Referenced assets' metadata and ancestor folder metadata are compared too.
+Package manifest/lock changes, config or host/settings drift, unlisted resources, changed failure dependencies,
+missing inventories and unreviewed failures still block the exception. Digests are never rewritten to match,
+and all resource deltas remain in the report. Identical skips are not called new just because environment
+identity differs. Old evidence without inventories retains strict package-digest matching; verified recorded
+inventories may be attached to copies of completed runs without altering their outcomes or original digests.
+This is an optional evidence extension with no ledger migration. Older comparators reject the extended scope;
+keep original evidence and settle/review unfinished comparisons before downgrading.
 
 ### Candidate identity
 

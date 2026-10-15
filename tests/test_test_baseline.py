@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -37,6 +38,152 @@ class BaselineTests(unittest.TestCase):
 
     def compare(self):
         return compare(self.baseline, self.candidate, **self.scope)
+
+    def ui_inputs(self):
+        self.ui_path = "Assets/GameRes/FairyRes/Friend/Friend_fui.bytes"
+        self.card_path = "Assets/GameRes/FairyRes/Card/Card_fui.bytes"
+        inventory = [{"path": path, "sha256": "3" * 64} for path in (
+            "Packages/manifest.json", "Packages/packages-lock.json", self.ui_path,
+            self.ui_path + ".meta", self.card_path)]
+        for value in (self.baseline, self.candidate):
+            value["package_inventory"] = copy.deepcopy(inventory)
+        self.candidate["package_inventory"][2]["sha256"] = "4" * 64
+        self.rehash()
+        self.scope["changed_paths"].append(self.ui_path)
+        self.scope["ui_resource_changes"] = {
+            self.ui_path: {"reason": "approved Friend UI export", "evidence": "certified export diff"}}
+        self.scope["unrelated_failures"]["Card.Cleanup"]["resource_review"] = {
+            "dependencies": [self.card_path], "reason": "Card fixture loads Card, not Friend; shared setup unchanged",
+            "evidence": "fixture, shared UI loader and package dependency review"}
+
+    def rehash(self):
+        for value in (self.baseline, self.candidate):
+            entries = sorted(value["package_inventory"], key=lambda row: row["path"])
+            value["environment"]["package_digest"] = hashlib.sha256(json.dumps(
+                entries, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+    def test_audited_ui_resource_change_is_subject_change_not_environment_drift(self):
+        self.ui_inputs()
+        report = self.compare()
+        self.assertTrue(report["draft_eligible"])
+        self.assertFalse(report["full_suite_passed"])
+        self.assertEqual(report["ui_resource_changes"][0]["path"], self.ui_path)
+        self.assertEqual(report["reviewed_unrelated_failures"], ["Card.Cleanup"])
+
+    def test_ui_change_requires_inventory_exact_git_scope_and_dependency_review(self):
+        self.ui_inputs()
+        for field in ("package_inventory",):
+            with self.subTest(field=field):
+                candidate = copy.deepcopy(self.candidate); candidate.pop(field)
+                self.assertFalse(compare(self.baseline, candidate, **self.scope)["draft_eligible"])
+        for change in ("not_changed", "not_reviewed", "missing_dependencies", "changed_dependency"):
+            with self.subTest(change=change):
+                scope = copy.deepcopy(self.scope)
+                if change == "not_changed":
+                    scope["changed_paths"].remove(self.ui_path)
+                elif change == "not_reviewed":
+                    scope["ui_resource_changes"] = {}
+                elif change == "missing_dependencies":
+                    scope["unrelated_failures"]["Card.Cleanup"].pop("resource_review")
+                else:
+                    scope["unrelated_failures"]["Card.Cleanup"]["resource_review"]["dependencies"] = [self.ui_path]
+                self.assertFalse(compare(self.baseline, self.candidate, **scope)["draft_eligible"])
+
+    def test_ui_exception_never_allows_lock_config_settings_or_host_drift(self):
+        self.ui_inputs()
+        for field in ("host", "slot", "unity_version", "platform", "test_framework_version", "config_digest"):
+            with self.subTest(field=field):
+                candidate = copy.deepcopy(self.candidate)
+                candidate["environment"][field] = "5" * 64
+                self.assertFalse(compare(self.baseline, candidate, **self.scope)["draft_eligible"])
+        self.candidate["environment"]["settings_digest"] = "5" * 64
+        self.assertFalse(self.compare()["draft_eligible"])
+        self.candidate["environment"].pop("settings_digest")
+        self.candidate["package_inventory"][1]["sha256"] = "5" * 64
+        self.rehash()
+        self.scope["changed_paths"].append("Packages/packages-lock.json")
+        self.scope["ui_resource_changes"]["Packages/packages-lock.json"] = {
+            "reason": "cannot waive package drift", "evidence": "lock diff"}
+        self.assertFalse(self.compare()["draft_eligible"])
+
+    def test_unlisted_ui_or_meta_drift_stays_blocked(self):
+        self.ui_inputs()
+        self.candidate["package_inventory"][3]["sha256"] = "5" * 64
+        self.rehash()
+        self.assertFalse(self.compare()["draft_eligible"])
+
+    def test_audited_meta_change_remains_visible_and_cannot_change_failure_dependency(self):
+        self.ui_inputs()
+        path = self.ui_path + ".meta"
+        self.candidate["package_inventory"][3]["sha256"] = "5" * 64
+        self.rehash()
+        self.scope["changed_paths"].append(path)
+        self.scope["ui_resource_changes"][path] = {"reason": "reviewed import setting", "evidence": "meta diff and guards"}
+        self.assertTrue(self.compare()["draft_eligible"])
+        self.assertEqual(len(self.compare()["ui_resource_changes"]), 2)
+        self.scope["unrelated_failures"]["Card.Cleanup"]["resource_review"]["dependencies"].append(path)
+        self.assertFalse(self.compare()["draft_eligible"])
+
+    def test_inventory_tampering_duplicates_and_unsafe_paths_are_gaps(self):
+        self.ui_inputs()
+        for path in ("../escape", "Assets/GameRes/FairyRes/../Other", "C:/absolute", self.card_path,
+                     self.card_path.upper()):
+            with self.subTest(path=path), self.assertRaises(ComparisonError):
+                candidate = copy.deepcopy(self.candidate)
+                candidate["package_inventory"].append({"path": path, "sha256": "6" * 64})
+                compare(self.baseline, candidate, **self.scope)
+        self.candidate["package_inventory"][2]["sha256"] = "6" * 64
+        with self.assertRaisesRegex(ComparisonError, "digest"):
+            self.compare()
+
+    def test_dependency_metadata_and_ancestor_metadata_cannot_be_waived(self):
+        self.ui_inputs()
+        for path in (self.card_path + ".meta", "Assets/GameRes/FairyRes/Card.meta"):
+            with self.subTest(path=path):
+                baseline, candidate, scope = map(copy.deepcopy, (self.baseline, self.candidate, self.scope))
+                for value, digest in ((baseline, "5"), (candidate, "6")):
+                    value["package_inventory"].append({"path": path, "sha256": digest * 64})
+                    entries = sorted(value["package_inventory"], key=lambda row: row["path"])
+                    value["environment"]["package_digest"] = hashlib.sha256(json.dumps(
+                        entries, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+                scope["changed_paths"].append(path)
+                scope["ui_resource_changes"][path] = {"reason": "import change", "evidence": "metadata diff"}
+                self.assertFalse(compare(baseline, candidate, **scope)["draft_eligible"])
+
+    def test_added_and_deleted_ui_inputs_require_exact_review_and_remain_visible(self):
+        self.ui_inputs()
+        added = "Assets/GameRes/FairyRes/Friend/新 图.png"
+        removed = self.ui_path + ".meta"
+        self.candidate["package_inventory"].append({"path": added, "sha256": "6" * 64})
+        self.candidate["package_inventory"] = [r for r in self.candidate["package_inventory"] if r["path"] != removed]
+        self.rehash()
+        self.assertFalse(self.compare()["draft_eligible"])
+        for path in (added, removed):
+            self.scope["changed_paths"].append(path)
+            self.scope["ui_resource_changes"][path] = {"reason": "reviewed export delta", "evidence": "export and guards"}
+        report = self.compare()
+        self.assertTrue(report["draft_eligible"])
+        changes = {r["path"]: r for r in report["package_input_changes"]}
+        self.assertIsNone(changes[added]["baseline_sha256"])
+        self.assertIsNone(changes[removed]["candidate_sha256"])
+
+    def test_true_regressions_and_new_skips_still_block_with_reviewed_ui_changes(self):
+        self.ui_inputs()
+        for index, field, value in ((1, "message", "new failure"), (2, "message", "new skip reason"),
+                                     (0, "state", "Skipped")):
+            with self.subTest(index=index, field=field):
+                candidate = copy.deepcopy(self.candidate)
+                candidate["tests"][index][field] = value
+                if index == 0:
+                    candidate["tests"][0]["message"] = "affected test skipped"
+                    candidate["summary"].update(passed=0, skipped=2)
+                self.assertFalse(compare(self.baseline, candidate, **self.scope)["draft_eligible"])
+
+    def test_environment_drift_does_not_relabel_unchanged_skips_as_new(self):
+        self.candidate["environment"]["slot"] = "other"
+        report = self.compare()
+        self.assertFalse(report["draft_eligible"])
+        self.assertEqual(report["new_or_changed_skips"], [])
 
     def test_reviewed_existing_failure_allows_only_a_draft_verdict(self):
         report = self.compare()
