@@ -721,6 +721,21 @@ clean candidate, recorded issue branch and immutable target. A comparison resour
 `verification_role=baseline` and `candidate_commit`; verify its actual `resource.commit`, release and wait
 for settlement before requesting the candidate normally. See [comparison evidence and draft verdict](test-baseline.md).
 
+Finish this exact controller-recorded round when remote main advances during the queue.
+After a quiescently settled baseline, the unchanged candidate request uses that selected
+baseline; do not merge solely to chase the latest tip. After both baseline and a subsequent
+candidate reservation in the same mode settle quiescently, `verify-publication` also returns
+`verification_pair` and `main_integration.current_main` separately from the selected baseline.
+The selected baseline must still belong to actual remote main. This permits an eligible
+draft against the tested pair, without claiming that newer main was tested. New source or
+a new comparison baseline starts a fresh round with normal main integration. An unfinished
+or unclean round cannot borrow older completed evidence. The same job's checkpointed retry
+may retain an exact unchanged pair; another job cannot. This is no test verdict or completion
+waiver: compare complete outcomes, pass required affected tests and keep every evidence gate.
+For completed failures, deliver an eligible draft, fix an attributable failure at a new commit,
+or report a concrete blocker. Do not repeat an unchanged failing run without diagnosing why
+another run should differ.
+
 ## Notices
 
 A notice is an issue comment a job may need more than once: `--kind question` for a grouped question

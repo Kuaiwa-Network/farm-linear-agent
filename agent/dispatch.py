@@ -332,6 +332,15 @@ BASELINE_AUTHORITY = (
     "from the source candidate: test only resource.commit, preserve candidate_commit, record complete outcomes, "
     "release and wait for controller settlement before requesting candidate verification. Do not edit the "
     "slot or start/stop an Editor. Baseline evidence alone never certifies the candidate. "
+    "Finish that exact controller-recorded baseline/candidate round even if main advances while queued. "
+    "After its baseline settles, request the unchanged candidate; do not merge main solely because its tip "
+    "advanced. Once both reservations settle, verify-publication retains that selected baseline for the "
+    "exact candidate while proving it still belongs to actual remote main. Report both tested SHAs and "
+    "current main honestly; this does not certify untested newer main. Changed candidates or a new baseline "
+    "start a fresh round with normal main integration and required checks. Compare a completed failing pair "
+    "and either deliver an eligible draft, fix an attributable failure at a new commit, or retain a concrete "
+    "unresolved blocker. Do not repeat an unchanged failing run without a diagnosed reason to expect a "
+    "different result. All existing evidence, affected-test, publication and completion gates remain required. "
 )
 
 # Per-skill grants, chosen by the item's skill. A skill without an entry is refused when its launch message

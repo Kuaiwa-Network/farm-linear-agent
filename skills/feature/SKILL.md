@@ -108,6 +108,14 @@ inputs, generator/tool pins and required consumer behavior; a title or unchanged
 proto filenames alone proves nothing. Separate unrelated upstream drift from the
 inputs needed for this issue. Do not adopt the latest Contract tip merely because
 it exists. Preserve required Client main integration and publication ancestry.
+For a controller-recorded baseline/candidate comparison, finish that exact round
+after its baseline settles even if main advances while queued. Do not merge merely
+to chase a newer tip. The exact unchanged candidate may use that settled baseline
+for its remaining verification and, after both leases settle, draft publication;
+the controller still checks actual upstream ancestry. Changed source needs a new
+round. Compare complete failures and either deliver an eligible draft, fix an
+attributable failure at a new commit, or retain a concrete blocker. Repeating the
+same failing run requires a diagnosed reason to expect a different result.
 
 Record the decision under `client.inputs.network` (and `closing.inputs.hive` for
 server protocol inputs): `required`, `reason`, inspected full source/base/consumer

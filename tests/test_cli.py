@@ -542,6 +542,67 @@ class CliTests(unittest.TestCase):
             self.assertEqual(ledger.reservation_comparison(reservation["reservation_id"]),
                              {"verification_role": "baseline", "candidate_commit": fixed})
 
+    def settle_test_reservation(self, ledger, item):
+        ledger.ensure_slot(SLOT, kind="unity_slot", host=HOST, folder=str(self.root / "fake-editor"))
+        lease = ledger.acquire("unity_slot", host=HOST, owner="fixture")
+        ledger.release(lease["reservation_id"], lease["token"], "worker reported quiescent")
+        ledger.set_slot_state(SLOT, "idle_open")
+        ledger.resume(item, "fixture verification settled")
+        return ledger.claim(item, worker_id="fixture-next")["token"]
+
+    def test_paired_candidate_request_finishes_selected_round_when_main_advances(self):
+        from agent.ledger import Ledger
+        from test_worktrees import git
+        item, token, baseline, fixed, path = self.verification_fixture(skill="feature", client_stage=True)
+        self.run_cli("await-resource", "--item", item, "--token", token, "--resource", "unity_slot",
+                     "--mode", "interactive", "--commit", fixed, "--baseline")
+        with closing(Ledger(self.db)) as ledger:
+            token = self.settle_test_reservation(ledger, item)
+            self.assertEqual(ledger.client_verification_pair(item, fixed)["baseline_commit"], baseline)
+            self.assertIsNone(ledger.client_verification_pair(item, fixed, require_candidate=True))
+        origin = self.root / "origin"
+        (origin / "new-other-issue.txt").write_text("another issue merged",encoding="utf-8")
+        git("add", ".", cwd=origin)
+        git("commit", "-qm", "advance main during queue wait", cwd=origin)
+        result = self.run_cli("await-resource", "--item", item, "--token", token, "--resource", "unity_slot",
+                              "--mode", "interactive", "--commit", fixed)
+        self.assertEqual(result["state"], "awaiting_resource")
+        self.assertEqual(git("rev-parse", "HEAD", cwd=path), fixed)
+        self.assertEqual(self.run_cli("reservations")[-1]["commit_sha"], fixed)
+
+    def test_only_settled_exact_pair_allows_draft_verification_without_chasing_new_main(self):
+        from unittest.mock import patch
+        from agent.__main__ import run
+        from agent.skills import load_skills
+        from agent.publication import PublicationError
+        from test_worktrees import git
+        args, ledger, config, api, github = self.publication_fixture()
+        path = Path(config.local_root) / "worktrees" / args.item / "Farm-Client"
+        candidate = git("rev-parse", "HEAD", cwd=path)
+        base = git("rev-parse", "HEAD^", cwd=path)
+        self.root_item(args.item, "Farm-Client")
+        skill = load_skills(ROOT / "skills")["fix"]
+        ledger.await_resource(args.item, args.token, "unity_slot", "interactive", skill=skill,
+                              commit_sha=base, comparison_candidate=candidate)
+        token = self.settle_test_reservation(ledger, args.item)
+        ledger.await_resource(args.item, token, "unity_slot", "interactive", skill=skill, commit_sha=candidate)
+        args.token = self.settle_test_reservation(ledger, args.item)
+        origin = self.root / "origin"
+        (origin / "unrelated-main.txt").write_text("main advanced after selected pair",encoding="utf-8")
+        git("add", ".", cwd=origin)
+        git("commit", "-qm", "new main after completed pair", cwd=origin)
+        with patch("agent.__main__.load_config", return_value=config), patch("agent.publication.github_api", side_effect=github):
+            result = run(args, ledger, lambda: api)
+            self.assertTrue(result["main_integration"]["verification_base_pinned"])
+            self.assertEqual(result["main_integration"]["commit"], base)
+            self.assertEqual(result["verification_pair"]["candidate_commit"], candidate)
+            self.assertNotEqual(result["main_integration"]["current_main"], base)
+            (path / "changed-after-tests.txt").write_text("new candidate needs verification",encoding="utf-8")
+            git("add", ".", cwd=path)
+            git("commit", "-qm", "candidate changed", cwd=path)
+            with self.assertRaisesRegex(PublicationError, "fetch and integrate main"):
+                run(args, ledger, lambda: api)
+
     def test_comparison_requires_explicit_candidate_and_unity_before_git_reads(self):
         from agent.__main__ import parser, run
         from agent.ledger import Ledger, LedgerError

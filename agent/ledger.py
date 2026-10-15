@@ -1907,6 +1907,34 @@ class Ledger:
                 return {"verification_role": "baseline", "candidate_commit": candidate}
         return None
 
+    def client_verification_pair(self, item_id, candidate, *, require_candidate=False):
+        """A settled, controller-selected comparison pins one verification round across main updates.
+
+        This records no test verdict. Full result/affected-scope checks remain required.
+        Retry may preserve source evidence; a different item or candidate never inherits it.
+        """
+        item = self._row(item_id)
+        if item["skill"] not in ("work", "feature", "fix") or not isinstance(candidate, str) or not COMMIT_SHA.fullmatch(candidate):
+            return None
+        rows = [r for r in self.reservations() if r["item_id"] == item_id and r["kind"] == "unity_slot"]
+        for baseline in reversed(rows):
+            comparison = self.reservation_comparison(baseline["reservation_id"])
+            if not comparison or comparison["candidate_commit"] != candidate or baseline["commit_sha"] == candidate:
+                continue
+            if baseline["state"] != "released" or baseline["release_reason"] != "worker reported quiescent":
+                return None  # A newer unfinished/unclean round cannot borrow older evidence.
+            tested = next((r for r in reversed(rows) if r["sequence"] > baseline["sequence"]
+                           and r["commit_sha"] == candidate and r["state"] == "released"
+                           and r["mode"] == baseline["mode"]
+                           and r["release_reason"] == "worker reported quiescent"
+                           and self.reservation_comparison(r["reservation_id"]) is None), None)
+            if require_candidate and tested is None:
+                return None
+            return {"baseline_commit": baseline["commit_sha"], "candidate_commit": candidate,
+                    "baseline_reservation": baseline["reservation_id"],
+                    "candidate_reservation": tested["reservation_id"] if tested else None}
+        return None
+
     def begin_editor_warmup(self, slot_id, *, host):
         """Controller-only claim of an idle project before opening its persistent Editor."""
         with self._transaction():

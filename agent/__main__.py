@@ -946,6 +946,10 @@ def run(args, ledger, api_factory):
                     "Farm-Client", args.item, args.commit, **options)
                 request_options["comparison_candidate"] = args.commit
             else:
+                if not server_request and item['skill'] in ('work', 'fix', 'feature'):
+                    pair = ledger.client_verification_pair(args.item, args.commit)
+                    if pair:
+                        options['verified_base'] = pair['baseline_commit']
                 trees.verification_commit("farm-hive" if server_request else "Farm-Client",
                                           args.item, args.commit, require_main=not server_request, **options)
         elif (args.resource == "unity_slot" and item["skill"] == "fix"

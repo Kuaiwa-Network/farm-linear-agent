@@ -208,6 +208,28 @@ class WorktreeTests(unittest.TestCase):
         self.origin = origin
         self.trees = Worktrees(root / "repos", root / "worktrees", {"Farm-Client": str(origin)})
 
+    def test_selected_verification_base_survives_main_advance_but_not_upstream_rewind(self):
+        initial = self.trees.head(self.origin)
+        (self.origin / "baseline.txt").write_text("selected main", encoding="utf-8")
+        git("add", ".", cwd=self.origin)
+        git("commit", "-qm", "select baseline", cwd=self.origin)
+        selected = self.trees.head(self.origin)
+        path = self.trees.add("Farm-Client", "item-1", "farmbot/farm-1")
+        (path / "candidate.txt").write_text("candidate", encoding="utf-8")
+        git("add", ".", cwd=path)
+        git("commit", "-qm", "candidate", cwd=path)
+        candidate = self.trees.head(path)
+        (self.origin / "new-main.txt").write_text("new main while queued", encoding="utf-8")
+        git("add", ".", cwd=self.origin)
+        git("commit", "-qm", "advance", cwd=self.origin)
+        proof = self.trees.require_main_integration("Farm-Client", path, candidate, verified_base=selected)
+        self.assertEqual((proof["commit"], proof["candidate"]), (selected, candidate))
+        self.assertEqual(proof["current_main"], self.trees.head(self.origin))
+        git("reset", "--hard", initial, cwd=self.origin)
+        with self.assertRaisesRegex(WorktreeError, "main no longer contains"):
+            self.trees.require_main_integration("Farm-Client", path, candidate, verified_base=selected)
+        self.assertEqual(self.trees.head(path), candidate)
+
     def test_clone_is_bare_and_worktree_is_on_a_new_branch_from_default(self):
         clone = self.trees.ensure_clone("Farm-Client")
         self.assertEqual(git("rev-parse", "--is-bare-repository", cwd=clone), "true")
