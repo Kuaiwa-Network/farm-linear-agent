@@ -312,8 +312,13 @@ license, account, environment selectors or watched output during a job.
    certification fails after all writes completed, retry the same receipt once
    after fresh checks. The controller validates its pre-write plan, exact complete
    journal, backups, installed bytes/GUIDs, HEAD/index and current authority before
-   finalizing without rewriting files. Partial writes or older unbound journals
-   remain a named recovery gap. Refusals or an
+   finalizing without rewriting files. A legacy complete journal without that
+   pre-write record can recover only at the original pinned HEAD when every
+   backup matches Git (or its LFS identity), every output matches the current
+   certified export, and no files, directories or metadata were added or removed.
+   The controller independently reconstructs this proof; a journal or checkpoint
+   cannot supply authority. Partial writes and other legacy cases remain a named
+   recovery gap. Refusals or an
    interrupted dirty installation retain recovery evidence; never guess a rollback
    or bypass the recorded installer by copying/deleting files yourself.
 3. Client writes are only the certified `Assets/GameRes/FairyRes/<package>` outputs

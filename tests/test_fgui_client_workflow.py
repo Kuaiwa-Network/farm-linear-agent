@@ -183,10 +183,10 @@ class UiClientWorkflowTests(unittest.TestCase):
         with self.assertRaisesRegex(LedgerError, "uncommitted"):
             self.installed()
 
-    def test_private_complete_journal_cannot_replace_missing_controller_intent(self):
+    def test_unbound_journal_with_structural_changes_cannot_replace_controller_intent(self):
         self.interrupt_certification()
         self.ledger.connection.execute("DELETE FROM audit WHERE kind='fgui_install_prepared'")
-        with self.assertRaisesRegex(LedgerError, "clean owned Client"):
+        with self.assertRaisesRegex(LedgerError, "cannot be proven"):
             self.installed()
 
     def test_recovery_refuses_damaged_prepared_audit(self):
