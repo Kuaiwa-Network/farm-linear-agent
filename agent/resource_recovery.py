@@ -131,6 +131,29 @@ class RecoveryStore:
         with self.ledger._transaction():
             return self.request_in_transaction(slot_id, reason, adopt=True, recovery_kind='setup')
 
+    def interrupted_handoff(self, slot_id, host):
+        """Startup only, under controller ownership, before any new pool hand-over.
+
+        Acquiring a slot and handing it to a worker straddle slow external work.
+        A controller exit in that gap leaves an active reservation excluded from
+        normal settlement, with no in-memory switch left to finish it. Quarantine
+        it through the normal fenced recovery path; never infer Editor quiescence.
+        """
+        with self.ledger._transaction():
+            slot = self.ledger._slot_row(slot_id)
+            if (slot['host'] != host or slot['kind'] != 'unity_slot'
+                    or slot['state'] not in ('switching', 'interactive_busy')):
+                return None
+            reservation = self.ledger.active_reservation_on(slot_id)
+            if (not reservation or reservation['state'] != 'active'
+                    or reservation['host'] != host or reservation['mode'] != 'interactive'):
+                return None
+            item = self.ledger.item(reservation['item_id'])
+            if item['state'] != 'awaiting_resource' or item['generation'] != reservation['generation']:
+                return None  # delivered to a worker, stopped, or superseded: retain existing handling
+            return self.request_in_transaction(slot_id,
+                'controller restart interrupted Unity preparation before worker handoff', recovery_kind='setup')
+
     def quarantine_source(self, slot_id, reason, observation):
         """Fence changed startup inputs for preservation and recovery on a clean baseline."""
         with self.ledger._transaction():
