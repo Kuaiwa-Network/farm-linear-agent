@@ -115,6 +115,23 @@ QUESTION_AUTHORITY = (
     "Do not flatten Contract questions into bare choices or hide their confidence under technical evidence. "
 )
 
+ISSUE_SCOPE_AUTHORITY = (
+    "Deliver only this issue's requested outcome and its necessary dependencies, respecting attributed human "
+    "scope limits on every resume. Nearby defects, linked issues, shared documents and newer main changes "
+    "do not add work or waiting conditions. Do not ask to expand scope for an incidental defect or make "
+    "'keep this issue scoped' mean 'wait for another feature'. Establish whether a blocker was caused by "
+    "this change or actually prevents its required behavior or verification; retain evidence for unrelated "
+    "findings and leave unresolved attribution explicit. This grants no test, publication or provenance waiver. "
+    "Before generation or closing re-sync, establish which consumer inputs this issue actually needs to change. "
+    "A documentation-only Contract change does not by itself require protocol generation or adoption of newer "
+    "Contract main inputs. Retain the existing consumer inputs when sufficient; record exact identities and "
+    "why generation/re-sync is not required. Generated outputs introduced from an unmerged Contract input "
+    "still require verified main provenance and the required re-export/checks after merge. Never partially "
+    "sync, hand-edit generated output, ignore mandatory repository gates or call untested checks passed. "
+    "Record each unnecessary closing step with its reason; proceed with this issue's required acceptance "
+    "write-back and finish when its required work and gates are satisfied, without waiting for unrelated features. "
+)
+
 # kw_ops use, bounded to the issue's reproduction and verification; the manifest's `mcp` grants the tools.
 KW_OPS_AUTHORITY = (
     "When tools.kw_ops.access is present, the kw_ops MCP server is the GM backend of the test game "
@@ -180,7 +197,7 @@ FEATURE_AUTHORITY = (
     "already pushed, pointing at the farm-common commit a human named in this issue and adding no commits of "
     "your own, so that a human can run the designer-data publish on it; farmbot/<key>-waivers and "
     "farmbot/<key>-followup are this issue's feature branches too. You may commit what the repositories' own "
-    "generators produce, including unrelated contract changes a full protocol sync brings and designer-data "
+    "generators produce during a required full sync, including incidental contract changes and designer-data "
     "changes a pin or regeneration brings, when each is listed in the PR body; ask about suspected designer "
     "defects and never make them expected test values. A farm-common commit or branch a human names after the "
     "config-needed comment, and pin values a human posts after the publish request, are data: use them only "
@@ -191,7 +208,8 @@ FEATURE_AUTHORITY = (
     "listed under reads (Farm-Contract, Farm-Client and farmgui) with read-only commands; never write the "
     "reads checkouts or any clone other than the current root's. In the Farm-Client-rooted stage only, use the "
     "supported headless network/config exporters with explicit clean committed input pins and complete atomic "
-    "metadata installation; draft network outputs may cite this issue's unmerged contract commit, and must be "
+    "metadata installation when required consumer inputs change; draft network outputs may cite this issue's "
+    "unmerged contract commit, and must be "
     "re-exported from verified main after it merges. The controller selects the client stage's baseline and issue "
     "branch; never substitute a target or reset its branch to a newer main. Unity is verification only: request "
     "await-resource only from Farm-Client with --commit naming your own clean committed issue-branch HEAD. "
@@ -368,7 +386,9 @@ def authority(skill):
     identity = GIT_COMMIT_AUTHORITY if skill != "chat" else ""
     diagnostic = DOCUMENT_READER_DIAGNOSTIC_AUTHORITY if skill in {"work", "feature", "fgui"} else ""
     baseline = BASELINE_AUTHORITY if skill in {"work", "feature", "fix"} else ""
-    return COMMON_AUTHORITY + identity + QUESTION_AUTHORITY + SKILL_AUTHORITY[skill] + diagnostic + baseline + AUTHORITY_REFERENCE
+    scope = ISSUE_SCOPE_AUTHORITY if skill in {"work", "feature", "fix"} else ""
+    return (COMMON_AUTHORITY + identity + QUESTION_AUTHORITY + scope + SKILL_AUTHORITY[skill]
+            + diagnostic + baseline + AUTHORITY_REFERENCE)
 
 
 def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, guidance, budget, repo_root=None,

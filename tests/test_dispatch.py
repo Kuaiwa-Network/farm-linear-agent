@@ -195,6 +195,11 @@ FEATURE_SERVER_RESOURCE_AT_SLOTS = (
 )
 FEATURE_AUTHORITY_WITH_SERVER_SLOTS = FEATURE_AUTHORITY_WITH_SHEETS.replace(
     "Never start Unity directly", FEATURE_SERVER_RESOURCE_AT_SLOTS + "Never start Unity directly")
+FEATURE_AUTHORITY_WITH_SCOPED_INPUTS = FEATURE_AUTHORITY_WITH_SERVER_SLOTS.replace(
+    "generators produce, including unrelated contract changes a full protocol sync brings and designer-data ",
+    "generators produce during a required full sync, including incidental contract changes and designer-data ").replace(
+    "metadata installation; draft network outputs",
+    "metadata installation when required consumer inputs change; draft network outputs")
 
 def payload_of(message):
     return json.loads(message.split("\n\n", 1)[1])
@@ -435,6 +440,19 @@ class SkillAuthorityTests(unittest.TestCase):
         for skill in ("chat", "fgui", "scene"):
             self.assertNotIn(dispatch.BASELINE_AUTHORITY, dispatch.authority(skill))
 
+    def test_code_jobs_receive_scope_and_optional_input_rules_in_trusted_authority(self):
+        for skill in ("work", "feature", "fix"):
+            with self.subTest(skill=skill):
+                text = self.message({"id": "i", "skill": skill}).split("\n\n", 1)[0]
+                self.assertIn(dispatch.ISSUE_SCOPE_AUTHORITY, text)
+                for phrase in ("do not add work or waiting conditions", "wait for another feature",
+                               "documentation-only Contract change", "exact identities",
+                               "unmerged Contract input", "no test, publication or provenance waiver",
+                               "unresolved attribution explicit", "Never partially sync"):
+                    self.assertIn(phrase, text)
+        for skill in ("chat", "fgui", "scene"):
+            self.assertNotIn(dispatch.ISSUE_SCOPE_AUTHORITY, dispatch.authority(skill))
+
     def message(self, item):
         return dispatch_message(item=item, issue={"identifier": "FARM-1", "url": "u"},
                                 skill_path=ROOT / "skills" / "fix" / "SKILL.md", worktrees={}, db_path="/db",
@@ -467,7 +485,7 @@ class SkillAuthorityTests(unittest.TestCase):
         with the fixed per-command commit identity supplied to write workers."""
         reference = dispatch.AUTHORITY_REFERENCE
         self.assertEqual(self.message({"id": "i", "skill": "fix"}).split("\n\n", 1)[0],
-                         dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.QUESTION_AUTHORITY + dispatch.KW_OPS_AUTHORITY
+                         dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.QUESTION_AUTHORITY + dispatch.ISSUE_SCOPE_AUTHORITY + dispatch.KW_OPS_AUTHORITY
                          + FGUI_EXPORT_AT_D18 + dispatch.BASELINE_AUTHORITY + reference)
         self.assertEqual(dispatch.FGUI_EXPORT_AUTHORITY, FGUI_EXPORT_AT_D18)
         self.assertNotIn("FairyGUI", dispatch.COMMON_AUTHORITY + dispatch.SKILL_AUTHORITY["chat"])
@@ -477,11 +495,11 @@ class SkillAuthorityTests(unittest.TestCase):
         the common restrictions and chat's bytes stay as the tests above pin them."""
         self.assertEqual(hashlib.sha256(FEATURE_AUTHORITY_WITH_SHEETS.encode("utf-8")).hexdigest(),
                          FEATURE_AUTHORITY_WITH_SHEETS_SHA256)
-        self.assertEqual(dispatch.FEATURE_AUTHORITY, FEATURE_AUTHORITY_WITH_SERVER_SLOTS)
+        self.assertEqual(dispatch.FEATURE_AUTHORITY, FEATURE_AUTHORITY_WITH_SCOPED_INPUTS)
         self.assertIs(dispatch.SKILL_AUTHORITY["feature"], dispatch.FEATURE_AUTHORITY)
         self.assertEqual(self.message({"id": "i", "skill": "feature"}).split("\n\n", 1)[0],
                          dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.QUESTION_AUTHORITY
-                         + FEATURE_AUTHORITY_WITH_SERVER_SLOTS + dispatch.DOCUMENT_READER_DIAGNOSTIC_AUTHORITY
+                         + dispatch.ISSUE_SCOPE_AUTHORITY + FEATURE_AUTHORITY_WITH_SCOPED_INPUTS + dispatch.DOCUMENT_READER_DIAGNOSTIC_AUTHORITY
                          + dispatch.BASELINE_AUTHORITY + dispatch.AUTHORITY_REFERENCE)
 
     def test_the_feature_part_states_its_limits_and_carries_no_other_skills_grants(self):
@@ -578,14 +596,16 @@ class SkillAuthorityTests(unittest.TestCase):
             with self.subTest(skill=name), patch.dict(dispatch.SKILL_AUTHORITY, {name: "Own grants. "}):
                 text = self.message({"id": "i", "skill": name}).split("\n\n", 1)[0]
                 baseline = dispatch.BASELINE_AUTHORITY if name == "feature" else ""
+                scope = dispatch.ISSUE_SCOPE_AUTHORITY if name == "feature" else ""
                 self.assertEqual(text, dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.QUESTION_AUTHORITY
-                                 + "Own grants. " + dispatch.DOCUMENT_READER_DIAGNOSTIC_AUTHORITY + baseline + dispatch.AUTHORITY_REFERENCE)
+                                 + scope + "Own grants. " + dispatch.DOCUMENT_READER_DIAGNOSTIC_AUTHORITY + baseline + dispatch.AUTHORITY_REFERENCE)
                 self.assertNotIn("kw_ops", text)
 
     def test_no_part_carries_a_token_a_url_or_a_host_path(self):
         """Spec §12: the per-skill AUTHORITY is free of tokens and signed URLs. Every part is text that ends in
         the space the next part expects."""
         parts = {"common": dispatch.COMMON_AUTHORITY, "git_commit": dispatch.GIT_COMMIT_AUTHORITY, "question": dispatch.QUESTION_AUTHORITY,
+                 "issue_scope": dispatch.ISSUE_SCOPE_AUTHORITY,
                  "document_reader_diagnostic": dispatch.DOCUMENT_READER_DIAGNOSTIC_AUTHORITY,
                  **dispatch.SKILL_AUTHORITY}
         for name, part in {**parts, "reference": dispatch.AUTHORITY_REFERENCE}.items():

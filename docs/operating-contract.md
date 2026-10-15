@@ -12,6 +12,39 @@ changed behavior, including UI-only interactions/states, uses shared OpenSpec in
 Farm-Contract. Pure visual corrections check existing requirements and actual
 design references; farmgui needs no separate OpenSpec project.
 
+The requested outcome and attributed human scope limits govern the whole job,
+including resumed work and closing. Nearby defects, shared documents, other cards
+and newer main changes do not add requirements or waiting conditions. A choice
+to keep scope never means waiting for another feature. Workers establish whether
+a blocker was caused by their change or actually prevents the issue's required
+behavior or verification. Proven unrelated findings remain recorded limitations;
+unresolved attribution remains explicit and cannot waive required gates. Existing
+full-suite failures still require the reviewed baseline comparison for draft
+eligibility. Missing assets are questions only for required presentation work.
+
+Protocol generation and closing re-sync depend on actual consumer input needs,
+not simply completion of Client stage F or a Contract merge. Workers inspect the
+issue diff, input inventory, schemas/message IDs, registry/manifest and generator
+pins, existing generated declarations/provenance and accepted consumer behavior.
+A docs-only Contract change with sufficient existing inputs retains their actual
+identities and records why initial generation and post-merge re-export are not
+required. New output or unmerged input pins introduced by the job still need
+verified-main provenance and required re-export/checks. Full atomic generation,
+repository gates, Client main ancestry and config publishing/pin checks remain.
+Do not adopt unrelated newer Contract inputs just to update a tip or partially
+sync generated files. An actually necessary incompatible upstream dependency
+remains a measured blocker; the rule grants no failing-snapshot publication.
+
+Input decisions live in existing bounded plan objects (`client.inputs.network`,
+`closing.inputs.hive`); `closing.not_required` records evidence-based reasons for
+unnecessary steps. A true boolean with such a reason means not required, never
+that a test/export ran. Required acceptance/write-back can proceed without an
+unnecessary consumer re-sync. Resumed workers recheck older plans/waits against
+the accepted scope and retain all still-required gates and evidence. These are
+worker instructions and records, not a new controller input-diff classifier or
+database schema. No migration is required; downgrading loses these instructions
+and requires settled review of unfinished jobs before resuming old workers.
+
 After the shared behavior is settled, the general job may delegate durable `fgui`
 or `scene` tasks and continue independent server/config work. Each has separate
 claim tokens, checkpoints, human gates and run evidence, sharing the job's owned
@@ -1630,18 +1663,21 @@ AUTHORITY states its grants (see Authority).
   check is reported and asked again. Each new verification round has its own stage notice (`stage-C`, then
   `stage-C-2`, `-3`, …); the plan saves its id and exact body before preparing it, so a retry reuses them and
   an already-posted predecessor notice is not duplicated.
-- Stage D syncs farm-hive's protocol snapshots from the item's unmerged Farm-Contract worktree (marked
-  `-unreachable`), registers new messages, pins the designer data to the config commit with a locally computed
-  digest and a placeholder archive checksum, generates `config/pb`, implements the server change, runs the build
-  job's local gates and opens the hive draft PR. It follows farm-hive's own instructions for the designer-data
+- Stage D implements and verifies the server change. When its consumer inputs require protocol changes, it
+  syncs snapshots from the item's unmerged Farm-Contract worktree (marked `-unreachable`) and registers new
+  messages. For required config work it pins designer data to the config commit with a locally computed digest
+  and placeholder archive checksum, and generates `config/pb`. It runs the build job's local gates and opens
+  the hive draft PR. It follows farm-hive's own instructions for the designer-data
   mechanism (the three `DESIGNER_SOURCE_*` values on 2026-09-28) and says in the PR which one it used. That PR's CI
-  stays red or incomplete until the contract merges, the re-sync is pushed and the published pin is written.
+  stays red or incomplete until required contract re-sync and published-pin work passes. A server change needing
+  no protocol-input update retains its verified snapshots and records why sync is unnecessary.
 - Stage E asks once, with a durable owner/request/body, for explicit UI-ready confirmation when the change has
   UI. A resumed worker checks actual farmgui main component identities and Client main exports/dependencies.
   Existing packages and silence do not satisfy it; missing exports cause a new scoped waiting request. A no-UI
   change records E skipped. The worker never authors or exports farmgui, and honours limits before Client entry.
-- Stage F lazily receives the owned Client branch and controller baseline. It uses supported headless network
-  and config commands with clean committed inputs and complete atomic metadata, then implements client behavior.
+- Stage F lazily receives the owned Client branch and controller baseline. When generation is required, it uses
+  supported headless network and config commands with clean committed inputs and complete atomic metadata;
+  otherwise it retains the actual existing input identity and skip evidence. It implements client behavior.
   A configured Client slot outside all worker write roots supplies only a read-only typecheck reference under
   `tools.client_typecheck`; it reserves no Unity and grants no slot writes or Editor command. Missing generated
   projects/references are measured host gaps. Full typecheck, unit tests and reservation-based Unity checks must
@@ -1651,11 +1687,15 @@ AUTHORITY states its grants (see Authority).
   when D ran with config work, someone to run the Jenkins publish on the `-config` branch and paste its three pin lines; it asks for no UI step
   because E already handled UI readiness, and warns that Done or Canceled cancels the job. FarmBot polls nothing:
   each reply or mention makes it check GitHub and do what became possible, in this order: remove stale
-  BREAKING_WAIVERS on `farmbot/<key>-waivers`; re-export and verify the Client draft; re-sync farm-hive and write
-  its published pin; then create the Contract write-back draft. Both consumers use one recorded, verified Contract
+  BREAKING_WAIVERS on `farmbot/<key>-waivers`; perform required Client re-export/verification and farm-hive re-sync,
+  write its required published pin; then create the Contract write-back draft. Consumers requiring re-sync
+  use one recorded, verified Contract
   main commit containing the actual merge, from a clean detached snapshot under worker state. Merge and squash
   histories follow this same rule; an unmerged issue HEAD supplies no main provenance. Missing merge input parks
-  for a reply; later main drift requires redoing both consumers together. When D was skipped, hive closing steps
+  for a reply. A newer main tip alone does not invalidate the selected verified snapshot; when required inputs/gates
+  necessitate a new SHA, redo the consumers requiring re-sync and their checks together. Retained inputs keep their
+  own provenance and evidence-based skip reasons; docs-only work does not wait for unrelated compatibility changes.
+  When D was skipped, hive closing steps
   are satisfied without a hive PR or Jenkins publish; the verified config commit remains the Client input.
   A hive PR merged too early gets a `farmbot/<key>-followup` draft PR. Every later hive closing attempt,
   including a successor, selects that recorded followup before editing and reuses its PR; the plan records the

@@ -138,6 +138,11 @@ Actual sandbox/cache access remains a host acceptance prerequisite.
 
 ### Client-stage tooling and verification
 
+First apply the feature skill's "Issue scope and consumer inputs" decision. A
+docs-only change with sufficient existing inputs retains their actual provenance;
+these exporter commands describe required generation, not an instruction to
+regenerate on every Client attempt or Contract merge. Required checks still run.
+
 Read the client's delivered `tools/NetworkProtobufExport/README.md`,
 `tools/ConfigProtobufExport/README.md` and `tools/typecheck/README.md` before
 building. Use the pinned .NET SDK and hydrated/hash-checked protobuf library;
@@ -232,6 +237,11 @@ three provenance marks and why both protocol gates refuse them), `gen-registry.s
 `config/pb/gen.sh` (its header: modes and exit codes), `config/pb/lib-designer-source.sh`,
 `config/pb/toolchain.env`, `ci/*.sh` and `.github/workflows/ci.yaml`.
 
+Apply the same consumer-input decision before protocol sync. Retaining sufficient
+verified protocol inputs does not skip required server behavior, handler/census,
+config, published-pin or repository checks. Do not adopt unrelated Contract drift
+merely to update the recorded source commit.
+
 - Protocol sync: `bash gen-msg-protos.sh` copies every `TARGETS` proto from `FARM_CONTRACT` (default
   `../Farm-Contract`, which in a FarmBot job is the item's own Farm-Contract worktree) and rewrites
   `ci/msg-proto-manifest.sha256` with the contract commit. A commit that is not on Farm-Contract's default branch is
@@ -272,6 +282,9 @@ three provenance marks and why both protocol gates refuse them), `gen-registry.s
 ## Code worker (`feature`): expected CI on its PRs
 
 From the feature-workers design §6.9. A PR body carries FarmBot's local results; FarmBot never changes CI.
+The pending provenance/publish states below apply only to inputs/pins this job
+actually introduced. Retained inputs keep their real check results; no failure
+becomes expected merely because the job has a Contract PR.
 
 | Repository | Check | Expected | Why |
 |---|---|---|---|

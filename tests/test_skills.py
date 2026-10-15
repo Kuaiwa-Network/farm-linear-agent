@@ -817,9 +817,10 @@ class FeatureClosingTemplateTests(unittest.TestCase):
             with self.subTest(section=name, phrase=phrase):
                 self.assertIn(phrase, section)
 
-    def test_the_closing_comment_requires_both_consumers_and_warns_about_done(self):
+    def test_the_closing_comment_scopes_consumer_sync_and_warns_about_done(self):
         self.assert_in_section("feature closing", (
-            "UI 就绪已在阶段 E 核对", "同一个核验过的 main commit", "客户端 PR 要等契约合并后的重新导出",
+            "UI 就绪已在阶段 E 核对", "同一个核验过的 main commit", "客户端重新导出按实际输入变化决定",
+            "无需重新导出时说明已有输入和依据", "无关功能不列为等待条件",
             "designer-source.pipeline", "三行原样贴到本 issue", "我不会轮询 GitHub",
             "Done 或 Canceled", "<owner.person.url>", "按本卡要求，<bot_name> 在阶段 <字母> 后停下"))
 
@@ -832,3 +833,59 @@ class FeatureClosingTemplateTests(unittest.TestCase):
     def test_the_delivery_lists_client_provenance_and_pending_writeback_acceptance(self):
         self.assert_in_section("feature delivery", (
             "还需合并", "不会合并", "协议来源", "回账／归档草稿", "仍待人工完成", "<owner.person.url>"))
+
+
+class IssueScopeInstructionTests(unittest.TestCase):
+    """Regression for FARM-1525: docs-only sorting must not wait for upstream sharing.
+
+    These check the actual worker instructions, not model compliance or a live game.
+    Existing consumer journey tests cover the required generation/verification path.
+    """
+
+    def text(self, path):
+        return " ".join((ROOT / path).read_text(encoding="utf-8").split())
+
+    def test_docs_only_input_retention_applies_to_initial_export_and_closing(self):
+        raw = (ROOT / "skills/feature/SKILL.md").read_text(encoding="utf-8")
+        initial = " ".join(raw.split("## Stage F: Farm-Client\n", 1)[1].split("\n## Closing", 1)[0].split())
+        closing = " ".join(raw.split("## Closing\n", 1)[1].split("\n## Outcomes", 1)[0].split())
+        self.assertIn("When no network-input update is required, retain the existing generated files/provenance", initial)
+        self.assertIn("still run all required behavior, compilation, unit and Unity checks", initial)
+        self.assertIn("an unmerged spec reference alone does not require regeneration", initial)
+        self.assertIn("recorded network-input decision proves no re-export is required", closing)
+        self.assertIn("does not skip Client behavior verification or Contract acceptance/write-back", closing)
+        self.assertNotIn("true only when F was skipped", closing)
+        self.assertIn("newer tip alone does not invalidate the selected verified snapshot", closing)
+
+    def test_required_generation_and_unmerged_provenance_are_not_waived(self):
+        text = self.text("skills/feature/SKILL.md")
+        for phrase in ("actual generator input inventory", "schemas, message IDs, registry/manifest inputs",
+                       "introduced generated output or an unmerged source pin",
+                       "Never cherry-pick generated files, partially sync, hand-edit output or weaken a gate",
+                       "Unresolved attribution remains a gap and cannot bypass mandatory checks",
+                       "never publish a failing snapshot or silently declare generation unnecessary",
+                       "Only the comparator's `draft_eligible=true`"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, text)
+
+    def test_general_job_and_recovered_waits_remain_bound_to_the_issue(self):
+        general, feature = self.text("skills/work/SKILL.md"), self.text("skills/feature/SKILL.md")
+        self.assertIn("Ask for an asset only when the accepted outcome actually requires that asset", general)
+        self.assertIn("Recheck older plans that demand a full sync", general)
+        self.assertIn("choice to keep scope never means waiting for an unrelated feature", general)
+        self.assertIn("including to older plans and already-posted waits", feature)
+        self.assertIn("Unchanged scenarios retained in a full OpenSpec requirement are regression constraints", feature)
+        self.assertIn("missing assist badge already absent before a sorting fix", feature)
+        self.assertIn("Continue acceptance/write-back without waiting for unrelated upstream compatibility work", feature)
+        self.assertIn("A no-re-sync decision omits only protocol work; still enter farm-hive for required config/published-pin work", feature)
+        self.assertIn("never just change the plan to hide an input pin", feature)
+        reference = self.text("references/worker-cli.md")
+        self.assertIn("`closing.not_required` maps unnecessary closing steps to reasons", reference)
+        self.assertIn("not that a test or export passed", reference)
+
+    def test_templates_do_not_reintroduce_global_sync_or_external_feature_waits(self):
+        text = self.text("references/comment-templates.md")
+        self.assertNotIn("保留客户端 re-export／验证要求", text)
+        self.assertNotIn("客户端 PR 要等契约合并后的重新导出", text)
+        self.assertIn("“保持本工单范围”不附带等待其他功能完成", text)
+        self.assertIn("实际已有输入 SHA", text)

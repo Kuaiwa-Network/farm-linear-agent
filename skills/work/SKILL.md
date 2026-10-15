@@ -28,6 +28,20 @@ issue facts, named human decisions and checkpoint evidence on every continuation
 
 ## Shared behavior first
 
+The requested outcome and attributed human scope limits govern the whole job,
+including retries and closing. Capabilities do not add requirements. Do not turn
+nearby UI defects, another issue's protocol changes or a newer default branch
+into extra implementation, asset questions or waiting conditions. Ask for an
+asset only when the accepted outcome actually requires that asset. A person's
+choice to keep scope never means waiting for an unrelated feature.
+
+Follow the code reference's **Issue scope and consumer inputs** before generation,
+on every resume and before closing. Recheck older plans that demand a full sync:
+retain necessary checks and evidence, but remove incidental waits after recording
+why they are not dependencies. Continue required acceptance/write-back and finish
+when this issue's work and gates are satisfied. Unresolved attribution stays a
+verification gap; this rule does not grant a test or publication waiver.
+
 Begin in Farm-Contract. Read the existing OpenSpec and the issue's design inputs.
 New or changed behavior, including UI-only behavior, needs a shared OpenSpec
 change. Define triggers, displayed data, interactions, loading/empty/error states
