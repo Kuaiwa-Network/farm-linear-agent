@@ -194,6 +194,81 @@ class FixedEditorPoolTests(SlotFixture):
         self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "held")
         self.assertEqual(len([c for c in self.mcp.calls if c[0] == "start"]), 1)
 
+    def test_restart_recovers_acquired_interactive_request_before_worker_handoff(self):
+        from agent.resource_recovery import RecoveryStore
+        from agent.ledger import LedgerError
+        pool = self.fixed_pool(1)
+        pool.ensure()
+        candidate = self.commit('interrupted candidate')
+        item = self.waiting(ISSUE, candidate, 'interactive')
+        before = self.ledger.item(item)
+        reservation = self.ledger.acquire('unity_slot', owner='previous-controller', host='test')
+        calls = list(self.mcp.calls)
+        pool.ensure()  # controller died after acquire, before switch/handoff
+        self.assertEqual(self.mcp.calls, calls)  # startup only fences; recovery owns physical work
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'held')
+        self.assertEqual(self.ledger.item(item)['stage'], 'waiting_for_recovery')
+        self.assertEqual(self.ledger.item(item)['checkpoint'], before['checkpoint'])
+        self.assertEqual(self.ledger.item(item)['generation'], before['generation'])
+        self.assertEqual(self.ledger.item(item)['target'], before['target'])
+        with self.assertRaises(LedgerError):
+            self.ledger.release(reservation['reservation_id'], reservation['token'], 'stale controller')
+        store = RecoveryStore(self.ledger)
+        recovery = store.pending('test')[0]
+        self.assertEqual((recovery['reservation_id'], recovery['commit_sha'], recovery['recovery_kind']),
+                         (reservation['reservation_id'], candidate, 'setup'))
+        pool.ensure()
+        self.assertEqual(len(store.pending('test')), 1)
+        recovery = store.begin(recovery['id'])
+        store.detach(recovery['id'], recovery['attempts'])  # production first verifies worker teardown
+        store.complete(recovery['id'], recovery['attempts'], candidate, self.mcp.instance)
+        self.assertEqual(store.job_attempts(item), 0)
+        self.assertEqual(store.job_attempts(item, recovery_kind='setup'), 1)
+        self.assertEqual(pool.tick()['granted'], 1)
+        self.assertEqual(self.ledger.item(item)['stage'], 'unity-worker-ready')
+        self.assertEqual(self.ledger.active_reservation(item)['commit_sha'], candidate)
+        self.assertEqual(self.ledger.item(item)['checkpoint'], before['checkpoint'])
+
+    def test_restart_recovers_switch_completed_before_handoff(self):
+        pool = self.fixed_pool(1)
+        pool.ensure()
+        candidate = self.commit('ready but not handed off')
+        item = self.waiting(ISSUE, candidate, 'interactive')
+        self.ledger.acquire('unity_slot', owner='previous-controller', host='test')
+        pool.switch('unity_slot:1', candidate, 'interactive')
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'interactive_busy')
+        self.assertEqual(self.ledger.item(item)['state'], 'awaiting_resource')
+        calls = list(self.mcp.calls)
+        pool.ensure()
+        self.assertEqual(self.mcp.calls, calls)
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'held')
+        self.assertEqual(self.ledger.item(item)['stage'], 'waiting_for_recovery')
+
+    def test_restart_preserves_already_handed_off_and_running_workers(self):
+        pool = self.fixed_pool(1)
+        pool.ensure()
+        item = self.waiting(ISSUE, self.commit('handed off'), 'interactive')
+        self.assertEqual(pool.tick()['granted'], 1)
+        reservation = self.ledger.active_reservation(item)
+        for state in ('queued', 'running'):
+            if state == 'running':
+                self.ledger.claim(item, worker_id='resumed')
+            pool.ensure()
+            self.assertEqual(self.ledger.item(item)['state'], state)
+            self.assertEqual(self.ledger.active_reservation(item)['reservation_id'], reservation['reservation_id'])
+            self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'interactive_busy')
+            self.assertEqual(self.ledger.connection.execute('SELECT count(*) FROM resource_recoveries').fetchone()[0], 0)
+
+    def test_restart_does_not_revive_cancelled_preparation(self):
+        pool = self.fixed_pool(1)
+        pool.ensure()
+        item = self.waiting(ISSUE, self.commit('cancelled preparation'), 'interactive')
+        self.ledger.acquire('unity_slot', owner='previous-controller', host='test')
+        self.ledger.cancel(item, 'operator stopped')
+        pool.ensure()
+        self.assertEqual(self.ledger.item(item)['state'], 'cancelled')
+        self.assertEqual(self.ledger.connection.execute('SELECT count(*) FROM resource_recoveries').fetchone()[0], 0)
+
     def test_dirty_source_startup_keeps_editor_fenced_across_ticks_and_restart(self):
         from agent.resource_recovery import RecoveryStore
         from agent.identity import CHECKS

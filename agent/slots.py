@@ -209,12 +209,14 @@ class SlotPool:
                                              mcp_address=entry["mcp_address"], account=entry["account"],
                                              instance=entry["instance"])
             if record["state"] in self.BUSY:
+                from .resource_recovery import RecoveryStore
+                RecoveryStore(self.ledger).interrupted_handoff(slot_id, self.host)
+                record = self.ledger.slot(slot_id)
                 if self.keep_open and record["state"] == "switching" and not self.ledger.active_reservation_on(slot_id):
                     last = self.ledger.connection.execute("""SELECT kind FROM audit WHERE item_id=?
                         AND kind IN ('unity_editor_start','unity_editor_ready') ORDER BY id DESC LIMIT 1""",
                         (slot_id,)).fetchone()
                     if last and last["kind"] == "unity_editor_start":
-                        from .resource_recovery import RecoveryStore
                         with self.ledger._transaction():
                             RecoveryStore(self.ledger).request_in_transaction(slot_id,
                                 "persistent Editor startup interrupted by controller restart", recovery_kind="setup")

@@ -127,6 +127,28 @@ class RecoveryTests(LedgerBase):
         from agent.resource_recovery import RecoveryStore
         return RecoveryStore(ledger or self.ledger)
 
+    def test_interrupted_baseline_recovery_retains_comparison_role_and_candidate(self):
+        item = self.new_item()
+        self.ledger.connection.execute("UPDATE work_items SET root_repo='Farm-Client' WHERE id=?", (item['id'],))
+        claim = self.ledger.claim(item['id'], worker_id='before-baseline')
+        self.ledger.await_resource(item['id'], claim['token'], 'unity_slot', 'interactive',
+            commit_sha='a' * 40, comparison_candidate='b' * 40, skill=SKILLS['fix'])
+        self.ledger.ensure_slot('unity_slot:1', kind='unity_slot', host='test', folder=str(self.path.parent / 'slot-1'))
+        original = self.ledger.acquire('unity_slot', owner='old-controller', host='test')
+        store = self.store()
+        requested = store.interrupted_handoff('unity_slot:1', 'test')
+        recovery = store.begin(requested['id'])
+        store.detach(recovery['id'], recovery['attempts'])
+        [replacement] = self.ledger.reservations(states=('queued',))
+        self.assertEqual(replacement['commit_sha'], 'a' * 40)
+        self.assertEqual(self.ledger.reservation_comparison(replacement['reservation_id']),
+                         {'verification_role': 'baseline', 'candidate_commit': 'b' * 40})
+        self.assertEqual(self.ledger.reservation_comparison(original['reservation_id']),
+                         {'verification_role': 'baseline', 'candidate_commit': 'b' * 40})
+        store.detach(recovery['id'], recovery['attempts'])
+        self.assertEqual(len(self.ledger.reservations(states=('queued',))), 1)
+        self.assertIsNone(self.ledger.client_verification_pair(item['id'], 'b' * 40))
+
     def legacy_pause(self, item, question):
         """A slot-holding item parked for a human, as ledgers written before await-input refused open
         reservations may still hold it. await_input now refuses to create this state, so write what it wrote."""

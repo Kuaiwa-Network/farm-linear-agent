@@ -951,6 +951,18 @@ operator-only slot recovery policy. Workers checkpoint, release `unclean`, and e
 The release revokes both their claim and reservation token. Never request a human to operate
 Unity or add `待回复` for this condition.
 
+At controller startup, an active interactive reservation whose job still awaits the
+resource and whose slot is `switching` or `interactive_busy` is an interrupted
+preparation/handoff. Startup quarantines it through the existing bounded preparation
+recovery, retaining its exact candidate, generation, checkpoint and reports. The old
+resource token is fenced; verified worker teardown and Editor recovery still precede
+reuse. A replacement baseline reservation retains its comparison role and selected
+candidate; recovery does not certify the interrupted test as complete. A job already
+queued or running after handoff, a cancelled request, and existing
+held recovery keep their existing handling. This detection runs before pool threads
+start, not on a timer during a legitimate slow switch. It adds no schema or resets to
+retry budgets. Rollback to older code loses this detection; preserve recovery records.
+
 Interactive preparation and physical recovery establish a fresh Console boundary
 only after verifying tests are inactive and the Editor is in Edit Mode. The
 controller preserves the preceding bounded error entries under
