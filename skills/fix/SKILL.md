@@ -360,6 +360,10 @@ normal candidate requests; never repeat a baseline for priority. Test the candid
 Set `verification-progress --phase failure-review` before source review, then use `compare-verification` with
 complete evidence/scope in this item's state_dir. Only its `draft_eligible=true`, passing affected tests and every other required check allow a draft
 with reviewed unchanged unrelated failures. New/changed or affected failures, new skips and gaps remain blockers.
+Before stopping solely for unresolved attribution, follow the bounded diagnosis procedure in that reference:
+start offline, then at most one planned focused observation on the original candidate when authorized.
+Persist the consumed diagnostic budget across resumes; preserve the failed full-suite pair and never treat
+a focused pass as its replacement. Define affected scope from assertions/dependencies, not names alone.
 Retain `full_suite_passed=false`, exact SHAs and every failure/skip in the draft; no merge or deployment waiver.
 Use only the documented `clock_diagnostic` review for absolute Unity clock operands in an unchanged timeout
 assertion; retain raw messages and never strip arbitrary numeric differences. Review/recompare a completed

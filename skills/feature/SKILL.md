@@ -948,6 +948,10 @@ id, result/evidence) before requesting, releasing or publishing, so retries cann
    with complete evidence/scope under this item's state_dir; it updates Monitor immediately. A matching failure
    count alone is insufficient. The affected fixtures and other
    mandatory local checks must pass. New/changed failures, affected failures, new skips and evidence gaps block.
+   Before stopping solely for unresolved attribution, follow the reference's bounded diagnosis procedure:
+   start offline, then at most one planned focused observation on the original candidate when authorized.
+   Persist the consumed diagnostic budget across resumes and preserve the failed full-suite pair; a focused
+   pass does not replace it. Define affected scope from assertions/dependencies, not names alone.
    Only the comparator's `draft_eligible=true`, with each matched failure reviewed against the exact source diff,
    allows `passed_with_existing_failures` for draft delivery. Keep `full_suite_passed=false`; list all failures
    and skips, both SHAs, same-environment identity and comparison evidence in the draft. No merge/deploy waiver.
