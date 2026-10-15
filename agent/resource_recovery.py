@@ -338,6 +338,10 @@ class RecoveryStore:
                         self._fail_job(item['id'], f'Unity {phase} repeatedly failed; automatic retries exhausted ({limit}). '
                                        f'Last cause: {r["reason"][:300]}')
                     else:
+                        # The replacement is still a comparison baseline when the
+                        # interrupted request was one. Losing its role would hand
+                        # a worker baseline source as though it were the candidate.
+                        comparison = self.ledger.reservation_comparison(old['reservation_id'])
                         column = 'setup_attempts' if setup else 'attempts'
                         self.db.execute(f"INSERT INTO resource_job_retries(item_id,{column}) VALUES(?,1) "
                                         f"ON CONFLICT(item_id) DO UPDATE SET {column}={column}+1", (item['id'],))
@@ -345,6 +349,9 @@ class RecoveryStore:
                         self.db.execute("""INSERT INTO reservations(reservation_id,item_id,generation,kind,mode,commit_sha,state,created_at)
                             VALUES(?,?,?,?,?,?,'queued',?)""",
                             (replacement, item['id'], item['generation'], old['kind'], old['mode'], old['commit_sha'], self.ledger.clock()))
+                        self.ledger._audit(item['id'], 'reservation', 'requeued',
+                            {'reservation_id': replacement, 'commit_sha': old['commit_sha'],
+                             **({'comparison_candidate': comparison['candidate_commit']} if comparison else {})})
                         self.ledger._audit(item['id'], 'resource_recovery', 'retry queued',
                                            {'recovery_id': recovery_id, 'reservation_id': replacement,
                                             'commit_sha': old['commit_sha'], 'recovery_kind': r['recovery_kind']})
