@@ -104,13 +104,14 @@ stage (the skill's "A stage limit"); leave it out otherwise.
 
 ## feature closing
 （`waiting` 通知，request id `closing`。不需要的步骤整条删掉。流水线名写服务端 PR 采用的发布方式；今天是 designer-source.pipeline。）
-（服务端阶段跳过时，删掉服务端 PR、服务端协议同步和 Jenkins 发布要求，保留客户端 re-export／验证要求及配置 commit。）
+（服务端阶段跳过时，删掉服务端 PR、服务端协议同步和 Jenkins 发布要求。客户端重新导出按实际输入变化决定；只改规格且沿用已有输入时，写明来源和无需重新导出的依据，保留必要验证及配置 commit。没有待人工步骤时不发等待通知。）
 <bot_name> 的服务端／客户端草稿及本地验证已提交，还需要这些人工步骤（UI 就绪已在阶段 E 核对；无 UI 时已记录跳过）：
-1. 请 <owner.person.url> 合并契约 PR：<链接>。合并后我会移除它带来的 BREAKING_WAIVERS 记账（如有），并把客户端和服务端的协议同步到同一个核验过的 main commit。
+1. 请 <owner.person.url> 合并契约 PR：<链接>。合并后我会移除它带来的 BREAKING_WAIVERS 记账（如有）；本工单需要重新同步的客户端／服务端使用同一个核验过的 main commit，不需要同步的保留实际已有来源并说明依据。
 2. 请合并配表声明 PR：<链接>。
 3. 请有权限的同学在 Jenkins 运行 designer-source.pipeline，分支选 <Jenkins 分支>（它指向配置 commit <短 SHA>，不含别的提交），把流水线末尾打印的三行原样贴到本 issue：DESIGNER_SOURCE_VERSION、DESIGNER_SOURCE_ARCHIVE_SHA256、DESIGNER_SOURCE_DIGEST。预期版本：<日期>.<短 hash>（短 hash 的位数以流水线打印的为准）。
-服务端 PR 要等契约合并、我推送协议同步、并写入发布后的三个 pin 值之后再合并：<服务端 PR 链接>
-客户端 PR 要等契约合并后的重新导出、配置来源和对应 commit 的客户端／Unity 验证通过后再合并：<客户端 PR 链接>。
+服务端 PR 的前提：<仅列本工单实际需要的契约合并、协议同步及发布后的 pin；沿用已有输入或 pin 时说明来源和依据>：<服务端 PR 链接>
+客户端 PR 的前提：<仅列本工单实际需要的重新导出、配置来源及对应 commit 的客户端／Unity 验证；无需重新导出时说明已有输入和依据>：<客户端 PR 链接>。
+（无关功能不列为等待条件；“保持本工单范围”不附带等待其他功能完成。真正阻止本工单行为或必要验证的依赖，单独写明证据和所需决定。）
 我会另开契约回账／归档草稿 PR，保留仍待人工合并或验收的条目：<已存在的 writeback 链接；尚未创建则说明等待哪些条件>。
 每完成一步请回复本会话或 @<bot_name>；我不会轮询 GitHub。
 提醒：交付评论出现前请不要把卡片移到 Done 或 Canceled，那会取消这项工作。
@@ -126,8 +127,8 @@ stage (the skill's "A stage limit"); leave it out otherwise.
 <bot_name> 已完成这张功能卡需要的契约、配表、服务端和客户端阶段（未需要的阶段及原因单列；草稿 PR 与合并状态见下）：
 - 契约：<PR 链接>（<状态>）；change <名称>；回账／归档草稿 <writeback PR 链接与状态>，待裁决和人工验收 <仍未完成的内容>
 - 配表声明：<PR 链接>（<状态>）；配置 commit <短 SHA>，Jenkins 分支 <分支>，pin <版本>
-- 服务端：<PR 链接>（<状态>；协议已同步到契约 commit <短 SHA>；设计数据按 <发布方式> 固定）
-- 客户端：<PR 链接>（<状态>；协议来源 <同一契约 main SHA>；配置 commit／digest <值>；UI 核对 <证据或跳过原因>）
+- 服务端：<PR 链接>（<状态>；协议来源 <实际沿用或重新同步的契约 commit>；同步 <结果或无需执行的依据>；设计数据按 <发布方式或已有 pin 来源> 固定）
+- 客户端：<PR 链接>（<状态>；协议来源 <实际已有输入 SHA，或本工单重新导出所用的核验 main SHA>；重新导出 <结果或无需执行的依据>；配置 commit／digest <值>；UI 核对 <证据或跳过原因>）
 - 其他：<waivers 或 followup PR 链接；没有就删掉这一行>
 - 验证：<跑过的门和测试，以及没跑的和原因>
 - 还需合并：请 <owner.person.url> 按顺序合并 <PR 列表>；<bot_name> 不会合并

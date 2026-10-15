@@ -780,6 +780,16 @@ predecessor's plan from `issue-context.recovery.plan`, and every predecessor's n
 `recovery.notices` (item id, request id, kind and remote id; one with a remote id was posted); like the
 rest of `recovery`, verify it first.
 
+For `work`/`feature`, consumer-input decisions use the existing nested objects
+`client.inputs.network` and `closing.inputs.hive`: record `required`, `reason`,
+inspected full source/base/consumer commits and evidence paths. A docs-only change
+may retain sufficient existing generated inputs without a new export/source pin.
+`closing.not_required` maps unnecessary closing steps to reasons; a true step with
+such a reason means not required, not that a test or export passed. Keep introduced
+unmerged inputs subject to verified-main provenance/re-sync and all mandatory
+gates. Recheck old plans and waits on resume; unrelated features do not become
+dependencies. No top-level plan key, CLI flag or schema migration is added.
+
 An entry of `plan.prs` with `"role": "issue"` names your own branch in that repository, the name
 `git branch --show-current` prints in its worktree, which is always this issue's `farmbot/<key>` or
 `farmbot/<key>-…`; record one per repository. Record any other branch, such as a person's you were

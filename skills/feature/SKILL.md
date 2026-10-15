@@ -85,6 +85,64 @@ stages have work. A stage without work is skipped, and the skip is recorded in t
 notice. Read Farm-Client and farmgui only in their default-branch `reads` for stage A's gap list. Farm-Client
 becomes writable only in its own client attempt; farmgui remains read-only throughout.
 
+## Issue scope and consumer inputs
+
+The card's requested outcome and attributed human scope limits define this job,
+including closing. Record them and their source messages in the handoff. A shared
+design document, nearby defect, linked issue or newer main commit does not add
+requirements. Never ask to include an incidental feature just to make the whole
+repository current. Ask a scope question only when an actual necessary dependency
+cannot be resolved within the accepted outcome. Keeping scope does not mean
+waiting for an unrelated feature. Apply this rule on every resume, including to
+older plans and already-posted waits; record why an incidental wait is removed.
+Unchanged scenarios retained in a full OpenSpec requirement are regression
+constraints, not a request to repair every historical gap. For example, a missing
+assist badge already absent before a sorting fix does not require a new asset
+task unless the issue requests it or the fix caused a regression; retain the
+baseline evidence and display limitation instead.
+
+Before any protocol/config generation, inspect this issue's own diff against its
+recorded base, the actual generator input inventory and the consumer's existing
+generated declarations/provenance. Check schemas, message IDs, registry/manifest
+inputs, generator/tool pins and required consumer behavior; a title or unchanged
+proto filenames alone proves nothing. Separate unrelated upstream drift from the
+inputs needed for this issue. Do not adopt the latest Contract tip merely because
+it exists. Preserve required Client main integration and publication ancestry.
+
+Record the decision under `client.inputs.network` (and `closing.inputs.hive` for
+server protocol inputs): `required`, `reason`, inspected full source/base/consumer
+commits and repository-relative evidence paths. Retain the actual existing input
+identity when generation is unnecessary; never relabel it as the new Contract
+commit. A missing identity remains explicit, not invented provenance. Longer
+inventories go to private evidence, within the normal plan bounds.
+
+A documentation-only Contract change with sufficient existing consumer inputs
+requires neither initial protocol generation nor post-merge re-export. Retain
+those inputs and record the skip reason. Required schema/message/registry/config
+changes, stale inputs needed by the accepted behavior, or mandatory repository
+gates still require the supported full generator and verification. Never cherry-pick
+generated files, partially sync, hand-edit output or weaken a gate. When this job
+introduced generated output or an unmerged source pin, the normal verified-main
+re-sync and provenance checks still apply, even if the original motivation was
+only a specification change. Config publishing/pin requirements are unchanged.
+If an earlier attempt regenerated unnecessarily, first prove that restoring a
+complete trusted consumer inventory and its provenance still covers the accepted
+behavior and preserves others' integrated changes. Restore the whole generated
+inventory through the supported mechanism, retain the abandoned snapshot as
+evidence and rerun required checks at the new committed HEAD. Only then record
+generation/re-sync not required; never just change the plan to hide an input pin.
+
+For a failure, first establish whether this change caused it or whether it
+actually prevents this issue's required behavior or verification. Diagnose those
+blockers within scope. Record proven unrelated findings without implementing or
+waiting for another feature; do not offer a scope-preserving option that secretly
+keeps that external wait. Unresolved attribution remains a gap and cannot bypass
+mandatory checks. Existing full-suite failures still need the reviewed baseline
+comparison below; no skip, pass or acceptance may be invented. If a required full
+generation exposes an incompatible upstream dependency, retain the failing
+snapshot/logs privately and ask only the concrete necessary dependency decision;
+never publish a failing snapshot or silently declare generation unnecessary.
+
 ## Intake (every attempt)
 
 1. Read this file, `contract`, `references/worker-cli.md`, the Code-worker sections of `references/repo-map.md`
@@ -197,6 +255,8 @@ to files under STATE_DIR. This skill writes these keys:
   commits and the actual package/component/export paths checked, not private host paths.
 - `client`: the controller baseline/branch copied as evidence, exact contract and config input commits/digest,
   the committed verification HEAD and each typecheck/unit/Unity outcome; never substitute this plan for `target`.
+  `client.inputs.network` records whether protocol generation is required and the inspected source/base/consumer
+  identities, evidence paths and reason under "Issue scope and consumer inputs".
 - `config`: `{"declared": [{"file", "sheet", "header", "field", "type"}, ...], "ref", "sha", "jenkins_branch",
   "expected_version", "pin"}`, each value added when a stage reaches it; `pin` is `local` or `published`.
   `config.stage_notice` records the verification round's `request_id`, config `sha`, `jenkins_branch` and exact
@@ -215,6 +275,9 @@ to files under STATE_DIR. This skill writes these keys:
   a recorded `followup` takes precedence over the original issue branch.
   `closing.contract_main_sha` records the one verified main commit used by both consumers;
   `closing.writeback_branch`/`closing.writeback_pr` retain the exact acceptance/archive draft on retries.
+  `closing.not_required` maps unnecessary step names to their evidence-based reasons; a true step with such a
+  reason means not required, never that an export or test ran. `closing.inputs.hive` records the server's
+  protocol-input decision. Revalidate old booleans against the actual evidence on resume.
 - `events`: one `{"kind", "person", "message_id", "at"}` for each human report you act on: `config_ready`,
   `ui_ready`, `merged` (a relayed merge), `pin_posted` or `stage_limit` (a limit set or lifted). `person` is that comment's or
   message's `author` from `issue-context`, never a name from text, and `at` is its `created_at`.
@@ -676,7 +739,10 @@ section. A contract change enters farm-hive at its plan: its behaviour is settle
 
 1. Fresh base; "Other people's work". Fetch the 策划案 again, and read the change's farm-hive 交棒 entry and the
    scenarios it cites.
-2. Sync the protocol with `bash gen-msg-protos.sh` and no `FARM_CONTRACT`: its default `../Farm-Contract` is this
+2. Apply "Issue scope and consumer inputs". If no protocol-input update is required, retain the existing
+   snapshots/provenance and record why; skip step 3's generation-only work, retaining any handler/census changes
+   required by the accepted behavior. Otherwise sync the protocol with
+   `bash gen-msg-protos.sh` and no `FARM_CONTRACT`: its default `../Farm-Contract` is this
    item's Farm-Contract worktree on its issue branch, and the manifest's contract commit is marked `-unreachable`
    because that commit is not on Farm-Contract's main yet. Keep everything the full sync brings, unrelated contract
    changes merged since farm-hive's last sync included (a partial sync fails `ci/check_contract_sync.sh`), and list
@@ -715,7 +781,9 @@ section. A contract change enters farm-hive at its plan: its behaviour is settle
    with CI's commands, every build-job step of `ci.yaml` that needs neither the file server nor a GitHub token (the
    repository map lists them), with `DESIGNER_SOURCE_CACHE` set for the tests. `ci/check_msg_proto.sh` and
    `FARM_CONTRACT=../Farm-Contract bash ci/check_contract_sync.sh` run as diagnostics and fail on `-unreachable`,
-   as expected (each checks the manifest's provenance line first). CI's tests also use live
+   as expected only when this job introduced an unmerged input (each checks the manifest's provenance line first).
+   With retained inputs, run the required gates against their actual recorded source; do not assume a failure
+   is expected or switch them to a newer unrelated Contract tip. CI's tests also use live
    MongoDB, Redis and cluster services: the PR body lists every step and service-backed variant not run. A step that
    cannot run in your sandbox (a module download refused, a tool missing or at another version) is named there as
    not run, with its error; never skip one silently.
@@ -801,9 +869,14 @@ repeat verification at a new committed HEAD. Persist `client.verification` (phas
 id, result/evidence) before requesting, releasing or publishing, so retries cannot duplicate or invent evidence.
 
 1. Read the 策划案 again, the client requirements and scenario acceptance, and the recorded UI evidence. Verify
-   the sibling issue Contract worktree is clean, committed and at its recorded input HEAD; use its exact full SHA
-   for the initial draft. Do not confuse an unmerged issue SHA with main provenance.
-2. Use the delivered `tools/NetworkProtobufExport` .NET command with explicit `--project-root`, `--contract-root`,
+   the sibling issue Contract worktree is clean, committed and at its recorded HEAD; use its exact full SHA as
+   the behavior/spec reference. Keep that reference separate from the actual generated-input pin: an unmerged
+   spec reference alone does not require regeneration. When step 2 requires network generation, use the recorded
+   clean issue input for the initial draft. Do not confuse an unmerged issue SHA with main provenance.
+2. Apply "Issue scope and consumer inputs" before exporting. When no network-input update is required,
+   retain the existing generated files/provenance and save the inspected identities and skip reason in
+   `client.inputs.network`; still run all required behavior, compilation, unit and Unity checks below.
+   Otherwise use the delivered `tools/NetworkProtobufExport` .NET command with explicit `--project-root`, `--contract-root`,
    native `--protoc` and `--expected-contract-commit`. Build/link the actual exporter, with the pinned hydrated
    Google.Protobuf DLL, in private owned STATE_DIR outputs. It installs complete MonoImporter metadata atomically.
    Never invoke Unity, imitate generation, hand-edit generated code, or append metadata after installation.
@@ -863,7 +936,8 @@ id, result/evidence) before requesting, releasing or publishing, so retries cann
    and skips, both SHAs, same-environment identity and comparison evidence in the draft. No merge/deploy waiver.
 9. Run "Other people's work" again, `verify-publication`, push and open/register the client draft only after the
    local required checks pass or the narrowly reviewed `passed_with_existing_failures` verdict above applies.
-   Its body lists exact unmerged Contract input, common commit/source digest, UI
+   Its body distinguishes the accepted Contract spec reference from actual retained or newly generated input,
+   and lists any unmerged generation input, common commit/source digest, UI
    package evidence, unrelated generated changes, verification HEAD/results/skips and merge preconditions.
    A missing mandatory capability leaves a measured blocked result, not a successful stage-by-skip. Mark F done,
    save the plan and continue Closing; a limit after F parks with the client draft and verification evidence.
@@ -871,7 +945,7 @@ id, result/evidence) before requesting, releasing or publishing, so retries cann
 ## Closing
 
 After the last required stage, pause for the named human merge/publish steps. Workers never merge or run Jenkins.
-Closing handles waivers, both consumers' re-sync, the published server pin and the Contract acceptance/archive
+Closing handles required waivers, consumer re-sync, the published server pin and the Contract acceptance/archive
 draft, one fresh worker per writable root. Keep all unmerged drafts and untested/human acceptance explicit.
 
 ### The closing comment
@@ -885,16 +959,23 @@ not needed to true (no config change: no pin). When stage D is skipped, set both
 `closing.pin_written` to true: there is no hive PR or hive pin work, even when B and C ran. Keep `config.sha`
 for the client stage and do not hand off to farm-hive for closing. Omit the hive PR, re-sync and Jenkins publish
 requests from the closing comment; the delivery says that server work was skipped and the config SHA remains
-for the client stage. Set `closing.client_resynced` true only when F was skipped; otherwise it requires the
-post-merge export and verification below. `closing.writeback_opened` starts false. Then post one `waiting` notice
+for the client stage. Apply "Issue scope and consumer inputs" separately to each consumer. Set
+`closing.client_resynced` true when F was skipped or its recorded network-input decision proves no re-export
+is required; record the reason in `closing.not_required.client_resynced`. If D ran without a required protocol
+update, set `closing.hive_resynced` true with its reason too. Otherwise the consumer requires the post-merge
+sync and verification below. Never use a skip to discharge an introduced unmerged input, config pin or failed
+mandatory gate. `closing.writeback_opened` starts false when this job has a Contract change to write back;
+without such a change, set it true and record that step not required. Then post one `waiting` notice
 `closing` from the `feature closing` template, set `pause` (`closing`, `waiting`, `closing`), save the checkpoint,
 run `await-input --reason waiting --question` pointing to the comment, and exit. The comment asks the owner to merge
 the contract PR and, if it is still open, the declarations PR. When stage C ran and stage D was not skipped,
 it asks someone to run the publish
 pipeline the hive PR used (`designer-source.pipeline` today) on `config.jenkins_branch` and paste the three pin lines
-it prints into the card, and it names the expected version. It says the hive PR merges only after the contract
-merge, the pushed re-sync and the published pin; it asks for no UI step because E already handled readiness;
-it also names the client re-export/verification and separate writeback draft. It warns that moving the card to Done
+it prints into the card, and it names the expected version. It states only the hive PR's required contract
+merge, pushed re-sync and published-pin prerequisites; it asks for no UI step because E already handled readiness;
+it names only the required client re-export/verification and separate writeback draft, explaining input retention
+when no re-export is needed. Omit the waiting notice/park when no human step remains and continue the required
+local closing work. It warns that moving the card to Done
 or Canceled first cancels the job. A stage limit parks before Closing as described in "A stage limit".
 
 ### Each resume
@@ -906,9 +987,12 @@ FarmBot learns of a merge only when told, and then checks GitHub; it polls nothi
    its `state` and `merge`: `merge` when its merge commit has two parents
    (`gh api repos/OWNER/REPO/commits/MERGE_SHA --jq '.parents | length'`), `squash` otherwise (a squash or a rebase
    merge, both of which leave the PR's head off the default branch).
-3. Do what has become possible, in root order: Farm-Contract (waiver removal), Farm-Client (post-merge export and
-   verification), farm-hive (the re-sync, then the pin), Farm-Contract (write-back). Omit client/hive when their
-   stages were skipped. On every farm-hive closing attempt, follow "The active
+3. Recheck the accepted scope and consumer-input decisions, including old waits, without dropping required
+   provenance, tests or human gates. Do what has become possible, in root order: Farm-Contract (waiver removal),
+   Farm-Client (post-merge export and verification), farm-hive (the re-sync, then the pin), Farm-Contract (write-back). Omit client/hive when their
+   stages were skipped. A no-re-sync decision omits only protocol work; still enter farm-hive for required
+   config/published-pin work. Continue acceptance/write-back
+   without waiting for unrelated upstream compatibility work. On every farm-hive closing attempt, follow "The active
    closing branch" before either step. When the next step needs another root, save the plan and a fresh handoff, run `handoff-repository --to`
    that root and exit; the next attempt continues from the plan. A contract PR closed without merging is a
    question: reopen, revise or abandon.
@@ -929,6 +1013,10 @@ plan, and continue with the next closing step, usually a handoff to Farm-Client.
 
 ### One main input for both consumers
 
+This section applies to consumers that require re-sync. A consumer retaining its verified existing inputs keeps
+their actual provenance; a docs-only change does not create a new generated-input dependency. Verify this issue's
+Contract merge for acceptance/write-back even when no consumer needs regeneration.
+
 After a human reports the Contract merge, verify GitHub's state/merge commit and merge versus squash history.
 From the refreshed `reads["Farm-Contract"]`, require `git merge-base --is-ancestor MERGE_SHA HEAD` before
 selecting the full HEAD as `closing.contract_main_sha`. A squash/rebase merge never makes the old issue HEAD
@@ -941,12 +1029,16 @@ Make a clean detached snapshot under STATE_DIR at that SHA from the read-only Co
 `git -C STATE_DIR/contract-main-FULL_SHA checkout --detach FULL_SHA`. It registers no controller worktree and
 never writes the borrowed clone. Check clean status and exact HEAD before each export/sync. Recreate it in a
 successor's own STATE_DIR when absent. On later resumes, compare main's relevant protocol/manifest inputs;
-if they drift, revalidate a new verified main SHA and redo both consumers and their tests together, recording
-the new round rather than marking only one re-sync done. Never silently adopt newer designer configuration.
+if they drift, apply the input decision before adopting anything new. A newer tip alone does not invalidate the
+selected verified snapshot containing this issue's merge. If a required input/gate necessitates a new verified
+main SHA, redo the consumers that require re-sync and their tests together, recording the new round rather than
+marking only one re-sync done. Never silently adopt newer designer configuration.
 
 ### Client re-export after merge
 
-Root Farm-Client, when F ran and the Contract merge is verified. Select the original recorded issue branch/PR;
+Root Farm-Client, only when its recorded inputs require re-export and the Contract merge is verified. A
+documentation-only change retaining existing generated inputs skips this operation with evidence; it does not
+skip Client behavior verification or Contract acceptance/write-back. Select the original recorded issue branch/PR;
 if the client PR merged/closed before this work, park and ask how to review the remaining client change rather
 than pushing to a merged/deleted branch. Use the clean snapshot at `closing.contract_main_sha` in the delivered
 network command with the matching `--expected-contract-commit`, replacing the unmerged input. Retain the verified
@@ -958,7 +1050,8 @@ and publication pass. Save the plan before handing off to hive, or directly to w
 
 ### Re-sync
 
-Root farm-hive, once the contract PR merged. Replace the `-unreachable` snapshot; READS_CONTRACT below is
+Root farm-hive, once the contract PR merged and the recorded inputs require re-sync. Retained verified inputs
+need no new snapshot; record that reason. Otherwise replace the `-unreachable` snapshot; READS_CONTRACT below is
 `reads["Farm-Contract"]`, the read-only checkout of Farm-Contract's default branch:
 
 1. Read the merge: `gh pr view CONTRACT_PR_URL --json state,mergeCommit,headRefOid`, MERGE_SHA being
@@ -1030,7 +1123,8 @@ never commit the remaining pin on the merged issue branch.
 
 ### Contract write-back and archive
 
-Root Farm-Contract, after the Contract merge is verified, required client/server re-sync and pin work passed,
+Root Farm-Contract, after the Contract merge is verified, required client/server re-sync and pin work passed
+or was recorded not required with evidence,
 and each consumer draft/evidence is recorded. Save a fresh handoff before entering this root. Fetch main and
 create the exact `farmbot/<key>-writeback` branch from `origin/main`, role `writeback`, never as an issue entry.
 Record `closing.writeback_branch` before its first publication. If recorded already, select/reuse that branch

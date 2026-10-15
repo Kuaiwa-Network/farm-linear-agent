@@ -61,6 +61,46 @@ class GeneralDeliveryTests(unittest.TestCase):
             "delivery", verification="Checked full issue", no_change="Already correct", prs=[]))
         self.assertEqual(result["state"], "delivered")
 
+    def test_docs_only_sorting_retains_inputs_across_old_wait_and_restart_then_finishes(self):
+        """The new skip record survives SQLite/recovery without a migration or external task.
+
+        Input relevance is a worker decision; this tests its durable representation
+        and normal finish, not an automatic classifier or model obedience.
+        """
+        self.ledger.checkpoint(self.parent, self.token, {"plan": {
+            "stages": {"A": "done", "F": "done", "G": "pending"},
+            "closing": {"client_resynced": False},
+            "pause": {"kind": "closing", "reason": "waiting", "notice": "closing"}}})
+        self.ledger.await_input(self.parent, self.token, "Old plan waits for sharing compatibility", reason="waiting")
+        self.ledger.resume(self.parent, "Re-evaluate incidental wait within sorting scope")
+        self.token = self.ledger.claim(self.parent, worker_id="scope-review")["token"]
+        network = {"required": False, "reason": "Only friend sorting specification changed; existing fields suffice",
+                   "base_commit": "a" * 40, "source_commit": "b" * 40, "consumer_commit": "c" * 40,
+                   "evidence": ["proto/friend.proto", "openspec/changes/friend-sort/specs/friend/spec.md"]}
+        plan = {"stages": {"A": "done", "B": "skipped: no config", "C": "skipped: no config",
+                           "D": "skipped: no server", "E": "skipped: no presentation", "F": "done", "G": "done"},
+                "client": {"inputs": {"network": network}},
+                "closing": {"waivers_removed": True, "client_resynced": True, "hive_resynced": True,
+                            "pin_written": True, "writeback_opened": True,
+                            "not_required": {"client_resynced": network["reason"],
+                                             "hive_resynced": "No server work", "pin_written": "No config work"}}}
+        self.ledger.checkpoint(self.parent, self.token, {"plan": plan, "handoff": {
+            "facts": [{"claim": "Required sorting checks passed in fixture evidence", "evidence": "sorting-results.xml"},
+                      {"claim": "Newer Contract main deletes sharing messages; not adopted or required for sorting",
+                       "evidence": "contract-input-inventory.json"}],
+            "hypotheses": [], "checks": [], "repositories": [],
+            "next_actions": ["Deliver sorting and record actual retained inputs; do not wait for sharing"]}})
+        self.ledger.close()
+        self.ledger = self.fixture.open_ledger()
+        self.assertEqual(self.ledger.issue_context(self.parent)["plan"], plan)
+        self.assertFalse(self.ledger.reservations())
+        self.assertEqual(self.ledger.issue_context(self.parent)["tasks"], [])
+        result = self.ledger.finish(self.parent, self.token, "delivered", self.outcome(
+            "delivery", verification="Fixture sorting checks passed; protocol regeneration not required",
+            prs=["https://github.com/example/Farm-Client/pull/1"]))
+        self.assertEqual(result["state"], "delivered")
+        self.assertEqual(result["checkpoint"]["plan"]["client"]["inputs"]["network"], network)
+
     def test_malformed_blocked_task_prs_is_a_claim_preserving_validation_error(self):
         task = self.task()
         token = self.claim(task)
