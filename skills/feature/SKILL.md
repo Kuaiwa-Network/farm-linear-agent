@@ -938,10 +938,15 @@ id, result/evidence) before requesting, releasing or publishing, so retries cann
    a new committed HEAD and new verification, not reuse of old evidence.
    A comparison reservation is explicitly marked `resource.verification_role=baseline`; its commit is trusted
    remote main, and `resource.candidate_commit` preserves the owned candidate. Run the same complete suite on
-   that reserved baseline without changing source, save all leaf results, release and wait for settlement.
-   Then request the preserved candidate normally. Never substitute baseline results for candidate results.
+   that reserved baseline without changing source, save all leaf results and checkpoint. When quiescent, use
+   `continue-verification --commit CANDIDATE` with the claim token and `--reservation-token-file resource.token_file`,
+   then exit. The controller settles the baseline and admits the original candidate for the same slot's next
+   turn after worker teardown/capacity checks. If already released, request the original candidate normally;
+   never repeat a baseline for priority. Never substitute baseline results for candidate results.
    When a completed full suite fails outside the issue, follow [baseline comparison](../../references/test-baseline.md)
-   before stopping delivery. A matching failure count alone is insufficient. The affected fixtures and other
+   before stopping delivery. Use `verification-progress --phase failure-review`, then `compare-verification`
+   with complete evidence/scope under this item's state_dir; it updates Monitor immediately. A matching failure
+   count alone is insufficient. The affected fixtures and other
    mandatory local checks must pass. New/changed failures, affected failures, new skips and evidence gaps block.
    Only the comparator's `draft_eligible=true`, with each matched failure reviewed against the exact source diff,
    allows `passed_with_existing_failures` for draft delivery. Keep `full_suite_passed=false`; list all failures
@@ -952,7 +957,8 @@ id, result/evidence) before requesting, releasing or publishing, so retries cann
    An eligible draft is authorized by this workflow: do not ask again for delivery permission or wait for
    unrelated failures on main to be fixed. Complete this issue's remaining checks/Closing, then finish delivered
    with the failures explicit; a green baseline is not a completion requirement.
-9. Run "Other people's work" again, `verify-publication`, push and open/register the client draft only after the
+9. Set `verification-progress --phase publication`, then run "Other people's work" again, `verify-publication`,
+   push and open/register the client draft only after the
    local required checks pass or the narrowly reviewed `passed_with_existing_failures` verdict above applies.
    Its body distinguishes the accepted Contract spec reference from actual retained or newly generated input,
    and lists any unmerged generation input, common commit/source digest, UI

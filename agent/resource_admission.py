@@ -70,7 +70,7 @@ class ResourceAdmission:
 
     def acquire(self, ledger, kind, **options):
         with self.lock:
-            pending = [r for r in ledger.reservations(states=("queued",)) if r["kind"] == kind]
+            pending = ledger.reservation_queue(kind)
             if not pending:
                 return None
             request = pending[0]
@@ -78,8 +78,11 @@ class ResourceAdmission:
                 return None
             options["expected_reservation"] = request["reservation_id"]
             cost = self.cost(request)
+            from .resource_queue import continuation_slot
+            continued_slot = continuation_slot(ledger.connection, request)
             # Reusing an idle-open Unity slot does not reserve another Editor's budget.
             reuse = kind == "unity_slot" and any(slot["state"] == "idle_open"
+                        and (not continued_slot or slot['slot_id'] == continued_slot)
                         and slot["slot_id"] not in options.get("exclude_resources", ())
                         for slot in ledger.slots(kind=kind, host=options["host"]))
             if reuse:

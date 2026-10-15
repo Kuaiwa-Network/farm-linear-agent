@@ -362,7 +362,16 @@
     if (!work.active.length) return target.replaceChildren(el("div", "empty muted", "目前没有进行中的工作"));
     target.replaceChildren(...work.active.map((job) => {
       const [label, tone] = STATE[job.display_state] || [job.display_state, "neutral"];
-      const meta = [SKILL[job.skill] || job.skill, job.repo, job.stage && `阶段 ${job.stage}`].filter(Boolean).join(" · ");
+      const verificationStages = {
+        "client-reviewing-test-failures": "失败源码与依赖审查",
+        "client-comparing-test-results": "执行测试结果比较",
+        "client-verified-awaiting-publication": "结果比较允许草稿交付，待完成发布检查",
+        "client-verification-blocked": "验证存在阻塞",
+        "client-verification-evidence-gap": "验证证据不完整",
+        "client-publication-check": "发布前检查",
+        "client-delivery-recording": "记录交付，准备 finish"
+      };
+      const meta = [SKILL[job.skill] || job.skill, job.repo, job.stage && `阶段 ${verificationStages[job.stage] || job.stage}`].filter(Boolean).join(" · ");
       const main = cell("main", el("div", "title", job.title || ""), el("div", "muted", meta));
       const wait = resourceWaitText(job.resource_wait);
       if (wait) main.append(el("div", "muted", wait));

@@ -166,7 +166,14 @@ def _pull_requests(db, schema, issue_ids):
 def _unity_queue(db, schema):
     if not _has(schema, "reservations", "item_id", "state", "sequence"):
         return None
-    return [row["item_id"] for row in
+    if (_has(schema, 'reservations', 'reservation_id', 'kind', 'mode', 'commit_sha', 'generation', 'resource',
+             'host', 'release_reason', 'acquired_at')
+            and _has(schema, 'audit', 'id', 'item_id', 'kind', 'reason', 'details')
+            and _has(schema, 'slots', 'slot_id', 'state')
+            and _has(schema, 'work_items', 'id', 'state', 'generation', 'withdraw_deadline', 'host')):
+        from .resource_queue import queued_rows
+        return [row['item_id'] for row in queued_rows(db, kind='unity_slot')]
+    return [row['item_id'] for row in
             db.execute("SELECT item_id FROM reservations WHERE state='queued' ORDER BY sequence")]
 
 

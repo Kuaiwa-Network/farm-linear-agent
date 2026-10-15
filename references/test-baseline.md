@@ -13,9 +13,22 @@ From the owned Client stage, save the candidate SHA and checkpoint, then request
 The controller validates the clean owned candidate, branch, clone, current remote-main ancestry and claim,
 then reserves actual remote main. It does not reset source or the immutable target. The resource carries
 `verification_role=baseline` and `candidate_commit`. Run the full identical selection on `resource.commit`,
-save complete results, checkpoint and release. Wait for controller settlement before requesting the candidate
-normally at its unchanged clean SHA. Prefer the same slot for the pair; an environment mismatch cannot waive
-a failure. Do not edit a slot or operate its Editor processes. A gap/stall is never a completed baseline.
+save complete results and checkpoint. When the same candidate is ready and no test, PlayMode or compile is
+active, continue on the same slot using both independent tokens:
+
+```text
+<selected-python> -m agent --db DATABASE continue-verification --item ITEM --token-file STATE_DIR/token --reservation-token-file RESOURCE_TOKEN_FILE --commit CANDIDATE
+```
+
+This atomically releases the baseline and queues its exact recorded candidate for the slot's next turn.
+Exit immediately: the claim is retired. The controller still verifies the old worker's exit, Unity quiescence,
+memory and a worker seat before switching/preparing and resuming candidate verification. Distinct reservations,
+test jobs and complete evidence remain mandatory. The priority expires if another reservation uses that slot;
+it cannot be chained from the candidate. A failed settlement does not grant access to a held Editor.
+If the baseline was already released, request the unchanged candidate normally after settlement; never repeat
+the baseline just to gain priority. Incomplete results, source changes or human input use normal release and
+diagnosis. An environment mismatch cannot waive a failure. Do not edit a slot or operate its Editor processes.
+A gap/stall is never a completed baseline.
 
 Keep each run in a private JSON file with this shape (all identities come from observed evidence):
 
@@ -141,7 +154,22 @@ This reviewed separation permits only the existing draft verdict; all affected t
 If inventories are absent, the original strict digest rule applies. Environment drift still blocks a draft,
 but identical observed skip signatures remain existing skips in the report rather than becoming "new" skips.
 
-Run the read-only comparison using the selected Windows Python or macOS `python3`:
+Before reviewing failures, run `verification-progress --item ITEM --token-file STATE_DIR/token
+--phase failure-review`. After saving the reviewed scope, run the claim-fenced comparison using the selected
+Windows Python or macOS `python3`:
+
+```text
+<selected-python> -m agent --db DATABASE compare-verification --item ITEM --token-file STATE_DIR/token --baseline STATE_DIR/baseline.json --candidate STATE_DIR/candidate.json --scope STATE_DIR/comparison-scope.json
+```
+
+All three files must be under this item's `state_dir`; the evidence must name its completed controller-selected
+pair. This command updates Monitor immediately to comparison, then eligible/blocked/evidence-gap. It prints
+the comparison report; inspect `draft_eligible` even when the command exits successfully. Save the full output.
+Use `verification-progress --phase publication` before publication checks and `--phase delivery` before final
+delivery recording, with the same item/claim arguments. Phase updates preserve the checkpoint and grant no
+test, publication or completion authority.
+
+For an independent read-only/offline comparison, the original command remains available:
 
 ```text
 <selected-python> -m agent.test_baseline --baseline STATE_DIR/baseline.json --candidate STATE_DIR/candidate.json --scope STATE_DIR/comparison-scope.json
@@ -164,6 +192,9 @@ repeat the unchanged pair. Restarts/checkpoints may reuse valid completed eviden
 This optional review extends comparison output and worker instructions without a ledger migration. Older
 comparators keep strict message matching; keep raw evidence and recompare offline after upgrade. It grants
 no test verdict to an interrupted or unfinished candidate and requires no historical evidence rewrite.
+Continuation and phase reporting also require no schema migration. Existing queued requests retain their
+candidate/history and ordinary order. Older controllers ignore continuation audit metadata and use normal
+FIFO on rollback; preserve evidence and deploy a complete settled release before using the new CLI commands.
 
 No database migration is introduced. Baseline reservation identity lives in controller audit records; older
 code can read the ledger but does not dispatch the comparison role or allow this draft verdict. Settle active

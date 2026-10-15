@@ -17,6 +17,9 @@ python3 -m agent --db DATABASE checkpoint --help
 | `memory-list`, `memory-read`, `memory-save`, `memory-forget` | Same claim-token arguments; see `references/memory.md` |
 | `document-reader-status` | Document-reading profiles only: same claim-token arguments; sanitized offline credential availability, never authentication or document acceptance |
 | `release-resource` | `--item ITEM_ID --token-file RESOURCE_TOKEN_FILE`, using `resource.token_file`, plus `--outcome quiescent` or `--outcome unclean` |
+| `continue-verification` | `--item ITEM_ID --token-file CLAIM_TOKEN_FILE --reservation-token-file RESOURCE_TOKEN_FILE --commit CANDIDATE`; completed interactive Client comparison baseline only; retires the claim, then exit |
+| `verification-progress` | `--item ITEM_ID --token-file CLAIM_TOKEN_FILE --phase failure-review\|comparison\|publication\|delivery`; display only, preserves checkpoint |
+| `compare-verification` | `--item ITEM_ID --token-file CLAIM_TOKEN_FILE --baseline STATE_DIR/baseline.json --candidate STATE_DIR/candidate.json --scope STATE_DIR/scope.json`; validates the recorded pair and updates comparison status; inspect output `draft_eligible` |
 | `withdraw` | `--item ITEM_ID --token-file STATE_DIR/token`; releases your claim after the delegation was removed or superseded; a general coordinator may park for running children's grace; save a checkpoint first; exit after it succeeds |
 | `tasks` | `--item ITEM_ID`; reads this logical job's durable presentation tasks |
 | `prepare-go-dependencies` | Claim-token arguments, `--module` from dispatch's configured module list, `--commit CLEAN_HEAD`; queues host-only preparation and returns request ID/state; optional `--retry` after a failed/cancelled request's host correction, at most three failed preparations per candidate; cancellations retain their fencing and do not consume that failure budget |
@@ -718,8 +721,11 @@ separately from the baseline. A plan, intake target or read-only typecheck refer
 Fix's existing neutral optional baseline request is unchanged. In an owned Client stage, work/fix/feature
 can add `--baseline --commit CANDIDATE` to reserve trusted remote main for a comparison, while retaining the
 clean candidate, recorded issue branch and immutable target. A comparison resource carries
-`verification_role=baseline` and `candidate_commit`; verify its actual `resource.commit`, release and wait
-for settlement before requesting the candidate normally. See [comparison evidence and draft verdict](test-baseline.md).
+`verification_role=baseline` and `candidate_commit`; verify its actual `resource.commit`, retain complete evidence
+and checkpoint. When quiescent and ready, use `continue-verification` with both tokens, then exit: it atomically
+releases the baseline and queues that exact candidate for the same slot's next turn. Worker admission, teardown,
+Git identity and controller settlement still apply. Already released baselines use a normal candidate request;
+never rerun them for priority. See [comparison evidence and draft verdict](test-baseline.md).
 
 Finish this exact controller-recorded round when remote main advances during the queue.
 After a quiescently settled baseline, the unchanged candidate request uses that selected

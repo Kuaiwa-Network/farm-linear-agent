@@ -146,7 +146,7 @@ Workers cannot launch, stop or restart Editors. Stop, withdrawal, claim fencing,
 identity, exact-commit and quiescence checks remain in force.
 
 A single persistent Editor is supported with `unity_pool: {"editors": 1}`;
-Unity requests remain FIFO while `max_concurrent` independently controls code
+Unity requests use FIFO with the bounded comparison continuation below; `max_concurrent` independently controls code
 workers. Settle reservations and close unselected owned Editors before reducing
 the configured pool. An idle Editor whose process ownership cannot be read is
 excluded from grants immediately. A successful observation within 30 seconds
@@ -158,6 +158,25 @@ No schema migration is introduced. Settled queued batch rows change their mode
 to interactive when this policy is enabled; older code already understands that
 mode on rollback. Existing active batch executions must finish before activation.
 This implementation has offline tests, not real Editor or production acceptance.
+
+A Client work/feature/fix comparison baseline can atomically release and queue its exact pre-recorded candidate
+with `continue-verification`, using both the live claim and reservation tokens. Complete baseline evidence and
+quiescence are prerequisites. The next turn stays on the baseline's slot while that baseline remains its last
+reservation; another use or withdrawal removes priority, and a held slot cannot grant it. The candidate cannot chain priority.
+Reservation sequence, distinct run identities and immutable target are preserved. The scheduler, memory
+admission and Monitor share this queue order. Worker exit/containment, worker-seat availability, clean owned
+candidate validation and pool quiescence remain mandatory before the candidate starts. This is a fresh worker
+handoff; it does not permit in-place source switching by a worker. Already queued jobs keep their normal order.
+The valid continuation retains its departing worker's seat (deduplicated with that same active item), so
+ordinary launches cannot take it between teardown and candidate admission. The seat expires with the hint.
+
+Client workers use `verification-progress` for failure review, publication and final recording, and
+`compare-verification` to validate retained files under their state directory against the settled recorded pair.
+The latter immediately records eligible/blocked/evidence-gap and leaves complete checkpoint data intact.
+These stages are display observations, not evidence of tests passing or authorization to publish/finish.
+The strict comparison, affected-test and publication gates remain unchanged. No schema migration is needed;
+older releases ignore the continuation audit hint and use ordinary FIFO. Deploy a complete settled release;
+do not run new worker instructions against an older controller/CLI.
 
 ### Profile selection
 

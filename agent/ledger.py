@@ -1794,7 +1794,7 @@ class Ledger:
         return result
 
     def await_resource(self, item_id, token, resource, mode, *, skill, commit_sha=None, issue_prefix="FARM",
-                       comparison_candidate=None, server_test_plan=None):
+                       comparison_candidate=None, server_test_plan=None, continuation=None):
         """Park the claimed item until the pool grants `resource`.
 
         The ledger reads no manifests: `skill` is the item's loaded skill, which the worker CLI passes, as for
@@ -1804,6 +1804,9 @@ class Ledger:
         root is its stored root, the rules are the ones it always had.
         """
         _text(resource, "resource")
+        if continuation is not None and (resource != 'unity_slot' or mode != 'interactive'
+                or comparison_candidate is not None or not isinstance(continuation, tuple) or len(continuation) != 2):
+            raise LedgerError('only an interactive candidate can continue its completed baseline')
         if server_test_plan is not None and resource != "server_slot":
             raise LedgerError("a server test plan requires server_slot")
         try:
@@ -1869,6 +1872,16 @@ class Ledger:
                 raise LedgerError('This Unity candidate already failed preparation. Diagnose the saved candidate_repair, '
                                   'commit corrected inputs at a new SHA, or ask for the specific human decision; '
                                   'do not resubmit the unchanged candidate.')
+            if continuation is not None:
+                source = self._continuation_baseline(row, continuation[1], selected_commit)
+                if source['reservation_id'] != continuation[0]:
+                    raise LedgerError('baseline reservation changed during continuation validation')
+                self.connection.execute("UPDATE reservations SET state='released',released_at=?,release_reason=? "
+                                        "WHERE reservation_id=?", (self.clock(), 'worker reported quiescent', source['reservation_id']))
+                self.connection.execute("UPDATE slots SET state='switching',updated_at=? WHERE slot_id=?",
+                                        (self.clock(), source['resource']))
+                self._audit(item_id, 'reservation', 'released', details={
+                    'reservation_id': source['reservation_id'], 'reason': 'worker reported quiescent'})
             open_row = self.connection.execute(
                 f"""SELECT reservation_id FROM reservations WHERE item_id=? AND state IN
                     ({','.join('?' * len(self.RESERVATION_OPEN))})""",
@@ -1884,8 +1897,51 @@ class Ledger:
                             lease_expires_at=None, worker_pid=None, needs_resource=f"{resource}:{mode}")
             self._audit(row["id"], "reservation", "queued", details={"reservation_id": reservation_id, "mode": mode,
                         "commit_sha": selected_commit, "baseline_commit": target["commit_sha"],
-                        **({"comparison_candidate": comparison_candidate} if comparison_candidate else {})})
+                        **({"comparison_candidate": comparison_candidate} if comparison_candidate else {}),
+                        **({'continuation_of': continuation[0]} if continuation else {})})
             return self._view(self._row(row["id"]))
+
+    def _continuation_baseline(self, item, resource_token, candidate):
+        source = self.active_reservation(item['id'])
+        if source is None:
+            raise LedgerError('continuation requires the still-owned comparison baseline')
+        source = self._reservation_owned(source['reservation_id'], resource_token)
+        comparison = self.reservation_comparison(source['reservation_id'])
+        slot = self.slot(source['resource'])
+        if (item['skill'] not in ('work', 'feature', 'fix') or item['root_repo'] != 'Farm-Client'
+                or source['generation'] != item['generation'] or source['state'] != 'active'
+                or source['kind'] != 'unity_slot' or source['mode'] != 'interactive'
+                or not comparison or comparison['candidate_commit'] != candidate or source['commit_sha'] == candidate
+                or not slot or slot['state'] != 'interactive_busy' or source['host'] != item['host']):
+            raise LedgerError('continuation requires the exact interactive baseline/candidate pair on a healthy slot')
+        return source
+
+    def continuation_baseline(self, item_id, token, resource_token, candidate):
+        with self._transaction():
+            item = self._owned(item_id, token)
+            self._refuse_withdrawn(item)
+            self.require_valid_checkpoint(item_id, token)
+            return self._reservation_view(self._continuation_baseline(item, resource_token, candidate))
+
+    def verification_progress(self, item_id, token, phase, *, report=None):
+        from .verification import STAGES
+        if phase not in STAGES:
+            raise LedgerError('unknown Client verification phase')
+        with self._transaction():
+            item = self._owned(item_id, token)
+            self._refuse_withdrawn(item)
+            if item['skill'] not in ('work', 'feature', 'fix') or item['root_repo'] != 'Farm-Client':
+                raise LedgerError('verification progress requires a claimed Client code job')
+            checkpoint = json.loads(item['checkpoint'])
+            checkpoint['stage'] = STAGES[phase]
+            self.connection.execute('UPDATE work_items SET stage=?,checkpoint=?,updated_at=? WHERE id=?',
+                                    (STAGES[phase], _json(checkpoint), self.clock(), item_id))
+            self._audit(item_id, 'verification_progress', phase)
+            if report is not None:
+                self._audit(item_id, 'verification_comparison', report['verdict'], details={
+                    key: report[key] for key in ('draft_eligible', 'full_suite_passed', 'baseline_commit',
+                                                'candidate_commit') if key in report})
+            return {'stage': STAGES[phase], 'state': item['state']}
 
     def reservation_comparison(self, reservation_id):
         """Controller-written comparison identity; no schema migration or checkpoint authority."""
@@ -1963,7 +2019,7 @@ class Ledger:
             return len(rows)
 
     def acquire(self, kind, *, owner, host, exclude_resources=(), expected_reservation=None):
-        """Grant the oldest queued request of this kind a free slot. FIFO by arrival, never by item priority.
+        """Grant FIFO, except for a baseline's one-turn continuation on its released slot.
 
         There is deliberately no kind-wide "is anything active?" pre-check. It would read as an optimisation
         and behave as a restriction: with a second slot it would refuse to grant slot 2 while slot 1 was busy,
@@ -1976,15 +2032,17 @@ class Ledger:
         _text(owner, "owner")
         _text(host, "host")
         with self._transaction():
-            row = self.connection.execute(
-                "SELECT * FROM reservations WHERE kind=? AND state='queued' ORDER BY sequence LIMIT 1",
-                (kind,)).fetchone()
+            from .resource_queue import continuation_slot, queued_rows
+            row = next(iter(queued_rows(self.connection, kind=kind)), None)
             if row is None or expected_reservation is not None and row["reservation_id"] != expected_reservation:
                 return None
             # Spec §7 scheduling preference: interactive wants an Editor already open, batch wants none.
             order = ("idle_open", "idle_closed") if row["mode"] == "interactive" else ("idle_closed", "idle_open")
             free = [s for s in self.slots(kind=kind, host=host)
                     if s["state"] in self.FREE_SLOT_STATES and s["slot_id"] not in exclude_resources]
+            continued_slot = continuation_slot(self.connection, row)
+            if continued_slot:
+                free = [s for s in free if s['slot_id'] == continued_slot]
             free.sort(key=lambda s: (order.index(s["state"]), s["slot_id"]))
             if not free:
                 return None
@@ -2022,10 +2080,19 @@ class Ledger:
         under the scheduler lock. Existing reservations also reconstruct seats after restart.
         Held/cancelled resources retain their recovery fences, but reserve no future worker.
         """
-        return {r[0] for r in self.connection.execute("""SELECT r.item_id FROM reservations r
+        pending = {r[0] for r in self.connection.execute("""SELECT r.item_id FROM reservations r
             JOIN work_items w ON w.id=r.item_id JOIN slots s ON s.slot_id=r.resource
             WHERE r.kind='unity_slot' AND r.mode='interactive' AND r.state='active' AND r.host=?
             AND s.state<>'held' AND w.state IN ('queued','awaiting_resource') AND w.withdraw_deadline IS NULL""", (host,))}
+        # Keep the departing worker's seat through the short baseline/candidate handoff.
+        # The active/claimed old worker and its continuation share one item ID, hence one
+        # seat. This does not allocate Unity before teardown or grant queue-wide priority.
+        from .resource_queue import continuation_slot, queued_rows
+        for row in queued_rows(self.connection, kind='unity_slot'):
+            slot_id = continuation_slot(self.connection, row)
+            if slot_id and self.slot(slot_id)['host'] == host:
+                pending.add(row['item_id'])
+        return pending
 
     def unity_wait_stage(self, reservation_id, stage):
         if stage not in ("waiting-for-worker", "waiting-for-worker-teardown", "waiting-for-unity"):
@@ -2072,6 +2139,10 @@ class Ledger:
             values = states
         return [self._reservation_view(row) for row in self.connection.execute(sql + " ORDER BY sequence", values)]
 
+    def reservation_queue(self, kind):
+        from .resource_queue import queued_rows
+        return [self._reservation_view(row) for row in queued_rows(self.connection, kind=kind)]
+
     def active_reservation(self, item_id):
         row = self.connection.execute(
             "SELECT * FROM reservations WHERE item_id=? AND state IN ('active','cancel_requested')",
@@ -2101,9 +2172,8 @@ class Ledger:
         the pool never observes that release at all and would park every interactive slot as though a batch
         run had just ended — closed, per spec §7, when the Editor is in fact still open.
         """
-        row = self.connection.execute(
-            "SELECT * FROM reservations WHERE resource=? ORDER BY sequence DESC LIMIT 1",
-            (slot_id,)).fetchone()
+        from .resource_queue import last_on_slot
+        row = last_on_slot(self.connection, slot_id)
         return self._reservation_view(row) if row else None
 
     def reservations_to_settle(self):
