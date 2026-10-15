@@ -105,6 +105,7 @@ def parser():
     repair = cmd("request-repair", "--item", "--summary-file", token=True)
     repair.add_argument("--message-id", type=int, required=True)
     resource = cmd("await-resource", "--item", "--resource", token=True)
+    resource.add_argument("--server-test-plan", help="JSON file with exact packages, tests and race selection")
     resource.add_argument("--mode", required=True, choices=["interactive", "batch"])
     resource.add_argument("--commit", help="full SHA of the clean Farm-Client worktree HEAD to verify; default: baseline")
     resource.add_argument("--baseline", action="store_true",
@@ -897,6 +898,11 @@ def run(args, ledger, api_factory):
                     raise LedgerError("verification must use the configured host ledger")
                 mode = "interactive"
         request_options = {}
+        if args.server_test_plan:
+            if args.resource != "server_slot":
+                raise LedgerError("--server-test-plan requires server_slot")
+            from .server_test_plan import validate_plan
+            request_options["server_test_plan"] = validate_plan(read_json(args.server_test_plan))
         selected_commit = args.commit
         if args.baseline and (args.resource != "unity_slot" or args.commit is None
                               or item["skill"] not in ("work", "fix", "feature")):

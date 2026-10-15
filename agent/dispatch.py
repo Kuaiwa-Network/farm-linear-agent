@@ -384,6 +384,21 @@ SKILL_AUTHORITY["scene"] = (
 )
 
 
+SERVER_TEST_AUTHORITY = (
+    "Server test requests must include --server-test-plan FILE containing exactly packages (module-local Go "
+    "paths), tests (exact top-level Test names, [] for all), and race (boolean). Declare the verification scope "
+    "actually required by the issue; do not drop required race or coverage to obtain a cheaper tier. The host "
+    "derives the memory profile. Single-package non-race named tests are focused, up to four explicit packages "
+    "without race are targeted, and race/recursive/larger selections or ./server packages are full. A stage "
+    "server-test-plan-required means an old unleased request was resumed to declare scope: retain its "
+    "checkpoint/candidate, prepare the required test plan and request again; no human approval is needed. "
+    "On a server lease, execute resource.test_argv at resource.commit; required environment flags may be "
+    "retained but never broaden packages, tests, race, parallelism or process/node coverage within a cheaper "
+    "lease. If broader or separate multi-node scenario commands are needed, release and request the full "
+    "plan (packages [./...], tests [], race true) first. The estimate is not a native memory cap. "
+)
+
+
 def authority(skill):
     """The AUTHORITY block one skill's workers receive."""
     if skill not in SKILL_AUTHORITY:
@@ -392,8 +407,9 @@ def authority(skill):
     diagnostic = DOCUMENT_READER_DIAGNOSTIC_AUTHORITY if skill in {"work", "feature", "fgui"} else ""
     baseline = BASELINE_AUTHORITY if skill in {"work", "feature", "fix"} else ""
     scope = ISSUE_SCOPE_AUTHORITY if skill in {"work", "feature", "fix"} else ""
+    server_tests = SERVER_TEST_AUTHORITY if skill in {"work", "feature", "fix"} else ""
     return (COMMON_AUTHORITY + identity + QUESTION_AUTHORITY + scope + SKILL_AUTHORITY[skill]
-            + diagnostic + baseline + AUTHORITY_REFERENCE)
+            + diagnostic + baseline + server_tests + AUTHORITY_REFERENCE)
 
 
 def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, guidance, budget, repo_root=None,

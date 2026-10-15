@@ -712,6 +712,24 @@ The service memory caps total 2560 MiB, plus 64 MiB for the relay, with swap
 disabled and CPU/PID limits. Docker requires an additional 2 GiB backend headroom.
 No game code executes through Docker or an unsandboxed controller command.
 
+Server admission derives a memory tier from `await-resource --server-test-plan
+FILE` (JSON with `packages`, exact Test-name `tests`, and boolean `race`). With
+`server_mib: 8192`, focused single-package named non-race tests use 4096 MiB,
+up to four explicit non-race packages use 6144 MiB, and recursive/race/larger
+selections or `./server` packages retain 8192 MiB. The server package's measured
+source-loader cost applies even to one named test. Optional `server_focused_mib`
+and `server_targeted_mib` override these estimates in ascending order up to
+`server_mib`; older lower full estimates clamp both defaults to that full cost.
+Physical/commit floors and the shared budget still apply. These estimates do not
+cap native processes. Workers must preserve required coverage, execute the
+controller's exact test selection and request a full lease before broadening it.
+The monitor shows the chosen tier and exact memory shortfall, FIFO, occupied
+capacity or verified-worker-teardown wait, with expired observations marked stale.
+On upgrade, unleased legacy requests resume once to declare scope from their
+retained checkpoint; no business answer is synthesized. Existing leased requests
+finish with their original fences and full estimate. See the
+[worker reference](references/worker-cli.md) for request and migration details.
+
 Workers checkpoint, request `server_slot` in batch mode at a clean committed
 `farm-hive` HEAD, and exit. The resumed worker gets only that lease's endpoints,
 required-service flags and deadline. Its Go build cache/temp live in its private

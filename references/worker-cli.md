@@ -617,7 +617,7 @@ decision needs a human, checkpoint and use attributed `await-input` without a sl
 Editor repair is independent and grants no worker process-control authority.
 
 For service-backed server tests, `work`, `fix` and `feature` may checkpoint and request
-`await-resource --resource server_slot --mode batch --commit FULL_SERVER_HEAD_SHA`
+`await-resource --resource server_slot --mode batch --commit FULL_SERVER_HEAD_SHA --server-test-plan STATE_DIR/server-tests.json`
 only from their `farm-hive` write stage on a host with configured server slots. The
 launch message's `tools.server_tests.status` is `configured` or `unavailable` in
 that stage; this describes configuration, not backend readiness. The CLI refuses
@@ -631,7 +631,31 @@ from becoming skipped acceptance tests. Adapt repository-specific test flags to
 these endpoints; never fall back to shared or live servers. No Docker authority,
 mount, slot write root or Unity MCP is granted. Native game-server processes remain
 inside the worker's containment. Multiple game-server nodes of the same candidate
-may share this one lease's services.
+may share this one lease's services under a full lease.
+
+The JSON plan has exactly `packages` (module-local Go paths), `tests` (exact
+top-level Test names; `[]` selects all), and `race` (boolean), for example
+`{"packages":["./modules/animal"],"tests":["TestSaveAnimal"],"race":false}`.
+The host derives the tier: one explicit package and 1–8 named non-race tests is
+`focused`; at most four explicit non-race packages is `targeted`; recursive
+packages, more packages, race, or `./server` and its subpackages are `full`.
+`./server` retains the measured large source-loader cost even with `-run`.
+Default costs with an 8192 MiB full estimate are 4096/6144/8192 MiB, plus the
+unchanged physical/commit floors. These are estimates, not native memory caps.
+Missing plans from older callers get the full estimate. Required coverage/race
+must not be dropped to obtain a cheaper lease. The controller supplies the
+canonical `resource.test_plan`, `resource.memory_profile` and `resource.test_argv`;
+execute that selection at `resource.commit`. Do not broaden packages, tests,
+race or concurrency on a cheaper lease; release and request full scope first for
+separate multi-node commands or broader verification. A full unrestricted plan
+is `{"packages":["./..."],"tests":[],"race":true}`.
+
+After upgrade, a queued legacy request without scope is resumed once as
+`server-test-plan-required`, after its old worker's verified exit. Its checkpoint,
+candidate and original reservation evidence remain. Declare actual required
+scope and request again; this is technical continuation and needs no human reply.
+The new reservation enters the FIFO queue normally. An already leased legacy
+request keeps the full estimate and finishes under its original fencing.
 
 After testing, save commands, revision, outcomes and all skips. Stop your game-server
 children, checkpoint, release quiescent, then park or hand off and exit. A release

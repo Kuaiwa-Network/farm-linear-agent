@@ -26,6 +26,7 @@ from .resource_recovery import RecoveryStore, SCHEMA as RECOVERY_SCHEMA
 from .router import CONVERSATION_SKILLS, WRITE_SKILLS
 from .stages import current_root
 from .withdrawal import DEFAULT_GRACE_SECONDS, SILENT_GRACE_SECONDS
+from .server_test_plan import FULL_PLAN, validate_plan
 from .worktrees import SAFE_BRANCH
 
 MARKER = re.compile(r"\[farmbot:[0-9a-f]{64}\]")
@@ -638,7 +639,9 @@ class Ledger:
             """)
             self.connection.executescript(RECOVERY_SCHEMA)
             # Columns added after the first ledgers were written; CREATE TABLE IF NOT EXISTS leaves those files as they were.
-            for table, column, declaration in (("resource_recovery_notices", "generation", "INTEGER NOT NULL DEFAULT 0"),
+            for table, column, declaration in (("reservations", "server_test_plan", "TEXT"),
+                                                ("reservations", "wait_detail", "TEXT"),
+                                                ("resource_recovery_notices", "generation", "INTEGER NOT NULL DEFAULT 0"),
                                                 ("resource_recoveries", "recovery_kind", "TEXT NOT NULL DEFAULT 'execution'"),
                                                 ("resource_job_retries", "setup_attempts", "INTEGER NOT NULL DEFAULT 0"),
                                                 ("sessions", "guidance", "TEXT"), ("work_items", "lease_seconds", "REAL"),
@@ -1784,12 +1787,14 @@ class Ledger:
 
     @staticmethod
     def _reservation_view(row):
-        return {key: row[key] for key in ("reservation_id", "sequence", "item_id", "generation", "kind", "mode",
+        result = {key: row[key] for key in ("reservation_id", "sequence", "item_id", "generation", "kind", "mode",
                                           "resource", "host", "commit_sha", "state", "attempts", "created_at",
                                           "acquired_at", "released_at", "release_reason")}
+        result["server_test_plan"] = json.loads(row["server_test_plan"]) if row["server_test_plan"] else None
+        return result
 
     def await_resource(self, item_id, token, resource, mode, *, skill, commit_sha=None, issue_prefix="FARM",
-                       comparison_candidate=None):
+                       comparison_candidate=None, server_test_plan=None):
         """Park the claimed item until the pool grants `resource`.
 
         The ledger reads no manifests: `skill` is the item's loaded skill, which the worker CLI passes, as for
@@ -1799,6 +1804,12 @@ class Ledger:
         root is its stored root, the rules are the ones it always had.
         """
         _text(resource, "resource")
+        if server_test_plan is not None and resource != "server_slot":
+            raise LedgerError("a server test plan requires server_slot")
+        try:
+            server_plan = validate_plan(FULL_PLAN if server_test_plan is None else server_test_plan)
+        except ValueError as exc:
+            raise LedgerError(str(exc)) from exc
         if resource == "server_slot" and mode != "batch":
             raise LedgerError("server slots require batch mode")
         if resource != "server_slot" and mode not in ("interactive", "batch"):
@@ -1826,9 +1837,9 @@ class Ledger:
                     raise LedgerError("release the resource this item already holds before requesting another")
                 reservation_id = str(uuid4())
                 self.connection.execute("""INSERT INTO reservations
-                    (reservation_id,item_id,generation,kind,mode,commit_sha,state,created_at)
-                    VALUES(?,?,?,?,?,?,'queued',?)""",
-                    (reservation_id, item_id, row["generation"], resource, mode, commit_sha, self.clock()))
+                    (reservation_id,item_id,generation,kind,mode,commit_sha,state,created_at,server_test_plan)
+                    VALUES(?,?,?,?,?,?,'queued',?,?)""",
+                    (reservation_id, item_id, row["generation"], resource, mode, commit_sha, self.clock(), _json(server_plan)))
                 self._set_state(item_id, "awaiting_resource", "needs server_slot:batch", token=None,
                                 lease_expires_at=None, worker_pid=None, needs_resource="server_slot:batch")
                 self._audit(item_id, "reservation", "queued", details={"reservation_id": reservation_id,
@@ -1953,7 +1964,7 @@ class Ledger:
             token = "res_" + secrets.token_urlsafe(32)
             try:
                 self.connection.execute(
-                    """UPDATE reservations SET state='active',resource=?,host=?,owner=?,token_hash=?,acquired_at=?
+                    """UPDATE reservations SET state='active',resource=?,host=?,owner=?,token_hash=?,acquired_at=?,wait_detail=NULL
                        WHERE reservation_id=?""",
                     (slot["slot_id"], host, owner, _hash_token(token), self.clock(), row["reservation_id"]))
             except sqlite3.IntegrityError as exc:
@@ -1996,6 +2007,29 @@ class Ledger:
                 AND stage<>? AND id IN (SELECT item_id FROM reservations
                     WHERE reservation_id=? AND state='queued' AND kind='unity_slot' AND mode='interactive')""",
                 (stage, stage, reservation_id))
+
+    def resource_wait_detail(self, reservation_id, detail):
+        """Host-only display observation; never changes a claim, source pin or reservation order."""
+        with self._transaction():
+            self.connection.execute("UPDATE reservations SET wait_detail=? WHERE reservation_id=? AND state='queued'",
+                                    (_json(detail), reservation_id))
+
+    def replan_legacy_server_request(self, reservation_id):
+        """Wake an unleased legacy request to declare scope once, preserving its checkpoint and candidate."""
+        with self._transaction():
+            row = self.connection.execute("SELECT * FROM reservations WHERE reservation_id=?", (reservation_id,)).fetchone()
+            if not row or row["kind"] != "server_slot" or row["state"] != "queued" or row["server_test_plan"]:
+                return False
+            item = self._row(row["item_id"])
+            if item["state"] != "awaiting_resource" or item["generation"] != row["generation"] or item["withdraw_deadline"]:
+                return False
+            self.connection.execute("UPDATE reservations SET state='cancelled',released_at=?,release_reason=?,wait_detail=NULL WHERE reservation_id=?",
+                                    (self.clock(), "scope declaration required after upgrade", reservation_id))
+            self._set_state(item["id"], "queued", "declare server test scope after upgrade", needs_resource=None,
+                            stage="server-test-plan-required")
+            self._audit(item["id"], "server_scope_replan", "legacy request resumed without allocating services",
+                        {"reservation_id": reservation_id, "commit_sha": row["commit_sha"]})
+            return True
 
     def reservation(self, reservation_id):
         row = self.connection.execute("SELECT * FROM reservations WHERE reservation_id=?", (reservation_id,)).fetchone()
@@ -2140,9 +2174,9 @@ class Ledger:
             fresh = str(uuid4())
             self.connection.execute(
                 """INSERT INTO reservations(reservation_id,item_id,generation,kind,mode,commit_sha,state,
-                   attempts,created_at) VALUES(?,?,?,?,?,?,'queued',?,?)""",
+                   attempts,created_at,server_test_plan) VALUES(?,?,?,?,?,?,'queued',?,?,?)""",
                 (fresh, row["item_id"], row["generation"], row["kind"], row["mode"], row["commit_sha"],
-                 row["attempts"] + 1, self.clock()))
+                 row["attempts"] + 1, self.clock(), row["server_test_plan"]))
             self._audit(row["item_id"], "reservation", "requeued", details={"reservation_id": fresh,
                 "reason": reason[:200], **({"commit_sha": row["commit_sha"],
                 "comparison_candidate": comparison["candidate_commit"]} if comparison else {})})

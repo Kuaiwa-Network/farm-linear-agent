@@ -402,6 +402,10 @@ class CliTests(unittest.TestCase):
         self.addCleanup(ledger.close)
         args = parser().parse_args(["--db", str(self.db), "await-resource", "--item", item, "--token", token,
                                     "--resource", "server_slot", "--mode", "batch", "--commit", candidate])
+        selection = {"packages": ["./modules/animal"], "tests": ["TestSaveAnimal"], "race": False}
+        plan_file = self.root / "server scope 计划.json"
+        plan_file.write_text(json.dumps(selection), encoding="utf-8")
+        args.server_test_plan = str(plan_file)
         with patch("agent.__main__.load_config", return_value=config):
             config.server_slots = {}
             with self.assertRaisesRegex(LedgerError, "no configured server"):
@@ -424,6 +428,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result["state"], "awaiting_resource")
         self.assertEqual(result["target"]["commit_sha"], baseline)
         self.assertEqual(ledger.reservations()[0]["commit_sha"], candidate)
+        self.assertEqual(ledger.reservations()[0]["server_test_plan"], selection)
 
     def test_await_resource_can_select_committed_fix_without_changing_baseline(self):
         item, token, baseline, fixed, path = self.verification_fixture()

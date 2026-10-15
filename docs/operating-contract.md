@@ -1827,6 +1827,30 @@ admission serializes both pool threads, counts nonclosed/held resources and idle
 Editors, and checks actual host physical/Windows commit headroom. Its estimate
 budget is per instance, not a host-wide atomic quota. Operators sharing a PC
 must divide that budget across bots. Missing observations leave work queued.
+Server requests persist a bounded test selection (`packages`, exact `tests`,
+`race`), verified at the existing clean committed farm-hive boundary. The host
+derives focused (one package, 1–8 named tests, no race), targeted (up to four
+explicit non-race packages), or full (race, recursive/larger scope, and measured
+heavy `./server` packages) admission. With a full 8192 MiB cost, the default
+focused/targeted costs are 4096/6144 MiB. Optional ascending overrides are
+`server_focused_mib` and `server_targeted_mib`; defaults clamp to an older lower
+full cost. Active/held leases count their persisted scope across restarts; unknown
+scope counts as full. The same exact queued reservation is fenced at acquisition,
+so Stop cannot substitute a higher-cost successor after admission. FIFO remains.
+Workers receive the journal-bound selection and canonical Go argv, and preserve
+required coverage/race. Broadening scope or separate multi-node commands requires
+release and a full lease. An estimate is not an enforceable native memory limit.
+Monitor wait observations list the actual physical, commit or shared-budget
+shortfall, FIFO, capacity, or worker teardown; stale observations are labeled.
+
+Migration adds nullable `reservations.server_test_plan` and `wait_detail`; no
+existing row, source pin, checkpoint or journal is deleted. An unleased queued
+legacy request resumes once after verified teardown to declare actual scope,
+without a human answer; its replacement joins FIFO normally. Already leased
+requests retain full cost and normal settlement. Before rollback, settle all
+server leases and retain the ledger backup/journals: older code ignores the new
+columns and resumes full-cost admission, which does not reverse this migration.
+
 Headroom is checked before admission; these estimates do not impose process
 memory limits or continuously stop a running workload. Cold Unity imports and
 multi-node race tests include descendant processes whose peaks must be measured

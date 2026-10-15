@@ -14,6 +14,7 @@ import time
 
 from .launcher import _read_worker_text, _write_worker_file
 from .ledger import Ledger, LedgerError
+from .server_test_plan import FULL_PLAN, profile, test_argv, validate_plan
 
 ROLES = ("mongo", "redis", "etcd", "nats")
 IMAGE_ROLES = (*ROLES, "proxy")
@@ -78,7 +79,11 @@ def read_resource(slot, reservation, root):
     ports = lease["ports"]
     if set(ports) != set(ROLES) or any(type(p) is not int or not 1 <= p <= 65535 for p in ports.values()):
         raise ServerSlotError("invalid server resource endpoints")
+    plan = validate_plan(lease.get("test_plan", FULL_PLAN))
+    if lease.get("test_plan") is not None and plan != reservation.get("server_test_plan"):
+        raise ServerSlotError("server test plan does not match its reservation")
     return {"kind": "server_slot", "mode": "batch", "slot": slot["slot_id"],
+            "test_plan": plan, "memory_profile": profile(plan), "test_argv": test_argv(plan),
             "commit": lease["commit"], "expires_at": lease["expires_at"], "ports": ports,
             "environment": {"MONGO_URI": f"mongodb://127.0.0.1:{ports['mongo']}/farmbot?replicaSet=rs0",
                             "REDIS_ADDR": f"127.0.0.1:{ports['redis']}",
@@ -349,13 +354,30 @@ class ServerSlotPool:
                 self._hold(slot["slot_id"], "server settlement failed: " + type(exc).__name__)
         for _ in range(self.settings["count"]):
             pending = [r for r in self.ledger.reservations(states=("queued",)) if r["kind"] == "server_slot"]
-            if not pending or not self.quiescent(pending[0]["item_id"]):
+            def waiting(request, blockers, **extra):
+                self.ledger.resource_wait_detail(request["reservation_id"],
+                    {"observed_at": self.clock(), "blockers": blockers,
+                     "profile": profile(request["server_test_plan"]) if request["server_test_plan"] else "full",
+                     "requested_mib": self.admission.cost(request), **extra})
+            for position, request in enumerate(pending[1:], 2):
+                waiting(request, ["fifo"], position=position)
+            if not pending:
+                break
+            request = pending[0]
+            if not self.quiescent(request["item_id"]):
+                waiting(request, ["worker_teardown"])
                 break  # Preserve FIFO while the checkpointing attempt finishes exiting.
+            if request["server_test_plan"] is None and self.ledger.replan_legacy_server_request(request["reservation_id"]):
+                continue
             configured = {"server_slot:" + str(index) for index in range(1, self.settings["count"] + 1)}
             excluded = [s["slot_id"] for s in self.ledger.slots(kind="server_slot", host=self.host)
                         if s["slot_id"] not in configured]
+            if not any(s["slot_id"] in configured and s["state"] in self.ledger.FREE_SLOT_STATES
+                       for s in self.ledger.slots(kind="server_slot", host=self.host)):
+                waiting(request, ["server_capacity"])
+                break
             reservation = self.admission.acquire(self.ledger, "server_slot", host=self.host, owner="server-pool",
-                                                  exclude_resources=excluded)
+                                                  exclude_resources=excluded, expected_reservation=request["reservation_id"])
             if reservation is None:
                 break
             slot, item_id = reservation["resource"], reservation["item_id"]
@@ -371,6 +393,8 @@ class ServerSlotPool:
                     sock.close()
             lease = {"slot": slot, "owner": self.owner, "reservation_id": reservation["reservation_id"],
                      "item_id": item_id, "commit": reservation["commit_sha"], "token": reservation["token"],
+                     "test_plan": reservation["server_test_plan"],
+                     "memory_profile": profile(reservation["server_test_plan"]),
                      "project": "farmbot-server-" + self.owner[:12] + "-" + reservation["reservation_id"].replace("-", ""),
                      "ports": ports, "state": "starting", "expires_at": self.clock() + self.settings["timeout_seconds"]}
             try:
