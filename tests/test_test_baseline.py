@@ -293,6 +293,15 @@ class BaselineTests(unittest.TestCase):
                     self.candidate["tests"][1]["message"] = self.candidate["tests"][1]["message"].replace("entry result", "payment result")
                 self.assertFalse(self.compare()["draft_eligible"])
 
+    def test_identical_clock_operands_cannot_bypass_a_declared_clock_review(self):
+        self.clock_failure()
+        for actual, eligible in (("50.5", True), ("51.000001", False), ("56", False), ("49", False)):
+            with self.subTest(actual=actual):
+                for value in (self.baseline, self.candidate):
+                    value["tests"][1]["message"] = (
+                        f"timed out waiting for the entry result\nExpected: less than 50f\nBut was: {actual}f")
+                self.assertEqual(self.compare()["draft_eligible"], eligible)
+
     def test_clock_review_never_waives_real_regressions_or_missing_evidence(self):
         self.clock_failure()
         original = copy.deepcopy((self.baseline, self.candidate, self.scope))

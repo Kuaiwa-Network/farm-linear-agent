@@ -275,7 +275,10 @@ def compare(baseline, candidate, *, affected_tests, unrelated_failures, changed_
         review = unrelated_failures.get(name)
         clock_diagnostic = None
         matches = old is not None and _signature(row) == _signature(old)
-        if not matches and old is not None and outcome == "failed":
+        declared_clock = isinstance(review, dict) and review.get("clock_diagnostic") is not None
+        if old is not None and outcome == "failed" and (not matches or declared_clock):
+            # A declared clock review must meet its bounds even when two runs
+            # happen to print identical absolute operands.
             clock_diagnostic = _reviewed_clock_diagnostic(old, row, review, changed_paths)
             matches = clock_diagnostic is not None
         if not matches:
