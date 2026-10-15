@@ -108,8 +108,14 @@ class ResourceAdmission:
     def assess(self, ledger, host, extra):
         """Same numbers for admission and display; existing leases retain their actual tier cost."""
         active = {r["resource"]: r for r in ledger.reservations(states=("active", "cancel_requested")) if r["host"] == host}
-        used = sum(self.cost(active.get(slot["slot_id"], {"kind": slot["kind"]}))
-                   for slot in ledger.slots(host=host) if slot["state"] != "idle_closed")
+        used = 0
+        for slot in ledger.slots(host=host):
+            if slot["state"] == "idle_closed":
+                continue
+            request = active.get(slot["slot_id"])
+            if request is None and slot["kind"] == "server_slot":
+                request = ledger.last_reservation_on(slot["slot_id"])
+            used += self.cost(request or {"kind": slot["kind"]})
         result = {"observed_at": time.time(), "requested_mib": extra, "reserved_mib": used,
                   "budget_mib": self.settings["max_reserved_mib"],
                   "required_available_mib": self.settings["min_available_mib"] + extra,

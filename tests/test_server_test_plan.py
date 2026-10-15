@@ -78,6 +78,30 @@ class ScopeAdmissionTests(ServerPoolFixture):
         self.assertEqual(self.detail()["blockers"], ["reservation_budget"])
         self.assertEqual(self.detail()["reserved_mib"], 8192)
 
+    def test_missing_plan_cannot_broaden_a_focused_journal_to_full_scope(self):
+        item = self.request(plan=FOCUSED)
+        self.pool.tick()
+        lease = self.services.started[0]
+        path = self.pool._path(lease["slot"])
+        journal = json.loads(path.read_text(encoding="utf-8"))
+        journal.pop("test_plan")
+        path.write_text(json.dumps(journal),encoding="utf-8")
+        from agent.server_slots import ServerSlotError
+        with patch("agent.server_slots.time.time", return_value=self.now), self.assertRaisesRegex(ServerSlotError, "plan"):
+            read_resource(self.ledger.slot(lease["slot"]), self.ledger.active_reservation(item), self.root)
+
+    def test_released_but_unsettled_focused_slot_retains_its_cost_and_backend_wait_is_explicit(self):
+        self.request(plan=FOCUSED)
+        self.pool.tick()
+        lease = self.services.started[0]
+        self.ledger.release(lease["reservation_id"], lease["token"], "quiescent")
+        self.ledger.set_slot_state(lease["slot"], "held")
+        self.assertEqual(self.admission.assess(self.ledger, "test", 0)["reserved_mib"], 4096)
+        self.request(plan=FOCUSED)
+        self.pool.ready = False
+        self.pool.tick()
+        self.assertEqual(self.detail()["blockers"], ["server_pool_unavailable"])
+
     def test_fifo_waits_are_distinct_from_memory_and_stopped_head_cannot_lend_its_cheaper_cost(self):
         head = self.request(plan=FULL_PLAN)
         self.request(plan=FOCUSED)

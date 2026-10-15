@@ -351,6 +351,7 @@
       if (code === "reservation_budget") return `已计入预算 ${gib(wait.reserved_mib)} ＋ 本次 ${gib(wait.requested_mib)}，超过总预算 ${gib(wait.budget_mib)}`;
       return {fifo: `等待前序 server 请求（第 ${wait.position || "?"} 位）`,
         worker_teardown: "等待上一轮 worker 退出并确认进程清理", server_capacity: "server 槽位正占用、准备、清理或隔离中",
+        server_pool_unavailable: "server 服务池尚未就绪，等待 Docker 与镜像预检通过",
         memory_observation: "无法读取主机内存，暂缓准入"}[code] || "等待资源检查";
     });
     return [profile && `${profile} · 本次预算 ${gib(wait.requested_mib)}`, ...reasons].filter(Boolean).join("；");

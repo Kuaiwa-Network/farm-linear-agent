@@ -80,7 +80,7 @@ def read_resource(slot, reservation, root):
     if set(ports) != set(ROLES) or any(type(p) is not int or not 1 <= p <= 65535 for p in ports.values()):
         raise ServerSlotError("invalid server resource endpoints")
     plan = validate_plan(lease.get("test_plan", FULL_PLAN))
-    if lease.get("test_plan") is not None and plan != reservation.get("server_test_plan"):
+    if reservation.get("server_test_plan") is not None and plan != reservation["server_test_plan"]:
         raise ServerSlotError("server test plan does not match its reservation")
     return {"kind": "server_slot", "mode": "batch", "slot": slot["slot_id"],
             "test_plan": plan, "memory_profile": profile(plan), "test_argv": test_argv(plan),
@@ -320,6 +320,10 @@ class ServerSlotPool:
 
     def tick(self):
         if not self.ready:
+            for request in self.ledger.reservations(states=("queued",)):
+                if request["kind"] == "server_slot":
+                    self.ledger.resource_wait_detail(request["reservation_id"],
+                        {"observed_at": self.clock(), "blockers": ["server_pool_unavailable"]})
             return {"settled": 0, "granted": 0, "unavailable": True}
         settled, granted = 0, 0
         for slot in self.ledger.slots(kind="server_slot", host=self.host):

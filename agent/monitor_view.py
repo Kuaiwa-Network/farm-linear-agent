@@ -238,7 +238,7 @@ def _resource_waits(db, schema, now, beat_state, beat):
         return {}
     result = {}
     allowed = {"fifo", "worker_teardown", "server_capacity", "reservation_budget", "physical_memory",
-               "commit_headroom", "memory_observation"}
+               "commit_headroom", "memory_observation", "server_pool_unavailable"}
     numeric = ("requested_mib", "reserved_mib", "budget_mib", "required_available_mib", "required_commit_mib",
                "available_mib", "commit_mib", "position")
     for row in db.execute("SELECT item_id,wait_detail FROM reservations WHERE kind='server_slot' AND state='queued'"):
