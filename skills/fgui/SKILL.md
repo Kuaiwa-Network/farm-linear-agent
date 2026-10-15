@@ -313,8 +313,9 @@ license, account, environment selectors or watched output during a job.
    after fresh checks. The controller validates its pre-write plan, exact complete
    journal, backups, installed bytes/GUIDs, HEAD/index and current authority before
    finalizing without rewriting files. A legacy complete journal without that
-   pre-write record can recover only at the original pinned HEAD when every
-   backup matches Git (or its LFS identity), every output matches the current
+   pre-write record can recover at the original pinned HEAD or the same task's
+   exact controller cleanup commit containing only the certified artifact delta. Every
+   backup must match pinned-baseline Git (or its LFS identity), every output must match the current
    certified export, and no files, directories or metadata were added or removed.
    The controller independently reconstructs this proof; a journal or checkpoint
    cannot supply authority. Partial writes and other legacy cases remain a named

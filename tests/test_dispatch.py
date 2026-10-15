@@ -438,6 +438,7 @@ class SkillAuthorityTests(unittest.TestCase):
             self.assertIn("verification_role=baseline", text)
             self.assertIn("New/changed failures", text)
             for phrase in ("clock_diagnostic", "unchanged assertion", "finish delivered",
+                           "agent.dotnet_baseline", "Failed:Invalid",
                            "require a green baseline", "ask for another permission", "comparator offline",
                            "continue-verification", "--reservation-token-file", "worker seat",
                            "compare-verification", "verification-progress --phase failure-review"):

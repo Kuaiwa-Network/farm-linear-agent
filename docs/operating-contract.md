@@ -174,6 +174,13 @@ Client workers use `verification-progress` for failure review, publication and f
 `compare-verification` to validate retained files under their state directory against the settled recorded pair.
 The latter immediately records eligible/blocked/evidence-gap and leaves complete checkpoint data intact.
 These stages are display observations, not evidence of tests passing or authorization to publish/finish.
+NUnit `Failed:Invalid` is retained as a failed leaf, requiring the same reviewed signature as other failures.
+Standalone .NET evidence uses `agent.dotnet_baseline`: complete hash-bound raw TRX, explicit exact commits,
+selection, toolchain/config/package/environment identities and source/dependency reviews. Every execution
+is retained, including duplicate display/test IDs; repeated non-passing identities are an unresolved gap.
+This independent read-only verdict covers only the .NET check. It neither invents Unity reservations nor
+satisfies the Unity, affected-test, QA or publication gates. Existing complete reports can be re-compared
+offline after a parser correction. No database migration or historical result rewrite is required.
 The strict comparison, affected-test and publication gates remain unchanged. No schema migration is needed;
 older releases ignore the continuation audit hint and use ordinary FIFO. Deploy a complete settled release;
 do not run new worker instructions against an older controller/CLI.
@@ -1547,7 +1554,11 @@ inventory, directories and global GUID digest, the controller retires the unused
 plan in audit and prepares a fresh one, preserving the earlier recovery files.
 For a single complete legacy journal without a pre-write controller record,
 the controller can independently reconstruct a first installation at its original
-pinned HEAD. Every retained backup must match the full selected-package Git tree
+pinned HEAD, or the exact commit saved by that task's successful controller cleanup.
+The cleanup commit must descend from the pinned baseline and change only the
+exported existing artifacts; unrelated committed work is refused. Retry may reset
+the cleanup completion flag but cannot replace its recorded commit. No worker
+checkpoint or arbitrary clean commit supplies this authority. Every retained backup must match the full selected-package Git tree
 or its LFS OID/size; unchanged Unity metadata may retain native CRLF. The certified
 export must replace exactly the existing artifact set, with no added/deleted files,
 directories or metadata. The exact journal, backups, installed bytes, baseline

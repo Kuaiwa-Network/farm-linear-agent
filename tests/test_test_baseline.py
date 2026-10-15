@@ -39,6 +39,24 @@ class BaselineTests(unittest.TestCase):
     def compare(self):
         return compare(self.baseline, self.candidate, **self.scope)
 
+    def test_nunit_invalid_remains_a_failure_and_requires_matching_review(self):
+        for value in (self.baseline, self.candidate):
+            value['tests'][1]['state'] = 'Failed:Invalid'
+            value['tests'][1]['message'] = 'Method has non-void return value, but no result is expected'
+        report = self.compare()
+        self.assertTrue(report['draft_eligible'])
+        self.assertFalse(report['full_suite_passed'])
+        self.assertEqual(report['candidate_counts']['failed'], 1)
+        self.scope['unrelated_failures'] = {}
+        self.assertFalse(self.compare()['draft_eligible'])
+
+    def test_invalid_does_not_match_a_different_failure_state_or_affected_test(self):
+        self.candidate['tests'][1]['state'] = 'Failed:Invalid'
+        self.assertFalse(self.compare()['draft_eligible'])
+        self.baseline['tests'][1]['state'] = 'Failed:Invalid'
+        self.scope['affected_tests'].append('Card.Cleanup')
+        self.assertFalse(self.compare()['draft_eligible'])
+
     def ui_inputs(self):
         self.ui_path = "Assets/GameRes/FairyRes/Friend/Friend_fui.bytes"
         self.card_path = "Assets/GameRes/FairyRes/Card/Card_fui.bytes"
