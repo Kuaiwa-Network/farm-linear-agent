@@ -1143,6 +1143,19 @@ other required local checks passed. Missing/incomparable results remain gaps. Th
 decision aid; it grants no publication authority and does not replace fresh `verify-publication` or main
 integration. The verdict is `passed_with_existing_failures`, with `full_suite_passed=false` and all retained
 failures/skips explicitly listed in the draft. No merge/deploy waiver, suppressed tests or unrelated fixes.
+An eligible draft and all remaining required issue work/checks permit `finish delivered`; workers do not
+require a green baseline, wait for unrelated fixes on main or ask for another draft-delivery approval.
+Completed valid evidence remains usable after a checkpoint/restart at the same exact inputs. A diagnostic
+review correction re-runs the comparator offline, not Unity; unresolved regressions/gaps need a concrete
+diagnosis instead of an unchanged failing loop.
+
+An optional per-test `clock_diagnostic` review handles Unity absolute-clock timeout assertions whose
+process-relative numbers naturally change between runs. It requires reviewed unchanged source hashes,
+timeout and dependencies, identical failure state/site and message except for the two clock operands,
+and at most one second of deadline overshoot in each run. The original messages and both operands remain
+recorded. Arbitrary numbers, configured timeout changes, new/affected failures, changed dependencies and
+environment drift are not exempt. Older evidence without this review remains strict; add reviewed evidence
+and recompare offline after upgrade. No ledger migration or historical result rewrite is required.
 See [evidence schema and procedure](../references/test-baseline.md). No schema migration: identity lives in
 audit details. Settle active comparison reservations before rollback to code that lacks comparison dispatch.
 

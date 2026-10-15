@@ -357,6 +357,11 @@ release safely and wait for settlement, then test the candidate with identical s
 `agent.test_baseline`'s `draft_eligible=true`, passing affected tests and every other required check allow a draft
 with reviewed unchanged unrelated failures. New/changed or affected failures, new skips and gaps remain blockers.
 Retain `full_suite_passed=false`, exact SHAs and every failure/skip in the draft; no merge or deployment waiver.
+Use only the documented `clock_diagnostic` review for absolute Unity clock operands in an unchanged timeout
+assertion; retain raw messages and never strip arbitrary numeric differences. Review/recompare a completed
+pair offline instead of re-running Unity for diagnostic-only differences. Once eligible and all other required
+work/checks are complete, publish/register the draft and finish delivered with the failures explicit. Do not
+require a green baseline, wait for unrelated main fixes or ask again for permission to deliver that eligible draft.
 
 Update only a draft PR whose repository and head match this job. Include the verification evidence
 when an approval reviewer needs the destination and payload context. Review the outgoing changes for

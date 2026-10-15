@@ -437,6 +437,9 @@ class SkillAuthorityTests(unittest.TestCase):
             self.assertIn("full_suite_passed=false", text)
             self.assertIn("verification_role=baseline", text)
             self.assertIn("New/changed failures", text)
+            for phrase in ("clock_diagnostic", "unchanged assertion", "finish delivered",
+                           "require a green baseline", "ask for another permission", "comparator offline"):
+                self.assertIn(phrase, text)
             for phrase in ("complete package_inventory", "ui_resource_changes", "resource_review",
                            "Never omit changed resources or metadata", "changed failure dependencies remain blockers"):
                 self.assertIn(phrase, text)
