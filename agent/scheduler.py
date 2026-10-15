@@ -793,7 +793,7 @@ class Scheduler:
         Batch runs execute in the pool without a worker and keep their own capacity.
         """
         with self.lock:
-            request = next((r for r in ledger.reservations(states=("queued",)) if r["kind"] == kind), None)
+            request = next(iter(ledger.reservation_queue(kind)), None)
             if request is None:
                 return None
             if request["mode"] != "interactive":

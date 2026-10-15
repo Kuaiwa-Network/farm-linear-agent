@@ -170,7 +170,10 @@ limitations are explicit, and the job's relevant drafts are listed. Reuse the
 existing foreign-work, destination, claim and resource checks. Stop/withdrawal
 ends the whole job including its tasks and retains recovery evidence. Workers
 never merge or deploy.
-For Client verification, use feature stage F's reviewed baseline comparison. Its eligible draft verdict
+For Client verification, use feature stage F's reviewed baseline comparison.
+Use `continue-verification` for a completed quiescent baseline's original candidate and `compare-verification`
+for the retained evidence. Follow the exact token, exit and phase-reporting procedure in
+[baseline comparison](../../references/test-baseline.md). The eligible verdict
 permits delivery with unrelated existing failures recorded after the remaining required work is complete.
 Do not wait for a green baseline or unrelated main fixes, re-ask draft-delivery permission, or repeat a
 completed unchanged pair for diagnostic-only differences; use the documented offline comparison review.

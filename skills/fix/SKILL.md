@@ -353,8 +353,12 @@ succeeded; that line is harmless, so check the exit status and the result instea
 For completed Client full-suite failures outside this issue, use [baseline comparison](../../references/test-baseline.md)
 before blocking delivery. Request trusted remote main with `await-resource --baseline --commit CANDIDATE`;
 preserve the source branch/HEAD and immutable target. Test the reserved baseline, retain complete leaf outcomes,
-release safely and wait for settlement, then test the candidate with identical selection/environment. Only
-`agent.test_baseline`'s `draft_eligible=true`, passing affected tests and every other required check allow a draft
+checkpoint and confirm quiescence. Use `continue-verification --commit CANDIDATE` with the claim token and
+`--reservation-token-file resource.token_file`, then exit. The controller admits the original candidate on the
+same slot's next turn after settlement, teardown and worker-capacity checks. Already released baselines use
+normal candidate requests; never repeat a baseline for priority. Test the candidate with identical selection/environment.
+Set `verification-progress --phase failure-review` before source review, then use `compare-verification` with
+complete evidence/scope in this item's state_dir. Only its `draft_eligible=true`, passing affected tests and every other required check allow a draft
 with reviewed unchanged unrelated failures. New/changed or affected failures, new skips and gaps remain blockers.
 Retain `full_suite_passed=false`, exact SHAs and every failure/skip in the draft; no merge or deployment waiver.
 Use only the documented `clock_diagnostic` review for absolute Unity clock operands in an unchanged timeout
@@ -362,6 +366,8 @@ assertion; retain raw messages and never strip arbitrary numeric differences. Re
 pair offline instead of re-running Unity for diagnostic-only differences. Once eligible and all other required
 work/checks are complete, publish/register the draft and finish delivered with the failures explicit. Do not
 require a green baseline, wait for unrelated main fixes or ask again for permission to deliver that eligible draft.
+Set `verification-progress --phase publication` before publication checks and `--phase delivery` before final
+delivery recording. Include normal item/claim arguments; these display updates never replace the checks.
 
 Update only a draft PR whose repository and head match this job. Include the verification evidence
 when an approval reviewer needs the destination and payload context. Review the outgoing changes for

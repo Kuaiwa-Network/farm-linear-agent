@@ -570,6 +570,79 @@ class CliTests(unittest.TestCase):
         self.assertEqual(git("rev-parse", "HEAD", cwd=path), fixed)
         self.assertEqual(self.run_cli("reservations")[-1]["commit_sha"], fixed)
 
+    def test_continuation_validates_clean_candidate_and_two_tokens_without_chasing_main(self):
+        from agent.ledger import Ledger
+        from test_worktrees import git
+        item, token, baseline, fixed, path = self.verification_fixture(
+            skill='feature', client_stage=True, directory_name='local 连续 tests')
+        self.run_cli('await-resource', '--item', item, '--token', token, '--resource', 'unity_slot',
+                     '--mode', 'interactive', '--commit', fixed, '--baseline')
+        with closing(Ledger(self.db)) as ledger:
+            ledger.ensure_slot(SLOT, kind='unity_slot', host=HOST, folder=str(self.root / 'fake-editor'))
+            lease = ledger.acquire('unity_slot', host=HOST, owner='fixture')
+            ledger.set_slot_state(SLOT, 'interactive_busy')
+            ledger.resume(item, 'baseline ready')
+            ledger.set_worker(item, 12345, HOST)
+            token = ledger.claim(item, worker_id='baseline')['token']
+        claim_file = self.root / 'claim-token'
+        claim_file.write_text(token, encoding='utf-8')
+        resource_file = self.root / 'resource-token'
+        resource_file.write_text(lease['token'], encoding='utf-8')
+        origin = self.root / 'origin'
+        (origin / 'later-main.txt').write_text('unrelated change', encoding='utf-8')
+        git('add', '.', cwd=origin)
+        git('commit', '-qm', 'advance main after baseline', cwd=origin)
+        args = ('continue-verification', '--item', item, '--token-file', str(claim_file), '--commit', fixed,
+                '--reservation-token-file', str(resource_file))
+        (path / 'dirty.txt').write_text('unsaved source', encoding='utf-8')
+        self.assertIn('clean', self.run_cli(*args, success=False).stderr)
+        (path / 'dirty.txt').unlink()
+        resource_file.write_text(token, encoding='utf-8')
+        self.assertIn('reservation token', self.run_cli(*args, success=False).stderr)
+        self.assertEqual(self.run_cli('reservations')[0]['state'], 'active')
+        resource_file.write_text(lease['token'], encoding='utf-8')
+        self.assertEqual(self.run_cli(*args)['state'], 'awaiting_resource')
+        rows = self.run_cli('reservations')
+        self.assertEqual([r['state'] for r in rows], ['released', 'queued'])
+        self.assertEqual([r['commit_sha'] for r in rows], [baseline, fixed])
+        self.assertEqual(git('rev-parse', 'HEAD', cwd=path), fixed)
+        self.assertEqual(git('status', '--porcelain', cwd=path), '')
+        self.run_cli(*args, success=False)
+
+    def test_compare_verification_cli_updates_phase_without_overwriting_checkpoint(self):
+        from agent.ledger import Ledger
+        from agent.config import load_config, Paths
+        from test_test_baseline import run as evidence, test as leaf
+        item, token, baseline, fixed, path = self.verification_fixture()
+        self.run_cli('await-resource', '--item', item, '--token', token, '--resource', 'unity_slot',
+                     '--mode', 'interactive', '--commit', fixed, '--baseline')
+        with closing(Ledger(self.db)) as ledger:
+            token = self.settle_test_reservation(ledger, item)
+        self.run_cli('await-resource', '--item', item, '--token', token, '--resource', 'unity_slot',
+                     '--mode', 'interactive', '--commit', fixed)
+        with closing(Ledger(self.db)) as ledger:
+            token = self.settle_test_reservation(ledger, item)
+            pair = ledger.client_verification_pair(item, fixed, require_candidate=True)
+            ledger.checkpoint(item, token, {'retained_note': 'preserve this evidence'})
+        root = Paths(load_config(self.env['FARMBOT_CONFIG'])).runs / item
+        root.mkdir(parents=True)
+        base = evidence('a', [leaf('Animal.Counter')])
+        candidate = evidence('b', [leaf('Animal.Counter')])
+        base.update(commit=baseline, reservation_id=pair['baseline_reservation'])
+        candidate.update(commit=fixed, reservation_id=pair['candidate_reservation'])
+        scope = {'affected_tests': ['Animal.Counter'], 'changed_paths': ['Assets/Animal/Tuning.cs'],
+                 'unrelated_failures': {}}
+        for name, data in (('baseline', base), ('candidate', candidate), ('scope', scope)):
+            (root / (name + '.json')).write_text(json.dumps(data), encoding='utf-8')
+        self.run_cli('verification-progress', '--item', item, '--token', token, '--phase', 'failure-review')
+        report = self.run_cli('compare-verification', '--item', item, '--token', token,
+                             '--baseline', str(root / 'baseline.json'), '--candidate', str(root / 'candidate.json'),
+                             '--scope', str(root / 'scope.json'))
+        self.assertTrue(report['draft_eligible'])
+        with closing(Ledger(self.db)) as ledger:
+            self.assertEqual(ledger.item(item)['stage'], 'client-verified-awaiting-publication')
+            self.assertEqual(ledger.item(item)['checkpoint']['retained_note'], 'preserve this evidence')
+
     def test_only_settled_exact_pair_allows_draft_verification_without_chasing_new_main(self):
         from unittest.mock import patch
         from agent.__main__ import run

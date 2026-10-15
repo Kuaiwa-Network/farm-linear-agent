@@ -110,6 +110,11 @@ def parser():
     resource.add_argument("--commit", help="full SHA of the clean Farm-Client worktree HEAD to verify; default: baseline")
     resource.add_argument("--baseline", action="store_true",
                           help="test trusted remote main for comparison; --commit still names the owned candidate")
+    continuation = cmd('continue-verification', '--item', '--commit', '--reservation-token-file', token=True)
+    continuation.set_defaults(resource='unity_slot', mode='interactive', baseline=False, server_test_plan=None)
+    progress = cmd('verification-progress', '--item', token=True)
+    progress.add_argument('--phase', required=True, choices=['failure-review', 'comparison', 'publication', 'delivery'])
+    cmd('compare-verification', '--item', '--baseline', '--candidate', '--scope', token=True)
     release = cmd("release-resource", "--item", token=True)
     release.add_argument("--outcome", required=True, choices=["quiescent", "unclean"])
     cmd("withdraw", "--item", token=True)
@@ -875,7 +880,12 @@ def run(args, ledger, api_factory):
         ledger.renew(args.item, token)  # a Stop during these reads ends the claim here, as after verification
         refuse_withdrawn(ledger.item(args.item))
         return result
-    if c == "await-resource":
+    if c == 'verification-progress':
+        return ledger.verification_progress(args.item, resolve_token(args), args.phase)
+    if c == 'compare-verification':
+        from .verification import compare_recorded_pair
+        return compare_recorded_pair(args, ledger, load_config(secure_permissions=False), resolve_token(args))
+    if c in ("await-resource", 'continue-verification'):
         from .config import ROOT
         from .skills import load_skills
         token = resolve_token(args)
@@ -947,9 +957,15 @@ def run(args, ledger, api_factory):
                 request_options["comparison_candidate"] = args.commit
             else:
                 if not server_request and item['skill'] in ('work', 'fix', 'feature'):
-                    pair = ledger.client_verification_pair(args.item, args.commit)
-                    if pair:
-                        options['verified_base'] = pair['baseline_commit']
+                    if c == 'continue-verification':
+                        resource_token = read_text(args.reservation_token_file).strip()
+                        source = ledger.continuation_baseline(args.item, token, resource_token, args.commit)
+                        options['verified_base'] = source['commit_sha']
+                        request_options['continuation'] = (source['reservation_id'], resource_token)
+                    else:
+                        pair = ledger.client_verification_pair(args.item, args.commit)
+                        if pair:
+                            options['verified_base'] = pair['baseline_commit']
                 trees.verification_commit("farm-hive" if server_request else "Farm-Client",
                                           args.item, args.commit, require_main=not server_request, **options)
         elif (args.resource == "unity_slot" and item["skill"] == "fix"
@@ -965,6 +981,8 @@ def run(args, ledger, api_factory):
             JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger).verification_commit(
                 "Farm-Client", args.item, item["target"]["commit_sha"], require_main=True)
         # Ownership is checked again after Git validation, fencing a concurrent stop/closure.
+        if c == 'continue-verification' and 'continuation' not in request_options:
+            raise LedgerError('only Client code jobs may continue a comparison baseline')
         return ledger.await_resource(args.item, token, args.resource, mode, skill=skill,
                                      commit_sha=selected_commit, **request_options)
     if c == "release-resource":

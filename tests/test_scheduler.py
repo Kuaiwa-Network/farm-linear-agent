@@ -507,6 +507,29 @@ class SchedulerTests(unittest.TestCase):
         self.scheduler.tick()
         self.assertIsNotNone(self.acquire_unity())
 
+    def test_continuation_keeps_worker_teardown_and_admission_fences(self):
+        item = self.item()
+        self.ledger.connection.execute("UPDATE work_items SET root_repo='Farm-Client' WHERE id=?", (item['id'],))
+        token = self.ledger.claim(item['id'], worker_id='initial')['token']
+        self.ledger.await_resource(item['id'], token, 'unity_slot', 'interactive', skill=SKILLS['fix'],
+                                   commit_sha='a' * 40, comparison_candidate='b' * 40)
+        source = self.acquire_unity()
+        self.ledger.set_slot_state(source['resource'], 'interactive_busy')
+        self.ledger.resume(item['id'], 'baseline ready')
+        self.scheduler.tick()
+        token = self.ledger.claim(item['id'], worker_id='baseline')['token']
+        self.ledger.await_resource(item['id'], token, 'unity_slot', 'interactive', skill=SKILLS['fix'],
+                                   commit_sha='b' * 40, continuation=(source['reservation_id'], source['token']))
+        self.ledger.set_slot_state(source['resource'], 'idle_open')
+        self.assertIsNone(self.acquire_unity())
+        self.launcher.finished.append(Finished(item['id'], 0, '', False, 'exited'))
+        self.scheduler.tick()
+        from unittest.mock import patch
+        with patch.object(self.launcher, 'assert_quiescent', side_effect=RuntimeError('descendants remain')):
+            self.assertIsNone(self.acquire_unity())
+        self.assertEqual(self.ledger.item(item['id'])['stage'], 'waiting-for-worker-teardown')
+        self.assertEqual(self.acquire_unity()['commit_sha'], 'b' * 40)
+
     def test_unverified_old_descendants_keep_unity_free(self):
         waiting = self.waiting_item("interactive")
         with patch.object(self.launcher, 'assert_quiescent', side_effect=RuntimeError('descendant still alive')):
