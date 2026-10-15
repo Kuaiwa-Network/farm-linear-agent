@@ -198,8 +198,18 @@ class PublicationVerifier:
         # Config publication pins an existing remote commit and must not merge new source into that pin.
         config_pin = suffix_roles and suffix_of(branch, prefix) in (CONFIG_SUFFIX, CONFIG_REPIN_SUFFIX)
         if require_main and not config_pin:
+            options = {}
+            ledger = getattr(self.worktrees, 'ledger', None)
+            verification_pair = (ledger.client_verification_pair(item_id, head, require_candidate=True)
+                                 if repo == 'Farm-Client' and ledger is not None else None)
+            if verification_pair is not None:
+                if (verification_pair.get('candidate_commit') != head or not verification_pair.get('candidate_reservation')):
+                    raise PublicationError('settled verification pair must match this exact Client candidate')
+                options['verified_base'] = verification_pair['baseline_commit']
             result['main_integration'] = self.worktrees.require_main_integration(
-                repo, path, head, default_branch=metadata['default_branch'])
+                repo, path, head, default_branch=metadata['default_branch'], **options)
+            if verification_pair:
+                result['verification_pair'] = verification_pair
         return result
 
     def scope(self, *, item, issue, paths, delegated, suffix_roles=False):

@@ -77,6 +77,32 @@ class ViewBase(unittest.TestCase):
         return next(job for job in document["active"] if job["identifier"] == identifier)
 
 
+class ServerWaitTests(ViewBase):
+    def test_exact_memory_wait_is_sanitized_stales_and_disappears_when_request_ends(self):
+        from agent.skills import load_skills
+        item = self.job()
+        token = self.claim(item)["token"]
+        self.sql("UPDATE work_items SET root_repo='farm-hive' WHERE id=?", item["id"])
+        skills = load_skills(Path(__file__).resolve().parents[1] / "skills")
+        self.ledger.await_resource(item["id"], token, "server_slot", "batch", skill=skills["fix"], commit_sha="a" * 40)
+        reservation = self.ledger.reservations()[0]
+        detail = {"observed_at": NOW, "profile": "full", "blockers": ["commit_headroom"], "requested_mib": 8192,
+                  "commit_mib": 9000, "required_commit_mib": 12288, "private_error": "SECRET"}
+        self.ledger.resource_wait_detail(reservation["reservation_id"], detail)
+        job = self.active(self.status(), "FARM-1")
+        self.assertEqual(job["resource_wait"]["required_commit_mib"], 12288)
+        self.assertEqual(job["resource_wait"]["blockers"], ["commit_headroom"])
+        self.assertFalse(job["resource_wait"]["stale"])
+        self.assertNotIn("SECRET", json.dumps(job))
+        self.assertTrue(self.active(self.status(now=NOW+31), "FARM-1")["resource_wait"]["stale"])
+        self.assertTrue(self.active(self.status(heartbeat=("stale", beat())), "FARM-1")["resource_wait"]["stale"])
+        self.ledger.resource_wait_detail(reservation["reservation_id"], {**detail, "blockers": ["SECRET"]})
+        self.assertIsNone(self.active(self.status(), "FARM-1")["resource_wait"])
+        self.ledger.resource_wait_detail(reservation["reservation_id"], detail)
+        self.ledger.cancel_reservations(item["id"], "stopped")
+        self.assertIsNone(self.active(self.status(), "FARM-1")["resource_wait"])
+
+
 class CapacityAndFailureTests(ViewBase):
     def test_capacity_counts_tracked_launches_even_before_claim_and_is_unknown_when_not_live(self):
         item = self.job()

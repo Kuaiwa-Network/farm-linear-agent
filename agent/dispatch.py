@@ -332,6 +332,15 @@ BASELINE_AUTHORITY = (
     "from the source candidate: test only resource.commit, preserve candidate_commit, record complete outcomes, "
     "release and wait for controller settlement before requesting candidate verification. Do not edit the "
     "slot or start/stop an Editor. Baseline evidence alone never certifies the candidate. "
+    "Finish that exact controller-recorded baseline/candidate round even if main advances while queued. "
+    "After its baseline settles, request the unchanged candidate; do not merge main solely because its tip "
+    "advanced. Once both reservations settle, verify-publication retains that selected baseline for the "
+    "exact candidate while proving it still belongs to actual remote main. Report both tested SHAs and "
+    "current main honestly; this does not certify untested newer main. Changed candidates or a new baseline "
+    "start a fresh round with normal main integration and required checks. Compare a completed failing pair "
+    "and either deliver an eligible draft, fix an attributable failure at a new commit, or retain a concrete "
+    "unresolved blocker. Do not repeat an unchanged failing run without a diagnosed reason to expect a "
+    "different result. All existing evidence, affected-test, publication and completion gates remain required. "
 )
 
 # Per-skill grants, chosen by the item's skill. A skill without an entry is refused when its launch message
@@ -384,6 +393,21 @@ SKILL_AUTHORITY["scene"] = (
 )
 
 
+SERVER_TEST_AUTHORITY = (
+    "Server test requests must include --server-test-plan FILE containing exactly packages (module-local Go "
+    "paths), tests (exact top-level Test names, [] for all), and race (boolean). Declare the verification scope "
+    "actually required by the issue; do not drop required race or coverage to obtain a cheaper tier. The host "
+    "derives the memory profile. Single-package non-race named tests are focused, up to four explicit packages "
+    "without race are targeted, and race/recursive/larger selections or ./server packages are full. A stage "
+    "server-test-plan-required means an old unleased request was resumed to declare scope: retain its "
+    "checkpoint/candidate, prepare the required test plan and request again; no human approval is needed. "
+    "On a server lease, execute resource.test_argv at resource.commit; required environment flags may be "
+    "retained but never broaden packages, tests, race, parallelism or process/node coverage within a cheaper "
+    "lease. If broader or separate multi-node scenario commands are needed, release and request the full "
+    "plan (packages [./...], tests [], race true) first. The estimate is not a native memory cap. "
+)
+
+
 def authority(skill):
     """The AUTHORITY block one skill's workers receive."""
     if skill not in SKILL_AUTHORITY:
@@ -392,8 +416,9 @@ def authority(skill):
     diagnostic = DOCUMENT_READER_DIAGNOSTIC_AUTHORITY if skill in {"work", "feature", "fgui"} else ""
     baseline = BASELINE_AUTHORITY if skill in {"work", "feature", "fix"} else ""
     scope = ISSUE_SCOPE_AUTHORITY if skill in {"work", "feature", "fix"} else ""
+    server_tests = SERVER_TEST_AUTHORITY if skill in {"work", "feature", "fix"} else ""
     return (COMMON_AUTHORITY + identity + QUESTION_AUTHORITY + scope + SKILL_AUTHORITY[skill]
-            + diagnostic + baseline + AUTHORITY_REFERENCE)
+            + diagnostic + baseline + server_tests + AUTHORITY_REFERENCE)
 
 
 def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, guidance, budget, repo_root=None,

@@ -489,7 +489,7 @@ class SkillAuthorityTests(unittest.TestCase):
         reference = dispatch.AUTHORITY_REFERENCE
         self.assertEqual(self.message({"id": "i", "skill": "fix"}).split("\n\n", 1)[0],
                          dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.QUESTION_AUTHORITY + dispatch.ISSUE_SCOPE_AUTHORITY + dispatch.KW_OPS_AUTHORITY
-                         + FGUI_EXPORT_AT_D18 + dispatch.BASELINE_AUTHORITY + reference)
+                         + FGUI_EXPORT_AT_D18 + dispatch.BASELINE_AUTHORITY + dispatch.SERVER_TEST_AUTHORITY + reference)
         self.assertEqual(dispatch.FGUI_EXPORT_AUTHORITY, FGUI_EXPORT_AT_D18)
         self.assertNotIn("FairyGUI", dispatch.COMMON_AUTHORITY + dispatch.SKILL_AUTHORITY["chat"])
 
@@ -503,7 +503,7 @@ class SkillAuthorityTests(unittest.TestCase):
         self.assertEqual(self.message({"id": "i", "skill": "feature"}).split("\n\n", 1)[0],
                          dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.QUESTION_AUTHORITY
                          + dispatch.ISSUE_SCOPE_AUTHORITY + FEATURE_AUTHORITY_WITH_SCOPED_INPUTS + dispatch.DOCUMENT_READER_DIAGNOSTIC_AUTHORITY
-                         + dispatch.BASELINE_AUTHORITY + dispatch.AUTHORITY_REFERENCE)
+                         + dispatch.BASELINE_AUTHORITY + dispatch.SERVER_TEST_AUTHORITY + dispatch.AUTHORITY_REFERENCE)
 
     def test_the_feature_part_states_its_limits_and_carries_no_other_skills_grants(self):
         part = dispatch.SKILL_AUTHORITY["feature"]
@@ -601,7 +601,8 @@ class SkillAuthorityTests(unittest.TestCase):
                 baseline = dispatch.BASELINE_AUTHORITY if name == "feature" else ""
                 scope = dispatch.ISSUE_SCOPE_AUTHORITY if name == "feature" else ""
                 self.assertEqual(text, dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.QUESTION_AUTHORITY
-                                 + scope + "Own grants. " + dispatch.DOCUMENT_READER_DIAGNOSTIC_AUTHORITY + baseline + dispatch.AUTHORITY_REFERENCE)
+                                 + scope + "Own grants. " + dispatch.DOCUMENT_READER_DIAGNOSTIC_AUTHORITY + baseline
+                                 + (dispatch.SERVER_TEST_AUTHORITY if name == "feature" else "") + dispatch.AUTHORITY_REFERENCE)
                 self.assertNotIn("kw_ops", text)
 
     def test_no_part_carries_a_token_a_url_or_a_host_path(self):

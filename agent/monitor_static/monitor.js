@@ -340,6 +340,23 @@
     byId("service-rows").replaceChildren(...rows);
   }
 
+  function resourceWaitText(wait) {
+    if (!wait) return null;
+    if (wait.stale) return "资源等待详情已过期，等待控制器刷新";
+    const gib = (n) => typeof n === "number" ? `${(n / 1024).toFixed(2)} GiB` : "未知";
+    const profile = {focused: "轻量指定用例", targeted: "指定包验证", full: "完整／race 验证"}[wait.profile];
+    const reasons = wait.blockers.map((code) => {
+      if (code === "physical_memory") return `可用物理内存 ${gib(wait.available_mib)}，需 ${gib(wait.required_available_mib)}`;
+      if (code === "commit_headroom") return `可提交内存余量 ${gib(wait.commit_mib)}，需 ${gib(wait.required_commit_mib)}`;
+      if (code === "reservation_budget") return `已计入预算 ${gib(wait.reserved_mib)} ＋ 本次 ${gib(wait.requested_mib)}，超过总预算 ${gib(wait.budget_mib)}`;
+      return {fifo: `等待前序 server 请求（第 ${wait.position || "?"} 位）`,
+        worker_teardown: "等待上一轮 worker 退出并确认进程清理", server_capacity: "server 槽位正占用、准备、清理或隔离中",
+        server_pool_unavailable: "server 服务池尚未就绪，等待 Docker 与镜像预检通过",
+        memory_observation: "无法读取主机内存，暂缓准入"}[code] || "等待资源检查";
+    });
+    return [profile && `${profile} · 本次预算 ${gib(wait.requested_mib)}`, ...reasons].filter(Boolean).join("；");
+  }
+
   function renderActive(work) {
     const target = byId("active-rows");
     if (!work.active.length) return target.replaceChildren(el("div", "empty muted", "目前没有进行中的工作"));
@@ -347,6 +364,8 @@
       const [label, tone] = STATE[job.display_state] || [job.display_state, "neutral"];
       const meta = [SKILL[job.skill] || job.skill, job.repo, job.stage && `阶段 ${job.stage}`].filter(Boolean).join(" · ");
       const main = cell("main", el("div", "title", job.title || ""), el("div", "muted", meta));
+      const wait = resourceWaitText(job.resource_wait);
+      if (wait) main.append(el("div", "muted", wait));
       if (job.prs.length) main.append(prLinks(job.prs));
       let state = label;
       if (job.queue_position) state += ` · 第 ${job.queue_position} 位`;

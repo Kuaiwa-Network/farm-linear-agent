@@ -1187,7 +1187,7 @@ commit and the resumed worker sees it as `resource.commit`. Batch summaries addi
 `runs/<job>/unity/<reservation-id>/`. The job-root summary points to the latest run. A baseline
 run cannot establish that a later fix works; reports must name the tested commit and any gaps.
 
-New write-worker Unity requests must include the current remote default branch in their clean
+New write-worker Unity verification rounds must include the current remote default branch in their clean
 candidate, including a Client-rooted legacy fix that omits `--commit`. The CLI fetches through
 the verified clone, reads the configured origin's actual default HEAD and checks Git ancestry;
 a worker-written remote-tracking ref cannot supply that proof. A stale candidate is refused
@@ -1200,9 +1200,26 @@ returns `main_integration` with the remote branch/commit and candidate SHA. Exis
 and numbered repin roles remain exact existing-remote-commit publications and do not merge main
 into that pin. Historical PR identity reads and launch destination previews retain their existing
 semantics. Reservation-bound retries keep their exact input; they do not fetch or silently merge
-new main into the running verification. Main advancing afterward can require another integration
-and new verification before publication. This adds no ledger schema or state migration; rollback
-removes this gate, so settle workers and retain their evidence before switching revisions.
+new main into the running verification.
+
+For work, feature and fix Client comparison rounds, a controller-recorded baseline reservation
+that has settled with `worker reported quiescent` pins its selected main commit and exact source
+candidate. The unchanged candidate may request verification after main advances; it must still
+contain the selected baseline, and that baseline must remain an ancestor of actual remote main.
+Draft publication may use this pin only after both baseline and a subsequent candidate reservation
+in the same mode have settled quiescently. It reports the selected pair and current main separately;
+it does not certify newer main. A newer unfinished baseline cannot borrow an older candidate run.
+Changed source, another job, missing or unclean settlement, or rewritten upstream history do not
+qualify. A checkpointed retry of the same job may retain the exact unchanged pair. New rounds
+still use current main. This prevents queue delays from turning baseline/candidate verification
+into endless main integration. It records no passing verdict: all per-test comparison, affected
+test, environment, evidence and publication checks remain. Workers compare completed failures
+and deliver an eligible draft, repair an attributable failure at a new candidate, or report a
+concrete unresolved blocker; they do not repeat an unchanged failing run without a diagnosed
+reason. FGUI/scene scope qualification retains its separate current-main gates.
+
+The comparison pin reuses reservation/audit records without a new schema. Rollback restores
+the fresh-main gate; settle workers and retain their comparison evidence before switching revisions.
 
 ## Linear uploads
 
@@ -1827,6 +1844,30 @@ admission serializes both pool threads, counts nonclosed/held resources and idle
 Editors, and checks actual host physical/Windows commit headroom. Its estimate
 budget is per instance, not a host-wide atomic quota. Operators sharing a PC
 must divide that budget across bots. Missing observations leave work queued.
+Server requests persist a bounded test selection (`packages`, exact `tests`,
+`race`), verified at the existing clean committed farm-hive boundary. The host
+derives focused (one package, 1–8 named tests, no race), targeted (up to four
+explicit non-race packages), or full (race, recursive/larger scope, and measured
+heavy `./server` packages) admission. With a full 8192 MiB cost, the default
+focused/targeted costs are 4096/6144 MiB. Optional ascending overrides are
+`server_focused_mib` and `server_targeted_mib`; defaults clamp to an older lower
+full cost. Active/held leases count their persisted scope across restarts; unknown
+scope counts as full. The same exact queued reservation is fenced at acquisition,
+so Stop cannot substitute a higher-cost successor after admission. FIFO remains.
+Workers receive the journal-bound selection and canonical Go argv, and preserve
+required coverage/race. Broadening scope or separate multi-node commands requires
+release and a full lease. An estimate is not an enforceable native memory limit.
+Monitor wait observations list the actual physical, commit or shared-budget
+shortfall, FIFO, capacity, or worker teardown; stale observations are labeled.
+
+Migration adds nullable `reservations.server_test_plan` and `wait_detail`; no
+existing row, source pin, checkpoint or journal is deleted. An unleased queued
+legacy request resumes once after verified teardown to declare actual scope,
+without a human answer; its replacement joins FIFO normally. Already leased
+requests retain full cost and normal settlement. Before rollback, settle all
+server leases and retain the ledger backup/journals: older code ignores the new
+columns and resumes full-cost admission, which does not reverse this migration.
+
 Headroom is checked before admission; these estimates do not impose process
 memory limits or continuously stop a running workload. Cold Unity imports and
 multi-node race tests include descendant processes whose peaks must be measured

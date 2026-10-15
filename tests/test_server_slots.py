@@ -75,7 +75,7 @@ class ServerPoolFixture(unittest.TestCase):
         self.addCleanup(pool.close)
         return pool
 
-    def request(self, commit="a" * 40, *, root="farm-hive", mode="batch", skill="fix", reserve=True):
+    def request(self, commit="a" * 40, *, root="farm-hive", mode="batch", skill="fix", reserve=True, plan=None):
         self.sequence += 1
         number = self.sequence
         identity = str(uuid4())
@@ -86,7 +86,8 @@ class ServerPoolFixture(unittest.TestCase):
         if not reserve:
             return item["id"]
         token = self.ledger.claim(item["id"], worker_id="worker")["token"]
-        self.ledger.await_resource(item["id"], token, "server_slot", mode, skill=SKILLS[skill], commit_sha=commit)
+        self.ledger.await_resource(item["id"], token, "server_slot", mode, skill=SKILLS[skill], commit_sha=commit,
+                                   server_test_plan=plan)
         return item["id"]
 
 class PoolTests(ServerPoolFixture):

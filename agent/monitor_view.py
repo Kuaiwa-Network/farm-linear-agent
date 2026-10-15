@@ -4,6 +4,7 @@ Every emitted field is chosen here, from an allowlist: rows are never serialized
 which holds full descriptions and comments, is only asked for its identifier, title and URL. An older ledger
 without optional tables or columns still produces a document; only the sections that need them are empty.
 """
+import json
 import math
 import re
 import sqlite3
@@ -232,7 +233,42 @@ def _worker_attention(jobs):
     return items
 
 
-def _jobs(rows, times, prs, unity_queue, now, beat_state, beat, renew_seconds):
+def _resource_waits(db, schema, now, beat_state, beat):
+    if not _has(schema, "reservations", "wait_detail", "state", "item_id", "kind"):
+        return {}
+    result = {}
+    allowed = {"fifo", "worker_teardown", "server_capacity", "reservation_budget", "physical_memory",
+               "commit_headroom", "memory_observation", "server_pool_unavailable"}
+    numeric = ("requested_mib", "reserved_mib", "budget_mib", "required_available_mib", "required_commit_mib",
+               "available_mib", "commit_mib", "position")
+    for row in db.execute("SELECT item_id,wait_detail FROM reservations WHERE kind='server_slot' AND state='queued'"):
+        try:
+            if not isinstance(row["wait_detail"], str) or len(row["wait_detail"]) > 4096:
+                continue
+            raw = json.loads(row["wait_detail"])
+            if not isinstance(raw, dict) or not isinstance(raw.get("blockers"), list):
+                continue
+            codes = raw["blockers"]
+            if not codes or len(codes) > len(allowed) or any(not isinstance(c, str) or c not in allowed for c in codes):
+                continue
+            observed = _time(raw.get("observed_at"))
+            if observed is None:
+                continue
+            detail = {"kind": "server_slot", "blockers": codes, "observed_at": observed,
+                      "stale": not _live(beat_state, beat) or not 0 <= now - observed < 30}
+            if raw.get("profile") in ("focused", "targeted", "full"):
+                detail["profile"] = raw["profile"]
+            for key in numeric:
+                value = raw.get(key)
+                if value is None or type(value) is int and 0 <= value <= 10 ** 9:
+                    detail[key] = value
+            result[row["item_id"]] = detail
+        except (ValueError, TypeError, RecursionError):
+            continue  # Never expose free-form database text, paths or error messages.
+    return result
+
+
+def _jobs(rows, times, prs, unity_queue, now, beat_state, beat, renew_seconds, resource_waits=None):
     waiting = sorted((row for row in rows if _display_state(row, now) == "queued"),
                      key=lambda row: (row["priority"] if type(row["priority"]) is int else 0,
                                       _time(row["created_at"]) or 0, row["id"]))
@@ -243,6 +279,9 @@ def _jobs(rows, times, prs, unity_queue, now, beat_state, beat, renew_seconds):
         display = _display_state(row, now)
         position = (positions.get(row["id"]) if display == "queued"
                     else unity.get(row["id"]) if row["state"] == "awaiting_resource" else None)
+        server_wait = (resource_waits or {}).get(row["id"]) if row["state"] == "awaiting_resource" else None
+        if server_wait:
+            position = server_wait.get("position") or 1
         jobs.append({"identifier": _text(row["identifier"], 32), "title": _text(row["title"], 200),
                      "url": _linear_url(row["url"]), "skill": _text(row["skill"], 32), "state": row["state"],
                      "display_state": display, "stage": _text(row["stage"], 120),
@@ -251,6 +290,7 @@ def _jobs(rows, times, prs, unity_queue, now, beat_state, beat, renew_seconds):
                      "checkpoint_at": times.get((row["id"], "checkpoint")),
                      "retry_at": _time(row["retry_not_before"]) if display == "retry_wait" else None,
                      "queue_position": position, "prs": prs.get(row["issue_id"], []),
+                     "resource_wait": server_wait,
                      "worker": _worker(row, times, now, beat_state, beat, renew_seconds)})
     return jobs
 
@@ -422,7 +462,7 @@ def _read_ledger(db, now, beat_state, beat, renew_seconds):
             COUNT(error) AS failing FROM issue_checks""").fetchone()
         service["linear"] = {"last_ok_at": _time(row["ok"]), "failing_issues": row["failing"]}
     jobs = _jobs(rows, _audit_times(db, schema, [row["id"] for row in rows]), prs, queue or [], now,
-                 beat_state, beat, renew_seconds)
+                 beat_state, beat, renew_seconds, _resource_waits(db, schema, now, beat_state, beat))
     sections = {"counts": counts, "active": jobs,
                 "slots": None if slots is None else [{key: slot[key] for key in SLOT_FIELDS} for slot in slots],
                 "unity_queue": None if queue is None else len(queue),

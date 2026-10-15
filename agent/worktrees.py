@@ -638,11 +638,11 @@ class Worktrees:
             return self.git_in(path, "rev-parse", "HEAD")
         return _git("rev-parse", "HEAD", cwd=path)
 
-    def require_main_integration(self, repo, path, commit, *, default_branch=None):
-        """Prove a candidate includes the actual remote default HEAD, never a worker-written tracking ref.
+    def require_main_integration(self, repo, path, commit, *, default_branch=None, verified_base=None):
+        """Prove current-main ancestry, or the controller-selected base of a settled test round.
 
         Fetch objects only; the controller never merges, resets or changes the candidate.
-        A new worker request/publication uses this gate; reservation-bound recovery keeps its pinned input.
+        A pinned base must still belong to actual remote main, never a worker-written tracking ref.
         """
         self.worktree_entry(repo, path)
         if not isinstance(commit, str) or not self.COMMIT.fullmatch(commit):
@@ -653,16 +653,28 @@ class Worktrees:
             raise WorktreeError("remote default branch changed during main integration verification")
         if not self.has_commit(repo, main):
             raise WorktreeError("remote main moved during verification; fetch and retry main integration")
-        bases = self.git_in(path, "merge-base", "--all", main, commit,
+        selected = verified_base or main
+        if verified_base is not None and (not isinstance(verified_base, str) or not self.COMMIT.fullmatch(verified_base)
+                                          or not self.has_commit(repo, verified_base)):
+            raise VerificationMismatch("controller-selected verification baseline is unavailable")
+        if verified_base is not None:
+            upstream_bases = self.git_in(path, "merge-base", "--all", verified_base, main,
+                                         env={**GIT_ENV, "GIT_NO_REPLACE_OBJECTS": "1"}).splitlines()
+            if verified_base not in upstream_bases:
+                raise VerificationMismatch("remote main no longer contains the controller-selected verification baseline")
+        bases = self.git_in(path, "merge-base", "--all", selected, commit,
                             env={**GIT_ENV, "GIT_NO_REPLACE_OBJECTS": "1"}).splitlines()
-        if main not in bases:
+        if selected not in bases:
+            if verified_base:
+                raise VerificationMismatch("candidate must include its controller-selected comparison baseline")
             raise VerificationMismatch(f"{repo}: candidate must include origin/{branch} at {main}; "
                                        "fetch and integrate main, then rerun checks at the new clean HEAD")
         if self.head(path) != commit:
             raise VerificationMismatch("candidate HEAD changed during main integration verification")
-        return {"branch": branch, "commit": main, "candidate": commit}
+        return {"branch": branch, "commit": selected, "candidate": commit,
+                **({"current_main": main, "verification_base_pinned": True} if verified_base else {})}
 
-    def verification_commit(self, repo, item_id, commit, *, expected_branch=None, require_main=False):
+    def verification_commit(self, repo, item_id, commit, *, expected_branch=None, require_main=False, verified_base=None):
         """Validate immutable test input; new requests also require current main when explicitly selected."""
         if not isinstance(commit, str) or not self.COMMIT.fullmatch(commit):
             raise WorktreeError("verification commit must be a full lowercase commit SHA")
@@ -682,7 +694,7 @@ class Worktrees:
         if self.git_in(path, "status", "--porcelain", "--untracked-files=all"):
             raise VerificationMismatch("verification requires a clean worktree; commit all intended changes first")
         if require_main:
-            self.require_main_integration(repo, path, commit)
+            self.require_main_integration(repo, path, commit, **({"verified_base": verified_base} if verified_base else {}))
             # Git/network reads can outlive a concurrent edit; do not queue dirty source.
             if self.git_in(path, "status", "--porcelain", "--untracked-files=all"):
                 raise VerificationMismatch("verification requires a clean worktree after main integration")

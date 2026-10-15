@@ -108,6 +108,14 @@ inputs, generator/tool pins and required consumer behavior; a title or unchanged
 proto filenames alone proves nothing. Separate unrelated upstream drift from the
 inputs needed for this issue. Do not adopt the latest Contract tip merely because
 it exists. Preserve required Client main integration and publication ancestry.
+For a controller-recorded baseline/candidate comparison, finish that exact round
+after its baseline settles even if main advances while queued. Do not merge merely
+to chase a newer tip. The exact unchanged candidate may use that settled baseline
+for its remaining verification and, after both leases settle, draft publication;
+the controller still checks actual upstream ancestry. Changed source needs a new
+round. Compare complete failures and either deliver an eligible draft, fix an
+attributable failure at a new commit, or retain a concrete blocker. Repeating the
+same failing run requires a diagnosed reason to expect a different result.
 
 Record the decision under `client.inputs.network` (and `closing.inputs.hive` for
 server protocol inputs): `required`, `reason`, inspected full source/base/consumer
@@ -789,10 +797,14 @@ section. A contract change enters farm-hive at its plan: its behaviour is settle
    not run, with its error; never skip one silently.
    When `tools.server_tests.status` is `configured`, commit the intended server candidate,
    checkpoint its SHA and service-backed test selection, request
-   `await-resource --resource server_slot --mode batch --commit FULL_HEAD_SHA`, and
+   `await-resource --resource server_slot --mode batch --commit FULL_HEAD_SHA --server-test-plan STATE_DIR/server-tests.json`, and
    exit. On resume verify `resource.commit`, use only `resource.environment` for
    Mongo/Redis/etcd/NATS, and run the repository's service-backed checks inside this
-   worker. Do not administer Docker, use production/shared services, or start game
+   worker. Declare exact packages, Test names and race in that JSON as described in
+   `references/worker-cli.md`; execute `resource.test_argv` within its declared
+   scope. The controller derives focused/targeted/full memory costs. Preserve all
+   required coverage and race checks; release and request full scope before any
+   broader or separate multi-node commands. Do not administer Docker, use production/shared services, or start game
    processes outside worker containment. Save every outcome and platform skip,
    stop the game processes, release quiescent and exit through a normal checkpoint
    handoff/park. A next resource request waits for this attempt's verified exit.
