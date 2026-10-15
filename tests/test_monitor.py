@@ -181,6 +181,38 @@ class PageTests(unittest.TestCase):
                                 encoding="utf-8", timeout=10, check=True)
         return {row["label"]: row for row in json.loads(result.stdout)}
 
+    def test_server_wait_renderer_names_tier_threshold_and_real_blocker_without_reusing_stale_values(self):
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("Node.js is unavailable for monitor rendering checks")
+        signature = "function resourceWaitText(wait)"
+        script = signature + " " + self.block(signature + " {")
+        script += "\nconsole.log(JSON.stringify(JSON.parse(process.argv[1]).map(resourceWaitText)));"
+        fixtures = [
+            {"profile": "full", "requested_mib": 8192, "blockers": ["commit_headroom"],
+             "commit_mib": 9000, "required_commit_mib": 12288},
+            {"profile": "focused", "requested_mib": 4096, "blockers": ["fifo"], "position": 2},
+            {"stale": True, "blockers": ["commit_headroom"], "commit_mib": 1},
+            {"blockers": ["server_capacity"]}, {"blockers": ["worker_teardown"]},
+            {"blockers": ["memory_observation"]},
+            {"blockers": ["physical_memory", "reservation_budget"], "available_mib": 2048,
+             "required_available_mib": 8192, "reserved_mib": 8192, "requested_mib": 4096, "budget_mib": 8192},
+        ]
+        result = subprocess.run([node, "-e", script, json.dumps(fixtures)], capture_output=True,
+                                encoding="utf-8", timeout=10, check=True)
+        rendered = json.loads(result.stdout)
+        self.assertIn("完整／race 验证", rendered[0])
+        self.assertIn("可提交内存余量 8.79 GiB，需 12.00 GiB", rendered[0])
+        self.assertIn("轻量指定用例 · 本次预算 4.00 GiB", rendered[1])
+        self.assertIn("第 2 位", rendered[1])
+        self.assertIn("详情已过期", rendered[2])
+        self.assertNotIn("GiB", rendered[2])
+        self.assertIn("server 槽位", rendered[3])
+        self.assertIn("worker 退出", rendered[4])
+        self.assertIn("无法读取主机内存", rendered[5])
+        self.assertIn("可用物理内存 2.00 GiB，需 8.00 GiB", rendered[6])
+        self.assertIn("超过总预算 8.00 GiB", rendered[6])
+
     def test_general_work_enables_presentation_tasks_without_standalone_profiles(self):
         for enabled in (["chat", "work"], ["chat", "fix", "feature", "work"]):
             with self.subTest(enabled=enabled):
