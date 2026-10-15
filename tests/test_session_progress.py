@@ -11,6 +11,45 @@ from agent.withdrawal import (HEARTBEAT_PREDECESSOR, HEARTBEAT_STATUS_ERROR, HEA
 
 
 class SessionProgressTests(LedgerBase):
+    def test_unity_progress_replaces_waiting_message_across_preparation_launch_and_claim(self):
+        item = self.new_item()
+        token = self.ledger.claim(item['id'], worker_id='old')['token']
+        self.ledger.checkpoint(item['id'], token, {'stage': 'client-awaiting-new-comparison-baseline'})
+        self.ledger.await_resource(item['id'], token, 'unity_slot', 'interactive', skill=SKILLS['fix'])
+        self.ledger.unity_wait_stage(self.ledger.reservations()[0]['reservation_id'], 'waiting-for-worker')
+        before = self.progress._current(item['id'])[1]
+        self.assertIn('尚未占用 Unity', self.progress._content(self.ledger.item(item['id']))['body'])
+        self.ledger.ensure_slot('unity_slot:1', kind='unity_slot', host='h', folder=str(Path(self.tmp.name) / 'editor'))
+        self.ledger.acquire('unity_slot', owner='pool', host='h')
+        self.assertNotEqual(self.progress._current(item['id'])[1], before)
+        self.assertIn('正在准备', self.progress._content(self.ledger.item(item['id']))['body'])
+        self.ledger.resume(item['id'], 'prepared', stage='unity-worker-ready')
+        self.assertIn('已就绪', self.progress._content(self.ledger.item(item['id']))['body'])
+        self.ledger.set_worker(item['id'], 1234, 'h')
+        self.assertIn('正在启动', self.progress._content(self.ledger.item(item['id']))['body'])
+        self.ledger.claim(item['id'], worker_id='new')
+        body = self.progress._content(self.ledger.item(item['id']))['body']
+        self.assertIn('unity-verifying', body)
+        self.assertNotIn('awaiting-new-comparison', body)
+
+    def test_inflight_worker_wait_report_is_corrected_when_unity_preparation_starts(self):
+        item = self.new_item()
+        token = self.ledger.claim(item['id'], worker_id='old')['token']
+        self.ledger.await_resource(item['id'], token, 'unity_slot', 'interactive', skill=SKILLS['fix'])
+        self.ledger.unity_wait_stage(self.ledger.reservations()[0]['reservation_id'], 'waiting-for-worker')
+        other = self.open_ledger()
+        other.ensure_slot('unity_slot:1', kind='unity_slot', host='h', folder=str(Path(self.tmp.name) / 'editor'))
+        def crossing(session, content, activity_id=None):
+            self.send(session, content, activity_id)
+            if len(self.sent) == 1:
+                other.acquire('unity_slot', owner='pool', host='h')
+        self.api.create_activity = crossing
+        self.now += 600
+        self.assertTrue(self.progress.tick())
+        self.assertEqual(len(self.sent), 2)
+        self.assertIn('尚未占用', self.sent[0][1]['body'])
+        self.assertIn('正在准备', self.sent[1][1]['body'])
+
     def test_old_send_cannot_acknowledge_new_correction_from_another_connection(self):
         item = self.new_item()
         other = SessionProgress(self.open_ledger(), self.api)

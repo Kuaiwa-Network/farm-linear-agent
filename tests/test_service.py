@@ -373,6 +373,7 @@ class ServeTests(unittest.TestCase):
         test constructed. A pool with no runner refuses every batch grant, and a scheduler with no entries
         silently drops `build_target` out of every resource block — both are green in the direct tests."""
         self.assertEqual(self.c.pool.run_unsandboxed, self.c.launcher.run_unsandboxed)
+        self.assertEqual(self.c.pool.worker_acquire, self.c.scheduler.acquire_unity)
         config = Config(client_id="client", client_secret="s", webhook_secret="signing-secret", host="test",
                         runtime="fake", repos=dict(self.c.config.repos), max_concurrent=2, port=0,
                         local_root=Path(self.tmp.name) / "slotted",

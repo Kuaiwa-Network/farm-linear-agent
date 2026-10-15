@@ -120,7 +120,7 @@ class SlotPool:
 
     def __init__(self, ledger, worktrees, entries, *, host, editors_root, unity=None, mcp=None, clock=time.time,
                  sleep=None, editor_scan=None, editor_pid=None, state_dir=None, owner="pool",
-                 run_unsandboxed=None, concurrent_batches=False, admission=None, keep_open=False):
+                 run_unsandboxed=None, concurrent_batches=False, admission=None, keep_open=False, worker_acquire=None):
         # `ledger` may be a Ledger or a zero-argument factory. The pool runs on its own thread beside the
         # receiver's and the scheduler's, and two threads on one sqlite3.Connection do not get two
         # transactions: _transaction() is a bare BEGIN IMMEDIATE/COMMIT, so one thread's BEGIN can land
@@ -155,6 +155,7 @@ class SlotPool:
         self.owner = owner
         self.admission = admission
         self.keep_open = keep_open
+        self.worker_acquire = worker_acquire
         self._process_unknown_since = {}
         self._fixed_prepared = False
         self.last_observation = None
@@ -431,11 +432,11 @@ class SlotPool:
                             if s["slot_id"] not in self.entries or s["state"] != "idle_open")
         for kind in sorted({entry["kind"] for entry in self.entries.values()}):
             for _ in range(len(self.entries)):
-                acquire = self.admission.acquire if self.admission else None
-                reservation = (acquire(self.ledger, kind, owner=self.owner, host=self.host,
-                                       exclude_resources=excluded) if acquire else
-                               self.ledger.acquire(kind, owner=self.owner, host=self.host,
-                                                   exclude_resources=excluded))
+                acquire = (self.admission.acquire if self.admission else
+                           lambda ledger, kind, **options: ledger.acquire(kind, **options))
+                options = dict(owner=self.owner, host=self.host, exclude_resources=excluded)
+                reservation = (self.worker_acquire(self.ledger, acquire, kind, **options) if self.worker_acquire else
+                               acquire(self.ledger, kind, **options))
                 if reservation is None:
                     break
                 granted += int(self._hand_over(reservation))
@@ -517,7 +518,8 @@ class SlotPool:
                                             observation)
             self._write_token(item_id, reservation)
             try:
-                self.ledger.resume(item_id, f"{slot_id} acquired ({reservation['mode']})")
+                self.ledger.resume(item_id, f"{slot_id} acquired ({reservation['mode']})",
+                                   stage="unity-worker-ready" if reservation["mode"] == "interactive" else None)
             except LedgerError:
                 # A Stop landed during the multi-minute switch, so the item is already cancelled and
                 # resume() refuses it. The item needs nothing here: it is already terminal.

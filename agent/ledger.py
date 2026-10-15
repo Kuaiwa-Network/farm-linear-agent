@@ -1275,10 +1275,13 @@ class Ledger:
             checkpoint = json.loads(row["checkpoint"])
             checkpoint.pop("worker_id", None)
             checkpoint["worker_id"] = worker_id
+            stage = ("unity-verifying" if row["stage"] in ("unity-worker-ready", "unity-worker-starting")
+                     else row["stage"])
             self._set_state(item_id, "running", "claim", token=_hash_token(token),
                             lease_expires_at=self.clock() + (row["lease_seconds"] or self.lease_seconds),
                             claimed_fingerprint=issue_row["fingerprint"], revalidated_fingerprint=None,
-                            generation=generation, requeue_requested=0, resume_authorized=0, checkpoint=_json(checkpoint))
+                            generation=generation, requeue_requested=0, resume_authorized=0,
+                            stage=stage, checkpoint=_json(checkpoint))
             result = self._view(self._row(item_id))
             result["token"] = token  # the only time the raw token exists outside the worker
             return result
@@ -1305,6 +1308,8 @@ class Ledger:
             self.connection.execute(
                 "UPDATE work_items SET worker_pid=?,host=?,lease_seconds=COALESCE(?,lease_seconds),updated_at=? WHERE id=?",
                 (pid, host, lease_seconds, self.clock(), row["id"]))
+            if row["stage"] == "unity-worker-ready":
+                self.connection.execute("UPDATE work_items SET stage='unity-worker-starting' WHERE id=?", (item_id,))
             self.connection.execute("UPDATE job_cleanup SET worker_pid=?,done=0 WHERE item_id=?", (pid, item_id))
             self._audit(row["id"], "worker", f"pid {pid} on {host}")
             return self._view(self._row(row["id"]))
@@ -1918,7 +1923,7 @@ class Ledger:
                             {"reservation_id": row["reservation_id"]})
             return len(rows)
 
-    def acquire(self, kind, *, owner, host, exclude_resources=()):
+    def acquire(self, kind, *, owner, host, exclude_resources=(), expected_reservation=None):
         """Grant the oldest queued request of this kind a free slot. FIFO by arrival, never by item priority.
 
         There is deliberately no kind-wide "is anything active?" pre-check. It would read as an optimisation
@@ -1935,7 +1940,7 @@ class Ledger:
             row = self.connection.execute(
                 "SELECT * FROM reservations WHERE kind=? AND state='queued' ORDER BY sequence LIMIT 1",
                 (kind,)).fetchone()
-            if row is None:
+            if row is None or expected_reservation is not None and row["reservation_id"] != expected_reservation:
                 return None
             # Spec §7 scheduling preference: interactive wants an Editor already open, batch wants none.
             order = ("idle_open", "idle_closed") if row["mode"] == "interactive" else ("idle_closed", "idle_open")
@@ -1960,6 +1965,9 @@ class Ledger:
                                   f"the slot was returned to the pool early") from exc
             self.connection.execute("UPDATE slots SET state='switching',updated_at=? WHERE slot_id=?",
                                     (self.clock(), slot["slot_id"]))
+            if kind == "unity_slot" and row["mode"] == "interactive":
+                self.connection.execute("UPDATE work_items SET stage='unity-preparing' WHERE id=? AND state='awaiting_resource'",
+                                        (row["item_id"],))
             self._audit(row["item_id"], "reservation", "acquired",
                         details={"reservation_id": row["reservation_id"], "slot": slot["slot_id"]})
             granted = self._reservation_view(self.connection.execute(
@@ -1967,6 +1975,27 @@ class Ledger:
             granted["folder"] = slot["folder"]
             granted["token"] = token  # the only time the raw token exists outside the pool
             return granted
+
+    def pending_unity_workers(self, host):
+        """Interactive grants reserve a worker seat through preparation and hand-over.
+
+        Read from this connection so the pool and scheduler can use their own connections
+        under the scheduler lock. Existing reservations also reconstruct seats after restart.
+        Held/cancelled resources retain their recovery fences, but reserve no future worker.
+        """
+        return {r[0] for r in self.connection.execute("""SELECT r.item_id FROM reservations r
+            JOIN work_items w ON w.id=r.item_id JOIN slots s ON s.slot_id=r.resource
+            WHERE r.kind='unity_slot' AND r.mode='interactive' AND r.state='active' AND r.host=?
+            AND s.state<>'held' AND w.state IN ('queued','awaiting_resource') AND w.withdraw_deadline IS NULL""", (host,))}
+
+    def unity_wait_stage(self, reservation_id, stage):
+        if stage not in ("waiting-for-worker", "waiting-for-worker-teardown", "waiting-for-unity"):
+            raise ValueError("unknown Unity wait stage")
+        with self._transaction():
+            self.connection.execute("""UPDATE work_items SET stage=? WHERE state='awaiting_resource'
+                AND stage<>? AND id IN (SELECT item_id FROM reservations
+                    WHERE reservation_id=? AND state='queued' AND kind='unity_slot' AND mode='interactive')""",
+                (stage, stage, reservation_id))
 
     def reservation(self, reservation_id):
         row = self.connection.execute("SELECT * FROM reservations WHERE reservation_id=?", (reservation_id,)).fetchone()
@@ -2176,13 +2205,14 @@ class Ledger:
                  "slot_id": r["slot_id"], "created_at": r["created_at"],
                  "result": json.loads(r["result_json"])} for r in rows]
 
-    def resume(self, item_id, reason):
+    def resume(self, item_id, reason, *, stage=None):
         _text(reason, "reason")
         with self._transaction():
             row = self._row(item_id)
             if row["state"] not in ("awaiting_input", "awaiting_resource"):
                 raise LedgerError("only a waiting work item can be resumed")
-            self._set_state(row["id"], "queued", reason, needs_resource=None)
+            self._set_state(row["id"], "queued", reason, needs_resource=None,
+                            **({"stage": stage} if stage is not None else {}))
             return self._view(self._row(row["id"]))
 
     def cancel(self, item_id, reason, *, states=None, drop_progress=False, authority=None, created_before=None):

@@ -1,5 +1,6 @@
 """Persistent Editors: real local Git pins, fake Unity/MCP, isolated ledgers only."""
 import json
+import threading
 from pathlib import Path
 from uuid import uuid4
 
@@ -7,11 +8,44 @@ from agent.config import Config, load_config
 from agent.dispatch import dispatch_message
 from agent.resource_admission import ResourceAdmission
 from agent.slots import SlotError, SlotPool, fixed_editor_count, slot_entry
+from agent.scheduler import Scheduler
+from test_scheduler import FakeLauncher, ROOT
 from test_ledger import ISSUE, OTHER, SELECTED_AT, SKILLS, issue
 from test_slots import FakeMcp, FakeUnity, SlotFixture, git
 
 
 class FixedEditorPoolTests(SlotFixture):
+    def test_pool_reserves_worker_before_switch_and_preparation_never_holds_scheduler_lock(self):
+        launcher = FakeLauncher(self.root / 'runs')
+        scheduler = Scheduler(self.ledger, launcher, SKILLS, self.trees, skill_root=ROOT / 'skills',
+                              db_path=self.root / 'ledger.sqlite3', runtime_name='fake', host='test', max_concurrent=1)
+        pool = self.fixed_pool(1, worker_acquire=scheduler.acquire_unity)
+        pool.ensure()
+        item = self.waiting(ISSUE, self.commit('candidate'), 'interactive')
+        scheduler.active['busy'] = object()
+        before = list(self.mcp.calls)
+        self.assertEqual(pool.tick()['granted'], 0)
+        self.assertEqual(self.mcp.calls, before)
+        self.assertIsNone(self.ledger.active_reservation(item))
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'idle_open')
+        scheduler.active.clear()
+        original = pool.switch
+        def switch(*args):
+            observed = []
+            def probe():
+                locked = scheduler.lock.acquire(timeout=1)
+                observed.append(locked)
+                if locked:
+                    scheduler.lock.release()
+            thread = threading.Thread(target=probe)
+            thread.start(); thread.join(2)
+            self.assertEqual(observed, [True])
+            self.assertEqual(self.ledger.pending_unity_workers('test'), {item})
+            return original(*args)
+        pool.switch = switch
+        self.assertEqual(pool.tick()['granted'], 1)
+        self.assertEqual(self.ledger.item(item)['stage'], 'unity-worker-ready')
+
     def fixed_pool(self, count=2, mcp=None, **kwargs):
         self.mcp = mcp or FakeMcp()
         self.unity = FakeUnity(total=1, passed=1)

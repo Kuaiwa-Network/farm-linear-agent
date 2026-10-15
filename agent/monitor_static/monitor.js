@@ -29,6 +29,9 @@
     queued: ["排队中", "neutral"], launching: ["正在启动", "info"], switching_repo: ["切换仓库", "info"],
     retry_wait: ["等待重试", "neutral"], running: ["处理中", "info"], awaiting_input: ["等待回复", "warn"],
     awaiting_resource: ["等待资源", "neutral"], waiting_for_recovery: ["等待 Unity 修复", "warn"],
+    waiting_worker: ["等待 worker 名额", "neutral"], preparing_resource: ["准备 Unity", "info"],
+    waiting_worker_cleanup: ["等待 worker 清理", "neutral"],
+    resource_ready: ["Unity 已就绪，等待启动", "info"],
   };
   const OUTCOME = {
     delivered: ["已交付", "ok"], no_change: ["无需改动", "ok"], blocked: ["受阻", "warn"],
@@ -45,7 +48,7 @@
   };
   const SLOT = {
     idle_closed: ["空闲", "neutral"], idle_open: ["空闲（编辑器已打开）", "ok"], switching: ["切换中", "info"],
-    interactive_busy: ["交互测试中", "info"], batch_busy: ["批量测试中", "info"], held: ["已隔离", "bad"],
+    interactive_busy: ["已分配给验证任务", "info"], batch_busy: ["批量测试中", "info"], held: ["已隔离", "bad"],
   };
   // Each label receives the attention item and the rendered work document, whose slots may be null.
   const ATTENTION = {

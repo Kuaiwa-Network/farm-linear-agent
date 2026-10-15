@@ -2199,6 +2199,20 @@ refuses to prepare new ones.
 
 ## Resource execution limits
 
+- Interactive Unity requests acquire only when a worker seat is available. The scheduler's launch lock
+  serializes that capacity check with the pool's short reservation acquisition; project switching,
+  compilation and MCP calls remain outside the lock. An active interactive reservation reserves the seat
+  for the exact checked request; cancellation cannot substitute the next FIFO job without a new check.
+  It retains that seat through preparation and hand-over, so another queued job cannot take it. Seats are reconstructed from
+  the existing ledger on restart and stop counting when the grant is cancelled, released or held for
+  recovery. A retiring worker must exit before its successor acquires Unity. Legacy controller-run batch
+  tests retain their independent slot capacity and do not reserve a worker while executing.
+  The monitor and Linear progress distinguish waiting for a worker (without Unity ownership), preparing
+  Unity, a ready grant awaiting worker launch, and a launched/claimed worker. Controller hand-over, launch
+  and claim replace the old waiting stage without changing the saved worker checkpoint. Interactive slot
+  ownership is labelled as allocation to a verification task, not proof that a test is currently running.
+  No schema migration is required; older code ignores the new stage strings. Deployment still requires
+  a separately authorized settled release, and rollback does not remove existing reservation fences.
 - Each configured host owns its Unity slots. Items that need Unity queue for a free slot;
   a worker holds at most one slot and releases it after its own quiescence check with
   `release-resource --outcome quiescent`, or `--outcome unclean` to hand it to controller recovery.
