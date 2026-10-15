@@ -238,6 +238,70 @@ class BaselineTests(unittest.TestCase):
                 review["clock_diagnostic"] = {**diagnostic, **change} if change else None
                 self.assertFalse(self.compare()["draft_eligible"])
 
+    def test_late_baseline_observation_preserves_failure_without_requiring_a_retest(self):
+        self.clock_failure()
+        self.baseline["tests"][1]["message"] = (
+            "  timed out waiting for the entry result\r\n"
+            "  Expected: less than 54.5053902f\r\n  But was:  60.6000252f\r\n")
+        self.candidate["tests"][1]["message"] = (
+            "  timed out waiting for the entry result\r\n"
+            "  Expected: less than 53.995945f\r\n  But was:  53.9964981f\r\n")
+        original = copy.deepcopy((self.baseline, self.candidate, self.scope))
+        report = self.compare()
+        self.assertTrue(report["draft_eligible"])
+        self.assertFalse(report["full_suite_passed"])
+        self.assertEqual(report["verdict"], "passed_with_existing_failures")
+        self.assertEqual(report["candidate_counts"]["failed"], 1)
+        diagnostic, = report["reviewed_clock_diagnostics"]
+        self.assertEqual(diagnostic["baseline"]["overshoot_seconds"], "6.0946350")
+        self.assertEqual(diagnostic["candidate"]["overshoot_seconds"], "0.0005531")
+        self.assertTrue(diagnostic["baseline_late_observation"])
+        self.assertEqual((self.baseline, self.candidate, self.scope), original)
+
+    def test_late_baseline_does_not_relax_candidate_limit_or_accept_unexpired_assertions(self):
+        self.clock_failure()
+        for baseline_actual, candidate_actual, eligible in (
+                ("61", "101", True), ("61", "101.000001", False),
+                ("61", "106", False), ("61", "111", False),
+                ("51", "106", False), ("49.9", "100.1", False),
+                ("61", "99.9", False)):
+            with self.subTest(baseline_actual=baseline_actual, candidate_actual=candidate_actual):
+                for value, deadline, actual in ((self.baseline, "50", baseline_actual),
+                                                (self.candidate, "100", candidate_actual)):
+                    value["tests"][1]["message"] = (
+                        f"timed out waiting for the entry result\nExpected: less than {deadline}f\nBut was: {actual}f")
+                self.assertEqual(self.compare()["draft_eligible"], eligible)
+
+    def test_late_baseline_still_requires_source_scope_and_environment_review(self):
+        self.clock_failure()
+        self.baseline["tests"][1]["message"] = self.baseline["tests"][1]["message"].replace("23.6388607", "30.0")
+        original = copy.deepcopy((self.baseline, self.candidate, self.scope))
+        for kind in ("review", "source", "affected", "environment", "site", "predicate"):
+            with self.subTest(kind=kind):
+                self.baseline, self.candidate, self.scope = copy.deepcopy(original)
+                if kind == "review":
+                    self.scope["unrelated_failures"] = {}
+                elif kind == "source":
+                    self.scope["unrelated_failures"]["Card.Cleanup"]["clock_diagnostic"]["candidate_source_sha256"] = "8" * 64
+                elif kind == "affected":
+                    self.scope["affected_tests"].append("Card.Cleanup")
+                elif kind == "environment":
+                    self.candidate["environment"]["config_digest"] = "9" * 64
+                elif kind == "site":
+                    self.candidate["tests"][1]["stackTrace"] += "\nat Another.Call() in Assets/Other.cs:20"
+                else:
+                    self.candidate["tests"][1]["message"] = self.candidate["tests"][1]["message"].replace("entry result", "payment result")
+                self.assertFalse(self.compare()["draft_eligible"])
+
+    def test_identical_clock_operands_cannot_bypass_a_declared_clock_review(self):
+        self.clock_failure()
+        for actual, eligible in (("50.5", True), ("51.000001", False), ("56", False), ("49", False)):
+            with self.subTest(actual=actual):
+                for value in (self.baseline, self.candidate):
+                    value["tests"][1]["message"] = (
+                        f"timed out waiting for the entry result\nExpected: less than 50f\nBut was: {actual}f")
+                self.assertEqual(self.compare()["draft_eligible"], eligible)
+
     def test_clock_review_never_waives_real_regressions_or_missing_evidence(self):
         self.clock_failure()
         original = copy.deepcopy((self.baseline, self.candidate, self.scope))

@@ -218,6 +218,40 @@ class ContinuousVerificationTests(ViewBase):
         with self.assertRaises((OSError, ComparisonError)):
             compare_recorded_pair(args, self.ledger, config, token)
 
+    def test_retry_recompares_completed_reports_without_requesting_another_baseline(self):
+        item, token, config, args, data = self.completed_pair()
+        for value, deadline, actual in ((data[0], '54.5053902', '60.6000252'),
+                                        (data[1], '53.995945', '53.9964981')):
+            value['tests'][1].update(state='Failed', message=(
+                f'timed out waiting for the entry result\nExpected: less than {deadline}f\nBut was: {actual}f'),
+                stackTrace='at Card.Cleanup() in Assets/Tests/Card.cs:94')
+        data[2]['unrelated_failures']['Card.Cleanup']['clock_diagnostic'] = {
+            'kind': 'unity_realtime_deadline', 'clock': 'UnityEngine.Time.realtimeSinceStartup',
+            'source_path': 'Assets/Tests/Card.cs', 'baseline_source_sha256': '7' * 64,
+            'candidate_source_sha256': '7' * 64, 'timeout_seconds': 15,
+            'reason': 'unchanged assertion, predicate and dependencies', 'evidence': 'committed source audit'}
+        files = [Path(args.baseline), Path(args.candidate), Path(args.scope)]
+        for file, value in zip(files, data):
+            file.write_text(json.dumps(value), encoding='utf-8')
+        original_files = [file.read_bytes() for file in files]
+        original_reservations = self.ledger.reservations()
+        action = self.ledger.prepare_comment(item['id'], token, 'blocker', 'old rule rejected late baseline')
+        self.ledger.confirm_comment(action['action_id'], 'stub-comment')
+        self.ledger.finish(item['id'], token, 'blocked', {'summary': 'old rule rejected late baseline',
+                                                        'comment_action_id': action['action_id']})
+        resumed = self.ledger.retry(item['id'], 'operator requested offline recompare after rule correction')
+        # The scheduler reopens the retained Client stage before comparison.
+        self.sql("UPDATE work_items SET root_repo='Farm-Client' WHERE id=?", item['id'])
+        new_token = self.claim(resumed)['token']
+        with self.assertRaises(LedgerError):
+            compare_recorded_pair(args, self.ledger, config, token)
+        report = compare_recorded_pair(args, self.ledger, config, new_token)
+        self.assertTrue(report['draft_eligible'])
+        self.assertFalse(report['full_suite_passed'])
+        self.assertEqual(self.ledger.item(item['id'])['stage'], 'client-verified-awaiting-publication')
+        self.assertEqual(self.ledger.reservations(), original_reservations)
+        self.assertEqual([file.read_bytes() for file in files], original_files)
+
     def test_comparison_requires_own_state_dir_settled_pair_and_current_claim(self):
         item, token, config, args, data = self.completed_pair()
         original = args.scope
