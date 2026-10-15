@@ -1171,8 +1171,12 @@ diagnosis instead of an unchanged failing loop.
 An optional per-test `clock_diagnostic` review handles Unity absolute-clock timeout assertions whose
 process-relative numbers naturally change between runs. It requires reviewed unchanged source hashes,
 timeout and dependencies, identical failure state/site and message except for the two clock operands,
-and at most one second of deadline overshoot in each run. The original messages and both operands remain
-recorded. Arbitrary numbers, configured timeout changes, new/affected failures, changed dependencies and
+and a candidate observed at or within one second after its deadline. Both runs must have reached their
+deadlines. A larger baseline overrun alone does not block that otherwise identical candidate failure;
+a candidate overrun above one second still blocks even if the baseline was equally late or worse.
+The original messages, both operands and exact overshoots remain recorded, with a separate flag for
+a late baseline observation; this is not a diagnosis of the baseline delay. Arbitrary numbers,
+configured timeout changes, new/affected failures, changed dependencies and
 environment drift are not exempt. Older evidence without this review remains strict; add reviewed evidence
 and recompare offline after upgrade. No ledger migration or historical result rewrite is required.
 See [evidence schema and procedure](../references/test-baseline.md). No schema migration: identity lives in

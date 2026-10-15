@@ -217,13 +217,22 @@ def _reviewed_clock_diagnostic(old, row, review, changed_paths):
         if not match or "timed out" not in match["label"].lower():
             return None
         deadline, actual = Decimal(match["deadline"]), Decimal(match["actual"])
-        # A large overrun may be a different stall; do not hide it as frame jitter.
-        if not Decimal(0) <= actual - deadline <= Decimal(1):
+        overshoot = actual - deadline
+        if overshoot < 0:
             return None
-        values.append({"label": match["label"], "deadline": match["deadline"], "actual": match["actual"]})
+        values.append({"label": match["label"], "deadline": match["deadline"], "actual": match["actual"],
+                       "overshoot_seconds": str(overshoot)})
     if values[0]["label"] != values[1]["label"]:
         return None
+    # Attribution is directional: a late baseline observation cannot make the
+    # candidate's otherwise identical, promptly observed timeout a new failure.
+    # Keep the candidate limit even if the baseline was equally late or worse;
+    # matching two large overruns could hide a candidate stall. The baseline's
+    # delay is retained as evidence, never diagnosed here as harmless frame jitter.
+    if Decimal(values[1]["overshoot_seconds"]) > Decimal(1):
+        return None
     return {"kind": diagnostic["kind"], "baseline": values[0], "candidate": values[1],
+            "baseline_late_observation": Decimal(values[0]["overshoot_seconds"]) > Decimal(1),
             "review": diagnostic}
 
 

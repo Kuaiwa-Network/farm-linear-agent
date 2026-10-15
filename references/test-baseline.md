@@ -103,13 +103,18 @@ assertion file and configured timeout unchanged, and prove this failure unrelate
 The comparator requires equal valid source hashes, a source path absent from the change list, the same
 failure state and normalized stack (whose first frame names that file), identical timeout message text,
 and precisely the `Expected: less than <number> / But was: <number>` assertion form. Both observed times
-must have reached the deadline with at most one second of frame overshoot. Larger overruns, different
-assertions, business values, changed timeout durations or exception messages are not normalized. Missing
+must have reached the deadline. The candidate must be observed within one second of its deadline;
+a later baseline observation is retained but does not make the candidate's promptly observed, otherwise
+identical timeout a new failure. This is directional: a candidate overrun greater than one second still
+blocks even if the baseline overran by as much or more. The comparator does not diagnose the baseline
+delay as harmless frame jitter. Different assertions, business values, changed timeout durations or
+exception messages are not normalized. Missing
 review retains strict matching. Affected failures, new failures/skips, incomplete results, dependency
 changes and environment drift still block. This is not a general regex or numeric-ignore facility.
 
 Retain the original evidence unchanged. `reviewed_clock_diagnostics` in the comparison output records both
-sets of operands and the source review. Re-run the read-only comparator offline when adding/correcting this
+sets of operands, exact decimal `overshoot_seconds`, `baseline_late_observation`, and the source review.
+Re-run the read-only comparator offline when adding/correcting this
 review; retain the same completed baseline/candidate pair and do not request another Unity run solely for
 these diagnostic differences.
 
