@@ -31,7 +31,7 @@ def _text(value, name):
 def _outcome(state):
     if state == "Passed":
         return "passed"
-    if isinstance(state, str) and state in ("Failed", "Failed:Error", "Failed:Failure"):
+    if isinstance(state, str) and state in ("Failed", "Failed:Error", "Failed:Failure", "Failed:Invalid"):
         return "failed"
     if isinstance(state, str) and state in ("Skipped", "Skipped:Ignored", "Skipped:Explicit", "Inconclusive"):
         return "skipped"

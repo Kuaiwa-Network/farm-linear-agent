@@ -954,6 +954,10 @@ id, result/evidence) before requesting, releasing or publishing, so retries cann
    Absolute Unity clock operands in an otherwise identical timeout assertion may use the documented
    `clock_diagnostic` review; never erase arbitrary numbers or change the raw results. Correct/re-run the
    comparator offline against the completed pair, rather than repeat Unity for a diagnostic-only mismatch.
+   `Failed:Invalid` remains a failed NUnit result; preserve it for strict same-state comparison. Standalone
+   .NET checks use the documented `agent.dotnet_baseline` CLI and complete original TRX manifests, preserving
+   duplicate execution identities. Do not relabel those runs as Unity or invent reservations. An eligible
+   standalone comparison satisfies only that .NET gate; Unity, affected fixtures and QA remain required.
    An eligible draft is authorized by this workflow: do not ask again for delivery permission or wait for
    unrelated failures on main to be fixed. Complete this issue's remaining checks/Closing, then finish delivered
    with the failures explicit; a green baseline is not a completion requirement.

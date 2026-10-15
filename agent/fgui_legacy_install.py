@@ -24,8 +24,19 @@ def reconstruct(workflow, exported, snapshot, client, branch, baseline):
         raise LedgerError("first UI installation requires a clean owned Client at its pinned baseline; "
                           "legacy UI installation cannot be proven; preserve recovery evidence")
 
-    if (workflow.trees.git_in(client, "rev-parse", "HEAD") != baseline
-            or installation_history(workflow.ledger, workflow.item_id)):
+    head = workflow.trees.git_in(client, "rev-parse", "HEAD")
+    recovered_commit = None
+    if head != baseline:
+        cleanup = workflow.ledger.cleanup_record(workflow.item_id) or {}
+        result = cleanup.get('result') or {}
+        if (cleanup.get('error') or result.get('errors')
+                or (result.get('committed') or {}).get('Farm-Client') != head):
+            refuse()
+        # Retry resets cleanup.done, but retains the controller's immutable recovery
+        # commit. No worker-selected commit or checkpoint may stand in for it.
+        workflow.trees.git_in(client, 'merge-base', '--is-ancestor', baseline, head)
+        recovered_commit = head
+    if installation_history(workflow.ledger, workflow.item_id):
         refuse()
     root = workflow.paths.runs / workflow.item_id / "ui-installations"
     _plain_path(root)
@@ -79,6 +90,11 @@ def reconstruct(workflow, exported, snapshot, client, branch, baseline):
             or not all(p + ".meta" in before for p in packages)):
         refuse()  # No new files, deleted artifacts, new GUIDs or directory changes.
     after = {**before, **outputs}
+    if recovered_commit:
+        changed = set(filter(None, workflow.trees.git_in(client, 'diff', '--name-only', '--no-renames',
+            '--no-ext-diff', '--no-textconv', '-z', baseline, head).split('\0')))
+        if not changed or changed - {prefix + name for name in outputs}:
+            refuse()  # A cleanup commit containing unrelated work cannot be certified.
     committed_guids = _git(workflow.trees, client, ["grep", "-h", "-I", "-E",
         "^guid:[[:space:]]*[[:xdigit:]]{32}[[:space:]]*$", baseline, "--", ":(glob)Assets/**/*.meta"],
         repo="Farm-Client", limit=MAX_METADATA_FILES * 100).decode("utf-8")
@@ -90,11 +106,12 @@ def reconstruct(workflow, exported, snapshot, client, branch, baseline):
                     for p in exported["publisher"]["export"]["packages"] if p["name"] in packages}
     proof = {"format": "farmbot-fgui-client-v1", "installation_id": recovery.name,
              "receipt_id": exported["receipt_id"], "branch": branch, "baseline": baseline,
-             "source_head": exported["authority"]["head"], "initial_head": baseline,
+             "source_head": exported["authority"]["head"], "initial_head": head,
              "dependencies": dependencies, "packages": list(packages), "plan": plan.evidence(),
              "files": _inventory(after), "directories": sorted(directories), "global_guid_digest": digest,
              "recovery": {"method": "legacy-baseline-existing-files-v1",
-                          "journal_sha256": hashlib.sha256(raw_journal).hexdigest()}}
+                          "journal_sha256": hashlib.sha256(raw_journal).hexdigest(),
+                          **({'controller_recovery_commit': recovered_commit} if recovered_commit else {})}}
     proof["installation_sha256"] = hashlib.sha256(_canonical(proof).encode("utf-8")).hexdigest()
     prepared = {"format": "farmbot-fgui-client-prepared-v1", "proof": proof,
                 "receipt_sha256": exported["receipt_sha256"], "before_files": _inventory(before),

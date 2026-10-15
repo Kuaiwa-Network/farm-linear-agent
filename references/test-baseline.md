@@ -75,6 +75,62 @@ identity are blocked. New tests must pass. Known failures require the same state
 except for the narrowly reviewed absolute-clock diagnostic below. Failure messages retain path/URL
 differences; by default only line endings and outer whitespace are normalized.
 Stack normalization ignores checkout paths, C# line shifts, IL offsets and assembly IDs.
+`Failed:Invalid` is a failure, not a skip or pass. It can match only the same reviewed baseline state,
+message and site. An invalid affected test still blocks delivery. Preserve raw NUnit outcomes when
+re-comparing retained EditMode/PlayMode results after a comparator upgrade.
+
+## Standalone .NET TRX
+
+Use a separate read-only comparison for full standalone `dotnet test` results:
+
+```text
+<selected-python> -m agent.dotnet_baseline --baseline STATE_DIR/unit-baseline-manifest.json --candidate STATE_DIR/unit-candidate-manifest.json --scope STATE_DIR/unit-scope.json
+```
+
+Each manifest binds the original raw TRX by SHA-256; no Unity reservation, mode or job may be fabricated:
+
+```json
+{
+  "commit": "40-character-lowercase-SHA",
+  "completed": true,
+  "mode": "dotnet-test",
+  "selection": {"project": "tests/Farm.Tests.Unit/Farm.Tests.Unit.csproj", "filter": null},
+  "environment": {
+    "host": "observed-host",
+    "execution_platform": "win32",
+    "toolchain_digest": "SHA256-of-retained-SDK-and-test-adapter-evidence",
+    "config_digest": "SHA256-of-complete-used-configuration-inventory",
+    "package_digest": "SHA256-of-complete-used-dependency-and-asset-inventory"
+  },
+  "trx": "path-to-original-complete.trx",
+  "trx_sha256": "SHA256-of-that-unmodified-TRX"
+}
+```
+
+Retain the observed SDK/test adapter versions, locked dependencies, inventories, exact command, full raw
+results and input/source identities. Existing contemporaneous evidence may supply these facts; do not
+invent an environment or rerun unchanged suites merely to regenerate metadata. Record additional used
+settings, services and environment fields; both environment objects and selections must match exactly.
+The project is repository-relative; a relative TRX path resolves against its manifest's directory.
+
+Scope contains `affected_tests` (complete exact class/display names), `changed_paths` (the full Git diff)
+and `unrelated_failures` (each exact failing name mapped to reviewed `reason` and `evidence`). Review
+transitive source/dependencies, shared setup and actual inputs, not just filenames. All affected executions
+and new cases must pass. Changed failures, removed executions, new skips and environment drift block.
+This conservative standalone comparator offers no clock or UI-package-drift exception.
+
+The parser checks run/result finish timestamps, raw counters, test definitions and every execution entry.
+It retains separate execution IDs when display names and even test IDs repeat. Repeated groups may be
+compared only when every baseline and candidate execution passed; any non-passing duplicate is ambiguous
+and blocks. No name-based deduplication is allowed. NUnit's adapter can report zero `notExecuted` while
+retaining explicit `NotExecuted` leaves; total/executed/pass/fail counts and complete entries must still
+reconcile, and each skipped leaf needs its original reason. Interrupted/unsupported outcomes are gaps.
+
+Exit codes are 0 eligible, 1 blocked, 2 invalid/missing evidence. Save the report and manifests under the
+job's state directory and in its checkpoint. `draft_eligible=true` covers this standalone check only;
+required Unity comparisons, issue QA and publication gates remain independent. Keep `full_suite_passed=false`
+and disclose every retained failure/skip. This adds no schema migration or worker authority to repair
+unrelated code, merge or deploy. Recompare complete existing reports before requesting another test run.
 
 ## Absolute Unity clock diagnostics
 

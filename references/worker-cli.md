@@ -360,6 +360,11 @@ Complete legacy journals can also recover at the original pinned HEAD when Git
 independently proves every backup and the certified export replaces exactly the
 existing artifacts without metadata or directory changes. The controller records
 that reconstruction, preserves all files and repeats the same final checks.
+The same task's exact recorded controller cleanup commit may also be certified
+when it descends from that pinned baseline and contains only the exported existing
+artifact delta. The baseline stays unchanged; arbitrary commits, unrelated saved
+work and failed cleanup cannot be adopted. Do not reset a retained recovery commit
+back to the baseline or copy backups yourself.
 Partial writes, changed evidence and other unbound journals remain refusals;
 workers must not copy backups, reset files or manufacture certification records.
 Only exact changed-package dependency entries with new-edge

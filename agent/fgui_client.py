@@ -272,7 +272,8 @@ def install(workflow, receipt_id):
         proof = _completed_install(workflow, exported, prepared)
         return _certify(workflow, exported, proof, prepared=prepared)
     initial_head = workflow.trees.git_in(client, "rev-parse", "HEAD")
-    if workflow.trees.git_in(client, "status", "--porcelain"):
+    if (workflow.trees.git_in(client, "status", "--porcelain")
+            or initial_head != baseline and not installation_history(workflow.ledger, workflow.item_id)):
         from .fgui_legacy_install import reconstruct
         prepared = reconstruct(workflow, exported, snapshot, client, branch, baseline)
         proof = _completed_install(workflow, exported, prepared)

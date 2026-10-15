@@ -117,6 +117,42 @@ class LegacyInstallTests(unittest.TestCase):
         f.source.git(f.client, "commit", "--allow-empty", "-qm", "foreign head")
         self.refused("cannot be proven")
 
+    def recovery_commit(self, *, unrelated=False):
+        f = self.fixture
+        if unrelated:
+            (f.client / 'Gameplay.cs').write_text('unrelated work', encoding='utf-8')
+        f.source.git(f.client, 'add', '--all')
+        f.source.git(f.client, 'commit', '-qm', 'controller recovery snapshot')
+        head = f.source.git(f.client, 'rev-parse', 'HEAD')
+        record = {'done': False, 'error': None, 'result': {'committed': {'Farm-Client': head}, 'errors': {}}}
+        return head, record
+
+    def test_certified_cleanup_commit_can_recover_same_install_without_rewriting(self):
+        f = self.fixture
+        head, record = self.recovery_commit()
+        with patch.object(f.ledger, 'cleanup_record', return_value=record), patch('agent.fgui_client.apply_install') as apply:
+            proof = f.installed()
+        apply.assert_not_called()
+        self.assertEqual(proof['baseline'], self.head)
+        self.assertEqual(proof['initial_head'], head)
+        self.assertEqual(proof['recovery']['controller_recovery_commit'], head)
+        self.assertEqual(f.source.git(f.client, 'rev-parse', 'HEAD'), head)
+        self.assertFalse(f.source.git(f.client, 'status', '--porcelain'))
+        self.assertEqual({p.name: p.read_bytes() for p in self.journal.parent.iterdir()}, self.retained)
+
+    def test_clean_unrecorded_or_failed_cleanup_commit_is_not_adopted(self):
+        head, record = self.recovery_commit()
+        for change in ({}, {'error': 'failed'}, {'result': {'committed': {'Farm-Client': self.head}}},
+                       {'result': {'committed': {'Farm-Client': head}, 'errors': {'Farm-Client': 'failed'}}}):
+            with self.subTest(change=change), patch.object(self.fixture.ledger, 'cleanup_record',
+                    return_value=({**record, **change} if change else None)):
+                self.refused('cannot be proven')
+
+    def test_controller_cleanup_cannot_bless_unrelated_committed_work(self):
+        _, record = self.recovery_commit(unrelated=True)
+        with patch.object(self.fixture.ledger, 'cleanup_record', return_value=record):
+            self.refused('cannot be proven')
+
     def test_global_guid_change_cannot_be_adopted_as_the_expected_identity(self):
         f = self.fixture
         meta = f.client / "Assets/GameRes/FairyRes/Template.meta"
