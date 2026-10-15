@@ -37,7 +37,7 @@ def profile(plan):
 
 def test_argv(plan):
     plan = validate_plan(plan)
-    args = ["go", "test", "-p=1", "-count=1", "-timeout=300s"]
+    args = ["go", "test", "-p=1", "-count=1", "-timeout=600s", "-json"]
     if plan["race"]:
         args.append("-race")
     if plan["tests"]:

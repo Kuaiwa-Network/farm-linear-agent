@@ -20,7 +20,7 @@ class PlanTests(unittest.TestCase):
                      {**FOCUSED, "packages": ["./server"]},
                      {**FOCUSED, "packages": ["./a", "./b", "./c", "./d", "./e"]}):
             self.assertEqual(profile(plan), "full")
-        self.assertEqual(test_argv(FOCUSED), ["go", "test", "-p=1", "-count=1", "-timeout=300s", "-run",
+        self.assertEqual(test_argv(FOCUSED), ["go", "test", "-p=1", "-count=1", "-timeout=600s", "-json", "-run",
                                             "^(TestSaveAnimal)$", "./modules/animal"])
         for bad in ({**FOCUSED, "profile": "focused"}, {**FOCUSED, "packages": ["../server"]},
                     {**FOCUSED, "packages": ["./x/../server"]}, {**FOCUSED, "packages": ["-race"]},
