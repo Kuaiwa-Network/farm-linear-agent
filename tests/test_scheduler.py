@@ -561,6 +561,20 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertEqual(sorted(results), [False, True])
 
+    def test_cancelled_fifo_head_cannot_grant_the_next_unchecked_worker(self):
+        from agent.resource_admission import ResourceAdmission
+        admission = ResourceAdmission({}, observe=lambda: {'available_mib': 100000, 'commit_mib': 100000})
+        first = self.waiting_item('interactive')
+        second = self.waiting_item('interactive', issue_id=OTHER, session='s2')
+        self.ledger.ensure_slot('unity_slot:1', kind='unity_slot', host='h', folder=str(self.slot_folder))
+        def crossing(db, kind, **options):
+            db.cancel(first, 'Stop raced worker admission')
+            return admission.acquire(db, kind, **options)
+        self.assertIsNone(self.scheduler.acquire_unity(self.ledger, crossing, 'unity_slot', owner='pool', host='h'))
+        self.assertIsNone(self.ledger.active_reservation(second))
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'idle_closed')
+        self.assertIsNotNone(self.acquire_unity())
+
     def test_new_launch_gets_current_memory_snapshot(self):
         from test_memory import NOTE, replacement
         note = self.ledger.memory_admin("save", value=NOTE)

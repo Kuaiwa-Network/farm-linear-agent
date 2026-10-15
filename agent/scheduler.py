@@ -830,7 +830,9 @@ class Scheduler:
                     return None
                 if repository_busy(ledger, item, self.skills, self.active, self.launcher):
                     return None
-            reservation = acquire(ledger, kind, **options)
+            # Stop can change FIFO outside this lock. Never grant a different
+            # job whose worker/teardown eligibility we have not checked.
+            reservation = acquire(ledger, kind, expected_reservation=request["reservation_id"], **options)
             if reservation is None:
                 ledger.unity_wait_stage(request["reservation_id"], "waiting-for-unity")
             return reservation

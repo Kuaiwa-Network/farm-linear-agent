@@ -1923,7 +1923,7 @@ class Ledger:
                             {"reservation_id": row["reservation_id"]})
             return len(rows)
 
-    def acquire(self, kind, *, owner, host, exclude_resources=()):
+    def acquire(self, kind, *, owner, host, exclude_resources=(), expected_reservation=None):
         """Grant the oldest queued request of this kind a free slot. FIFO by arrival, never by item priority.
 
         There is deliberately no kind-wide "is anything active?" pre-check. It would read as an optimisation
@@ -1940,7 +1940,7 @@ class Ledger:
             row = self.connection.execute(
                 "SELECT * FROM reservations WHERE kind=? AND state='queued' ORDER BY sequence LIMIT 1",
                 (kind,)).fetchone()
-            if row is None:
+            if row is None or expected_reservation is not None and row["reservation_id"] != expected_reservation:
                 return None
             # Spec §7 scheduling preference: interactive wants an Editor already open, batch wants none.
             order = ("idle_open", "idle_closed") if row["mode"] == "interactive" else ("idle_closed", "idle_open")

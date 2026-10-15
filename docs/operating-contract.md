@@ -2152,7 +2152,8 @@ refuses to prepare new ones.
 - Interactive Unity requests acquire only when a worker seat is available. The scheduler's launch lock
   serializes that capacity check with the pool's short reservation acquisition; project switching,
   compilation and MCP calls remain outside the lock. An active interactive reservation reserves the seat
-  through preparation and hand-over, so another queued job cannot take it. Seats are reconstructed from
+  for the exact checked request; cancellation cannot substitute the next FIFO job without a new check.
+  It retains that seat through preparation and hand-over, so another queued job cannot take it. Seats are reconstructed from
   the existing ledger on restart and stop counting when the grant is cancelled, released or held for
   recovery. A retiring worker must exit before its successor acquires Unity. Legacy controller-run batch
   tests retain their independent slot capacity and do not reserve a worker while executing.
