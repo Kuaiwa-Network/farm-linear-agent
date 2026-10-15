@@ -200,6 +200,98 @@ class BaselineTests(unittest.TestCase):
         self.scope["affected_tests"].append("Animal.NewBoundary")
         self.assertTrue(self.compare()["draft_eligible"])
 
+    def clock_failure(self):
+        for value, deadline, actual in ((self.baseline, "23.638031", "23.6388607"),
+                                        (self.candidate, "42.10001", "42.10084")):
+            value["tests"][1].update(state="Failed", message=(
+                "  timed out waiting for the entry result\r\n"
+                f"  Expected: less than {deadline}f\r\n  But was:  {actual}f\r\n"))
+        self.scope["unrelated_failures"]["Card.Cleanup"]["clock_diagnostic"] = {
+            "kind": "unity_realtime_deadline", "clock": "UnityEngine.Time.realtimeSinceStartup",
+            "source_path": "Assets/Tests/Card.cs", "baseline_source_sha256": "7" * 64,
+            "candidate_source_sha256": "7" * 64, "timeout_seconds": 15,
+            "reason": "same 15-second wait and assertion; printed operands are process-relative clock readings",
+            "evidence": "both committed source files, unchanged wait predicate/dependencies and raw results"}
+
+    def test_reviewed_clock_readings_allow_delivery_without_green_baseline_or_retest(self):
+        self.clock_failure()
+        originals = copy.deepcopy((self.baseline, self.candidate))
+        report = self.compare()
+        self.assertTrue(report["draft_eligible"])
+        self.assertEqual(report["verdict"], "passed_with_existing_failures")
+        self.assertFalse(report["full_suite_passed"])
+        diagnostic, = report["reviewed_clock_diagnostics"]
+        self.assertEqual(diagnostic["baseline"]["deadline"], "23.638031")
+        self.assertEqual(diagnostic["candidate"]["deadline"], "42.10001")
+        self.assertEqual((self.baseline, self.candidate), originals)
+
+    def test_clock_changes_are_strict_without_complete_source_review(self):
+        self.clock_failure()
+        review = self.scope["unrelated_failures"]["Card.Cleanup"]
+        diagnostic = copy.deepcopy(review["clock_diagnostic"])
+        for change in ({}, {"kind": "ignore_numbers"}, {"clock": "configured gold"},
+                       {"candidate_source_sha256": "8" * 64}, {"baseline_source_sha256": "invalid"},
+                       {"timeout_seconds": 0}, {"timeout_seconds": float("nan")},
+                       {"timeout_seconds": True}, {"reason": ""}, {"evidence": ""},
+                       {"source_path": "Assets/Other.cs"}):
+            with self.subTest(change=change):
+                review["clock_diagnostic"] = {**diagnostic, **change} if change else None
+                self.assertFalse(self.compare()["draft_eligible"])
+
+    def test_clock_review_never_waives_real_regressions_or_missing_evidence(self):
+        self.clock_failure()
+        original = copy.deepcopy((self.baseline, self.candidate, self.scope))
+        for kind in ("affected", "source_changed", "new_failure", "changed_site", "error",
+                     "different_message", "different_assertion", "large_overrun", "not_expired",
+                     "environment", "missing_affected", "new_skip", "newly_failing_test"):
+            with self.subTest(kind=kind):
+                self.baseline, self.candidate, self.scope = copy.deepcopy(original)
+                row = self.candidate["tests"][1]
+                if kind == "affected":
+                    self.scope["affected_tests"].append("Card.Cleanup")
+                elif kind == "source_changed":
+                    self.scope["changed_paths"].append("Assets/Tests/Card.cs")
+                elif kind == "new_failure":
+                    row["fullName"] = "Card.NewFailure"
+                elif kind == "changed_site":
+                    row["stackTrace"] = row["stackTrace"].replace("Card.Cleanup", "Card.Other")
+                elif kind == "error":
+                    row["state"] = "Failed:Error"
+                elif kind == "different_message":
+                    row["message"] = row["message"].replace("entry result", "payment result")
+                elif kind == "different_assertion":
+                    row["message"] = row["message"].replace("less than", "greater than")
+                elif kind == "large_overrun":
+                    row["message"] = row["message"].replace("42.10084f", "72.10084f")
+                elif kind == "not_expired":
+                    row["message"] = row["message"].replace("42.10084f", "12.10084f")
+                elif kind == "environment":
+                    self.candidate["environment"]["host"] = "another host"
+                elif kind == "missing_affected":
+                    self.scope["affected_tests"].append("Animal.Missing")
+                elif kind == "new_skip":
+                    self.candidate["tests"][2]["message"] = "new skip reason"
+                else:
+                    self.baseline["tests"][1].update(state="Passed", message="", stackTrace="")
+                    self.baseline["summary"].update(passed=2, failed=0)
+                self.assertFalse(self.compare()["draft_eligible"])
+
+    def test_clock_review_does_not_erase_business_values_or_duration_errors(self):
+        self.clock_failure()
+        for old, new in (("Expected: 1800\nBut was: 2000", "Expected: 1800\nBut was: 3000"),
+                         ("Exceed Timeout:00:00:03", "Exceed Timeout:00:00:30")):
+            with self.subTest(old=old):
+                self.baseline["tests"][1]["message"] = old
+                self.candidate["tests"][1]["message"] = new
+                self.assertFalse(self.compare()["draft_eligible"])
+
+    def test_clock_review_still_checks_changed_resource_dependencies(self):
+        self.clock_failure()
+        self.ui_inputs()
+        self.assertTrue(self.compare()["draft_eligible"])
+        self.scope["unrelated_failures"]["Card.Cleanup"]["resource_review"]["dependencies"] = [self.ui_path]
+        self.assertFalse(self.compare()["draft_eligible"])
+
     def test_failure_counts_do_not_match_changed_identity_message_state_or_site(self):
         for key, value in (("fullName", "Other.Failure"), ("message", "Different exception"),
                            ("state", "Failed"), ("stackTrace", "at Other.Fail() in Assets/Other.cs:94")):

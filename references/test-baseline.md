@@ -58,9 +58,47 @@ candidate failure name to a nonempty `reason` and `evidence` reference. Review s
 actual diff; absence of a failing test filename from the diff alone does not prove the failure is unrelated.
 Include the issue's entire affected fixture, not one passing test. Failures whose stack points into a changed
 path, affected failures, changed failure signatures, new/changed skips, removed tests and mismatched input
-identity are blocked. New tests must pass. Known failures require the same state/message/failure site.
-Failure messages retain path/URL differences; only line endings and outer whitespace are normalized.
+identity are blocked. New tests must pass. Known failures require the same state/message/failure site,
+except for the narrowly reviewed absolute-clock diagnostic below. Failure messages retain path/URL
+differences; by default only line endings and outer whitespace are normalized.
 Stack normalization ignores checkout paths, C# line shifts, IL offsets and assembly IDs.
+
+## Absolute Unity clock diagnostics
+
+`Assert.Less(Time.realtimeSinceStartup, deadline, "timed out ...")` prints process-relative clock readings.
+Two identical 15-second waits can fail with different `Expected: less than 23.638031f / But was: 23.6388607f`
+and `Expected: less than 42.10001f / But was: 42.10084f`. Those operands alone are not a changed timeout or
+gameplay value. Do not re-run Unity just to obtain identical clock readings.
+
+First review both committed sources and the complete wait predicate/dependencies, prove the failing
+assertion file and configured timeout unchanged, and prove this failure unrelated to the issue. Add
+`clock_diagnostic` to that exact test's `unrelated_failures` review:
+
+```json
+{
+  "kind": "unity_realtime_deadline",
+  "clock": "UnityEngine.Time.realtimeSinceStartup",
+  "source_path": "Assets/Scripts/HotUpdate/Tests/PlayMode/ExampleTests.cs",
+  "baseline_source_sha256": "actual-64-hex-digest-of-the-committed-assertion-file",
+  "candidate_source_sha256": "same-actual-64-hex-digest",
+  "timeout_seconds": 15,
+  "reason": "Both sources use the same 15-second wait, predicate and dependencies; only absolute clock operands differ",
+  "evidence": "private committed-source and dependency review plus both unmodified raw results"
+}
+```
+
+The comparator requires equal valid source hashes, a source path absent from the change list, the same
+failure state and normalized stack (whose first frame names that file), identical timeout message text,
+and precisely the `Expected: less than <number> / But was: <number>` assertion form. Both observed times
+must have reached the deadline with at most one second of frame overshoot. Larger overruns, different
+assertions, business values, changed timeout durations or exception messages are not normalized. Missing
+review retains strict matching. Affected failures, new failures/skips, incomplete results, dependency
+changes and environment drift still block. This is not a general regex or numeric-ignore facility.
+
+Retain the original evidence unchanged. `reviewed_clock_diagnostics` in the comparison output records both
+sets of operands and the source review. Re-run the read-only comparator offline when adding/correcting this
+review; retain the same completed baseline/candidate pair and do not request another Unity run solely for
+these diagnostic differences.
 
 ## Candidate UI resources versus environment drift
 
@@ -115,6 +153,17 @@ the candidate still equals the verified clean HEAD before the normal fresh deleg
 `verify-publication` checks. Any source/input change requires a new pair. If the verdict is
 `passed_with_existing_failures`, the draft lists every retained failure and skip and explicitly states the full
 suite remains failed. Do not weaken assertions, suppress logs, skip failing tests or repair other issues.
+
+When `draft_eligible=true`, complete the issue's remaining required checks and closing work, publish/register
+the draft, then `finish --outcome delivered`, retaining every limitation in the final evidence. No green
+baseline, unrelated main fix or additional draft-delivery permission is required. Main can retain the same
+unrelated failures indefinitely without keeping this issue open. If the comparison is ineligible, diagnose
+the concrete regression/gap; fix attributable issues or report the unresolved blocker, rather than silently
+repeat the unchanged pair. Restarts/checkpoints may reuse valid completed evidence at the same exact inputs.
+
+This optional review extends comparison output and worker instructions without a ledger migration. Older
+comparators keep strict message matching; keep raw evidence and recompare offline after upgrade. It grants
+no test verdict to an interrupted or unfinished candidate and requires no historical evidence rewrite.
 
 No database migration is introduced. Baseline reservation identity lives in controller audit records; older
 code can read the ledger but does not dispatch the comparison role or allow this draft verdict. Settle active

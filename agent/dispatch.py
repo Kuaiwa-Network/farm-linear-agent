@@ -325,6 +325,9 @@ BASELINE_AUTHORITY = (
     "Review each matched failure against the actual source diff and record why it "
     "is unrelated. New/changed failures, affected failures, new skips, missing tests or mismatched evidence "
     "remain blockers. Never suppress tests, change expected results or fix unrelated issues to make a gate green. "
+    "A changed absolute Unity realtime clock reading is not itself a new regression: use only the comparator's "
+    "reviewed clock_diagnostic procedure in references/test-baseline.md after auditing the unchanged assertion "
+    "source, timeout and dependencies; preserve raw messages and never strip arbitrary numbers. "
     "The draft must say full_suite_passed=false and list every retained failure and skip with both SHAs. "
     "This grants neither merge nor deployment authority. Request a comparison baseline with await-resource "
     "--baseline --commit CANDIDATE; the controller selects actual remote main without changing the owned "
@@ -341,6 +344,11 @@ BASELINE_AUTHORITY = (
     "and either deliver an eligible draft, fix an attributable failure at a new commit, or retain a concrete "
     "unresolved blocker. Do not repeat an unchanged failing run without a diagnosed reason to expect a "
     "different result. All existing evidence, affected-test, publication and completion gates remain required. "
+    "When draft_eligible=true and this issue's remaining required checks and closing work are complete, "
+    "publish/register its draft and finish delivered with the retained failures explicit. Do not wait for "
+    "unrelated failures to be fixed on main, require a green baseline, or ask for another permission to deliver "
+    "that eligible draft. Reuse the completed pair after a checkpoint/restart when its exact identities and "
+    "inputs remain valid; re-run the read-only comparator offline for a diagnostic-review correction, not Unity. "
 )
 
 # Per-skill grants, chosen by the item's skill. A skill without an entry is refused when its launch message

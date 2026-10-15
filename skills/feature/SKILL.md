@@ -946,6 +946,12 @@ id, result/evidence) before requesting, releasing or publishing, so retries cann
    Only the comparator's `draft_eligible=true`, with each matched failure reviewed against the exact source diff,
    allows `passed_with_existing_failures` for draft delivery. Keep `full_suite_passed=false`; list all failures
    and skips, both SHAs, same-environment identity and comparison evidence in the draft. No merge/deploy waiver.
+   Absolute Unity clock operands in an otherwise identical timeout assertion may use the documented
+   `clock_diagnostic` review; never erase arbitrary numbers or change the raw results. Correct/re-run the
+   comparator offline against the completed pair, rather than repeat Unity for a diagnostic-only mismatch.
+   An eligible draft is authorized by this workflow: do not ask again for delivery permission or wait for
+   unrelated failures on main to be fixed. Complete this issue's remaining checks/Closing, then finish delivered
+   with the failures explicit; a green baseline is not a completion requirement.
 9. Run "Other people's work" again, `verify-publication`, push and open/register the client draft only after the
    local required checks pass or the narrowly reviewed `passed_with_existing_failures` verdict above applies.
    Its body distinguishes the accepted Contract spec reference from actual retained or newly generated input,

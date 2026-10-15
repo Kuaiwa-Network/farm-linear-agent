@@ -4,6 +4,7 @@ This read-only decision aid grants no publishing or resource authority. Workers 
 the normal claim, required-check, main-ancestry and publication checks.
 """
 import argparse
+from decimal import Decimal
 import hashlib
 import json
 from pathlib import Path
@@ -179,6 +180,53 @@ def _signature(row):
     return row["state"], message, _normalized(row.get("stackTrace"))
 
 
+def _reviewed_clock_diagnostic(old, row, review, changed_paths):
+    """Recognize a reviewed absolute-clock assertion, never arbitrary numeric changes.
+
+    Unity's Assert.Less(realtimeSinceStartup, deadline) prints process-relative
+    clock readings, not the configured timeout. Retain the raw diagnostics and
+    require unchanged assertion source, timeout, failure site and failure state.
+    """
+    diagnostic = review.get("clock_diagnostic") if _reviewed(review) else None
+    if not _reviewed(diagnostic) or diagnostic.get("kind") != "unity_realtime_deadline":
+        return None
+    if diagnostic.get("clock") != "UnityEngine.Time.realtimeSinceStartup":
+        return None
+    path = _path(diagnostic.get("source_path"))
+    digest = diagnostic.get("baseline_source_sha256")
+    timeout = diagnostic.get("timeout_seconds")
+    if (not path.startswith("Assets/") or not path.endswith(".cs") or path in changed_paths
+            or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest)
+            or digest != diagnostic.get("candidate_source_sha256")
+            or type(timeout) not in (int, float) or not Decimal(str(timeout)).is_finite() or timeout <= 0):
+        return None
+    if old["state"] not in ("Failed", "Failed:Failure") or old["state"] != row["state"]:
+        return None
+    stack = _normalized(old.get("stackTrace"))
+    if not stack or stack != _normalized(row.get("stackTrace")):
+        return None
+    if not stack.splitlines()[0].endswith(" in " + path):
+        return None
+    number = r"[0-9]{1,12}(?:\.[0-9]{1,16})?(?:[eE][+-]?[0-9]{1,2})?"
+    pattern = (r"(?P<label>[^\n]+)\n[ \t]*Expected: less than (?P<deadline>" + number
+               + r")[fFdD]?\n[ \t]*But was:[ \t]+(?P<actual>" + number + r")[fFdD]?")
+    values = []
+    for item in (old, row):
+        message = item["message"].replace("\r\n", "\n").strip()
+        match = re.fullmatch(pattern, message)
+        if not match or "timed out" not in match["label"].lower():
+            return None
+        deadline, actual = Decimal(match["deadline"]), Decimal(match["actual"])
+        # A large overrun may be a different stall; do not hide it as frame jitter.
+        if not Decimal(0) <= actual - deadline <= Decimal(1):
+            return None
+        values.append({"label": match["label"], "deadline": match["deadline"], "actual": match["actual"]})
+    if values[0]["label"] != values[1]["label"]:
+        return None
+    return {"kind": diagnostic["kind"], "baseline": values[0], "candidate": values[1],
+            "review": diagnostic}
+
+
 def compare(baseline, candidate, *, affected_tests, unrelated_failures, changed_paths, ui_resource_changes=None):
     """Allow draft consideration only for reviewed unchanged failures and zero regressions."""
     before, after = _run(baseline), _run(candidate)
@@ -209,13 +257,19 @@ def compare(baseline, candidate, *, affected_tests, unrelated_failures, changed_
     for name in affected_tests:
         if name not in after or _outcome(after[name]["state"]) != "passed":
             blockers.append(f"affected test missing or not passed: {name}")
-    matched, reviewed, unresolved, new_skips = [], [], [], []
+    matched, reviewed, unresolved, new_skips, clock_diagnostics = [], [], [], [], []
     for name, row in sorted(after.items()):
         outcome = _outcome(row["state"])
         if outcome == "passed":
             continue
         old = before.get(name)
-        if old is None or _signature(row) != _signature(old):
+        review = unrelated_failures.get(name)
+        clock_diagnostic = None
+        matches = old is not None and _signature(row) == _signature(old)
+        if not matches and old is not None and outcome == "failed":
+            clock_diagnostic = _reviewed_clock_diagnostic(old, row, review, changed_paths)
+            matches = clock_diagnostic is not None
+        if not matches:
             if outcome == "skipped":
                 new_skips.append(name)
             else:
@@ -224,7 +278,6 @@ def compare(baseline, candidate, *, affected_tests, unrelated_failures, changed_
         if outcome == "skipped":
             continue
         matched.append(name)
-        review = unrelated_failures.get(name)
         if (not comparable or not _reviewed(review)
                 or (changes and not _resource_independent(review.get("resource_review"), packages_before, packages_after))):
             unresolved.append(name)
@@ -234,6 +287,8 @@ def compare(baseline, candidate, *, affected_tests, unrelated_failures, changed_
             unresolved.append(name)
             continue
         reviewed.append(name)
+        if clock_diagnostic:
+            clock_diagnostics.append({"fullName": name, **clock_diagnostic})
     if unresolved:
         blockers.append("new, changed, affected or unreviewed failures: " + ", ".join(unresolved))
     if new_skips:
@@ -247,6 +302,7 @@ def compare(baseline, candidate, *, affected_tests, unrelated_failures, changed_
             "verdict": ("passed_with_existing_failures" if reviewed else "passed") if eligible else "blocked",
             "full_suite_passed": candidate["summary"]["failed"] == 0,
             "matched_existing_failures": matched, "reviewed_unrelated_failures": reviewed,
+            "reviewed_clock_diagnostics": clock_diagnostics,
             "package_input_changes": changes,
             "ui_resource_changes": [row for row in changes if row["classification"] == "candidate_ui_resource"],
             "unresolved_failures": unresolved, "new_or_changed_skips": new_skips, "blockers": blockers}

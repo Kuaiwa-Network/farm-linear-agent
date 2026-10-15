@@ -170,6 +170,10 @@ limitations are explicit, and the job's relevant drafts are listed. Reuse the
 existing foreign-work, destination, claim and resource checks. Stop/withdrawal
 ends the whole job including its tasks and retains recovery evidence. Workers
 never merge or deploy.
+For Client verification, use feature stage F's reviewed baseline comparison. Its eligible draft verdict
+permits delivery with unrelated existing failures recorded after the remaining required work is complete.
+Do not wait for a green baseline or unrelated main fixes, re-ask draft-delivery permission, or repeat a
+completed unchanged pair for diagnostic-only differences; use the documented offline comparison review.
 The legacy code capability's E gate becomes this verified task join; a separate
 human merge of the UI draft is unnecessary for same-issue Client integration.
 Keep the task's verified changes on the owned branch and include every task's
