@@ -250,6 +250,35 @@ unrelated failures indefinitely without keeping this issue open. If the comparis
 the concrete regression/gap; fix attributable issues or report the unresolved blocker, rather than silently
 repeat the unchanged pair. Restarts/checkpoints may reuse valid completed evidence at the same exact inputs.
 
+## Bounded diagnosis before an unresolved-attribution stop
+
+A comparison refusal is a publication gate, not proof that no further authorized work is possible. Before
+finishing blocked solely because a new/changed failure has unresolved attribution, complete one bounded
+diagnostic attempt when the existing tools and authority support it. Start with the retained raw reports,
+exact source/input diff, failed assertions and their setup/teardown and transitive dependencies. Select
+affected tests by the assertions and dependencies that can observe the change, not a shared directory or
+fixture name alone. Do not remove an affected failure merely because it also failed at baseline.
+
+Record the hypothesis, observables, proposed commands/selection, stopping condition and diagnostic budget
+in the existing checkpoint/handoff before requesting resources. Preserve that consumed budget across
+resumes for the same candidate and failure; a restart is not a new attempt. If runtime observations are
+necessary, use the normal resource/claim/identity workflow for the original candidate and only the focused
+selection needed to observe the suspected cause. Do not rerun the full baseline, chase main or repeat an
+unchanged full suite to seek a pass. Capture actual timing/input/global-state observations where relevant:
+for example, elapsed frames versus an animation's intermediate sampling window, or the UI/viewport gate
+that prevents a synthetic camera gesture. Respect the probe and cleanup authority of the current resource;
+never operate another task's Editor or erase shared state to manufacture a passing result.
+
+Keep the original failed full-suite pair and raw evidence. A focused pass does not replace a failed
+full-suite result; identical failures on different issues and unchanged source alone do not establish
+causal independence. The existing comparator, affected-test and QA gates remain unchanged. Fix a proven
+issue-caused defect with normal candidate validation; retain a concrete shared-fixture defect for review
+without weakening assertions or suppressing tests. After the one bounded attempt, record its observations,
+remaining uncertainty and exact next requirement. If an attempt cannot safely be made, record the specific
+missing capability or authority. Either is a concrete blocked result; an untested hypothesis alone is not a
+reason to stop while the planned diagnostic remains available. Do not repeat an exhausted attempt without
+new evidence that justifies a different diagnostic plan.
+
 This optional review extends comparison output and worker instructions without a ledger migration. Older
 comparators keep strict message matching; keep raw evidence and recompare offline after upgrade. It grants
 no test verdict to an interrupted or unfinished candidate and requires no historical evidence rewrite.

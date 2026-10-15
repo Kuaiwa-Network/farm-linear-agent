@@ -22,6 +22,16 @@ unresolved attribution remains explicit and cannot waive required gates. Existin
 full-suite failures still require the reviewed baseline comparison for draft
 eligibility. Missing assets are questions only for required presentation work.
 
+Client workers complete one bounded diagnostic attempt before stopping solely
+for unresolved failure attribution when their existing authority and tools allow
+it. They retain the original failed full-suite pair, start offline and request
+only necessary focused observations on the original candidate. The hypothesis,
+observations and consumed budget survive resumes; no full-baseline retry or
+automatic waiver follows. A focused pass cannot replace the failed full suite.
+An exhausted diagnostic or a specific capability gap remains a concrete blocker.
+This instruction change adds no schema or verdict exception; already running
+workers receive it only through an authorized handoff or a new installed attempt.
+
 Protocol generation and closing re-sync depend on actual consumer input needs,
 not simply completion of Client stage F or a Contract merge. Workers inspect the
 issue diff, input inventory, schemas/message IDs, registry/manifest and generator
