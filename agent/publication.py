@@ -206,6 +206,11 @@ class PublicationVerifier:
                 if (verification_pair.get('candidate_commit') != head or not verification_pair.get('candidate_reservation')):
                     raise PublicationError('settled verification pair must match this exact Client candidate')
                 options['verified_base'] = verification_pair['baseline_commit']
+            server_round = (ledger.server_verification_round(item_id, head, require_released=True)
+                            if repo == 'farm-hive' and ledger is not None else None)
+            if server_round is not None:
+                options['verified_base'] = server_round['base_commit']
+                result['server_verification_round'] = server_round
             result['main_integration'] = self.worktrees.require_main_integration(
                 repo, path, head, default_branch=metadata['default_branch'], **options)
             if verification_pair:

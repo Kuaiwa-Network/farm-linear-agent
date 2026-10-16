@@ -2794,3 +2794,24 @@ work through its existing lease, owned-process, Windows Job Object and resource
 quiescence checks. The guard does not require an empty ledger to start that recovery
 and does not certify workers or Unity slots itself. It does not detect or kill a
 hung controller: heartbeat/loop diagnostics remain the monitor's responsibility.
+
+
+### Fixed server verification rounds
+
+A server request qualifies the clean owned farm-hive candidate against its single merge
+base with the controller-fetched actual default branch. The controller records that base,
+candidate, generation and initial reservation in the existing audit ledger atomically with
+the request. Subsequent requests for the same candidate reuse the base; upstream rewinds
+that remove it fail closed. Workers finish the selected candidate rather than merging main
+on every resource resume. Actual requirement changes or necessary candidate/input repairs
+must state a concrete cause and retain the prior evidence; tip movement alone is insufficient.
+
+After a matching quiescent server release, draft publication verifies the pinned base's
+ancestry in both the exact candidate and freshly fetched main. Configured repository,
+branch, delegation, private/write permissions and report exclusion guards still apply.
+This is no test verdict or merge authorization; all required verification and finish gates
+remain, with newer main explicitly untested. Generation/candidate changes cannot borrow
+another round. Legacy leases without a pin retain the old publication gate; a new request
+records its base without forcing an unrelated main merge. No schema migration is required.
+Rollback retains audit/evidence but older code may demand current-main integration again;
+settle workers and reservations before changing releases.
