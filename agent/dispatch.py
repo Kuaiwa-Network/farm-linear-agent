@@ -491,7 +491,9 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
             'Recheck verify-ui at the retained clean candidate and certified receipt before any new work. '
             'This is not a human reply or a passed gate. Preserve parent code, named approval, export, '
             'installation and test evidence; do not re-export, merge main or rerun tests merely because '
-            'of this resume. If the check still refuses, retain the exact diagnostic and park once. '
+            'of this resume. Ordinary first-verification current-main ancestry checks still apply; '
+            'a real new upstream change may require the usual integration before initial verification. '
+            'If inherited-scope qualification still refuses, retain the exact diagnostic and park once. '
         )
     if item.get('candidate_repair'):
         text += (

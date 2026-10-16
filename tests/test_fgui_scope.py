@@ -311,6 +311,8 @@ class RetainedParentScopeTests(unittest.TestCase):
 
     def test_mode_only_child_edit_is_not_inherited(self):
         f = self.fixture
+        path = f.client / self.names[0]
+        path.chmod(path.stat().st_mode | 0o111)
         f.source.git(f.client, "update-index", "--chmod=+x", self.names[0])
         f.source.git(f.client, "commit", "-qm", "unauthorized mode change")
         with self.assertRaisesRegex(LedgerError, "outside certified"):
