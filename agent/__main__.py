@@ -868,9 +868,28 @@ def run(args, ledger, api_factory):
                 raise LedgerError("issue must remain open and delegated to FarmBot")
             from .workflow import JobWorktrees
             trees = JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger)
+            ui_scope = None
+            if item['skill'] == 'fgui' and args.repo == 'Farm-Client':
+                from .fgui_workflow import UiWorkflow
+                from .fgui_scope import verify_candidate
+                from .fgui_delivery import verification_record
+                from .fgui_client import installation_record
+                workflow = UiWorkflow(ledger, args.item, token, config, skill, api_factory, stage='Farm-Client')
+                receipt = ((ledger.issue_context(args.item).get('plan') or {}).get('ui') or {}).get('receipt_id')
+                ui_scope = verify_candidate(workflow, receipt)
+                installed = installation_record(ledger, args.item, receipt)
+                verification_record(workflow, 'fgui_guards_complete', 'guards_sha256', receipt, ui_scope, installed)
             result = PublicationVerifier(trees, issue_prefix=config.issue_prefix).verify(
                 args.repo, args.item, issue['identifier'], suffix_roles=skill.initial_root is not None,
-                require_main=True)
+                require_main=ui_scope is None)
+            if ui_scope is not None:
+                # Fresh UI scope already verifies the exact certified candidate
+                # and its qualified base's ancestry of actual remote main.
+                integration = ui_scope.get('main_integration')
+                if (result['head'] != ui_scope['commit'] or not integration
+                        or result['base_branch'] != integration['branch']):
+                    raise LedgerError('UI publication differs from its qualified candidate and default branch')
+                result['main_integration'] = integration
             ledger.renew(args.item, token)  # fence cancellation while network checks were in progress
             refuse_withdrawn(ledger.item(args.item))  # and a withdrawal flagged meanwhile
             return result
