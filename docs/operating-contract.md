@@ -101,6 +101,21 @@ own human question. That question remains saved; a coordination wake is not an
 answer and does not resume dependent work. Withdrawn jobs and open resource
 reservations cannot be revived through this wake path.
 
+A queued Client parent with unfinished presentation tasks and a task question,
+failure or pending inbox message can launch a coordination-only attempt after
+its previous worker is proven quiescent. The controller persists `@coordination`
+in `root_repo`; it resolves to no repository write root, not the initial
+Farm-Contract root. This also recovers already-queued waits from older releases.
+The attempt routes actual attributed answers without editing repositories or
+requesting tests. Candidate pins, reports, checkpoint and generation are retained.
+After presentation delivery and certified teardown, an ordinary repository
+handoff restores Client authority, still checking B/C/D and the task join.
+Maintenance, single-issue admission and withdrawal fences remain authoritative.
+This adds no database columns. An older release does not understand the narrower
+root. Before rollback, let coordination items leave it through certified handoff
+on this release, then pause and settle workers. Do not rewrite live roots or
+discard evidence to make an older scheduler run.
+
 All write workers receive the fixed per-command Git commit identity
 `FarmBot <farmbot@localhost>` in their launch authority, including TestBot.
 Ambient author settings are unnecessary; workers keep the existing Git safety

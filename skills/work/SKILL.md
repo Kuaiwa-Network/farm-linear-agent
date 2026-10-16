@@ -102,6 +102,15 @@ fabricate an attributed answer, interpret silence as approval, or make people
 repeat saved answers. Comments remain evidence; a session reply or bot mention
 supplies the continuation. Consolidate related questions into readable rounds.
 
+If `stage.coordination_only` is true, this attempt has no repository write roots.
+Route already-saved attributed answers with `answer-task`; consume handled inbox
+messages, checkpoint, then `await-tasks` and exit while presentation is unfinished.
+Do not ask for the same answer again, implement changes, publish or request tests
+in this attempt. Once required tasks have delivered with certified teardown,
+save a current handoff checkpoint and `handoff-repository` to `Farm-Client`.
+The normal server/config/presentation gates still apply. Keep the existing
+candidate, baseline and reports; the coordination detour is not a new test round.
+
 Read `human_question` as well as `pending_question`. A reply, checkpoint or task
 wake does not clear that round. Once every question in your own round is resolved
 by actual attributed inbox replies, use `resolve-question` with the current

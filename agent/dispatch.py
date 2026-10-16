@@ -546,6 +546,19 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
             'ask for the concrete host correction; --retry is bounded and only for a corrected failed/cancelled '
             'request. Never park for human input while a preparation request is pending. '
         )
+    from .stages import COORDINATION_ROOT
+    coordination = item.get('skill') == 'work' and item.get('root_repo') == COORDINATION_ROOT
+    if coordination:
+        text += (
+            ' This is a presentation-coordination attempt with no repository write roots. '
+            'Read tasks and inbox first; forward the saved actual human answer via answer-task, '
+            'preserving its message ID, author and time. Do not ask the human to repeat a saved answer. '
+            'Consume the handled inbox message after routing it. Preserve the existing candidates and reports; '
+            'do not implement, publish or request tests in this attempt. If tasks remain unfinished, '
+            'save a checkpoint, await-tasks and exit. Once required tasks are delivered with certified '
+            'teardown, save a current checkpoint, handoff-repository to Farm-Client and exit. '
+            'That handoff still requires the server/config and presentation join; never skip its gates. '
+        )
     root = Path(repo_root) if repo_root is not None else Path(skill_path).parent.parent.parent
     payload = {
         "item_id": item["id"],
@@ -563,6 +576,7 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
         # The attempt's current root, as stages.current_root resolves it: a staged skill's initial root
         # while root_repo is NULL, or None for a neutral attempt.
         "stage": {"root_repository": root_repository,
+                  **({"coordination_only": True} if coordination else {}),
                   "write_repositories": list(write_repositories),
                   "read_only_worktrees": [name for name in worktrees if name not in write_repositories]},
         "target": item.get("target"),

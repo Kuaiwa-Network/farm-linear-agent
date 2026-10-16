@@ -16,11 +16,11 @@ from .kw_ops import SERVER as KW_OPS_SERVER, resolve as resolve_kw_ops
 from .lark_cli import tools as lark_tools
 from .memory import publish_snapshot
 from .publication import SUFFIXES, issue_branch, suffix_of
-from .stages import current_root, runtime_can_launch, write_repositories
+from .stages import COORDINATION_ROOT, current_root, runtime_can_launch, write_repositories
 from .withdrawal import NOTICE_REASONS, notice as withdrawal_notice
 from .worktrees import VerificationMismatch
 from .workflow import (JobWorktrees, client_ready, pin_source_entry, repository_busy, repository_owner,
-                       source_recovery, task_views, wake_parent)
+                       prepare_coordination, source_recovery, task_views, wake_parent)
 
 TERMINAL = ("delivered", "blocked", "cancelled", "failed")
 WAITING = ("awaiting_input", "awaiting_resource")
@@ -89,6 +89,8 @@ class Scheduler:
 
     def _worktrees_for(self, skill, item, issue):
         paths = {}
+        if skill.name == 'work' and item.get('root_repo') == COORDINATION_ROOT:
+            return paths  # Message routing must not fetch or alter retained candidates.
         if skill.writes:
             branch = self._branch(issue, suffixes=SUFFIXES if skill.initial_root else ())
             # P4: a job with an initial root goes back to the issue branch its plan, or its nearest predecessor's,
@@ -199,6 +201,7 @@ class Scheduler:
     def launch(self, item):
         if not Maintenance(self.ledger).may_launch(item['id']):
             return None
+        prepare_coordination(self.ledger, item['id'], self.launcher, self.active)
         current = self.ledger.item(item["id"])
         if current["state"] != "queued" or current["retry_not_before"] > self.ledger.clock():
             return None
@@ -212,7 +215,10 @@ class Scheduler:
             if repository_busy(self.ledger, item, self.skills, self.active, self.launcher):
                 return None
             if root == "Farm-Client":
-                client_ready(self.ledger, self.ledger._row(item["id"]))
+                try:
+                    client_ready(self.ledger, self.ledger._row(item["id"]))
+                except LedgerError:
+                    return None
         write_repos = write_repositories(item, skill)
         issue = self.ledger.issue(item["issue_id"])
         # Asked again below, after the checkouts. Asked first so a launch that will stop there fetches nothing:
@@ -229,7 +235,7 @@ class Scheduler:
         if (item["state"] != "queued" or item["generation"] != current["generation"]
                 or item["root_repo"] != current["root_repo"] or item["next_root_repo"] is not None):
             return None
-        reads = self._reads_for(skill, item)
+        reads = ({} if item.get('root_repo') == COORDINATION_ROOT else self._reads_for(skill, item))
         source_roots = [*(paths[repo] for repo in write_repos),
                         *(part for repo in write_repos for part in self.worktrees.writable_parts(repo, paths[repo]))]
         repo_root = Path(self.skill_root).parent
@@ -332,7 +338,7 @@ class Scheduler:
         if skill.staged:
             chat_summaries = [entry['summary'] for entry in context['conversation_history']
                               if entry['skill'] == 'chat' and entry['summary']]
-            if root is None and chat_summaries:
+            if root is None and item.get('root_repo') != COORDINATION_ROOT and chat_summaries:
                 prior_context = {'source': 'investigator_summary', 'summary': chat_summaries[-1],
                                  'revalidation_required': True}
             else:
@@ -952,6 +958,8 @@ class Scheduler:
                 # passed over, so it keeps its place in the queue, and fix and chat go on up to max_concurrent.
                 if not item.get("parent_id") and self.skills[item["skill"]].exclusive and self._exclusive_running(exclude=item["id"]):
                     continue
+                prepare_coordination(self.ledger, item['id'], self.launcher, self.active)
+                item = self.ledger.item(item['id'])
                 root = current_root(item.get("root_repo"), self.skills[item["skill"]])
                 if item["skill"] == "work" or item.get("parent_id"):
                     owner = repository_owner(item)
