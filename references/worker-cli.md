@@ -109,7 +109,9 @@ require host setup. This recipe grants no additional write or publishing scope.
 
 ## Claim-token storage
 
-Capture the claim response privately; never echo the token, put it in command arguments,
+The claim JSON returns the secret in the top-level `token` field, not `claim_token`.
+Capture the claim response privately and save that field before discarding the response;
+never echo the token, put it in command arguments,
 or commit it. Create `STATE_DIR/token` as a new ordinary UTF-8 file in the owned state
 directory from the launch message. Exclusive creation must refuse an existing file or
 link: do not overwrite, delete or repair a stale token. The launcher archives the previous
@@ -794,6 +796,9 @@ After a comparator capability correction, the host operator (not a worker) may r
 It requires maintenance pause, a stopped controller, fresh open/delegated issue state, no human question
 or unfinished presentation task, settled workers/resources and the completed retained pair. It resumes
 only a blocked Client comparison evidence gap, preserving generation, reports, checkpoint and budgets.
+A failed `client-comparison-recheck` attempt can also be explicitly resumed, but only when the latest
+operator comparison-resume audit matches its current generation and exact completed pair. All the same
+settlement and delegation checks apply; this is not an automatic retry or a general failed-job reset.
 The next worker re-compares existing reports offline and completes attribution and publication checks;
 this grants no passing verdict, fabricated answer or baseline rerun. Resume admission separately with
 `maintenance-resume --only-issue ISSUE` when the installed release has been verified.

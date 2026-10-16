@@ -1,4 +1,5 @@
 """Host-only continuation of a settled Client comparison capability gap."""
+import json
 from .config import Paths, linear_api
 from .environment import ControllerGuard, check_ownership
 from .launcher import Launcher, RUNTIMES
@@ -27,9 +28,11 @@ def resume_comparison(config, item_id, candidate, reason):
             launcher = Launcher(paths.runs, RUNTIMES[config.runtime], config.host)
             with ledger._transaction():
                 item = ledger.item(item_id)
+                evidence_gap = (item['state'] == 'blocked' and item['stage'] in
+                                ('client-comparison-evidence-gap', 'client-verification-evidence-gap'))
+                failed_recheck = item['state'] == 'failed' and item['stage'] == 'client-comparison-recheck'
                 if (item['skill'] not in ('work', 'feature', 'fix') or item.get('parent_id')
-                        or item['state'] != 'blocked' or item['root_repo'] != 'Farm-Client'
-                        or item['stage'] not in ('client-comparison-evidence-gap', 'client-verification-evidence-gap')
+                        or not (evidence_gap or failed_recheck) or item['root_repo'] != 'Farm-Client'
                         or item.get('next_root_repo') or ledger.human_question(item_id)):
                     raise LedgerError('comparison recovery requires a blocked Client evidence gap, not a human question')
                 ledger._refuse_withdrawn(ledger._row(item_id))
@@ -52,6 +55,17 @@ def resume_comparison(config, item_id, candidate, reason):
                 pair = ledger.client_verification_pair(item_id, candidate, require_candidate=True)
                 if not pair:
                     raise LedgerError('comparison recovery requires the retained completed candidate pair')
+                if failed_recheck:
+                    prior = ledger.connection.execute(
+                        "SELECT details FROM audit WHERE item_id=? AND kind='operator_comparison_resume' ORDER BY id DESC LIMIT 1",
+                        (item_id,)).fetchone()
+                    try:
+                        details = json.loads(prior['details']) if prior else None
+                    except (TypeError, ValueError):
+                        details = None
+                    if (not isinstance(details, dict) or details.get('generation') != item['generation']
+                            or details.get('verification_pair') != pair):
+                        raise LedgerError('failed comparison recovery requires the prior operator resume for this exact generation and pair')
                 ledger._set_state(item_id, 'queued', reason, needs_resource=None, stage='client-comparison-recheck')
                 ledger._audit(item_id, 'operator_comparison_resume', reason,
                               {'generation': item['generation'], 'verification_pair': pair})

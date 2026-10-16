@@ -1218,6 +1218,9 @@ exclusive stopped-controller guard, fresh open/delegated issue state, no pending
 presentation task, certified process/resource settlement and the completed recorded pair. It preserves the
 generation, checkpoint, evidence and retry budgets; it neither invents a reply nor certifies any verdict.
 The resumed worker compares retained reports offline and finishes attribution and normal publication gates.
+If that resumed attempt fails in `client-comparison-recheck`, an operator may explicitly requeue it only
+when its latest operator comparison-resume audit matches the current generation and exact retained pair.
+The same maintenance, delegation and settlement checks apply, with no automatic retry or budget reset.
 Rollback requires stopping safely; older code may reject repeated names again, but no database/report rewrite
 or automatic test retry follows from this change.
 Completed valid evidence remains usable after a checkpoint/restart at the same exact inputs. A diagnostic

@@ -487,6 +487,8 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
     text = authority(item.get("skill"))  # refuses a skill that states no grants, before any payload exists
     if item.get('stage') == 'client-comparison-recheck':
         text += (' Host operator resumed this settled Client evidence gap after a comparator correction. '
+                     'The claim JSON returns the secret in the top-level field token (not claim_token). '
+                     'Capture that response privately and save token using exclusive claim-token storage before discarding it. '
                      'Preserve the original baseline/candidate, complete raw outcomes, QA, resource identities and diagnostic budget. '
                      'Recompare the retained reports offline, complete source/setup/transitive-resource failure attribution, '
                      'and inspect draft_eligible for every required mode before publication/finish. '
