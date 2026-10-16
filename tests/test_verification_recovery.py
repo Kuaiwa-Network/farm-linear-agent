@@ -62,6 +62,46 @@ class ComparisonRecoveryTests(unittest.TestCase):
             self.resume()
         ledger.assert_not_called()
 
+    def test_failed_recheck_preserves_same_round_and_budgets(self):
+        self.resume()
+        self.f.ledger.claim(self.item, worker_id='recovered')
+        self.f.ledger.fail(self.item, 'worker exited without finishing (exited, code 0)')
+        before = self.f.ledger.item(self.item)
+        result = self.resume()
+        after = self.f.ledger.item(self.item)
+        self.assertEqual(result['state'], 'queued')
+        for key in ('checkpoint', 'evidence', 'generation', 'target', 'root_repo', 'capacity_retries', 'publication_retries'):
+            self.assertEqual(before[key], after[key], key)
+
+    def test_failed_recheck_requires_latest_matching_operator_audit(self):
+        import json
+        self.resume()
+        self.f.ledger.claim(self.item, worker_id='recovered')
+        self.f.ledger.fail(self.item, 'worker exited without finishing')
+        db = self.f.ledger.connection
+        prior = db.execute("SELECT details FROM audit WHERE item_id=? AND kind='operator_comparison_resume'", (self.item,)).fetchone()[0]
+        original = json.loads(prior)
+        invalid = (None, '{invalid', '[]', json.dumps({**original, 'generation': -1}),
+                   json.dumps({**original, 'verification_pair': {}}))
+        for details in invalid:
+            with self.subTest(details=details):
+                db.execute("DELETE FROM audit WHERE item_id=? AND kind='operator_comparison_resume'", (self.item,))
+                if details is not None:
+                    self.f.ledger._audit(self.item, 'operator_comparison_resume', 'old', original)
+                    db.execute("INSERT INTO audit(item_id,kind,reason,details,created_at) VALUES(?,'operator_comparison_resume','new',?,1001)",
+                               (self.item, details))
+                with self.assertRaisesRegex(LedgerError, 'prior operator resume'):
+                    self.resume()
+                self.assertEqual(self.f.ledger.item(self.item)['state'], 'failed')
+
+    def test_failed_recheck_still_requires_settled_workers(self):
+        self.resume()
+        self.f.ledger.claim(self.item, worker_id='recovered')
+        self.f.ledger.fail(self.item, 'worker exited')
+        self.f.ledger.connection.execute('UPDATE job_cleanup SET done=0 WHERE item_id=?', (self.item,))
+        with self.assertRaisesRegex(LedgerError, 'cleanup completion'):
+            self.resume()
+
     def test_requires_maintenance_and_actual_candidate_pair(self):
         with self.assertRaisesRegex(LedgerError, 'completed candidate pair'):
             self.resume('d' * 40)
@@ -119,3 +159,4 @@ class ComparisonRecoveryTests(unittest.TestCase):
             runtime='fake', guidance=[], budget={'lease_seconds': 2700, 'renew_minutes': 5})
         self.assertIn('Recompare the retained reports offline', text)
         self.assertIn('not a human reply or a passed gate', text)
+        self.assertIn('top-level field token (not claim_token)', text)
