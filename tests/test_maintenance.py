@@ -279,6 +279,18 @@ class MaintenanceTests(unittest.TestCase):
             self.store.handoff(self.id, token)
         self.assertFalse(self.store.pending(self.id))
 
+    def test_controller_activity_proof_does_not_depend_on_heartbeat_serialization(self):
+        from agent.heartbeat import Heartbeat
+        beat = Heartbeat(runtime='fake', clock=lambda: self.now)
+        with patch.object(beat, 'payload', side_effect=ValueError('display unavailable')):
+            self.assertEqual(beat.started_at, self.now)
+            beat.loop_started('pool')
+            self.assertEqual(beat.unsettled_loops(('pool', 'server_pool')), ['pool'])
+            beat.loop_failed('pool', RuntimeError('probe failed'))
+            self.assertEqual(beat.unsettled_loops(('pool',)), ['pool'])
+            beat.loop_finished('pool')
+            self.assertEqual(beat.unsettled_loops(('pool',)), [])
+
     @unittest.skipUnless(os.name == 'nt', 'native Windows Job Object handoff')
     def test_native_windows_job_must_exit_before_maintenance_handoff_settles(self):
         self.now = time.time()

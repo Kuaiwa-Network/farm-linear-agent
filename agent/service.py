@@ -254,14 +254,10 @@ def _serve(components):
                                     "server_slots": components.config.server_slots.get("count", 0),
                                     "enabled_skills": sorted(components.skills)})
     heartbeat_path = Paths(components.config).heartbeat
-    components.scheduler.maintenance_epoch = heartbeat.payload()['started_at']
+    components.scheduler.maintenance_epoch = heartbeat.started_at
     components.scheduler.maintenance_resources = getattr(components.pool, 'maintenance_blockers', None)
     def maintenance_busy():
-        loops = heartbeat.payload()['loops']
-        names = ('pool', 'server_pool', 'resource_recovery', 'go_dependencies')
-        return [name for name in names if name in loops and (
-            loops[name]['consecutive_errors'] or
-            (loops[name]['started_at'] or 0) > (loops[name]['finished_at'] or 0))]
+        return heartbeat.unsettled_loops(('pool', 'server_pool', 'resource_recovery', 'go_dependencies'))
     components.scheduler.maintenance_busy = maintenance_busy
     # The receiver's handler counts each /webhook outcome into it (receiver.make_server).
     components.server.heartbeat = heartbeat
