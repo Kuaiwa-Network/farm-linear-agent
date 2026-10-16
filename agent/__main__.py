@@ -55,7 +55,8 @@ def parser():
     cmd("checkpoint", "--item", "--input", token=True)
     cmd("handoff-repository", "--item", "--to", token=True)
     cmd("revalidate", "--item", "--fingerprint", token=True)
-    cmd("issue-context", "--item")
+    context = cmd("issue-context", "--item")
+    context.add_argument("--view", choices=["full", "resume"], default="full")
     cmd("pop-inbox", "--item", token=True)
     dependency = cmd("prepare-go-dependencies", "--item", "--module", "--commit", token=True)
     dependency.add_argument("--retry", action="store_true", help="retry a failed/cancelled request after host correction; at most three")
@@ -124,6 +125,8 @@ def parser():
     cmd("recover-slot", "--slot", "--reason")
     finish = cmd("finish", "--item", "--input", token=True)
     finish.add_argument("--outcome", required=True, choices=["blocked", "delivered"])
+    finish.add_argument("--check-input", action="store_true",
+                        help="validate local outcome shape before preparing delivery; does not finish or verify live gates")
     for name in ("cancel", "recover", "retry"):
         cmd(name, "--item", "--reason")
     return root
@@ -590,7 +593,11 @@ def run(args, ledger, api_factory):
     if c == "revalidate":
         return ledger.revalidate(args.item, resolve_token(args), args.fingerprint)
     if c == "issue-context":
-        return ledger.issue_context(args.item)
+        context = ledger.issue_context(args.item)
+        if args.view == 'resume':
+            from .resume_context import resume_view
+            return resume_view(context)
+        return context
     if c == "pop-inbox":
         return ledger.pop_inbox(args.item, resolve_token(args))
     if c == "tasks":
@@ -1078,6 +1085,11 @@ def run(args, ledger, api_factory):
             raise LedgerError("finish input must be an object")
         check_pr_targets(evidence.get("prs"))
         item = ledger.item(args.item)
+        ledger.validate_finish_input(args.item, token, args.outcome, evidence)
+        if args.check_input:
+            return {'input_valid': True, 'completion_checked': False,
+                    'maintenance_requested': item['maintenance_requested'],
+                    'next': 'Complete live gates and confirmed delivery, then run finish without --check-input.'}
         if item["skill"] == "fgui" and args.outcome == "delivered" and not evidence.get("no_change"):
             from .fgui_workflow import UiWorkflow
             from .fgui_delivery import verify_delivery

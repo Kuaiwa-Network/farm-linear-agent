@@ -98,7 +98,21 @@ SERVER_RESOURCE_AT_SLOTS = (
 
 
 def with_server_slots(text):
-    """Only the reviewed server resource paragraph and Unity qualification amend the frozen common text."""
+    """Reviewed resource, context-navigation and closeout guidance; original grants stay pinned."""
+    text = text.replace('Read issue-context for the complete durable handoff and conversation. ',
+        'Start with issue-context --view resume: it preserves current human/unknown '
+        'comments, requests, questions and handoff while indexing repeated bot/history/task details. '
+        'Read --view full if the handoff is stale, a decision refers to omitted text or a required fact is missing; '
+        'never infer approval or a passed gate from an omitted field. Batch independent local instruction/evidence '
+        'reads and hash checks; inspect selected JSON fields instead of dumping whole historical reports. ')
+    text = text.replace('user_requests contains direct Linear session requests',
+        'For top-level write jobs, prepare the final draft body, checkpoint and outcome files together before publishing. Validate the '
+        'outcome with finish --check-input before preparing its delivery comment: summary and verification are '
+        'nonempty strings, prs is an array, and comment_action_id is added after confirmed delivery. This checks '
+        'shape only, never completion. verify-publication already refreshes delegation and includes foreign_work '
+        'for that repository; use that result instead of an immediate duplicate foreign-work read. Keep fresh '
+        'verify-publication before each publication and fetch-issue before actual finish; do not cache authority. '
+        'user_requests contains direct Linear session requests')
     return text.replace("When a resource block is present", SERVER_RESOURCE_AT_SLOTS +
                         "When a unity_slot resource block is present")
 

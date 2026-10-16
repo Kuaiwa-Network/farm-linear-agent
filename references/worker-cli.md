@@ -40,7 +40,7 @@ python3 -m agent --db DATABASE checkpoint --help
 | --- | --- |
 | `claim` | `--item ITEM_ID --worker-id WORKER_ID`; returns the claim token |
 | `maintenance-handoff` | `--item ITEM_ID --token-file STATE_DIR/token`; retire the claim only after saving a current handoff and releasing resources during operator maintenance |
-| `fetch-issue`, `issue-context` | `--item ITEM_ID` only; no token flags |
+| `fetch-issue`, `issue-context` | `--item ITEM_ID`; context also accepts `--view full\|resume` (default full); no token flags |
 | `renew`, `checkpoint`, `pop-inbox`, `download-uploads`, `upload-image`, `verify-publication`, `foreign-work`, `handoff-repository`, `revalidate`, `prepare-comment`, `post-comment`, `confirm-comment`, `prepare-notice`, `post-notice`, `activity`, `await-input`, `await-resource`, `finish` | `--item ITEM_ID --token-file STATE_DIR/token`, plus command-specific arguments from `--help` |
 | `request-repair` | Read-only profile only: claim-token arguments, `--message-id LATEST_MESSAGE_ID --summary-file STATE_DIR/repair-summary.md` |
 | `resume-work` | Legacy resume-only command: claim-token arguments and `--message-id LATEST_MESSAGE_ID`; cannot start a first repair |
@@ -90,6 +90,29 @@ went or a newer delegation session took the card over, and you are to stop. `iss
 the saved context; its `coordination.authority` says what authorised your work: `delegation`, a
 `mention`, or the `operator`.
 Neither `fetch-issue` nor `issue-context` accepts `--token-file`.
+Start a continuation with `issue-context --view resume`. It keeps the current issue,
+human/unknown-author comments, messages, questions, plan and handoff. It indexes bot
+comment bodies, historical handoffs and delivered tasks' checkpoints instead of
+reprinting them. `context_view.omitted_paths` identifies every omission; the original
+fingerprint is unchanged. Read `--view full` for a stale handoff, a decision referencing
+omitted text, or any missing required fact. No omitted record implies approval or a
+passed check. The default full view and all stored evidence remain unchanged.
+
+Prepare the final PR body, checkpoint and outcome files together. Before preparing
+a delivery comment, run `finish --outcome delivered --input OUTCOME.json --check-input`
+with the ordinary item/claim-token arguments. `summary` and `verification` must be
+nonempty **strings**, `prs` an array of canonical PR URLs (or a `no_change` reason).
+The preflight allows the not-yet-created `comment_action_id` to be absent. It renews
+the claim and checks local input shape and configured PR destinations only: it makes
+no network call, posts nothing, and does not complete or certify the job. A response
+of `input_valid=true, completion_checked=false` is not permission to skip any gate.
+After confirmed delivery, add its actual action ID, fetch the current issue and run
+normal `finish`. Its checkpoint, ownership, task, proof and comment gates still apply.
+
+`verify-publication` already refreshes issue/delegation and returns `foreign_work`
+for the chosen repository. Inspect that result instead of immediately repeating the
+same standalone query. Keep fresh verification immediately before each publication;
+do not cache authorization across mutations, retries or handoffs.
 Tokens never belong in argv as `--token` values.
 The argument table does not grant additional authority; use only your delegated item.
 

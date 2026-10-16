@@ -25,6 +25,12 @@ request has not executed any tests. Never launch or close an Editor.
 The launch AUTHORITY and current repository scope govern every attempt. Changing cwd or
 spawning a Codex agent never extends repository permission. Revalidate actual
 issue facts, named human decisions and checkpoint evidence on every continuation.
+Start with `issue-context --view resume`; use the full view when stale, when a decision
+references omitted text, or when a required fact is missing. Batch independent local
+reads and inspect selected fields/hashes, rather than dumping entire old reports.
+Before preparing delivery, validate the outcome with `finish --check-input` as documented
+in the worker CLI. Reuse `verify-publication.foreign_work` for that repository; preserve
+fresh publication checks and the final issue refresh. Preflight is shape validation only.
 
 ## Shared behavior first
 

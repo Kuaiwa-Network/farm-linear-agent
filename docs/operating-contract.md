@@ -483,6 +483,22 @@ a Bot label starts nothing and a delegated Bug card starts `fix`. §7 of
 
 ## Authority
 
+Workers may start a continuation with `issue-context --view resume`. This read projection
+retains current authority, fingerprint, requirements, human/unknown comments, messages,
+questions, plan and handoff; it indexes bot comment bodies, historical handoffs and
+delivered tasks' checkpoints. Every omitted path is listed and the full view remains
+available. A stale handoff, referenced omitted decision or missing required fact requires
+the full view. This is context navigation, not evidence certification or an authority cache.
+
+`finish --check-input` authenticates/renews the claim and validates local outcome shape
+and configured PR destinations before a delivery comment exists. It makes no network
+call, creates no outbox row, changes no checkpoint or terminal state, and explicitly
+returns `completion_checked=false`. Normal finish retains all current live checks and
+requires the actual confirmed delivery action. Workers prepare closing files together,
+use the foreign-work result included in fresh publication verification, and preserve
+fresh checks before each publication and the final issue refresh. No schema migration;
+older releases lack these optional flags, so workers use their installed CLI reference.
+
 | Skill | May write to | Resources | Needs delegation |
 |---|---|---|---|
 | chat | shared memory through item-authenticated CLI only; no repositories | kw_ops query tools (Codex, when configured) | no |
