@@ -109,6 +109,7 @@ def parser():
     repair.add_argument("--message-id", type=int, required=True)
     resource = cmd("await-resource", "--item", "--resource", token=True)
     resource.add_argument("--server-test-plan", help="JSON file with exact packages, tests and race selection")
+    resource.add_argument("--server-scope-reason", help="concrete coverage reason for broader or named-only server checks")
     resource.add_argument("--mode", required=True, choices=["interactive", "batch"])
     resource.add_argument("--commit", help="full SHA of the clean Farm-Client worktree HEAD to verify; default: baseline")
     resource.add_argument("--baseline", action="store_true",
@@ -1010,6 +1011,14 @@ def run(args, ledger, api_factory):
                     request_options['server_base_commit'] = trees.server_verification_base(
                         'farm-hive', args.item, args.commit,
                         verified_base=server_round['base_commit'] if server_round else None)
+                    from .server_test_plan import check_scope
+                    if 'server_test_plan' not in request_options:
+                        raise LedgerError('server verification requires --server-test-plan')
+                    selection = check_scope(request_options['server_test_plan'], trees.server_changed_scope(
+                        'farm-hive', args.item, args.commit, request_options['server_base_commit']),
+                        getattr(args, 'server_scope_reason', None))
+                    ledger.renew(args.item, token)
+                    ledger.note(args.item, 'server_test_scope', 'selected from candidate diff', selection)
         elif (args.resource == "unity_slot" and item["skill"] == "fix"
                 and current_root(item["root_repo"], skill) == "Farm-Client"
                 and (item.get("target") or {}).get("repository") == "Farm-Client"):

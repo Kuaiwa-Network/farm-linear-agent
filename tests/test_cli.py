@@ -424,6 +424,10 @@ class CliTests(unittest.TestCase):
             with self.assertRaisesRegex(LedgerError, "configured host ledger"):
                 run(args, ledger, lambda: None)
             args.db = str(self.db)
+            with self.assertRaisesRegex(ValueError, 'server-scope-reason'):
+                run(args, ledger, lambda: None)
+            self.assertEqual(ledger.reservations(), [])
+            args.server_scope_reason = 'server.txt fixture affects only the named animal acceptance path'
             result = run(args, ledger, lambda: None)
         self.assertEqual(result["state"], "awaiting_resource")
         self.assertEqual(result["target"]["commit_sha"], baseline)

@@ -178,13 +178,14 @@ class PoolTests(ServerPoolFixture):
         self.assertEqual([lease["item_id"] for lease in self.services.cleaned], [a])
         self.assertEqual(self.ledger.active_reservation(b)["state"], "active")
 
-    def test_timeout_uses_scheduler_cancellation_and_waits_for_teardown(self):
+    def test_timeout_blocks_without_retry_and_waits_for_teardown(self):
         item = self.request()
         self.pool.tick()
-        self.now += 1801
+        self.now += 7201
         self.exited = False
         self.pool.tick()
-        self.assertEqual(self.ledger.item(item)["state"], "cancelled")
+        self.assertEqual(self.ledger.item(item)["state"], "blocked")
+        self.assertEqual(self.ledger.item(item)['stage'], 'server-verification-timeout')
         self.pool.tick()
         self.assertFalse(self.services.cleaned)
         self.exited = True

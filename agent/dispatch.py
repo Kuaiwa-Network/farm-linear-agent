@@ -469,6 +469,18 @@ SKILL_AUTHORITY["scene"] = (
 
 
 SERVER_TEST_AUTHORITY = (
+    "Server acceptance is selected from the fixed base-to-candidate diff and issue scenarios, not every CI step. "
+    "This overrides generic instructions to run every build-job step or go test ./.... For local module changes "
+    "run the changed packages' complete tests and directly affected consumer packages; keep race for state, "
+    "concurrency and cross-module behavior. Record the dependency analysis and required acceptance Test names. "
+    "Shared infrastructure, protocol/config generation, dependency/toolchain or startup changes require broader "
+    "coverage with a concrete reason. Select only relevant shell/provenance gates; retain already valid results. "
+    "Use --server-scope-reason for broad local selections, named-only acceptance, or a justified narrow scope "
+    "for shared changes. The host checks changed-package coverage. Memory profile full does NOT mean full "
+    "repository verification: targeted race still runs only selected packages. Never add unrelated shell gates "
+    "or full race solely to satisfy an inherited CI checklist. Disclose checks outside the selected scope. "
+    "Reuse completed package results at the same candidate and inputs; incomplete packages are not passed. "
+    "A server deadline is a technical evidence gap, not an instruction to retry the baseline/full suite. "
     "A server reservation fixes resource.commit for the entire verification round. On resource resume, "
     "maintenance recovery or ordinary retry, validate the owned clean HEAD and use the retained reports; "
     "do not fetch-and-merge main, release/requeue, rebuild or retest solely because main advanced. This "
@@ -484,7 +496,7 @@ SERVER_TEST_AUTHORITY = (
     "paths), tests (exact top-level Test names, [] for all), and race (boolean). Declare the verification scope "
     "actually required by the issue; do not drop required race or coverage to obtain a cheaper tier. The host "
     "derives the memory profile. Single-package non-race named tests are focused, up to four explicit packages "
-    "without race are targeted, and race/recursive/larger selections or ./server packages are full. A stage "
+    "without race are targeted, and race/recursive/larger selections or ./server packages use full memory. A stage "
     "server-test-plan-required means an old unleased request was resumed to declare scope: retain its "
     "checkpoint/candidate, prepare the required test plan and request again; no human approval is needed. "
     "On a server lease, execute resource.test_argv at resource.commit; required environment flags may be "
@@ -512,6 +524,17 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
                      bot_name="FarmBot", write_repositories=(), root_repository=None, prior_context=None,
                      tools=None, reads=None):
     text = authority(item.get("skill"))  # refuses a skill that states no grants, before any payload exists
+    if item.get('stage') == 'server-evidence-recheck':
+        text += (' The host recovered this technical timeout using completed package evidence. Read '
+                 'state_dir/operator-server-evidence-review.json; verify the exact candidate, fixed base, generation, '
+                 'report hashes, provenance review, required tests and source inputs against the clean owned HEAD. '
+                 'The controller revalidates those reports for publication. Reuse completed native gates and '
+                 'selected package acceptance. Do not request services or rerun baseline/full tests when those '
+                 'requirements are satisfied. The interrupted whole suite remains explicitly incomplete; it is '
+                 'not a requirement for this local change. Finish the remaining focused review, draft publication '
+                 'and delivery gates. Do not merge main or expand the issue. A concrete missing acceptance '
+                 'observation permits only that bounded check, with an explanation. No human confirmation is '
+                 'needed for routine proposal/checklist updates already authorized by the issue.')
     if item.get('stage') == 'server-candidate-recheck':
         text += (' The host operator restored a retained server candidate after an unwanted main-only merge. '
                  'Read state_dir/operator-server-candidate-recovery.json and verify its candidate, generation, '

@@ -789,8 +789,12 @@ section. A contract change enters farm-hive at its plan: its behaviour is settle
    this attempt, as `--common`, since `--common` reads only the pinned commit from its repository and never its
    files.
 6. Implement the server change the 交棒 entry and its scenarios describe, by farm-hive's rules. Then run locally,
-   with CI's commands, every build-job step of `ci.yaml` that needs neither the file server nor a GitHub token (the
-   repository map lists them), with `DESIGNER_SOURCE_CACHE` set for the tests. `ci/check_msg_proto.sh` and
+   the checks selected from the fixed base/candidate diff and acceptance scenarios, using CI's pinned tools
+   and `DESIGNER_SOURCE_CACHE`. Local module changes need complete changed-package tests plus directly affected
+   consumers, with race where state/concurrency is involved. The repository map is a CI catalogue, not a mandatory
+   per-issue checklist. Shared infrastructure, protocol/config inputs, dependencies or startup changes need broader
+   coverage with a recorded dependency analysis. Run only relevant shell/provenance gates; reuse valid existing
+   reports. Do not run all `ci/check_*.sh` or `go test -race ./...` for every local fix. `ci/check_msg_proto.sh` and
    `FARM_CONTRACT=../Farm-Contract bash ci/check_contract_sync.sh` run as diagnostics and fail on `-unreachable`,
    as expected only when this job introduced an unmerged input (each checks the manifest's provenance line first).
    With retained inputs, run the required gates against their actual recorded source; do not assume a failure
@@ -814,8 +818,9 @@ section. A contract change enters farm-hive at its plan: its behaviour is settle
    worker. Declare exact packages, Test names and race in that JSON as described in
    `references/worker-cli.md`; execute `resource.test_argv` within its declared
    scope. The controller derives focused/targeted/full memory costs. Preserve all
-   required coverage and race checks; release and request full scope before any
-   broader or separate multi-node commands. Do not administer Docker, use production/shared services, or start game
+   required coverage and race checks. Full memory cost does not require full-repository scope.
+   A broader selection needs a new plan and concrete `--server-scope-reason`; separate multi-node commands
+   still require full resource admission. Do not administer Docker, use production/shared services, or start game
    processes outside worker containment. Save every outcome and platform skip,
    stop the game processes, release quiescent and exit through a normal checkpoint
    handoff/park. A next resource request waits for this attempt's verified exit.

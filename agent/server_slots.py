@@ -14,7 +14,7 @@ import time
 
 from .launcher import _read_worker_text, _write_worker_file
 from .ledger import Ledger, LedgerError
-from .server_test_plan import FULL_PLAN, profile, test_argv, validate_plan
+from .server_test_plan import FULL_PLAN, profile, scope, test_argv, timeout_seconds, validate_plan
 
 ROLES = ("mongo", "redis", "etcd", "nats")
 IMAGE_ROLES = (*ROLES, "proxy")
@@ -84,6 +84,7 @@ def read_resource(slot, reservation, root):
         raise ServerSlotError("server test plan does not match its reservation")
     return {"kind": "server_slot", "mode": "batch", "slot": slot["slot_id"],
             "test_plan": plan, "memory_profile": profile(plan), "test_argv": test_argv(plan),
+            "verification_scope": scope(plan), "ready_at": lease.get("ready_at"),
             "commit": lease["commit"], "expires_at": lease["expires_at"], "ports": ports,
             "environment": {"MONGO_URI": f"mongodb://127.0.0.1:{ports['mongo']}/farmbot?replicaSet=rs0",
                             "REDIS_ADDR": f"127.0.0.1:{ports['redis']}",
@@ -336,7 +337,7 @@ class ServerSlotPool:
                     raise ServerSlotError("server lease belongs to a different worker generation")
                 expired = self.clock() >= lease["expires_at"]
                 if expired and reservation["state"] == "active":
-                    self.ledger.cancel(item["id"], "server integration slot timed out")
+                    self.ledger.server_verification_timeout(reservation['reservation_id'], lease['expires_at'])
                     continue  # scheduler owns stopping the contained worker, not this loop
                 if reservation["state"] == "active" and item["state"] in ("queued", "running"):
                     continue
@@ -410,6 +411,10 @@ class ServerSlotPool:
                 self._save(lease)
                 self.services.start(lease)
                 lease["state"] = "ready"
+                lease['ready_at'] = self.clock()
+                lease['verification_scope'] = scope(reservation['server_test_plan'])
+                lease['timeout_seconds'] = timeout_seconds(reservation['server_test_plan'], self.settings['timeout_seconds'])
+                lease['expires_at'] = lease['ready_at'] + lease['timeout_seconds']
                 self._save(lease)
                 current = self.ledger.reservation(reservation["reservation_id"])
                 if current["state"] != "active":

@@ -265,7 +265,9 @@ merely to update the recorded source commit.
   'config/pb/*.proto' 'config/pb/*.pb' 'config/pb/*.pb.txt' 'config/pb/*.pb.go' config/pb/artifacts.sha256`,
   never the whole directory, which also reverts `toolchain.env` and the scripts. A new table also needs its `TABLES`
   entry and the README's new-table checklist.
-- Local gates, in `ci.yaml`'s build-job order, that need neither the file server nor a GitHub token:
+- CI catalogue (not a mandatory per-issue checklist): select applicable gates from the actual diff and
+  acceptance scenarios under `SERVER_TEST_AUTHORITY`. Full CI remains a repository pipeline. Gates that
+  need neither the file server nor a GitHub token, in `ci.yaml` order:
   `bash ci/check_designer_pin.sh --gate --common CHECKOUT --cache DIR` (CI's first gate, which there downloads the
   archive), `go vet ./...`, `go build ./...`, `go test -race -timeout 300s ./...` with `DESIGNER_SOURCE_CACHE` set
   (a narrow-type test needs it), `bash ci/check_pb_manifest.sh`, `bash ci/check_config_pb.sh` with
