@@ -20,7 +20,12 @@ and blocks safe shutdown. Maintenance
 never authorizes skipping a test, rerunning a baseline, merging main or asking a
 human to approve routine handoff. If the handoff command says maintenance is no
 longer requested, renew and continue the same claim. Operator pause/resume commands
-belong to the host operator, not the worker. Resume after maintenance with the saved
+belong to the host operator, not the worker. The host-only `agent.service resume-ui-scope`
+can requeue a parked technical scope wait after a controller correction while the
+controller is stopped and maintenance is paused. Its `client-scope-recheck` launch
+requires `verify-ui` again at the retained candidate and receipt; it is no new human
+answer or validation result. Do not re-export, integrate main or repeat completed
+tests solely because of this recovery. Resume after maintenance with the saved
 candidate, stage and reports; normal issue revalidation and publication gates still
 apply.
 

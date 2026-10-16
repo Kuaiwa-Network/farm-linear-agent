@@ -439,19 +439,25 @@ def main(argv=None):
     parser.add_argument("command", choices=["configure", "serve", "status", "seed-clones", "install-launchd",
                                             "enqueue", "slots", "doctor", "recover-worker-cleanup", "monitor",
                                             "recover-server-slot", "maintenance-pause", "maintenance-status",
-                                            "maintenance-resume"])
+                                            "maintenance-resume", "resume-ui-scope"])
     parser.add_argument("--config")
     parser.add_argument("--from", dest="source_root", help="directory holding local checkouts to seed from")
     parser.add_argument("--issue", help="Linear issue id or identifier to enqueue work for")
     parser.add_argument("--only-issue", help="maintenance-resume only: run this known issue and its tasks first")
     parser.add_argument("--skill", default="fix")
     parser.add_argument("--commit", help="pin this commit instead of resolving the default branch")
-    parser.add_argument("--item", help="terminal work item whose legacy cleanup needs recovery")
+    parser.add_argument("--item", help="work item selected for an explicit host recovery command")
     parser.add_argument("--slot", help="held server slot to reconcile through verified Docker cleanup")
-    parser.add_argument("--reason", help="operator explanation for cleanup recovery")
+    parser.add_argument("--reason", help="operator explanation for maintenance or recovery")
     args = parser.parse_args(argv)
     if args.only_issue is not None and args.command != 'maintenance-resume':
         parser.error('--only-issue requires maintenance-resume')
+    if args.command == 'resume-ui-scope':
+        if not args.item or not args.reason:
+            parser.error('resume-ui-scope requires --item and --reason')
+        from .ui_scope_recovery import resume_scope
+        print(json.dumps(resume_scope(load_config(args.config), args.item, args.reason), indent=2))
+        return 0
     if args.command.startswith('maintenance-'):
         from .maintenance import Maintenance, read_status
         config = load_config(args.config, secure_permissions=args.command != 'maintenance-status')

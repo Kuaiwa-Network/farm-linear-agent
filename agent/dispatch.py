@@ -485,6 +485,16 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
                      bot_name="FarmBot", write_repositories=(), root_repository=None, prior_context=None,
                      tools=None, reads=None):
     text = authority(item.get("skill"))  # refuses a skill that states no grants, before any payload exists
+    if item.get('skill') == 'fgui' and item.get('stage') == 'client-scope-recheck':
+        text += (
+            ' The host operator resumed this technical scope wait after a controller correction. '
+            'Recheck verify-ui at the retained clean candidate and certified receipt before any new work. '
+            'This is not a human reply or a passed gate. Preserve parent code, named approval, export, '
+            'installation and test evidence; do not re-export, merge main or rerun tests merely because '
+            'of this resume. Ordinary first-verification current-main ancestry checks still apply; '
+            'a real new upstream change may require the usual integration before initial verification. '
+            'If inherited-scope qualification still refuses, retain the exact diagnostic and park once. '
+        )
     if item.get('candidate_repair'):
         text += (
             ' Unity candidate preparation failed; the shared Editor is recovered independently. '
