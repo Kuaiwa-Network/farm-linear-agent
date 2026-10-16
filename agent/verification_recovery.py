@@ -1,0 +1,62 @@
+"""Host-only continuation of a settled Client comparison capability gap."""
+from .config import Paths, linear_api
+from .environment import ControllerGuard, check_ownership
+from .launcher import Launcher, RUNTIMES
+from .ledger import Ledger, LedgerError, _in_scope
+from .maintenance import Maintenance
+
+
+def resume_comparison(config, item_id, candidate, reason):
+    """Preserve the recorded round and budgets; grant no comparison/pass verdict."""
+    if not isinstance(reason, str) or not reason.strip() or len(reason) > 500:
+        raise LedgerError('comparison recovery requires an operator reason of 1 to 500 characters')
+    check_ownership(config, require_initialized=True)
+    with ControllerGuard(config):
+        paths = Paths(config)
+        ledger = Ledger(paths.ledger)
+        try:
+            if not Maintenance(ledger).requested():
+                raise LedgerError('comparison recovery requires maintenance pause and a stopped controller')
+            item = ledger.item(item_id)
+            api = linear_api(config)
+            current = api.fetch_issue(item['issue_id'])
+            if (current.get('id') != item['issue_id'] or not _in_scope(current) or not api.app_user_id
+                    or current.get('delegate_id') != api.app_user_id):
+                raise LedgerError('issue must remain open and delegated to FarmBot')
+            ledger.observe_issue(current)
+            launcher = Launcher(paths.runs, RUNTIMES[config.runtime], config.host)
+            with ledger._transaction():
+                item = ledger.item(item_id)
+                if (item['skill'] not in ('work', 'feature', 'fix') or item.get('parent_id')
+                        or item['state'] != 'blocked' or item['root_repo'] != 'Farm-Client'
+                        or item['stage'] not in ('client-comparison-evidence-gap', 'client-verification-evidence-gap')
+                        or item.get('next_root_repo') or ledger.human_question(item_id)):
+                    raise LedgerError('comparison recovery requires a blocked Client evidence gap, not a human question')
+                ledger._refuse_withdrawn(ledger._row(item_id))
+                if ledger._unfinished_children(item_id):
+                    raise LedgerError('comparison recovery requires completed presentation tasks')
+                if ledger.connection.execute("SELECT 1 FROM reservations r JOIN work_items w ON w.id=r.item_id "
+                        "WHERE w.issue_id=? AND r.state IN ('queued','active','cancel_requested')", (item['issue_id'],)).fetchone():
+                    raise LedgerError('comparison recovery requires all issue resources settled')
+                for row in ledger.connection.execute('SELECT id,host,state,worker_pid,token,next_root_repo FROM work_items WHERE issue_id=?',
+                                                     (item['issue_id'],)).fetchall():
+                    if (row['state'] == 'running' or row['worker_pid'] or row['token'] or row['next_root_repo']
+                            or Maintenance(ledger).pending(row['id'])):
+                        raise LedgerError('comparison recovery requires settled issue workers and handoffs')
+                    if row['host'] not in (None, config.host):
+                        raise LedgerError('comparison recovery cannot certify another host')
+                    launcher.assert_quiescent(row['id'], ledger.last_worker_pid(row['id']))
+                    cleanup = ledger.cleanup_record(row['id'])
+                    if cleanup and not cleanup.get('done'):
+                        raise LedgerError('comparison recovery requires certified cleanup completion')
+                pair = ledger.client_verification_pair(item_id, candidate, require_candidate=True)
+                if not pair:
+                    raise LedgerError('comparison recovery requires the retained completed candidate pair')
+                ledger._set_state(item_id, 'queued', reason, needs_resource=None, stage='client-comparison-recheck')
+                ledger._audit(item_id, 'operator_comparison_resume', reason,
+                              {'generation': item['generation'], 'verification_pair': pair})
+                return {'item': item_id, 'state': 'queued', 'stage': 'client-comparison-recheck',
+                        'generation': item['generation'], 'verification_pair': pair,
+                        'verification_required': True, 'maintenance_paused': True}
+        finally:
+            ledger.close()

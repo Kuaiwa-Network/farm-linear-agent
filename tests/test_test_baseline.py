@@ -415,8 +415,64 @@ class BaselineTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(ComparisonError):
                 compare(self.baseline, {**self.candidate, **change}, **self.scope)
         self.candidate["tests"].append(copy.deepcopy(self.failure))
-        with self.assertRaisesRegex(ComparisonError, "duplicate"):
+        with self.assertRaisesRegex(ComparisonError, "summary counts"):
             self.compare()
+
+    def test_repeated_passing_cases_retain_counts_and_are_order_independent(self):
+        for value in (self.baseline, self.candidate):
+            value['tests'].extend([test('Array.Case(System.UInt32[])'), test('Array.Case(System.UInt32[])')])
+            value['summary'].update(total=5, passed=3)
+        self.candidate['tests'].reverse()
+        original = copy.deepcopy((self.baseline, self.candidate))
+        self.scope['affected_tests'].append('Array.Case(System.UInt32[])')
+        report = self.compare()
+        self.assertTrue(report['draft_eligible'])
+        self.assertEqual(report['candidate_counts']['total'], 5)
+        self.assertEqual(report['duplicate_executions'], [{'fullName': 'Array.Case(System.UInt32[])',
+            'baseline_count': 2, 'candidate_count': 2, 'all_passed': True, 'comparable': True}])
+        self.assertEqual((self.baseline, self.candidate), original)
+
+    def test_repeated_passing_case_count_changes_block_in_both_directions(self):
+        for before, after in ((2, 1), (1, 2), (2, 3), (3, 2), (0, 2), (2, 0)):
+            with self.subTest(before=before, after=after):
+                b = run('a', [test('Animal.Counter')] + [test('Array.Case')] * before)
+                c = run('b', [test('Animal.Counter')] + [test('Array.Case')] * after)
+                report = compare(b, c, **self.scope)
+                self.assertFalse(report['draft_eligible'])
+                self.assertFalse(report['duplicate_executions'][0]['comparable'])
+
+    def test_nonpassing_duplicates_cannot_borrow_review_or_hide_behind_pass(self):
+        for state in ('Failed', 'Failed:Invalid', 'Skipped:Ignored', 'Inconclusive'):
+            for side in ('baseline', 'candidate', 'both'):
+                with self.subTest(state=state, side=side):
+                    b = run('a', [test('Animal.Counter'), test('Card.Cleanup'), test('Card.Cleanup')])
+                    c = run('b', copy.deepcopy(b['tests']))
+                    for value in ([b] if side == 'baseline' else [c] if side == 'candidate' else [b, c]):
+                        value['tests'][-1] = test('Card.Cleanup', state, 'retained original reason')
+                        value['summary'].update(passed=2, failed=int(state.startswith('Failed')),
+                                                skipped=int(not state.startswith('Failed')))
+                    report = compare(b, c, **self.scope)
+                    self.assertFalse(report['draft_eligible'])
+                    self.assertEqual(report['reviewed_unrelated_failures'], [])
+                    self.assertTrue(any('ambiguous repeated' in x for x in report['blockers']))
+
+    def test_repeated_affected_group_requires_every_execution_passed(self):
+        b = run('a', [test('Animal.Counter'), test('Animal.Counter')])
+        c = run('b', [test('Animal.Counter'), test('Animal.Counter', 'Failed', 'regression')])
+        report = compare(b, c, **self.scope)
+        self.assertIn('affected test missing or not passed: Animal.Counter', report['blockers'])
+        self.assertIn('Animal.Counter', report['unresolved_failures'])
+
+    def test_repeated_group_still_checks_every_leaf_and_summary(self):
+        for change in ('unknown', 'missing_reason', 'summary', 'bad_stack'):
+            with self.subTest(change=change):
+                c = run('b', [test('Animal.Counter'), test('Animal.Counter')])
+                if change == 'unknown': c['tests'][-1]['state'] = 'Running'
+                elif change == 'missing_reason': c['tests'][-1]['state'] = 'Failed'
+                elif change == 'summary': c['summary']['total'] = 1
+                else: c['tests'][-1]['stackTrace'] = 42
+                with self.assertRaises(ComparisonError):
+                    compare(self.baseline, c, **self.scope)
 
     def test_normalization_preserves_site_but_ignores_paths_and_line_shifts(self):
         self.candidate["tests"][1]["stackTrace"] = (

@@ -62,7 +62,13 @@ credentials into evidence. The tests array contains every leaf outcome,
 not just failures. Parse counts from actual results, not discovery progress or exit codes. Failed-job MCP polls
 that hide results are gaps until the same finished job's actual complete result is retrieved read-only. Use
 bounded pages or a compact projection of every leaf's fullName/state/message/stackTrace plus the actual summary
-when a transport cannot return the full verbose result. Validate counts and unique identities after assembly.
+when a transport cannot return the full verbose result. Validate every leaf and the full counts after assembly.
+NUnit may emit the same `fullName` for distinct array-valued parameterized cases. Retain every execution,
+without deduplicating or renaming it. The comparator groups exact names and records `duplicate_executions`:
+only equal execution counts with every leaf passed on both sides can be compared without separate stable
+identities. A repeated group containing any failure/skip, or any count change, remains blocked; a review
+cannot waive this ambiguity. All affected executions must pass. Reuse complete retained reports after a
+comparator upgrade; no Unity rerun or altered result/digest is needed for passing duplicate groups.
 Once complete results and input identity are saved, checkpoint and release promptly; compare offline after
 controller settlement, rather than holding the shared Editor while writing the diagnosis.
 

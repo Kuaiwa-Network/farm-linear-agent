@@ -485,6 +485,14 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
                      bot_name="FarmBot", write_repositories=(), root_repository=None, prior_context=None,
                      tools=None, reads=None):
     text = authority(item.get("skill"))  # refuses a skill that states no grants, before any payload exists
+    if item.get('stage') == 'client-comparison-recheck':
+        text += (' Host operator resumed this settled Client evidence gap after a comparator correction. '
+                     'Preserve the original baseline/candidate, complete raw outcomes, QA, resource identities and diagnostic budget. '
+                     'Recompare the retained reports offline, complete source/setup/transitive-resource failure attribution, '
+                     'and inspect draft_eligible for every required mode before publication/finish. '
+                     'This is not a human reply or a passed gate. Do not merge main or rerun the baseline/full suites '
+                     'to repair report parsing or absolute-clock diagnostic differences. A genuinely missing required '
+                     'observation follows the existing bounded diagnostic rules on the original candidate.')
     if item.get('skill') == 'fgui' and item.get('stage') == 'client-scope-recheck':
         text += (
             ' The host operator resumed this technical scope wait after a controller correction. '
