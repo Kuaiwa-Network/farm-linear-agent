@@ -254,6 +254,15 @@ def _serve(components):
                                     "server_slots": components.config.server_slots.get("count", 0),
                                     "enabled_skills": sorted(components.skills)})
     heartbeat_path = Paths(components.config).heartbeat
+    components.scheduler.maintenance_epoch = heartbeat.payload()['started_at']
+    components.scheduler.maintenance_resources = getattr(components.pool, 'maintenance_blockers', None)
+    def maintenance_busy():
+        loops = heartbeat.payload()['loops']
+        names = ('pool', 'server_pool', 'resource_recovery', 'go_dependencies')
+        return [name for name in names if name in loops and (
+            loops[name]['consecutive_errors'] or
+            (loops[name]['started_at'] or 0) > (loops[name]['finished_at'] or 0))]
+    components.scheduler.maintenance_busy = maintenance_busy
     # The receiver's handler counts each /webhook outcome into it (receiver.make_server).
     components.server.heartbeat = heartbeat
     beat_lock = threading.Lock()
@@ -334,6 +343,9 @@ def _serve(components):
     if components.go_dependencies is not None:
         components.go_dependencies.stop = stop.is_set
         def dependencies_once():
+            from .maintenance import Maintenance
+            if Maintenance(components.go_dependencies.ledger).requested():
+                return 2.0
             return .1 if components.go_dependencies.tick() else 2.0
         threads.append(threading.Thread(target=guarded('go_dependencies', dependencies_once), daemon=True))
     if components.server_pool is not None:
@@ -430,7 +442,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(prog="python3 -m agent.service")
     parser.add_argument("command", choices=["configure", "serve", "status", "seed-clones", "install-launchd",
                                             "enqueue", "slots", "doctor", "recover-worker-cleanup", "monitor",
-                                            "recover-server-slot"])
+                                            "recover-server-slot", "maintenance-pause", "maintenance-status",
+                                            "maintenance-resume"])
     parser.add_argument("--config")
     parser.add_argument("--from", dest="source_root", help="directory holding local checkouts to seed from")
     parser.add_argument("--issue", help="Linear issue id or identifier to enqueue work for")
@@ -440,6 +453,23 @@ def main(argv=None):
     parser.add_argument("--slot", help="held server slot to reconcile through verified Docker cleanup")
     parser.add_argument("--reason", help="operator explanation for cleanup recovery")
     args = parser.parse_args(argv)
+    if args.command.startswith('maintenance-'):
+        from .maintenance import Maintenance, read_status
+        config = load_config(args.config, secure_permissions=args.command != 'maintenance-status')
+        check_ownership(config, require_initialized=True)
+        if args.command == 'maintenance-pause' and not args.reason:
+            parser.error('maintenance-pause requires --reason')
+        if args.command != 'maintenance-status':
+            ledger = Ledger(Paths(config).ledger)
+            try:
+                if args.command == 'maintenance-pause':
+                    Maintenance(ledger).pause(args.reason)
+                else:
+                    Maintenance(ledger).resume()
+            finally:
+                ledger.close()
+        print(json.dumps(read_status(config), ensure_ascii=False, indent=2))
+        return 0
     if args.command == "recover-server-slot":
         if not args.slot or not args.reason:
             parser.error("recover-server-slot requires --slot and --reason")

@@ -275,7 +275,8 @@ def _resource_waits(db, schema, now, beat_state, beat):
     return result
 
 
-def _jobs(rows, times, prs, unity_queue, now, beat_state, beat, renew_seconds, resource_waits=None):
+def _jobs(rows, times, prs, unity_queue, now, beat_state, beat, renew_seconds, resource_waits=None,
+          maintenance=False, admitted=()):
     waiting = sorted((row for row in rows if _display_state(row, now) == "queued"),
                      key=lambda row: (row["priority"] if type(row["priority"]) is int else 0,
                                       _time(row["created_at"]) or 0, row["id"]))
@@ -289,6 +290,10 @@ def _jobs(rows, times, prs, unity_queue, now, beat_state, beat, renew_seconds, r
         server_wait = (resource_waits or {}).get(row["id"]) if row["state"] == "awaiting_resource" else None
         if server_wait:
             position = server_wait.get("position") or 1
+        if maintenance and row['state'] in ('queued', 'running', 'awaiting_resource'):
+            display = ('maintenance_handoff' if row['state'] == 'running' or row['worker_pid'] is not None
+                       or row['id'] in admitted else 'maintenance_paused')
+            position, server_wait = None, None
         jobs.append({"identifier": _text(row["identifier"], 32), "title": _text(row["title"], 200),
                      "url": _linear_url(row["url"]), "skill": _text(row["skill"], 32), "state": row["state"],
                      "display_state": display, "stage": _text(row["stage"], 120),
@@ -462,6 +467,11 @@ def _read_ledger(db, now, beat_state, beat, renew_seconds):
     for row in rows:
         counts[row["state"]] += 1
     service = {}
+    from .maintenance import request as maintenance_request
+    maintaining = maintenance_request(db) is not None
+    admitted = ({r['item_id'] for r in db.execute("SELECT item_id FROM reservations WHERE state IN "
+                                                "('active','cancel_requested')")}
+                if maintaining and _has(schema, 'reservations', 'item_id', 'state') else set())
     if _has(schema, "webhook_events", "received_at"):
         service["agent_event_at"] = _time(db.execute("SELECT MAX(received_at) FROM webhook_events").fetchone()[0])
     if _has(schema, "issue_checks", "checked_at", "error"):
@@ -469,7 +479,8 @@ def _read_ledger(db, now, beat_state, beat, renew_seconds):
             COUNT(error) AS failing FROM issue_checks""").fetchone()
         service["linear"] = {"last_ok_at": _time(row["ok"]), "failing_issues": row["failing"]}
     jobs = _jobs(rows, _audit_times(db, schema, [row["id"] for row in rows]), prs, queue or [], now,
-                 beat_state, beat, renew_seconds, _resource_waits(db, schema, now, beat_state, beat))
+                 beat_state, beat, renew_seconds, _resource_waits(db, schema, now, beat_state, beat),
+                 maintenance=maintaining, admitted=admitted)
     sections = {"counts": counts, "active": jobs,
                 "slots": None if slots is None else [{key: slot[key] for key in SLOT_FIELDS} for slot in slots],
                 "unity_queue": None if queue is None else len(queue),
@@ -592,6 +603,8 @@ def build_status(ledger_path, *, heartbeat, health, instance, monitor_revision, 
         with snapshot_connection(ledger_path) as db:
             sections, service, ledger_attention, missing = _read_ledger(db, now, beat_state, beat,
                                                                         renew_seconds or {})
+            from .maintenance import status as maintenance_status
+            service['maintenance'] = maintenance_status(db, heartbeat, now)
     except (sqlite3.Error, OSError, ValueError) as exc:
         document["ledger"]["error_type"] = type(exc).__name__
     else:

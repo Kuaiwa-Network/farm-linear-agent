@@ -52,6 +52,32 @@ python3 -m agent.service doctor                    # read-only JSON diagnostics 
 python3 -m agent --db .local/agent/ledger.sqlite3 status
 ```
 
+For a planned shutdown, first request a cooperative maintenance pause. On Windows,
+use the installed Python executable and the production config's absolute path:
+
+```powershell
+python -m agent.service maintenance-pause --config C:\FarmBot\config.json --reason "planned upgrade"
+python -m agent.service maintenance-status --config C:\FarmBot\config.json
+# Wait for ready_to_stop: true; then perform the separately authorized complete deployment.
+# After startup verification, explicitly resume the same instance:
+python -m agent.service maintenance-resume --config C:\FarmBot\config.json
+```
+
+On macOS use `python3` with the same commands and the host's config path.
+The pause blocks new worker/resource admission, lets in-flight tests finish and
+asks workers to checkpoint and hand off. Already admitted resource workers may
+start only to collect results and release their reservation. Monitor and the
+read-only `maintenance-status`/`doctor` report the remaining blockers. A missing
+or stale controller confirmation never means it is safe to stop. No command here
+stops the service, kills a worker, deploys code or changes a Linear issue.
+
+The pause persists across restart until `maintenance-resume`. A completed
+maintenance handoff retires the old claim and preserves its candidate, reports,
+stage and retry budgets; after verified process teardown it can resume without
+waiting for the old lease. Uncooperative or older workers remain a visible blocker
+until they finish safely. See [the maintenance contract](docs/operating-contract.md#cooperative-maintenance-pause)
+for rollout and rollback constraints.
+
 To prepare a dedicated npm Codex runtime, use the
 [runtime preparation command](docs/codex-runtime.md). It installs the latest
 release into a fresh candidate directory and records the exact version and package

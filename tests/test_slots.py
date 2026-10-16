@@ -9,7 +9,7 @@ import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import agent.worktrees
 from agent.launcher import Launcher, RUNTIMES, Unsandboxed
@@ -675,6 +675,27 @@ class SwitchTests(SlotFixture):
 
 
 class PoolTests(SlotFixture):
+    def test_maintenance_between_switch_and_batch_does_not_start_a_test_or_spend_retry(self):
+        from agent.maintenance import Maintenance
+        self.pool().ensure()
+        candidate = self.trees.resolve_commit('Farm-Client')
+        item = self.waiting(ISSUE, candidate, 'batch')
+        runner = Mock(side_effect=AssertionError('maintenance must not start a batch'))
+        pool = self.pool(mcp=FakeMcp(), run_unsandboxed=runner)
+        switch = pool.switch
+        def pause_after_switch(*args):
+            switch(*args)
+            Maintenance(self.ledger).pause('maintenance during preparation')
+        with patch.object(pool, 'switch', side_effect=pause_after_switch):
+            self.assertEqual(pool.tick()['granted'], 1)
+        runner.assert_not_called()
+        summary = json.loads((self.root/'runs'/item/'unity-batch.json').read_text(encoding='utf-8'))
+        self.assertEqual(summary['state'], 'deferred_maintenance')
+        self.assertIsNone(summary['results_file'])
+        self.assertEqual(summary['commit_sha'], candidate)
+        self.assertEqual(self.ledger.active_reservation(item)['attempts'], 0)
+        self.assertEqual(self.ledger.item(item)['state'], 'queued')
+
     """The pool thread's loop: grant a queued request, switch the slot, hand it over, settle it afterwards."""
 
     def test_startup_timeout_preserves_live_import_and_queues_exact_commit_recovery(self):

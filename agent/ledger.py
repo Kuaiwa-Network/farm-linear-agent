@@ -23,6 +23,7 @@ from . import memory
 from .attention import QUESTION_KEY, question_from
 from .publication import SUFFIXES, PublicationError, is_issue_branch, issue_branch, suffix_of
 from .resource_recovery import RecoveryStore, SCHEMA as RECOVERY_SCHEMA
+from .maintenance import Maintenance, SCHEMA as MAINTENANCE_SCHEMA
 from .router import CONVERSATION_SKILLS, WRITE_SKILLS
 from .stages import current_root
 from .withdrawal import DEFAULT_GRACE_SECONDS, SILENT_GRACE_SECONDS
@@ -638,6 +639,7 @@ class Ledger:
                 );
             """)
             self.connection.executescript(RECOVERY_SCHEMA)
+            self.connection.executescript(MAINTENANCE_SCHEMA)
             # Columns added after the first ledgers were written; CREATE TABLE IF NOT EXISTS leaves those files as they were.
             for table, column, declaration in (("reservations", "server_test_plan", "TEXT"),
                                                 ("reservations", "wait_detail", "TEXT"),
@@ -728,6 +730,7 @@ class Ledger:
         result["task_request"] = json.loads(row["task_request"]) if row["task_request"] else None
         from .resource_recovery import RecoveryStore
         result['candidate_repair'] = RecoveryStore(self).candidate_context(row['id'], row['generation'])
+        result['maintenance_requested'] = Maintenance(self).requested()
         return result
 
     def _audit(self, item_id, kind, reason="", details=None):
@@ -1184,7 +1187,8 @@ class Ledger:
     def launched(self):
         """Queued items whose worker was spawned but has not claimed yet."""
         rows = self.connection.execute("SELECT * FROM work_items WHERE state='queued' AND worker_pid IS NOT NULL "
-                                       "AND next_root_repo IS NULL ORDER BY created_at, id")
+                                       "AND next_root_repo IS NULL AND NOT EXISTS (SELECT 1 FROM maintenance_handoffs m "
+                                       "WHERE m.item_id=work_items.id AND m.completed_at IS NULL) ORDER BY created_at, id")
         return [{**self._view(row), "updated_at": row["updated_at"]} for row in rows]
 
     def repository_handoffs(self):
@@ -1264,6 +1268,8 @@ class Ledger:
                 raise LedgerError("only a queued work item can be claimed")
             if row["next_root_repo"] is not None:
                 raise LedgerError("previous worker has not finished teardown")
+            if Maintenance(self).pending(item_id):
+                raise LedgerError("maintenance handoff awaits proven worker teardown")
             if row["retry_not_before"] > self.clock():
                 raise LedgerError("automatic retry delay has not elapsed")
             if row["parent_id"]:
@@ -2032,6 +2038,8 @@ class Ledger:
         _text(owner, "owner")
         _text(host, "host")
         with self._transaction():
+            if Maintenance(self).requested():
+                return None
             from .resource_queue import continuation_slot, queued_rows
             row = next(iter(queued_rows(self.connection, kind=kind)), None)
             if row is None or expected_reservation is not None and row["reservation_id"] != expected_reservation:

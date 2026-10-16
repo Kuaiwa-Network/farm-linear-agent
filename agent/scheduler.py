@@ -11,6 +11,7 @@ from .config import LARK_CLI_SKILLS
 from .dispatch import dispatch_message
 from .launcher import _read_worker_text
 from .ledger import ACTIVE_STATES, LedgerError, plan_issue_branches
+from .maintenance import Maintenance
 from .kw_ops import SERVER as KW_OPS_SERVER, resolve as resolve_kw_ops
 from .lark_cli import tools as lark_tools
 from .memory import publish_snapshot
@@ -74,6 +75,9 @@ class Scheduler:
         self.slot_entries = slot_entries or {}
         self.active = {}
         self.lock = threading.RLock()
+        self.maintenance_busy = lambda: ()
+        self.maintenance_epoch = None
+        self.maintenance_resources = None
 
     def _branch(self, issue, *, suffixes=()):
         canonical = issue_branch(issue.get('identifier'), self.issue_prefix)
@@ -193,6 +197,8 @@ class Scheduler:
                     "result": "the pool recorded no batch run for this reservation"}
 
     def launch(self, item):
+        if not Maintenance(self.ledger).may_launch(item['id']):
+            return None
         current = self.ledger.item(item["id"])
         if current["state"] != "queued" or current["retry_not_before"] > self.ledger.clock():
             return None
@@ -369,6 +375,8 @@ class Scheduler:
             # Every attempt, including resumes, uses the controller's selected file.
             # Do not mutate os.environ: another controller/test may live in this process.
             worker_env["FARMBOT_CONFIG"] = str(self.config_path)
+        if not Maintenance(self.ledger).may_launch(item['id']):
+            return None
         handle = self.launcher.spawn(item["id"], message, servers, int(skill.budget["max_hours"] * 3600), cwd=primary,
                                      extra_env=worker_env,
                                      writable=[Path(self.db_path).parent, *source_roots],
@@ -522,6 +530,10 @@ class Scheduler:
             self.active.pop(finished.item_id, None)
             item = self.ledger.item(finished.item_id)
             state = item["state"]
+            if Maintenance(self.ledger).pending(finished.item_id):
+                # The claim was retired deliberately. settle() still proves all descendants gone.
+                reaped += 1
+                continue
             if (state == "queued" and item["next_root_repo"] is not None
                     and item["worker_pid"] == finished.worker_pid):
                 try:
@@ -612,6 +624,7 @@ class Scheduler:
     def _recover(self):
         recovered = 0
         now = self.ledger.clock()
+        Maintenance(self.ledger).settle(self.launcher)
         for row in self.ledger.repository_handoffs():
             item_id, pid = row["id"], row["worker_pid"]
             if item_id in self.active:
@@ -793,6 +806,8 @@ class Scheduler:
         Batch runs execute in the pool without a worker and keep their own capacity.
         """
         with self.lock:
+            if Maintenance(ledger).requested():
+                return None
             request = next(iter(ledger.reservation_queue(kind)), None)
             if request is None:
                 return None
@@ -914,6 +929,8 @@ class Scheduler:
         launched = 0
         for item in queue:
             with self.lock:
+                if not Maintenance(self.ledger).may_launch(item['id']):
+                    continue
                 task_enabled = (item.get("parent_id") and "work" in self.enabled_skills
                                 and self.ledger.item(item["parent_id"])["state"] not in TERMINAL)
                 if item["skill"] in self.skills and item["skill"] not in self.enabled_skills and not task_enabled:
@@ -972,4 +989,8 @@ class Scheduler:
                         launched += 1
                 except Exception as exc:
                     self._fail_launch(item["id"], exc)
+        with self.lock:
+            Maintenance(self.ledger).observe(self.launcher, self.maintenance_busy(),
+                                              controller_started_at=self.maintenance_epoch,
+                                              resource_check=self.maintenance_resources)
         return {"launched": launched, "reaped": reaped, "recovered": recovered}

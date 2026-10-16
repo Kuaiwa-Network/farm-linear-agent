@@ -158,6 +158,7 @@ class SlotPool:
         self.worker_acquire = worker_acquire
         self._process_unknown_since = {}
         self._fixed_prepared = False
+        self._maintenance_observation = None
         self.last_observation = None
         self._batches = {}
         self._batch_executor = (ThreadPoolExecutor(max_workers=max(1, len(self.entries)),
@@ -251,6 +252,9 @@ class SlotPool:
 
     def warm_editors(self):
         """Open each owned project once; a failed start uses the existing bounded recovery lane."""
+        from .maintenance import Maintenance
+        if Maintenance(self.ledger).requested():
+            return 0
         if not self.keep_open or not self._fixed_prepared:
             return 0
         from contextlib import nullcontext
@@ -342,11 +346,49 @@ class SlotPool:
         if self.keep_open and not self._fixed_prepared:
             return {"settled": 0, "granted": 0, "parked": 0}
         completed = self._finish_batches()
-        if self.keep_open:
+        from .maintenance import Maintenance
+        maintaining = Maintenance(self.ledger).requested()
+        if self.keep_open and not maintaining:
             self.ledger.interactive_unity_requests(self.host)
             self.warm_editors()
-        self.close_idle_for_memory()
-        return {"settled": self.settle(), "granted": completed + self.grant(), "parked": self.park_idle()}
+        if not maintaining:
+            self.close_idle_for_memory()
+        result = {"settled": self.settle(), "granted": completed + self.grant(), "parked": self.park_idle()}
+        if maintaining:
+            self._observe_maintenance()
+        return result
+
+    def _observe_maintenance(self):
+        """Probe on the pool thread, never under the scheduler lock or on its DB connection."""
+        from .maintenance import request
+        current = request(self.ledger.connection)
+        previous = self._maintenance_observation
+        if not current or (previous and previous['request_id'] == current['request_id']
+                           and 0 <= self.clock() - previous['checked_at'] < 5):
+            return
+        blockers = []
+        for slot in self.ledger.slots(kind='unity_slot', host=self.host):
+            try:
+                if slot['state'] == 'idle_open':
+                    quiet = self.mcp is not None and self.mcp.quiescent(slot, 'interactive')
+                elif slot['state'] == 'idle_closed':
+                    quiet = not self.editor_is_open(slot)
+                else:
+                    quiet = False
+            except Exception:
+                quiet = False
+            if not quiet:
+                blockers.append({'code': 'resource_probe', 'subject': slot['slot_id']})
+        # Assignment replaces the entire immutable snapshot; the scheduler only reads it.
+        self._maintenance_observation = {'request_id': current['request_id'],
+                                        'checked_at': self.clock(), 'blockers': blockers}
+
+    def maintenance_blockers(self, current):
+        observed = self._maintenance_observation
+        if (not observed or observed['request_id'] != current['request_id']
+                or not 0 <= self.clock() - observed['checked_at'] <= 15):
+            return [{'code': 'resource_probe', 'subject': 'unity_pool'}]
+        return list(observed['blockers'])
 
     def close_idle_for_memory(self):
         """Configured heavy-resource admission may reclaim idle Editors, after the ordinary ownership probe."""
@@ -421,6 +463,9 @@ class SlotPool:
         Synchronous hand-overs retain one acquire per kind per tick, including retries.
         """
         granted = 0
+        from .maintenance import Maintenance
+        if Maintenance(self.ledger).requested():
+            return granted
         if self._draining_batches:
             return granted
         if self.keep_open and not self._fixed_prepared:
@@ -824,15 +869,34 @@ class SlotPool:
         # owner=: the only thread that could otherwise reach this Editor is this one, and it is about to
         # block in wait() for up to batch_timeout. Registering it under the item is what lets Scheduler.stop
         # and a service shutdown kill it.
+        from .maintenance import Maintenance
+        maintenance_deferred = False
+
+        def deferred_summary():
+            summary = {'state': 'deferred_maintenance', 'exit_code': None,
+                       'commit_sha': reservation['commit_sha'], 'reservation_id': reservation['reservation_id'],
+                       'results_file': None, 'log_file': None,
+                       'result': 'Maintenance requested before batch launch; no test ran. Resume this exact pin.'}
+            serialized = json.dumps(summary, indent=2)
+            _write_worker_file(evidence_dir / 'unity-batch.json', serialized)
+            _write_worker_file(state_dir / 'unity-batch.json', serialized)
+            return summary
+
         def cancelled():
+            nonlocal maintenance_deferred
             # An operator retry can clear the item's Stop fence while this old pool
             # invocation is still pending. Validate this reservation at the spawn
             # boundary, on the pool thread and its own SQLite connection.
             current = self.ledger.reservation(reservation["reservation_id"])
-            return current is None or current["state"] != "active"
+            maintenance_deferred = Maintenance(self.ledger).requested()
+            return maintenance_deferred or current is None or current["state"] != "active"
 
+        if Maintenance(self.ledger).requested():
+            return deferred_summary()
         run = self.run_unsandboxed(argv, cwd=slot["folder"], timeout=entry["batch_timeout"], log=None,
                                    owner=reservation["item_id"], cancelled=cancelled)
+        if maintenance_deferred:
+            return deferred_summary()
         summary = {"state": "ran", "exit_code": run.returncode, "seconds": round(run.seconds, 1),
                    "commit_sha": reservation["commit_sha"], "reservation_id": reservation["reservation_id"],
                    "results_file": str(results), "log_file": str(log),

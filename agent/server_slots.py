@@ -356,6 +356,9 @@ class ServerSlotPool:
                 settled += 1
             except Exception as exc:
                 self._hold(slot["slot_id"], "server settlement failed: " + type(exc).__name__)
+        from .maintenance import Maintenance
+        if Maintenance(self.ledger).requested():
+            return {"settled": settled, "granted": 0}
         for _ in range(self.settings["count"]):
             pending = [r for r in self.ledger.reservations(states=("queued",)) if r["kind"] == "server_slot"]
             def waiting(request, blockers, **extra):

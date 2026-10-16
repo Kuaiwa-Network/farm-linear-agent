@@ -554,6 +554,11 @@ def diagnose(config, *, now=None):
         return report
     withdrawal, unclosed, silent = snapshot.pop("_withdrawal"), snapshot.pop("_unclosed"), snapshot.pop("_silent")
     report.update(snapshot)
+    from .maintenance import read_status as maintenance_status
+    try:
+        report['maintenance'] = maintenance_status(config)
+    except (OSError, ValueError, sqlite3.Error):
+        report['maintenance'] = {'state': 'unknown', 'ready_to_stop': False}
     report["counts"]["total"] = sum(report["counts"].values())
     rooted = {name: skill for name, skill in loaded.items() if skill.initial_root}
     for job in report["jobs"]:

@@ -26,6 +26,7 @@
     job_failed: ["工作失败", "请查看 Linear 中的错误说明，处理后回复「重试」。"],
   };
   const STATE = {
+    maintenance_paused: ["维护暂停", "neutral"], maintenance_handoff: ["维护收尾中", "info"],
     queued: ["排队中", "neutral"], launching: ["正在启动", "info"], switching_repo: ["切换仓库", "info"],
     retry_wait: ["等待重试", "neutral"], running: ["处理中", "info"], awaiting_input: ["等待回复", "warn"],
     awaiting_resource: ["等待资源", "neutral"], waiting_for_recovery: ["等待 Unity 修复", "warn"],
@@ -226,8 +227,21 @@
     const rows = items.map((item) =>
       row("pair", cell("main", (ATTENTION[item.code] || (() => item.code))(item, work)),
           cell("side muted", item.since ? timed(() => since(item.since)) : "")));
-    byId("attention").hidden = items.length === 0;
-    byId("attention-count").textContent = items.length ? ` · ${items.length}` : "";
+    const maintenance = doc.service.maintenance;
+    if (maintenance && maintenance.state !== "off") {
+      const labels = {controller_busy: "控制器操作未结束", worker_teardown: "等待 worker 和子进程退出",
+        worker_handoff: "等待 worker 保存交接点", resource_active: "资源仍在使用",
+        resource_unsettled: "资源尚未安全收尾", controller_unconfirmed: "尚无当前控制器的有效确认"};
+      labels.resource_probe = "Unity 尚未确认静默（测试、编译、PlayMode 或连接未就绪）";
+      rows.unshift(row("pair", cell("main", maintenance.ready_to_stop ?
+        "维护暂停：任务已安全交接，可以停机；重启后须恢复调度" : "维护暂停：正在等待安全交接，暂不可停机")));
+      for (const blocker of maintenance.blockers) {
+        rows.push(row("pair", cell("main", labels[blocker.code] || "等待维护交接"),
+          cell("side muted", blocker.subject || "")));
+      }
+    }
+    byId("attention").hidden = rows.length === 0;
+    byId("attention-count").textContent = rows.length ? ` · ${rows.length}` : "";
     byId("attention-rows").replaceChildren(...rows);
   }
 
