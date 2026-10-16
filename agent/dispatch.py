@@ -469,6 +469,17 @@ SKILL_AUTHORITY["scene"] = (
 
 
 SERVER_TEST_AUTHORITY = (
+    "A server reservation fixes resource.commit for the entire verification round. On resource resume, "
+    "maintenance recovery or ordinary retry, validate the owned clean HEAD and use the retained reports; "
+    "do not fetch-and-merge main, release/requeue, rebuild or retest solely because main advanced. This "
+    "overrides generic fresh-base/base-drift instructions for an already selected server candidate. "
+    "The host pins the candidate's verified upstream base when requesting services, and draft publication "
+    "uses that base after a quiescent server release while still checking its ancestry of actual main. "
+    "Report candidate, selected base and current main separately; newer main is not tested by this round. "
+    "Changed requirements, an actual candidate defect or a concrete required input correction may need "
+    "a new candidate; record the specific cause and preserve old evidence. Tip movement alone is not "
+    "such a cause. Complete the fixed candidate's required checks and normal delivery instead of "
+    "chasing a green/current main. Never overwrite or claim old-SHA reports certify changed source. "
     "Server test requests must include --server-test-plan FILE containing exactly packages (module-local Go "
     "paths), tests (exact top-level Test names, [] for all), and race (boolean). Declare the verification scope "
     "actually required by the issue; do not drop required race or coverage to obtain a cheaper tier. The host "
@@ -501,6 +512,14 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
                      bot_name="FarmBot", write_repositories=(), root_repository=None, prior_context=None,
                      tools=None, reads=None):
     text = authority(item.get("skill"))  # refuses a skill that states no grants, before any payload exists
+    if item.get('stage') == 'server-candidate-recheck':
+        text += (' The host operator restored a retained server candidate after an unwanted main-only merge. '
+                 'Read state_dir/operator-server-candidate-recovery.json and verify its candidate, generation, '
+                 'backup ref and report hashes against the clean owned HEAD. The saved newer-main handoff is '
+                 'historical, not an instruction to repeat that merge. Preserve every prior report; reuse only '
+                 'evidence bound to the restored SHA and matching inputs. Request the missing server validation '
+                 'for that exact candidate, without merging main or rerunning already valid native gates. '
+                 'No full-suite pass is implied by recovery. Keep all resource, publication and finish gates.')
     if item.get('stage') == 'client-comparison-recheck':
         text += (' Host operator resumed this settled Client evidence gap after a comparator correction. '
                      'The claim JSON returns the secret in the top-level field token (not claim_token). '

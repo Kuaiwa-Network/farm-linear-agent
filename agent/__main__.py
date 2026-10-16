@@ -1005,6 +1005,11 @@ def run(args, ledger, api_factory):
                             options['verified_base'] = pair['baseline_commit']
                 trees.verification_commit("farm-hive" if server_request else "Farm-Client",
                                           args.item, args.commit, require_main=not server_request, **options)
+                if server_request:
+                    server_round = ledger.server_verification_round(args.item, args.commit)
+                    request_options['server_base_commit'] = trees.server_verification_base(
+                        'farm-hive', args.item, args.commit,
+                        verified_base=server_round['base_commit'] if server_round else None)
         elif (args.resource == "unity_slot" and item["skill"] == "fix"
                 and current_root(item["root_repo"], skill) == "Farm-Client"
                 and (item.get("target") or {}).get("repository") == "Farm-Client"):

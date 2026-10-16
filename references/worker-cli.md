@@ -959,3 +959,14 @@ tools that only read a repository at it (for example `FARM_CONTRACT=` a Farm-Con
 files in it are pointers, never their content. Each later attempt refreshes it, except a publication
 retry, which keeps it as it was, so record the commit you used (`git rev-parse HEAD` in it) where it
 matters. FarmBot removes it with your job's worktrees.
+
+
+Server verification requests record a controller-verified upstream base for the exact
+clean farm-hive candidate. That candidate remains fixed across queue waits and maintenance.
+A later main tip does not require a new merge or another lease. Once a server reservation
+for this round is released quiescent, `verify-publication` returns `server_verification_round`
+and `main_integration.current_main`, proving the selected base still belongs to actual main.
+Neither the round nor a released lease proves tests passed. Preserve complete test evidence,
+required coverage and normal publication/finish gates. A different candidate or generation
+cannot borrow the round. Legacy leases without a recorded base have no publication exemption;
+new requests capture a trusted base without requiring the candidate to chase the current tip.

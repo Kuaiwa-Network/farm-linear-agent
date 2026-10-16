@@ -201,3 +201,10 @@ The legacy code capability's E gate becomes this verified task join; a separate
 human merge of the UI draft is unnecessary for same-issue Client integration.
 Keep the task's verified changes on the owned branch and include every task's
 draft PR in the general delivery comment/evidence.
+
+
+Service verification follows feature stage D's fixed candidate round. A queued or resumed
+server lease is for its recorded commit; generic main refresh does not restart the round.
+Reuse exact-candidate evidence after maintenance. Do not release/requeue or merge a newer
+main just because its tip moved. Publication still verifies the configured destination,
+current delegation and the round's pinned upstream ancestry; no old report verifies a new SHA.

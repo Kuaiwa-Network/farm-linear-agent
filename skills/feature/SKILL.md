@@ -552,6 +552,9 @@ A card that no longer carries Bot/Code is a question, not a stop.
   numbers), which checks ran and which did not, the merge preconditions the stage names, the CI it expects
   (`references/repo-map.md`), the unrelated drift a generator brought, listed, and suspected designer defects,
   asked about. Register each PR in `published_prs` and in `plan.prs`.
+- For a server candidate already selected for service verification, the fixed server-round rule in
+  stage D takes precedence over the following base-drift rule. Complete that round without merging
+  merely because main advanced; do not invalidate unchanged candidate evidence on resume.
 - Base drift: on every resume and before every merge request, fetch the root's default branch. When a PR's base
   moved in files the job owns (Farm-Contract's `MANIFEST.sha256` and README inventory, common's inventory and count
   constants, farm-hive's `config/pb` and `toolchain.env`), merge the default branch into the PR branch, regenerate
@@ -798,7 +801,15 @@ section. A contract change enters farm-hive at its plan: its behaviour is settle
    When `tools.server_tests.status` is `configured`, commit the intended server candidate,
    checkpoint its SHA and service-backed test selection, request
    `await-resource --resource server_slot --mode batch --commit FULL_HEAD_SHA --server-test-plan STATE_DIR/server-tests.json`, and
-   exit. On resume verify `resource.commit`, use only `resource.environment` for
+   exit. This starts a fixed server verification round: keep that candidate through queue waits,
+   maintenance, testing and draft publication. The controller records its trusted upstream base.
+   Do not merge main, abandon the lease, repeat native gates or requeue solely because a later
+   fetched tip is not an ancestor. Inspect real issue/input changes separately; change candidate
+   only for a concrete required correction, preserving all old reports with their exact SHA.
+   After quiescent release, `verify-publication` accepts the round's exact candidate and pinned
+   base while rechecking that base still belongs to actual main. This is ancestry evidence, not
+   a test pass or a claim that newer main was verified. Keep all normal test/delivery gates.
+   On resume verify `resource.commit`, use only `resource.environment` for
    Mongo/Redis/etcd/NATS, and run the repository's service-backed checks inside this
    worker. Declare exact packages, Test names and race in that JSON as described in
    `references/worker-cli.md`; execute `resource.test_argv` within its declared

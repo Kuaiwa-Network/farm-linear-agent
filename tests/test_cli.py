@@ -429,6 +429,10 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result["target"]["commit_sha"], baseline)
         self.assertEqual(ledger.reservations()[0]["commit_sha"], candidate)
         self.assertEqual(ledger.reservations()[0]["server_test_plan"], selection)
+        server_round = ledger.server_verification_round(item, candidate)
+        self.assertEqual(server_round['base_commit'], baseline)
+        self.assertEqual(server_round['candidate_commit'], candidate)
+        self.assertIsNone(ledger.server_verification_round(item, candidate, require_released=True))
 
     def test_await_resource_can_select_committed_fix_without_changing_baseline(self):
         item, token, baseline, fixed, path = self.verification_fixture()

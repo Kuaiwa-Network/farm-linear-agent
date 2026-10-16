@@ -700,6 +700,24 @@ class Worktrees:
                 raise VerificationMismatch("verification requires a clean worktree after main integration")
         return commit
 
+    def server_verification_base(self, repo, item_id, candidate, *, verified_base=None):
+        """Freeze the candidate's trusted upstream ancestry, not a moving main tip."""
+        if repo != "farm-hive":
+            raise VerificationMismatch("server verification requires farm-hive")
+        self.verification_commit(repo, item_id, candidate)
+        path = self.worktrees_root.resolve() / item_id / repo
+        if verified_base is None:
+            self.fetch(repo)
+            _, main = self._origin_head(repo)
+            bases = self.git_in(path, "merge-base", "--all", main, candidate,
+                                env={**GIT_ENV, "GIT_NO_REPLACE_OBJECTS": "1"}).splitlines()
+            if len(bases) != 1:
+                raise VerificationMismatch("server candidate needs one unambiguous trusted upstream base")
+            verified_base = bases[0]
+        proof = self.require_main_integration(repo, path, candidate, verified_base=verified_base)
+        self.verification_commit(repo, item_id, candidate)
+        return proof["commit"]
+
     def verification_baseline(self, repo, item_id, candidate, *, expected_branch=None):
         """Select actual remote main for comparison without changing the owned candidate."""
         self.verification_commit(repo, item_id, candidate, expected_branch=expected_branch)

@@ -1803,7 +1803,7 @@ class Ledger:
         return result
 
     def await_resource(self, item_id, token, resource, mode, *, skill, commit_sha=None, issue_prefix="FARM",
-                       comparison_candidate=None, server_test_plan=None, continuation=None):
+                       comparison_candidate=None, server_test_plan=None, continuation=None, server_base_commit=None):
         """Park the claimed item until the pool grants `resource`.
 
         The ledger reads no manifests: `skill` is the item's loaded skill, which the worker CLI passes, as for
@@ -1816,6 +1816,9 @@ class Ledger:
         if continuation is not None and (resource != 'unity_slot' or mode != 'interactive'
                 or comparison_candidate is not None or not isinstance(continuation, tuple) or len(continuation) != 2):
             raise LedgerError('only an interactive candidate can continue its completed baseline')
+        if server_base_commit is not None and (resource != "server_slot" or
+                not isinstance(server_base_commit, str) or not COMMIT_SHA.fullmatch(server_base_commit)):
+            raise LedgerError("server verification base requires a full host-verified server SHA")
         if server_test_plan is not None and resource != "server_slot":
             raise LedgerError("a server test plan requires server_slot")
         try:
@@ -1852,6 +1855,13 @@ class Ledger:
                     (reservation_id,item_id,generation,kind,mode,commit_sha,state,created_at,server_test_plan)
                     VALUES(?,?,?,?,?,?,'queued',?,?)""",
                     (reservation_id, item_id, row["generation"], resource, mode, commit_sha, self.clock(), _json(server_plan)))
+                previous = self.server_verification_round(item_id, commit_sha)
+                if previous and server_base_commit is not None and previous['base_commit'] != server_base_commit:
+                    raise LedgerError("the server candidate's verification base is immutable")
+                if server_base_commit is not None and previous is None:
+                    self._audit(item_id, "server_verification_round", "pinned candidate upstream base",
+                                {"generation": row["generation"], "candidate_commit": commit_sha,
+                                 "base_commit": server_base_commit, "reservation_id": reservation_id})
                 self._set_state(item_id, "awaiting_resource", "needs server_slot:batch", token=None,
                                 lease_expires_at=None, worker_pid=None, needs_resource="server_slot:batch")
                 self._audit(item_id, "reservation", "queued", details={"reservation_id": reservation_id,
@@ -1970,6 +1980,32 @@ class Ledger:
                         or details.get("commit_sha") != reservation["commit_sha"]):
                     raise LedgerError("baseline comparison identity is damaged; preserve recovery evidence")
                 return {"verification_role": "baseline", "candidate_commit": candidate}
+        return None
+
+    def server_verification_round(self, item_id, candidate, *, require_released=False):
+        """Host-recorded ancestry for one exact server candidate, never a test verdict."""
+        item = self._row(item_id)
+        if item['skill'] not in ('work', 'feature', 'fix') or not isinstance(candidate, str) or not COMMIT_SHA.fullmatch(candidate):
+            return None
+        for row in self.connection.execute("SELECT details FROM audit WHERE item_id=? AND kind='server_verification_round' ORDER BY id", (item_id,)):
+            record = json.loads(row['details'])
+            if record.get('generation') != item['generation'] or record.get('candidate_commit') != candidate:
+                continue
+            if not isinstance(record.get('base_commit'), str) or not COMMIT_SHA.fullmatch(record['base_commit']):
+                raise LedgerError("server verification base evidence is damaged")
+            original = self.reservation(record.get('reservation_id'))
+            if (not original or original['kind'] != 'server_slot' or original['item_id'] != item_id
+                    or original['generation'] != item['generation'] or original['commit_sha'] != candidate):
+                raise LedgerError("server verification reservation evidence is damaged")
+            if require_released:
+                released = self.connection.execute("""SELECT reservation_id FROM reservations WHERE item_id=?
+                    AND generation=? AND kind='server_slot' AND commit_sha=? AND sequence>=?
+                    AND state='released' AND release_reason='worker reported quiescent'
+                    ORDER BY sequence DESC LIMIT 1""", (item_id, item['generation'], candidate, original['sequence'])).fetchone()
+                if released is None:
+                    return None
+                record['released_reservation'] = released['reservation_id']
+            return record
         return None
 
     def client_verification_pair(self, item_id, candidate, *, require_candidate=False, candidate_reservation=None):
