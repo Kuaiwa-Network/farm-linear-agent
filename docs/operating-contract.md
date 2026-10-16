@@ -1201,10 +1201,17 @@ settlement before requesting the candidate normally. Claim, delegation, process 
 A complete full suite with unrelated existing failures need not block a draft when
 `python -m agent.test_baseline` returns `draft_eligible=true`: distinct recorded commits, identical selection
 and stable environment/config/package identities, complete nonzero leaf outcomes, no new/changed failures or skips,
-no removed tests, all affected tests passed, every matched failure reviewed against the actual diff, and all
+no removed tests, all affected tests passed, an explicit issue acceptance/diff scope reviewed, and all
 other required local checks passed. Missing/incomparable results remain gaps. The comparator is a read-only
 decision aid; it grants no publication authority and does not replace fresh `verify-publication` or main
-integration. The verdict is `passed_with_existing_failures`, with `full_suite_passed=false` and all retained
+integration. New comparisons use `issue_scope`, bound to the exact commits, complete changed-path list and
+affected-test selection with a requirements/diff review. Matching failures outside that behavioral boundary
+are retained baseline debt (`retained_baseline_failures`), without proving whole-package independence or
+root cause. Sharing a package, directory, fixture or loader alone does not establish impact. A concrete
+changed behavior/dependency, relevant observed regression or failure stack in changed source still blocks;
+all new/changed failures and required affected checks retain their gates. Unknown causes of unchanged
+outside-scope debt neither force diagnosis nor block completion. Reuse retained QA/reviews across handoffs.
+The verdict is `passed_with_existing_failures`, with `full_suite_passed=false` and all retained
 failures/skips explicitly listed in the draft. No merge/deploy waiver, suppressed tests or unrelated fixes.
 An eligible draft and all remaining required issue work/checks permit `finish delivered`; workers do not
 require a green baseline, wait for unrelated fixes on main or ask for another draft-delivery approval.
@@ -1218,8 +1225,10 @@ exclusive stopped-controller guard, fresh open/delegated issue state, no pending
 presentation task, certified process/resource settlement and the completed recorded pair. It preserves the
 generation, checkpoint, evidence and retry budgets; it neither invents a reply nor certifies any verdict.
 The resumed worker compares retained reports offline and finishes attribution and normal publication gates.
-If that resumed attempt fails in `client-comparison-recheck`, an operator may explicitly requeue it only
-when its latest operator comparison-resume audit matches the current generation and exact retained pair.
+If that resumed attempt fails in `client-comparison-recheck` or stops blocked in
+`client-diagnostic-complete-attribution-blocked`, an operator may explicitly requeue it only when its latest
+operator comparison-resume audit matches the current generation and original retained pair. A later
+same-candidate diagnostic does not replace the audited report reservation; a newer baseline invalidates it.
 The same maintenance, delegation and settlement checks apply, with no automatic retry or budget reset.
 Rollback requires stopping safely; older code may reject repeated names again, but no database/report rewrite
 or automatic test retry follows from this change.
@@ -1235,7 +1244,7 @@ deadlines. A larger baseline overrun alone does not block that otherwise identic
 a candidate overrun above one second still blocks even if the baseline was equally late or worse.
 The original messages, both operands and exact overshoots remain recorded, with a separate flag for
 a late baseline observation; this is not a diagnosis of the baseline delay. Arbitrary numbers,
-configured timeout changes, new/affected failures, changed dependencies and
+configured timeout changes, new/affected failures, concretely linked changed dependencies and
 environment drift are not exempt. Older evidence without this review remains strict; add reviewed evidence
 and recompare offline after upgrade. No ledger migration or historical result rewrite is required.
 See [evidence schema and procedure](../references/test-baseline.md). No schema migration: identity lives in
@@ -1244,10 +1253,11 @@ audit details. Settle active comparison reservations before rollback to code tha
 UI resources changed by the candidate are distinguished from environment drift only with both complete
 package inventories bound to their original recorded digests. Every observed changed path must be an exact
 Git change under `Assets/GameRes/FairyRes/`, with a reason/evidence review in `ui_resource_changes`. Retained
-failures also require individual `resource_review` evidence of unchanged complete resource dependencies,
+failures in legacy scopes without `issue_scope` also require individual `resource_review` evidence of unchanged complete resource dependencies,
 shared setup and loaders. Referenced assets' metadata and ancestor folder metadata are compared too.
 Package manifest/lock changes, config or host/settings drift, unlisted resources, changed failure dependencies,
-missing inventories and unreviewed failures still block the exception. Digests are never rewritten to match,
+missing inventories and unreviewed failures still block that legacy exception. With `issue_scope`, changed
+package membership alone does not force failure investigation; the behavioral acceptance boundary applies. Digests are never rewritten to match,
 and all resource deltas remain in the report. Identical skips are not called new just because environment
 identity differs. Old evidence without inventories retains strict package-digest matching; verified recorded
 inventories may be attached to copies of completed runs without altering their outcomes or original digests.

@@ -234,8 +234,28 @@ def _reviewed_clock_diagnostic(old, row, review, changed_paths):
             "review": diagnostic}
 
 
-def compare(baseline, candidate, *, affected_tests, unrelated_failures, changed_paths, ui_resource_changes=None):
-    """Allow draft consideration only for reviewed unchanged failures and zero regressions."""
+def _issue_scope(review, baseline, candidate, changed_paths, affected_tests):
+    """Bind the worker's behavioral scope review to this exact diff and selection.
+
+    This is an explicit review, not an inferred dependency graph. Package membership
+    alone is not behavioral impact. It grants no result, identity or publication waiver.
+    """
+    if review is None:
+        return None  # Retained legacy scopes keep their original strict interpretation.
+    if (not _reviewed(review) or review.get('baseline_commit') != baseline['commit']
+            or review.get('candidate_commit') != candidate['commit']):
+        raise ComparisonError('issue_scope requires reason/evidence and the exact baseline/candidate commits')
+    for key, expected in (('changed_paths', changed_paths), ('affected_tests', affected_tests)):
+        values = review.get(key)
+        if (not isinstance(values, list) or not all(isinstance(v, str) and v for v in values)
+                or len(set(values)) != len(values) or set(values) != set(expected)):
+            raise ComparisonError(f'issue_scope.{key} must match the complete comparison scope')
+    return review
+
+
+def compare(baseline, candidate, *, affected_tests, unrelated_failures, changed_paths, ui_resource_changes=None,
+            issue_scope=None):
+    """Require issue checks and zero regressions; retain unchanged failures outside reviewed scope."""
     before, after = _run(baseline), _run(candidate)
     if not isinstance(affected_tests, list) or not affected_tests or not all(
             isinstance(name, str) and name for name in affected_tests):
@@ -245,6 +265,7 @@ def compare(baseline, candidate, *, affected_tests, unrelated_failures, changed_
     if not isinstance(changed_paths, list) or not all(isinstance(path, str) and path for path in changed_paths):
         raise ComparisonError("changed paths must be an explicit list")
     changed_paths = [_path(path) for path in changed_paths]
+    issue_scope = _issue_scope(issue_scope, baseline, candidate, changed_paths, affected_tests)
     changes, blockers, packages_before, packages_after = _package_comparison(
         baseline, candidate, changed_paths, {} if ui_resource_changes is None else ui_resource_changes)
     for key in ("mode", "selection"):
@@ -282,7 +303,7 @@ def compare(baseline, candidate, *, affected_tests, unrelated_failures, changed_
         if not eligible_group:
             ambiguous.add(name)
             blockers.append(f"ambiguous repeated test executions (count change or non-passing outcome): {name}")
-    matched, reviewed, unresolved, new_skips, clock_diagnostics = [], [], [], [], []
+    matched, reviewed, retained, unresolved, new_skips, clock_diagnostics = [], [], [], [], [], []
     for name, group in sorted(after.items()):
         if name in ambiguous:
             if any(_outcome(row["state"]) == "failed" for row in group):
@@ -315,15 +336,18 @@ def compare(baseline, candidate, *, affected_tests, unrelated_failures, changed_
         if outcome == "skipped":
             continue
         matched.append(name)
-        if (not comparable or not _reviewed(review)
-                or (changes and not _resource_independent(review.get("resource_review"), packages_before, packages_after))):
+        if (not comparable or (issue_scope is None and (not _reviewed(review)
+                or (changes and not _resource_independent(review.get("resource_review"), packages_before, packages_after))))):
             unresolved.append(name)
             continue
         origin = _normalized(row.get("stackTrace"))
         if name in affected_tests or any(path in origin for path in changed_paths):
             unresolved.append(name)
             continue
-        reviewed.append(name)
+        if issue_scope is not None:
+            retained.append(name)  # Existing outside-scope failure, not a certified root-cause diagnosis.
+        else:
+            reviewed.append(name)
         if clock_diagnostic:
             clock_diagnostics.append({"fullName": name, **clock_diagnostic})
     if unresolved:
@@ -336,9 +360,12 @@ def compare(baseline, candidate, *, affected_tests, unrelated_failures, changed_
             "baseline_job": baseline["job_id"], "candidate_job": candidate["job_id"],
             "baseline_counts": baseline["summary"], "candidate_counts": candidate["summary"],
             "draft_eligible": eligible,
-            "verdict": ("passed_with_existing_failures" if reviewed else "passed") if eligible else "blocked",
+            "verdict": ("passed_with_existing_failures" if reviewed or retained else "passed") if eligible else "blocked",
             "full_suite_passed": candidate["summary"]["failed"] == 0,
             "matched_existing_failures": matched, "reviewed_unrelated_failures": reviewed,
+            "retained_baseline_failures": retained,
+            "scope_policy": 'issue-delta-v1' if issue_scope is not None else 'legacy-per-failure-review',
+            "issue_scope": issue_scope,
             "reviewed_clock_diagnostics": clock_diagnostics,
             "duplicate_executions": duplicates,
             "package_input_changes": changes,

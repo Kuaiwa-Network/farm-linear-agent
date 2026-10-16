@@ -952,8 +952,12 @@ id, result/evidence) before requesting, releasing or publishing, so retries cann
    start offline, then at most one planned focused observation on the original candidate when authorized.
    Persist the consumed diagnostic budget across resumes and preserve the failed full-suite pair; a focused
    pass does not replace it. Define affected scope from assertions/dependencies, not names alone.
-   Only the comparator's `draft_eligible=true`, with each matched failure reviewed against the exact source diff,
-   allows `passed_with_existing_failures` for draft delivery. Keep `full_suite_passed=false`; list all failures
+   Use `issue_scope` to bind the actual issue acceptance, complete diff and affected tests. Sharing a changed
+   export package, directory, fixture or loader alone is not impact; expand only for concrete changed behavior,
+   dependency or observed regression. Matching failures outside this boundary remain disclosed baseline debt,
+   without per-failure root-cause investigation or whole-package independence proof. Re-review inherited broad
+   scopes offline and reuse valid checks/QA. Do not request diagnostics merely for unknown outside-scope debt.
+   Only the comparator's `draft_eligible=true` allows `passed_with_existing_failures` for draft delivery. Keep `full_suite_passed=false`; list all failures
    and skips, both SHAs, same-environment identity and comparison evidence in the draft. No merge/deploy waiver.
    Absolute Unity clock operands in an otherwise identical timeout assertion may use the documented
    `clock_diagnostic` review; never erase arbitrary numbers or change the raw results. Correct/re-run the

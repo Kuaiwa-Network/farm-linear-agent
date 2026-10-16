@@ -102,6 +102,44 @@ class ComparisonRecoveryTests(unittest.TestCase):
         with self.assertRaisesRegex(LedgerError, 'cleanup completion'):
             self.resume()
 
+    def diagnostic_block(self, *, newer_baseline=False):
+        original = self.resume()['verification_pair']
+        f = self.f
+        Maintenance(f.ledger).resume()
+        token = f.ledger.claim(self.item, worker_id='diagnostic')['token']
+        if newer_baseline:
+            _, resource = f.baseline(item=self.item, token=token)
+        else:
+            f.ledger.await_resource(self.item, token, 'unity_slot', 'interactive',
+                                   skill=fixtures.SKILLS['fix'], commit_sha=f.CANDIDATE)
+            resource = f.ledger.acquire('unity_slot', owner='fixture', host='test')
+        token = f.settled(self.item, resource)
+        f.ledger.checkpoint(self.item, token, {'diagnostic_budget_consumed': 1, 'full_reports': ['base', 'candidate']})
+        f.ledger.fail(self.item, 'diagnostic attribution incomplete')
+        f.ledger.connection.execute("UPDATE work_items SET state='blocked',stage='client-diagnostic-complete-attribution-blocked' WHERE id=?", (self.item,))
+        Maintenance(f.ledger).pause('install issue-scope correction')
+        return original
+
+    def test_attribution_recovery_reuses_original_pair_after_later_diagnostic(self):
+        original = self.diagnostic_block()
+        before = self.f.ledger.item(self.item)
+        self.assertNotEqual(self.f.ledger.client_verification_pair(self.item, self.f.CANDIDATE), original)
+        result = self.resume()
+        self.assertEqual(result['verification_pair'], original)
+        after = self.f.ledger.item(self.item)
+        for key in ('generation', 'checkpoint', 'evidence', 'target', 'capacity_retries', 'publication_retries'):
+            self.assertEqual(before[key], after[key], key)
+
+    def test_attribution_recovery_cannot_cross_a_new_baseline_round(self):
+        self.diagnostic_block(newer_baseline=True)
+        with self.assertRaisesRegex(LedgerError, 'completed candidate pair'):
+            self.resume()
+
+    def test_attribution_recovery_requires_prior_operator_resume(self):
+        self.f.ledger.connection.execute("UPDATE work_items SET stage='client-diagnostic-complete-attribution-blocked' WHERE id=?", (self.item,))
+        with self.assertRaisesRegex(LedgerError, 'prior operator resume'):
+            self.resume()
+
     def test_requires_maintenance_and_actual_candidate_pair(self):
         with self.assertRaisesRegex(LedgerError, 'completed candidate pair'):
             self.resume('d' * 40)

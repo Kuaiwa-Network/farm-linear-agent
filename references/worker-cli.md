@@ -791,13 +791,19 @@ waiver: compare complete outcomes, pass required affected tests and keep every e
 that current baseline round. A later diagnostic reservation at the same commit does not invalidate
 the original complete reports. Preserve their identities and failures; focused passing results
 cannot replace a failed full suite. A newer baseline still starts a fresh round.
+Use the documented `issue_scope` review for the actual acceptance requirements and complete diff. Matching
+failures outside that scope are disclosed baseline debt, not mandatory root-cause investigations. Sharing a
+changed UI package alone does not expand acceptance. Re-review inherited broad scopes offline; preserve
+all required issue checks, raw reports, QA and diagnostic budgets. See [scope schema](test-baseline.md#issue-acceptance-boundary).
 After a comparator capability correction, the host operator (not a worker) may run
 `python -m agent.service resume-comparison --config CONFIG --item ITEM --commit CANDIDATE --reason REASON`.
 It requires maintenance pause, a stopped controller, fresh open/delegated issue state, no human question
 or unfinished presentation task, settled workers/resources and the completed retained pair. It resumes
 only a blocked Client comparison evidence gap, preserving generation, reports, checkpoint and budgets.
-A failed `client-comparison-recheck` attempt can also be explicitly resumed, but only when the latest
-operator comparison-resume audit matches its current generation and exact completed pair. All the same
+A failed `client-comparison-recheck` or blocked `client-diagnostic-complete-attribution-blocked` attempt
+can also be explicitly resumed, but only when the latest operator comparison-resume audit matches its
+current generation and original completed pair. Later same-candidate diagnostics do not replace that
+report reservation; a newer baseline cannot borrow it. All the same
 settlement and delegation checks apply; this is not an automatic retry or a general failed-job reset.
 The next worker re-compares existing reports offline and completes attribution and publication checks;
 this grants no passing verdict, fabricated answer or baseline rerun. Resume admission separately with

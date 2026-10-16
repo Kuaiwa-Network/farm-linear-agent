@@ -359,7 +359,12 @@ same slot's next turn after settlement, teardown and worker-capacity checks. Alr
 normal candidate requests; never repeat a baseline for priority. Test the candidate with identical selection/environment.
 Set `verification-progress --phase failure-review` before source review, then use `compare-verification` with
 complete evidence/scope in this item's state_dir. Only its `draft_eligible=true`, passing affected tests and every other required check allow a draft
-with reviewed unchanged unrelated failures. New/changed or affected failures, new skips and gaps remain blockers.
+with unchanged outside-scope baseline failures. New/changed or affected failures, new skips and gaps remain blockers.
+Use `issue_scope` to bind actual acceptance and the complete diff to affected tests. Sharing an export package,
+fixture/directory/loader alone does not expand the boundary; concrete changed behavior/dependencies or observed
+regressions do. Retain matching outside-scope failures without proving every resource unchanged or diagnosing
+their root causes. Re-review inherited broad scopes offline and reuse valid checks/QA across handoffs.
+Unknown root cause of retained outside-scope debt is not grounds for more tests or a blocked result.
 Before stopping solely for unresolved attribution, follow the bounded diagnosis procedure in that reference:
 start offline, then at most one planned focused observation on the original candidate when authorized.
 Persist the consumed diagnostic budget across resumes; preserve the failed full-suite pair and never treat

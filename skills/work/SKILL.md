@@ -183,7 +183,12 @@ For Client verification, use feature stage F's reviewed baseline comparison.
 Use `continue-verification` for a completed quiescent baseline's original candidate and `compare-verification`
 for the retained evidence. Follow the exact token, exit and phase-reporting procedure in
 [baseline comparison](../../references/test-baseline.md). The eligible verdict
-permits delivery with unrelated existing failures recorded after the remaining required work is complete.
+permits delivery with unchanged outside-scope baseline failures recorded after the remaining required work is complete.
+Use `issue_scope` to bind the actual issue acceptance and full diff to affected tests. A shared export package,
+fixture/directory/loader or unknown shared-state cause alone does not make all its tests mandatory. Expand
+scope only with a concrete changed behavior/dependency or observed regression. Retain matching outside-scope
+failures without proving whole-package independence or diagnosing old debt; do not request resources for that.
+Re-review inherited broad affected lists offline and reuse valid QA/reviews instead of repeating them.
 Do not wait for a green baseline or unrelated main fixes, re-ask draft-delivery permission, or repeat a
 completed unchanged pair for diagnostic-only differences; use the documented offline comparison review.
 The legacy code capability's E gate becomes this verified task join; a separate
