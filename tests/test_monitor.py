@@ -149,11 +149,44 @@ class PageTests(unittest.TestCase):
     def test_ui_reads_as_the_bot_label_people_use(self):
         self.assertIn('fgui: "UI"', self.block("const SKILL = {"))
 
-    def capacity_rows(self, capacity):
-        """Run the actual renderer with text-only DOM nodes, without polling a live instance."""
+    def render_json(self, script, fixture=None):
+        """Bound renderer execution separately from a cold Node process starting on CI."""
         node = shutil.which("node")
         if node is None:
             self.skipTest("Node.js is unavailable for monitor rendering checks")
+        bootstrap = """
+            const {script, fixture} = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
+            const result = require("node:vm").runInNewContext(script, {fixture}, {timeout: 10000});
+            process.stdout.write(JSON.stringify(result));
+        """
+        # The Windows runner exceeded the old 10-second process deadline on its first
+        # Node launch. Keep that execution limit inside V8, plus a bounded startup /
+        # pipe allowance. Errors and timeouts still fail; there is no success retry.
+        result = subprocess.run([node, "-e", bootstrap], input=json.dumps({"script": script, "fixture": fixture}),
+                                capture_output=True, encoding="utf-8", timeout=60, check=True)
+        return json.loads(result.stdout)
+
+    def test_renderer_accepts_slow_bootstrap_without_spending_its_execution_budget(self):
+        run = subprocess.run
+
+        def slow_bootstrap(command, **kwargs):
+            command = [*command[:2], "Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 11000);\n"
+                       + command[2]]
+            return run(command, **kwargs)
+
+        with patch("subprocess.run", side_effect=slow_bootstrap):
+            self.assertEqual(self.render_json("fixture", {"text": "状态未知"}), {"text": "状态未知"})
+
+    def test_renderer_errors_and_infinite_loops_still_fail(self):
+        for script, error in [('throw new Error("broken renderer")', "broken renderer"),
+                              ("while (true) {}", "ERR_SCRIPT_EXECUTION_TIMEOUT")]:
+            with self.subTest(script=script):
+                with self.assertRaises(subprocess.CalledProcessError) as raised:
+                    self.render_json(script)
+                self.assertIn(error, raised.exception.stderr)
+
+    def capacity_rows(self, capacity):
+        """Run the actual renderer with text-only DOM nodes, without polling a live instance."""
         signatures = ("function el(tag, className, content)", "function cell(className, ...parts)",
                       "function row(className, ...cells)", "function pill(content, tone)",
                       "function capacityRows(service)")
@@ -170,24 +203,19 @@ class PageTests(unittest.TestCase):
         script += "const SKILL = " + self.block("const SKILL = {") + ";\n"
         script += "\n".join(signature + " " + self.block(signature + " {") for signature in signatures)
         script += """
-            console.log(JSON.stringify(capacityRows({capacity: JSON.parse(process.argv[1])}).map(row => ({
+            capacityRows({capacity: fixture}).map(row => ({
               label: row.children[0].textContent,
               text: row.children[1].textContent,
               pills: row.children[1].children.filter(part => part.className === "pills")
                 .flatMap(group => group.children.map(part => [part.textContent, part.className]))
-            }))));
+            }));
         """
-        result = subprocess.run([node, "-e", script, json.dumps(capacity)], capture_output=True,
-                                encoding="utf-8", timeout=10, check=True)
-        return {row["label"]: row for row in json.loads(result.stdout)}
+        return {row["label"]: row for row in self.render_json(script, capacity)}
 
     def test_server_wait_renderer_names_tier_threshold_and_real_blocker_without_reusing_stale_values(self):
-        node = shutil.which("node")
-        if node is None:
-            self.skipTest("Node.js is unavailable for monitor rendering checks")
         signature = "function resourceWaitText(wait)"
         script = signature + " " + self.block(signature + " {")
-        script += "\nconsole.log(JSON.stringify(JSON.parse(process.argv[1]).map(resourceWaitText)));"
+        script += "\nfixture.map(resourceWaitText);"
         fixtures = [
             {"profile": "full", "requested_mib": 8192, "blockers": ["commit_headroom"],
              "commit_mib": 9000, "required_commit_mib": 12288},
@@ -198,9 +226,7 @@ class PageTests(unittest.TestCase):
             {"blockers": ["physical_memory", "reservation_budget"], "available_mib": 2048,
              "required_available_mib": 8192, "reserved_mib": 8192, "requested_mib": 4096, "budget_mib": 8192},
         ]
-        result = subprocess.run([node, "-e", script, json.dumps(fixtures)], capture_output=True,
-                                encoding="utf-8", timeout=10, check=True)
-        rendered = json.loads(result.stdout)
+        rendered = self.render_json(script, fixtures)
         self.assertIn("完整／race 验证", rendered[0])
         self.assertIn("可提交内存余量 8.79 GiB，需 12.00 GiB", rendered[0])
         self.assertIn("轻量指定用例 · 本次预算 4.00 GiB", rendered[1])
