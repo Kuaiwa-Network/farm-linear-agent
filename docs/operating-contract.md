@@ -2640,6 +2640,20 @@ stopped under operator control, and explicitly clear maintenance with the suppor
 version. A source checkout rollback does not reverse the new tables or grant safe
 process/resource cleanup.
 
+An operator may first resume a single known issue with `maintenance-resume
+--config CONFIG --only-issue IDENTIFIER`. The paused instance must have settled
+other workers and active/cancelling resources. Scope selection and pause removal
+are atomic. The recorded issue ID includes its parent job and every internal
+task, and fences scheduler launch, worker claim and both resource pools; other
+queued requests retain their immutable sequence, commit and reports. Their
+Monitor rows say which issue's acceptance is pending, rather than reporting
+capacity/FIFO waits. This restriction persists in the `maintenance_issue_scope`
+operator audit record, adds no schema, and survives controller restart. An unknown
+issue or damaged scope refuses admission. Ordinary explicit `maintenance-resume`
+clears the restriction; acceptance completion never clears it automatically.
+Before rolling back to code without this scope gate, keep the host stopped and
+settle the selective run: older code does not honor this audit record.
+
 ## Optional host controller guard
 
 `agent/supervisor.py` runs independently of the controller and never opens its

@@ -57,8 +57,13 @@ class Maintenance:
                 self.track(row['id'], self.ledger.last_worker_pid(row['id']))
         return request(self.db)
 
-    def resume(self):
+    def resume(self, *, only_issue=None):
+        from .admission_scope import select
+        from .ledger import LedgerError
         with self.ledger._transaction():
+            if only_issue is not None and not self.requested():
+                raise LedgerError('request maintenance before selecting a single acceptance issue')
+            select(self.ledger, only_issue)
             if self.requested():
                 self.ledger._audit('maintenance', "maintenance_resume", "operator resumed scheduling")
                 self.db.execute("DELETE FROM maintenance_control")
@@ -76,7 +81,10 @@ class Maintenance:
             return False
         # An already admitted reservation needs its worker to collect results and release it.
         # The worker sees maintenance in claim and must yield without starting another test.
-        return not self.requested() or self.ledger.active_reservation(item_id) is not None
+        if self.requested():
+            return self.ledger.active_reservation(item_id) is not None
+        from .admission_scope import allows
+        return allows(self.db, item_id)
 
     def handoff(self, item_id, token):
         from .ledger import LedgerError
@@ -168,9 +176,14 @@ class Maintenance:
 
 def status(db, heartbeat, now):
     """Public projection: an old observation or a dead controller is never permission to stop."""
+    from .admission_scope import read
+    scope = read(db)
     current = request(db)
     if not current:
-        return {'state': 'off', 'ready_to_stop': False, 'blockers': []}
+        result = {'state': 'off', 'ready_to_stop': False, 'blockers': []}
+        if scope:
+            result['only_issue'] = scope['identifier']
+        return result
     state, beat = heartbeat
     checked = current['checked_at']
     schedule = (beat or {}).get('loops', {}).get('schedule', {})
@@ -204,9 +217,12 @@ def status(db, heartbeat, now):
         verified = False
     if not verified:
         blockers.append({'code': 'controller_unconfirmed', 'subject': None})
-    return {'state': 'ready' if verified and not blockers else 'draining',
+    result = {'state': 'ready' if verified and not blockers else 'draining',
             'ready_to_stop': bool(verified and not blockers), 'requested_at': current['requested_at'],
             'checked_at': checked, 'blockers': blockers}
+    if scope:
+        result['only_issue'] = scope['identifier']
+    return result
 
 
 def read_status(config):

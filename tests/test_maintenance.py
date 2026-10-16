@@ -67,6 +67,147 @@ class MaintenanceTests(unittest.TestCase):
             self.assertIsNone(self.ledger.acquire(kind, host='h', owner='pool'))
         self.assertEqual(self.launcher.spawned, [])
 
+    def other_issue(self):
+        other = '10000000-0000-4000-8000-000000000002'
+        self.ledger.observe_issue(issue(other, identifier='FARM-2'))
+        self.ledger.ensure_session('session-2', other, delegation=True)
+        return self.ledger.create_work_item(issue_id=other, session_id='session-2', skill='fix', target=PIN)
+
+    def queue_resource(self, item, kind='unity_slot'):
+        if kind == 'server_slot':
+            self.ledger.connection.execute("UPDATE work_items SET root_repo='farm-hive' WHERE id=?", (item,))
+        token = self.ledger.claim(item, worker_id='resource-fixture')['token']
+        self.ledger.checkpoint(item, token, {'stage':'candidate-ready'})
+        options = {'commit_sha':PIN['commit_sha']} if kind == 'server_slot' else {}
+        self.ledger.await_resource(item, token, kind, 'batch', skill=SKILLS['fix'], **options)
+        return self.ledger.reservations()[-1]
+
+    def test_only_issue_survives_restart_and_fences_claim_and_launch_without_changing_inputs(self):
+        other = self.other_issue()
+        before = self.ledger.item(other['id'])
+        self.store.pause('accept FARM-1 first')
+        self.store.resume(only_issue='farm-1')
+        self.assertTrue(self.store.may_launch(self.id))
+        self.assertFalse(self.store.may_launch(other['id']))
+        self.assertIsNone(self.scheduler.launch(other))
+        with self.assertRaisesRegex(LedgerError, 'single-issue'):
+            self.ledger.claim(other['id'], worker_id='raced-launch')
+        with closing(Ledger(self.path, clock=lambda:self.now)) as restarted:
+            self.assertFalse(Maintenance(restarted).may_launch(other['id']))
+            self.assertEqual(status(restarted.connection, ('fresh', self.beat()), self.now)['only_issue'], 'FARM-1')
+        self.assertEqual(self.ledger.item(other['id']), before)
+        self.store.resume()
+        self.assertTrue(self.store.may_launch(other['id']))
+        self.assertNotIn('only_issue', status(self.ledger.connection, ('fresh', self.beat()), self.now))
+
+    def assert_scoped_resource_queue(self, kind):
+        other = self.other_issue()
+        older = self.queue_resource(other['id'], kind)
+        selected = self.queue_resource(self.id, kind)
+        self.ledger.ensure_slot(kind+':1', kind=kind, host='h', folder=str(self.root/'slot'))
+        before = self.ledger.reservation(older['reservation_id'])
+        self.store.pause('accept one issue')
+        self.store.resume(only_issue='FARM-1')
+        self.assertEqual([r['item_id'] for r in self.ledger.reservation_queue(kind)], [self.id])
+        acquired = self.ledger.acquire(kind, host='h', owner='pool', expected_reservation=selected['reservation_id'])
+        self.assertEqual(acquired['item_id'], self.id)
+        self.assertEqual(self.ledger.reservation(older['reservation_id']), before)
+
+    def test_single_issue_unity_queue_preserves_other_issue_position_and_candidate(self):
+        self.assert_scoped_resource_queue('unity_slot')
+
+    def test_single_issue_server_queue_preserves_other_issue_position_and_candidate(self):
+        self.assert_scoped_resource_queue('server_slot')
+
+    def test_single_issue_scope_accepts_same_issue_tasks_and_never_a_different_issue(self):
+        other = self.other_issue()
+        self.store.pause('one logical issue')
+        self.store.resume(only_issue='FARM-1')
+        self.assertTrue(self.store.may_launch(self.id))
+        self.assertFalse(self.store.may_launch(other['id']))
+        # A task shares its parent's issue identity and is admitted with it.
+        self.ledger.connection.execute("UPDATE work_items SET issue_id=?,parent_id=?,skill='fgui' WHERE id=?",
+                                      (ISSUE, self.id, other['id']))
+        self.assertTrue(self.store.may_launch(other['id']))
+
+    def test_single_issue_resume_rejects_unknown_issue_and_unsettled_other_work_atomically(self):
+        from agent.admission_scope import read
+        other = self.other_issue()
+        with self.assertRaisesRegex(LedgerError, 'request maintenance'):
+            self.store.resume(only_issue='FARM-1')
+        self.store.pause('acceptance')
+        with self.assertRaisesRegex(LedgerError, 'known issue'):
+            self.store.resume(only_issue='FARM-999')
+        self.assertTrue(self.store.requested())
+        self.ledger.set_worker(other['id'], 9876, 'h')
+        with self.assertRaisesRegex(LedgerError, 'settle other issue'):
+            self.store.resume(only_issue='FARM-1')
+        self.assertTrue(self.store.requested())
+        self.assertIsNone(read(self.ledger.connection))
+
+    def test_single_issue_resume_cannot_strand_another_issues_active_resource(self):
+        other = self.other_issue()
+        self.queue_resource(other['id'])
+        self.ledger.ensure_slot('unity_slot:1', kind='unity_slot', host='h', folder=str(self.root/'slot'))
+        self.ledger.acquire('unity_slot', host='h', owner='pool')
+        self.store.pause('acceptance')
+        with self.assertRaisesRegex(LedgerError, 'settle other issue'):
+            self.store.resume(only_issue='FARM-1')
+        self.assertTrue(self.store.requested())
+
+    def test_host_cli_sets_only_issue_while_worker_cli_has_no_admission_authority(self):
+        from agent.service import main
+        with patch('agent.service.load_config', return_value=Mock(local_root=self.root)), \
+                patch('agent.service.check_ownership'), patch('agent.service.Ledger') as ledger, \
+                patch('agent.maintenance.Maintenance') as store, \
+                patch('agent.maintenance.read_status', return_value={'state':'off','only_issue':'FARM-1'}), \
+                patch('builtins.print'):
+            self.assertEqual(main(['maintenance-resume','--config','config.json','--only-issue','FARM-1']), 0)
+        store.return_value.resume.assert_called_once_with(only_issue='FARM-1')
+        ledger.return_value.close.assert_called_once()
+        with patch('sys.stderr'), self.assertRaises(SystemExit):
+            parser().parse_args(['maintenance-resume','--only-issue','FARM-1'])
+
+    def test_damaged_issue_scope_fails_closed_without_disclosing_raw_data(self):
+        from agent.admission_scope import KIND
+        for value in ({'private':'do-not-print'}, {'cleared':1}, [], {'identifier':'do-not-print','issue_id':ISSUE}):
+            with self.subTest(value=value):
+                self.ledger.note('maintenance', KIND, details=value)
+                with self.assertRaisesRegex(LedgerError, 'scope is damaged') as caught:
+                    self.store.may_launch(self.id)
+                self.assertNotIn('do-not-print', str(caught.exception))
+                with self.assertRaises(LedgerError):
+                    self.ledger.acquire('unity_slot', host='h', owner='pool')
+        self.store.resume()
+        self.assertTrue(self.store.may_launch(self.id))
+
+    def test_scheduler_runs_only_selected_issue_even_when_another_has_higher_priority(self):
+        other = self.other_issue()
+        self.ledger.connection.execute('UPDATE work_items SET priority=1 WHERE id=?', (other['id'],))
+        self.store.pause('accept first')
+        self.store.resume(only_issue='FARM-1')
+        self.scheduler.tick()
+        self.assertEqual([entry[0] for entry in self.launcher.spawned], [self.id])
+        self.assertEqual(self.ledger.item(other['id'])['state'], 'queued')
+
+    def test_monitor_names_acceptance_issue_without_misreporting_capacity_wait(self):
+        from agent.monitor_view import build_status
+        from test_monitor_view import beat, HEALTHY, INSTANCE
+        other = self.other_issue()
+        self.queue_resource(other['id'])
+        self.store.pause('private operator reason')
+        self.store.resume(only_issue='FARM-1')
+        document = build_status(self.path, heartbeat=('fresh', beat()), health=HEALTHY, instance=INSTANCE,
+                                monitor_revision=('b'*40, False), now=self.now)
+        self.assertTrue(document['ledger']['ok'])
+        paused = next(r for r in document['active'] if r['identifier']=='FARM-2')
+        self.assertEqual(paused['display_state'], 'acceptance_paused')
+        self.assertEqual(paused['waiting_for_issue'], 'FARM-1')
+        self.assertIsNone(paused['queue_position'])
+        self.assertIsNone(paused['resource_wait'])
+        self.assertEqual(document['service']['maintenance']['only_issue'], 'FARM-1')
+        self.assertNotIn('private operator reason', json.dumps(document))
+
     def test_claim_and_renew_signal_pause_without_revoking_an_inflight_test(self):
         token = self.claim()
         self.store.pause('maintenance')

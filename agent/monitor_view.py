@@ -18,7 +18,8 @@ ACTIVE = ("queued", "running", "awaiting_input", "awaiting_resource")
 TERMINAL = ("delivered", "blocked", "failed", "cancelled")
 VERDICTS = ("ok", "attention", "starting", "unresponsive", "stopped", "unknown")
 DISPLAY_STATES = ("queued", "launching", "switching_repo", "retry_wait", "running", "awaiting_input",
-                  "awaiting_resource", "waiting_for_recovery")
+                  "awaiting_resource", "waiting_for_recovery", "maintenance_paused", "maintenance_handoff",
+                  "acceptance_paused")
 OUTCOMES = ("delivered", "no_change", "blocked", "failed", "cancelled")
 FAILURE_CODES = ("worker_launch_failed", "worker_start_failed", "worker_claim_timeout", "worker_exit_failed",
                  "model_capacity_exhausted", "skill_disabled", "job_failed")
@@ -276,7 +277,7 @@ def _resource_waits(db, schema, now, beat_state, beat):
 
 
 def _jobs(rows, times, prs, unity_queue, now, beat_state, beat, renew_seconds, resource_waits=None,
-          maintenance=False, admitted=()):
+          maintenance=False, admitted=(), only_issue=None, scope_issue_id=None):
     waiting = sorted((row for row in rows if _display_state(row, now) == "queued"),
                      key=lambda row: (row["priority"] if type(row["priority"]) is int else 0,
                                       _time(row["created_at"]) or 0, row["id"]))
@@ -294,9 +295,13 @@ def _jobs(rows, times, prs, unity_queue, now, beat_state, beat, renew_seconds, r
             display = ('maintenance_handoff' if row['state'] == 'running' or row['worker_pid'] is not None
                        or row['id'] in admitted else 'maintenance_paused')
             position, server_wait = None, None
+        elif only_issue and row['issue_id'] != scope_issue_id and row['state'] in ('queued', 'awaiting_resource'):
+            display = 'acceptance_paused'
+            position, server_wait = None, None
         jobs.append({"identifier": _text(row["identifier"], 32), "title": _text(row["title"], 200),
                      "url": _linear_url(row["url"]), "skill": _text(row["skill"], 32), "state": row["state"],
                      "display_state": display, "stage": _text(row["stage"], 120),
+                     "waiting_for_issue": only_issue if display == 'acceptance_paused' else None,
                      "repo": _text(row["root_repo"], 64), "created_at": _time(row["created_at"]),
                      "state_since": times.get((row["id"], row["state"])) or _time(row["created_at"]),
                      "checkpoint_at": times.get((row["id"], "checkpoint")),
@@ -468,6 +473,8 @@ def _read_ledger(db, now, beat_state, beat, renew_seconds):
         counts[row["state"]] += 1
     service = {}
     from .maintenance import request as maintenance_request
+    from .admission_scope import read as admission_scope
+    scope = admission_scope(db)
     maintaining = maintenance_request(db) is not None
     admitted = ({r['item_id'] for r in db.execute("SELECT item_id FROM reservations WHERE state IN "
                                                 "('active','cancel_requested')")}
@@ -480,7 +487,8 @@ def _read_ledger(db, now, beat_state, beat, renew_seconds):
         service["linear"] = {"last_ok_at": _time(row["ok"]), "failing_issues": row["failing"]}
     jobs = _jobs(rows, _audit_times(db, schema, [row["id"] for row in rows]), prs, queue or [], now,
                  beat_state, beat, renew_seconds, _resource_waits(db, schema, now, beat_state, beat),
-                 maintenance=maintaining, admitted=admitted)
+                 maintenance=maintaining, admitted=admitted, only_issue=scope['identifier'] if scope else None,
+                 scope_issue_id=scope['issue_id'] if scope else None)
     sections = {"counts": counts, "active": jobs,
                 "slots": None if slots is None else [{key: slot[key] for key in SLOT_FIELDS} for slot in slots],
                 "unity_queue": None if queue is None else len(queue),

@@ -63,6 +63,14 @@ python -m agent.service maintenance-status --config C:\FarmBot\config.json
 python -m agent.service maintenance-resume --config C:\FarmBot\config.json
 ```
 
+To accept one known issue before reopening the queue, use `maintenance-resume
+--config CONFIG --only-issue FARM-1464` after the maintenance drain is ready.
+Only that issue and its internal tasks may start workers or acquire Unity/server
+resources. Other candidates, reports and reservation sequence numbers stay saved;
+Monitor shows the selected acceptance issue. The restriction survives restart.
+After actual acceptance, an explicit ordinary `maintenance-resume --config CONFIG`
+clears it. Completion alone never silently reopens other work.
+
 On macOS use `python3` with the same commands and the host's config path.
 The pause blocks new worker/resource admission, lets in-flight tests finish and
 asks workers to checkpoint and hand off. Already admitted resource workers may

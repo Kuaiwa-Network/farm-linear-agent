@@ -27,6 +27,7 @@
   };
   const STATE = {
     maintenance_paused: ["维护暂停", "neutral"], maintenance_handoff: ["维护收尾中", "info"],
+    acceptance_paused: ["等待指定任务验收", "neutral"],
     queued: ["排队中", "neutral"], launching: ["正在启动", "info"], switching_repo: ["切换仓库", "info"],
     retry_wait: ["等待重试", "neutral"], running: ["处理中", "info"], awaiting_input: ["等待回复", "warn"],
     awaiting_resource: ["等待资源", "neutral"], waiting_for_recovery: ["等待 Unity 修复", "warn"],
@@ -391,6 +392,7 @@
       if (wait) main.append(el("div", "muted", wait));
       if (job.prs.length) main.append(prLinks(job.prs));
       let state = label;
+      if (job.display_state === 'acceptance_paused' && job.waiting_for_issue) state = `等待 ${job.waiting_for_issue} 验收完成`;
       if (job.queue_position) state += ` · 第 ${job.queue_position} 位`;
       if (job.retry_at) state += ` · ${clock(job.retry_at)}`;
       const status = cell("state", pill(state, tone));
