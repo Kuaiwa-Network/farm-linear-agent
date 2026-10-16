@@ -634,11 +634,17 @@ class CliTests(unittest.TestCase):
                  'unrelated_failures': {}}
         for name, data in (('baseline', base), ('candidate', candidate), ('scope', scope)):
             (root / (name + '.json')).write_text(json.dumps(data), encoding='utf-8')
+        # A later focused reservation must not replace the completed reports' identity.
+        self.run_cli('await-resource', '--item', item, '--token', token, '--resource', 'unity_slot',
+                     '--mode', 'interactive', '--commit', fixed)
+        with closing(Ledger(self.db)) as ledger:
+            token = self.settle_test_reservation(ledger, item)
         self.run_cli('verification-progress', '--item', item, '--token', token, '--phase', 'failure-review')
         report = self.run_cli('compare-verification', '--item', item, '--token', token,
                              '--baseline', str(root / 'baseline.json'), '--candidate', str(root / 'candidate.json'),
                              '--scope', str(root / 'scope.json'))
         self.assertTrue(report['draft_eligible'])
+        self.assertEqual(report['candidate_reservation'], pair['candidate_reservation'])
         with closing(Ledger(self.db)) as ledger:
             self.assertEqual(ledger.item(item)['stage'], 'client-verified-awaiting-publication')
             self.assertEqual(ledger.item(item)['checkpoint']['retained_note'], 'preserve this evidence')
