@@ -341,15 +341,20 @@ BASELINE_AUTHORITY = (
     "compare-verification with private evidence and an audited scope; only draft_eligible=true "
     "permits this exception. UI resource changes are candidate changes, not automatically environment drift: "
     "retain complete package_inventory with its original digest in both runs, audit each exact changed UI "
-    "path in ui_resource_changes and review each retained failure's complete resource dependencies, shared "
-    "setup and loader in resource_review. Never omit changed resources or metadata from fingerprints. "
-    "Unlisted resource changes, package lock/config/host drift and changed failure dependencies remain blockers. "
-    "Review each matched failure against the actual source diff and record why it "
-    "is unrelated. New/changed failures, affected failures, new skips, missing tests or mismatched evidence "
+    "path in ui_resource_changes. Never omit changed resources or metadata from fingerprints. "
+    "Use issue_scope from references/test-baseline.md to bind acceptance requirements, the complete actual diff "
+    "and affected_tests to the exact pair. Scope follows changed behavior and concretely linked dependencies: "
+    "sharing an exported package, directory, loader or fixture alone is not an impact finding. "
+    "Retain identical baseline failures outside that scope without proving every transitive dependency "
+    "unchanged or diagnosing their root cause. Report them as retained_baseline_failures, not proven-unrelated "
+    "or passed tests. Expand scope only for a specific changed assertion, code/resource behavior or observed "
+    "regression relevant to this issue; record that evidence. Legacy resource_review is only a fallback for "
+    "old scopes without issue_scope. Unlisted resource changes and package lock/config/host drift still block. "
+    "New/changed failures, affected failures, new skips, missing tests or mismatched evidence "
     "remain blockers. Never suppress tests, change expected results or fix unrelated issues to make a gate green. "
     "A changed absolute Unity realtime clock reading is not itself a new regression: use only the comparator's "
     "reviewed clock_diagnostic procedure in references/test-baseline.md after auditing the unchanged assertion "
-    "source, timeout and dependencies; preserve raw messages and never strip arbitrary numbers. "
+    "source and configured timeout; preserve raw messages and never strip arbitrary numbers. "
     "A late baseline observation alone is not a candidate regression when the reviewed candidate timeout "
     "is observed within one second of its deadline; a late candidate still blocks. Recompare retained "
     "completed reports offline after a diagnostic-rule update instead of rerunning Unity. "
@@ -375,14 +380,15 @@ BASELINE_AUTHORITY = (
     "current main honestly; this does not certify untested newer main. Changed candidates or a new baseline "
     "start a fresh round with normal main integration and required checks. Compare a completed failing pair "
     "and either deliver an eligible draft, fix an attributable failure at a new commit, or retain a concrete "
-    "unresolved blocker. Before stopping solely for unresolved attribution, perform one bounded diagnostic "
+    "unresolved blocker. Do not request more diagnostics merely because a retained outside-scope failure's "
+    "root cause is unknown. For a new/changed or concretely affected failure with unresolved attribution, perform one bounded diagnostic "
     "attempt as documented in references/test-baseline.md when existing authority and tools allow it. "
     "Preserve the original failed full-suite pair, candidate and raw results; begin offline, then request "
     "only the original candidate for a planned focused observation if needed. Record the hypothesis, "
     "observables, limit and consumed diagnostic budget in the checkpoint/handoff across resumes. "
     "A focused pass does not replace a failed full-suite result. Do not rerun the full baseline for diagnosis "
     "or infer unrelatedness merely because two issues fail the same tests. Define affected tests from "
-    "assertions and dependencies, not a shared directory or fixture name alone; baseline occurrence alone "
+    "assertions and dependencies, not a shared package, directory or fixture name alone; baseline occurrence alone "
     "does not remove a test from affected scope. If the bounded attempt is exhausted or unavailable, record "
     "the actual observations or specific capability gap, not only an untested hypothesis. "
     "Do not repeat an unchanged failing run without a diagnosed reason to expect a "
@@ -490,8 +496,13 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
                      'The claim JSON returns the secret in the top-level field token (not claim_token). '
                      'Capture that response privately and save token using exclusive claim-token storage before discarding it. '
                      'Preserve the original baseline/candidate, complete raw outcomes, QA, resource identities and diagnostic budget. '
-                     'Recompare the retained reports offline, complete source/setup/transitive-resource failure attribution, '
-                     'and inspect draft_eligible for every required mode before publication/finish. '
+                     'Recompare the retained reports offline using issue_scope. Rebuild any inherited affected_tests '
+                     'from the actual issue acceptance and diff; old broad package-level classification is not binding. '
+                     'Keep identical outside-scope failures disclosed without requiring a root-cause diagnosis or '
+                     'whole-package independence proof. Preserve existing valid checks and QA without repeating their review. '
+                     'If state_dir/operator-comparison-review.json exists, validate its report hashes, commits and '
+                     'acceptance scope before reusing the referenced scopes; it is evidence, not a passed gate. '
+                     'Inspect draft_eligible for every required mode before publication/finish. '
                      'This is not a human reply or a passed gate. Do not merge main or rerun the baseline/full suites '
                      'to repair report parsing or absolute-clock diagnostic differences. A genuinely missing required '
                      'observation follows the existing bounded diagnostic rules on the original candidate.')

@@ -72,10 +72,12 @@ comparator upgrade; no Unity rerun or altered result/digest is needed for passin
 Once complete results and input identity are saved, checkpoint and release promptly; compare offline after
 controller settlement, rather than holding the shared Editor while writing the diagnosis.
 
-Scope JSON contains exact `affected_tests`, all Git `changed_paths`, and `unrelated_failures`, mapping each
-candidate failure name to a nonempty `reason` and `evidence` reference. Review source dependencies and the
-actual diff; absence of a failing test filename from the diff alone does not prove the failure is unrelated.
-Include the issue's entire affected fixture, not one passing test. Failures whose stack points into a changed
+Scope JSON contains exact `affected_tests`, all Git `changed_paths`, `unrelated_failures` (empty is allowed
+with the issue scope below), and a reviewed `issue_scope`. Select all assertions needed for this issue's
+acceptance and concretely linked dependencies from the actual diff. Include the complete relevant behavior,
+not only one convenient passing case. A shared export package, directory, fixture, loader or uncertain
+shared-state coupling alone does not expand the mandatory acceptance boundary. Record concrete evidence
+when a changed behavior or observed regression does expand it. Failures whose stack points into a changed
 path, affected failures, changed failure signatures, new/changed skips, removed tests and mismatched input
 identity are blocked. New tests must pass. Known failures require the same state/message/failure site,
 except for the narrowly reviewed absolute-clock diagnostic below. Failure messages retain path/URL
@@ -84,6 +86,48 @@ Stack normalization ignores checkout paths, C# line shifts, IL offsets and assem
 `Failed:Invalid` is a failure, not a skip or pass. It can match only the same reviewed baseline state,
 message and site. An invalid affected test still blocks delivery. Preserve raw NUnit outcomes when
 re-comparing retained EditMode/PlayMode results after a comparator upgrade.
+
+## Issue acceptance boundary
+
+Use `issue_scope` for new Unity comparisons and re-review inherited broad scopes after an upgrade:
+
+```json
+{
+  "baseline_commit": "actual-40-character-baseline-SHA",
+  "candidate_commit": "actual-40-character-candidate-SHA",
+  "changed_paths": ["Assets/Scripts/Feature/Counter.cs"],
+  "affected_tests": ["Feature.CounterTests.AcceptedBehavior"],
+  "reason": "The accepted change is counter rendering; these checks cover its behavior and concrete dependencies",
+  "evidence": "private issue requirements, complete source/resource diff, scope review and retained QA"
+}
+```
+
+The commits and complete path/test sets must match the comparison inputs. This is a worker review of actual
+requirements and the complete diff, not a declaration that merely loading a changed package makes all its
+features affected. Acceptance scope must never exclude a relevant failing check to get a green verdict.
+A specific changed assertion, called behavior, relevant resource property or observed regression is evidence
+for inclusion; package membership alone is not. Preserve valid existing reviews/QA across handoffs instead
+of investigating the same baseline debt again.
+
+With this explicit bound scope, matching baseline failures outside it are retained by default, including
+`Failed:Invalid`. No per-failure proof that every transitive resource is unchanged or root cause is known is
+required. A whole-package hash change is still an audited candidate input delta, but does not itself block
+an unchanged outside-scope failure. Keep clock review when only absolute operands differ. A failure stack
+that names a changed source path remains a concrete association and blocks. New/changed failures, failed
+or missing affected checks, new/changed skips, removed tests, ambiguous duplicate executions, unreviewed
+resource changes, different settings/config/lock/host and incomplete results all retain their gates.
+
+Output `scope_policy=issue-delta-v1` records `issue_scope` and exact `retained_baseline_failures`. These mean
+unchanged failures outside the reviewed issue scope, not proven root causes or passing tests. Keep them in
+the draft along with every skip and `full_suite_passed=false`. The normal required issue checks, QA and
+publication/finish gates still apply. Unknown root cause of such retained failures does not require another
+Unity diagnostic or block delivery. Do not repair unrelated failures or broaden the task to make main green.
+
+Scopes without `issue_scope` keep the legacy per-failure review and resource-independence checks below.
+This makes the new boundary explicit rather than silently changing historical verdicts. Retained evidence
+can be re-compared offline with a reviewed new scope; no original report, digest, test, claim or reservation
+is rewritten and no baseline/full-suite rerun is needed. Older comparators reject this optional new field;
+settle work before rollback and preserve all reports and reviews. There is no database migration.
 
 ## Standalone .NET TRX
 
@@ -145,8 +189,10 @@ Two identical 15-second waits can fail with different `Expected: less than 23.63
 and `Expected: less than 42.10001f / But was: 42.10084f`. Those operands alone are not a changed timeout or
 gameplay value. Do not re-run Unity just to obtain identical clock readings.
 
-First review both committed sources and the complete wait predicate/dependencies, prove the failing
-assertion file and configured timeout unchanged, and prove this failure unrelated to the issue. Add
+Review both committed assertion sources and the configured timeout and retain their exact identities.
+Use the issue acceptance boundary above to determine impact; an outside-scope identical timeout does not
+require diagnosing the entire shared package. For legacy scopes, the per-failure dependency review remains.
+Add
 `clock_diagnostic` to that exact test's `unrelated_failures` review:
 
 ```json
@@ -171,8 +217,8 @@ identical timeout a new failure. This is directional: a candidate overrun greate
 blocks even if the baseline overran by as much or more. The comparator does not diagnose the baseline
 delay as harmless frame jitter. Different assertions, business values, changed timeout durations or
 exception messages are not normalized. Missing
-review retains strict matching. Affected failures, new failures/skips, incomplete results, dependency
-changes and environment drift still block. This is not a general regex or numeric-ignore facility.
+review retains strict matching. Affected failures, new failures/skips, incomplete results, concretely linked
+changed dependencies and environment drift still block. This is not a general regex or numeric-ignore facility.
 
 Retain the original evidence unchanged. `reviewed_clock_diagnostics` in the comparison output records both
 sets of operands, exact decimal `overshoot_seconds`, `baseline_late_observation`, and the source review.
@@ -199,7 +245,9 @@ exempted. Added/deleted assets and metadata stay visible with their before/after
 are candidate changes only when separately audited, never silently ignored. Other environment fields
 (including any recorded settings/account/server selection) still match exactly.
 
-For each retained failure add `resource_review` inside its `unrelated_failures` entry:
+For legacy scopes **without `issue_scope`**, each retained failure needs `resource_review` inside its
+`unrelated_failures` entry. New issue scopes use the acceptance boundary above instead of this whole-file
+independence requirement:
 
 ```json
 {
@@ -264,7 +312,8 @@ repeat the unchanged pair. Restarts/checkpoints may reuse valid completed eviden
 
 A comparison refusal is a publication gate, not proof that no further authorized work is possible. Before
 finishing blocked solely because a new/changed failure has unresolved attribution, complete one bounded
-diagnostic attempt when the existing tools and authority support it. Start with the retained raw reports,
+diagnostic attempt when the existing tools and authority support it. This applies to new/changed or
+concretely affected failures, not matching outside-scope baseline debt. Start with the retained raw reports,
 exact source/input diff, failed assertions and their setup/teardown and transitive dependencies. Select
 affected tests by the assertions and dependencies that can observe the change, not a shared directory or
 fixture name alone. Do not remove an affected failure merely because it also failed at baseline.
@@ -281,7 +330,8 @@ never operate another task's Editor or erase shared state to manufacture a passi
 
 Keep the original failed full-suite pair and raw evidence. A focused pass does not replace a failed
 full-suite result; identical failures on different issues and unchanged source alone do not establish
-causal independence. The existing comparator, affected-test and QA gates remain unchanged. Fix a proven
+causal independence. The issue-scope comparator and affected-test/QA gates remain required. Unknown causes of matching failures
+outside the issue scope are retained baseline debt, not grounds for additional diagnosis or a blocked result. Fix a proven
 issue-caused defect with normal candidate validation; retain a concrete shared-fixture defect for review
 without weakening assertions or suppressing tests. After the one bounded attempt, record its observations,
 remaining uncertainty and exact next requirement. If an attempt cannot safely be made, record the specific

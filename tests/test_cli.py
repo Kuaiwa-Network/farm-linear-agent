@@ -632,11 +632,15 @@ class CliTests(unittest.TestCase):
         # identical printed names. Exercise the claim-fenced CLI, not just compare().
         for run in (base, candidate):
             run['tests'].extend([leaf('Array.Case(System.UInt32[])'), leaf('Array.Case(System.UInt32[])')])
-            run['summary'].update(total=3, passed=3)
+            run['tests'].append(leaf('Other.Existing', 'Failed', 'old assertion', 'at Other.Test in Assets/Other.cs:1'))
+            run['summary'].update(total=4, passed=3, failed=1)
         base.update(commit=baseline, reservation_id=pair['baseline_reservation'])
         candidate.update(commit=fixed, reservation_id=pair['candidate_reservation'])
         scope = {'affected_tests': ['Animal.Counter'], 'changed_paths': ['Assets/Animal/Tuning.cs'],
                  'unrelated_failures': {}}
+        scope['issue_scope'] = {'baseline_commit': baseline, 'candidate_commit': fixed,
+            'changed_paths': scope['changed_paths'], 'affected_tests': scope['affected_tests'],
+            'reason': 'Counter behavior is the issue acceptance boundary', 'evidence': 'complete diff and counter QA'}
         for name, data in (('baseline', base), ('candidate', candidate), ('scope', scope)):
             (root / (name + '.json')).write_text(json.dumps(data), encoding='utf-8')
         # A later focused reservation must not replace the completed reports' identity.
@@ -649,6 +653,8 @@ class CliTests(unittest.TestCase):
                              '--baseline', str(root / 'baseline.json'), '--candidate', str(root / 'candidate.json'),
                              '--scope', str(root / 'scope.json'))
         self.assertTrue(report['draft_eligible'])
+        self.assertEqual(report['retained_baseline_failures'], ['Other.Existing'])
+        self.assertFalse(report['full_suite_passed'])
         self.assertEqual(report['candidate_reservation'], pair['candidate_reservation'])
         with closing(Ledger(self.db)) as ledger:
             self.assertEqual(ledger.item(item)['stage'], 'client-verified-awaiting-publication')

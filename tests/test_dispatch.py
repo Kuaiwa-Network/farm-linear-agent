@@ -448,8 +448,9 @@ class SkillAuthorityTests(unittest.TestCase):
                            "Do not rerun the full baseline for diagnosis",
                            "assertions and dependencies", "specific capability gap"):
                 self.assertIn(phrase, text)
-            for phrase in ("complete package_inventory", "ui_resource_changes", "resource_review",
-                           "Never omit changed resources or metadata", "changed failure dependencies remain blockers"):
+            for phrase in ("complete package_inventory", "ui_resource_changes", "resource_review", "issue_scope",
+                           "Never omit changed resources or metadata", "retained_baseline_failures",
+                           "sharing an exported package", "root cause is unknown"):
                 self.assertIn(phrase, text)
         for skill in ("chat", "fgui", "scene"):
             self.assertNotIn(dispatch.BASELINE_AUTHORITY, dispatch.authority(skill))
