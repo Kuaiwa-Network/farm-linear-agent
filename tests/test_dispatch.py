@@ -551,7 +551,7 @@ class SkillAuthorityTests(unittest.TestCase):
     def test_ui_authority_is_pinned_to_certified_export_client_and_unity_loading(self):
         part = dispatch.FGUI_AUTHORITY
         self.assertEqual(hashlib.sha256(part.encode("utf-8")).hexdigest(),
-                         "c129e375c2e464364b86500cfbc08e5e7fc58817993a5883d8613e3830bf1797")
+                         "f6c403dde6ae2d13a07ab42388e0e03f16caee0e5b363133d43829b4755a1395")
         self.assertIs(dispatch.SKILL_AUTHORITY["fgui"], part)
         self.assertEqual(self.message({"id":"i", "skill":"fgui"}).split("\n\n", 1)[0],
                          dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.QUESTION_AUTHORITY + part
@@ -561,7 +561,9 @@ class SkillAuthorityTests(unittest.TestCase):
                        "export-ui", "install-ui", "verify-ui-guards", "verify-ui-loading", "unity_slot interactive",
                        "standing fix export grant does not apply", "never Bash/MSYS/WSL", "stage_limit gap",
                        "Comments alone do not resume", "named human Linear user", "tools.lark_cli.profile",
-                       "never gameplay, generated bindings", "never claim rollback", "exactly both verified drafts"):
+                       "never gameplay, generated bindings", "never claim rollback", "exactly both verified drafts",
+                       "ui-verification-status", "without a repository handoff", "qualified main through delivery",
+                       "without another Unity request"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, part)
         self.assertNotIn("tools.kw_ops.access", part)  # D16: no operator-tool grant
