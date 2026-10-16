@@ -1969,11 +1969,13 @@ class Ledger:
                 return {"verification_role": "baseline", "candidate_commit": candidate}
         return None
 
-    def client_verification_pair(self, item_id, candidate, *, require_candidate=False):
+    def client_verification_pair(self, item_id, candidate, *, require_candidate=False, candidate_reservation=None):
         """A settled, controller-selected comparison pins one verification round across main updates.
 
         This records no test verdict. Full result/affected-scope checks remain required.
         Retry may preserve source evidence; a different item or candidate never inherits it.
+        Evidence may select its completed candidate reservation within the current baseline
+        round. Later diagnostics do not replace that identity; a newer baseline still does.
         """
         item = self._row(item_id)
         if item["skill"] not in ("work", "feature", "fix") or not isinstance(candidate, str) or not COMMIT_SHA.fullmatch(candidate):
@@ -1986,11 +1988,12 @@ class Ledger:
             if baseline["state"] != "released" or baseline["release_reason"] != "worker reported quiescent":
                 return None  # A newer unfinished/unclean round cannot borrow older evidence.
             tested = next((r for r in reversed(rows) if r["sequence"] > baseline["sequence"]
+                           and (candidate_reservation is None or r["reservation_id"] == candidate_reservation)
                            and r["commit_sha"] == candidate and r["state"] == "released"
                            and r["mode"] == baseline["mode"]
                            and r["release_reason"] == "worker reported quiescent"
                            and self.reservation_comparison(r["reservation_id"]) is None), None)
-            if require_candidate and tested is None:
+            if (require_candidate or candidate_reservation is not None) and tested is None:
                 return None
             return {"baseline_commit": baseline["commit_sha"], "candidate_commit": candidate,
                     "baseline_reservation": baseline["reservation_id"],

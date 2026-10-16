@@ -224,7 +224,11 @@ Windows Python or macOS `python3`:
 ```
 
 All three files must be under this item's `state_dir`; the evidence must name its completed controller-selected
-pair. This command updates Monitor immediately to comparison, then eligible/blocked/evidence-gap. It prints
+pair. The candidate report selects its own recorded, quiescently released reservation within the current
+baseline round, even after a later focused diagnostic at the same commit. Keep the original reservation IDs;
+a newer baseline round cannot reuse that older candidate. This preserves evidence identity, not a passing
+verdict: focused passes cannot replace failed full-suite evidence, and all comparison gates still apply.
+This command updates Monitor immediately to comparison, then eligible/blocked/evidence-gap. It prints
 the comparison report; inspect `draft_eligible` even when the command exits successfully. Save the full output.
 Use `verification-progress --phase publication` before publication checks and `--phase delivery` before final
 delivery recording, with the same item/claim arguments. Phase updates preserve the checkpoint and grant no

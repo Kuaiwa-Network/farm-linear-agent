@@ -768,6 +768,10 @@ a new comparison baseline starts a fresh round with normal main integration. An 
 or unclean round cannot borrow older completed evidence. The same job's checkpointed retry
 may retain an exact unchanged pair; another job cannot. This is no test verdict or completion
 waiver: compare complete outcomes, pass required affected tests and keep every evidence gate.
+`compare-verification` validates the candidate reservation named in the retained report within
+that current baseline round. A later diagnostic reservation at the same commit does not invalidate
+the original complete reports. Preserve their identities and failures; focused passing results
+cannot replace a failed full suite. A newer baseline still starts a fresh round.
 For completed failures, deliver an eligible draft, fix an attributable failure at a new commit,
 or report a concrete blocker. Do not repeat an unchanged failing run without diagnosing why
 another run should differ.

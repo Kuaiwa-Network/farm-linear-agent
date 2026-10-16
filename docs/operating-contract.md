@@ -1283,6 +1283,14 @@ and deliver an eligible draft, repair an attributable failure at a new candidate
 concrete unresolved blocker; they do not repeat an unchanged failing run without a diagnosed
 reason. FGUI/scene scope qualification retains its separate current-main gates.
 
+Claim-fenced comparison selects the candidate reservation named in the retained report from
+that job's current baseline round. A later diagnostic at the same candidate does not invalidate
+the earlier complete reports. The selected reservation must still follow that baseline, match
+the candidate and mode, and have settled quiescently. A newer baseline cannot borrow the old
+candidate. This does not replace failed full-suite results with focused passes or change any
+verdict gate. No schema or evidence migration is needed; older code again selects the latest
+candidate reservation, so retain original reports and identities across a rollback.
+
 The comparison pin reuses reservation/audit records without a new schema. Rollback restores
 the fresh-main gate; settle workers and retain their comparison evidence before switching revisions.
 

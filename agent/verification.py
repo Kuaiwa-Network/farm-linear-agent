@@ -28,7 +28,8 @@ def compare_recorded_pair(args, ledger, config, token):
     ledger.verification_progress(args.item, token, 'comparison')
     try:
         baseline, candidate, scope = [_read(file) for file in files]
-        pair = ledger.client_verification_pair(args.item, candidate.get('commit'), require_candidate=True)
+        pair = ledger.client_verification_pair(args.item, candidate.get('commit'), require_candidate=True,
+                                               candidate_reservation=candidate.get('reservation_id'))
         if (not pair or pair['baseline_commit'] != baseline.get('commit')
                 or pair['baseline_reservation'] != baseline.get('reservation_id')
                 or pair['candidate_reservation'] != candidate.get('reservation_id')):

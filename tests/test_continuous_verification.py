@@ -252,6 +252,37 @@ class ContinuousVerificationTests(ViewBase):
         self.assertEqual(self.ledger.reservations(), original_reservations)
         self.assertEqual([file.read_bytes() for file in files], original_files)
 
+    def test_later_diagnostic_does_not_discard_original_full_suite_blocker(self):
+        item, token, config, args, data = self.completed_pair()
+        data[1]['tests'][1]['message'] = 'new failure signature'
+        Path(args.candidate).write_text(json.dumps(data[1]), encoding='utf-8')
+        expected = compare_recorded_pair(args, self.ledger, config, token)
+        self.assertFalse(expected['draft_eligible'])
+        self.ledger.await_resource(item['id'], token, 'unity_slot', 'interactive', skill=SKILLS['fix'],
+                                   commit_sha='b' * 40)
+        focused = self.ledger.acquire('unity_slot', owner='pool', host='test-host')
+        self.ledger.release(focused['reservation_id'], focused['token'], 'worker reported quiescent')
+        self.ledger.set_slot_state('unity_slot:1', 'idle_open')
+        self.ledger.resume(item['id'], 'focused diagnosis finished')
+        token = self.claim(item)['token']
+        files = [Path(args.baseline), Path(args.candidate), Path(args.scope)]
+        original_files = [file.read_bytes() for file in files]
+        original_reservations = self.ledger.reservations()
+        actual = compare_recorded_pair(args, self.ledger, config, token)
+        self.assertEqual(actual, expected)
+        self.assertEqual(self.ledger.item(item['id'])['stage'], 'client-verification-blocked')
+        self.assertEqual(self.ledger.reservations(), original_reservations)
+        self.assertEqual([file.read_bytes() for file in files], original_files)
+
+        # A focused passing report still cannot substitute for the complete selection.
+        focused_data = run('b', [test('Animal.Counter')])
+        focused_data['reservation_id'] = focused['reservation_id']
+        focused_data['selection'] = {'test_names': ['Animal.Counter']}
+        focused_file = Path(args.candidate).with_name('focused.json')
+        focused_file.write_text(json.dumps(focused_data), encoding='utf-8')
+        args.candidate = str(focused_file)
+        self.assertFalse(compare_recorded_pair(args, self.ledger, config, token)['draft_eligible'])
+
     def test_comparison_requires_own_state_dir_settled_pair_and_current_claim(self):
         item, token, config, args, data = self.completed_pair()
         original = args.scope
