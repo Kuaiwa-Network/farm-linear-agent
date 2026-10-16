@@ -278,7 +278,8 @@ def _resource_waits(db, schema, now, beat_state, beat):
 
 def _jobs(rows, times, prs, unity_queue, now, beat_state, beat, renew_seconds, resource_waits=None,
           maintenance=False, admitted=(), only_issue=None, scope_issue_id=None):
-    waiting = sorted((row for row in rows if _display_state(row, now) == "queued"),
+    waiting = sorted((row for row in rows if _display_state(row, now) == "queued"
+                      and (only_issue is None or row['issue_id'] == scope_issue_id)),
                      key=lambda row: (row["priority"] if type(row["priority"]) is int else 0,
                                       _time(row["created_at"]) or 0, row["id"]))
     positions = {row["id"]: index for index, row in enumerate(waiting, 1)}

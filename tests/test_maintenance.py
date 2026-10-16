@@ -208,6 +208,20 @@ class MaintenanceTests(unittest.TestCase):
         self.assertEqual(document['service']['maintenance']['only_issue'], 'FARM-1')
         self.assertNotIn('private operator reason', json.dumps(document))
 
+    def test_monitor_queue_position_excludes_issues_paused_for_acceptance(self):
+        from agent.monitor_view import build_status
+        from test_monitor_view import beat, HEALTHY, INSTANCE
+        other = self.other_issue()
+        self.ledger.connection.execute('UPDATE work_items SET priority=1 WHERE id=?', (other['id'],))
+        self.store.pause('acceptance')
+        self.store.resume(only_issue='FARM-1')
+        document = build_status(self.path, heartbeat=('fresh', beat()), health=HEALTHY, instance=INSTANCE,
+                                monitor_revision=('b'*40, False), now=self.now)
+        selected = next(r for r in document['active'] if r['identifier']=='FARM-1')
+        self.assertEqual(selected['queue_position'], 1)
+        paused = next(r for r in document['active'] if r['identifier']=='FARM-2')
+        self.assertIsNone(paused['queue_position'])
+
     def test_claim_and_renew_signal_pause_without_revoking_an_inflight_test(self):
         token = self.claim()
         self.store.pause('maintenance')
