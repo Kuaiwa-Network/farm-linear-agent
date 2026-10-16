@@ -67,10 +67,11 @@ def resume_server(config, item_id, manifest_path, reason):
                 # The host-reviewed manifest must cover the trusted diff; no worker
                 # may narrow acceptance merely because some package happened to pass.
                 from .server_test_plan import changed_scope, check_scope
-                from .worktrees import Worktrees
+                from .worktrees import Worktrees, _git, GIT_ENV
                 trees = Worktrees(paths.repos, paths.worktrees, config.repos)
                 clone = trees.ensure_clone('farm-hive')
-                names = trees.git_in(clone, 'diff', '--name-only', '--no-renames', '-z', round_['base_commit'], candidate)
+                names = _git('diff', '--name-only', '--no-renames', '-z', round_['base_commit'], candidate,
+                             cwd=clone, env={**GIT_ENV, 'GIT_NO_REPLACE_OBJECTS': '1'})
                 changes = changed_scope([name for name in names.split('\0') if name])
                 check_scope(manifest['plan'], changes, manifest.get('scope_reason'))
                 saved = run / 'operator-server-evidence-review.json'

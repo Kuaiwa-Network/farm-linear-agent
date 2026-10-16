@@ -83,7 +83,7 @@ class EvidenceRecoveryTests(ServerPoolFixture):
         self.enterContext(patch('agent.server_recovery.linear_api', return_value=self.api))
         self.quiet = self.enterContext(patch('agent.server_recovery.Launcher.assert_quiescent'))
         trees = self.enterContext(patch('agent.worktrees.Worktrees')).return_value
-        trees.git_in.return_value = 'modules/animal/ops.go\0'
+        self.enterContext(patch('agent.worktrees._git', return_value='modules/animal/ops.go\0'))
 
     def resume(self):
         self.manifest_path.write_text(json.dumps(self.manifest), encoding='utf-8')
