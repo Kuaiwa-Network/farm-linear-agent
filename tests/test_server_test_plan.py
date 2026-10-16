@@ -167,3 +167,70 @@ class ScopeAdmissionTests(ServerPoolFixture):
         self.assertEqual(self.pool.tick()["granted"], 3)
         self.pool.tick()
         self.assertEqual(self.detail()["blockers"], ["server_capacity"])
+
+
+class CalibratedSerialAdmissionTests(ServerPoolFixture):
+    """Host tuning must preserve full race scope, floors and durable queue identity."""
+    def setUp(self):
+        super().setUp()
+        self.admission.settings = validate_settings({
+            "max_reserved_mib": 24576, "min_available_mib": 4096, "min_commit_mib": 4096,
+            "server_min_available_mib": 2048, "server_min_commit_mib": 2048,
+            "unity_mib": 4096, "server_focused_mib": 4096,
+            "server_targeted_mib": 6144, "server_mib": 6144})
+        self.ledger.ensure_slot("unity_slot:1", kind="unity_slot", host="test", folder=str(self.root / "unity"))
+        self.ledger.set_slot_state("unity_slot:1", "idle_open")
+
+    def test_full_serial_race_admits_with_idle_editor_without_changing_candidate_or_scope(self):
+        self.admission.observe = lambda: {"available_mib": 16345, "commit_mib": 9462}
+        item = self.request(plan=FULL_PLAN)
+        pending = self.ledger.reservations()[0]
+        self.assertEqual(self.pool.tick()["granted"], 1)
+        active = self.ledger.active_reservation(item)
+        self.assertEqual(active["reservation_id"], pending["reservation_id"])
+        self.assertEqual(active["commit_sha"], pending["commit_sha"])
+        self.assertEqual(self.services.started[0]["test_plan"], FULL_PLAN)
+        self.assertEqual(test_argv(FULL_PLAN),
+            ["go", "test", "-p=1", "-count=1", "-timeout=600s", "-json", "-race", "./..."])
+        self.assertEqual(self.ledger.slot("unity_slot:1")["state"], "idle_open")
+        self.assertEqual(self.admission.assess(self.ledger, "test", 0)["reserved_mib"], 10240)
+
+    def test_full_scope_keeps_both_two_gib_floors_and_exact_boundary(self):
+        item = self.request(plan=FULL_PLAN)
+        for physical, commit, blocker in ((8191, 10000, "physical_memory"), (10000, 8191, "commit_headroom")):
+            with self.subTest(blocker=blocker):
+                self.admission.observe = lambda: {"available_mib": physical, "commit_mib": commit}
+                self.assertEqual(self.pool.tick()["granted"], 0)
+                row = self.ledger.connection.execute("SELECT wait_detail FROM reservations WHERE item_id=?", (item,)).fetchone()
+                detail = json.loads(row[0])
+                self.assertEqual(detail["blockers"], [blocker])
+                self.assertEqual(detail["profile"], "full")
+                self.assertEqual(detail["requested_mib"], 6144)
+                self.assertEqual(detail["required_commit_mib"], 8192)
+                self.assertEqual(detail["required_available_mib"], 8192)
+        self.admission.observe = lambda: {"available_mib": 8192, "commit_mib": 8192}
+        self.assertEqual(self.pool.tick()["granted"], 1)
+
+    def test_unknown_memory_and_budget_exhaustion_still_refuse(self):
+        self.request(plan=FULL_PLAN)
+        self.admission.observe = lambda: (_ for _ in ()).throw(OSError("unavailable"))
+        self.assertEqual(self.pool.tick()["granted"], 0)
+        self.admission.observe = lambda: {"available_mib": 20000, "commit_mib": 20000}
+        self.admission.settings["max_reserved_mib"] = 10239
+        self.assertEqual(self.pool.tick()["granted"], 0)
+        self.assertFalse(self.services.started)
+
+    def test_server_floor_override_does_not_reduce_editor_startup_headroom(self):
+        self.admission.observe = lambda: {"available_mib": 7000, "commit_mib": 7000}
+        self.assertFalse(self.admission.can_start_editor(self.ledger, host="test"))
+        detail = self.admission.assess(self.ledger, "test", 4096)
+        self.assertEqual(detail["required_commit_mib"], 8192)
+
+    def test_server_floors_default_to_existing_global_policy_and_reject_bad_values(self):
+        old = validate_settings({"min_available_mib": 1234, "min_commit_mib": 5678})
+        self.assertEqual(old["server_min_available_mib"], 1234)
+        self.assertEqual(old["server_min_commit_mib"], 5678)
+        for key in ("server_min_available_mib", "server_min_commit_mib"):
+            for value in (0, -1, True, 1.5, "2048"):
+                with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                    validate_settings({key: value})

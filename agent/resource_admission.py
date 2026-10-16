@@ -13,11 +13,14 @@ DEFAULTS = {"max_reserved_mib": 16384, "min_available_mib": 4096,
 
 
 def validate_settings(raw):
-    if not isinstance(raw, dict) or set(raw) - (set(DEFAULTS) | {"server_focused_mib", "server_targeted_mib"}):
+    if not isinstance(raw, dict) or set(raw) - (set(DEFAULTS) | {"server_focused_mib", "server_targeted_mib",
+                                                              "server_min_available_mib", "server_min_commit_mib"}):
         raise ValueError("resource_admission accepts memory budgets in MiB only")
     settings = {**DEFAULTS, **raw}
     if any(type(value) is not int or not 1 <= value <= 1024 * 1024 for value in settings.values()):
         raise ValueError("resource_admission budgets must be positive integer MiB")
+    settings.setdefault("server_min_available_mib", settings["min_available_mib"])
+    settings.setdefault("server_min_commit_mib", settings["min_commit_mib"])
     settings.setdefault("server_focused_mib", min(4096, settings["server_mib"]))
     settings.setdefault("server_targeted_mib", min(6144, settings["server_mib"]))
     if any(type(value) is not int or not 1 <= value <= 1024 * 1024 for value in settings.values()):
@@ -92,7 +95,7 @@ class ResourceAdmission:
                     slot["slot_id"] for slot in ledger.slots(kind=kind, host=options["host"])
                     if slot["state"] == "idle_closed")
             extra = 0 if reuse else cost
-            detail = self.assess(ledger, options["host"], extra)
+            detail = self.assess(ledger, options["host"], extra, kind=kind)
             if kind == "server_slot":
                 detail["profile"] = profile(request["server_test_plan"]) if request["server_test_plan"] else "full"
                 ledger.resource_wait_detail(request["reservation_id"], detail)
@@ -108,7 +111,7 @@ class ResourceAdmission:
         tier = profile(reservation["server_test_plan"]) if reservation.get("server_test_plan") else "full"
         return self.settings[{"focused": "server_focused_mib", "targeted": "server_targeted_mib", "full": "server_mib"}[tier]]
 
-    def assess(self, ledger, host, extra):
+    def assess(self, ledger, host, extra, *, kind=None):
         """Same numbers for admission and display; existing leases retain their actual tier cost."""
         active = {r["resource"]: r for r in ledger.reservations(states=("active", "cancel_requested")) if r["host"] == host}
         used = 0
@@ -119,10 +122,11 @@ class ResourceAdmission:
             if request is None and slot["kind"] == "server_slot":
                 request = ledger.last_reservation_on(slot["slot_id"])
             used += self.cost(request or {"kind": slot["kind"]})
+        prefix = "server_" if kind == "server_slot" else ""
         result = {"observed_at": time.time(), "requested_mib": extra, "reserved_mib": used,
                   "budget_mib": self.settings["max_reserved_mib"],
-                  "required_available_mib": self.settings["min_available_mib"] + extra,
-                  "required_commit_mib": self.settings["min_commit_mib"] + extra,
+                  "required_available_mib": self.settings[prefix + "min_available_mib"] + extra,
+                  "required_commit_mib": self.settings[prefix + "min_commit_mib"] + extra,
                   "available_mib": None, "commit_mib": None, "blockers": []}
         if used + extra > result["budget_mib"]:
             result["blockers"].append("reservation_budget")
