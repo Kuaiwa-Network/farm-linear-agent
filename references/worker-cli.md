@@ -716,7 +716,10 @@ The host derives the tier: one explicit package and 1–8 named non-race tests i
 packages, more packages, race, or `./server` and its subpackages are `full`.
 `./server` retains the measured large source-loader cost even with `-run`.
 Default costs with an 8192 MiB full estimate are 4096/6144/8192 MiB, plus the
-unchanged physical/commit floors. These are estimates, not native memory caps.
+host physical/commit floors. Operators can set server-specific floors with
+`server_min_available_mib` and `server_min_commit_mib`; omitted values inherit
+the global floors. Worker plans cannot choose these values. These are estimates,
+not native memory caps.
 Missing plans from older callers get the full estimate. Required coverage/race
 must not be dropped to obtain a cheaper lease. The controller supplies the
 canonical `resource.test_plan`, `resource.memory_profile` and `resource.test_argv`;

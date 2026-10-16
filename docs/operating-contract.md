@@ -2030,6 +2030,21 @@ so Stop cannot substitute a higher-cost successor after admission. FIFO remains.
 Workers receive the journal-bound selection and canonical Go argv, and preserve
 required coverage/race. Broadening scope or separate multi-node commands requires
 release and a full lease. An estimate is not an enforceable native memory limit.
+Hosts may independently tune `server_min_available_mib` and
+`server_min_commit_mib`; omitted values inherit the global floors, preserving
+existing admission behavior. A server request requires its scope cost plus these
+floors. Editor startup/reuse continues to use the global floors. These settings
+are operator-owned, never accepted from worker plans. Monitor reports the same
+required headroom used for the exact reservation's admission.
+
+Calibrate a host with the actual candidate, Go toolchain, package concurrency,
+services and descendant-process memory. A `-run ^$` initialization probe measures
+startup only, not the full race suite or multi-node peak. Retain that distinction,
+then observe a single selected issue's real run before restoring concurrency.
+Change configuration only at a settled maintenance boundary; restart controller,
+workers and Monitor against the same pinned config. Rollback restores the saved
+config and launch manifest at the same boundary; no schema migration is needed.
+
 Monitor wait observations list the actual physical, commit or shared-budget
 shortfall, FIFO, capacity, or worker teardown; stale observations are labeled.
 
