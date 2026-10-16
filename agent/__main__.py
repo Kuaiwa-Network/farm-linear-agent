@@ -79,6 +79,7 @@ def parser():
     verify_ui.add_argument("--commit", required=True)
     cmd("verify-ui-loading", "--item", "--receipt-id", token=True)
     cmd("verify-ui-guards", "--item", "--receipt-id", token=True)
+    cmd("ui-verification-status", "--item", "--receipt-id", token=True)
     cmd("authorize-ui-guard-repair", "--item", "--receipt-id", "--input", token=True)
     uploads.add_argument("--url", action="append",
                          help="one of the claimed issue's upload URLs, unsigned as issue-context shows it; repeatable; "
@@ -731,7 +732,8 @@ def run(args, ledger, api_factory):
                 # own thread the acknowledgement is a thought, and the job speaks there next.
                 owe_closing(ledger, item, content, exc)
         return resumed
-    if c in ("review-ui", "export-ui", "install-ui", "verify-ui", "verify-ui-loading", "verify-ui-guards", "authorize-ui-guard-repair"):
+    if c in ("review-ui", "export-ui", "install-ui", "verify-ui", "verify-ui-loading", "verify-ui-guards",
+             "ui-verification-status", "authorize-ui-guard-repair"):
         token = resolve_token(args)
         ledger.renew(args.item, token)
         config = load_config(secure_permissions=False)
@@ -759,6 +761,9 @@ def run(args, ledger, api_factory):
         if c == "verify-ui-guards":
             from .fgui_guards import verify_guards
             return verify_guards(workflow, args.receipt_id)
+        if c == "ui-verification-status":
+            from .fgui_delivery import verification_status
+            return verification_status(workflow, args.receipt_id)
         if c == "review-ui":
             return workflow.review(packages=read_packages(args.packages, paths.runs / args.item),
                                    preview=args.preview, asset_url=args.asset_url, round=args.round)
@@ -953,6 +958,8 @@ def run(args, ledger, api_factory):
                 scope = verify_candidate(workflow, receipt, expected_commit=args.commit)
                 installed = installation_record(ledger, args.item, receipt)
                 verification_record(workflow, "fgui_guards_complete", "guards_sha256", receipt, scope, installed)
+                if scope.get("main_integration"):
+                    options["verified_base"] = scope["main_integration"]["commit"]
             from .workflow import JobWorktrees
             trees = JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger)
             if args.baseline:

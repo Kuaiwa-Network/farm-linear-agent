@@ -331,8 +331,13 @@ license, account, environment selectors or watched output during a job.
    Never modify gameplay, View/Popup bindings, Client docs, CI or another test to
    make checks pass. Commit the candidate, checkpoint its exact head and run
    `verify-ui --receipt-id ID --commit FULL_SHA`.
-   Before new verification, fetch and integrate the configured remote default
-   branch into this owned issue branch using the existing native Git authority.
+   On continuation, first run `ui-verification-status --receipt-id ID`. It checks
+   the current certified candidate and returns retained `guards`, `loading` and
+   `next_action`. A completed guard proof fixes that candidate's qualified main
+   through queueing, loading, release and delivery. Keep that same candidate when
+   unrelated main advances; do not merge main and restart its completed checks.
+   Before verifying a genuinely new candidate, fetch and integrate the configured
+   remote default branch using the existing native Git authority.
    Preserve the immutable task baseline and exact certified output inventory;
    keep unrelated upstream files as fetched. The controller qualifies imported
    main files separately from worker changes, verifies committed GUIDs and still
@@ -345,9 +350,19 @@ license, account, environment selectors or watched output during a job.
    installation proof. Rerun both actual guards and loading at the new full HEAD.
 4. Hydrate the Client FairyRes inputs required by both repository guards with
    native Git LFS using the verified origin and owned callback. Run
-   `verify-ui-guards --receipt-id ID`: it runs only the two actual repository guard
-   tests and records a complete passing TRX bound to this receipt/commit. Missing,
+   `verify-ui-guards --receipt-id ID`: an intact same-receipt/source/candidate/tool
+   completion proof is reused. Otherwise it runs only the two actual repository
+   guard tests and records a complete passing TRX bound to this receipt/commit. Missing,
    skipped or Inconclusive results are pending, never a pass. Logs stay private.
+
+Missing current farmgui main objects are fetched by the host scheduler into its
+validated clone. The Client worker waits in the same repository stage; it gains
+no source write roots and neither HEAD/index nor approved bytes are changed.
+If the bounded wait returns `source history refresh pending`, retry the same
+command once in this stage. A failed refresh is a named host prerequisite gap;
+checkpoint and use `pause.kind="stage_limit"` rather than cycling repository
+handoffs or rerunning guards. Only actual source/art/approval corrections need
+the source-authoring handoff below.
 
 If the dependency guard exposes registrations missing from unchanged baseline
 packages, own the engineering repair. Audit the actual source references and
@@ -368,7 +383,10 @@ or capability gap, not an instruction to the owner to invent recovery commands.
 
 ## Unity loading and two-draft delivery
 
-Checkpoint, then `await-resource --resource unity_slot --mode interactive --commit
+Check `ui-verification-status` first. If `loading` already contains the current
+controller proof, settle any remaining resource and continue publication/delivery;
+do not request another Editor. Otherwise checkpoint, then
+`await-resource --resource unity_slot --mode interactive --commit
 FULL_SHA` and exit. This requires the exact certified candidate and current guard
 proof; never start or attach an Editor yourself. On the reserved attempt, claim
 again and re-read the exact reservation, commit and current issue inputs. Run

@@ -335,6 +335,7 @@ uses the selected executable on either host. Each command also takes
 <selected-python> -B -m agent --db DATABASE install-ui --item ITEM_ID --token-file STATE_DIR/token --receipt-id RECEIPT_ID
 <selected-python> -B -m agent --db DATABASE verify-ui --item ITEM_ID --token-file STATE_DIR/token --receipt-id RECEIPT_ID --commit FULL_SHA
 <selected-python> -B -m agent --db DATABASE verify-ui-guards --item ITEM_ID --token-file STATE_DIR/token --receipt-id RECEIPT_ID
+<selected-python> -B -m agent --db DATABASE ui-verification-status --item ITEM_ID --token-file STATE_DIR/token --receipt-id RECEIPT_ID
 <selected-python> -B -m agent --db DATABASE authorize-ui-guard-repair --item ITEM_ID --token-file STATE_DIR/token --receipt-id RECEIPT_ID --input STATE_DIR/baseline-reasons.json
 <selected-python> -B -m agent --db DATABASE verify-ui-loading --item ITEM_ID --token-file STATE_DIR/token --receipt-id RECEIPT_ID
 ```
@@ -404,8 +405,19 @@ actual remote ancestry and an exact candidate delta; authored changes retain the
 UI limits. Certified output bytes/directories stay exact, and untracked/hidden
 metadata cannot replace committed GUIDs. A completed same-receipt `install-ui`
 retry can qualify the committed integration without rewriting its installation.
-Existing active exact-commit Unity reservations retain qualified scope evidence
-if main advances; after release, new verification requires current main again.
+An intact completed guard proof fixes that receipt/source/candidate's qualified
+main across queued/resumed workers, Unity loading, release and delivery. A new
+candidate or receipt requires current-main qualification and fresh checks.
+`ui-verification-status` rechecks scope/authority and returns original guard and
+loading proofs plus `next_action`. The guard command reuses a matching complete
+proof only when the selected dotnet executable still has the same hash. Completed
+loading continues directly to resource settlement and draft publication; no new
+Editor is needed. Damaged evidence is a refusal, never a cache miss.
+Missing source main objects create a claim-fenced request in audit. Only the host
+scheduler fetches the configured validated farmgui clone, with hooks/fsmonitor
+disabled and a bounded timeout. The CLI waits in its existing stage without
+source writes or merges. A pending wait may be retried once; a failed refresh is
+a named prerequisite gap, not permission to cycle repository handoffs.
 
 For an unchanged package whose published baseline descriptor has missing guard
 registrations, `authorize-ui-guard-repair` accepts a bounded JSON map of package

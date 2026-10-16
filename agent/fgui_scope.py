@@ -67,10 +67,16 @@ def _delta(workflow, client, before, after):
 
 
 def _integrated_main(workflow, installed, client, commit):
-    # An active reservation keeps its already qualified immutable input when main moves.
+    # A completed guard proof fixes this candidate's qualified main through
+    # queuing, loading, release and delivery, including a resumed worker. A new
+    # candidate/receipt still needs ordinary current-main qualification.
     reservation = workflow.ledger.active_reservation(workflow.item_id)
-    if (reservation and reservation["state"] == "active" and reservation["kind"] == "unity_slot"
-            and reservation["commit_sha"] == commit):
+    reserved = (reservation and reservation["state"] == "active" and reservation["kind"] == "unity_slot"
+                and reservation["commit_sha"] == commit)
+    from .fgui_guards import retained_guards
+    checked = retained_guards(workflow, installed["receipt_id"],
+                              {"commit": commit, "source_head": installed["source_head"]}, installed)
+    if reserved or checked is not None:
         for row in workflow.ledger.connection.execute(
                 "SELECT details FROM audit WHERE item_id=? AND kind='fgui_client_scope' ORDER BY id DESC",
                 (workflow.item_id,)):
@@ -79,6 +85,8 @@ def _integrated_main(workflow, installed, client, commit):
                     or prior.get("receipt_id") != installed["receipt_id"]):
                 continue
             if "main_integration" not in prior:
+                if not reserved:
+                    continue
                 if any(key in prior for key in ("scope_sha256", "scope_base", "global_guid_digest", "inherited_client_files")):
                     raise LedgerError("UI main integration has damaged controller evidence; preserve recovery records")
                 # Legacy scope evidence can retain only the original, unchanged installation
@@ -97,6 +105,11 @@ def _integrated_main(workflow, installed, client, commit):
                     or workflow.trees.git_in(client, "merge-base", "--all", authority["commit"], commit,
                         env=_NO_REPLACE).splitlines() != [authority["commit"]]):
                 raise LedgerError("UI reserved main integration identity changed")
+            if not reserved:
+                # Keep the qualified base on ordinary main advances, but never
+                # borrow it across a remote default-branch change/history rewrite.
+                workflow.trees.require_main_integration("Farm-Client", client, commit,
+                    default_branch=authority["branch"], verified_base=authority["commit"])
             return authority
     return workflow.trees.require_main_integration("Farm-Client", client, commit)
 

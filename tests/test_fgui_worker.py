@@ -66,7 +66,7 @@ class FguiScopeTests(unittest.TestCase):
         text = " ".join(SKILLS["fgui"].skill_md.read_text(encoding="utf-8").split())
         for phrase in ("comments alone do not", "named human", "invalidate approval", "visual_approved",
                        "export_requested", "review-ui", "export-ui", "install-ui", "verify-ui",
-                       "verify-ui-guards", "verify-ui-loading", 'pause.kind="stage_limit"',
+                       "verify-ui-guards", "verify-ui-loading", "ui-verification-status", 'pause.kind="stage_limit"',
                        "native publisher is not explicitly configured", "no package cycles", "publish nothing and ask nothing",
                        "same id and exact body", "Never invent a name", "prepared", "exactly both current",
                        "never guess a rollback", "pinned MCP session", "Do not ask for a second reply",

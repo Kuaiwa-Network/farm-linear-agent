@@ -57,6 +57,11 @@ class UiWorkflowTests(unittest.TestCase):
         self.publisher = self.enterContext(patch("agent.fgui_workflow.publish", side_effect=self.publish))
         self.now = 1700000000.25; self.ledger.clock = lambda: self.now
         self.preview = fixture.image; self.uploaded = fixture.upload()
+        # Model the separate host tick while the sandboxed CLI waits. Production
+        # runs this in Scheduler.tick, never in the worker's write grant.
+        from agent.fgui_history import refresh_pending
+        self.enterContext(patch('agent.fgui_history.sleep',
+                                side_effect=lambda _: refresh_pending(self.ledger, self.trees)))
 
     def git(self, path, *args):
         result = subprocess.run(["git", "-c", "core.hooksPath=NUL", "-c", "core.fsmonitor=false",
@@ -73,6 +78,61 @@ class UiWorkflowTests(unittest.TestCase):
 
     def workflow(self):
         return UiWorkflow(self.ledger, self.item, self.token, self.config, self.skill, lambda: self.api)
+
+    def advance_source_main(self):
+        package = self.origin / "assets/Other"
+        package.mkdir(exist_ok=True)
+        (package / "package.xml").write_text('<packageDescription id="pack0002"/>', encoding="utf-8")
+        (package / "Panel.xml").write_text('<component size="8,8"/>', encoding="utf-8")
+        self.commit(self.origin)
+        return self.git(self.origin, "rev-parse", "HEAD")
+
+    def test_missing_current_source_history_is_refreshed_without_changing_reviewed_checkout(self):
+        main = self.advance_source_main()
+        self.assertFalse(self.trees.has_commit("farmgui", main))
+        before = {p: p.read_bytes() for p in self.path.rglob('*') if p.is_file() and '.git' not in p.parts}
+        with patch("agent.fgui_workflow.github_api", return_value={"object": {"sha": main}}):
+            review = self.review()
+        self.assertEqual(review["main"], main)
+        self.assertEqual(self.git(self.path, 'rev-parse', 'HEAD'), self.head)
+        self.assertEqual(self.git(self.path, 'status', '--porcelain'), '')
+        self.assertEqual(before, {p: p.read_bytes() for p in before})
+        self.assertTrue(self.trees.has_commit("farmgui", main))
+        self.assertEqual(self.ledger.connection.execute(
+            "SELECT count(*) FROM audit WHERE kind='fgui_source_history_result' "
+            "AND json_extract(details,'$.state')='ready'").fetchone()[0], 1)
+
+    def test_readable_current_source_history_does_not_fetch_again(self):
+        with patch.object(Worktrees, 'fetch', side_effect=AssertionError('unnecessary history fetch')):
+            self.review()
+
+    def test_unavailable_source_history_after_refresh_cannot_record_review(self):
+        main = self.advance_source_main()
+        with patch("agent.fgui_workflow.github_api", return_value={"object": {"sha": main}}), \
+                patch.object(Worktrees, 'fetch', return_value=None), \
+                self.assertRaisesRegex(LedgerError, 'source history refresh failed'):
+            self.review()
+        self.assertIsNone(self.ledger.connection.execute("SELECT 1 FROM audit WHERE kind='fgui_review_created'").fetchone())
+
+    def test_stop_during_history_refresh_cannot_continue_review(self):
+        main = self.advance_source_main()
+        original = Worktrees.fetch
+        def stopped(trees, repo, **options):
+            original(trees, repo, **options)
+            self.ledger.cancel(self.item, 'Stop during source history refresh')
+        with patch("agent.fgui_workflow.github_api", return_value={"object": {"sha": main}}), \
+                patch.object(Worktrees, 'fetch', autospec=True, side_effect=stopped), \
+                self.assertRaises(LedgerError):
+            self.review()
+        self.assertIsNone(self.ledger.connection.execute(
+            "SELECT 1 FROM audit WHERE kind='fgui_review_created'").fetchone())
+
+    def test_history_refresh_refuses_changed_clone_origin(self):
+        main = self.advance_source_main()
+        self.git(self.path, 'remote', 'set-url', 'origin', str(self.root / 'foreign origin'))
+        with patch("agent.fgui_workflow.github_api", return_value={"object": {"sha": main}}), \
+                self.assertRaisesRegex(LedgerError, 'source history refresh failed'):
+            self.review()
 
     def make_general_task(self):
         # Rehouse this existing source fixture as an internal task. The real Git

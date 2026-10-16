@@ -85,6 +85,83 @@ class UiGuardWorkflowTests(unittest.TestCase):
         with self.assertRaisesRegex(LedgerError, 'changed during'): self.verify()
         self.assertEqual(self.fixture.ledger.connection.execute("SELECT count(*) FROM audit WHERE kind='fgui_guards_complete'").fetchone()[0], 0)
 
+    def test_same_candidate_continuation_reuses_completed_guard_proof(self):
+        proof = self.verify()
+        self.assertEqual(self.verify(), proof)
+        self.assertEqual(self.runner.call_count, 1)
+        ledger = self.fixture.ledger
+        self.assertEqual(ledger.connection.execute("SELECT count(*) FROM audit WHERE kind='fgui_guards_complete'").fetchone()[0], 1)
+        self.assertEqual(ledger.connection.execute("SELECT count(*) FROM audit WHERE kind='fgui_guards_reused'").fetchone()[0], 1)
+        status = self.fixture.source.cli('ui-verification-status', '--receipt-id', self.fixture.exported['receipt_id'])
+        self.assertEqual(status['guards'], proof)
+        self.assertIsNone(status['loading'])
+        self.assertEqual(status['next_action'], 'await-resource')
+        self.assertEqual(self.runner.call_count, 1)
+
+    def test_current_tool_change_requires_new_actual_guards(self):
+        original = self.verify()
+        self.tool.write_bytes(b'new selected executable')
+        status = self.fixture.source.cli('ui-verification-status', '--receipt-id', self.fixture.exported['receipt_id'])
+        self.assertIsNone(status['guards'])
+        self.assertEqual(status['next_action'], 'verify-ui-guards')
+        current = self.verify()
+        self.assertEqual(self.runner.call_count, 2)
+        self.assertNotEqual(current['dotnet_sha256'], original['dotnet_sha256'])
+
+    def test_same_candidate_survives_source_and_client_main_advances_without_handoff_or_retest(self):
+        f = self.fixture; proof = self.verify()
+        source_main = f.source.advance_source_main()
+        origin = Path(f.source.config.repos['Farm-Client'])
+        (origin / 'README.md').write_text('unrelated upstream change', encoding='utf-8')
+        f.source.commit(origin)
+        before = f.source.git(f.client, 'rev-parse', 'HEAD')
+        with patch('agent.fgui_workflow.github_api', return_value={'object': {'sha': source_main}}):
+            self.assertEqual(self.verify(), proof)
+            queued = f.source.cli('await-resource', '--resource', 'unity_slot', '--mode', 'interactive', '--commit', before)
+        self.assertEqual(self.runner.call_count, 1)
+        self.assertEqual(f.source.git(f.client, 'rev-parse', 'HEAD'), before)
+        pending = [r for r in f.ledger.reservations(states=('queued',)) if r['item_id'] == f.item]
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0]['commit_sha'], before)
+        self.assertEqual(f.ledger.item(f.item)['state'], 'awaiting_resource')
+        self.assertFalse(f.ledger.connection.execute(
+            "SELECT 1 FROM audit WHERE kind='repository_handoff_requested' AND id>"
+            "(SELECT MAX(id) FROM audit WHERE kind='fgui_guards_complete')").fetchone())
+
+    def test_changed_candidate_requires_new_actual_guards(self):
+        f = self.fixture; old = self.verify()
+        origin = Path(f.source.config.repos['Farm-Client'])
+        (origin / 'README.md').write_text('upstream integration', encoding='utf-8')
+        f.source.commit(origin); f.workflow.trees.fetch('Farm-Client')
+        f.source.git(f.client, 'merge', '--no-edit', 'origin/main')
+        current = self.verify()
+        self.assertEqual(self.runner.call_count, 2)
+        self.assertNotEqual(current['commit'], old['commit'])
+
+    def test_damaged_retained_proof_is_refused_without_running_or_reusing(self):
+        self.verify()
+        self.fixture.ledger.connection.execute("UPDATE audit SET details='{}' WHERE kind='fgui_guards_complete'")
+        with self.assertRaisesRegex(LedgerError, 'damaged controller'):
+            self.verify()
+        self.assertEqual(self.runner.call_count, 1)
+
+    def test_rewritten_remote_main_cannot_borrow_retained_qualification(self):
+        self.verify(); f = self.fixture
+        origin = Path(f.source.config.repos['Farm-Client'])
+        f.source.git(origin, 'checkout', '--orphan', 'rewritten')
+        f.source.git(origin, 'commit', '-qm', 'new unrelated root')
+        f.source.git(origin, 'branch', '-M', 'main')
+        from agent.worktrees import WorktreeError
+        with self.assertRaises(WorktreeError):
+            self.verify()
+        self.assertEqual(self.runner.call_count, 1)
+
+    def test_stop_refuses_retained_proof_reuse(self):
+        self.verify()
+        self.fixture.ledger.cancel(self.fixture.item, 'Stop before reuse')
+        with self.assertRaises(LedgerError): self.verify()
+        self.assertEqual(self.runner.call_count, 1)
+
     def test_stop_after_process_retains_results_without_success(self):
         def stopped(*args, **kwargs):
             result = self.run_guards(*args, **kwargs); self.fixture.ledger.cancel(self.fixture.item, 'Stop during guards'); return result

@@ -101,14 +101,44 @@ def _native_run(command, cwd, run, *, fence, timeout=600):
             "seconds": round(time.monotonic() - began, 3)}
 
 
+def selected_tool():
+    tool = shutil.which("dotnet")
+    if not tool or not Path(tool).is_absolute():
+        raise LedgerError("actual UI guards require the selected native dotnet executable")
+    return tool, _hash_file(Path(tool), 64 << 20)
+
+
+def retained_guards(workflow, receipt_id, scope, installed, *, tool_sha=None):
+    from .fgui_delivery import verification_record
+    proof = verification_record(workflow, "fgui_guards_complete", "guards_sha256",
+                                receipt_id, scope, installed, missing_ok=True)
+    if proof is None:
+        return None
+    process = proof.get("process") or {}
+    if (proof.get("format") != "farmbot-fgui-guards-v1" or proof.get("passed") != 2
+            or proof.get("tests") != sorted(METHODS) or process.get("exit_code") != 0
+            or process.get("job_assigned_before_startup") is not True or process.get("job_empty") is not True):
+        raise LedgerError("UI guards have damaged controller completion evidence; preserve recovery records")
+    return proof if tool_sha is None or proof.get("dotnet_sha256") == tool_sha else None
+
+
 def verify_guards(workflow, receipt_id):
     scope = verify_candidate(workflow, receipt_id)
     workflow.ledger.require_no_reservation(workflow.item_id)
     client, _, _ = _client(workflow)
-    tool = shutil.which("dotnet")
-    if not tool or not Path(tool).is_absolute():
-        raise LedgerError("actual UI guards require the selected native dotnet executable")
-    tool_sha = _hash_file(Path(tool), 64 << 20)
+    tool, tool_sha = selected_tool()
+    installed = installation_record(workflow.ledger, workflow.item_id, receipt_id)
+    retained = retained_guards(workflow, receipt_id, scope, installed, tool_sha=tool_sha)
+    if retained is not None:
+        workflow.fence(refresh=True)
+        if verify_candidate(workflow, receipt_id) != scope or selected_tool() != (tool, tool_sha):
+            raise LedgerError("UI guard candidate or selected tool changed during verification")
+        with workflow.ledger._transaction():
+            _live(workflow.ledger, workflow.item_id, workflow.token, ("Farm-Client",))
+            workflow.ledger.require_no_reservation(workflow.item_id)
+            workflow.ledger._audit(workflow.item_id, "fgui_guards_reused", details={
+                "receipt_id": receipt_id, "commit": scope["commit"], "guards_sha256": retained["guards_sha256"]})
+        return retained
     run = workflow.paths.runs / workflow.item_id / "ui-checks" / uuid4().hex
     _plain_path(run.parent); run.parent.mkdir(parents=True, exist_ok=True); _plain_path(run.parent)
     run.mkdir(); _plain_path(run)

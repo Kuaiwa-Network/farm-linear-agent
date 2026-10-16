@@ -83,6 +83,24 @@ class UiDeliveryTests(unittest.TestCase):
         self.assertEqual(proof['commit'], self.head)
         self.assertEqual(f.ledger.item(self.item)['target']['commit_sha'], f.baseline)
 
+    def test_released_completed_candidate_keeps_loading_and_guard_proofs_when_main_advances(self):
+        proof = self.complete_checks(); f = self.fixture
+        source_main = f.source.advance_source_main()
+        origin = Path(f.source.config.repos['Farm-Client'])
+        (origin / 'README.md').write_text('new main after completed loading', encoding='utf-8')
+        f.source.commit(origin)
+        with patch('agent.fgui_workflow.github_api', return_value={'object': {'sha': source_main}}):
+            status = f.source.cli('ui-verification-status', '--receipt-id', self.receipt)
+            self.assertEqual(status['next_action'], 'publish')
+            self.assertEqual(status['commit'], self.head)
+            self.assertEqual(status['loading']['unity_sha256'], proof['unity_sha256'])
+            resumed = verify_delivery(f.workflow, self.urls)
+        self.assertEqual(resumed['guards_sha256'], proof['guards_sha256'])
+        self.assertEqual(resumed['unity_sha256'], proof['unity_sha256'])
+        self.assertEqual(self.guard_fixture.runner.call_count, 1)
+        self.assertEqual(self.ledger.connection.execute(
+            "SELECT count(*) FROM audit WHERE kind='fgui_unity_complete'").fetchone()[0], 1)
+
     def configured_github_origins(self):
         # Local owned clones and scripted API; no network or live publication.
         f = self.fixture

@@ -91,6 +91,8 @@ class UiWorkflow:
         main = (metadata.get("object") or {}).get("sha") if isinstance(metadata, dict) else None
         if not isinstance(main, str) or not re.fullmatch(r"[0-9a-f]{40}", main):
             raise LedgerError("UI review requires current verified main identity")
+        from .fgui_history import ensure_history
+        ensure_history(self, main, head)
         changed = changed_packages(self.trees, self.item_id, entry["branch"], head=head, base=main)
         if not isinstance(packages, dict) or any(packages.get(n) != i for n, i in changed["packages"].items()):
             raise LedgerError("UI export selection must include every actually changed package")
