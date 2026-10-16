@@ -3211,6 +3211,31 @@ class Ledger:
         return [dict(r) for r in self.connection.execute(
             "SELECT * FROM notices WHERE item_id=? ORDER BY created_at,request_id", (item_id,))]
 
+    def validate_finish_input(self, item_id, token, outcome, evidence):
+        """Local shape only, usable before delivery exists; never certifies live gates."""
+        row = self._owned(item_id, token)
+        if outcome not in ('blocked', 'delivered'):
+            raise LedgerError('outcome must be blocked or delivered')
+        if not isinstance(evidence, dict):
+            raise LedgerError('finish input must be an object')
+        _text(evidence.get('summary'), 'summary')
+        if outcome == 'delivered':
+            _text(evidence.get('verification'), 'verification')
+            prs = evidence.get('prs') or []
+            if not isinstance(prs, list) or any(not isinstance(pr, str) or not self.PR_URL.fullmatch(pr) for pr in prs):
+                raise LedgerError('prs must be an array of canonical HTTPS pull request URLs')
+            if row['skill'] == 'chat':
+                if evidence.get('comment_action_id') is not None or prs:
+                    raise LedgerError('chat deliveries carry no issue comment and no PR')
+            elif evidence.get('no_change') is not None:
+                _text(evidence['no_change'], 'no_change')
+                if prs:
+                    raise LedgerError('a no_change delivery carries no PR')
+            elif not prs:
+                raise LedgerError('delivered finish requires a nonempty prs array or a no_change reason')
+        if evidence.get('comment_action_id') is not None:
+            _text(evidence['comment_action_id'], 'comment_action_id')
+
     def finish(self, item_id, token, outcome, evidence):
         if outcome not in ("blocked", "delivered"):
             raise LedgerError("outcome must be blocked or delivered")

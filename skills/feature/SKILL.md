@@ -1198,6 +1198,13 @@ production release. Set `stages.G` to done, then finish delivered
 
 ## Outcomes
 
+Prepare the final draft body, checkpoint and outcome together. Before posting delivery,
+run `finish --outcome delivered --input OUTCOME.json --check-input` with the claim token
+file. `summary` and `verification` are nonempty strings, not objects; add the actual
+`comment_action_id` after confirmed delivery. Input preflight neither finishes the job
+nor checks its live gates. Use the foreign-work evidence already returned by fresh
+`verify-publication`, without an immediate duplicate query for the same repository.
+
 Before retiring your claim, save a useful lesson through the item-authenticated memory CLI
 (`references/memory.md`), or nothing.
 
