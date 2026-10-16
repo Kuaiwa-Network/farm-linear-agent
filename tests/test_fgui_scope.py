@@ -238,3 +238,98 @@ class IntegratedClientScopeTests(unittest.TestCase):
         other.source.commit(other.client); other.workflow.trees.fetch("Farm-Client")
         other.source.git(other.client, "merge", "--no-edit", "-Xours", "origin/main")
         with self.assertRaisesRegex(LedgerError, "outside certified"): self.verify()
+
+
+class RetainedParentScopeTests(unittest.TestCase):
+    """A later UI repair inherits parent code on an already-integrated old target."""
+    verify = ClientScopeTests.verify
+    names = ("Gameplay.cs", "GameplayTests.cs")
+
+    def setUp(self):
+        self.fixture = f = client_fixtures.UiClientWorkflowTests()
+        f.internal = True
+
+        def initial(origin):
+            for name in self.names:
+                (origin / name).write_text("original main\n", encoding="utf-8")
+
+        def entry(client, origin):
+            for name in self.names:
+                (origin / name).write_text("upstream before task\n", encoding="utf-8")
+            f.source.commit(origin)
+            f.source.trees.fetch("Farm-Client")
+            f.source.git(client, "merge", "--no-edit", "origin/main")
+            self.entry_main = f.source.git(origin, "rev-parse", "HEAD")
+            for name in self.names:
+                (client / name).write_text("upstream before task\nretained parent change\n", encoding="utf-8")
+            f.source.commit(client)
+
+        f.prepare_baseline = initial
+        f.prepare_entry = entry
+        f.setUp(); self.addCleanup(f.doCleanups)
+        self.entry = f.ledger.item(f.item)["task_client_base"]
+        self.installation = f.installed()
+        f.source.commit(f.client)
+
+    def advance(self, name, text):
+        f = self.fixture
+        origin = Path(f.source.config.repos["Farm-Client"])
+        (origin / name).write_text(text, encoding="utf-8")
+        f.source.commit(origin); f.workflow.trees.fetch("Farm-Client")
+        f.source.git(f.client, "merge", "--no-edit", "-Xours", "origin/main")
+
+    def test_unchanged_parent_fix_and_tests_survive_old_upstream_path_changes(self):
+        proof = self.verify()
+        self.assertEqual(proof["inherited_client_files"], [*self.names, "scene.prefab"])
+        self.assertEqual(proof["baseline"], self.entry)
+        self.assertEqual(self.fixture.installed(), self.installation)
+        self.assertTrue(all(p.startswith("Assets/GameRes/FairyRes/One") for p in proof["changed_client_files"]))
+
+    def test_unrelated_later_main_change_keeps_parent_scope(self):
+        self.advance("Other.cs", "new upstream file\n")
+        self.assertEqual(self.verify()["inherited_client_files"], [*self.names, "scene.prefab"])
+
+    def test_later_upstream_overlap_cannot_be_hidden_by_ours_merge(self):
+        self.advance("Gameplay.cs", "different upstream implementation\n")
+        with self.assertRaisesRegex(LedgerError, "outside certified"):
+            self.verify()
+
+    def test_child_cannot_edit_retained_parent_code_or_test(self):
+        f = self.fixture
+        for name in self.names:
+            path = f.client / name; original = path.read_text(encoding="utf-8")
+            path.write_text(original + "child edit\n", encoding="utf-8"); f.source.commit(f.client)
+            with self.subTest(name=name), self.assertRaisesRegex(LedgerError, "outside certified"):
+                self.verify()
+            path.write_text(original, encoding="utf-8"); f.source.commit(f.client)
+
+    def test_child_cannot_delete_retained_parent_test(self):
+        f = self.fixture
+        (f.client / self.names[1]).unlink(); f.source.commit(f.client)
+        with self.assertRaisesRegex(LedgerError, "outside certified"):
+            self.verify()
+
+    def test_mode_only_child_edit_is_not_inherited(self):
+        f = self.fixture
+        f.source.git(f.client, "update-index", "--chmod=+x", self.names[0])
+        f.source.git(f.client, "commit", "-qm", "unauthorized mode change")
+        with self.assertRaisesRegex(LedgerError, "outside certified"):
+            self.verify()
+
+    def test_candidate_cannot_drop_controller_entry_ancestry(self):
+        f = self.fixture
+        tree = f.source.git(f.client, "rev-parse", "HEAD^{tree}")
+        replacement = f.source.git(f.client, "commit-tree", tree, "-p", self.entry_main, "-m", "same files without task entry")
+        f.source.git(f.client, "reset", "--hard", replacement)
+        with self.assertRaisesRegex(LedgerError, "task entry ancestry"):
+            self.verify()
+
+    def test_ambiguous_entry_main_merge_base_is_refused(self):
+        f = self.fixture; original = f.workflow.trees.git_in
+        def ambiguous(path, *args, **kwargs):
+            if args == ("merge-base", "--all", self.entry, self.entry_main):
+                return self.entry_main + "\n" + f.baseline
+            return original(path, *args, **kwargs)
+        with patch.object(f.workflow.trees, "git_in", side_effect=ambiguous), \
+                self.assertRaisesRegex(LedgerError, "unambiguous"):
+            self.verify()

@@ -51,6 +51,9 @@ class UiClientWorkflowTests(unittest.TestCase):
             # The UI scope must exclude those while retaining the job baseline.
             (self.client / "scene.prefab").write_text("Earlier scene output", encoding="utf-8")
             source.commit(self.client)
+            prepare_entry = getattr(self, "prepare_entry", None)
+            if prepare_entry:
+                prepare_entry(self.client, origin)
             entry_head = source.git(self.client, "rev-parse", "HEAD")
             self.ledger.pin_task_client_base(self.item, row["generation"], entry_head)
         source.token = self.ledger.claim(self.item, worker_id="ui-client-fixture")["token"]

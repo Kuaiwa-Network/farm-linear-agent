@@ -66,6 +66,26 @@ def _delta(workflow, client, before, after):
                                      "--no-textconv", before, after, env=_NO_REPLACE).splitlines())
 
 
+def _inherited_base(workflow, client, baseline, commit, main):
+    """Use the controller-pinned task entry, never a worker's claimed parent base."""
+    item = workflow.ledger.item(workflow.item_id)
+    stage_base = item["target"]["commit_sha"]
+    if not item.get("parent_id"):
+        return stage_base
+
+    def bases(before, after):
+        return workflow.trees.git_in(client, "merge-base", "--all", before, after,
+                                     env=_NO_REPLACE).splitlines()
+
+    if (item.get("task_client_base") != baseline or bases(stage_base, baseline) != [stage_base]
+            or bases(baseline, commit) != [baseline]):
+        raise LedgerError("UI inherited Client scope requires its unchanged controller-pinned task entry ancestry")
+    common = bases(baseline, main)
+    if len(common) != 1:
+        raise LedgerError("UI inherited Client scope requires one unambiguous task-entry/main merge base")
+    return common[0]
+
+
 def _integrated_main(workflow, installed, client, commit):
     # A completed guard proof fixes this candidate's qualified main through
     # queuing, loading, release and delivery, including a resumed worker. A new
@@ -133,11 +153,12 @@ def installed_scope(workflow, installed, *, expected_commit=None):
     if integration is not None:
         scope_base = integration["commit"]
         integrated_delta = _delta(workflow, client, scope_base, commit)
-        # Earlier presentation output in the immutable task entry remains authorized only
-        # when it is byte/mode-identical to that entry and upstream never changed its path.
-        stage_base = workflow.ledger.item(workflow.item_id)["target"]["commit_sha"]
-        inherited = (_delta(workflow, client, stage_base, baseline)
-                     - _delta(workflow, client, stage_base, scope_base) - changed) & integrated_delta
+        # Retained parent output must be byte/mode-identical to the task entry.
+        # Exclude upstream changes since that entry's shared history, not changes
+        # the parent had already integrated before delegating this UI repair.
+        inherited_base = _inherited_base(workflow, client, baseline, commit, scope_base)
+        inherited = (_delta(workflow, client, inherited_base, baseline)
+                     - _delta(workflow, client, inherited_base, scope_base) - changed) & integrated_delta
         if integrated_delta - allowed - {GUARD} - inherited:
             raise LedgerError("UI Client diff contains changes outside certified package outputs and dependency-guard reasons")
         changed = integrated_delta - inherited

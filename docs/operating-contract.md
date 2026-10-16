@@ -1620,8 +1620,17 @@ clean exact committed candidate and installed bytes/GUIDs. New verification
 requires ancestry of the actual configured remote default HEAD. The immutable
 task baseline and installation proof remain unchanged: scope compares the
 candidate to that controller-verified main commit to distinguish imported files
-from worker changes. Earlier presentation files are inherited only when unchanged
-from the task entry and untouched by upstream. The global GUID inventory must be
+from worker changes. Internal tasks may retain parent implementation, tests and
+earlier presentation files only when byte/mode-identical to their controller-pinned
+Client entry. The controller proves target-to-entry-to-candidate ancestry and uses
+the unique merge base of that entry and qualified main to identify subsequent
+upstream changes. Main changes already integrated before entry do not disqualify
+retained parent code; subsequent overlapping paths, new child edits, changed modes
+and ambiguous ancestry still refuse inheritance. No checkpoint can substitute an
+entry or a merge base. Existing candidates, approvals and installation records can
+be rechecked without a schema migration, resetting evidence or re-exporting. Older
+releases may reject this retained scope again; keep its candidate and evidence on
+rollback. The global GUID inventory must be
 unique and exactly match the committed candidate; ignored or assume-unchanged
 metadata cannot qualify as upstream. Certified package files/directories remain
 byte-exact. The controller records the main commit, scope base and GUID digest in
@@ -1632,6 +1641,14 @@ a new candidate or another test round. A changed candidate or receipt still need
 current-main qualification. Existing active exact-commit reservations retain
 their qualified snapshot too; legacy reservations retain only their original
 certified scope.
+After a host correction, `agent.service resume-ui-scope --item ID --reason TEXT`
+may requeue one internal FGUI `client-scope-stage-limit` technical wait. It requires
+maintenance pause, exclusive stopped-controller ownership, fresh open delegation,
+no human question, retained certified installation, settled resources and proven
+teardown of every worker on that issue. It preserves generation, checkpoint,
+approval, candidate, installation and test records; creates no human reply; and
+resumes at `client-scope-recheck` with ordinary verification still mandatory.
+It is an operator command, never a worker command or an automatic retry loop.
 A completed same-receipt installer retry may record this normal scope qualification
 without rewriting assets or replacing its original installation proof.
 Only certified outputs/metadata and literal changed-package dependency-guard
