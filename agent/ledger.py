@@ -1270,6 +1270,9 @@ class Ledger:
                 raise LedgerError("previous worker has not finished teardown")
             if Maintenance(self).pending(item_id):
                 raise LedgerError("maintenance handoff awaits proven worker teardown")
+            from .admission_scope import allows
+            if not allows(self.connection, item_id) and not (Maintenance(self).requested() and self.active_reservation(item_id)):
+                raise LedgerError('operator single-issue acceptance has paused this issue')
             if row["retry_not_before"] > self.clock():
                 raise LedgerError("automatic retry delay has not elapsed")
             if row["parent_id"]:

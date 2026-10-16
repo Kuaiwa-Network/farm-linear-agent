@@ -443,12 +443,15 @@ def main(argv=None):
     parser.add_argument("--config")
     parser.add_argument("--from", dest="source_root", help="directory holding local checkouts to seed from")
     parser.add_argument("--issue", help="Linear issue id or identifier to enqueue work for")
+    parser.add_argument("--only-issue", help="maintenance-resume only: run this known issue and its tasks first")
     parser.add_argument("--skill", default="fix")
     parser.add_argument("--commit", help="pin this commit instead of resolving the default branch")
     parser.add_argument("--item", help="terminal work item whose legacy cleanup needs recovery")
     parser.add_argument("--slot", help="held server slot to reconcile through verified Docker cleanup")
     parser.add_argument("--reason", help="operator explanation for cleanup recovery")
     args = parser.parse_args(argv)
+    if args.only_issue is not None and args.command != 'maintenance-resume':
+        parser.error('--only-issue requires maintenance-resume')
     if args.command.startswith('maintenance-'):
         from .maintenance import Maintenance, read_status
         config = load_config(args.config, secure_permissions=args.command != 'maintenance-status')
@@ -461,7 +464,7 @@ def main(argv=None):
                 if args.command == 'maintenance-pause':
                     Maintenance(ledger).pause(args.reason)
                 else:
-                    Maintenance(ledger).resume()
+                    Maintenance(ledger).resume(only_issue=args.only_issue)
             finally:
                 ledger.close()
         print(json.dumps(read_status(config), ensure_ascii=False, indent=2))

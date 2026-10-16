@@ -72,5 +72,10 @@ def queued_rows(db, *, kind=None):
     if kind is not None:
         query += ' AND kind=?'
         values = (kind,)
+    from .admission_scope import read
+    scope = read(db)
+    if scope:
+        query += ' AND item_id IN (SELECT id FROM work_items WHERE issue_id=?)'
+        values += (scope['issue_id'],)
     rows = list(db.execute(query + ' ORDER BY sequence', values))
     return sorted(rows, key=lambda row: (0 if continuation_slot(db, row) else 1, row['sequence']))

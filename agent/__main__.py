@@ -79,6 +79,7 @@ def parser():
     verify_ui.add_argument("--commit", required=True)
     cmd("verify-ui-loading", "--item", "--receipt-id", token=True)
     cmd("verify-ui-guards", "--item", "--receipt-id", token=True)
+    cmd("ui-verification-status", "--item", "--receipt-id", token=True)
     cmd("authorize-ui-guard-repair", "--item", "--receipt-id", "--input", token=True)
     uploads.add_argument("--url", action="append",
                          help="one of the claimed issue's upload URLs, unsigned as issue-context shows it; repeatable; "
@@ -731,7 +732,8 @@ def run(args, ledger, api_factory):
                 # own thread the acknowledgement is a thought, and the job speaks there next.
                 owe_closing(ledger, item, content, exc)
         return resumed
-    if c in ("review-ui", "export-ui", "install-ui", "verify-ui", "verify-ui-loading", "verify-ui-guards", "authorize-ui-guard-repair"):
+    if c in ("review-ui", "export-ui", "install-ui", "verify-ui", "verify-ui-loading", "verify-ui-guards",
+             "ui-verification-status", "authorize-ui-guard-repair"):
         token = resolve_token(args)
         ledger.renew(args.item, token)
         config = load_config(secure_permissions=False)
@@ -759,6 +761,9 @@ def run(args, ledger, api_factory):
         if c == "verify-ui-guards":
             from .fgui_guards import verify_guards
             return verify_guards(workflow, args.receipt_id)
+        if c == "ui-verification-status":
+            from .fgui_delivery import verification_status
+            return verification_status(workflow, args.receipt_id)
         if c == "review-ui":
             return workflow.review(packages=read_packages(args.packages, paths.runs / args.item),
                                    preview=args.preview, asset_url=args.asset_url, round=args.round)
@@ -863,9 +868,28 @@ def run(args, ledger, api_factory):
                 raise LedgerError("issue must remain open and delegated to FarmBot")
             from .workflow import JobWorktrees
             trees = JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger)
+            ui_scope = None
+            if item['skill'] == 'fgui' and args.repo == 'Farm-Client':
+                from .fgui_workflow import UiWorkflow
+                from .fgui_scope import verify_candidate
+                from .fgui_delivery import verification_record
+                from .fgui_client import installation_record
+                workflow = UiWorkflow(ledger, args.item, token, config, skill, api_factory, stage='Farm-Client')
+                receipt = ((ledger.issue_context(args.item).get('plan') or {}).get('ui') or {}).get('receipt_id')
+                ui_scope = verify_candidate(workflow, receipt)
+                installed = installation_record(ledger, args.item, receipt)
+                verification_record(workflow, 'fgui_guards_complete', 'guards_sha256', receipt, ui_scope, installed)
             result = PublicationVerifier(trees, issue_prefix=config.issue_prefix).verify(
                 args.repo, args.item, issue['identifier'], suffix_roles=skill.initial_root is not None,
-                require_main=True)
+                require_main=ui_scope is None)
+            if ui_scope is not None:
+                # Fresh UI scope already verifies the exact certified candidate
+                # and its qualified base's ancestry of actual remote main.
+                integration = ui_scope.get('main_integration')
+                if (result['head'] != ui_scope['commit'] or not integration
+                        or result['base_branch'] != integration['branch']):
+                    raise LedgerError('UI publication differs from its qualified candidate and default branch')
+                result['main_integration'] = integration
             ledger.renew(args.item, token)  # fence cancellation while network checks were in progress
             refuse_withdrawn(ledger.item(args.item))  # and a withdrawal flagged meanwhile
             return result
@@ -953,6 +977,8 @@ def run(args, ledger, api_factory):
                 scope = verify_candidate(workflow, receipt, expected_commit=args.commit)
                 installed = installation_record(ledger, args.item, receipt)
                 verification_record(workflow, "fgui_guards_complete", "guards_sha256", receipt, scope, installed)
+                if scope.get("main_integration"):
+                    options["verified_base"] = scope["main_integration"]["commit"]
             from .workflow import JobWorktrees
             trees = JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger)
             if args.baseline:

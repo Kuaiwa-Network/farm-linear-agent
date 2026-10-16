@@ -341,7 +341,7 @@ class Worktrees:
                 fetched.add(repo)  # the origin fetch above is the one fetch() makes
         return path
 
-    def fetch(self, repo, *, config=()):
+    def fetch(self, repo, *, config=(), timeout=600):
         """Fetch origin into the clone, made first if it must be, one FarmBot fetch per clone at a time
         (_fetch_lock). A lost ref-lock race (REF_RACE) is retried once; losing the retry too raises FetchRaced.
         Inside one_fetch_per_clone, only the first successful call for each clone fetches; a fetch that failed or
@@ -356,7 +356,7 @@ class Worktrees:
                     # Worker CLI callers can write objects and refs, not the clone root. No caller
                     # consumes FETCH_HEAD: remote identity comes from ls-remote and explicit refs.
                     _git("fetch", "--quiet", "--prune", "--no-write-fetch-head", "origin",
-                         cwd=clone, env=FETCH_ENV, config=config)
+                         cwd=clone, env=FETCH_ENV, config=config, timeout=timeout)
                     break
                 except WorktreeError as exc:
                     if not REF_RACE.search(str(exc)):

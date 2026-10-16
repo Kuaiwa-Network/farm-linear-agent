@@ -206,8 +206,9 @@ def changed_packages(trees, item_id, branch, *, head, base):
     """Package identities from the owned commit's actual diff against trusted main.
 
     The caller obtains `base` from current repository metadata and verifies this
-    source draft's exact HEAD. Missing base history needs a normal worker fetch;
-    this helper never hydrates, fetches, modifies source or guesses a PR base.
+    source draft's exact HEAD. UiWorkflow refreshes missing trusted main objects
+    in the controller-owned clone first. This read helper never hydrates,
+    fetches, modifies source or guesses a PR base.
     Removed packages and source changes without a package need a scope ruling.
     Non-package source paths remain explicit evidence for the caller's review.
     """

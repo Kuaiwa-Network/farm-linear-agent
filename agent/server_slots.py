@@ -360,7 +360,7 @@ class ServerSlotPool:
         if Maintenance(self.ledger).requested():
             return {"settled": settled, "granted": 0}
         for _ in range(self.settings["count"]):
-            pending = [r for r in self.ledger.reservations(states=("queued",)) if r["kind"] == "server_slot"]
+            pending = self.ledger.reservation_queue('server_slot')
             def waiting(request, blockers, **extra):
                 self.ledger.resource_wait_detail(request["reservation_id"],
                     {"observed_at": self.clock(), "blockers": blockers,

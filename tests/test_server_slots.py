@@ -91,6 +91,22 @@ class ServerPoolFixture(unittest.TestCase):
         return item["id"]
 
 class PoolTests(ServerPoolFixture):
+    def test_single_issue_acceptance_never_starts_services_for_older_paused_request(self):
+        from agent.maintenance import Maintenance
+        older = self.request('a'*40)
+        selected = self.request('b'*40)
+        before = self.ledger.reservations()[0]
+        store = Maintenance(self.ledger)
+        store.pause('accept FARM-2 first')
+        store.resume(only_issue='FARM-2')
+        self.assertEqual(self.pool.tick()['granted'], 1)
+        self.assertEqual([lease['item_id'] for lease in self.services.started], [selected])
+        self.assertIsNone(self.ledger.active_reservation(older))
+        self.assertEqual(self.ledger.reservation(before['reservation_id']), before)
+        store.resume()
+        self.assertEqual(self.pool.tick()['granted'], 1)
+        self.assertEqual([lease['item_id'] for lease in self.services.started], [selected, older])
+
     def test_maintenance_settles_existing_services_but_does_not_grant_next_request(self):
         from agent.maintenance import Maintenance
         item = self.request('a'*40)

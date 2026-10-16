@@ -1610,9 +1610,13 @@ from the task entry and untouched by upstream. The global GUID inventory must be
 unique and exactly match the committed candidate; ignored or assume-unchanged
 metadata cannot qualify as upstream. Certified package files/directories remain
 byte-exact. The controller records the main commit, scope base and GUID digest in
-checksummed scope evidence. An active exact-commit Unity reservation reuses that
-qualified main snapshot when main advances; new checks after release use current
-remote main. Legacy reservations retain only their original certified scope.
+checksummed scope evidence. An intact completed guard proof fixes the exact
+receipt/source/candidate's qualified main through queueing, resumed attempts,
+Unity loading, resource release and delivery. Main moving alone does not require
+a new candidate or another test round. A changed candidate or receipt still needs
+current-main qualification. Existing active exact-commit reservations retain
+their qualified snapshot too; legacy reservations retain only their original
+certified scope.
 A completed same-receipt installer retry may record this normal scope qualification
 without rewriting assets or replacing its original installation proof.
 Only certified outputs/metadata and literal changed-package dependency-guard
@@ -1647,6 +1651,25 @@ skipped, duplicate, foreign or Inconclusive results remain pending. Claim/Stop,
 current input, exact source/candidate and executable identity are fenced before
 recording the controller audit proof. Uncertain cleanup preserves logs/results;
 only owned process descendants may be stopped.
+
+The guard command reuses its original complete proof for the same receipt,
+source HEAD, installation, committed candidate and selected executable hash after
+fresh authority/scope/claim checks. Changed inputs require actual guards again;
+damaged records are refused. `ui-verification-status` exposes retained guard and
+loading proofs and the next required action. Completed loading goes on to draft
+publication after resource settlement rather than requesting another Editor.
+
+If current verified farmgui main is absent locally, the UI CLI records a
+claim/generation-fenced history request and waits at most 45 seconds in its
+current repository stage. The host scheduler services at most 16 pending requests
+per tick with at most one configured-origin fetch, using the validated owned clone,
+hooks/fsmonitor disabled and a 60-second fetch timeout. It writes bounded result
+audit, never source bytes, HEAD/index, checkout, merge, LFS hydration or worker
+grants. A stale/withdrawn claim cannot continue. A pending wait can retry the
+same command once; failure remains a named host prerequisite gap, not an
+authoring handoff or permission to repeat tests. This adds audit kinds, not a
+schema migration. Older releases ignore pending requests; retain their evidence
+and use the settled deployment/recovery workflow when rolling back.
 
 The UI CLI's `await-resource` accepts only interactive Unity at the explicit
 certified committed Client head after the current guard proof. Existing slot
@@ -2616,6 +2639,20 @@ a version without maintenance support, settle every pending handoff, keep the ho
 stopped under operator control, and explicitly clear maintenance with the supporting
 version. A source checkout rollback does not reverse the new tables or grant safe
 process/resource cleanup.
+
+An operator may first resume a single known issue with `maintenance-resume
+--config CONFIG --only-issue IDENTIFIER`. The paused instance must have settled
+other workers and active/cancelling resources. Scope selection and pause removal
+are atomic. The recorded issue ID includes its parent job and every internal
+task, and fences scheduler launch, worker claim and both resource pools; other
+queued requests retain their immutable sequence, commit and reports. Their
+Monitor rows say which issue's acceptance is pending, rather than reporting
+capacity/FIFO waits. This restriction persists in the `maintenance_issue_scope`
+operator audit record, adds no schema, and survives controller restart. An unknown
+issue or damaged scope refuses admission. Ordinary explicit `maintenance-resume`
+clears the restriction; acceptance completion never clears it automatically.
+Before rolling back to code without this scope gate, keep the host stopped and
+settle the selective run: older code does not honor this audit record.
 
 ## Optional host controller guard
 

@@ -926,6 +926,10 @@ class Scheduler:
             for row in parents:
                 wake_parent(self.ledger, row["id"])
             queue = self.ledger.queue()
+        # The worker CLI runs inside its repository sandbox. Only this host
+        # path may fill missing farmgui objects for a Client continuation.
+        from .fgui_history import refresh_pending
+        refresh_pending(self.ledger, self.worktrees)
         launched = 0
         for item in queue:
             with self.lock:

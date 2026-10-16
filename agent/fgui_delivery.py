@@ -10,7 +10,7 @@ from .ledger import LedgerError
 from .publication import PublicationVerifier
 
 
-def verification_record(workflow, kind, checksum, receipt_id, scope, installed):
+def verification_record(workflow, kind, checksum, receipt_id, scope, installed, *, missing_ok=False):
     candidates = [json.loads(row["details"]) for row in workflow.ledger.connection.execute(
         "SELECT details FROM audit WHERE item_id=? AND kind=? ORDER BY id DESC", (workflow.item_id, kind))]
     for proof in candidates:
@@ -21,7 +21,38 @@ def verification_record(workflow, kind, checksum, receipt_id, scope, installed):
                 and proof.get("source_head") == scope["source_head"]
                 and proof.get("installation_sha256") == installed["installation_sha256"]):
             return proof
+    if missing_ok:
+        return None
     raise LedgerError("UI delivery requires current controller guard and actual Unity loading records")
+
+
+def verification_status(workflow, receipt_id):
+    """Discover durable exact-candidate proofs without requesting an Editor."""
+    from .fgui_guards import retained_guards, selected_tool
+    scope = verify_candidate(workflow, receipt_id)
+    installed = installation_record(workflow.ledger, workflow.item_id, receipt_id)
+    _, tool_sha = selected_tool()
+    guards = retained_guards(workflow, receipt_id, scope, installed, tool_sha=tool_sha)
+    unity = verification_record(workflow, "fgui_unity_complete", "unity_sha256",
+                                receipt_id, scope, installed, missing_ok=True)
+    reservation = workflow.ledger.active_reservation(workflow.item_id)
+    if reservation and (reservation['kind'] != 'unity_slot' or reservation['mode'] != 'interactive'
+                        or reservation['commit_sha'] != scope['commit']):
+        raise LedgerError('UI verification resource differs from the current certified candidate')
+    if guards is None:
+        next_action = "verify-ui-guards"
+    elif unity is not None:
+        next_action = "release-resource" if reservation else "publish"
+    elif reservation:
+        next_action = "verify-ui-loading" if reservation["state"] == "active" else "await-resource-grant"
+    else:
+        next_action = "await-resource"
+    workflow.fence()
+    return {"format": "farmbot-fgui-verification-status-v1", "receipt_id": receipt_id,
+            "commit": scope["commit"], "scope": scope, "guards": guards, "loading": unity,
+            "next_action": next_action,
+            "reservation": ({key: reservation[key] for key in
+                ("reservation_id", "kind", "mode", "state", "commit_sha")} if reservation else None)}
 
 
 def verify_delivery(workflow, urls):
