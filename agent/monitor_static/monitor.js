@@ -378,6 +378,7 @@
     target.replaceChildren(...work.active.map((job) => {
       const [label, tone] = STATE[job.display_state] || [job.display_state, "neutral"];
       const verificationStages = {
+        "presentation-coordination": "处理子任务问题与已收到的确认",
         "client-reviewing-test-failures": "失败源码与依赖审查",
         "client-comparing-test-results": "执行测试结果比较",
         "client-verified-awaiting-publication": "结果比较允许草稿交付，待完成发布检查",
@@ -386,7 +387,8 @@
         "client-publication-check": "发布前检查",
         "client-delivery-recording": "记录交付，准备 finish"
       };
-      const meta = [SKILL[job.skill] || job.skill, job.repo, job.stage && `阶段 ${verificationStages[job.stage] || job.stage}`].filter(Boolean).join(" · ");
+      const repo = job.repo === "@coordination" ? "任务协调（无仓库写权限）" : job.repo;
+      const meta = [SKILL[job.skill] || job.skill, repo, job.stage && `阶段 ${verificationStages[job.stage] || job.stage}`].filter(Boolean).join(" · ");
       const main = cell("main", el("div", "title", job.title || ""), el("div", "muted", meta));
       const wait = resourceWaitText(job.resource_wait);
       if (wait) main.append(el("div", "muted", wait));

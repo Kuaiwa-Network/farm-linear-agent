@@ -343,6 +343,52 @@ def _tasks_settled(ledger, tasks):
                                for task in tasks)
 
 
+def prepare_coordination(ledger, item_id, launcher, active=()):
+    """Narrow a queued Client parent to message routing, including pre-fix waits.
+
+    No worker may select this root. Retain candidates, pins, generation and every
+    checkpoint; returning to a write root uses the ordinary certified handoff.
+    """
+    from .maintenance import Maintenance
+    from .ledger import LedgerError
+    from .stages import COORDINATION_ROOT
+
+    def eligible(row):
+        if (row['skill'] != 'work' or row['parent_id'] or row['state'] != 'queued'
+                or row['root_repo'] != 'Farm-Client' or row['next_root_repo'] is not None
+                or row['worker_pid'] is not None or row['token'] is not None
+                or row['withdraw_deadline'] is not None or item_id in active
+                or not Maintenance(ledger).may_launch(item_id)):
+            return False
+        try:
+            ledger.require_no_reservation(item_id)
+        except LedgerError:
+            return False
+        tasks = task_views(ledger, item_id)
+        if not tasks or _tasks_settled(ledger, tasks):
+            return False
+        return (any(t['state'] in ('awaiting_input', 'blocked', 'failed', 'cancelled') for t in tasks)
+                or ledger.connection.execute('SELECT 1 FROM inbox WHERE item_id=? AND consumed_at IS NULL',
+                                              (item_id,)).fetchone() is not None)
+
+    row = ledger._row(item_id)
+    if not eligible(row):
+        return
+    generation = row['generation']
+    pid = ledger.last_worker_pid(item_id)
+    try:
+        launcher.assert_quiescent(item_id, pid)
+    except Exception:
+        return  # A retired claim does not prove the old Client writer exited.
+    with ledger._transaction():
+        row = ledger._row(item_id)
+        if not eligible(row) or row['generation'] != generation or ledger.last_worker_pid(item_id) != pid:
+            return
+        ledger._set_state(item_id, 'queued', 'coordinate presentation task answers; Client writes remain gated',
+                          root_repo=COORDINATION_ROOT, stage='presentation-coordination')
+        ledger._audit(item_id, 'presentation_coordination', details={'return_repository': 'Farm-Client'})
+
+
 def repository_busy(ledger, item, skills, active=(), launcher=None):
     """Serialize a job's repository across live, retiring and reserved attempts.
 
@@ -354,6 +400,8 @@ def repository_busy(ledger, item, skills, active=(), launcher=None):
     from .ledger import ACTIVE_STATES
     owner = repository_owner(item)
     root = current_root(item.get("root_repo"), skills[item["skill"]])
+    if root is None:
+        return False  # A coordination attempt has no repository writer to serialize.
     for other in [ledger.item(owner), *task_views(ledger, owner)]:
         if other["id"] == item["id"]:
             continue

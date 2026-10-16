@@ -1,13 +1,19 @@
 """Repository scope for a worker attempt, from the skill manifest and independent of checkpoint prose."""
 
+COORDINATION_ROOT = "@coordination"
+
 
 def current_root(root_repo, skill):
     """The repository an attempt is rooted in: its recorded root_repo, else the manifest's initial_root.
 
     None means no root: a neutral attempt of a staged skill without an initial_root (fix before its first
-    handoff), or any unstaged skill, which is never rooted. Stages, the dispatch stage block and the ledger's
-    handoff checks all resolve the root here (spec §9.4).
+    handoff), a controller-selected work coordination attempt, or an unstaged skill. Stages, the dispatch
+    stage block and the ledger's handoff checks all resolve the root here (spec §9.4).
     """
+    # Controller-only parked Client continuation. NULL still means the manifest's
+    # initial root (Farm-Contract for work); it cannot represent this narrower scope.
+    if skill.name == "work" and root_repo == COORDINATION_ROOT:
+        return None
     return skill.initial_root if root_repo is None else root_repo
 
 
