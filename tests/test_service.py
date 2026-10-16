@@ -40,6 +40,46 @@ def git(*args, cwd):
 
 
 class ServeTests(unittest.TestCase):
+    def test_maintenance_ready_requires_current_live_controller_and_keeps_queued_work(self):
+        from agent.maintenance import Maintenance, read_status
+        current = self.c.ledger
+        current.observe_issue(issue(delegate_id=APP))
+        current.ensure_session('maintenance-session', ISSUE, True)
+        item = current.create_work_item(issue_id=ISSUE, session_id='maintenance-session', skill='chat', target=PIN)
+        Maintenance(current).pause('fixture maintenance')
+        failures = []
+        def run():
+            try:
+                serve(components=self.c)
+            except BaseException as exc:
+                failures.append(exc)
+        thread = threading.Thread(target=run, daemon=True)
+        with patch('agent.service.HEARTBEAT_INTERVAL', .05), contextlib.redirect_stdout(io.StringIO()):
+            thread.start()
+            try:
+                deadline = time.monotonic()+15
+                while time.monotonic() < deadline:
+                    if failures:
+                        raise failures[0]
+                    if read_status(self.c.config)['ready_to_stop']:
+                        break
+                    time.sleep(.05)
+                else:
+                    self.fail('maintenance never received a current serving controller confirmation')
+                self.assertEqual(self.c.launcher.running(), {})
+                with urllib.request.urlopen(f'http://127.0.0.1:{self.c.server.server_address[1]}/health', timeout=3) as response:
+                    self.assertEqual(response.status, 200)
+            finally:
+                self.c.server.shutdown()
+                thread.join(20)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(failures, [])
+        self.assertFalse(read_status(self.c.config)['ready_to_stop'])
+        reopened = Ledger(self.c.paths.ledger)
+        self.addCleanup(reopened.close)
+        self.assertTrue(Maintenance(reopened).requested())
+        self.assertEqual(reopened.item(item['id'])['state'], 'queued')
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)

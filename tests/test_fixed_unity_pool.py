@@ -15,6 +15,46 @@ from test_slots import FakeMcp, FakeUnity, SlotFixture, git
 
 
 class FixedEditorPoolTests(SlotFixture):
+    def test_maintenance_requires_fresh_editor_quiescence_not_just_idle_slot_state(self):
+        from agent.maintenance import Maintenance, request
+        pool = self.fixed_pool(1)
+        pool.ensure()
+        store = Maintenance(self.ledger)
+        store.pause('maintenance')
+        current = request(self.ledger.connection)
+        self.assertTrue(pool.maintenance_blockers(current))
+        self.mcp.ready = False
+        pool.tick()
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'idle_open')
+        self.assertEqual(pool.maintenance_blockers(current), [{'code':'resource_probe', 'subject':'unity_slot:1'}])
+        self.mcp.ready = True
+        self.advance(6)
+        pool.tick()
+        self.assertEqual(pool.maintenance_blockers(current), [])
+        self.advance(16)
+        self.assertTrue(pool.maintenance_blockers(current))
+        store.resume()
+        store.pause('next maintenance')
+        self.assertTrue(pool.maintenance_blockers(request(self.ledger.connection)))
+
+    def test_maintenance_preserves_queued_commit_without_warming_or_granting(self):
+        from agent.maintenance import Maintenance
+        store = Maintenance(self.ledger)
+        store.pause('upgrade')
+        pool = self.fixed_pool(1)
+        pool.ensure()
+        candidate = self.commit('maintenance-candidate')
+        item = self.waiting(ISSUE, candidate, 'interactive')
+        before = list(self.mcp.calls)
+        self.assertEqual(pool.tick()['granted'], 0)
+        self.assertEqual(self.mcp.calls, before)
+        self.assertEqual(self.ledger.slot('unity_slot:1')['state'], 'idle_closed')
+        self.assertIsNone(self.ledger.active_reservation(item))
+        self.assertEqual(self.ledger.reservations()[0]['commit_sha'], candidate)
+        store.resume()
+        self.assertEqual(pool.tick()['granted'], 1)
+        self.assertEqual(self.ledger.active_reservation(item)['commit_sha'], candidate)
+
     def test_pool_reserves_worker_before_switch_and_preparation_never_holds_scheduler_lock(self):
         launcher = FakeLauncher(self.root / 'runs')
         scheduler = Scheduler(self.ledger, launcher, SKILLS, self.trees, skill_root=ROOT / 'skills',

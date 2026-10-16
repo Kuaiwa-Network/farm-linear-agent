@@ -2541,6 +2541,74 @@ SIGKILL once the job's exit timeout has passed. The plists do not set it, so the
 A drain longer than that ends without a `stopped` heartbeat, so the page shows 无响应 instead of 已停止
 once the last heartbeat is 60 seconds old.
 
+## Cooperative maintenance pause
+
+The operator commands `agent.service maintenance-pause --config CONFIG --reason TEXT`,
+`maintenance-status --config CONFIG` and `maintenance-resume --config CONFIG` select
+the same absolute host config as the running service. Pause and resume validate
+instance ownership before opening the ledger; status and doctor use read-only
+snapshots and never migrate it. Pause is durable and idempotent. It does not stop
+the receiver or suppress incoming Linear events, manufacture human answers, change
+issue status, kill workers, or deploy code.
+
+The scheduler stops admitting ordinary workers and the ledger's transactional
+resource acquisition gate refuses both Unity and server grants. Slow preparation
+which was already admitted can finish; its resource worker may start solely to
+collect existing results and settle the reservation. No new tests are authorized
+in that drain attempt. Idle Unity warmup and new Go dependency preparation pause;
+an admitted batch whose process has not started writes `deferred_maintenance`
+evidence instead of starting tests, with its exact commit and no pass/fail verdict;
+resource settlement and recovery continue. Running workers learn the request in
+`claim`, `renew` and `checkpoint` responses. Dispatch authority requires a renew
+before new expensive work/tests, completion of in-flight tools/tests, preservation
+of their real reports, quiescent resource release, a current validated checkpoint
+handoff and `maintenance-handoff`, followed by immediate exit. Ordinary finish or
+resource/repository handoff can also settle an attempt. This is not `await-input`.
+
+`maintenance-handoff` authenticates the live claim and refuses outstanding resource
+reservations or a missing/rejected/stale-claim handoff. It atomically retires the
+claim and lease while retaining the old worker PID as a teardown fence. It preserves
+the generation, repository root, stage, candidate, checkpoints, reports, human gates
+and retry allowances. The scheduler never treats this intentional exit as failure.
+Only the controller, after `Launcher.assert_quiescent` proves worker/descendant
+teardown, removes that fence. After restart the same proof runs immediately without
+waiting for the retired lease. Resuming scheduling early cannot bypass the pending
+fence; cancellation or a material issue change is never undone by maintenance.
+
+`maintenance-status`, doctor and Monitor distinguish draining from ready to stop.
+They require a fresh serving controller's completed scheduler observation, no running
+claims or pending worker handoffs, proven teardown for the observed attempts, no
+active/cancelling reservations, settled slot states, and no unfinished/erroring
+resource/dependency controller operation. The pool independently probes idle-open
+Unity Editors through the existing quiescence predicate and confirms idle-closed
+projects have no Editor. The scheduler consumes that bounded, request-specific
+observation without doing slow MCP calls under its lock. A slot flag alone is
+insufficient; stale/missing/failed quiet probes remain a blocker. Missing, stale or
+pre-restart evidence never reports ready. Blockers identify workers, resources and controller loops;
+ordinary queued tasks and queued reservations may remain. Operators must wait for
+`ready_to_stop: true` before the separately authorized shutdown and full release
+replacement. A hung or uncooperative worker remains a blocker; this mode does not
+extend budgets indefinitely or force-clean shared Editors.
+
+The pause survives restart. Verify the complete installed release and then explicitly
+run `maintenance-resume`; this only opens scheduling, leaving human-paused and failed
+tasks alone. Saved verification rounds continue against the same candidate and exact
+valid reports; maintenance itself is not a reason to merge newer main or repeat a
+baseline. `supervisor.pause` still only suppresses new controller launches and does
+not implement this drain. The legacy Windows redeploy helper retains its older
+empty-ledger requirement; use the installed host's release workflow after a ready
+maintenance drain rather than bypassing that helper's checks.
+
+Migration adds `maintenance_control`, `maintenance_handoffs` and
+`maintenance_attempts`; existing job/claim/resource schemas are unchanged. An older
+controller does not honor these tables. Roll out this capability through an already
+settled upgrade first; existing workers launched with old dispatch instructions may
+need to finish normally and are never presumed cooperative. Before rolling back to
+a version without maintenance support, settle every pending handoff, keep the host
+stopped under operator control, and explicitly clear maintenance with the supporting
+version. A source checkout rollback does not reverse the new tables or grant safe
+process/resource cleanup.
+
 ## Optional host controller guard
 
 `agent/supervisor.py` runs independently of the controller and never opens its

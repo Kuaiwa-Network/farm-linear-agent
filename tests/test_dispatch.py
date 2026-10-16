@@ -478,7 +478,7 @@ class SkillAuthorityTests(unittest.TestCase):
     def test_chat_keeps_historical_restrictions_and_receives_question_authority(self):
         """Keep the historical restrictions pinned independently of the new question protocol."""
         self.assertEqual(dispatch.COMMON_AUTHORITY + dispatch.SKILL_AUTHORITY["chat"] + dispatch.AUTHORITY_REFERENCE,
-                         with_withdrawal(AUTHORITY_AT_A29D078).replace(
+                         dispatch.MAINTENANCE_AUTHORITY + with_withdrawal(AUTHORITY_AT_A29D078).replace(
                              "Never merge, deploy", "Never merge pull requests, deploy"))
         self.assertEqual(self.message({"id": "i", "skill": "chat"}).split("\n\n", 1)[0],
                          dispatch.COMMON_AUTHORITY + dispatch.QUESTION_AUTHORITY + dispatch.SKILL_AUTHORITY["chat"] + dispatch.AUTHORITY_REFERENCE)
@@ -601,7 +601,7 @@ class SkillAuthorityTests(unittest.TestCase):
         reference = "Use references/worker-cli.md for command arguments and the exact handoff JSON shape."
         common, marker, rest = AUTHORITY_AT_A29D078.partition("When tools.kw_ops.access is present")
         expected = with_server_slots(common).replace("Never merge, deploy", "Never merge pull requests, deploy")
-        self.assertEqual(dispatch.COMMON_AUTHORITY, expected + WITHDRAWAL_AT_DESIGN)
+        self.assertEqual(dispatch.COMMON_AUTHORITY, dispatch.MAINTENANCE_AUTHORITY + expected + WITHDRAWAL_AT_DESIGN)
         self.assertEqual(dispatch.AUTHORITY_REFERENCE, reference)
         self.assertEqual(dispatch.KW_OPS_AUTHORITY, marker + rest[:-len(reference)])
 

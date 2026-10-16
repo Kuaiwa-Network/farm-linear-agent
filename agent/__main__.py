@@ -50,6 +50,7 @@ def parser():
     cmd("fetch-issue", "--item")
     cmd("claim", "--item", "--worker-id")
     cmd("renew", "--item", token=True)
+    cmd("maintenance-handoff", "--item", token=True)
     cmd("document-reader-status", "--item", token=True)
     cmd("checkpoint", "--item", "--input", token=True)
     cmd("handoff-repository", "--item", "--to", token=True)
@@ -532,6 +533,9 @@ def run(args, ledger, api_factory):
         return ledger.claim(args.item, worker_id=args.worker_id)
     if c == "renew":
         return ledger.renew(args.item, resolve_token(args))
+    if c == "maintenance-handoff":
+        from .maintenance import Maintenance
+        return Maintenance(ledger).handoff(args.item, resolve_token(args))
     if c == "checkpoint":
         progress = read_json(args.input)
         if isinstance(progress, dict):

@@ -1,5 +1,29 @@
 # Worker CLI and checkpoints
 
+During operator maintenance, item responses from `claim`, `renew` and `checkpoint`
+include `maintenance_requested: true`. Renew before a new expensive operation or
+test as well as at the normal interval. Finish an already running operation,
+collect its actual report, stop your own local services and save a fresh validated
+`handoff`. Include the exact baseline/candidate SHAs, completed test/report paths
+and remaining action, so a new worker reuses valid evidence. Confirm resources are
+quiescent with the ordinary checks and release them using the reservation token;
+then call `maintenance-handoff` with the claim token and exit on success. If a
+baseline needs its candidate queued, `continue-verification` can preserve that
+continuation and exit instead; maintenance prevents granting the next reservation.
+
+An already admitted resource worker may start during maintenance solely to collect
+existing results and release the reservation; it must not start a new test. An
+inherited batch result with `state: deferred_maintenance` means no test ran:
+preserve that exact pending verification pin and request it after maintenance;
+it is neither a pass nor a failure. An unclean resource remains held/recovering
+and blocks safe shutdown. Maintenance
+never authorizes skipping a test, rerunning a baseline, merging main or asking a
+human to approve routine handoff. If the handoff command says maintenance is no
+longer requested, renew and continue the same claim. Operator pause/resume commands
+belong to the host operator, not the worker. Resume after maintenance with the saved
+candidate, stage and reports; normal issue revalidation and publication gates still
+apply.
+
 Use DATABASE, ITEM_ID and STATE_DIR from your launch message. Run from `repo_root`
 with its Python environment. Check the installed command before guessing a flag:
 
@@ -10,6 +34,7 @@ python3 -m agent --db DATABASE checkpoint --help
 | Command | Item and authentication arguments |
 | --- | --- |
 | `claim` | `--item ITEM_ID --worker-id WORKER_ID`; returns the claim token |
+| `maintenance-handoff` | `--item ITEM_ID --token-file STATE_DIR/token`; retire the claim only after saving a current handoff and releasing resources during operator maintenance |
 | `fetch-issue`, `issue-context` | `--item ITEM_ID` only; no token flags |
 | `renew`, `checkpoint`, `pop-inbox`, `download-uploads`, `upload-image`, `verify-publication`, `foreign-work`, `handoff-repository`, `revalidate`, `prepare-comment`, `post-comment`, `confirm-comment`, `prepare-notice`, `post-notice`, `activity`, `await-input`, `await-resource`, `finish` | `--item ITEM_ID --token-file STATE_DIR/token`, plus command-specific arguments from `--help` |
 | `request-repair` | Read-only profile only: claim-token arguments, `--message-id LATEST_MESSAGE_ID --summary-file STATE_DIR/repair-summary.md` |

@@ -91,6 +91,26 @@ class ServerPoolFixture(unittest.TestCase):
         return item["id"]
 
 class PoolTests(ServerPoolFixture):
+    def test_maintenance_settles_existing_services_but_does_not_grant_next_request(self):
+        from agent.maintenance import Maintenance
+        item = self.request('a'*40)
+        self.pool.tick()
+        lease = self.services.started[0]
+        waiting = self.request('b'*40)
+        store = Maintenance(self.ledger)
+        store.pause('maintenance')
+        self.ledger.release(lease['reservation_id'], lease['token'], 'tests finished')
+        self.exited = False
+        self.assertEqual(self.pool.tick(), {'settled':0, 'granted':0})
+        self.assertEqual(self.services.cleaned, [])
+        self.exited = True
+        self.assertEqual(self.pool.tick(), {'settled':1, 'granted':0})
+        self.assertEqual(len(self.services.started), 1)
+        self.assertIsNone(self.ledger.active_reservation(waiting))
+        store.resume()
+        self.assertEqual(self.pool.tick()['granted'], 1)
+        self.assertEqual(self.ledger.active_reservation(waiting)['commit_sha'], 'b'*40)
+
     def test_general_job_can_reserve_server_services_at_its_exact_candidate(self):
         item = self.request(skill="work")
         self.assertEqual(self.pool.tick()["granted"], 1)

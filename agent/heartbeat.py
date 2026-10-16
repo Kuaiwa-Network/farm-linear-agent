@@ -77,6 +77,17 @@ class Heartbeat:
             if phase == "stopped":
                 self._stopped_at = self.clock()
 
+    @property
+    def started_at(self):
+        return self._started_at
+
+    def unsettled_loops(self, names):
+        """Controller drain observations must not depend on display serialization succeeding."""
+        with self._lock:
+            return [name for name in names if name in self._loops and (
+                self._loops[name]['consecutive_errors'] or
+                (self._loops[name]['started_at'] or 0) > (self._loops[name]['finished_at'] or 0))]
+
     def loop_started(self, name):
         with self._lock:
             self._loops.setdefault(name, _empty_loop())["started_at"] = self.clock()
