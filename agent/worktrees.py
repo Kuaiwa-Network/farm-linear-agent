@@ -718,6 +718,14 @@ class Worktrees:
         self.verification_commit(repo, item_id, candidate)
         return proof["commit"]
 
+    def server_changed_scope(self, repo, item_id, candidate, base):
+        from .server_test_plan import changed_scope
+        self.verification_commit(repo, item_id, candidate)
+        path = self.worktrees_root.resolve() / item_id / repo
+        names = self.git_in(path, 'diff', '--name-only', '--no-renames', '-z', base, candidate,
+                            env={**GIT_ENV, 'GIT_NO_REPLACE_OBJECTS': '1'})
+        return changed_scope([name for name in names.split('\0') if name])
+
     def verification_baseline(self, repo, item_id, candidate, *, expected_branch=None):
         """Select actual remote main for comparison without changing the owned candidate."""
         self.verification_commit(repo, item_id, candidate, expected_branch=expected_branch)

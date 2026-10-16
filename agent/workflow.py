@@ -27,7 +27,7 @@ class JobWorktrees:
     adapter only with the trusted ledger; no worker-provided path chooses an owner.
     """
     _second = {"add", "add_stage", "stage_base", "stage_start", "add_detached", "verification_commit",
-               "verification_baseline", "server_verification_base"}
+               "verification_baseline", "server_verification_base", "server_changed_scope"}
 
     def __init__(self, trees, ledger):
         self.trees, self.ledger = trees, ledger

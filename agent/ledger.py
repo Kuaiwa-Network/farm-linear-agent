@@ -2003,7 +2003,8 @@ class Ledger:
                     AND state='released' AND release_reason='worker reported quiescent'
                     ORDER BY sequence DESC LIMIT 1""", (item_id, item['generation'], candidate, original['sequence'])).fetchone()
                 if released is None:
-                    return None
+                    from .server_recovery import retained_round
+                    return retained_round(self, item_id, candidate, record)
                 record['released_reservation'] = released['reservation_id']
             return record
         return None
@@ -2396,6 +2397,32 @@ class Ledger:
             self._set_state(row["id"], "queued", reason, needs_resource=None,
                             **({"stage": stage} if stage is not None else {}))
             return self._view(self._row(row["id"]))
+
+    def server_verification_timeout(self, reservation_id, deadline):
+        """A technical deadline preserves evidence and never becomes an automatic retry."""
+        with self._transaction():
+            reservation = self.reservation(reservation_id)
+            if not reservation or reservation['kind'] != 'server_slot' or reservation['state'] != 'active':
+                return False
+            row = self._row(reservation['item_id'])
+            if (row['generation'] != reservation['generation'] or row['state'] not in
+                    ('queued', 'running', 'awaiting_resource') or self.clock() < deadline):
+                return False
+            reason = 'server verification deadline reached; inspect retained reports before any retry'
+            self.connection.execute('INSERT OR IGNORE INTO job_cleanup(item_id,worker_pid,updated_at) VALUES(?,?,?)',
+                                    (row['id'], self.last_worker_pid(row['id']), self.clock()))
+            self.connection.execute("""UPDATE reservations
+                SET state=CASE WHEN state='queued' THEN 'cancelled' ELSE 'cancel_requested' END,
+                    released_at=CASE WHEN state='queued' THEN ? ELSE released_at END,
+                    release_reason=CASE WHEN state='queued' THEN ? ELSE release_reason END
+                WHERE item_id=? AND state IN ('queued','active')""", (self.clock(), reason, row['id']))
+            self._set_state(row['id'], 'blocked', reason, token=None, lease_expires_at=None,
+                            worker_pid=None, needs_resource=None, next_root_repo=None,
+                            stage='server-verification-timeout')
+            self._audit(row['id'], 'server_verification_timeout', reason,
+                        {'reservation_id': reservation_id, 'generation': row['generation'],
+                         'candidate_commit': reservation['commit_sha'], 'deadline': deadline})
+            return True
 
     def cancel(self, item_id, reason, *, states=None, drop_progress=False, authority=None, created_before=None):
         """`states` cancels only an item in one of those states, in this same transaction, and returns None for any

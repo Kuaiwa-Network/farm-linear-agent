@@ -43,3 +43,54 @@ def test_argv(plan):
     if plan["tests"]:
         args += ["-run", "^(" + "|".join(plan["tests"]) + ")$"]
     return args + plan["packages"]
+
+
+def scope(plan):
+    """Verification breadth is independent of the conservative race memory estimate."""
+    plan = validate_plan(plan)
+    if any('...' in p for p in plan['packages']):
+        return 'broad'
+    return 'focused' if plan['tests'] else 'targeted'
+
+
+def timeout_seconds(plan, configured=1800):
+    # A package's Go -timeout is not an aggregate suite deadline. Keep a hard
+    # ceiling, but allow serial broad suites several package budgets. No heartbeat
+    # can extend this indefinitely. Existing explicit shorter limits still scale.
+    kind = scope(plan)
+    multiplier = 4 if kind == 'broad' else max(1, (len(plan['packages']) + 3) // 4)
+    return min(7200, configured * multiplier)
+
+
+def changed_scope(paths):
+    """Conservative minimum from a trusted base/candidate diff; callers add consumers."""
+    packages, shared = set(), []
+    for name in paths:
+        if name.endswith('.md') or name.startswith('docs/'):
+            continue
+        parts = name.split('/')
+        if len(parts) >= 3 and parts[0] == 'modules' and name.endswith('.go'):
+            packages.add('./' + '/'.join(parts[:-1]))
+        else:
+            shared.append(name)
+    return {'packages': sorted(packages), 'shared_paths': sorted(shared)}
+
+
+def check_scope(plan, changes, reason=None):
+    """Do not silently expand a local fix to full CI, or omit changed packages."""
+    plan = validate_plan(plan)
+    if reason is not None and (not isinstance(reason, str) or not 10 <= len(reason.strip()) <= 500):
+        raise ValueError('server scope reason must contain 10-500 characters')
+    selected = plan['packages']
+    def covered(package):
+        return any(p == './...' or p == package or
+                   (p.endswith('/...') and (package == p[:-4] or package.startswith(p[:-3]))) for p in selected)
+    if any(not covered(p) for p in changes['packages']):
+        raise ValueError('server test plan omits a changed package')
+    if changes['shared_paths'] and './...' not in selected and not reason:
+        raise ValueError('shared server changes require full scope or a concrete dependency analysis via --server-scope-reason')
+    if not changes['shared_paths'] and scope(plan) == 'broad' and not reason:
+        raise ValueError('local server changes require affected packages; broad tests need --server-scope-reason')
+    if plan['tests'] and not reason:
+        raise ValueError('named-only acceptance needs --server-scope-reason explaining coverage')
+    return {'changes': changes, 'plan': plan, 'reason': reason, 'verification_scope': scope(plan)}

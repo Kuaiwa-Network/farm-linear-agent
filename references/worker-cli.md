@@ -724,8 +724,8 @@ Missing plans from older callers get the full estimate. Required coverage/race
 must not be dropped to obtain a cheaper lease. The controller supplies the
 canonical `resource.test_plan`, `resource.memory_profile` and `resource.test_argv`;
 execute that selection at `resource.commit`. Do not broaden packages, tests,
-race or concurrency on a cheaper lease; release and request full scope first for
-separate multi-node commands or broader verification. A full unrestricted plan
+race or concurrency beyond the selected lease. Broader verification requires a new scoped plan
+and reason; separate multi-node commands require full resource admission. A full unrestricted plan
 is `{"packages":["./..."],"tests":[],"race":true}`.
 
 After upgrade, a queued legacy request without scope is resumed once as
@@ -970,3 +970,33 @@ Neither the round nor a released lease proves tests passed. Preserve complete te
 required coverage and normal publication/finish gates. A different candidate or generation
 cannot borrow the round. Legacy leases without a recorded base have no publication exemption;
 new requests capture a trusted base without requiring the candidate to chase the current tip.
+
+
+### Server scope and retained timeout evidence
+
+Server memory cost and verification breadth are independent: selected package race tests may
+reserve full memory without running `./...`. `await-resource` checks the trusted base/candidate
+diff. All changed module packages must be covered. Local recursive/full selection, named-only
+acceptance, or narrow coverage of shared changes requires `--server-scope-reason TEXT` (10–500
+characters) explaining concrete dependencies and coverage. Include directly affected consumers.
+Only relevant shell/provenance gates are required; preserve tool/input pin checks when affected.
+
+The server deadline starts after services become ready. Explicit packages receive the configured
+budget per group of four (default 30 minutes); recursive suites receive four budgets, capped at
+two hours. This is a maximum, not a minimum holding time. Workers release immediately after required
+checks. A package's Go timeout is separate. No heartbeat extends the hard limit. Expiration blocks
+at `server-verification-timeout`, revokes the worker claim and waits for owned-process teardown
+before service cleanup; it does not automatically repeat tests. Existing lease deadlines remain
+unchanged across deployment.
+
+Host-only `python -m agent.service resume-server-evidence --config CONFIG --item ITEM
+--evidence-manifest FILE --reason TEXT` requires maintenance pause, a stopped controller,
+fresh open/delegated issue, settled resources/workers and completed cleanup. It accepts a technical
+server timeout (including the legacy exact timeout cancellation), never an operator Stop. The
+operator reviews source/service/toolchain provenance and supplies hashes of retained files,
+original candidate/base/generation/reservation, an explicit package plan, required test names,
+module, raw Go JSON report and source metadata. Completed selected packages and required tests must
+pass under race with no recorded failures; incomplete whole suites remain incomplete. The host
+checks changed-package coverage and preserves checkpoint/budgets, then resumes
+`server-evidence-recheck`. Publication rechecks all hashes and original ancestry; normal review,
+publication and finish gates remain. No resource release or whole-suite pass is fabricated.

@@ -217,9 +217,11 @@ Run each check in the repository's own stage. Cheapest sufficient check first, a
 
 1. Client typecheck: `tools/typecheck/hotupdate-typecheck.sh` in the Farm-Client worktree.
 2. dotnet unit tests: `dotnet test tests/Farm.Tests.Unit` in the Farm-Client worktree.
-3. hive: `go test ./...` in the farm-hive worktree. For service-backed checks on a
+3. hive: test complete changed packages and directly affected consumers in the farm-hive worktree,
+   retaining race for state/concurrency changes. Select relevant shell gates from the diff; full CI is not
+   the default issue gate. Shared infrastructure/input changes need a recorded broader dependency analysis. For service-backed checks on a
    host with `tools.server_tests.status: configured`, first commit and checkpoint the candidate and test plan,
-   request `await-resource --resource server_slot --mode batch --commit FULL_HEAD_SHA`,
+   request `await-resource --resource server_slot --mode batch --commit FULL_HEAD_SHA --server-test-plan STATE_DIR/server-tests.json`,
    then exit. After resume check `resource.commit`, use only its loopback
    `resource.environment`, and keep native game-server processes inside this worker.
    Docker administration and shared/live service fallback are forbidden. Record

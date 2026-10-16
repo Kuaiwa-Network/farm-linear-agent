@@ -2815,3 +2815,25 @@ another round. Legacy leases without a pin retain the old publication gate; a ne
 records its base without forcing an unrelated main merge. No schema migration is required.
 Rollback retains audit/evidence but older code may demand current-main integration again;
 settle workers and reservations before changing releases.
+
+
+### Change-scoped server acceptance and deadline recovery
+
+Server issue verification uses complete changed packages, directly affected consumers and relevant
+shell/input gates; full repository CI is not the per-issue default. The host checks coverage against
+the fixed base/candidate diff and requires a concrete explanation for broad local, named-only, or
+narrow shared-change coverage. Race memory admission remains conservative and independent of scope.
+
+Service startup no longer consumes the verification budget. After readiness, explicit selections
+get the configured budget per four packages and recursive suites four budgets, capped at 7200
+seconds. Existing journals retain their deadlines. Expiration is a technical blocked state with
+claim revocation and quiescence-before-cleanup, not cancellation intent or an automatic retry.
+
+After authorized host inspection, `resume-server-evidence` can reuse complete package pass events
+from a timed-out larger run at the same candidate and inputs. Maintenance/controller, delegation,
+claim, resource and cleanup guards apply. A host-reviewed hashed manifest records provenance and
+required acceptance names; the checker rejects missing/skipped required tests, failures, incomplete
+selected packages and report changes. Publication revalidates the manifest and fixed ancestry.
+The original interrupted full run remains disclosed, and all normal delivery gates remain.
+No database migration is needed; old release journals/evidence are retained. Rolling back code
+does not erase the new audit records; an older release cannot interpret retained-evidence publication.

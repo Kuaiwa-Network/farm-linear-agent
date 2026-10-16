@@ -439,7 +439,7 @@ def main(argv=None):
     parser.add_argument("command", choices=["configure", "serve", "status", "seed-clones", "install-launchd",
                                             "enqueue", "slots", "doctor", "recover-worker-cleanup", "monitor",
                                             "recover-server-slot", "maintenance-pause", "maintenance-status",
-                                            "maintenance-resume", "resume-ui-scope", "resume-comparison"])
+                                            "maintenance-resume", "resume-ui-scope", "resume-comparison", "resume-server-evidence"])
     parser.add_argument("--config")
     parser.add_argument("--from", dest="source_root", help="directory holding local checkouts to seed from")
     parser.add_argument("--issue", help="Linear issue id or identifier to enqueue work for")
@@ -449,9 +449,16 @@ def main(argv=None):
     parser.add_argument("--item", help="work item selected for an explicit host recovery command")
     parser.add_argument("--slot", help="held server slot to reconcile through verified Docker cleanup")
     parser.add_argument("--reason", help="operator explanation for maintenance or recovery")
+    parser.add_argument("--evidence-manifest", help="host-reviewed retained server evidence manifest")
     args = parser.parse_args(argv)
     if args.only_issue is not None and args.command != 'maintenance-resume':
         parser.error('--only-issue requires maintenance-resume')
+    if args.command == 'resume-server-evidence':
+        if not args.item or not args.evidence_manifest or not args.reason:
+            parser.error('resume-server-evidence requires --item, --evidence-manifest and --reason')
+        from .server_recovery import resume_server
+        print(json.dumps(resume_server(load_config(args.config), args.item, args.evidence_manifest, args.reason), indent=2))
+        return 0
     if args.command == 'resume-comparison':
         if not args.item or not args.commit or not args.reason:
             parser.error('resume-comparison requires --item, --commit and --reason')
