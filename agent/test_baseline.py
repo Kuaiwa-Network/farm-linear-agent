@@ -148,18 +148,16 @@ def _run(value):
         if not isinstance(row, dict):
             raise ComparisonError("every test must be an object")
         name = _text(row.get("fullName"), "fullName")
-        if name in rows:
-            raise ComparisonError(f"duplicate test identity: {name}")
         outcome = _outcome(row.get("state"))
         for field in ("message", "stackTrace"):
             if row.get(field) is not None and not isinstance(row[field], str):
                 raise ComparisonError(f"{field} must be a string or null")
         if outcome != "passed":
             _text(row.get("message"), "failure/skip message")
-        rows[name] = row
+        rows.setdefault(name, []).append(row)
         counts[outcome] += 1
     summary = value.get("summary")
-    expected = {"total": len(rows), **counts}
+    expected = {"total": len(tests), **counts}
     if (not isinstance(summary, dict) or any(type(summary.get(key)) is not int
                                            or summary[key] != count for key, count in expected.items())):
         raise ComparisonError("summary counts disagree with complete leaf results")
@@ -264,14 +262,41 @@ def compare(baseline, candidate, *, affected_tests, unrelated_failures, changed_
     if missing:
         blockers.append("baseline tests disappeared from candidate selection: " + ", ".join(missing))
     for name in affected_tests:
-        if name not in after or _outcome(after[name]["state"]) != "passed":
+        if name not in after or any(_outcome(row["state"]) != "passed" for row in after[name]):
             blockers.append(f"affected test missing or not passed: {name}")
+    # NUnit can print the same fullName for distinct array-valued TestCases.
+    # Preserve all executions, without inventing stable IDs from run-local IDs,
+    # order or outcomes. Only equal-sized, entirely passing groups are unambiguous
+    # for draft consideration. Non-passing duplicates cannot borrow a review.
+    duplicates, ambiguous = [], set()
+    for name in sorted(before.keys() | after.keys()):
+        old_group, group = before.get(name, []), after.get(name, [])
+        if max(len(old_group), len(group)) <= 1:
+            continue
+        eligible_group = len(old_group) == len(group) and all(
+            row["state"] == "Passed" for row in old_group + group)
+        duplicates.append({"fullName": name, "baseline_count": len(old_group),
+                           "candidate_count": len(group), "all_passed": all(
+                               row["state"] == "Passed" for row in old_group + group),
+                           "comparable": eligible_group})
+        if not eligible_group:
+            ambiguous.add(name)
+            blockers.append(f"ambiguous repeated test executions (count change or non-passing outcome): {name}")
     matched, reviewed, unresolved, new_skips, clock_diagnostics = [], [], [], [], []
-    for name, row in sorted(after.items()):
+    for name, group in sorted(after.items()):
+        if name in ambiguous:
+            if any(_outcome(row["state"]) == "failed" for row in group):
+                unresolved.append(name)
+            if any(_outcome(row["state"]) == "skipped" for row in group):
+                new_skips.append(name)
+            continue
+        if len(group) > 1:
+            continue  # Every retained execution passed; exact multiplicity checked above.
+        row = group[0]
         outcome = _outcome(row["state"])
         if outcome == "passed":
             continue
-        old = before.get(name)
+        old = before[name][0] if name in before else None
         review = unrelated_failures.get(name)
         clock_diagnostic = None
         matches = old is not None and _signature(row) == _signature(old)
@@ -315,6 +340,7 @@ def compare(baseline, candidate, *, affected_tests, unrelated_failures, changed_
             "full_suite_passed": candidate["summary"]["failed"] == 0,
             "matched_existing_failures": matched, "reviewed_unrelated_failures": reviewed,
             "reviewed_clock_diagnostics": clock_diagnostics,
+            "duplicate_executions": duplicates,
             "package_input_changes": changes,
             "ui_resource_changes": [row for row in changes if row["classification"] == "candidate_ui_resource"],
             "unresolved_failures": unresolved, "new_or_changed_skips": new_skips, "blockers": blockers}

@@ -439,7 +439,7 @@ def main(argv=None):
     parser.add_argument("command", choices=["configure", "serve", "status", "seed-clones", "install-launchd",
                                             "enqueue", "slots", "doctor", "recover-worker-cleanup", "monitor",
                                             "recover-server-slot", "maintenance-pause", "maintenance-status",
-                                            "maintenance-resume", "resume-ui-scope"])
+                                            "maintenance-resume", "resume-ui-scope", "resume-comparison"])
     parser.add_argument("--config")
     parser.add_argument("--from", dest="source_root", help="directory holding local checkouts to seed from")
     parser.add_argument("--issue", help="Linear issue id or identifier to enqueue work for")
@@ -452,6 +452,12 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.only_issue is not None and args.command != 'maintenance-resume':
         parser.error('--only-issue requires maintenance-resume')
+    if args.command == 'resume-comparison':
+        if not args.item or not args.commit or not args.reason:
+            parser.error('resume-comparison requires --item, --commit and --reason')
+        from .verification_recovery import resume_comparison
+        print(json.dumps(resume_comparison(load_config(args.config), args.item, args.commit, args.reason), indent=2))
+        return 0
     if args.command == 'resume-ui-scope':
         if not args.item or not args.reason:
             parser.error('resume-ui-scope requires --item and --reason')

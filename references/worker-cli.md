@@ -789,6 +789,14 @@ waiver: compare complete outcomes, pass required affected tests and keep every e
 that current baseline round. A later diagnostic reservation at the same commit does not invalidate
 the original complete reports. Preserve their identities and failures; focused passing results
 cannot replace a failed full suite. A newer baseline still starts a fresh round.
+After a comparator capability correction, the host operator (not a worker) may run
+`python -m agent.service resume-comparison --config CONFIG --item ITEM --commit CANDIDATE --reason REASON`.
+It requires maintenance pause, a stopped controller, fresh open/delegated issue state, no human question
+or unfinished presentation task, settled workers/resources and the completed retained pair. It resumes
+only a blocked Client comparison evidence gap, preserving generation, reports, checkpoint and budgets.
+The next worker re-compares existing reports offline and completes attribution and publication checks;
+this grants no passing verdict, fabricated answer or baseline rerun. Resume admission separately with
+`maintenance-resume --only-issue ISSUE` when the installed release has been verified.
 For completed failures, deliver an eligible draft, fix an attributable failure at a new commit,
 or report a concrete blocker. Do not repeat an unchanged failing run without diagnosing why
 another run should differ.

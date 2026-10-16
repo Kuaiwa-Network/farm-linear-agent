@@ -1208,6 +1208,18 @@ integration. The verdict is `passed_with_existing_failures`, with `full_suite_pa
 failures/skips explicitly listed in the draft. No merge/deploy waiver, suppressed tests or unrelated fixes.
 An eligible draft and all remaining required issue work/checks permit `finish delivered`; workers do not
 require a green baseline, wait for unrelated fixes on main or ask for another draft-delivery approval.
+Unity parameterized cases with repeated exact names retain all executions and counts. Only equally sized,
+entirely passing groups on both sides are comparable; repeated non-passing results or count changes block.
+The comparison lists these groups explicitly and never invents IDs, drops leaves or waives a failure.
+No database migration is involved; retained reports remain unchanged and can be compared offline.
+After an operator-authorized comparator correction, host-only `resume-comparison --item ITEM --commit CANDIDATE
+--reason REASON` can requeue a blocked Client comparison evidence gap. It requires maintenance pause, an
+exclusive stopped-controller guard, fresh open/delegated issue state, no pending human question or unfinished
+presentation task, certified process/resource settlement and the completed recorded pair. It preserves the
+generation, checkpoint, evidence and retry budgets; it neither invents a reply nor certifies any verdict.
+The resumed worker compares retained reports offline and finishes attribution and normal publication gates.
+Rollback requires stopping safely; older code may reject repeated names again, but no database/report rewrite
+or automatic test retry follows from this change.
 Completed valid evidence remains usable after a checkpoint/restart at the same exact inputs. A diagnostic
 review correction re-runs the comparator offline, not Unity; unresolved regressions/gaps need a concrete
 diagnosis instead of an unchanged failing loop.

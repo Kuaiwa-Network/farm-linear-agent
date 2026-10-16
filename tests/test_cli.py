@@ -628,6 +628,11 @@ class CliTests(unittest.TestCase):
         root.mkdir(parents=True)
         base = evidence('a', [leaf('Animal.Counter')])
         candidate = evidence('b', [leaf('Animal.Counter')])
+        # Real NUnit reports may have two array-valued passing TestCases with
+        # identical printed names. Exercise the claim-fenced CLI, not just compare().
+        for run in (base, candidate):
+            run['tests'].extend([leaf('Array.Case(System.UInt32[])'), leaf('Array.Case(System.UInt32[])')])
+            run['summary'].update(total=3, passed=3)
         base.update(commit=baseline, reservation_id=pair['baseline_reservation'])
         candidate.update(commit=fixed, reservation_id=pair['candidate_reservation'])
         scope = {'affected_tests': ['Animal.Counter'], 'changed_paths': ['Assets/Animal/Tuning.cs'],
