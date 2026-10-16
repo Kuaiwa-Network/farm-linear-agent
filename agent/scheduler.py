@@ -89,7 +89,7 @@ class Scheduler:
 
     def _worktrees_for(self, skill, item, issue):
         paths = {}
-        if skill.name == 'work' and item.get('root_repo') == COORDINATION_ROOT:
+        if item.get('root_repo') == COORDINATION_ROOT and skill.name == 'work':
             return paths  # Message routing must not fetch or alter retained candidates.
         if skill.writes:
             branch = self._branch(issue, suffixes=SUFFIXES if skill.initial_root else ())
