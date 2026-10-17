@@ -13,6 +13,8 @@ def _file(root, value):
         raise ValueError('report path must be nonempty text')
     root = Path(root).resolve()
     path = Path(value)
+    if '..' in path.parts:
+        raise ValueError('report must remain inside this item state directory without parent traversal')
     path = path if path.is_absolute() else root / path
     resolved = path.resolve()
     try:
@@ -21,12 +23,17 @@ def _file(root, value):
         raise ValueError('report must remain inside this item state directory') from None
     if not resolved.is_file():
         raise ValueError('report must be an existing regular file')
-    # Reject both directory junctions and symbolic links, including links back in.
+    # Inspect the original path before resolving away links. The trusted item
+    # root may have an OS alias (/var on macOS or an 8.3 name on Windows), so
+    # recognize that boundary by its resolved identity, not its spelling.
+    # Check links first: an item-local link back to the root is still forbidden.
     for part in (path, *path.parents):
-        if part == root:
-            break
         if part.is_symlink() or getattr(part, 'is_junction', lambda: False)():
             raise ValueError('report paths must not use links or junctions')
+        if part.resolve() == root:
+            break
+    else:
+        raise ValueError('report must remain inside this item state directory')
     return resolved
 
 
