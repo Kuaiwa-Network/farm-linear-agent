@@ -3,7 +3,12 @@
 ## Inputs and decisions
 
 - This UI card and linked design document, named author/fetch time.
-- Actual mockups/art manifest, source identities/dimensions/hashes.
+- Chosen validation checks and reasons based on acceptance and visual risk;
+  whether pixel comparison is needed and whether references/rendering are reliable.
+- Actual pre-change source baseline/controls/states, allowed changes and
+  appearance/behavior to preserve.
+- Required art manifest and source identities/dimensions/hashes; actual target
+  mockups only when the chosen checks need them.
 - Attributed human decisions, placeholders and remaining art/behavior gaps.
 
 ## Packages and exported components
@@ -21,8 +26,11 @@ source facts from consumer tasks; this authoring phase writes no Client code.
 
 ## Validation and acceptance gaps
 
-Record native lint/text/measurement checks, source/PR heads and approximate visual
-round identities/known limitations. Original mockups and run reports stay private;
+Record required native lint checks, affected text/layout/interaction checks and
+scope-appropriate measurements. Record relevant before/after evidence, affected
+regressions and target design comparisons only where the chosen checks need them.
+Record optional checks skipped with reasons, source/PR heads and approximate
+visual round identities/known limitations. Original mockups and run reports stay private;
 do not commit signed URLs, host paths or generated preview reports here.
 
 State licensed export, metadata-preserving Client installation, Unity/runtime

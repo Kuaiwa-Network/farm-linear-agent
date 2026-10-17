@@ -86,7 +86,56 @@ At every attempt:
 6. Run `download-uploads` into `STATE_DIR/inputs/linear` every intake/resume.
    Inspect its manifest, source/comment attribution, hashes, names, dimensions,
    ZIP members and failures. Keep originals private; never fetch Linear files
-   another way or inspect the app credentials. Missing/ambiguous art is a question.
+   another way or inspect the app credentials. Missing/ambiguous art required for
+   this change is a question; an absent historical mockup alone is not.
+
+## Choose the visual validation scope
+
+Independently choose the lightest sufficient checks from the acceptance criteria,
+actual source changes and visual regression risk. Do not classify by task size,
+edit type or whether the UI is new or existing alone. A design reference is an
+input to judgment, not an instruction to reproduce the entire screen.
+
+1. Establish what success means: behavior/content correctness, visual structure
+   and readability, or precise visual fidelity. Inspect changed properties and
+   dependencies to identify which regions/states may regress.
+2. Decide whether behavior/source checks suffice, scoped visual review is needed,
+   or pixel-level comparison provides necessary evidence. Use measurements only
+   when they can resolve an acceptance question or a concrete regression risk that
+   simpler checks cannot. Different regions may need different methods.
+3. Before pixel comparison, check reference relevance and rendering comparability:
+   dimensions/scale, selected state, assets and fonts. A new UI does not automatically
+   need pixel matching; an existing UI is not exempt when precision matters. Honor
+   explicit precision requirements. If required evidence is unavailable or unreliable,
+   record the gap and seek the blocking input; do not silently downgrade acceptance.
+
+Record `plan.ui.validation`: chosen `checks` and their `reason`, whether
+`pixel_comparison` is needed and why, the source/reference `baseline` identities,
+`targets`, `allowed_changes`, `preserve`, and optional `skipped` checks with reasons.
+Choose the method without routine human confirmation. Ask only when an unresolved
+requirement or missing input blocks the requested acceptance. Keep long evidence
+under `STATE_DIR`; these planning facts never replace approval or controller proof.
+On resume, retain the decision and original baseline, then reassess if requirements
+or affected dependencies changed. Do not adopt an already modified candidate as
+the before state.
+
+Use the actual pre-change implementation for preservation checks and relevant
+design references for requested appearance changes. Limit comparison to affected
+regions/states and necessary regressions; whole-screen comparison needs a reason
+grounded in this task's scope. Preserve unrelated fonts, outlines, colors, spacing,
+art and shared styles. Hand off required gameplay/binding changes to the parent;
+this adds no Client write permission. Historical mockups are not required when
+existing source and behavior evidence suffice for the chosen checks.
+
+Approximate renderer output, substitute fonts, anti-aliasing or unsupported effects
+alone never justify changing source styles. Confirm a suspected regression against
+source changes and reliable evidence; otherwise record the limitation.
+
+Stop visual iteration once the requested change and affected regression checks are
+satisfied. Record incidental visual differences without fixing them or asking to
+expand scope. The chosen checks retain the named human visual round and all certified
+export, installation, dependency-guard and loading checks below; it is not a fast
+path around those gates.
 
 ## Design documents, scope and art
 
@@ -109,8 +158,9 @@ code. `unsupported` grants no fallback; `available` does not establish app
 authentication or a full-document read. Never inspect the store directly.
 Preserve prior human answers and the chosen recovery route when adding evidence.
 
-List the actual target panels/states, packages, dependencies and uploaded art.
-Compare manifest hashes/dimensions with what each mockup needs. Name missing art,
+List the actual target panels/states, packages, dependencies and required art.
+Compare manifest hashes/dimensions with what the chosen validation scope needs.
+Include actual target mockups when needed by the chosen checks. Name required missing art,
 ambiguity, clipped/variable text and unknown behavior; never fabricate it. A
 placeholder needs a recorded named human answer and remains a UI-document gap.
 Ask grouped questions through a durable `question` notice and `await-input` with
@@ -151,13 +201,16 @@ and indexed tree, then refresh only those paths with `git update-index --really-
 -z --stdin` and require clean Git status. Missing cached bytes/filter capability
 remain a gap; do not infer success or copy arbitrary exports to bypass it.
 
-Follow current farmgui rules: Common controls/safeArea, stable child names,
+Follow current farmgui rules for changed controls: Common controls/safeArea, stable child names,
 five font sizes, actual art dimensions, real resource IDs, exported cross-package
 references and no package cycles. An authorized rule-12 exception permits new
 registrations only after checked uniqueness; preserve existing IDs and publish
 settings, use unique eight-character lowercase alphanumeric package IDs, and
 no underscores for separately packed image IDs (including folder inheritance).
 Never delete `.objs` or force the Editor to accept a hand-edited manifest.
+Do not normalize untouched controls or shared styles to these authoring conventions
+as part of a local edit. Required repository checks still run; attribute unrelated
+findings without silently repairing them or declaring a failed gate passed.
 
 Write issue source changes and the team's `docs/farm-<n>-<name>-ui.md` UI document.
 Use [ui-document.md](templates/ui-document.md) as its content checklist: actual
@@ -168,9 +221,13 @@ binding; Client patches later remain limited to certified UI assets and exact
 dependency-guard entries. Source preview reports are private, never part
 of that PR.
 
-Run the current repository's `.claude/skills/pixel-matching-ui/tools/uimeasure.py`
-and `fgui_text_check.py` by path with native Python and documented options, plus
-`scripts/check-package-cycles.py --lint`. Inspect current help first. Validate
+Run `scripts/check-package-cycles.py --lint` and mandatory repository checks.
+Use the current repository's `.claude/skills/pixel-matching-ui/tools/uimeasure.py`
+only when the recorded acceptance or regression question needs pixel/geometry evidence;
+use `fgui_text_check.py` for affected text/layout. Run tools by path with native
+Python and documented options; inspect current help first. Record optional checks
+not needed for the chosen scope as skipped with reasons, never passed. A mandatory wider
+check adds no permission to restyle unrelated controls. Validate
 new registration uniqueness/paths/exported references and original-file hashes
 explicitly; cycle lint alone does not prove all these checks. Record every gap.
 Commit source/UI-document changes. Immediately before publishing run
@@ -181,7 +238,8 @@ make a second PR or widen publication scope.
 
 ## Previews and visual rounds
 
-Use the native `repo_root/skills/fgui/tools/preview.py` with actual package and
+Render only affected components and necessary regression states. Use the native
+`repo_root/skills/fgui/tools/preview.py` with actual package and
 component IDs, a fresh private `STATE_DIR/previews/round-N/...` output directory
 outside the source checkout, and explicit required controller states. Keep each
 `preview.png`/`report.json`. Read its hashes, dimensions, font, approximations and
@@ -189,10 +247,17 @@ gaps. Exit 2 produces an explicit gap image; exit 1 refuses; neither is a verifi
 Editor result. This renderer never exports UI or captures Unity. Transitions,
 rich/automatic text and unsupported effects remain clearly named limitations.
 
-Place previews beside the actual uploaded mockups, labeled by those mockup names,
-using prepared native Pillow or existing repo tools and private output files.
-Measure source/mockup geometry and list deviations; do not invent a comparison,
-hide missing art or present an approximate PNG as pixel/runtime acceptance.
+For preservation checks, present the requested before/after change with its baseline
+commit and selected states. When a before preview is available, use the same
+renderer, font and settings for both images; never reset the owned branch to
+render the baseline. Source/diff evidence may describe the before state when a
+reliable before image is unavailable; label that gap, never invent a screenshot.
+Do not require an old mockup or an unaffected-state gallery without an acceptance
+need. When design comparisons are needed, place previews beside the actual target
+mockups, labeled by those mockup names; measure geometry only when the recorded
+decision calls for it. Use prepared native Pillow or existing repo tools and
+private output files. Show only scoped differences
+and known limitations; never present an approximate PNG as pixel/runtime acceptance.
 Upload only validated private PNG/JPEGs through `upload-image`. Save each returned
 unsigned asset URL/hash/dimensions before a notice. It posts no comment itself.
 A transfer repeated after interruption may leave an unused asset; Stop after PUT
@@ -218,14 +283,16 @@ authority. Keep them outside every checkout, and never copy credentials, Git
 administration, ignored caches or paid export output into this snapshot.
 
 Save a round identity in `plan.ui`: round number, PR URL/head, relevant source/art
-hashes (or digest plus private manifest path), named mockups, selected states,
+hashes (or digest plus private manifest path), the chosen validation and baseline
+or named design references, selected states,
 PNG hashes and unsigned assets, known gaps and measurements. Use `plan.stages`
 A for intake, B for authoring, C for visual rounds; keep statuses pending/done or
 skipped with a reason. Never store secrets, signed URLs or raw long reports.
 
 Prepare/post one durable `waiting` notice with request id `visual-N`, using
 [visual-approval.md](templates/visual-approval.md). Include PR/head, approximation
-label, previews next to actual references, known gaps, deviations and
+label, relevant before/after evidence or target design comparisons, known gaps,
+scoped deviations and
 `owner.person.url`. Name Farm-Client, the validated same-issue branch from the
 source plan, and the actually changed `Assets/GameRes/FairyRes/<package>` paths.
 Explain that export uses private staging before certified installation into the

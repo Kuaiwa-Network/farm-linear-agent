@@ -19,6 +19,17 @@ or changed behavior requires the parent to settle the shared OpenSpec first;
 pure appearance corrections follow the existing requirements and actual design
 references. No duplicate OpenSpec project is needed in the Client repository.
 
+Retain the parent's `plan.ui.validation` decision and reasons, actual baseline,
+named targets, allowed changes and preservation limits in this task's plan and on
+resume. Independently choose sufficient behavior/source, visual or pixel checks
+from acceptance criteria, actual changes and visual regression risk, reassessing
+changed requirements/dependencies. Pixel comparison needs relevant references and
+comparable rendering; honor explicit precision requirements and retain evidence
+gaps. Choose routine methods without asking humans. Preserve unrelated fonts,
+outlines, layout and shared styles. Approximate preview differences alone are not
+defects; stop visual iteration after required checks pass. All normal resource
+and delivery checks still apply.
+
 Missing art/assets or unclear layout are grouped questions identifying your task
 key and required decider. Ask for actual files/their location with known format
 and dimension requirements. Checkpoint and use `await-input`, then exit. Do not

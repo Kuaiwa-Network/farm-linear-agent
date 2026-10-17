@@ -41,6 +41,18 @@ into extra implementation, asset questions or waiting conditions. Ask for an
 asset only when the accepted outcome actually requires that asset. A person's
 choice to keep scope never means waiting for an unrelated feature.
 
+Before UI delegation, independently assess the acceptance criteria, actual changes
+and visual regression risk. Choose sufficient behavior/source, visual or pixel
+checks; task size and whether the UI is new or existing do not decide this alone.
+Record the checks and reasons in `plan.ui.validation`, including whether pixel
+comparison is needed and whether reliable reference/rendering evidence exists.
+Pass the decision, baseline commit/controls/states, allowed changes, styles to
+preserve and affected acceptance checks in `task.instructions`, retaining them
+on resume and reassessing when requirements or dependencies change. Do not ask
+humans to choose routine verification methods or require unnecessary historical
+mockups. Missing evidence for an explicit precision requirement remains a gap.
+Follow the FGUI capability's judgment rules and approval/export/delivery gates.
+
 Follow the code reference's **Issue scope and consumer inputs** before generation,
 on every resume and before closing. Recheck older plans that demand a full sync:
 retain necessary checks and evidence, but remove incidental waits after recording
@@ -63,8 +75,12 @@ repository-specific restrictions, tooling, provenance and verification do apply.
 Stage A may be `skipped: existing contract` only after recording the unchanged
 requirements and why the issue restores or only visually changes that behavior.
 Never leave unresolved behavior for a presentation task to invent.
-Commit the settled contract and record its exact issue-branch HEAD in the plan
-before delegating. Give tasks the scenario/file references and that commit; their
+Before delegating, commit actual contract changes and record their exact issue-branch HEAD in the plan.
+When A is `skipped: existing contract`, record the existing full commit SHA, scenario/file references
+and why they cover this issue; no new contract commit, branch or PR is needed solely for delegation.
+Do not create an empty commit or artificial contract edit. Changed behavior still needs the shared
+OpenSpec change and its required review/gates; existing-contract reuse cannot hide an unresolved gap.
+Give tasks the scenario/file references and that recorded commit; their
 detached Farm-Contract reads borrow the owned clone's objects, so read-only
 `git show COMMIT:path` can read an unmerged OpenSpec without changing checkout.
 
@@ -79,7 +95,7 @@ After A is done or the existing contract is checked, save a valid checkpoint and
 delegate required presentation tasks with `delegate-task --input FILE`. JSON:
 
 ```json
-{"key":"presentation-ui","capability":"fgui","instructions":"Implement the issue's named panels against the recorded shared OpenSpec and mockups; retain certified visual review/export and report missing assets."}
+{"key":"presentation-ui","capability":"fgui","instructions":"Follow the recorded shared OpenSpec and plan.ui.validation. Carry its validation decision and reasons, actual baseline, target controls/states, allowed changes, preservation limits and checks into this task. Judge whether pixel comparison is needed from acceptance criteria and visual risk, using reliable references. Retain certified visual approval/export and report only required missing assets."}
 ```
 
 `fgui` is the reusable FairyGUI capability: source authoring, actual visual

@@ -17,6 +17,11 @@ behavior needs shared OpenSpec, including UI-only interactions and displayed
 states. Pure layout/art/font/spacing corrections use the existing contract and
 actual visual references. FGUI needs no separate OpenSpec project. Complex bugs
 use all required stages; simple changes explicitly skip unnecessary stages.
+When existing requirements suffice, record their full commit SHA and relevant
+scenarios before delegation; no empty commit, artificial edit or new Contract PR
+is required. Actual behavior changes still follow OpenSpec review and gates.
+Question rounds run only for necessary unresolved human decisions, approvals or
+inputs; current applicable rulings can be reused without asking again.
 
 Code stages reuse the feature capability's contract, configuration, server,
 Client and closing instructions and protection boundaries, including withholding

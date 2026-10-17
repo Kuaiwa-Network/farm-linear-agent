@@ -695,7 +695,12 @@ For service-backed server tests, `work`, `fix` and `feature` may checkpoint and 
 `await-resource --resource server_slot --mode batch --commit FULL_SERVER_HEAD_SHA --server-test-plan STATE_DIR/server-tests.json`
 only from their `farm-hive` write stage on a host with configured server slots. The
 launch message's `tools.server_tests.status` is `configured` or `unavailable` in
-that stage; this describes configuration, not backend readiness. The CLI refuses
+that stage; this describes configuration, not backend readiness or a duty to lease.
+Select required checks from the actual diff and acceptance scenarios first. Request
+a lease only for required service-backed evidence that is missing or invalid;
+service-independent checks run locally and valid same-candidate/input reports can
+be reused. Record why no lease is needed. Required service-skipped checks remain
+gaps, never passes; coverage and race requirements are unchanged. The CLI refuses
 a disabled pool before queueing. It grants no live-service fallback. The
 CLI verifies their own clean managed worktree at that commit; the scheduler checks
 it again before launch. Save the test plan, then exit after requesting. The resumed
@@ -936,6 +941,17 @@ handoff. `issue-context.plan` shows your item's plan. A successor of cancelled w
 predecessor's plan from `issue-context.recovery.plan`, and every predecessor's notices from
 `recovery.notices` (item id, request id, kind and remote id; one with a remote id was posted); like the
 rest of `recovery`, verify it first.
+
+For UI work, `plan.ui.validation` records the worker's chosen `checks` and `reason`
+based on acceptance criteria, actual changes and visual regression risk, whether
+`pixel_comparison` is needed and why, source/reference `baseline` identities,
+`targets`, `allowed_changes`, `preserve` and optional `skipped` checks with reasons.
+Retain source commit/component/state identities and private evidence paths on
+delegation/resume; reassess changed requirements or dependencies. These planning
+facts neither authorize export nor replace review receipts or required verification.
+Historical mockups are needed only when the chosen checks require them. Explicit
+precision requirements with missing evidence remain gaps. No command argument or
+new top-level plan key is introduced.
 
 For `work`/`feature`, consumer-input decisions use the existing nested objects
 `client.inputs.network` and `closing.inputs.hive`: record `required`, `reason`,

@@ -39,12 +39,27 @@ the Bot/UI or Bot/Code label the card needs; do not build it. A wrong value in a
 the repository map's config routing rule, and art the issue needs but does not carry is a question
 (Intake, step 5).
 
+For UI work, independently choose sufficient behavior/source, visual or pixel
+checks from acceptance criteria, actual changes and visual regression risk.
+Record the decision and reasons in `plan.ui.validation`, with the actual baseline,
+target controls/states, allowed changes and appearance to preserve. Pixel comparison
+needs relevant references and comparable rendering; task size or edit type alone
+does not decide its necessity. Honor explicit precision requirements and name
+missing evidence rather than claiming a pass. Choose routine methods yourself;
+ask only for blocking requirements/inputs. Approximate rendering differences alone
+are not source defects. Retain the decision on resume, reassess changed requirements
+or dependencies, and stop visual iteration once required checks pass. Keep all
+repository/export/runtime gates and preserve unrelated fonts, outlines and layout.
+
 ## Intake
 
 1. Read this file, `contract`, `references/worker-cli.md`, and the instructions of the current
    `stage.root_repository` if one is set. Open other references and repository instructions when
-   investigation needs them. In the neutral stage, inspect all worktrees read-only to locate the bug or
-   the code the change touches.
+   investigation needs them. In the neutral stage, start read-only with the repositories and paths indicated
+   by the issue, logs and applicable prior findings. Follow actual call/data dependencies and expand the
+   search when evidence is missing, contradictory or the location remains unknown. Stop expanding when
+   the affected behavior and required checks are established; available worktrees are not a checklist.
+   Record relevant findings and any remaining uncertainty. All stage/write restrictions still apply.
 2. `python3 -m agent --db DATABASE claim --item ITEM_ID --worker-id WORKER_ID`. Write the returned token
    to `STATE_DIR/token`: on POSIX use mode 0600; on Windows keep the inherited DACL
    and do not change ACLs. Never print it. Follow the claim-token storage procedure in
@@ -222,7 +237,11 @@ Run each check in the repository's own stage. Cheapest sufficient check first, a
 2. dotnet unit tests: `dotnet test tests/Farm.Tests.Unit` in the Farm-Client worktree.
 3. hive: test complete changed packages and directly affected consumers in the farm-hive worktree,
    retaining race for state/concurrency changes. Select relevant shell gates from the diff; full CI is not
-   the default issue gate. Shared infrastructure/input changes need a recorded broader dependency analysis. For service-backed checks on a
+   the default issue gate. Shared infrastructure/input changes need a recorded broader dependency analysis.
+   Determine which required checks need services and whether same-candidate/input reports already satisfy
+   them. Service-independent checks run locally; a configured pool alone does not require a lease. Record
+   why a lease is unnecessary without claiming unrun tests passed. Required service-skipped tests remain
+   gaps. For required service-backed checks without valid evidence on a
    host with `tools.server_tests.status: configured`, first commit and checkpoint the candidate and test plan,
    request `await-resource --resource server_slot --mode batch --commit FULL_HEAD_SHA --server-test-plan STATE_DIR/server-tests.json`,
    then exit. After resume check `resource.commit`, use only its loopback

@@ -79,6 +79,50 @@ class FguiScopeTests(unittest.TestCase):
                 self.assertIn(phrase.casefold(), text.casefold())
         self.assertNotIn("--type elicitation", text)
 
+    def test_ui_checks_are_chosen_from_acceptance_risk_and_reliable_evidence(self):
+        text = " ".join(SKILLS["fgui"].skill_md.read_text(encoding="utf-8").split())
+        for phrase in ("Independently choose the lightest sufficient checks",
+                       "Do not classify by task size, edit type",
+                       "A new UI does not automatically need pixel matching",
+                       "an existing UI is not exempt when precision matters",
+                       "check reference relevance and rendering comparability",
+                       "do not silently downgrade acceptance",
+                       "Choose the method without routine human confirmation",
+                       "Do not adopt an already modified candidate as the before state",
+                       "Preserve unrelated fonts, outlines, colors, spacing, art and shared styles",
+                       "only when the recorded acceptance or regression question needs pixel/geometry evidence",
+                       "use `fgui_text_check.py` for affected text/layout",
+                       "mandatory repository checks",
+                       "same renderer, font and settings for both images",
+                       "Source/diff evidence may describe the before state",
+                       "Do not require an old mockup or an unaffected-state gallery without an acceptance need",
+                       "alone never justify changing source styles",
+                       "Stop visual iteration once the requested change and affected regression checks are satisfied",
+                       "The chosen checks retain the named human visual round"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, text)
+        self.assertNotIn("Measure source/mockup geometry and list deviations", text)
+
+    def test_ui_delegation_and_review_templates_retain_validation_judgment(self):
+        for skill in ("work", "fix", "scene"):
+            with self.subTest(skill=skill):
+                text = SKILLS[skill].skill_md.read_text(encoding="utf-8")
+                for phrase in ("plan.ui.validation", "decision", "baseline", "checks", "resume",
+                               "acceptance criteria", "visual regression risk", "precision requirement"):
+                    self.assertIn(phrase, text)
+        work = " ".join(SKILLS["work"].skill_md.read_text(encoding="utf-8").split())
+        self.assertIn("Pass the decision, baseline commit/controls/states, allowed changes", work)
+        self.assertIn("preservation limits and checks into this task", work)
+        review = (ROOT / "skills/fgui/templates/visual-approval.md").read_text(encoding="utf-8")
+        for phrase in ("为什么需要或不需要像素对比", "参考图与渲染条件可比", "不让人例行选择验证方式",
+                       "保持原样", "before image or source evidence",
+                       "不作为自动调整源样式的依据", "仅确认视觉，暂不导出"):
+            self.assertIn(phrase, review)
+        document = (ROOT / "skills/fgui/templates/ui-document.md").read_text(encoding="utf-8")
+        for phrase in ("Chosen validation checks", "whether pixel comparison is needed", "before/after evidence",
+                       "optional checks skipped with reasons"):
+            self.assertIn(phrase, document)
+
 
 class FguiToolchainTests(unittest.TestCase):
     def setUp(self):

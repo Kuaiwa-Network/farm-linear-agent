@@ -94,12 +94,12 @@ stage (the skill's "A stage limit"); leave it out otherwise.
 完成后请回复本会话或 @<bot_name>。
 
 ## feature UI needed
-（`waiting` 通知，request id `ui-needed`，核对失败的新一轮从 `ui-needed-2` 起；先保存完整正文和 owner，再发通知。）
-<bot_name> 的服务端／配置阶段已完成（没有的阶段已跳过）。请 <owner.person.url> 确认以下 UI 及导出已就绪：
-- 包／组件：<契约约定的包、组件名称与身份>
-- farmgui main：<组件文件与身份>
-- Farm-Client main：<Assets/GameRes/FairyRes 下的实际导出与依赖>
-现有包不代表这次 UI 已完成，请明确回复本会话或 @<bot_name>。我会核对两边 main 的实际组件和导出后才开始客户端；缺失时会列出检查结果再请你处理。我不会制作或导出 UI，也不会默认把沉默当成确认。
+（仅在核对后仍缺少必要的外部制作／发布操作时使用 `waiting` 通知；证据齐全时直接继续，不发确认通知。缺少决策、审批或输入时使用 question 流程。request id `ui-needed`，新缺口轮次从 `ui-needed-2` 起；先保存完整正文和 owner，再发通知。）
+需要你操作：请 <owner.person.url> 完成以下仍缺少的 UI／导出步骤：
+- 已核实：<当前需求、组件／导出版本及有效审核证据>
+- 尚缺及所需操作：<具体包、组件或导出；实际缺口、检查结果及负责人要做什么>
+- 受影响步骤：<哪些客户端接入或验证必须等待；哪些独立工作可以继续>
+完成后请回复本会话或 @<bot_name>。我会补查该缺口及受影响的产物，保留仍有效的检查结果；必要的视觉审批、导出身份和客户端验证仍须通过。
 按本卡要求，<bot_name> 在阶段 <字母> 后停下；要继续请回复本会话或 @<bot_name>。
 
 ## feature closing
