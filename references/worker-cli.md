@@ -810,6 +810,11 @@ Git identity and controller settlement still apply. Already released baselines u
 never rerun them for priority. See [comparison evidence and draft verdict](test-baseline.md).
 
 Finish this exact controller-recorded round when remote main advances during the queue.
+A cleanly settled candidate-only run in the current generation can use its recorded admission base
+for remaining checks/publication without an artificial comparison baseline. `verify-publication`
+returns `client_verification_round` with its reservation/base/candidate and reports current main
+separately. Existing comparisons take precedence; their incomplete or failed newer round cannot
+fall back to the candidate-only record. This ancestry record is not a passing test verdict.
 After a quiescently settled baseline, the unchanged candidate request uses that selected
 baseline; do not merge solely to chase the latest tip. After both baseline and its subsequent or explicitly bound earlier
 candidate reservation in the same mode settle quiescently, `verify-publication` also returns

@@ -186,12 +186,15 @@ carry no `author`.
 
 ## Verification ladder
 
-Before a new Client Unity request or source publication, fetch and integrate the repository's current main
-on the owned issue branch. These CLI gates check the actual remote default HEAD, including legacy Client
-requests without `--commit`; changing tracking refs cannot satisfy them. Preserve the immutable baseline
-and retained work. If main advances, commit the integration and rerun required checks at the new clean HEAD.
-Reservation-bound retries keep their granted commit until the reservation settles. Never reset or force-push
-to satisfy synchronization, and never treat prior-HEAD verification as evidence for an integrated candidate.
+Before initial verification of a new Client candidate, fetch and integrate the required main ancestry on
+the owned issue branch. The CLI validates actual remote main; changing tracking refs cannot satisfy it.
+Preserve the immutable baseline and retained work. Once a controller-recorded verification round exists,
+keep that candidate and its selected upstream for remaining checks and publication even if main advances.
+A cleanly settled candidate-only run can retain its admission base without inventing a comparison baseline;
+a comparison round uses its exact pair. Legacy requests without a recorded pin still require current main.
+Do not merge or rerun tests solely because of a newer tip or worker restart. Changed required source/inputs
+need a new committed candidate and affected checks. Never reset or force-push to satisfy synchronization,
+and never treat prior-HEAD verification as evidence for an integrated candidate.
 
 Host policy takes precedence: when `tools.unity_pool.mode` is `interactive`, every
 Unity test below (EditMode and PlayMode included) requests `--mode interactive`.

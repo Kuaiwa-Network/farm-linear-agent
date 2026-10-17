@@ -116,6 +116,9 @@ the controller still checks actual upstream ancestry. Changed source needs a new
 round. Compare complete failures and either deliver an eligible draft, fix an
 attributable failure at a new commit, or retain a concrete blocker. Repeating the
 same failing run requires a diagnosed reason to expect a different result.
+A cleanly settled candidate-only run can retain its recorded admission base for
+remaining checks/publication without creating a comparison baseline solely to pin main.
+This pins ancestry, not a passing test result; every actual acceptance gate remains.
 
 Record the decision under `client.inputs.network` (and `closing.inputs.hive` for
 server protocol inputs): `required`, `reason`, inspected full source/base/consumer
@@ -882,8 +885,10 @@ Root Farm-Client. Follow its own AGENTS/CLAUDE, the accepted change's client 交
 `references/repo-map.md`'s client tooling section. The controller's `target` is this stage's immutable main
 baseline, not the issue's intake commit or the revision that later tests will verify. Confirm your actual branch
 equals `target.issue_branch`; preserve it and any recovery work. Record it in `plan.prs.Farm-Client` only after
-"Other people's work" passes. Fetch and integrate main drift without resetting or force-pushing, and ask about
-newer designer data rather than reverting it. Respect all stage limits, withdrawal and current claim fences.
+"Other people's work" passes. Before initial verification, fetch and integrate required main ancestry
+without resetting or force-pushing. A resumed unchanged candidate keeps its controller-recorded round;
+do not repeat integration solely for a newer tip. Ask about newer designer data rather than reverting it.
+Respect all stage limits, withdrawal and current claim fences.
 
 Initial Unity requests and `verify-publication` enforce ancestry of actual remote main or the controller-pinned
 verification base for the exact candidate. If refused for a real missing required ancestry/input,
