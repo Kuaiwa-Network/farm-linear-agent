@@ -464,6 +464,10 @@ class SkillAuthorityTests(unittest.TestCase):
             self.assertIn("draft_eligible=true", text)
             self.assertIn("full_suite_passed=false", text)
             self.assertIn("verification_role=baseline", text)
+            for phrase in ('Baseline comparison is on demand', 'verify-candidate',
+                           'baseline_executed=false', 'Never test the identical source',
+                           'passing affected acceptance'):
+                self.assertIn(phrase, text)
             self.assertIn("New/changed failures", text)
             for phrase in ("clock_diagnostic", "unchanged assertion", "finish delivered",
                            "agent.dotnet_baseline", "Failed:Invalid",

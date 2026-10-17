@@ -2052,7 +2052,8 @@ class Ledger:
                 record(self, item_id, report)
                 self._audit(item_id, 'verification_comparison', report['verdict'], details={
                     key: report[key] for key in ('draft_eligible', 'full_suite_passed', 'baseline_commit',
-                                                'candidate_commit') if key in report})
+                                                'candidate_commit', 'source_base_commit',
+                                                'baseline_executed', 'scope_policy') if key in report})
             return {'stage': STAGES[phase], 'state': item['state']}
 
     def reservation_comparison(self, reservation_id):
@@ -2120,8 +2121,12 @@ class Ledger:
         rows = [r for r in self.reservations() if r["item_id"] == item_id and r["kind"] == "unity_slot"]
         for baseline in reversed(rows):
             comparison = self.reservation_comparison(baseline["reservation_id"])
-            if not comparison or comparison["candidate_commit"] != candidate or baseline["commit_sha"] == candidate:
+            if not comparison or comparison["candidate_commit"] != candidate:
                 continue
+            # Older policy admitted same-source comparison rounds. Retain their
+            # two real executions for review instead of trapping them in a gap.
+            # Ownership and distinct reservation checks still apply. A settled
+            # recorded pair survives an authorized retry's new claim generation.
             if baseline["state"] != "released" or baseline["release_reason"] != "worker reported quiescent":
                 return None  # A newer unfinished/unclean round cannot borrow older evidence.
             retained = comparison.get('reuse_candidate_reservation')
@@ -2130,6 +2135,7 @@ class Ledger:
                             and r['generation'] == baseline['generation']))
                            and (candidate_reservation is None or r["reservation_id"] == candidate_reservation)
                            and r["commit_sha"] == candidate and r["state"] == "released"
+                           and r['generation'] == baseline['generation']
                            and r["mode"] == baseline["mode"]
                            and r["release_reason"] == "worker reported quiescent"
                            and self.reservation_comparison(r["reservation_id"]) is None), None)

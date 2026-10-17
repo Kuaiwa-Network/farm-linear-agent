@@ -43,12 +43,15 @@ only when a missing dependency, changed input or actual handoff requires them.
    checks used local harnesses and which, if any, exercised actual service paths.
 6. Save complete reports and QA before clean release. Keep the same worker claim
    for offline comparison, publication and delivery after controller settlement;
-   no extra handoff to the same repository. Run `compare-verification` against
-   the recorded pair and inspect `draft_eligible`. New regressions, affected
+   no extra handoff to the same repository. For a candidate-only round, use
+   [candidate-first verification](candidate-verification.md) and `verify-candidate`;
+   do not create a baseline just because an outside-scope test failed. For an
+   already recorded pair use `compare-verification` and inspect `draft_eligible`. New regressions, affected
    failures, skips and evidence gaps still block. Never retest to repair parsing,
    absolute-clock attribution or a new main tip alone.
 
-If the first completed candidate needs a baseline, request it with
+Only if named unresolved attribution needs a meaningful source/input comparison,
+save the hypothesis and required selection, then request the baseline with
 `await-resource --baseline --commit CANDIDATE --reuse-candidate-reservation ID`.
 The controller binds only this generation's cleanly released exact candidate,
 with no existing comparison round in that mode. It preserves the upstream SHA

@@ -379,8 +379,13 @@ FarmBot's clone behind your worktree is partly read-only to you: its config and 
 cannot be written, so `git push -u`, `git config`, deleting a branch and a full `git gc` fail. Git
 may also print `Unable to create '…/packed-refs.lock'` after a commit, fetch or rebase that
 succeeded; that line is harmless, so check the exit status and the result instead.
-For completed Client full-suite failures outside this issue, use [baseline comparison](../../references/test-baseline.md)
-before blocking delivery. Request trusted remote main with `await-resource --baseline --commit CANDIDATE`;
+For Client checks, default to [candidate-first verification](../../references/candidate-verification.md)
+and `verify-candidate` at the issue's actual scope, preserving mandatory gates and complete outcomes.
+Do not automatically run two suites. Reviewed unchanged-source or causally independent failures can
+accompany scoped delivery without a new baseline; missing/failed affected tests still block.
+For unresolved attribution where a named source/input difference makes a comparison useful, record
+the hypothesis and selection, then use [baseline comparison](../../references/test-baseline.md).
+Request trusted remote main with `await-resource --baseline --commit CANDIDATE`;
 when the exact candidate already completed its first run, add `--reuse-candidate-reservation ID` to retain
 that cleanly released run and its recorded admission upstream. For a grant carrying
 `resource.reuse_candidate_reservation`, save complete baseline results, release quiescently and compare

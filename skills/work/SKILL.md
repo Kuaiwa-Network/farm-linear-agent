@@ -204,7 +204,12 @@ limitations are explicit, and the job's relevant drafts are listed. Reuse the
 existing foreign-work, destination, claim and resource checks. Stop/withdrawal
 ends the whole job including its tasks and retains recovery evidence. Workers
 never merge or deploy.
-For Client verification, use feature stage F's reviewed baseline comparison.
+For Client verification, use feature stage F's candidate-first assessment and
+[on-demand comparison decision](../../references/candidate-verification.md).
+Do not run two suites by default. A passing scoped candidate or a controller-reviewed
+independent failure needs no newly executed baseline. Preserve required repository gates.
+Only unresolved attribution with a concrete source/input hypothesis justifies a baseline.
+Existing comparison rounds retain their actual pair, including same-commit runs.
 Use `continue-verification` only when the completed quiescent baseline's candidate still needs testing.
 If `resource.reuse_candidate_reservation` is present, release the baseline quiescently and compare its
 complete report with that already completed candidate after settlement, in the same worker; do not queue

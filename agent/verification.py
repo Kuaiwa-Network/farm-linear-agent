@@ -79,3 +79,49 @@ def compare_recorded_pair(args, ledger, config, token):
                                  'comparison-passed' if report['draft_eligible'] else 'comparison-blocked',
                                  report=report)
     return report
+
+
+def verify_recorded_candidate(args, ledger, config, token):
+    """A real candidate-only round with reviewed scope, never a synthetic test pair."""
+    from .candidate_verification import assess
+    from .shared_test_findings import verify
+    from .worktrees import GIT_ENV, Worktrees
+    from .workflow import JobWorktrees, repository_path
+
+    ledger.renew(args.item, token)
+    paths = Paths(config)
+    if Path(args.db).resolve() != paths.ledger.resolve():
+        raise LedgerError('candidate verification must use the configured host ledger')
+    root = (paths.runs / args.item).resolve()
+    files = [Path(value).resolve() for value in (args.candidate, args.scope)]
+    if any(not file.is_relative_to(root) for file in files):
+        raise LedgerError('candidate evidence must be retained under this item state_dir')
+    ledger.verification_progress(args.item, token, 'failure-review')
+    try:
+        candidate, scope = [_read(file) for file in files]
+        pin = ledger.client_candidate_round(args.item, candidate.get('commit'))
+        if (not pin or pin['candidate_reservation'] != candidate.get('reservation_id')
+                or pin['base_commit'] != scope.get('source_base_commit')):
+            raise ComparisonError('evidence must name the current cleanly released candidate-only round; '
+                                  'an existing comparison must retain its actual pair')
+        trees = JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger)
+        branch = (ledger.staged_client_branch(args.item, issue_prefix=config.issue_prefix)
+                  if ledger.item(args.item)['skill'] in ('work', 'feature') else None)
+        trees.verification_commit('Farm-Client', args.item, candidate['commit'], expected_branch=branch)
+        path = repository_path(trees, 'Farm-Client', args.item)
+        delta = trees.git_in(path, 'diff', '--name-only', '--no-renames', '-z',
+                            pin['base_commit'], candidate['commit'],
+                            env={**GIT_ENV, 'GIT_NO_REPLACE_OBJECTS': '1'}).split('\0')
+        if set(filter(None, delta)) != set(scope.get('changed_paths', [])):
+            raise ComparisonError('candidate scope must cover the complete actual source diff')
+        report = assess(candidate, **scope)
+        # This object is a Git source identity only. No baseline run, job,
+        # reservation or passing result is constructed or recorded.
+        verify(trees, root, {'commit': pin['base_commit']}, candidate, scope, report, path)
+    except (ComparisonError, WorktreeError, OSError, ValueError, TypeError, AttributeError, KeyError) as exc:
+        ledger.verification_progress(args.item, token, 'comparison-gap')
+        raise ComparisonError(f'invalid or missing candidate evidence: {exc}') from exc
+    ledger.verification_progress(args.item, token,
+                                 'comparison-passed' if report['draft_eligible'] else 'comparison-blocked',
+                                 report=report)
+    return report
