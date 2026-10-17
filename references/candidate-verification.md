@@ -53,12 +53,14 @@ missing evidence block. Start with the real report and empty review maps to get
 
 For failures outside acceptance:
 
-- With **identical source commits and an empty actual diff**, each reviewed
+- With **identical source commits or controller-proven identical whole Git trees, and an empty actual diff**, each reviewed
   outside-scope failure may use `classification: "unchanged_source"`, its exact
   `evidence_id`, `reason` and `evidence`. Confirm the current environment supports
   the issue's acceptance and explain why this failure does not block it. This
   records an unchanged-source failure, not a diagnosed root cause or a fictitious
-  matching baseline. The actual failure remains visible.
+  matching baseline. The actual failure remains visible. `verified_source_tree` is derived from the
+  checked clone with replacement objects disabled, never accepted from your scope JSON. Distinct
+  commit history is preserved, as are actual candidate SHA/job/reservation and environment inputs.
 - With a changed candidate, use a `confirmed_unrelated` causal finding from
   [shared-test-findings.md](shared-test-findings.md), binding `evidence_id` to this
   actual candidate-only assessment. Name the real failing fixture, unchanged
@@ -92,3 +94,13 @@ real runs finish, use `compare-verification`. Existing same-commit pairs are
 supported with an empty diff and explicit issue scope, distinct reservations/jobs
 and normal per-test/environment checks. Do not rerun them after deployment just
 because they were admitted by older policy.
+
+Exception for an unstarted historical plan: before the first Editor switch/worker handover,
+the controller can replace a first baseline request with the exact candidate when their complete
+Git trees match. The reservation order and resource fencing remain unchanged; the original request
+and tree proof remain in audit. No baseline test is claimed to have run. Current dispatch
+`resource.verification_policy="candidate-first"` supersedes the old saved two-run plan. Test the
+actual candidate once, then use `verify-candidate` or `verification-closeout`. A new same-tree
+`await-resource --baseline` likewise selects the actual candidate; an already tested candidate
+must reuse its report. Started/retried rounds, maintenance continuations and retained-candidate
+comparisons keep their actual evidence and are never relabelled.

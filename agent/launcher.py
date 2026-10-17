@@ -210,8 +210,8 @@ class Launcher:
     def __init__(self, runs_root, runtime, host, clock=time.time, token_env=None, lark_cli=None, *,
                  codex_windows_sandbox="elevated"):
         if (not isinstance(codex_windows_sandbox, str)
-                or codex_windows_sandbox not in ("elevated", "unelevated")):
-            raise ValueError("codex_windows_sandbox must be elevated or unelevated")
+                or codex_windows_sandbox not in ("elevated", "unelevated", "mxc")):
+            raise ValueError("codex_windows_sandbox must be elevated, unelevated or mxc")
         self.runs_root = Path(runs_root)
         self.runtime = runtime
         self.host = host

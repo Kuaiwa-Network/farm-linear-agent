@@ -140,12 +140,14 @@ def parser():
     comparison = cmd('compare-verification', '--item', '--baseline', '--candidate', '--scope', token=True)
     comparison.add_argument('--repair-original', help='retained original full candidate report for test-only repair')
     cmd('verify-candidate', '--item', '--candidate', '--scope', token=True)
+    cmd('verification-closeout', '--item', '--input', token=True)
     release = cmd("release-resource", "--item", token=True)
     release.add_argument("--outcome", required=True, choices=["quiescent", "unclean"])
     cmd("withdraw", "--item", token=True)
     cmd("reservations"); cmd("slots")  # operator readers: no item, no token, nothing to authorise
     cmd("recover-slot", "--slot", "--reason")
     finish = cmd("finish", "--item", "--input", token=True)
+    finish.add_argument('--checkpoint', help='save the compact final checkpoint through normal gates before finish checks')
     finish.add_argument("--outcome", required=True, choices=["blocked", "delivered"])
     checks = finish.add_mutually_exclusive_group()
     checks.add_argument("--check-input", action="store_true",
@@ -997,6 +999,9 @@ def run(args, ledger, api_factory):
     if c == 'verify-candidate':
         from .verification import verify_recorded_candidate
         return verify_recorded_candidate(args, ledger, load_config(secure_permissions=False), resolve_token(args))
+    if c == 'verification-closeout':
+        from .verification_closeout import prepare
+        return prepare(args, ledger, load_config(secure_permissions=False), resolve_token(args))
     if c in ("await-resource", 'continue-verification'):
         from .config import ROOT
         from .skills import load_skills
@@ -1105,7 +1110,19 @@ def run(args, ledger, api_factory):
                         options['verified_base'] = pinned
                 selected_commit = trees.verification_baseline(
                     "Farm-Client", args.item, args.commit, **options)
-                request_options["comparison_candidate"] = args.commit
+                if (resumed_baseline is None and
+                        trees.verification_tree('Farm-Client', selected_commit) ==
+                        trees.verification_tree('Farm-Client', args.commit)):
+                    if ledger.client_verification_pair(args.item, args.commit):
+                        raise LedgerError('this same-tree candidate already has a comparison; '
+                                          'reuse its actual pair with compare-verification')
+                    if retained_candidate is not None or ledger.client_candidate_round(args.item, args.commit):
+                        raise LedgerError('baseline and candidate have the same file tree; use verify-candidate '
+                                          'with the retained candidate report, diagnose gaps without rerunning baseline')
+                    request_options['client_base_commit'] = selected_commit
+                    selected_commit = args.commit
+                else:
+                    request_options["comparison_candidate"] = args.commit
             else:
                 if not server_request and item['skill'] in ('work', 'fix', 'feature'):
                     if c == 'continue-verification':
@@ -1215,6 +1232,11 @@ def run(args, ledger, api_factory):
     if c == "finish":
         token = resolve_token(args)
         ledger.renew(args.item, token)
+        if getattr(args, 'checkpoint', None):
+            if args.check_input:
+                raise LedgerError('--checkpoint is for --check-ready or actual finish, not shape-only --check-input')
+            run(argparse.Namespace(**{**vars(args), 'command': 'checkpoint', 'input': args.checkpoint}),
+                ledger, api_factory)
         evidence = read_json(args.input)
         if not isinstance(evidence, dict):
             raise LedgerError("finish input must be an object")

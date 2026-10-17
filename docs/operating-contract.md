@@ -413,15 +413,20 @@ The prompt carries only `tools.lark_cli: {"authentication": "environment"}`; a m
 unavailable tool, never a fallback to a local profile. Profile launches carry profile/home; other skills
 get neither grant. No app ID or secret value is written to the prompt, Codex config or process record.
 Native Windows Codex homes explicitly write `windows.sandbox` from the host's
-`codex_windows_sandbox`, which accepts exactly `"elevated"` (the default) or `"unelevated"`.
-The latter selects Codex's restricted current-user backend and requires separate tool and write-boundary
+`codex_windows_sandbox`, which accepts exactly `"elevated"` (the default), `"unelevated"` or `"mxc"`.
+`unelevated` selects Codex's restricted current-user backend and requires separate tool and write-boundary
 acceptance. It offers weaker read and network isolation than elevated mode and does not isolate the
 service user's credentials. The choice applies to every Codex skill and resume on that host, retains
 the same worktree/state write roots, untrusted project settings and Job Object containment, and adds
 no authority. Disabled and implicit modes are refused; startup or tool failure never selects a fallback.
-Provisioning and actual worker acceptance remain host checks. Other platforms and runtimes do not
-write this Windows setting. No state schema changes; an older revision ignores the new host key and
-uses its own sandbox selection, so settle workers and verify that selection before rollback.
+Explicit `mxc` requires a compatible Windows host and Codex runtime. It avoids the legacy fresh-home
+ACL setup cost while retaining the same filesystem/network policy. Validate allowed and denied writes,
+loopback tools and descendant termination under the outer FarmBot Job before selecting it; do not copy
+legacy sandbox caches, share worker homes, disable isolation or silently fall back. A failed MXC startup
+remains a failure. Older FarmBot releases reject this value: settle workers and restore the previous
+sandbox selection before rollback. Provisioning and actual worker acceptance remain host checks. Other platforms and runtimes do not
+write this Windows setting. No state schema changes; settle workers and verify the configured selection
+before rollback to a release that predates support for the selected backend.
 This adds no schema migration. Rollback requires settling workers and restoring a profile-only config
 before running a revision that rejects the environment variant. An older revision ignores the key and
 passes credential variables on.
@@ -830,7 +835,10 @@ follows Farm-Contract's OpenSpec instructions and its Superpowers restriction. C
 their own repository rules.
 
 Closeout uses `closing-preflight` before a docs-only Contract acceptance handoff and
-`finish --check-ready` before preparing delivery. They share existing local consumer
+`finish --check-ready` before preparing delivery. Optional `--checkpoint FILE` saves the final compact
+checkpoint through normal claim/PR/shape gates in the same invocation; it is refused with shape-only
+`--check-input`. A rejected completion check leaves the valid checkpoint and claim available for repair.
+They share existing local consumer
 and finish gates without posting comments or making a terminal transition; final
 finish still repeats all gates and requires the confirmed delivery. Neither preflight
 certifies live authorization or creates missing external controller proofs.
@@ -1377,6 +1385,26 @@ maintenance recording apply. Required acceptance failures cannot use either
 exception. Skips need explicit non-applicability evidence and cannot excuse missing
 required work. Single-run results record `baseline_executed=false` and retain real
 failure/skip counts. See [candidate-first verification](../references/candidate-verification.md).
+
+Equal whole Git trees can establish unchanged source even when commit SHAs differ. The controller
+derives this identity from its validated clone with replacement objects disabled, after verifying the
+clean owned candidate and complete empty diff. Workers cannot assert this proof in scope JSON.
+Affected failures, invalid/ambiguous tests and missing coverage still block; reviewed outside-scope
+failures remain actual failures with `baseline_executed: false`, never fabricated matching results.
+New redundant baseline requests become one actual candidate run. On first acquisition of a legacy
+unstarted baseline, before any Editor switch/identity/token handover, the controller may select that
+same-tree candidate and preserve queue sequence, fencing and original audit. Dispatch exposes the
+candidate-first policy and pinned source base, superseding an obsolete saved two-run plan. Started
+or retried rounds, maintenance continuations and retained-candidate comparisons keep their exact
+evidence. No schema migration or rewriting of tested commit/report identity occurs. An older release
+can read the resulting ordinary candidate request; the audit records why it was selected.
+
+`verification-closeout` assesses up to six retained suites through the existing pair/candidate gates
+in one invocation and saves content-addressed verdicts plus one immutable report index. It neither
+runs tests nor releases resources. All suites name one candidate; duplicate executions and foreign or
+linked input paths are rejected. One blocked suite keeps the aggregate verdict and Monitor blocked.
+This is evidence preparation, not QA, publication or finish authorization. Existing reports remain
+unchanged and can be re-assessed offline after a reviewed attribution correction.
 
 Only unresolved attribution with a named source/input difference that comparison
 can distinguish justifies new baseline tests. Environment uncertainty calls for

@@ -785,6 +785,73 @@ class CliTests(unittest.TestCase):
     def test_compare_verification_cli_updates_phase_without_overwriting_checkpoint(self):
         self.check_comparison_cli(candidate_first=False)
 
+    def test_equal_tree_baseline_request_selects_real_candidate_once(self):
+        from agent.ledger import Ledger
+        from test_worktrees import git
+        item, token, baseline, fixed, path = self.verification_fixture()
+        (path/'fix.cs').write_text('old', encoding='utf-8')
+        git('commit', '-qam', 'same tree at different history', cwd=path)
+        candidate = git('rev-parse', 'HEAD', cwd=path)
+        self.assertNotEqual(candidate, baseline)
+        self.run_cli('await-resource', '--item', item, '--token', token, '--resource', 'unity_slot',
+                     '--mode', 'interactive', '--commit', candidate, '--baseline')
+        with closing(Ledger(self.db)) as ledger:
+            lease = ledger.reservations()[0]
+            self.assertEqual(lease['commit_sha'], candidate)
+            self.assertIsNone(ledger.reservation_comparison(lease['reservation_id']))
+            self.assertEqual(ledger.candidate_verification_base(lease['reservation_id']), baseline)
+            token = self.settle_test_reservation(ledger, item)
+        refused = self.run_cli('await-resource', '--item', item, '--token', token, '--resource', 'unity_slot',
+            '--mode', 'interactive', '--commit', candidate, '--baseline', success=False)
+        self.assertIn('same file tree', refused.stderr)
+        self.assertEqual(len(self.run_cli('reservations')), 1)
+
+    def test_closeout_batches_actual_suites_retains_reports_and_keeps_any_blocker_visible(self):
+        from agent.config import load_config, Paths
+        from agent.ledger import Ledger
+        from test_test_baseline import run as evidence, test as leaf
+        from test_candidate_verification import scope_for
+        item, token, baseline, candidate, path = self.verification_fixture()
+        self.run_cli('await-resource', '--item', item, '--token', token, '--resource', 'unity_slot',
+                     '--mode', 'interactive', '--commit', candidate)
+        with closing(Ledger(self.db)) as ledger:
+            token = self.settle_test_reservation(ledger, item)
+            lease = ledger.reservations()[0]
+        root = Paths(load_config(self.env['FARMBOT_CONFIG'])).runs/item
+        root.mkdir(parents=True)
+        entries = []
+        for mode in ('EditMode', 'PlayMode'):
+            report = evidence('b', [leaf('Animal.Delivery')])
+            report.update(commit=candidate, reservation_id=lease['reservation_id'], mode=mode, job_id=mode+'-actual')
+            scope = scope_for(report, baseline, ['fix.cs'])
+            for name, value in ((mode, report), (mode+'-scope', scope)):
+                (root/(name+'.json')).write_text(json.dumps(value), encoding='utf-8')
+            entries.append({'candidate': mode+'.json', 'scope': mode+'-scope.json'})
+        manifest = root/'closeout.json'
+        manifest.write_text(json.dumps({'runs': entries}), encoding='utf-8')
+        args = ('verification-closeout', '--item', item, '--token', token, '--input', str(manifest))
+        original = (root/'EditMode.json').read_bytes()
+        result = self.run_cli(*args)
+        self.assertTrue(result['draft_eligible'])
+        self.assertFalse(result['completion_checked'])
+        self.assertEqual(len(result['suites']), 2)
+        self.assertEqual(self.run_cli(*args)['evidence_index'], result['evidence_index'])
+        self.assertEqual((root/'EditMode.json').read_bytes(), original)
+        self.assertEqual(len(self.run_cli('reservations')), 1)
+        # A first blocked suite followed by a passing suite stays blocked.
+        report = json.loads(original)
+        report['tests'][0].update(state='Failed', message='wrong business result')
+        report['summary'].update(passed=0, failed=1)
+        (root/'EditMode.json').write_text(json.dumps(report), encoding='utf-8')
+        self.assertFalse(self.run_cli(*args)['draft_eligible'])
+        with closing(Ledger(self.db)) as ledger:
+            self.assertEqual(ledger.item(item)['stage'], 'client-verification-blocked')
+        manifest.write_text(json.dumps({'runs': [entries[0], entries[0]]}), encoding='utf-8')
+        self.assertIn('duplicate', self.run_cli(*args, success=False).stderr)
+        manifest.write_text(json.dumps({'runs': [{'candidate': '../foreign.json', 'scope': entries[0]['scope']}]}),
+                            encoding='utf-8')
+        self.run_cli(*args, success=False)
+
     def test_confirmed_shared_failure_is_recorded_without_repair_reservation_or_child_job(self):
         from agent.ledger import Ledger
         from agent.config import load_config, Paths

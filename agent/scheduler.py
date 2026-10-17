@@ -274,6 +274,11 @@ class Scheduler:
             comparison = self.ledger.reservation_comparison(reservation["reservation_id"])
             if comparison:
                 resource.update(comparison)
+            elif reservation['kind'] == 'unity_slot':
+                base = self.ledger.candidate_verification_base(reservation['reservation_id'])
+                if base and not self.ledger.client_verification_pair(item['id'], reservation['commit_sha']):
+                    resource.update(verification_role='candidate', source_base_commit=base,
+                                    verification_policy='candidate-first')
             if reservation["kind"] == "server_slot":
                 # The controller journal is outside worker write roots. Reconstruct endpoints from it,
                 # never from a worker-writable result file or inherited production environment.

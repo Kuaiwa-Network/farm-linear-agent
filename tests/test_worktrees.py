@@ -22,6 +22,23 @@ def git(*args, cwd, allow_failure=False):
 
 
 class WorktreeTests(unittest.TestCase):
+    def test_equal_whole_tree_preserves_distinct_commits_and_refuses_replacement_objects(self):
+        path = self.trees.add('Farm-Client', 'item-1', 'farmbot/fix')
+        base = self.trees.head(path)
+        git('commit', '--allow-empty', '-qm', 'history only', cwd=path)
+        candidate = self.trees.head(path)
+        tree = self.trees.verification_tree('Farm-Client', base)
+        self.assertNotEqual(candidate, base)
+        self.assertEqual(self.trees.verification_tree('Farm-Client', candidate), tree)
+        (path/'README.md').write_text('changed content', encoding='utf-8')
+        git('commit', '-qam', 'real delta', cwd=path)
+        changed = self.trees.head(path)
+        git('replace', candidate, changed, cwd=path)
+        self.assertEqual(self.trees.verification_tree('Farm-Client', candidate), tree)
+        self.assertNotEqual(self.trees.verification_tree('Farm-Client', changed), tree)
+        for value in ('HEAD', base[:8], base + '^{tree}', '../escape'):
+            with self.assertRaises(WorktreeError): self.trees.verification_tree('Farm-Client', value)
+
     def test_repair_requires_clean_owned_descendant_without_merging_new_main(self):
         path = self.trees.add('Farm-Client', 'item-1', 'farmbot/fix')
         source = self.trees.head(path)

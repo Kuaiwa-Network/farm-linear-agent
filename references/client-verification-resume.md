@@ -1,5 +1,12 @@
 # Client verification resume
 
+First read the current resource policy. `verification_policy: "candidate-first"` overrides a saved
+legacy two-run plan, including an unstarted same-tree baseline converted by the controller. Execute
+the actual candidate once, preserve its original identities, and use candidate verification. Never
+recreate a baseline just because the old checkpoint says to do so. Started rounds retain their pair.
+For offline closeout, batch retained EditMode/PlayMode reports through `verification-closeout` as
+described in [closeout reuse](closeout-reuse.md), then keep the same worker for remaining gates.
+
 This is navigation for an existing attempt, not a test verdict or a new grant.
 Read the current repository's required instructions, current human requests and
 `issue-context --view resume`. Read full context if its handoff is stale or a

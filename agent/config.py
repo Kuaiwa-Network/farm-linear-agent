@@ -160,8 +160,8 @@ class Config:
                 or self.reconcile_seconds <= 0):
             raise ValueError("reconcile_seconds must be positive and finite")
         if (not isinstance(self.codex_windows_sandbox, str)
-                or self.codex_windows_sandbox not in ("elevated", "unelevated")):
-            raise ValueError("codex_windows_sandbox must be elevated or unelevated")
+                or self.codex_windows_sandbox not in ("elevated", "unelevated", "mxc")):
+            raise ValueError("codex_windows_sandbox must be elevated, unelevated or mxc")
         if not isinstance(self.codex_workers, dict):
             raise ValueError("codex_workers must map skill names to model settings")
         for skill, settings in self.codex_workers.items():
