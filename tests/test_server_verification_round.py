@@ -138,6 +138,7 @@ class ServerRoundTests(ServerPoolFixture):
         (self.path / ANCHORS).write_text("inject_lit \"gate\" $'" + old + "' $'" + old + ",upgradeBuildingImpl'\n", encoding='utf-8', newline='\n')
         git('add', '.', cwd=self.path)
         git('commit', '-qm', 'gate fixtures', cwd=self.path)
+        (self.path / GATE).chmod((self.path / GATE).stat().st_mode | 0o111)
         git('update-index', '--chmod=+x', GATE, cwd=self.path)
         git('commit', '-qm', 'executable gate', cwd=self.path)
         self.candidate = self.trees.head(self.path)
