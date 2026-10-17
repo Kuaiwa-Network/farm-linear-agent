@@ -39,6 +39,9 @@ class WorkerStartTests(unittest.TestCase):
         self.assertNotIn('startup.read_together', authority)
 
     def test_guides_keep_failed_checks_and_frozen_consumer_evidence_separate(self):
+        startup=(ROOT/'references/worker-start.md').read_text(encoding='utf-8')
+        self.assertIn('compare its returned fingerprint with `context.fingerprint`', startup)
+        self.assertIn('reload `issue-context --view resume` and revalidate', startup)
         guide=(ROOT/'references/closeout-reuse.md').read_text(encoding='utf-8')
         for clause in ('before editing or running the Contract gates', 'Run all required Contract gates',
                        'actual required input changes do', 'Never disable hooks',

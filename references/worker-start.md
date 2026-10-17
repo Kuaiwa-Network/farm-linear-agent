@@ -21,7 +21,10 @@ Stop on storage failure. Inspect only nonsecret claim fields and `context`.
 The full storage procedure remains in `worker-cli.md#claim-token-storage`.
 
 Honor `maintenance_requested` before doing work. Fetch the current issue through
-`fetch-issue`, preserve real human questions and read the full issue context when
+`fetch-issue`, and compare its returned fingerprint with `context.fingerprint`.
+If the live read changed it, reload `issue-context --view resume` and revalidate
+against the actual new requirements before reusing decisions or reports. Preserve
+real human questions and read the full issue context when
 the resume view says stale or a required decision is missing. Do not call
 `issue-context` again merely to obtain the same resume view. A failed/rejected
 claim grants nothing. Do not repeatedly claim after an uncertain response.
