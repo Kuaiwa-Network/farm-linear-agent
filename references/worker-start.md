@@ -9,10 +9,16 @@ of the capability guide, not every other repository/stage. Missing files or
 unclear rules require inspection; do not silently omit a mandatory instruction.
 For a fresh intake, read the operating contract and repository map as usual.
 
-Then run `claim --item ITEM --worker-id WORKER --context` using the configured
-Python and ledger from dispatch. It returns the usual claim fields plus the same
+Then execute `startup.start_argv` as an argument list using the configured
+Python and ledger from dispatch (`claim --context --save-token STATE_DIR/token`).
+It exclusively creates the configured item token file with mode 0600 on POSIX
+and inherited DACL on Windows, refusing existing files, links and other paths.
+It returns `token_file`, never the secret, plus the same
 resume view as `issue-context --view resume`, without a second CLI invocation.
-This is stored context, not a fresh Linear read. Capture stdout privately: the
+This is stored context, not a fresh Linear read. No custom storage script or
+whole CLI-reference read is needed for this command. A storage/claim failure
+requires stopping; preserve the file and do not retry an uncertain claim.
+For older launches without that command, capture plain claim stdout privately: the
 top-level `token` is secret. Create `STATE_DIR/token` with
 `os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)` and write only that
 token using `os.fdopen(..., "w", encoding="utf-8")`. Never overwrite an existing

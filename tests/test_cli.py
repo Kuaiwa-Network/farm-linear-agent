@@ -25,6 +25,12 @@ def expected_question(body):
 
 class CliTests(unittest.TestCase):
     def test_repaired_candidate_uses_recorded_base_without_integrating_new_main(self):
+        self.check_repaired_candidate()
+
+    def test_restored_test_identity_uses_recorded_pair_and_no_empty_shared_failure_record(self):
+        self.check_repaired_candidate(restored=True)
+
+    def check_repaired_candidate(self, restored=False):
         from agent.ledger import Ledger
         from test_worktrees import git
         item, token, baseline, fixed, path = self.verification_fixture()
@@ -72,6 +78,10 @@ class CliTests(unittest.TestCase):
                  'repair': {'reason': 'controlled pointer reproduction', 'evidence': 'real hit/no-hit samples',
                             'changed_paths': ['Assets/Tests/Pinch.cs'], 'fixtures': {'Assets/Tests/Pinch.cs': 'Farm.Pinch'},
                             'expected_tests': ['Farm.Pinch.Out', 'Farm.Pinch.Overlay']}}
+        if restored:
+            old['tests'][1] = leaf('Farm.Pinch.Overlay')
+            old['summary'].update(passed=2, failed=0)
+            scope['repair']['restored_tests'] = ['Farm.Pinch.Out']
         for name, data in [('base', base), ('old', old), ('new', new), ('scope', scope)]:
             (root/(name+'.json')).write_text(json.dumps(data), encoding='utf-8')
         report = self.run_cli('compare-verification', '--item', item, '--token', token,
@@ -82,8 +92,15 @@ class CliTests(unittest.TestCase):
         self.assertEqual(report['retained_original']['commit'], fixed)
         found = self.run_cli('shared-test-repairs', '--item', item, '--token', token,
                              '--candidate', str(root/'old.json'))
-        self.assertEqual(found['matches'][0]['fixture'], 'Farm.Pinch')
-        self.assertEqual(found['matches'][0]['status'], 'review_required')
+        if restored:
+            self.assertEqual(report['restored_tests'], ['Farm.Pinch.Out'])
+            self.assertEqual(found['matches'], [])
+            with closing(Ledger(self.db)) as ledger:
+                self.assertEqual(ledger.connection.execute(
+                    "SELECT COUNT(*) FROM audit WHERE kind='shared_test_repair'").fetchone()[0], 0)
+        else:
+            self.assertEqual(found['matches'][0]['fixture'], 'Farm.Pinch')
+            self.assertEqual(found['matches'][0]['status'], 'review_required')
         self.assertFalse(found['current_tests_passed'])
         self.run_cli('shared-test-repairs', '--item', item, '--token', 'wrong',
                      '--candidate', str(root/'old.json'), success=False)
@@ -754,7 +771,10 @@ class CliTests(unittest.TestCase):
         self.assertIn('reservation token', self.run_cli(*args, success=False).stderr)
         self.assertEqual(self.run_cli('reservations')[0]['state'], 'active')
         resource_file.write_text(lease['token'], encoding='utf-8')
-        self.assertEqual(self.run_cli(*args)['state'], 'awaiting_resource')
+        checkpoint = self.json_file('baseline-handoff.json', {'summary': 'original baseline reports saved'})
+        self.assertEqual(self.run_cli(*args, '--checkpoint', str(checkpoint))['state'], 'awaiting_resource')
+        with closing(Ledger(self.db)) as ledger:
+            self.assertEqual(ledger.item(item)['checkpoint']['summary'], 'original baseline reports saved')
         rows = self.run_cli('reservations')
         self.assertEqual([r['state'] for r in rows], ['released', 'queued'])
         self.assertEqual([r['commit_sha'] for r in rows], [baseline, fixed])

@@ -99,12 +99,24 @@ def compare_test_repair(baseline, original, candidate, scope, repair):
         raise ComparisonError('every focused repair test must pass exactly once; skips/failures remain blockers')
     report = compare(baseline, original, **scope)
     resolved = set(report['unresolved_failures'])
-    if (not resolved or not resolved <= after.keys()
+    baseline_tests = _run(baseline)
+    missing = baseline_tests.keys() - before.keys()
+    restored = review.get('restored_tests', [])
+    if (not isinstance(restored, list) or any(not isinstance(n, str) for n in restored)
+            or len(restored) != len(set(restored)) or not set(restored) <= missing
+            or not set(restored) <= after.keys()
+            or any(not any(n.startswith(f + '.') for f in fixtures.values()) for n in restored)
+            or any(len(baseline_tests[n]) != 1 for n in restored)):
+        raise ComparisonError('restored tests must be unique missing baseline identities in the repaired fixtures')
+    if (not (resolved or restored) or not resolved <= after.keys()
             or any(not any(n.startswith(f + '.') for f in fixtures.values()) for n in resolved)):
         raise ComparisonError('repair must resolve all original unmatched failures in reviewed changed fixtures')
-    # Keep all environment, missing-test, changed-skip, duplicate and scope blockers.
+    # Restore actual identities via a fresh whole-fixture run, never a name-only
+    # alias or synthetic outcome. Unrestored missing tests and every other gate stay.
     allowed = {'new, changed, affected or unreviewed failures: ' + ', '.join(report['unresolved_failures'])}
-    allowed.update('affected test missing or not passed: ' + n for n in resolved)
+    allowed.update('affected test missing or not passed: ' + n for n in resolved | set(restored))
+    if missing and missing == set(restored):
+        allowed.add('baseline tests disappeared from candidate selection: ' + ', '.join(sorted(missing)))
     blockers = [b for b in report['blockers'] if b not in allowed]
     eligible = not blockers
     return {**report, 'candidate_commit': candidate['commit'], 'candidate_reservation': candidate['reservation_id'],
@@ -112,6 +124,7 @@ def compare_test_repair(baseline, original, candidate, scope, repair):
             'draft_eligible': eligible, 'full_suite_passed': False,
             'verdict': 'passed_with_retained_evidence' if eligible else 'blocked',
             'unresolved_failures': [], 'blockers': blockers, 'repaired_failures': sorted(resolved),
+            'restored_tests': sorted(restored),
             'validation_scope': 'test-only-repair-with-retained-full-evidence',
             'retained_original': {'commit': original['commit'], 'reservation_id': original['reservation_id'],
                 'job_id': original['job_id'], 'counts': original['summary'], 'verdict': report['verdict']},

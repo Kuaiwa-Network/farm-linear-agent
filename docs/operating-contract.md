@@ -1,11 +1,24 @@
 # FarmBot operating contract
 
 Continuation startup uses the current root's instructions, skill and bounded
-`references/worker-start.md` read batch. Optional `claim --context` returns the
-existing compact resume view with the normal secret-bearing claim response;
-it changes neither claim/maintenance fencing nor live issue verification. The
-worker stores the token privately and still fetches current issue facts. It reads
+`references/worker-start.md` read batch. `startup.start_argv` uses
+`claim --context --save-token STATE_DIR/token` to store the secret exclusively at
+the configured item path and return a secret-free compact resume view. Existing
+files/links, wrong ledger/path and storage failure refuse startup; an uncertain
+claim is never retried or overwritten. Plain claim stays compatible. Neither
+variant changes claim/maintenance fencing or live issue verification. The
+worker still fetches current issue facts. It reads
 required phase rules without serially reopening unrelated workflow stages.
+Write and read-only checkouts share one launch's fetch scope, with a fresh fetch
+on the next launch and the existing clone trust/config checks preserved.
+
+Resource/repository handoff commands accept `--checkpoint FILE`, running normal
+checkpoint gates before the ordinary transition. Refusal retains saved progress
+without releasing the claim/resource; success retires the claim and requires
+immediate worker exit, not another final-report rewrite. Descendant teardown,
+worker capacity and Editor quiescence still precede the next reservation.
+These changes add no schema or write grants; older releases retain the normal
+separate claim/checkpoint/handoff commands and all recovery evidence.
 
 Closeout reuses the original evidence index and compact prepared report packet.
 At docs-only Contract entry, workers inspect/reconcile pinned fetched main history
@@ -1398,7 +1411,18 @@ root cause. Sharing a package, directory, fixture or loader alone does not estab
 changed behavior/dependency, relevant observed regression or failure stack in changed source still blocks;
 new/changed failures without the explicit causal exception below and required affected checks retain their gates. Unknown causes of unchanged
 outside-scope debt neither force diagnosis nor block completion. Reuse retained QA/reviews across handoffs.
-Successful test-only composite comparisons also publish controller audit records
+Test-only fixture repairs can restore missing baseline identities with a fresh
+whole-fixture run and explicit `repair.restored_tests`. Every restored identity
+must actually be missing, belong to a controller-verified changed fixture and
+pass exactly once; every original candidate fixture leaf must remain. Raw reports
+and their SHAs/counts stay distinct, `full_suite_passed` stays false, and all other
+blockers remain. This avoids a complete baseline/candidate rerun for test naming
+alone; retain other modes' original evidence only after input applicability review.
+Runtime/asset/input changes still require their affected validation. Restoring an
+identity is not a shared failure diagnosis. No schema change; older comparators
+may refuse this composition, so preserve its raw reports across rollback.
+
+Successful test-only failure-repair composite comparisons also publish controller audit records
 for cross-issue diagnosis reuse. The claim-fenced `shared-test-repairs` reader matches
 failure signatures, original fixture blobs, reviewed dependency blobs and engine
 identities against the current settled candidate. A matching record avoids repeating

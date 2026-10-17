@@ -467,6 +467,9 @@ BASELINE_AUTHORITY = (
     "new merge commits cannot use repair continuation. Runtime repairs still need their affected/full evidence. "
     "For test-fixture-only isolation repairs, compare-verification --repair-original ORIGINAL_FULL_REPORT "
     "can combine the original complete pair with a fresh whole-fixture focused run at the repaired SHA. "
+    "This includes restored missing test identities: list repair.restored_tests and run the whole changed "
+    "fixture with its meaningful assertions. Do not repeat baseline or complete candidate suites solely "
+    "because a test name was restored. Preserve other modes' original evidence and source identities. "
     "Read references/worker-cli.md for the repair scope schema; retain every old failure and actual source "
     "identity, report full_suite_passed=false, and never label retained tests as newly executed. A bare focused "
     "pass without the recorded repair and causal review remains insufficient. Other changed candidates or "
@@ -624,9 +627,10 @@ SERVER_TEST_AUTHORITY = (
 
 
 CLOSEOUT_AUTHORITY = (
-    " For a continuation, use startup.read_together in one local read batch, then claim --context. "
-    "Capture the claim response privately, store its token by the worker CLI procedure, and inspect the "
-    "returned resume context without printing the token. Fetch the live issue before acting. Read the "
+    " For a continuation, use startup.read_together in one local read batch, then startup.start_argv. "
+    "claim --context --save-token exclusively stores the token and returns a secret-free resume context; "
+    "do not write another token-storage script or read the whole CLI reference just to start. "
+    "Fetch the live issue before acting. Read the "
     "current repository's instructions and required phase rules; do not serially reread unrelated stages "
     "or every reference before claiming. The startup hint is navigation, never a gate result. "
     " For closeout, reuse immutable original reports through the claim-fenced evidence-index command "
@@ -680,14 +684,19 @@ def verification_resume(item, resource, root):
             'context': 'issue-context --view resume', 'evidence_is_authority': False}
 
 
-def startup_navigation(item, root, skill_path, worktrees, root_repository):
+def startup_navigation(item, root, skill_path, worktrees, root_repository, db_path=None, state_dir=None):
     """Bounded continuation entry points; all full instructions remain accessible."""
     if item.get('skill') not in ('work', 'feature', 'fix'):
         return None
     current = worktrees.get(root_repository)
     files = ([str(Path(current) / 'AGENTS.md')] if current else [])
+    if current and (Path(current) / 'CLAUDE.md').is_file():
+        files.append(str(Path(current) / 'CLAUDE.md'))
     files += [str(skill_path), str(root / 'references' / 'worker-start.md')]
     return {'read_together': files, 'context_flag': '--context',
+            'start_argv': ([sys.executable, '-m', 'agent', '--db', str(db_path), 'claim',
+                            '--item', item['id'], '--worker-id', item['id'] + ':worker', '--context',
+                            '--save-token', str(Path(state_dir) / 'token')] if db_path and state_dir else None),
             'stage': item.get('stage'), 'guide': str(root / 'references' / 'closeout-reuse.md'),
             'full_context_when_stale': 'issue-context --view full', 'evidence_is_authority': False}
 
@@ -855,7 +864,7 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
         # in neither mode does it carry an argv or the Editor's own path: a worker never starts Unity.
         "resource": resource,
         "verification_resume": verification_resume(item, resource, root),
-        "startup": startup_navigation(item, root, skill_path, worktrees, root_repository),
+        "startup": startup_navigation(item, root, skill_path, worktrees, root_repository, db_path, state_dir),
         # Standing tool grants beside the reservation: tools.kw_ops is {"access": ...} or {"status": "unavailable",
         # "reason": ...}. A token is never here; the worker's CLI reads it from the environment by name. For a skill
         # that reads the 策划案, tools.lark_cli is {"profile", optional "home"} or unavailable, never an app ID or secret.

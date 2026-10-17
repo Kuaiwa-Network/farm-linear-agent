@@ -52,6 +52,7 @@ def parser():
     claim = cmd("claim", "--item", "--worker-id")
     claim.add_argument('--context', action='store_true',
                        help='include the current resume context in the same claim response')
+    claim.add_argument('--save-token', help='exclusively save state_dir/token; omit the secret from stdout')
     cmd("renew", "--item", token=True)
     cmd("maintenance-handoff", "--item", token=True)
     cmd("document-reader-status", "--item", token=True)
@@ -61,7 +62,8 @@ def parser():
     mode = index.add_mutually_exclusive_group(required=True)
     mode.add_argument('--input', help='JSON with pins and selected report paths, purposes and summaries')
     mode.add_argument('--verify', help='existing immutable evidence index in this item state directory')
-    cmd("handoff-repository", "--item", "--to", token=True)
+    handoff = cmd("handoff-repository", "--item", "--to", token=True)
+    handoff.add_argument('--checkpoint', help='save this checkpoint through normal gates before handing off')
     cmd("revalidate", "--item", "--fingerprint", token=True)
     context = cmd("issue-context", "--item")
     context.add_argument("--view", choices=["full", "resume"], default="full")
@@ -116,6 +118,7 @@ def parser():
     repair = cmd("request-repair", "--item", "--summary-file", token=True)
     repair.add_argument("--message-id", type=int, required=True)
     resource = cmd("await-resource", "--item", "--resource", token=True)
+    resource.add_argument('--checkpoint', help='save this checkpoint before requesting the resource')
     resource.add_argument("--server-test-plan", help="JSON file with exact packages, tests and race selection")
     resource.add_argument("--server-scope-reason", help="concrete coverage reason for broader or named-only server checks")
     resource.add_argument("--mode", required=True, choices=["interactive", "batch"])
@@ -129,6 +132,7 @@ def parser():
     resource.add_argument('--repair-candidate-reservation',
                           help='continue a settled original comparison at a repaired descendant, preserving its base')
     continuation = cmd('continue-verification', '--item', '--commit', '--reservation-token-file', token=True)
+    continuation.add_argument('--checkpoint', help='save completed baseline evidence before continuing')
     continuation.set_defaults(resource='unity_slot', mode='interactive', baseline=False, server_test_plan=None)
     progress = cmd('verification-progress', '--item', token=True)
     progress.add_argument('--phase', required=True, choices=['preparation', 'testing', 'presentation-qa',
@@ -558,7 +562,14 @@ def run(args, ledger, api_factory):
         return {**observed, "delegated": delegated,
                 "withdrawn": ledger.item(args.item)["withdraw_deadline"] is not None}
     if c == "claim":
-        result = ledger.claim(args.item, worker_id=args.worker_id)
+        if args.save_token:
+            from .worker_start import claim_to_file
+            config = load_config(secure_permissions=False)
+            if Path(args.db).resolve() != Paths(config).ledger.resolve():
+                raise LedgerError('claim token storage must use the configured host ledger')
+            result = claim_to_file(ledger, args.item, args.worker_id, args.save_token, config)
+        else:
+            result = ledger.claim(args.item, worker_id=args.worker_id)
         if args.context:
             from .resume_context import resume_view
             result['context'] = resume_view(ledger.issue_context(args.item))
@@ -624,6 +635,9 @@ def run(args, ledger, api_factory):
         from .skills import load_skills
         token = resolve_token(args)
         ledger.renew(args.item, token)
+        if args.checkpoint:
+            run(argparse.Namespace(**{**vars(args), 'command': 'checkpoint', 'input': args.checkpoint}),
+                ledger, api_factory)
         item = ledger.item(args.item)
         refuse_withdrawn(item)
         # The item's own manifest decides its stages: any staged skill, to a repository in its writes.
@@ -988,6 +1002,9 @@ def run(args, ledger, api_factory):
         from .skills import load_skills
         token = resolve_token(args)
         ledger.renew(args.item, token)  # authenticate before reading a manifest or any checkout
+        if args.checkpoint:
+            run(argparse.Namespace(**{**vars(args), 'command': 'checkpoint', 'input': args.checkpoint}),
+                ledger, api_factory)
         item = ledger.item(args.item)
         refuse_withdrawn(item)
         # The item's own manifest decides what it may wait for (P11), as it decides handoff-repository's stages.

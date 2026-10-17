@@ -967,6 +967,17 @@ class Worktrees:
                 return path
             except WorktreeError:
                 pass
+        # A write checkout may already have fetched these exact objects during
+        # this launch. Borrow them through the checked alternate, but bind only
+        # the fresh remote-advertised SHA, never a worker-writable clone ref.
+        fetched = self._fetched_in_scope()
+        if fetched is not None and repo in fetched and tip and self.has_commit(repo, tip):
+            try:
+                _git('update-ref', tracking, tip, cwd=path, config=READ_ONLY_GIT)
+                check_out()
+                return path
+            except WorktreeError:
+                pass  # Missing/corrupt borrowed inputs still require the ordinary fetch.
         _git("fetch", "--quiet", "--no-tags", "origin", f"+refs/heads/{default}:{tracking}", cwd=path,
              config=READ_ONLY_GIT)
         check_out()

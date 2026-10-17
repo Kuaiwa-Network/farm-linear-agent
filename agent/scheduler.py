@@ -230,12 +230,14 @@ class Scheduler:
         # then add_stage; a new clone, then add). A checkout that fetched before still fetches its clone, once.
         with self.worktrees.one_fetch_per_clone():
             paths = self._worktrees_for(skill, item, issue)
-        # Client preparation may persist this item's baseline, never the session's intake target.
-        item = self.ledger.item(item["id"])
-        if (item["state"] != "queued" or item["generation"] != current["generation"]
-                or item["root_repo"] != current["root_repo"] or item["next_root_repo"] is not None):
-            return None
-        reads = ({} if item.get('root_repo') == COORDINATION_ROOT else self._reads_for(skill, item))
+            # Include read-only copies in this launch's fetch scope; a repository
+            # used by both views needs one fresh fetch, not another network trip.
+            # Client preparation may persist this item's baseline, never the session target.
+            item = self.ledger.item(item["id"])
+            if (item["state"] != "queued" or item["generation"] != current["generation"]
+                    or item["root_repo"] != current["root_repo"] or item["next_root_repo"] is not None):
+                return None
+            reads = ({} if item.get('root_repo') == COORDINATION_ROOT else self._reads_for(skill, item))
         source_roots = [*(paths[repo] for repo in write_repos),
                         *(part for repo in write_repos for part in self.worktrees.writable_parts(repo, paths[repo]))]
         repo_root = Path(self.skill_root).parent

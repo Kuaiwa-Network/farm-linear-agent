@@ -275,6 +275,39 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(self.scheduler.tick()["launched"], 1)
         self.assertEqual((len(inside), set(inside), blocks), (5, {True}, ["open", "closed"]))
 
+    def test_launch_read_copies_share_fetch_scope_with_writes_but_next_launch_is_fresh(self):
+        self.use_feature_skill(reads=['Farm-Client'])
+        scopes, observed = [], []
+
+        @contextlib.contextmanager
+        def scope():
+            scopes.append(object())
+            yield
+            scopes.pop()
+
+        self.trees.one_fetch_per_clone = scope
+        for method in ('add', 'read_checkout'):
+            original = getattr(self.trees, method)
+            def checked(*args, _method=method, _original=original, **kwargs):
+                self.assertEqual(len(scopes), 1)
+                observed.append((_method, scopes[0]))
+                return _original(*args, **kwargs)
+            setattr(self.trees, method, checked)
+        item = self.item(skill='feature')
+        self.scheduler.tick()
+        self.assertEqual({name for name, _ in observed}, {'add', 'read_checkout'})
+        first_scope = observed[0][1]
+        self.assertTrue(all(value is first_scope for _, value in observed))
+        token = self.ledger.claim(item['id'], worker_id='w')['token']
+        self.ledger.await_input(item['id'], token, 'wait', reason='waiting')
+        self.launcher.finished.append(Finished(item['id'], 0, '', False, 'exited'))
+        self.scheduler.tick()
+        self.ledger.resume(item['id'], 'resume')
+        observed.clear()
+        self.scheduler.tick()
+        self.assertTrue(observed)
+        self.assertTrue(all(value is not first_scope for _, value in observed))
+
     def test_first_repair_launch_gets_write_profile_budget_and_conversation(self):
         app = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
         chat = self.item(skill="chat", delegate_id=app)
