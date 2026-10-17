@@ -57,13 +57,15 @@ def retained_registration_base(trees, ledger, item_id, candidate, branch):
         from .workflow import repository_path
         path = repository_path(trees, 'farm-hive', item_id)
         env = {**GIT_ENV, 'GIT_NO_REPLACE_OBJECTS': '1'}
-        snapshots = []
+        snapshots, modes = [], {}
         for commit in (source, candidate):
             blobs = {}
             for name in paths:
                 entry = trees.git_in(path, 'ls-tree', commit, '--', name, env=env)
-                if not entry.startswith('100644 blob '):
+                mode = entry.split()[0]
+                if mode not in ('100644', '100755') or (name in modes and modes[name] != mode):
                     return None
+                modes[name] = mode
                 # A second batch header protects the first blob's trailing whitespace
                 # from git_in.strip(); validate the Git hash to reject text conversion.
                 spec = f'{commit}:{name}'
