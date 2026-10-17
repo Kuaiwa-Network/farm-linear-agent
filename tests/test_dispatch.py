@@ -229,6 +229,15 @@ FEATURE_AUTHORITY_WITH_CI_REGISTRATION = FEATURE_AUTHORITY_WITH_SCOPED_INPUTS.re
     "A CI path alone is not a reason to request human permission for this narrow registration. Other CI changes "
     "remain forbidden. Never create Linear issues or labels, and never send ")
 
+def with_candidate_evidence(text):
+    # Preserve the frozen historical authority; amend only this reviewed clause.
+    old = 'Report unmatched failures with attribution unresolved. '
+    assert text.count(old) == 1
+    return text.replace(old,
+        "Apply the skill's reviewed candidate-first or source-causal policy for independent failures "
+        "without inventing baseline results; otherwise report unresolved attribution. ")
+
+
 def payload_of(message):
     return json.loads(message.split("\n\n", 1)[1])
 
@@ -466,8 +475,10 @@ class SkillAuthorityTests(unittest.TestCase):
             self.assertIn("verification_role=baseline", text)
             for phrase in ('Baseline comparison is on demand', 'verify-candidate',
                            'baseline_executed=false', 'Never test the identical source',
-                           'passing affected acceptance'):
+                           'passing affected acceptance',
+                           'candidate-first or source-causal policy for independent failures'):
                 self.assertIn(phrase, text)
+            self.assertNotIn('Report unmatched failures with attribution unresolved', text)
             self.assertIn("New/changed failures", text)
             for phrase in ("clock_diagnostic", "unchanged assertion", "finish delivered",
                            "agent.dotnet_baseline", "Failed:Invalid",
@@ -536,7 +547,7 @@ class SkillAuthorityTests(unittest.TestCase):
     def test_chat_keeps_historical_restrictions_and_receives_question_authority(self):
         """Keep the historical restrictions pinned independently of the new question protocol."""
         self.assertEqual(dispatch.COMMON_AUTHORITY + dispatch.SKILL_AUTHORITY["chat"] + dispatch.AUTHORITY_REFERENCE,
-                         dispatch.MAINTENANCE_AUTHORITY + with_withdrawal(AUTHORITY_AT_A29D078).replace(
+                         dispatch.MAINTENANCE_AUTHORITY + with_candidate_evidence(with_withdrawal(AUTHORITY_AT_A29D078)).replace(
                              "Never merge, deploy", "Never merge pull requests, deploy"))
         self.assertEqual(self.message({"id": "i", "skill": "chat"}).split("\n\n", 1)[0],
                          dispatch.COMMON_AUTHORITY + dispatch.QUESTION_AUTHORITY + dispatch.SKILL_AUTHORITY["chat"] + dispatch.AUTHORITY_REFERENCE)
@@ -692,7 +703,7 @@ class SkillAuthorityTests(unittest.TestCase):
         checkpoint rule included, and the reference."""
         reference = "Use references/worker-cli.md for command arguments and the exact handoff JSON shape."
         common, marker, rest = AUTHORITY_AT_A29D078.partition("When tools.kw_ops.access is present")
-        expected = with_server_slots(common).replace("Never merge, deploy", "Never merge pull requests, deploy")
+        expected = with_candidate_evidence(with_server_slots(common)).replace("Never merge, deploy", "Never merge pull requests, deploy")
         self.assertEqual(dispatch.COMMON_AUTHORITY, dispatch.MAINTENANCE_AUTHORITY + expected + WITHDRAWAL_AT_DESIGN)
         self.assertEqual(dispatch.AUTHORITY_REFERENCE, reference)
         self.assertEqual(dispatch.KW_OPS_AUTHORITY, marker + rest[:-len(reference)])

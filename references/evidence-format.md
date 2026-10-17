@@ -32,17 +32,23 @@ Separate assertions established by evidence from hypotheses about their cause.
 | INCONCLUSIVE | No usable result: stalled/timeout run, missing or unreadable XML, or zero tests. Record the verification gap and available logs. |
 
 A prerequisite error is not a failing product assertion. After correcting hydration or
-setup, run the intended check before claiming red/green. For a testable logic fix, show
-the relevant assertion failing on the baseline and passing on the fix under comparable
-conditions; a baseline build failure followed by a fix build success alone is insufficient.
-For a requested change with testable logic, a test of its new behaviour plays that role:
-it fails on the baseline and passes on the change. A UI change gets a before-and-after check or a named gap.
+setup, run the intended check before claiming the behavior passed. Validate the candidate
+at the issue's required scope. When a before/after reproduction is needed to establish a
+fix or resolve attribution, record the relevant assertion under comparable conditions;
+a baseline build failure followed by a candidate build success alone is insufficient.
+Reuse valid observations and use the necessary focused selection, not two full suites
+by default. UI work follows its recorded validation decision and required evidence.
 
-Classify failures as pre-existing only with per-case baseline evidence: record baseline
+Describe failures as empirically baseline-matched only with per-case baseline evidence: record baseline
 and fix SHAs, the same mode, selection and environment, and compare test names and failure
 signatures. Historical counts, another issue's run and memory notes are leads, not proof
-that a current failure is unrelated. Without a matched baseline, state "observed failure;
-attribution unresolved". Report mode-specific totals separately.
+that a current failure is unrelated. Without a matched baseline, retain the actual failure
+and use the skill's reviewed [candidate-first assessment](candidate-verification.md) or
+[server causal evidence](server-evidence.md) when applicable. Distinguish a proven
+independent defect or reviewed unchanged-source finding from empirical baseline matching;
+say `baseline_executed=false` when no baseline ran. Otherwise state "observed failure;
+attribution unresolved". Acceptance failures and evidence gaps still block the applicable
+required checks. Report mode-specific totals separately.
 
 Draft delivery reports, PRs and comments must name remaining gaps and their impact on
 confidence. A delivered outcome records submitted work; it does not turn incomplete
