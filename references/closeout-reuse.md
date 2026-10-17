@@ -1,5 +1,30 @@
 # Closeout without repeated preparation
 
+After actual candidate tests and required live QA, release Unity through the normal quiescent
+path and keep the same worker for offline closeout. Assess all retained suites with one
+`verification-closeout --item ITEM --token-file STATE_DIR/token --input STATE_DIR/closeout.json`:
+
+```json
+{"runs":[
+  {"candidate":"candidate-edit.json","scope":"edit-scope.json"},
+  {"candidate":"candidate-play.json","scope":"play-scope.json"}
+]}
+```
+
+Use `baseline` per entry for an actual recorded pair, and `repair_original` only for an existing
+certified repair. Paths are relative to this item's state directory (absolute paths inside it also
+work). The command checks one to six retained suites, writes content-addressed verdict files and
+returns one immutable evidence index. It does not normalize/relabel original runs, run Unity, release
+resources, waive remaining gates or finish the job. Any blocked suite leaves the overall result and
+Monitor blocked even if another suite passes. Diagnose from the retained evidence; rerun this offline
+command after correcting a review, not the baseline tests. Reuse its index path and verdicts in the
+compact checkpoint instead of separate per-suite comparison/index/summary tool turns.
+
+Prepare the final checkpoint, finish input and delivery text together after required acceptance
+and publication gates. Use `finish --check-ready --checkpoint FINAL_CHECKPOINT --input OUTCOME`
+with the normal item/claim/outcome arguments. A successful preflight permits preparing delivery;
+confirmed delivery and the fresh authorization checks in actual `finish` are still mandatory.
+
 Use `worker-start.md`, the current root's instructions and saved resume context first. Read other
 repository rules when entering that repository; do not recursively reread every
 checkout's instructions at each continuation. Missing decisions and stale context

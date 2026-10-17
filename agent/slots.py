@@ -506,6 +506,16 @@ class SlotPool:
         """
         item_id, slot_id = reservation["item_id"], reservation["resource"]
         self.last_observation = None
+        if (reservation['kind'] == 'unity_slot' and self.ledger.item(item_id)['skill'] in ('work', 'feature', 'fix')
+                and self.ledger.reservation_comparison(reservation['reservation_id'])):
+            from .equal_tree_verification import select_candidate
+            try:
+                reservation = select_candidate(self.ledger, self.worktrees, reservation)
+                if reservation['state'] != 'active':
+                    return False
+            except GIT_FAILURES as exc:
+                self._switch_failed(reservation, SlotError(f'cannot verify pinned source trees: {exc}', stage='git'))
+                return False
         if self.keep_open:
             from .resource_recovery import RecoveryStore
             entry = self.entries[slot_id]

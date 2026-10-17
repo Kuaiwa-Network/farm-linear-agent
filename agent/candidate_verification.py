@@ -16,7 +16,7 @@ def failure_id(candidate, source_base_commit, name, row):
 
 
 def assess(candidate, *, source_base_commit, affected_tests, changed_paths, issue_scope,
-           unrelated_failures, reviewed_skips=None):
+           unrelated_failures, reviewed_skips=None, verified_source_tree=None):
     rows = _run(candidate)
     if not isinstance(source_base_commit, str) or not SHA.fullmatch(source_base_commit):
         raise ComparisonError('source_base_commit requires the controller-recorded full Git SHA')
@@ -31,6 +31,10 @@ def assess(candidate, *, source_base_commit, affected_tests, changed_paths, issu
         raise ComparisonError('duplicate or aliased changed paths')
     if source_base_commit == candidate['commit'] and changed_paths:
         raise ComparisonError('identical source commits cannot have a diff')
+    if verified_source_tree is not None and (not isinstance(verified_source_tree, str)
+            or not SHA.fullmatch(verified_source_tree) or changed_paths):
+        raise ComparisonError('verified equal trees require a full tree identity and empty actual diff')
+    same_source = source_base_commit == candidate['commit'] or verified_source_tree is not None
     if (not _reviewed(issue_scope) or issue_scope.get('source_base_commit') != source_base_commit
             or issue_scope.get('candidate_commit') != candidate['commit']):
         raise ComparisonError('issue scope must bind source base and actual candidate with reason/evidence')
@@ -76,7 +80,7 @@ def assess(candidate, *, source_base_commit, affected_tests, changed_paths, issu
                 unresolved.append(name)
             elif (_reviewed(review) and review.get('classification') == 'unchanged_source'
                     and review.get('evidence_id') == identity
-                    and source_base_commit == candidate['commit'] and not changed_paths):
+                    and same_source and not changed_paths):
                 # No code delta can introduce a source regression. This says nothing
                 # about the root cause or the health of the unchanged environment.
                 unchanged.append({'fullName': name, 'review': review})
@@ -92,6 +96,7 @@ def assess(candidate, *, source_base_commit, affected_tests, changed_paths, issu
         blockers.append('unresolved failure attribution: ' + ', '.join(unresolved))
     eligible = not blockers
     return {'source_base_commit': source_base_commit,
+            'verified_source_tree': verified_source_tree,
             'baseline_executed': False, 'candidate_commit': candidate['commit'],
             'candidate_reservation': candidate['reservation_id'], 'candidate_job': candidate['job_id'],
             'candidate_counts': dict(candidate['summary']), 'scope_policy': 'candidate-first-v1',
@@ -104,7 +109,7 @@ def assess(candidate, *, source_base_commit, affected_tests, changed_paths, issu
             'confirmed_unrelated_failures': confirmed, 'unchanged_source_failures': unchanged,
             'reviewed_skips': skips, 'failure_evidence_ids': ids, 'unresolved_failures': unresolved,
             'affected_not_passed': affected, 'ambiguous_tests': ambiguous, 'blockers': blockers,
-            'comparison_needed': bool(unresolved) and source_base_commit != candidate['commit'],
+            'comparison_needed': bool(unresolved) and not same_source,
             'next_action': ('complete remaining required checks and normal draft delivery' if eligible else
                             'diagnose affected failures or evidence gaps; compare only unresolved failure '
                             'attribution when a meaningful source/input difference can be tested')}

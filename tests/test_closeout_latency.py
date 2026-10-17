@@ -226,6 +226,23 @@ class CloseoutCliTests(unittest.TestCase):
         self.run_cli('finish', '--item', item, '--token', 'wrong', '--outcome', 'delivered',
                      '--input', path, '--check-ready', success=False)
 
+    def test_final_checkpoint_and_ready_check_share_one_call_without_waiving_finish(self):
+        item, token, path = self.prepare()
+        checkpoint = self.json_file('final-checkpoint.json', {'summary': 'immutable evidence already reviewed'})
+        calls = self.calls()
+        args = ('finish', '--item', item, '--token', token, '--outcome', 'delivered',
+                '--input', path, '--checkpoint', checkpoint)
+        result = self.run_cli(*args, '--check-ready')
+        self.assertTrue(result['local_completion_checked'])
+        self.assertFalse(result['completion_checked'])
+        self.assertEqual(self.calls(), calls)
+        with closing(Ledger(self.db)) as ledger:
+            self.assertEqual(ledger.item(item)['state'], 'running')
+            self.assertEqual(ledger.item(item)['checkpoint']['summary'], 'immutable evidence already reviewed')
+        self.assertIn('shape-only', self.run_cli(*args, '--check-input', success=False).stderr)
+        Path(checkpoint).write_text(json.dumps({'published_prs': ['https://evil.test/fake']}), encoding='utf-8')
+        self.run_cli(*args, '--check-ready', success=False)
+
     def test_consumer_preflight_and_index_use_current_claim_and_configured_item_root(self):
         from test_closing import deferred_plan
         self.db = self.root / 'host' / 'agent' / 'ledger.sqlite3'

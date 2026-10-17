@@ -81,6 +81,19 @@ class CandidateAssessmentTests(unittest.TestCase):
                 self.candidate = run('b', self.candidate['tests'])
                 self.assertFalse(assess(self.candidate, **self.scope)['draft_eligible'])
 
+    def test_distinct_commits_need_host_tree_proof_and_bound_review(self):
+        self.scope = scope_for(self.candidate, 'a'*40)
+        self.review()
+        self.assertFalse(assess(self.candidate, **self.scope)['draft_eligible'])
+        result = assess(self.candidate, **self.scope, verified_source_tree='e'*40)
+        self.assertTrue(result['draft_eligible'])
+        self.assertFalse(result['baseline_executed'])
+        self.assertFalse(result['comparison_needed'])
+        self.assertFalse(result['full_suite_passed'])
+        self.scope['affected_tests'].append('Card.Other')
+        self.scope['issue_scope']['affected_tests'] = list(self.scope['affected_tests'])
+        self.assertFalse(assess(self.candidate, **self.scope, verified_source_tree='e'*40)['draft_eligible'])
+
     def test_review_is_bound_to_execution_and_environment(self):
         for kind in ('job_id', 'reservation_id', 'message', 'host'):
             with self.subTest(kind=kind):
@@ -162,12 +175,25 @@ class CandidateControllerTests(pair_fixture.ServerPoolFixture):
                                scope=str(directory/'scope.json'))
         Path(args.candidate).write_text(json.dumps(candidate), encoding='utf-8')
         Path(args.scope).write_text(json.dumps(scope), encoding='utf-8')
-        trees = SimpleNamespace(verification_commit=Mock(), git_in=Mock(return_value='Assets/Animal.cs\0'))
+        trees = SimpleNamespace(verification_commit=Mock(), git_in=Mock(return_value='Assets/Animal.cs\0'),
+                                verification_tree=Mock(return_value='e'*40))
         self.addCleanup(patch.stopall)
         patch('agent.verification.Paths', return_value=paths).start()
         patch('agent.workflow.JobWorktrees', return_value=trees).start()
         patch('agent.workflow.repository_path', return_value=directory).start()
         return item, token, reservation, config, args, candidate, scope, trees
+
+    def test_tree_proof_is_derived_by_controller_and_cannot_be_supplied_in_scope(self):
+        item, token, reservation, config, args, candidate, scope, trees = self.prepared()
+        scope['changed_paths'] = scope['issue_scope']['changed_paths'] = []
+        trees.git_in.return_value = ''
+        Path(args.scope).write_text(json.dumps(scope), encoding='utf-8')
+        result = verify_recorded_candidate(args, self.ledger, config, token)
+        self.assertEqual(result['verified_source_tree'], 'e'*40)
+        self.assertEqual(trees.verification_tree.call_count, 2)
+        scope['verified_source_tree'] = 'e'*40
+        Path(args.scope).write_text(json.dumps(scope), encoding='utf-8')
+        with self.assertRaises(ComparisonError): verify_recorded_candidate(args, self.ledger, config, token)
 
     def test_claim_fenced_assessment_keeps_one_reservation_and_current_stage(self):
         item, token, reservation, config, args, candidate, scope, trees = self.prepared()

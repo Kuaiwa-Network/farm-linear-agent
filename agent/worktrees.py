@@ -744,6 +744,16 @@ class Worktrees:
         self.verification_commit(repo, item_id, candidate, expected_branch=expected_branch)
         return paths
 
+    def verification_tree(self, repo, commit):
+        """Whole tracked content identity from the checked clone, never replacement objects."""
+        if not isinstance(commit, str) or not self.COMMIT.fullmatch(commit):
+            raise VerificationMismatch('source tree requires a full commit SHA')
+        tree = _git('rev-parse', '--verify', commit + '^{tree}', cwd=self._clone(repo),
+                    env={**GIT_ENV, 'GIT_NO_REPLACE_OBJECTS': '1'})
+        if not self.COMMIT.fullmatch(tree):
+            raise VerificationMismatch('source tree did not resolve to a full Git identity')
+        return tree
+
     def verification_baseline(self, repo, item_id, candidate, *, expected_branch=None, verified_base=None):
         """Validate current main or a recorded upstream pin without changing the owned candidate."""
         self.verification_commit(repo, item_id, candidate, expected_branch=expected_branch)

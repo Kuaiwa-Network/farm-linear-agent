@@ -33,9 +33,12 @@ Prefer the resume context returned by `claim --context`; otherwise use
 references omitted text, or when a required fact is missing. Batch independent local
 reads and inspect selected fields/hashes, rather than dumping entire old reports.
 Follow `references/closeout-reuse.md` for an immutable report index and compact handoffs.
+Use `verification-closeout` to assess retained Client suites and create that index in one call.
+The current dispatch resource policy supersedes an old two-run plan when the controller selects
+candidate-first verification; an identical file tree does not require a duplicate baseline run.
 Before a docs-only Contract acceptance handoff, save consumer inputs and run
 `closing-preflight`. Before delivery, save the final checkpoint and validate it with
-`finish --check-ready` as documented in the worker CLI. Reuse
+`finish --check-ready --checkpoint FINAL_CHECKPOINT` as documented in the worker CLI. Reuse
 `verify-publication.foreign_work` for that repository; preserve fresh publication checks
 and the final issue refresh. Local preflight does not certify live readiness.
 

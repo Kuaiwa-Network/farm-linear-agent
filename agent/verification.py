@@ -118,7 +118,13 @@ def verify_recorded_candidate(args, ledger, config, token):
                             env={**GIT_ENV, 'GIT_NO_REPLACE_OBJECTS': '1'}).split('\0')
         if set(filter(None, delta)) != set(scope.get('changed_paths', [])):
             raise ComparisonError('candidate scope must cover the complete actual source diff')
-        report = assess(candidate, **scope)
+        # This proof is host-derived, not a field a worker can assert in its scope.
+        same_tree = None
+        if not any(delta):
+            base_tree = trees.verification_tree('Farm-Client', pin['base_commit'])
+            if base_tree == trees.verification_tree('Farm-Client', candidate['commit']):
+                same_tree = base_tree
+        report = assess(candidate, **scope, verified_source_tree=same_tree)
         # This object is a Git source identity only. No baseline run, job,
         # reservation or passing result is constructed or recorded.
         verify(trees, root, {'commit': pin['base_commit']}, candidate, scope, report, path)

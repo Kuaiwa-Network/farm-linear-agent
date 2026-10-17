@@ -345,6 +345,10 @@ skills on the host; it provides weaker read and network isolation than elevated 
 isolate that user's credentials. Disabled or implicit sandbox modes are refused, and a failed
 backend never triggers an automatic fallback. macOS and Claude launches are unaffected. Changing
 this setting requires a settled service restart and does not provision a sandbox or enable feature.
+`"mxc"` is also supported as an explicit choice on compatible Windows/Codex installations. Verify
+outside-root write denial, allowed writes, loopback tools and Job Object descendant termination before
+enabling it. It keeps fresh isolated homes and the same grants, avoids legacy first-command setup, and
+fails closed when unavailable. Restore a supported sandbox choice before rolling back to older code.
 
 ## AI/operator diagnostics
 
