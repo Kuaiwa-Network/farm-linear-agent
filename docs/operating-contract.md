@@ -648,6 +648,11 @@ concrete causal chain may establish an independent defect without pretending an 
 passed. Changed shared helpers must be reviewed. Original failures stay disclosed; unresolved or affected
 failures still block. A registration-only repair reuses unchanged behavior evidence with its original SHA
 and verified input identities, and runs the corrected gate and negative case; it does not waive publication.
+For the existing farm-hive transaction inventory/A25 anchors, publication can retain the last quiescent
+server round's base after a clean linear registration-only descendant. The controller checks exact blob
+edits (sorted additions, both anchors, retained negative entry, unchanged surrounding code), file modes,
+item/generation and real-main ancestry. It returns ancestry-only evidence, never a new test verdict or
+reservation; arbitrary CI edits and business-code changes cannot use this path.
 Linear credentials remain available only through FarmBot's CLI for the
 claimed item; lark-cli only as `lark-cli --profile PROFILE docs +fetch --as bot`, `wiki +node-get
 --as bot` to resolve a linked wiki URL's object type and token, `drive +download --as bot`, and, for

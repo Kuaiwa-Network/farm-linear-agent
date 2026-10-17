@@ -40,3 +40,11 @@ clean candidate. Changed behavior, test harness, dependencies or inputs invalida
 corresponding reuse. Keep the original upstream base; do not merge moving main or request
 a fresh full baseline just to produce a newer SHA. Publication must still pass the
 controller's ancestry and destination checks; retained evidence is not publishing authority.
+
+The controller currently recognizes only the farm-hive transaction declaration plus its two
+existing A25 injection anchors for publication ancestry reuse. It requires a clean linear
+descendant of this generation's latest quiescent server candidate, regular committed files,
+sorted declaration additions and byte-identical surrounding gate/anchor code. It retains
+the extra negative entry and still verifies the original base on actual main. This records
+`server_registration_ancestry`, not a new server reservation or a passing test verdict.
+Other registration formats receive the worker grant but do not gain this ancestry shortcut.

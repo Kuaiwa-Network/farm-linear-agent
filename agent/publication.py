@@ -216,6 +216,12 @@ class PublicationVerifier:
             if server_round is not None:
                 options['verified_base'] = server_round['base_commit']
                 result['server_verification_round'] = server_round
+            elif repo == 'farm-hive' and ledger is not None:
+                from .server_registration import retained_registration_base
+                registration = retained_registration_base(self.worktrees, ledger, item_id, head, branch)
+                if registration:
+                    options['verified_base'] = registration['base_commit']
+                    result['server_registration_ancestry'] = registration
             result['main_integration'] = self.worktrees.require_main_integration(
                 repo, path, head, default_branch=metadata['default_branch'], **options)
             if verification_pair:
