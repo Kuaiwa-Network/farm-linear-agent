@@ -1249,6 +1249,9 @@ Commit, "Other people's work", verify/push, open/register the writeback draft wh
 `merge-writeback` from `feature merge request`, mentioning the owner and remaining human preconditions. Save its
 head/URL and `closing.writeback_opened`, then return to the recorded Contract issue branch before a sibling reads
 that worktree. Every retry checks the saved head/draft and notice id instead of repeating archive or publication.
+If this resolves a previously deferred archive, move the pending entry to `closing.archive_history` with
+the actual writeback head/PR and remove `closing.deferred_archive` only after that publication succeeds.
+Keep `closing.acceptance` as the earlier draft evidence; an interrupted archive retains the pending record.
 The draft can remain unmerged at delivery; the worker never merges it or any consumer PR.
 
 ## Delivery
