@@ -80,6 +80,15 @@ class CliTests(unittest.TestCase):
         self.assertTrue(report['draft_eligible'])
         self.assertFalse(report['full_suite_passed'])
         self.assertEqual(report['retained_original']['commit'], fixed)
+        found = self.run_cli('shared-test-repairs', '--item', item, '--token', token,
+                             '--candidate', str(root/'old.json'))
+        self.assertEqual(found['matches'][0]['fixture'], 'Farm.Pinch')
+        self.assertEqual(found['matches'][0]['status'], 'review_required')
+        self.assertFalse(found['current_tests_passed'])
+        self.run_cli('shared-test-repairs', '--item', item, '--token', 'wrong',
+                     '--candidate', str(root/'old.json'), success=False)
+        self.run_cli('shared-test-repairs', '--item', item, '--token', token,
+                     '--candidate', str(root.parent/'foreign.json'), success=False)
 
     def test_fixed_pool_cli_converts_unity_batch_request_before_enqueueing(self):
         self.db = self.root / "host" / "agent" / "ledger.sqlite3"
