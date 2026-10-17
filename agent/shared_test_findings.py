@@ -24,6 +24,10 @@ def review_failure(review, baseline, candidate, name, old, row, changed_paths):
         return None
     if not _reviewed(review) or not isinstance(finding, dict):
         raise ComparisonError('confirmed unrelated failure requires a causal review')
+    fields = {'evidence_id', 'kind', 'fixture_path', 'dependencies', 'cause', 'exclusion',
+              'maintenance_action', 'evidence_file', 'evidence_sha256'}
+    if set(finding) != fields:
+        raise ComparisonError('shared finding must contain only the documented causal review fields')
     if (old is None or not (old['state'] == 'Passed' or old['state'].startswith('Failed'))
             or row['state'] == 'Failed:Invalid'
             or finding.get('evidence_id') != evidence_id(baseline, candidate, name, old, row)):
@@ -102,8 +106,8 @@ def record(ledger, item_id, report):
     if not report['draft_eligible']:
         return
     for finding in report.get('confirmed_unrelated_failures', []):
-        document = {'schema': 1, 'source_item': item_id, 'baseline_commit': report['baseline_commit'],
-                    'candidate_commit': report['candidate_commit'], **finding}
+        document = {**finding, 'schema': 1, 'source_item': item_id, 'baseline_commit': report['baseline_commit'],
+                    'candidate_commit': report['candidate_commit']}
         previous = ledger.connection.execute("SELECT details FROM audit WHERE item_id=? "
             "AND kind='shared_test_followup' ORDER BY id DESC LIMIT 200", (item_id,))
         if any(json.loads(row['details']) == document for row in previous):

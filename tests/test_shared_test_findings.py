@@ -105,6 +105,13 @@ class SharedFindingTests(unittest.TestCase):
                 else:
                     with self.assertRaises(ComparisonError): self.compare()
 
+    def test_worker_review_cannot_override_controller_record_identity(self):
+        for key in ('schema', 'source_item', 'candidate_commit', 'followup_id', 'status', 'inputs'):
+            with self.subTest(key=key):
+                self.setUp()
+                self.scope['unrelated_failures']['Shared.Animation']['confirmed_unrelated'][key] = 'forged'
+                with self.assertRaises(ComparisonError): self.compare()
+
     def test_verify_pins_complete_diff_blobs_and_evidence_before_recording(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
