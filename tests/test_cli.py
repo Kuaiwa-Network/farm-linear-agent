@@ -401,13 +401,17 @@ class CliTests(unittest.TestCase):
             with self.assertRaises((RuntimeError, ValueError)):
                 run(args, ledger, lambda: api)
 
-    def verification_fixture(self, skill="fix", *, client_stage=False, directory_name="local"):
+    def verification_fixture(self, skill="fix", *, client_stage=False, directory_name="local", shared_files=False):
         from agent.worktrees import Worktrees
         from test_worktrees import git
         origin = self.root / "origin"
         origin.mkdir()
         git("init", "-q", "-b", "main", ".", cwd=origin)
         (origin / "fix.cs").write_text("old")
+        if shared_files:
+            (origin / 'Assets/Tests').mkdir(parents=True)
+            (origin / 'Assets/Tests/Shared.cs').write_text('namespace Shared { class Animation {} }', encoding='utf-8')
+            (origin / 'Assets/Animation.cs').write_text('class Animation {}', encoding='utf-8')
         git("add", ".", cwd=origin)
         git("commit", "-qm", "baseline", cwd=origin)
         baseline = git("rev-parse", "HEAD", cwd=origin)
@@ -685,6 +689,71 @@ class CliTests(unittest.TestCase):
 
     def test_compare_verification_cli_updates_phase_without_overwriting_checkpoint(self):
         self.check_comparison_cli(candidate_first=False)
+
+    def test_confirmed_shared_failure_is_recorded_without_repair_reservation_or_child_job(self):
+        from agent.ledger import Ledger
+        from agent.config import load_config, Paths
+        from test_test_baseline import run as evidence, test as leaf
+        from test_shared_test_findings import reviewed_scope
+        item, token, baseline, fixed, path = self.verification_fixture(shared_files=True)
+        for flags in (['--baseline'], []):
+            self.run_cli('await-resource', '--item', item, '--token', token, '--resource', 'unity_slot',
+                         '--mode', 'interactive', '--commit', fixed, *flags)
+            with closing(Ledger(self.db)) as ledger:
+                token = self.settle_test_reservation(ledger, item)
+                pair = ledger.client_verification_pair(item, fixed, require_candidate=True)
+        root = Paths(load_config(self.env['FARMBOT_CONFIG'])).runs / item
+        root.mkdir(parents=True)
+        (root/'causal-review.txt').write_bytes(b'actual clock/source observation')
+        base = evidence('a', [leaf('Animal.Counter'), leaf('Shared.Animation')])
+        candidate = evidence('b', [leaf('Animal.Counter'), leaf('Shared.Animation', 'Failed', 'alpha was 1',
+                                                                      'at Shared in Assets/Tests/Shared.cs:42')])
+        base.update(commit=baseline, reservation_id=pair['baseline_reservation'])
+        candidate.update(commit=fixed, reservation_id=pair['candidate_reservation'])
+        scope = reviewed_scope(base, candidate, ['fix.cs'])
+        for name, value in [('base', base), ('candidate', candidate), ('scope', scope)]:
+            (root/(name+'.json')).write_text(json.dumps(value), encoding='utf-8')
+        args = ['compare-verification', '--item', item, '--token', token, '--baseline', str(root/'base.json'),
+                '--candidate', str(root/'candidate.json'), '--scope', str(root/'scope.json')]
+        report = self.run_cli(*args)
+        self.assertTrue(report['draft_eligible'])
+        self.assertFalse(report['full_suite_passed'])
+        self.run_cli(*args)  # Offline re-comparison is idempotent; no Unity request.
+        found = self.run_cli('shared-test-repairs', '--item', item, '--token', token,
+                             '--candidate', str(root/'candidate.json'))
+        self.assertEqual(found['maintenance_findings'][0]['reuse_status'], 'matching_diagnosis')
+        with closing(Ledger(self.db)) as ledger:
+            self.assertEqual(ledger.item(item)['stage'], 'client-verified-awaiting-publication')
+            self.assertEqual(len(ledger.reservations()), 2)
+            self.assertEqual(ledger.connection.execute('SELECT COUNT(*) FROM work_items').fetchone()[0], 1)
+            self.assertEqual(ledger.connection.execute("SELECT COUNT(*) FROM audit WHERE kind='shared_test_followup'").fetchone()[0], 1)
+        # A forged scope cannot hide a runtime edit, even with an apparently valid review.
+        scope['changed_paths'] = scope['issue_scope']['changed_paths'] = ['invented.cs']
+        (root/'scope.json').write_text(json.dumps(scope), encoding='utf-8')
+        self.assertIn('complete actual', self.run_cli(*args, success=False).stderr)
+        scope['changed_paths'] = scope['issue_scope']['changed_paths'] = ['fix.cs']
+        (root/'scope.json').write_text(json.dumps(scope), encoding='utf-8')
+        (root/'causal-review.txt').write_text('changed after review', encoding='utf-8')
+        self.assertIn('causal evidence', self.run_cli(*args, success=False).stderr)
+        # Cancellation after source/evidence reads must prevent both the new record and verdict.
+        from unittest.mock import patch
+        from agent.__main__ import parser, run as command
+        from agent.shared_test_findings import verify
+        from agent.ledger import LedgerError
+        (root/'causal-review.txt').write_bytes(b'actual clock/source observation')
+        scope['unrelated_failures']['Shared.Animation']['reason'] += '; reviewed again'
+        (root/'scope.json').write_text(json.dumps(scope), encoding='utf-8')
+        config = load_config(self.env['FARMBOT_CONFIG'])
+        parsed = parser().parse_args(['--db', str(self.db), *args])
+        def cancel_after_reads(*values):
+            verify(*values)
+            with closing(Ledger(self.db)) as other:
+                other.cancel(item, 'withdrawn during shared finding verification')
+        with closing(Ledger(self.db)) as ledger, patch('agent.__main__.load_config', return_value=config), \
+                patch('agent.shared_test_findings.verify', side_effect=cancel_after_reads):
+            with self.assertRaises(LedgerError): command(parsed, ledger, lambda: None)
+            self.assertEqual(ledger.item(item)['state'], 'cancelled')
+            self.assertEqual(ledger.connection.execute("SELECT COUNT(*) FROM audit WHERE kind='shared_test_followup'").fetchone()[0], 1)
 
     def test_candidate_first_cli_reuses_reports_after_main_advances(self):
         self.check_comparison_cli(candidate_first=True)

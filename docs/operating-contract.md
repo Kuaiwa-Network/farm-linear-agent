@@ -1313,7 +1313,7 @@ settlement before requesting the candidate normally. Claim, delegation, process 
 
 A complete full suite with unrelated existing failures need not block a draft when
 `python -m agent.test_baseline` returns `draft_eligible=true`: distinct recorded commits, identical selection
-and stable environment/config/package identities, complete nonzero leaf outcomes, no new/changed failures or skips,
+and stable environment/config/package identities, complete nonzero leaf outcomes, no unresolved regressions or new skips,
 no removed tests, all affected tests passed, an explicit issue acceptance/diff scope reviewed, and all
 other required local checks passed. Missing/incomparable results remain gaps. The comparator is a read-only
 decision aid; it grants no publication authority and does not replace fresh `verify-publication` or main
@@ -1322,18 +1322,35 @@ affected-test selection with a requirements/diff review. Matching failures outsi
 are retained baseline debt (`retained_baseline_failures`), without proving whole-package independence or
 root cause. Sharing a package, directory, fixture or loader alone does not establish impact. A concrete
 changed behavior/dependency, relevant observed regression or failure stack in changed source still blocks;
-all new/changed failures and required affected checks retain their gates. Unknown causes of unchanged
+new/changed failures without the explicit causal exception below and required affected checks retain their gates. Unknown causes of unchanged
 outside-scope debt neither force diagnosis nor block completion. Reuse retained QA/reviews across handoffs.
 Successful test-only composite comparisons also publish controller audit records
 for cross-issue diagnosis reuse. The claim-fenced `shared-test-repairs` reader matches
 failure signatures, original fixture blobs, reviewed dependency blobs and engine
 identities against the current settled candidate. A matching record avoids repeating
 the causal experiment after current-diff review; it never supplies a passing verdict.
-Workers port only the applicable fixture repair and validate whole changed fixtures
+Only when repair is required for acceptance or separately authorized, workers port
+the applicable fixture repair and validate whole changed fixtures
 at their own new candidate while retaining the original baseline/full reports.
 Drift, incomplete dependency review and other unmatched failures remain explicit.
 Records add no database schema; older releases ignore them. See
 [shared test repairs](../references/shared-test-repairs.md) for evidence and recovery.
+An existing shared test's new/changed failure may instead receive an explicit
+`confirmed_unrelated` causal review bound to both actual report identities. The
+claim-fenced comparator checks the complete actual Git diff, unchanged fixture and
+reviewed causal dependency blobs, the failing stack and hashed item-local evidence.
+The worker must establish the mechanism and absence of interaction with the issue;
+an unchanged file or guessed flakiness is insufficient. Affected failures, new or
+invalid tests, changed causal inputs, ambiguous executions and evidence gaps still
+block. Success preserves all failures and counts with
+`verdict=passed_with_unrelated_findings`, `full_suite_passed=false` and independent
+`shared_test_followup` maintenance audit records in the same fenced transaction as
+the verdict. No child job, repair, assignment, new baseline or main merge becomes a
+business prerequisite. `shared-test-repairs` exposes those diagnoses for current-diff
+review and reuse. Tracking creates no external issue or automatic maintenance work.
+See [shared findings](../references/shared-test-findings.md). No schema migration;
+older releases conservatively block unmatched failures and ignore the extra audit
+records. Settle workers before rollback and retain the original reports.
 The verdict is `passed_with_existing_failures`, with `full_suite_passed=false` and all retained
 failures/skips explicitly listed in the draft. No merge/deploy waiver, suppressed tests or unrelated fixes.
 An eligible draft and all remaining required issue work/checks permit `finish delivered`; workers do not

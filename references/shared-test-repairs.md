@@ -15,7 +15,13 @@ unavailable historical frame or repeating the same experiment on every issue.
 or a missing dependency review. These records are leads, not verified applicability.
 No match means normal bounded diagnosis, not an automatic retry or baseline rerun.
 
-Port only the matching test fixture delta from the two named Git commits. Never
+First decide whether repair is required for this business issue at all. Confirmed
+unrelated defects use [independent maintenance](shared-test-findings.md) and do not
+delay delivery. The lookup also returns `maintenance_findings` from prior causal
+reviews; bind reuse to the current scope and reports.
+
+Only when repair is required or separately authorized, port the matching test
+fixture delta from the two named Git commits. Never
 cherry-pick another issue's entire feature change or merge moving main. Preserve the
 original failure reports and diagnostic budgets; record the reused audit ID,
 current-diff review and source identities in the existing repair review. A fixture

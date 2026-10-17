@@ -60,6 +60,23 @@ class GoDependencyDoctorTests(unittest.TestCase):
 
 
 class DoctorTests(unittest.TestCase):
+    def test_shared_test_maintenance_is_visible_without_leaking_evidence_or_blocking_business(self):
+        from agent.doctor import _snapshot
+        before = _snapshot(self.paths.ledger)
+        with contextlib.closing(Ledger(self.paths.ledger)) as ledger:
+            for source in ('first', 'second'):
+                ledger._audit(self.item['id'], 'shared_test_followup', 'private causal text', details={
+                    'schema': 1, 'followup_id': 'a'*64, 'fullName': 'Shared.Animation',
+                    'kind': 'shared_test_defect', 'evidence_file': 'private/path', 'source_item': source})
+        report = _snapshot(self.paths.ledger)
+        self.assertEqual(len(report['shared_test_followups']), 1)
+        row = report['shared_test_followups'][0]
+        self.assertEqual(row['status'], 'open')
+        self.assertFalse(row['blocks_business_delivery'])
+        self.assertNotIn('private', json.dumps(row))
+        self.assertEqual(report['jobs'], before['jobs'])
+        self.assertEqual(row['observed_jobs'], 1)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)

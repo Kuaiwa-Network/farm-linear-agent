@@ -61,6 +61,17 @@ def compare_recorded_pair(args, ledger, config, token):
             record(ledger, trees, args.item, _read(files[3]), candidate, report, token=token)
         else:
             report = compare(baseline, candidate, **scope)
+        if report.get('confirmed_unrelated_failures'):
+            if original_path:
+                raise ComparisonError('defer unrelated findings on the original unchanged pair, separately from a repair')
+            from .shared_test_findings import verify
+            from .worktrees import Worktrees
+            from .workflow import JobWorktrees, repository_path
+            trees = JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger)
+            branch = (ledger.staged_client_branch(args.item, issue_prefix=config.issue_prefix)
+                      if ledger.item(args.item)['skill'] in ('work', 'feature') else None)
+            trees.verification_commit('Farm-Client', args.item, candidate['commit'], expected_branch=branch)
+            verify(trees, root, baseline, candidate, scope, report, repository_path(trees, 'Farm-Client', args.item))
     except (ComparisonError, WorktreeError, OSError, ValueError, TypeError, AttributeError, KeyError) as exc:
         ledger.verification_progress(args.item, token, 'comparison-gap')
         raise ComparisonError(f'invalid or missing comparison evidence: {exc}') from exc

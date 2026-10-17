@@ -304,6 +304,7 @@ def compare(baseline, candidate, *, affected_tests, unrelated_failures, changed_
             ambiguous.add(name)
             blockers.append(f"ambiguous repeated test executions (count change or non-passing outcome): {name}")
     matched, reviewed, retained, unresolved, new_skips, clock_diagnostics = [], [], [], [], [], []
+    confirmed, failure_ids = [], {}
     for name, group in sorted(after.items()):
         if name in ambiguous:
             if any(_outcome(row["state"]) == "failed" for row in group):
@@ -319,6 +320,16 @@ def compare(baseline, candidate, *, affected_tests, unrelated_failures, changed_
             continue
         old = before[name][0] if name in before else None
         review = unrelated_failures.get(name)
+        if outcome == 'failed':
+            from .shared_test_findings import evidence_id, review_failure
+            failure_ids[name] = evidence_id(baseline, candidate, name, old, row)
+            if isinstance(review, dict) and review.get('confirmed_unrelated') is not None:
+                if (issue_scope is None or not comparable or name in affected_tests
+                        or any(p.casefold() in _normalized(row.get('stackTrace')).casefold() for p in changed_paths)):
+                    unresolved.append(name)
+                    continue
+                confirmed.append(review_failure(review, baseline, candidate, name, old, row, changed_paths))
+                continue
         clock_diagnostic = None
         matches = old is not None and _signature(row) == _signature(old)
         declared_clock = isinstance(review, dict) and review.get("clock_diagnostic") is not None
@@ -360,13 +371,15 @@ def compare(baseline, candidate, *, affected_tests, unrelated_failures, changed_
             "baseline_job": baseline["job_id"], "candidate_job": candidate["job_id"],
             "baseline_counts": baseline["summary"], "candidate_counts": candidate["summary"],
             "draft_eligible": eligible,
-            "verdict": ("passed_with_existing_failures" if reviewed or retained else "passed") if eligible else "blocked",
+            "verdict": ("passed_with_unrelated_findings" if confirmed else
+                        "passed_with_existing_failures" if reviewed or retained else "passed") if eligible else "blocked",
             "full_suite_passed": candidate["summary"]["failed"] == 0,
             "matched_existing_failures": matched, "reviewed_unrelated_failures": reviewed,
             "retained_baseline_failures": retained,
             "scope_policy": 'issue-delta-v1' if issue_scope is not None else 'legacy-per-failure-review',
             "issue_scope": issue_scope,
             "reviewed_clock_diagnostics": clock_diagnostics,
+            "confirmed_unrelated_failures": confirmed, "failure_evidence_ids": failure_ids,
             "duplicate_executions": duplicates,
             "package_input_changes": changes,
             "ui_resource_changes": [row for row in changes if row["classification"] == "candidate_ui_resource"],
