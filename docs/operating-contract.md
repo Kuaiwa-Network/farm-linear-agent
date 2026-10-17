@@ -68,6 +68,12 @@ Actual introduced unmerged inputs, config pins, waivers and missing acceptance
 cannot use this path. No post-delivery background worker or merge grant is added.
 
 Client candidate admission records its host-verified upstream SHA. A candidate
+with a cleanly released run in the current generation and no comparison round
+can use that pin for remaining focused checks/publication; it need not invent a
+comparison baseline merely to freeze main. An unclean/incomplete newer run or an
+existing comparison round prevents falling back to that candidate-only record.
+This records ancestry, not a passing result; required tests and acceptance remain.
+A candidate
 that ran before its first comparison baseline may be explicitly bound with
 `await-resource --baseline --commit CANDIDATE --reuse-candidate-reservation ID`.
 The controller requires the same item/generation/SHA/mode, clean release and no

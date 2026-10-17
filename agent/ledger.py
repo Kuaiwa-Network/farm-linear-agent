@@ -1969,6 +1969,31 @@ class Ledger:
                 return base
         return None
 
+    def client_candidate_round(self, item_id, candidate):
+        """Settled candidate-only ancestry, not a passing test verdict or comparison waiver."""
+        item = self._row(item_id)
+        if item['skill'] not in ('work', 'feature', 'fix'):
+            return None
+        rows = self.connection.execute("SELECT * FROM reservations WHERE item_id=? AND kind='unity_slot' "
+                                       "AND commit_sha=? ORDER BY sequence DESC", (item_id, candidate)).fetchall()
+        # Once comparison was requested it owns this candidate's round, including
+        # an unfinished/failed newer baseline; never fall back to earlier evidence.
+        for row in self.connection.execute("SELECT reservation_id FROM reservations WHERE item_id=? "
+                                           "AND kind='unity_slot'", (item_id,)):
+            comparison = self.reservation_comparison(row['reservation_id'])
+            if comparison and comparison['candidate_commit'] == candidate:
+                return None
+        for row in rows:
+            if row['generation'] != item['generation']:
+                continue
+            if row['state'] != 'released' or row['release_reason'] != 'worker reported quiescent':
+                return None
+            base = self.candidate_verification_base(row['reservation_id'])
+            if base:
+                return {'candidate_commit': candidate, 'base_commit': base,
+                        'candidate_reservation': row['reservation_id'], 'generation': row['generation']}
+        return None
+
     def _continuation_baseline(self, item, resource_token, candidate):
         source = self.active_reservation(item['id'])
         if source is None:

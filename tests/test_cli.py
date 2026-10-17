@@ -688,6 +688,12 @@ class CliTests(unittest.TestCase):
             self.assertEqual(ledger.item(item)['checkpoint']['retained_note'], 'preserve this evidence')
 
     def test_only_settled_exact_pair_allows_draft_verification_without_chasing_new_main(self):
+        self.check_settled_client_publication(comparison=True)
+
+    def test_completed_candidate_only_publication_keeps_admission_base(self):
+        self.check_settled_client_publication(comparison=False)
+
+    def check_settled_client_publication(self, *, comparison):
         from unittest.mock import patch
         from agent.__main__ import run
         from agent.skills import load_skills
@@ -699,10 +705,13 @@ class CliTests(unittest.TestCase):
         base = git("rev-parse", "HEAD^", cwd=path)
         self.root_item(args.item, "Farm-Client")
         skill = load_skills(ROOT / "skills")["fix"]
-        ledger.await_resource(args.item, args.token, "unity_slot", "interactive", skill=skill,
-                              commit_sha=base, comparison_candidate=candidate)
-        token = self.settle_test_reservation(ledger, args.item)
-        ledger.await_resource(args.item, token, "unity_slot", "interactive", skill=skill, commit_sha=candidate)
+        token = args.token
+        if comparison:
+            ledger.await_resource(args.item, token, "unity_slot", "interactive", skill=skill,
+                                  commit_sha=base, comparison_candidate=candidate)
+            token = self.settle_test_reservation(ledger, args.item)
+        ledger.await_resource(args.item, token, "unity_slot", "interactive", skill=skill,
+                              commit_sha=candidate, client_base_commit=base)
         args.token = self.settle_test_reservation(ledger, args.item)
         origin = self.root / "origin"
         (origin / "unrelated-main.txt").write_text("main advanced after selected pair",encoding="utf-8")
@@ -712,7 +721,8 @@ class CliTests(unittest.TestCase):
             result = run(args, ledger, lambda: api)
             self.assertTrue(result["main_integration"]["verification_base_pinned"])
             self.assertEqual(result["main_integration"]["commit"], base)
-            self.assertEqual(result["verification_pair"]["candidate_commit"], candidate)
+            self.assertEqual(result['verification_pair' if comparison else 'client_verification_round']
+                             ['candidate_commit'], candidate)
             self.assertNotEqual(result["main_integration"]["current_main"], base)
             (path / "changed-after-tests.txt").write_text("new candidate needs verification",encoding="utf-8")
             git("add", ".", cwd=path)

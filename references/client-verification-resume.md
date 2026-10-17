@@ -54,6 +54,11 @@ The controller binds only this generation's cleanly released exact candidate,
 with no existing comparison round in that mode. It preserves the upstream SHA
 recorded at candidate admission. Older reservations without that pin must pass
 current-main validation; no historical base is guessed from worker notes.
+A candidate-only run can use its recorded admission base for remaining focused
+checks and publication after clean settlement, without requesting a comparison
+baseline solely to pin main. This proves ancestry only, never a passing result;
+complete required test/acceptance results are still necessary. Once a comparison
+round exists, its stricter pair rules take precedence.
 
 After an authorized restart, revalidate exact candidates, tool/input identities
 and evidence hashes once, then continue the missing step. A new candidate or

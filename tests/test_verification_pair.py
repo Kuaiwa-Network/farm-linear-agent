@@ -100,6 +100,22 @@ class VerificationPairTests(ServerPoolFixture):
         self.assertEqual(self.ledger.reservation(baseline['reservation_id'])['state'], 'active')
         self.assertEqual(len(self.ledger.reservations()), 2)
 
+    def test_candidate_only_pin_requires_clean_current_generation_and_yields_to_comparison(self):
+        item, token, candidate = self.candidate_first()
+        self.assertEqual(self.ledger.client_candidate_round(item, self.CANDIDATE)['base_commit'], self.BASE)
+        self.assertIsNone(self.ledger.client_candidate_round(item, 'd'*40))
+        original = self.ledger.reservation(candidate['reservation_id'])
+        for field, value in (('state', 'cancelled'), ('release_reason', 'uncertain'),
+                             ('generation', original['generation'] + 1)):
+            with self.subTest(field=field):
+                self.ledger.connection.execute(f'UPDATE reservations SET {field}=? WHERE reservation_id=?',
+                                               (value, candidate['reservation_id']))
+                self.assertIsNone(self.ledger.client_candidate_round(item, self.CANDIDATE))
+                self.ledger.connection.execute(f'UPDATE reservations SET {field}=? WHERE reservation_id=?',
+                                               (original[field], candidate['reservation_id']))
+        self.reuse(item, token, candidate)
+        self.assertIsNone(self.ledger.client_candidate_round(item, self.CANDIDATE))
+
     def baseline(self, *, item=None, token=None):
         item = item or self.request(root="Farm-Client", reserve=False)
         token = token or self.ledger.claim(item, worker_id="fixture")["token"]

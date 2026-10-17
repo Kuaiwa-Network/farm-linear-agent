@@ -1018,6 +1018,10 @@ def run(args, ledger, api_factory):
                         pair = ledger.client_verification_pair(args.item, args.commit)
                         if pair:
                             options['verified_base'] = pair['baseline_commit']
+                        else:
+                            candidate_round = ledger.client_candidate_round(args.item, args.commit)
+                            if candidate_round:
+                                options['verified_base'] = candidate_round['base_commit']
                 if not server_request and item['skill'] in ('work', 'fix', 'feature'):
                     request_options['client_base_commit'] = trees.verification_baseline(
                         'Farm-Client', args.item, args.commit, **options)

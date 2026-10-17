@@ -206,6 +206,11 @@ class PublicationVerifier:
                 if (verification_pair.get('candidate_commit') != head or not verification_pair.get('candidate_reservation')):
                     raise PublicationError('settled verification pair must match this exact Client candidate')
                 options['verified_base'] = verification_pair['baseline_commit']
+            elif repo == 'Farm-Client' and ledger is not None:
+                candidate_round = ledger.client_candidate_round(item_id, head)
+                if candidate_round:
+                    options['verified_base'] = candidate_round['base_commit']
+                    result['client_verification_round'] = candidate_round
             server_round = (ledger.server_verification_round(item_id, head, require_released=True)
                             if repo == 'farm-hive' and ledger is not None else None)
             if server_round is not None:
