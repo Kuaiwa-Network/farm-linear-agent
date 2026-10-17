@@ -926,6 +926,14 @@ settlement and delegation checks apply; this is not an automatic retry or a gene
 The next worker re-compares existing reports offline and completes attribution and publication checks;
 this grants no passing verdict, fabricated answer or baseline rerun. Resume admission separately with
 `maintenance-resume --only-issue ISSUE` when the installed release has been verified.
+The same host command also handles `client-pinned-baseline-requeue-gap` after a
+certified maintenance handoff. It preserves the latest original comparison and
+resumes as `client-baseline-resume`, without requiring a nonexistent candidate
+report. The worker uses `await-resource --baseline --commit CANDIDATE
+--resume-baseline-reservation ORIGINAL_BASELINE_ID`, retaining the recorded base
+and any previously bound candidate report. Only missing checks run; a no-test
+release grants no result. Reviewed comparisons, later Unity reservations, changed
+generations and uncertain release/handoff are refused. This is not a general retry.
 For completed failures, deliver an eligible draft, fix an attributable failure at a new commit,
 or report a concrete blocker. Do not repeat an unchanged failing run without diagnosing why
 another run should differ.

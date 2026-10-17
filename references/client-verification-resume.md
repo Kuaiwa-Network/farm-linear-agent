@@ -20,7 +20,16 @@ only when a missing dependency, changed input or actual handoff requires them.
    authorized tooling before execution; never substitute pointer text for data.
    Use original TRX counters and individual outcomes, including NotExecuted,
    rather than the console's abbreviated skip count. A missing input stays a gap.
-3. On a baseline reservation, test only its reserved SHA. If
+3. If maintenance released an incomplete baseline and its worker handoff has
+   settled, use `await-resource --baseline --commit CANDIDATE
+   --resume-baseline-reservation ORIGINAL_BASELINE_ID`. This uses the latest
+   controller-recorded comparison in this generation, not a supplied base SHA or
+   newer main. It retains any already bound candidate report. Read retained
+   reports first; do not repeat completed checks or a reviewed comparison. A
+   completed report from the original baseline keeps its original reservation/job
+   IDs; the comparator accepts only the explicit clean maintenance-resume chain.
+   A no-test release proves no test result. Once acquired, on a baseline reservation,
+   test only its reserved SHA. If
    `resource.reuse_candidate_reservation` exists, retain all baseline leaves,
    release quiescently and compare them against that candidate's existing report
    after controller settlement. Otherwise use `continue-verification` as

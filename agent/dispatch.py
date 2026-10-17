@@ -449,6 +449,11 @@ BASELINE_AUTHORITY = (
     "requiring controller quiescence, old-worker teardown and an available worker seat. Do not edit the "
     "slot or start/stop an Editor. Baseline evidence alone never certifies the candidate. "
     "Finish that exact controller-recorded baseline/candidate round even if main advances while queued. "
+    "If maintenance released an incomplete baseline before it could finish, after certified handoff use "
+    "await-resource --baseline --commit CANDIDATE --resume-baseline-reservation ORIGINAL_BASELINE_ID. "
+    "This retains the recorded upstream and any completed candidate binding; it selects no new main. "
+    "Review existing reports first and run only genuinely missing checks. Never repeat a completed "
+    "baseline to obtain priority or turn a reviewed failure into a fresh round. "
     "A completed candidate-only run also retains its host-recorded admission base for publication and "
     "remaining focused checks; do not request an unnecessary baseline solely to pin main. This ancestry "
     "record is not a passing verdict: required tests and issue acceptance still need actual results. "
@@ -726,6 +731,14 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
                      'This is not a human reply or a passed gate. Do not merge main or rerun the baseline/full suites '
                      'to repair report parsing or absolute-clock diagnostic differences. A genuinely missing required '
                      'observation follows the existing bounded diagnostic rules on the original candidate.')
+    if item.get('stage') == 'client-baseline-resume':
+        text += (' Host operator resumed a maintenance-interrupted baseline after fixing its recovery entry point. '
+                 'Read references/client-verification-resume.md and the saved exact candidate/baseline reservation. '
+                 'The old capability-gap handoff is historical; --resume-baseline-reservation now restores that '
+                 'controller-recorded base without merging main. Reuse all completed reports and run only missing '
+                 'checks. A no-test release is not a passing baseline. Preserve any previously tested candidate '
+                 'via the resource reuse_candidate_reservation binding. Complete actual acceptance and ordinary '
+                 'publication/finish gates. This is not a human reply, retry reset or test verdict.')
     if item.get('skill') == 'fgui' and item.get('stage') == 'client-scope-recheck':
         text += (
             ' The host operator resumed this technical scope wait after a controller correction. '

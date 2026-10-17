@@ -648,6 +648,81 @@ class CliTests(unittest.TestCase):
         self.assertEqual(git("rev-parse", "HEAD", cwd=path), fixed)
         self.assertEqual(self.run_cli("reservations")[-1]["commit_sha"], fixed)
 
+    def test_maintenance_baseline_resume_uses_original_pin_after_main_advances(self):
+        self.check_maintenance_baseline_resume(candidate_first=False)
+
+    def test_maintenance_baseline_resume_keeps_completed_candidate_first_evidence(self):
+        self.check_maintenance_baseline_resume(candidate_first=True)
+
+    def check_maintenance_baseline_resume(self, *, candidate_first):
+        from agent.ledger import Ledger
+        from test_worktrees import git
+        item, token, baseline, fixed, path = self.verification_fixture(
+            skill='feature', client_stage=True, directory_name='resume 原基线 spaces')
+        retained = None
+        if candidate_first:
+            self.run_cli('await-resource', '--item', item, '--token', token, '--resource', 'unity_slot',
+                         '--mode', 'interactive', '--commit', fixed)
+            with closing(Ledger(self.db)) as ledger:
+                token = self.settle_test_reservation(ledger, item)
+                retained = ledger.reservations()[-1]['reservation_id']
+        self.run_cli('await-resource', '--item', item, '--token', token, '--resource', 'unity_slot',
+                     '--mode', 'interactive', '--commit', fixed, '--baseline',
+                     *(['--reuse-candidate-reservation', retained] if retained else []))
+        with closing(Ledger(self.db)) as ledger:
+            token = self.settle_test_reservation(ledger, item)
+            source = ledger.reservations()[-1]
+            ledger.set_worker(item, 12345, HOST)
+            ledger.connection.execute('INSERT INTO maintenance_handoffs VALUES(?,?,?,?,?)',
+                                      (item, 0, 12345, source['released_at'], source['released_at']))
+        origin = self.root/'origin'
+        (origin/'later.txt').write_text('another issue', encoding='utf-8')
+        git('add', '.', cwd=origin); git('commit', '-qm', 'new main while paused', cwd=origin)
+        args = ['await-resource', '--item', item, '--token', token, '--resource', 'unity_slot',
+                '--mode', 'interactive', '--commit', fixed, '--baseline',
+                '--resume-baseline-reservation', source['reservation_id']]
+        (path/'dirty.txt').write_text('pending edit', encoding='utf-8')
+        self.assertIn('clean', self.run_cli(*args, success=False).stderr)
+        (path/'dirty.txt').unlink()
+        self.run_cli(*args, '--reuse-candidate-reservation', source['reservation_id'], success=False)
+        self.assertEqual(self.run_cli(*args)['state'], 'awaiting_resource')
+        self.assertEqual(self.run_cli('reservations')[-1]['commit_sha'], baseline)
+        self.assertEqual(git('rev-parse','HEAD',cwd=path), fixed)
+        with closing(Ledger(self.db)) as ledger:
+            token = self.settle_test_reservation(ledger, item)
+            if candidate_first:
+                pair = ledger.client_verification_pair(item, fixed, require_candidate=True)
+                self.assertEqual(pair['candidate_reservation'], retained)
+                self.assertNotEqual(pair['baseline_reservation'], source['reservation_id'])
+                return  # No second candidate run is necessary or requested.
+        # The candidate continues against the resumed base, without a main merge.
+        self.run_cli('await-resource', '--item', item, '--token', token, '--resource', 'unity_slot',
+                     '--mode', 'interactive', '--commit', fixed)
+        self.assertEqual(self.run_cli('reservations')[-1]['commit_sha'], fixed)
+        with closing(Ledger(self.db)) as ledger:
+            token = self.settle_test_reservation(ledger, item)
+            pair = ledger.client_verification_pair(item, fixed, require_candidate=True)
+        from agent.config import load_config, Paths
+        from test_test_baseline import run as evidence, test as leaf
+        root = Paths(load_config(self.env['FARMBOT_CONFIG'])).runs / item
+        root.mkdir(parents=True)
+        base = evidence('a', [leaf('Issue.Required')]); new = evidence('b', [leaf('Issue.Required')])
+        base.update(commit=baseline, reservation_id=source['reservation_id'])
+        new.update(commit=fixed, reservation_id=pair['candidate_reservation'])
+        scope = {'affected_tests':['Issue.Required'],'changed_paths':[],'unrelated_failures':{}}
+        for name, data in (('old-base',base),('candidate',new),('scope',scope)):
+            (root/(name+'.json')).write_text(json.dumps(data),encoding='utf-8')
+        report = self.run_cli('compare-verification','--item',item,'--token',token,
+            '--baseline',str(root/'old-base.json'),'--candidate',str(root/'candidate.json'),'--scope',str(root/'scope.json'))
+        self.assertTrue(report['draft_eligible'])
+        self.assertEqual(report['baseline_reservation'],source['reservation_id'])
+        new = evidence('b', [leaf('Issue.Required','Failed','real issue regression')])
+        new.update(commit=fixed, reservation_id=pair['candidate_reservation'])
+        (root/'candidate.json').write_text(json.dumps(new),encoding='utf-8')
+        blocked = self.run_cli('compare-verification','--item',item,'--token',token,
+            '--baseline',str(root/'old-base.json'),'--candidate',str(root/'candidate.json'),'--scope',str(root/'scope.json'))
+        self.assertFalse(blocked['draft_eligible'])
+
     def test_continuation_validates_clean_candidate_and_two_tokens_without_chasing_main(self):
         from agent.ledger import Ledger
         from test_worktrees import git

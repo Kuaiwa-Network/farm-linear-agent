@@ -37,6 +37,10 @@ def compare_recorded_pair(args, ledger, config, token):
         baseline, candidate, scope = [_read(file) for file in files[:3]]
         pair = ledger.client_verification_pair(args.item, candidate.get('commit'), require_candidate=True,
                                                candidate_reservation=candidate.get('reservation_id'))
+        if pair and pair['baseline_reservation'] != baseline.get('reservation_id') and not original_path:
+            from .baseline_resume import retained_baseline_report
+            if retained_baseline_report(ledger, args.item, pair, baseline.get('reservation_id')):
+                pair = {**pair, 'baseline_reservation': baseline['reservation_id']}
         if (not pair or pair['baseline_commit'] != baseline.get('commit')
                 or pair['baseline_reservation'] != baseline.get('reservation_id')
                 or pair['candidate_reservation'] != candidate.get('reservation_id')):

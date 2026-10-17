@@ -124,6 +124,8 @@ def parser():
                           help="test trusted remote main for comparison; --commit still names the owned candidate")
     resource.add_argument('--reuse-candidate-reservation',
                           help='bind a completed candidate-first run to its first comparison baseline')
+    resource.add_argument('--resume-baseline-reservation',
+                          help='resume the original baseline after certified maintenance handoff')
     resource.add_argument('--repair-candidate-reservation',
                           help='continue a settled original comparison at a repaired descendant, preserving its base')
     continuation = cmd('continue-verification', '--item', '--commit', '--reservation-token-file', token=True)
@@ -1009,6 +1011,10 @@ def run(args, ledger, api_factory):
                 or item['skill'] not in ('work', 'feature', 'fix') or c != 'await-resource'):
             raise LedgerError('--repair-candidate-reservation requires a Client candidate request')
         retained_candidate = getattr(args, 'reuse_candidate_reservation', None)
+        resumed_baseline = getattr(args, 'resume_baseline_reservation', None)
+        if resumed_baseline is not None and (not args.baseline or args.resource != 'unity_slot'
+                or retained_candidate is not None or c != 'await-resource'):
+            raise LedgerError('--resume-baseline-reservation requires --baseline without a new candidate binding')
         if retained_candidate is not None:
             if not args.baseline:
                 raise LedgerError('--reuse-candidate-reservation requires --baseline')
@@ -1068,7 +1074,13 @@ def run(args, ledger, api_factory):
                     'source_commit': pair['candidate_commit'], 'candidate_commit': args.commit,
                     'baseline_commit': pair['baseline_commit'], 'changed_paths': delta}
             if args.baseline:
-                if retained_candidate is not None:
+                if resumed_baseline is not None:
+                    from .baseline_resume import pinned_baseline
+                    resumed = pinned_baseline(ledger, args.item, args.commit, resumed_baseline, mode=mode)
+                    options['verified_base'] = resumed['baseline_commit']
+                    request_options['resume_baseline_reservation'] = resumed_baseline
+                    request_options['reuse_candidate_reservation'] = resumed['reuse_candidate_reservation']
+                elif retained_candidate is not None:
                     # Authenticate and validate the binding before using its controller-recorded base.
                     ledger._validate_retained_candidate(item, retained_candidate, args.commit, mode)
                     pinned = ledger.candidate_verification_base(retained_candidate)

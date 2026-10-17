@@ -1804,7 +1804,8 @@ class Ledger:
 
     def await_resource(self, item_id, token, resource, mode, *, skill, commit_sha=None, issue_prefix="FARM",
                        comparison_candidate=None, server_test_plan=None, continuation=None, server_base_commit=None,
-                       reuse_candidate_reservation=None, client_base_commit=None, client_repair=None):
+                       reuse_candidate_reservation=None, client_base_commit=None, client_repair=None,
+                       resume_baseline_reservation=None):
         """Park the claimed item until the pool grants `resource`.
 
         The ledger reads no manifests: `skill` is the item's loaded skill, which the worker CLI passes, as for
@@ -1816,6 +1817,9 @@ class Ledger:
         _text(resource, "resource")
         if reuse_candidate_reservation is not None and comparison_candidate is None:
             raise LedgerError('candidate reuse requires an explicit comparison baseline')
+        if resume_baseline_reservation is not None and (resource != 'unity_slot' or comparison_candidate is None
+                or continuation is not None or client_repair is not None):
+            raise LedgerError('baseline resume requires an explicit Client comparison request')
         if client_base_commit is not None and (resource != 'unity_slot' or comparison_candidate is not None
                 or not isinstance(client_base_commit, str) or not COMMIT_SHA.fullmatch(client_base_commit)):
             raise LedgerError('candidate base requires a full host-verified Client SHA')
@@ -1906,7 +1910,13 @@ class Ledger:
                         or client_base_commit != pair['baseline_commit']
                         or not isinstance(client_repair.get('changed_paths'), list) or not client_repair['changed_paths']):
                     raise LedgerError('repair identity differs from its validated original round')
-            if reuse_candidate_reservation is not None:
+            if resume_baseline_reservation is not None:
+                from .baseline_resume import pinned_baseline
+                resumed = pinned_baseline(self, item_id, comparison_candidate, resume_baseline_reservation, mode=mode)
+                if (selected_commit != resumed['baseline_commit']
+                        or reuse_candidate_reservation != resumed['reuse_candidate_reservation']):
+                    raise LedgerError('baseline resume must preserve both original source and candidate evidence')
+            elif reuse_candidate_reservation is not None:
                 self._validate_retained_candidate(row, reuse_candidate_reservation, comparison_candidate, mode)
                 pinned = self.candidate_verification_base(reuse_candidate_reservation)
                 if pinned is not None and pinned != selected_commit:
@@ -1946,6 +1956,7 @@ class Ledger:
                            if reuse_candidate_reservation is not None else {}),
                         **({'client_base_commit': client_base_commit} if client_base_commit else {}),
                         **({'client_repair': client_repair} if client_repair is not None else {}),
+                        **({'baseline_resume_of': resume_baseline_reservation} if resume_baseline_reservation else {}),
                         **({'continuation_of': continuation[0]} if continuation else {})})
             return self._view(self._row(row["id"]))
 
