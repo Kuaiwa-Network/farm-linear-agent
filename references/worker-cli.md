@@ -2,6 +2,10 @@
 
 ## Continuing a diagnosed Client repair
 
+First consult [shared test repairs](shared-test-repairs.md) for an already diagnosed
+matching fixture failure. Reuse a verified mechanism after current-diff review,
+rather than repeating the same investigation for each issue.
+
 After committing a narrow repair descending from the original tested candidate,
 request `await-resource --resource unity_slot --mode interactive --commit NEW_SHA
 --repair-candidate-reservation ORIGINAL_CANDIDATE_RESERVATION` with the current

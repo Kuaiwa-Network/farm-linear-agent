@@ -326,6 +326,11 @@ repeat the unchanged pair. Restarts/checkpoints may reuse valid completed eviden
 
 ## Bounded diagnosis before an unresolved-attribution stop
 
+First use [shared-test-repairs](shared-test-repairs.md) to find previously verified
+fixture diagnoses. Exact source/signature/dependency matches and current issue review
+allow reusing that causal investigation. Fresh whole-fixture repair validation is
+still required; an unrelated historical passing run never waives a current failure.
+
 A comparison refusal is a publication gate, not proof that no further authorized work is possible. Before
 finishing blocked solely because a new/changed failure has unresolved attribution, complete one bounded
 diagnostic attempt when the existing tools and authority support it. This applies to new/changed or

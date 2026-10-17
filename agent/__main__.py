@@ -32,6 +32,7 @@ def parser():
         return p
 
     cmd("memory-list", "--item", token=True)
+    cmd('shared-test-repairs', '--item', '--candidate', token=True)
     cmd("memory-read", "--item", "--id", token=True)
     cmd("memory-save", "--item", "--input", token=True)
     forget = cmd("memory-forget", "--item", "--id", "--reason", token=True)
@@ -510,6 +511,9 @@ def run(args, ledger, api_factory):
         return request(ledger, trees, config, args.item, token, args.module, args.commit, retry=args.retry)
     if c == "memory-list":
         return ledger.memory_list(args.item, resolve_token(args))
+    if c == 'shared-test-repairs':
+        from .shared_test_repairs import discover
+        return discover(args, ledger, load_config(secure_permissions=False), resolve_token(args))
     if c == "memory-read":
         return ledger.memory_read(args.item, resolve_token(args), args.id)
     if c == "memory-save":

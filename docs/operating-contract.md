@@ -1324,6 +1324,16 @@ root cause. Sharing a package, directory, fixture or loader alone does not estab
 changed behavior/dependency, relevant observed regression or failure stack in changed source still blocks;
 all new/changed failures and required affected checks retain their gates. Unknown causes of unchanged
 outside-scope debt neither force diagnosis nor block completion. Reuse retained QA/reviews across handoffs.
+Successful test-only composite comparisons also publish controller audit records
+for cross-issue diagnosis reuse. The claim-fenced `shared-test-repairs` reader matches
+failure signatures, original fixture blobs, reviewed dependency blobs and engine
+identities against the current settled candidate. A matching record avoids repeating
+the causal experiment after current-diff review; it never supplies a passing verdict.
+Workers port only the applicable fixture repair and validate whole changed fixtures
+at their own new candidate while retaining the original baseline/full reports.
+Drift, incomplete dependency review and other unmatched failures remain explicit.
+Records add no database schema; older releases ignore them. See
+[shared test repairs](../references/shared-test-repairs.md) for evidence and recovery.
 The verdict is `passed_with_existing_failures`, with `full_suite_passed=false` and all retained
 failures/skips explicitly listed in the draft. No merge/deploy waiver, suppressed tests or unrelated fixes.
 An eligible draft and all remaining required issue work/checks permit `finish delivered`; workers do not
