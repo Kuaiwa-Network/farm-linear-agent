@@ -726,6 +726,24 @@ class Worktrees:
                             env={**GIT_ENV, 'GIT_NO_REPLACE_OBJECTS': '1'})
         return changed_scope([name for name in names.split('\0') if name])
 
+    def verification_repair_delta(self, repo, item_id, candidate, source, *, expected_branch=None):
+        """Prove a clean owned descendant and enumerate its real delta without changing source."""
+        self.verification_commit(repo, item_id, candidate, expected_branch=expected_branch)
+        if not isinstance(source, str) or not self.COMMIT.fullmatch(source) or source == candidate:
+            raise VerificationMismatch('repair requires a distinct original candidate SHA')
+        path = self.worktrees_root.resolve() / item_id / repo
+        env = {**GIT_ENV, 'GIT_NO_REPLACE_OBJECTS': '1'}
+        if source not in self.git_in(path, 'merge-base', '--all', source, candidate, env=env).splitlines():
+            raise VerificationMismatch('repair must descend from the recorded original candidate')
+        if self.git_in(path, 'rev-list', '--merges', source + '..' + candidate, env=env):
+            raise VerificationMismatch('repair continuation cannot include new merge commits')
+        names = self.git_in(path, 'diff', '--name-only', '--no-renames', '-z', source, candidate, env=env)
+        paths = sorted(p for p in names.split('\0') if p)
+        if not paths:
+            raise VerificationMismatch('repair requires a nonempty source delta')
+        self.verification_commit(repo, item_id, candidate, expected_branch=expected_branch)
+        return paths
+
     def verification_baseline(self, repo, item_id, candidate, *, expected_branch=None, verified_base=None):
         """Validate current main or a recorded upstream pin without changing the owned candidate."""
         self.verification_commit(repo, item_id, candidate, expected_branch=expected_branch)

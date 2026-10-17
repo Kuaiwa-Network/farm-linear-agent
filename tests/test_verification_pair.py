@@ -6,6 +6,60 @@ from agent.ledger import LedgerError
 class VerificationPairTests(ServerPoolFixture):
     BASE, CANDIDATE = "b" * 40, "c" * 40
 
+    def test_repair_round_keeps_original_base_across_retry_and_requeue(self):
+        from agent.repair_verification import source_pair
+        item, token, candidate = self.candidate_first()
+        self.reuse(item, token, candidate)
+        baseline = self.ledger.acquire('unity_slot', owner='fixture', host='test')
+        token = self.settled(item, baseline)
+        pair = source_pair(self.ledger, item, candidate['reservation_id'])
+        repair = {'source_commit': self.CANDIDATE, 'candidate_commit': 'd'*40,
+                  'source_reservation': candidate['reservation_id'], 'baseline_commit': self.BASE,
+                  'changed_paths': ['Assets/Tests/Pinch.cs']}
+        self.ledger.await_resource(item, token, 'unity_slot', 'interactive', skill=SKILLS['fix'],
+            commit_sha='d'*40, client_base_commit=self.BASE, client_repair=repair)
+        fresh = self.ledger.acquire('unity_slot', owner='fixture', host='test')
+        self.assertIsNone(self.ledger.client_verification_pair(item, 'd'*40, require_candidate=True))
+        self.ledger.release(fresh['reservation_id'], fresh['token'], 'preparation interrupted')
+        requeued = self.ledger.requeue_reservation(fresh['reservation_id'], 'retry preparation')
+        self.ledger.set_slot_state('unity_slot:1', 'idle_open')
+        fresh = self.ledger.acquire('unity_slot', owner='fixture', host='test')
+        self.assertEqual(fresh['reservation_id'], requeued)
+        self.settled(item, fresh)
+        fixed = self.ledger.client_verification_pair(item, 'd'*40, require_candidate=True)
+        self.assertEqual(fixed['baseline_reservation'], pair['baseline_reservation'])
+        self.assertEqual(fixed['repair'], repair)
+        self.ledger.fail(item, 'operator maintenance')
+        self.ledger.retry(item, 'retain repaired evidence')
+        self.assertEqual(self.ledger.client_verification_pair(item, 'd'*40, require_candidate=True), fixed)
+        self.assertIsNone(self.ledger.client_verification_pair(item, 'd'*40,
+                         candidate_reservation=candidate['reservation_id']))
+        # A new original round invalidates retained repair evidence, even if the
+        # previous candidate and repair both remain in history.
+        self.ledger.connection.execute("UPDATE reservations SET release_reason='uncertain' WHERE reservation_id=?",
+                                       (baseline['reservation_id'],))
+        with self.assertRaises(LedgerError):
+            self.ledger.client_verification_pair(item, 'd'*40, require_candidate=True)
+
+    def test_repair_refuses_foreign_unclean_and_unpaired_sources(self):
+        from agent.repair_verification import source_pair
+        item, token, candidate = self.candidate_first()
+        with self.assertRaises(LedgerError):
+            source_pair(self.ledger, item, candidate['reservation_id'])
+        self.reuse(item, token, candidate)
+        baseline = self.ledger.acquire('unity_slot', owner='fixture', host='test')
+        self.settled(item, baseline)
+        other = self.request(root='Farm-Client', reserve=False)
+        for identity in ('missing', baseline['reservation_id']):
+            with self.assertRaises(LedgerError):
+                source_pair(self.ledger, item, identity)
+        with self.assertRaises(LedgerError):
+            source_pair(self.ledger, other, candidate['reservation_id'])
+        self.ledger.connection.execute("UPDATE reservations SET release_reason='uncertain' WHERE reservation_id=?",
+                                       (candidate['reservation_id'],))
+        with self.assertRaises(LedgerError):
+            source_pair(self.ledger, item, candidate['reservation_id'])
+
     def candidate_first(self):
         item = self.request(root='Farm-Client', reserve=False)
         token = self.ledger.claim(item, worker_id='fixture')['token']

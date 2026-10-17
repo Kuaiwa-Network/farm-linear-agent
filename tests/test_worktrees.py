@@ -22,6 +22,34 @@ def git(*args, cwd, allow_failure=False):
 
 
 class WorktreeTests(unittest.TestCase):
+    def test_repair_requires_clean_owned_descendant_without_merging_new_main(self):
+        path = self.trees.add('Farm-Client', 'item-1', 'farmbot/fix')
+        source = self.trees.head(path)
+        (path / 'README.md').write_text('repair\n', encoding='utf-8')
+        git('commit', '-qam', 'repair', cwd=path)
+        candidate = self.trees.head(path)
+        def delta(original=source, branch='farmbot/fix'):
+            return self.trees.verification_repair_delta('Farm-Client', 'item-1',
+                self.trees.head(path), original, expected_branch=branch)
+        self.assertEqual(delta(), ['README.md'])
+        with self.assertRaises(WorktreeError):
+            delta(branch='foreign')
+        (path / 'untracked.txt').write_text('pending', encoding='utf-8')
+        with self.assertRaises(WorktreeError):
+            delta()
+        (path / 'untracked.txt').unlink()
+        (self.origin / 'new-main.txt').write_text('new main', encoding='utf-8')
+        git('add', '.', cwd=self.origin)
+        git('commit', '-qm', 'main advances', cwd=self.origin)
+        git('fetch', 'origin', cwd=path)
+        main = self.trees.head(self.origin)
+        with self.assertRaisesRegex(WorktreeError, 'descend'):
+            delta(original=main)
+        self.assertEqual(self.trees.head(path), candidate)
+        git('merge', '-q', '--no-edit', 'origin/main', cwd=path)
+        with self.assertRaisesRegex(WorktreeError, 'merge commits'):
+            delta()
+
     def test_stage_baseline_uses_latest_main_and_pinned_branch_survives_new_main(self):
         initial = self.trees.head(self.origin)
         (self.origin / "later.txt").write_text("main advanced while server worked\n", encoding="utf-8")

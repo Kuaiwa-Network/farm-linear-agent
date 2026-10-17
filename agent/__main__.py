@@ -116,12 +116,15 @@ def parser():
                           help="test trusted remote main for comparison; --commit still names the owned candidate")
     resource.add_argument('--reuse-candidate-reservation',
                           help='bind a completed candidate-first run to its first comparison baseline')
+    resource.add_argument('--repair-candidate-reservation',
+                          help='continue a settled original comparison at a repaired descendant, preserving its base')
     continuation = cmd('continue-verification', '--item', '--commit', '--reservation-token-file', token=True)
     continuation.set_defaults(resource='unity_slot', mode='interactive', baseline=False, server_test_plan=None)
     progress = cmd('verification-progress', '--item', token=True)
     progress.add_argument('--phase', required=True, choices=['preparation', 'testing', 'presentation-qa',
                                                            'failure-review', 'comparison', 'publication', 'delivery'])
-    cmd('compare-verification', '--item', '--baseline', '--candidate', '--scope', token=True)
+    comparison = cmd('compare-verification', '--item', '--baseline', '--candidate', '--scope', token=True)
+    comparison.add_argument('--repair-original', help='retained original full candidate report for test-only repair')
     release = cmd("release-resource", "--item", token=True)
     release.add_argument("--outcome", required=True, choices=["quiescent", "unclean"])
     cmd("withdraw", "--item", token=True)
@@ -947,6 +950,10 @@ def run(args, ledger, api_factory):
                     raise LedgerError("verification must use the configured host ledger")
                 mode = "interactive"
         request_options = {}
+        repair_source = getattr(args, 'repair_candidate_reservation', None)
+        if repair_source is not None and (args.resource != 'unity_slot' or args.baseline or not args.commit
+                or item['skill'] not in ('work', 'feature', 'fix') or c != 'await-resource'):
+            raise LedgerError('--repair-candidate-reservation requires a Client candidate request')
         retained_candidate = getattr(args, 'reuse_candidate_reservation', None)
         if retained_candidate is not None:
             if not args.baseline:
@@ -997,6 +1004,15 @@ def run(args, ledger, api_factory):
                     options["verified_base"] = scope["main_integration"]["commit"]
             from .workflow import JobWorktrees
             trees = JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger)
+            if repair_source is not None:
+                from .repair_verification import source_pair
+                pair = source_pair(ledger, args.item, repair_source)
+                delta = trees.verification_repair_delta('Farm-Client', args.item, args.commit,
+                                                       pair['candidate_commit'], **options)
+                options['verified_base'] = pair['baseline_commit']
+                request_options['client_repair'] = {'source_reservation': repair_source,
+                    'source_commit': pair['candidate_commit'], 'candidate_commit': args.commit,
+                    'baseline_commit': pair['baseline_commit'], 'changed_paths': delta}
             if args.baseline:
                 if retained_candidate is not None:
                     # Authenticate and validate the binding before using its controller-recorded base.

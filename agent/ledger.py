@@ -1804,7 +1804,7 @@ class Ledger:
 
     def await_resource(self, item_id, token, resource, mode, *, skill, commit_sha=None, issue_prefix="FARM",
                        comparison_candidate=None, server_test_plan=None, continuation=None, server_base_commit=None,
-                       reuse_candidate_reservation=None, client_base_commit=None):
+                       reuse_candidate_reservation=None, client_base_commit=None, client_repair=None):
         """Park the claimed item until the pool grants `resource`.
 
         The ledger reads no manifests: `skill` is the item's loaded skill, which the worker CLI passes, as for
@@ -1892,6 +1892,20 @@ class Ledger:
                         or target["repository"] != "Farm-Client" or root != "Farm-Client"):
                     raise LedgerError("only a write worker may select a Farm-Client Unity verification commit")
             selected_commit = target["commit_sha"] if commit_sha is None else commit_sha
+            if client_repair is not None:
+                from .repair_verification import source_pair
+                if (resource != 'unity_slot' or comparison_candidate is not None or continuation is not None
+                        or not isinstance(client_repair, dict)):
+                    raise LedgerError('repair requires a separate Client candidate request')
+                pair = source_pair(self, item_id, client_repair.get('source_reservation'))
+                source = self.reservation(pair['candidate_reservation'])
+                if (source['mode'] != mode or client_repair.get('source_commit') != pair['candidate_commit']
+                        or client_repair.get('candidate_commit') != selected_commit
+                        or selected_commit == source['commit_sha']
+                        or client_repair.get('baseline_commit') != pair['baseline_commit']
+                        or client_base_commit != pair['baseline_commit']
+                        or not isinstance(client_repair.get('changed_paths'), list) or not client_repair['changed_paths']):
+                    raise LedgerError('repair identity differs from its validated original round')
             if reuse_candidate_reservation is not None:
                 self._validate_retained_candidate(row, reuse_candidate_reservation, comparison_candidate, mode)
                 pinned = self.candidate_verification_base(reuse_candidate_reservation)
@@ -1931,6 +1945,7 @@ class Ledger:
                         **({'reuse_candidate_reservation': reuse_candidate_reservation}
                            if reuse_candidate_reservation is not None else {}),
                         **({'client_base_commit': client_base_commit} if client_base_commit else {}),
+                        **({'client_repair': client_repair} if client_repair is not None else {}),
                         **({'continuation_of': continuation[0]} if continuation else {})})
             return self._view(self._row(row["id"]))
 
@@ -2121,7 +2136,9 @@ class Ledger:
             return {"baseline_commit": baseline["commit_sha"], "candidate_commit": candidate,
                     "baseline_reservation": baseline["reservation_id"],
                     "candidate_reservation": tested["reservation_id"] if tested else None}
-        return None
+        from .repair_verification import repaired_pair
+        return repaired_pair(self, item_id, candidate, require_candidate=require_candidate,
+                             candidate_reservation=candidate_reservation)
 
     def begin_editor_warmup(self, slot_id, *, host):
         """Controller-only claim of an idle project before opening its persistent Editor."""
@@ -2404,6 +2421,8 @@ class Ledger:
                 raise LedgerError("only a closed reservation can be re-queued")
             comparison = self.reservation_comparison(reservation_id)
             client_base = self.candidate_verification_base(reservation_id)
+            from .repair_verification import reservation_repair
+            repair = reservation_repair(self, reservation_id)
             fresh = str(uuid4())
             self.connection.execute(
                 """INSERT INTO reservations(reservation_id,item_id,generation,kind,mode,commit_sha,state,
@@ -2411,6 +2430,7 @@ class Ledger:
                 (fresh, row["item_id"], row["generation"], row["kind"], row["mode"], row["commit_sha"],
                  row["attempts"] + 1, self.clock(), row["server_test_plan"]))
             self._audit(row["item_id"], "reservation", "requeued", details={"reservation_id": fresh,
+                **({'client_repair': repair, 'commit_sha': row['commit_sha']} if repair else {}),
                 **({'client_base_commit': client_base, 'commit_sha': row['commit_sha']} if client_base else {}),
                 "reason": reason[:200], **({"commit_sha": row["commit_sha"],
                 "comparison_candidate": comparison["candidate_commit"],
