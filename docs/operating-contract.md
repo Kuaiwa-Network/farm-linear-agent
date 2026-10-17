@@ -1354,8 +1354,9 @@ bounded focused diagnosis when necessary, not an identical full suite under
 another label. Existing pairs keep their reports and budgets; candidate-only
 review cannot bypass an unfinished/blocked pair. Completed identical-commit pairs
 are supported with an empty diff, explicit issue scope, distinct actual jobs and
-reservations and normal per-test/environment checks. Both reservations must belong
-to the same recorded generation; a settled pair survives an authorized retry.
+reservations and normal per-test/environment checks. Existing round ordering and
+explicit retained-candidate generation checks remain; an authorized retry does
+not invalidate a settled baseline or completed pair.
 No schema migration is introduced. Rollback retains
 reports; old code may require paired review again, never reinterpret an audit as
 a fabricated pass. Deploy through the separately authorized maintenance process.

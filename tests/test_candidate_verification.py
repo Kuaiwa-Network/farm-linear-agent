@@ -254,6 +254,20 @@ class CandidateControllerTests(pair_fixture.ServerPoolFixture):
         self.ledger.fail(item, 'maintenance')
         self.ledger.retry(item, 'retain completed reports')
         self.assertEqual(pair, self.ledger.client_verification_pair(item, self.CANDIDATE, require_candidate=True))
+        # A legacy baseline-first round may complete its candidate after an
+        # authorized retry. Preserve that existing behavior and round ordering.
+        item, baseline = pair_fixture.VerificationPairTests.baseline(self)
+        self.settled(item, baseline)
+        self.ledger.fail(item, 'interrupted before candidate')
+        self.ledger.retry(item, 'continue the same candidate with retained baseline')
+        token = self.ledger.claim(item, worker_id='retry')['token']
+        self.ledger.await_resource(item, token, 'unity_slot', 'interactive',
+            skill=pair_fixture.SKILLS['fix'], commit_sha=self.CANDIDATE)
+        candidate = self.ledger.acquire('unity_slot', owner='fixture', host='test')
+        self.settled(item, candidate)
+        pair = self.ledger.client_verification_pair(item, self.CANDIDATE, require_candidate=True)
+        self.assertEqual(pair['baseline_reservation'], baseline['reservation_id'])
+        self.assertEqual(pair['candidate_reservation'], candidate['reservation_id'])
 
 
 if __name__ == '__main__':

@@ -2135,7 +2135,6 @@ class Ledger:
                             and r['generation'] == baseline['generation']))
                            and (candidate_reservation is None or r["reservation_id"] == candidate_reservation)
                            and r["commit_sha"] == candidate and r["state"] == "released"
-                           and r['generation'] == baseline['generation']
                            and r["mode"] == baseline["mode"]
                            and r["release_reason"] == "worker reported quiescent"
                            and self.reservation_comparison(r["reservation_id"]) is None), None)
