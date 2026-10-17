@@ -1037,7 +1037,7 @@ class CodeJobJourneyTests(unittest.TestCase):
         self.assertEqual(self.origin_branches("farm-hive"), {"main", BRANCH, FOLLOWUP_BRANCH})
         self.assert_no_secrets()
 
-    def test_a_budget_kill_fails_the_job_and_retry_restarts_it_at_the_initial_root(self):
+    def test_a_budget_kill_retries_at_saved_root_without_an_extra_handoff(self):
         item = self.delegate()
         self.run_contract(item, first=True)
         self.run_declarations(item)
@@ -1055,24 +1055,22 @@ class CodeJobJourneyTests(unittest.TestCase):
         self.assertIn("budget", self.calls("create_activity")[-1]["content"]["body"])
         self.tick_until(lambda: self.cleaned(item), "the failed job's cleanup")
         wip = self.recovery("farm-hive", item)
-        # The operator retries; the same job restarts at its initial root with fresh allowances.
+        # The operator retries in the saved root with fresh allowances and the recovered WIP.
         subprocess.run([sys.executable, "-m", "agent", "--db", str(self.c.paths.ledger), "retry", "--item", item,
                         "--reason", "operator retry after the budget kill"], cwd=ROOT, check=True, capture_output=True)
         retried = self.c.ledger.item(item)
         self.assertEqual((retried["state"], retried["root_repo"], retried["capacity_retries"],
-                          retried["publication_retries"]), ("queued", None, 0, 0))
+                          retried["publication_retries"]), ("queued", "farm-hive", 0, 0))
+        handoffs = self.handoffs(item)
         run, payload = self.attempt(item, [
-            *self.intake(), *self.save("r1", stage="server", next_action="回到 farm-hive 继续服务端"),
-            *self.handoff("farm-hive")], "the retried job's first attempt")
-        self.assert_stage(item, run, payload, "Farm-Contract")
+            *self.intake(), *self.pause("waiting", "等合约合并。")], "the retried job's first attempt")
+        self.assert_stage(item, run, payload, "farm-hive")
         self.assertTrue(payload["prior_context"]["stale"])               # recall from before the retry, to verify
         self.assert_reattached(item, "Farm-Contract")
         self.assert_reattached(item, "common")
         hive = self.tree(item, "farm-hive")                               # nothing recorded: from its recovery ref
         self.assertEqual((self.branch(hive), self.head(hive)), (f"{BRANCH}-{item}", wip))
-        run, payload = self.attempt(item, [*self.intake(), *self.pause("waiting", "等合约合并。")],
-                                    "farm-hive after the retry")
-        self.assert_stage(item, run, payload, "farm-hive")
+        self.assertEqual(self.handoffs(item), handoffs)
         self.assertEqual(self.head(hive), wip)
 
     def test_a_comment_during_an_attempt_is_read_and_revalidated_before_the_handoff(self):

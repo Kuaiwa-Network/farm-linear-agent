@@ -7,6 +7,11 @@ there, leave earlier reports unchanged and write the first unused `STATE_DIR/rep
 commit or publish run reports in a repository. Summarize the checks, tested commits and gaps in the
 draft PR description and Linear outcome.
 
+A continuation report contains only changed decisions, new results and remaining work;
+reference previous reports and `plan.evidence_index` instead of copying their evidence.
+Update the current attempt's prepared report as links/status change. Keep canonical
+test reports immutable; see [closeout reuse](closeout-reuse.md).
+
 Sections, in order: Target (repository, commit, server environment), Scope, Steps taken (commands
 and their results), Evidence (paths, PR URLs, screenshots), Failures and gaps (exactly what was
 not verified and why), State changes (accounts, data, files outside the PR), Next steps.

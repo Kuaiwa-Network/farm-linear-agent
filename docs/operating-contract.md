@@ -768,8 +768,10 @@ and rechecks REPO against the manifest before switching `root_repo` and launchin
 worker rooted at REPO; until then the handoff stays pending. The same item, Linear session, branch,
 checkpoint and PR history continue. The new worker can write and verify publication only for its
 root repository; other worktrees remain read-only. Changing cwd in one worker does not switch
-instructions or write authority. `retry`, a chat-requested continuation and the successor of a
-cancelled job start again with no recorded root, so the next attempt begins at the initial root,
+instructions or write authority. A failed/blocked `retry` retains its saved repository root,
+checkpoint and evidence, avoiding a return through the initial repository. A delivered-job retry,
+chat-requested continuation and the successor of a cancelled job start with no recorded root,
+so the next attempt begins at the initial root,
 which for a fix is the neutral investigation and for a skill with an `initial_root` that repository.
 Staged skills require Codex's explicit `workspace-write` sandbox; the Claude fallback has no
 equivalent repository write boundary and is refused for them. A `claude` host still starts with a
@@ -777,6 +779,20 @@ staged skill enabled and queues its jobs; each fails at launch with an error act
 reports `skill_runtime_unsupported` naming the runtime and those skills. A Contract-root worker
 follows Farm-Contract's OpenSpec instructions and its Superpowers restriction. Consumer workers use
 their own repository rules.
+
+Closeout uses `closing-preflight` before a docs-only Contract acceptance handoff and
+`finish --check-ready` before preparing delivery. They share existing local consumer
+and finish gates without posting comments or making a terminal transition; final
+finish still repeats all gates and requires the confirmed delivery. Neither preflight
+certifies live authorization or creates missing external controller proofs.
+An item-local `evidence-index` retains original report paths, hashes and reviewed full
+source pins. Continuations verify integrity once and separately check current scope,
+clean pins and required inputs. The index grants no test waiver or publication rights.
+Only changed decisions belong in continuation reports/handoffs; compare and publish in
+the current worker after Unity release, handing off only for another repository's write.
+These changes require no database migration. An older release can still read saved
+plans/reports, but does not provide the new preflight/index commands and its explicit
+retry may return to the initial root.
 
 A skill whose `skill.json` lists `reads` also gets, at each launch, a read-only checkout of each
 named repository's default branch at `<local_root>/worktrees/<job>.reads/<repo>@main`, passed in the

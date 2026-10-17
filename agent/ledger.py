@@ -3024,7 +3024,8 @@ class Ledger:
                 # would never launch it otherwise.
                 self._set_state(row["id"], "queued", reason, worker_pid=None, generation=row["generation"] + 1,
                                 requeue_requested=0, capacity_retries=0, publication_retries=0, retry_not_before=0,
-                                root_repo=None, next_root_repo=None, withdraw_deadline=None, withdraw_reason=None)
+                                root_repo=row['root_repo'] if row['state'] in ('blocked', 'failed') else None,
+                                next_root_repo=None, withdraw_deadline=None, withdraw_reason=None)
                 self.connection.execute('DELETE FROM resource_job_retries WHERE item_id=?', (row['id'],))
             except sqlite3.IntegrityError:
                 raise LedgerError("another active work item exists for this issue")
@@ -3406,7 +3407,7 @@ class Ledger:
         if evidence.get('comment_action_id') is not None:
             _text(evidence['comment_action_id'], 'comment_action_id')
 
-    def finish(self, item_id, token, outcome, evidence):
+    def finish(self, item_id, token, outcome, evidence, *, check_only=False):
         if outcome not in ("blocked", "delivered"):
             raise LedgerError("outcome must be blocked or delivered")
         if not isinstance(evidence, dict):
@@ -3415,6 +3416,13 @@ class Ledger:
         with self._transaction():
             self.require_valid_checkpoint(item_id, token)
             row = self._owned(item_id, token)
+            if check_only:
+                self.validate_finish_input(item_id, token, outcome, evidence)
+                if row['withdraw_deadline'] is not None:
+                    raise LedgerError('work was withdrawn; preflight cannot authorize delivery')
+                if (row['requeue_requested'] or
+                        self._issue_row(row['issue_id'])['fingerprint'] != row['claimed_fingerprint']):
+                    raise LedgerError('issue changed; revalidate before completion preflight')
             if row['skill'] in ('work', 'feature') and outcome == 'delivered':
                 from .closing import validate_deferred_archive
                 try:
@@ -3488,7 +3496,6 @@ class Ledger:
             elif chat and evidence.get("comment_action_id") is None:
                 pass  # a chat worker explains its blocker in the session; the issue gets no comment
             else:
-                _text(evidence.get("comment_action_id"), "comment_action_id")
                 if outcome == "delivered":
                     _text(evidence.get("verification"), "verification")
                     prs = evidence.get("prs") or []
@@ -3506,6 +3513,9 @@ class Ledger:
                         _text(pr, "PR URL")
                         if not self.PR_URL.fullmatch(pr):
                             raise LedgerError("each PR URL must be a canonical HTTPS pull request URL")
+                if check_only:
+                    return self._finish_preflight_result()
+                _text(evidence.get("comment_action_id"), "comment_action_id")
                 action = self.connection.execute("SELECT * FROM outbox WHERE action_id=?", (evidence["comment_action_id"],)).fetchone()
                 kind = "blocker" if outcome == "blocked" else "delivery"
                 # Scoped by the issue rather than by the item. What an outbox row asserts is "the comment
@@ -3533,6 +3543,8 @@ class Ledger:
                                               "delivery may only claim pull requests it announced")
                     self._audit(row["id"], "borrowed_comment", kind,
                                 {"action_id": action["action_id"], "prepared_by": action["item_id"]})
+            if check_only:
+                return self._finish_preflight_result()
             if row["withdraw_deadline"] is not None and outcome == "blocked":
                 # Withdrawn work that stops short of a delivery ends cancelled, not blocked: a later delegation then
                 # continues it from its plan (design F14). The worker's evidence stays on the item.
@@ -3546,6 +3558,11 @@ class Ledger:
             self._set_state(row["id"], state, evidence["summary"], token=None, lease_expires_at=None, worker_pid=None,
                             evidence=_json(evidence), generation=row["generation"] + int(state == "queued"))
             return self._view(self._row(row["id"]))
+
+    @staticmethod
+    def _finish_preflight_result():
+        return {'input_valid': True, 'local_completion_checked': True, 'completion_checked': False,
+                'next': 'Confirm delivery, fetch the current issue, then finish; all gates are rechecked.'}
 
     def push_inbox(self, item_id, body, *, resume_waiting=False, author=None, received_at=None,
                    demote_to_mention=False):

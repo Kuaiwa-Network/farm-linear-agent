@@ -379,12 +379,12 @@ class RepositoryStageTests(LedgerBase):
         self.assertEqual(waiting["state"], "awaiting_resource")
         self.assertEqual([r["commit_sha"] for r in self.ledger.reservations()], [PIN["commit_sha"]])
 
-    def test_explicit_retry_restarts_from_neutral_investigation(self):
+    def test_failed_retry_retains_repository_for_continuation(self):
         item = self.new_item()
         self.ledger.connection.execute("UPDATE work_items SET root_repo='Farm-Contract' WHERE id=?", (item["id"],))
         self.ledger.fail_queued(item["id"], "transient")
         retried = self.ledger.retry(item["id"], "try again")
-        self.assertIsNone(retried["root_repo"])
+        self.assertEqual(retried["root_repo"], 'Farm-Contract')
 
     def test_chat_repair_keeps_findings_but_restarts_at_neutral_root(self):
         app_user = "e5a8c16d-9f85-4123-acf5-94e41c3304d5"
@@ -538,14 +538,14 @@ class StagedHandoffTests(LedgerBase):
                     self.ledger.complete_repository_handoff(item["id"], 4321, skill=other)
         self.assertEqual(self.ledger.item(item["id"])["next_root_repo"], "farm-hive")
 
-    def test_retry_and_a_cancelled_successor_restart_at_the_initial_root(self):
+    def test_retry_keeps_root_but_cancelled_successor_restarts_at_initial_root(self):
         item, token = self.claimed()
         self.ledger.handoff_repository(item["id"], token, "farm-hive", skill=self.feature)
         self.ledger.complete_repository_handoff(item["id"], 4321, skill=self.feature)
         self.ledger.fail_queued(item["id"], "budget exhausted")
         retried = self.ledger.retry(item["id"], "try again")
-        self.assertIsNone(retried["root_repo"])
-        self.assertEqual(write_repositories(retried, self.feature), ("Farm-Contract",))
+        self.assertEqual(retried["root_repo"], 'farm-hive')
+        self.assertEqual(write_repositories(retried, self.feature), ("farm-hive",))
         self.ledger.connection.execute("UPDATE work_items SET root_repo='Farm-Client' WHERE id=?", (item["id"],))
         self.ledger.cancel(item["id"], "stopped")
         successor = self.ledger.retry(item["id"], "continue")

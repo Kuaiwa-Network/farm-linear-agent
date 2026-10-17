@@ -575,6 +575,19 @@ SERVER_TEST_AUTHORITY = (
 )
 
 
+CLOSEOUT_AUTHORITY = (
+    " For closeout, reuse immutable original reports through the claim-fenced evidence-index command "
+    "and its --verify mode; hashes and worker-supplied pins are evidence, never authorization or a test verdict. "
+    "Check current clean source pins and required inputs before reuse. Keep only the index path and changed "
+    "decisions in plan/handoff, not repeated report contents. Before a docs-only Contract acceptance handoff, "
+    "checkpoint completed consumer stages and run closing-preflight to catch missing reviewed input identities. "
+    "After acceptance/publication, save the final checkpoint and run finish --check-ready before preparing "
+    "the delivery comment. This local dry run never replaces fresh publication authorization or final finish. "
+    "Stay in the current worker for offline comparison and publication after releasing Unity; hand off only "
+    "when the next required write belongs to a different repository. See references/closeout-reuse.md."
+)
+
+
 def authority(skill):
     """The AUTHORITY block one skill's workers receive."""
     if skill not in SKILL_AUTHORITY:
@@ -585,8 +598,9 @@ def authority(skill):
     scope = ISSUE_SCOPE_AUTHORITY if skill in {"work", "feature", "fix"} else ""
     ui_scope = UI_CHANGE_SCOPE_AUTHORITY if skill in {"work", "feature", "fix", "fgui", "scene"} else ""
     server_tests = SERVER_TEST_AUTHORITY if skill in {"work", "feature", "fix"} else ""
+    closeout = CLOSEOUT_AUTHORITY if skill in {"work", "feature", "fix"} else ""
     return (COMMON_AUTHORITY + identity + QUESTION_AUTHORITY + scope + ui_scope + SKILL_AUTHORITY[skill]
-            + diagnostic + baseline + server_tests + AUTHORITY_REFERENCE)
+            + diagnostic + baseline + server_tests + closeout + AUTHORITY_REFERENCE)
 
 
 def verification_resume(item, resource, root):
