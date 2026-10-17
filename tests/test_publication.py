@@ -44,6 +44,19 @@ class PublicationTests(unittest.TestCase):
     def verify(self):
         return self.verifier.verify('farmgui', 'job', 'FARM-1248', self.branch)
 
+    def test_push_recipe_uses_verified_remote_and_never_disables_hooks_or_review(self):
+        for platform in ('win32', 'darwin'):
+            with self.subTest(platform=platform), patch('agent.publication.sys.platform', platform):
+                result = self.verify()
+            self.assertEqual(result['push_argv'], ['git', 'push', 'origin', f'HEAD:refs/heads/{self.branch}'])
+            self.assertEqual(result['execution_hint']['windows_git_review'], platform == 'win32')
+            self.assertIn('A denial stops', result['execution_hint']['guidance'])
+            self.assertIn('Keep hooks', result['execution_hint']['guidance'])
+            self.assertNotIn('--force', result['push_argv'])
+        self.repo['private'] = False
+        with self.assertRaises(publication.PublicationError):
+            self.verify()
+
     @contextlib.contextmanager
     def fetching_from_the_local_origin(self):
         """The configured remote is github.com, which these tests never reach. A host-level rewrite, as an operator's

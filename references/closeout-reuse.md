@@ -1,6 +1,6 @@
 # Closeout without repeated preparation
 
-Use the current root's instructions and saved resume context first. Read other
+Use `worker-start.md`, the current root's instructions and saved resume context first. Read other
 repository rules when entering that repository; do not recursively reread every
 checkout's instructions at each continuation. Missing decisions and stale context
 still require the complete source. A report index is navigation, not approval.
@@ -52,13 +52,38 @@ offline in the same worker. Hand off only for a required write in another reposi
 Use ordinary `checkpoint --input ...` for Contract progress; `verification-progress`
 is for the claimed Client verification workflow.
 
-At Contract entry inspect the existing issue branch's remote history before preparing
-acceptance changes. Reconcile legitimate same-issue history once under repository
-rules, without force push or clone-metadata permission changes. Main advancing alone
+At Contract entry inspect the existing issue branch's remote history **and fetched
+default-branch SHA before editing or running the Contract gates**. Record both SHAs
+and check whether that main SHA is an ancestor of the owned issue HEAD. Reconcile
+legitimate same-issue history once under repository rules. If required Contract gates
+compare against a newer main, inspect its delta and integrate that pinned main into
+the Contract issue branch once before the gate run; do not first run gates on a
+known stale branch and rediscover new main protocol files as deletions. Retain merge
+conflicts or actual issue protocol changes as concrete work, never waive their checks.
+No force push or clone-metadata permission changes. Main advancing alone
 does not invalidate a frozen verification round. If only commit history changes with
 an identical tree, retain the original report and record both commit/tree identities;
 reuse only checks whose documented semantics permit it. Rerun checks dependent on
 history or changed diff bases. Never relabel an old tested SHA as a new tested SHA.
+Run all required Contract gates at the resulting HEAD. Do not keep chasing a moving
+main tip after that run solely for freshness. Contract-only synchronization does not
+require consumer generation, a Client merge, baseline testing or changed inputs when
+this issue retained sufficient consumer inputs; actual required input changes do.
+
+Prepare a compact closeout packet before handoff: evidence-index path, tested source
+pins, original comparison/QA paths, completed stages, existing PR URLs and the exact
+remaining Contract action. The receiving worker verifies it and adds only its new
+decisions. Reuse the prepared PR body/outcome/checkpoint files for publication and
+delivery, updating actual URLs and confirmations rather than rebuilding equivalent
+copies after each step. Do not treat an index or packet as a completion verdict.
+
+`verify-publication` returns `push_argv` using the verified remote name and explicit
+issue ref, plus `execution_hint`. On Windows use normal automatic approval for that
+exact push outside the restricted shell on its first attempt: MSYS hooks can fail
+to create signal pipes there. Keep hooks and approval enabled; a denial stops work.
+Never disable hooks, add broader roots or force-push to work around it. On other
+platforms keep the ordinary execution policy. Refresh verification before each push;
+the hint neither executes a push nor supplies approval.
 
 Prepare the PR body, saved final checkpoint and outcome together. After required
 acceptance publication, run `finish --check-ready` **before** preparing delivery.

@@ -49,7 +49,9 @@ def parser():
     actions.add_parser("prune-snapshots", help="stop the service before pruning").add_argument("--runs-root", required=True)
     cmd("status"); cmd("queue")
     cmd("fetch-issue", "--item")
-    cmd("claim", "--item", "--worker-id")
+    claim = cmd("claim", "--item", "--worker-id")
+    claim.add_argument('--context', action='store_true',
+                       help='include the current resume context in the same claim response')
     cmd("renew", "--item", token=True)
     cmd("maintenance-handoff", "--item", token=True)
     cmd("document-reader-status", "--item", token=True)
@@ -554,7 +556,11 @@ def run(args, ledger, api_factory):
         return {**observed, "delegated": delegated,
                 "withdrawn": ledger.item(args.item)["withdraw_deadline"] is not None}
     if c == "claim":
-        return ledger.claim(args.item, worker_id=args.worker_id)
+        result = ledger.claim(args.item, worker_id=args.worker_id)
+        if args.context:
+            from .resume_context import resume_view
+            result['context'] = resume_view(ledger.issue_context(args.item))
+        return result
     if c == "renew":
         return ledger.renew(args.item, resolve_token(args))
     if c == "maintenance-handoff":

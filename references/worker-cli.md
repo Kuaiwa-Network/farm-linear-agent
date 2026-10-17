@@ -199,6 +199,13 @@ require host setup. This recipe grants no additional write or publishing scope.
 
 ## Claim-token storage
 
+For a continuation, `claim --item ITEM --worker-id WORKER --context` includes the
+current compact resume context in the same response. The optional flag changes no
+claim fencing or maintenance behavior and makes no Linear request. Use this context
+instead of an immediate duplicate `issue-context --view resume`; fetch the live issue
+before acting and read the full context for stale/missing decisions. See `worker-start.md`.
+Without `--context`, the existing claim response is unchanged.
+
 The claim JSON returns the secret in the top-level `token` field, not `claim_token`.
 Capture the claim response privately and save that field before discarding the response;
 never echo the token, put it in command arguments,

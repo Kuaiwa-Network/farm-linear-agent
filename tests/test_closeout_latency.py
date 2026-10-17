@@ -48,6 +48,37 @@ class CloseoutCliTests(unittest.TestCase):
     json_file = fixtures.CliTests.json_file
     calls = fixtures.CliTests.calls
 
+    def test_claim_can_return_resume_context_without_a_second_call_or_live_api(self):
+        item = self.seeded_item()
+        calls = self.calls()
+        result = self.run_cli('claim', '--item', item, '--worker-id', 'resume-worker', '--context')
+        self.assertTrue(result['token'])
+        self.assertEqual(result['context']['context_view']['name'], 'resume')
+        self.assertNotIn(result['token'], json.dumps(result['context']))
+        self.assertEqual(result['context'], self.run_cli('issue-context', '--item', item, '--view', 'resume'))
+        self.assertEqual(self.calls(), calls)
+        refused = self.run_cli('claim', '--item', item, '--worker-id', 'another', '--context', success=False)
+        self.assertFalse(refused.stdout.strip())
+        self.assertIn('only a queued', refused.stderr)
+
+    def test_claim_context_does_not_hide_maintenance_or_restore_cancelled_work(self):
+        from agent.maintenance import Maintenance
+        item = self.seeded_item()
+        with closing(Ledger(self.db)) as ledger:
+            Maintenance(ledger).pause('operator maintenance')
+        result = self.run_cli('claim', '--item', item, '--worker-id', 'worker', '--context')
+        self.assertTrue(result['maintenance_requested'])
+        with closing(Ledger(self.db)) as ledger:
+            ledger.cancel(item, 'operator stop')
+        refused = self.run_cli('claim', '--item', item, '--worker-id', 'worker', '--context', success=False)
+        self.assertFalse(refused.stdout.strip())
+
+    def test_plain_claim_retains_existing_response(self):
+        item = self.seeded_item()
+        result = self.run_cli('claim', '--item', item, '--worker-id', 'legacy')
+        self.assertIn('token', result)
+        self.assertNotIn('context', result)
+
     def prepare(self):
         item = self.seeded_item()
         token = self.run_cli('claim', '--item', item, '--worker-id', 'w')['token']

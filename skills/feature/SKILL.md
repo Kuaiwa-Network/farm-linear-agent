@@ -175,9 +175,12 @@ never publish a failing snapshot or silently declare generation unnecessary.
 
 ## Intake (every attempt)
 
-1. Read this file, `contract`, `references/worker-cli.md`, the Code-worker sections of `references/repo-map.md`
+1. For fresh intake read this file, `contract`, `references/worker-cli.md`, the Code-worker sections of `references/repo-map.md`
    and the `feature` sections of `references/comment-templates.md`, then the current root's own instructions
    (`AGENTS.md`, `CLAUDE.md` and the files your stage's section names).
+   On continuation, batch `startup.read_together` with the current root's required rules instead;
+   follow `references/worker-start.md` and read only the capability sections needed by the saved stage.
+   All mandatory current-stage instructions still apply; stale or missing facts need a full read.
 2. `python3 -m agent --db DATABASE claim --item ITEM_ID --worker-id WORKER_ID` (the configured Python on Windows).
    Write the token to `STATE_DIR/token`: on POSIX use mode 0600; on Windows keep the inherited DACL
    and do not change ACLs. Follow the claim-token storage procedure in `references/worker-cli.md`
@@ -185,7 +188,9 @@ never publish a failing snapshot or silently declare generation unnecessary.
    `--item ITEM_ID --token-file STATE_DIR/token`; `fetch-issue` and `issue-context` take only `--item ITEM_ID`.
    Never put `--token` on a command line. If the claim fails, stop and exit 2. Then follow
    `<repo_root>/references/memory.md`.
-3. `fetch-issue`, then `issue-context`. If `fetch-issue` returns `in_scope: false`, `delegated: false` or `withdrawn: true`, go to
+   Prefer `claim --context` to receive the resume view with the claim; capture that secret-bearing
+   response privately and do not immediately request the same context again.
+3. `fetch-issue`, then use the returned claim context or `issue-context --view resume`. If `fetch-issue` returns `in_scope: false`, `delegated: false` or `withdrawn: true`, go to
    "Delegation, closure and the label" before anything else.
 4. Read your item's `plan`. When it is null and `recovery` is present, you continue a cancelled job: read
    `recovery.plan` and `recovery.notices`, check them against the repositories and the card, and save the plan as
@@ -1092,7 +1097,10 @@ Before this docs-only handoff, checkpoint completed consumer stages and exact re
 then run `closing-preflight` with the current claim. Follow `references/closeout-reuse.md` to retain
 original reports through one evidence index and inspect remote issue-branch history before editing.
 Save a fresh handoff and enter Farm-Contract once, select the recorded issue branch, verify its clean saved
-HEAD and current PR state, then update only this issue's tasks/scenarios with exact tested commits,
+HEAD and current PR state. Before running Contract gates, inspect and reconcile the fetched
+Contract main once as described in `references/closeout-reuse.md`; do not discover known
+history lag through a failed gate run. Keep sufficient consumer inputs and frozen reports.
+Then update only this issue's tasks/scenarios with exact tested commits,
 report links, actual acceptance and unmerged/unaccepted consumer steps. Use existing evidence rather than
 rerunning Client or server suites. Run the required Contract gates, perform the normal publication checks,
 push/update/register the existing draft. No main spec/archive/provenance mutation happens before merge.

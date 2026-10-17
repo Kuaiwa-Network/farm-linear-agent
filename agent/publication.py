@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import json
 import re
 import subprocess
+import sys
 from urllib.parse import quote
 
 from .router import WRITE_SKILLS
@@ -195,6 +196,16 @@ class PublicationVerifier:
                 'push_url': push_urls[0], 'push_remote': 'origin', 'branch': branch, 'head': head,
                 'base_branch': metadata['default_branch'], 'private': True, 'write_access': True,
                 'verified_at': datetime.now(timezone.utc).isoformat()}
+        # A command description, never execution or a reusable authorization. Use the
+        # verified remote name so Git's configured rewriting remains in force.
+        result['push_argv'] = ['git', 'push', 'origin', f'HEAD:refs/heads/{branch}']
+        result['execution_hint'] = {
+            'windows_git_review': sys.platform == 'win32',
+            'guidance': ('On Windows, request the runtime normal automatic approval for this exact Git push '
+                         'outside the restricted shell before its first execution; Git hooks may need MSYS '
+                         'signal pipes. Keep hooks, destination checks and approval enabled. A denial stops '
+                         'the action; never retry with hooks disabled, broader roots or bypassed review. '
+                         'This hint is not approval. Other platforms use their ordinary execution policy.')}
         # Config publication pins an existing remote commit and must not merge new source into that pin.
         config_pin = suffix_roles and suffix_of(branch, prefix) in (CONFIG_SUFFIX, CONFIG_REPIN_SUFFIX)
         if require_main and not config_pin:

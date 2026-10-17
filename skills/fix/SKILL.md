@@ -53,13 +53,17 @@ repository/export/runtime gates and preserve unrelated fonts, outlines and layou
 
 ## Intake
 
-1. Read this file, `contract`, `references/worker-cli.md`, and the instructions of the current
+1. For fresh intake read this file, `contract`, `references/worker-cli.md`, and the instructions of the current
    `stage.root_repository` if one is set. Open other references and repository instructions when
    investigation needs them. In the neutral stage, start read-only with the repositories and paths indicated
    by the issue, logs and applicable prior findings. Follow actual call/data dependencies and expand the
    search when evidence is missing, contradictory or the location remains unknown. Stop expanding when
    the affected behavior and required checks are established; available worktrees are not a checklist.
    Record relevant findings and any remaining uncertainty. All stage/write restrictions still apply.
+   On continuation batch `startup.read_together` and current-root rules, following
+   `references/worker-start.md`; read current-phase references without reopening unrelated stages.
+   Use `claim --context` for the resume view without a duplicate context read, keeping the same
+   private token storage and fresh `fetch-issue` checks below. Stale or missing facts require full context.
 2. `python3 -m agent --db DATABASE claim --item ITEM_ID --worker-id WORKER_ID`. Write the returned token
    to `STATE_DIR/token`: on POSIX use mode 0600; on Windows keep the inherited DACL
    and do not change ACLs. Never print it. Follow the claim-token storage procedure in
