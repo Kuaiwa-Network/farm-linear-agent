@@ -12,6 +12,20 @@ changed behavior, including UI-only interactions/states, uses shared OpenSpec in
 Farm-Contract. Pure visual corrections check existing requirements and actual
 design references; farmgui needs no separate OpenSpec project.
 
+Workers choose investigation and workflow steps from actual acceptance gaps,
+dependencies and valid existing evidence. Investigation starts with relevant
+repositories/paths and expands only when findings or unresolved scope require it;
+legacy fix intake no longer requires examining every available worktree. Question
+rounds are conditional on necessary unresolved human decisions, approvals, inputs
+or external actions. Applicable attributed rulings are reused for unchanged scope;
+silence and worker guesses never replace required approval. Existing-contract
+delegation records the existing full SHA and scenario references without an empty
+commit, artificial edit or new Contract PR; actual contract changes still require
+their commit and repository review/gates. Workers record reasons briefly in the
+existing plan/handoff and reassess changed requirements or relevant inputs. These
+are worker instructions, not a new controller proof of reasoning or a gate waiver;
+claim/publication checks, required tests and certified teardown remain unchanged.
+
 The requested outcome and attributed human scope limits govern the whole job,
 including resumed work and closing. Nearby defects, shared documents, other cards
 and newer main changes do not add requirements or waiting conditions. A choice
@@ -1487,7 +1501,46 @@ native LFS hydration, current farmgui registration rules, a source/UI-document d
 and bounded preview evidence under private state. Only the issue's verified draft
 destination may be used. Missing art/behavior requires a named human answer; a
 placeholder is never inferred. Approximate previews record PR/source/art/PNG/state
-identities, known gaps and deviations against actual uploaded references.
+identities, known gaps and comparisons against the actual pre-change implementation
+or the explicitly requested design references, according to the validation scope.
+
+Before UI authoring or delegation, workers independently choose the lightest
+sufficient checks from requested acceptance criteria, actual changes and visual
+regression risk. Behavior/source checks, scoped visual review and pixel-level
+comparison provide different evidence; task size, edit type and whether the UI is
+new or existing do not select them automatically. Pixel comparison is used when
+precision provides necessary acceptance/regression evidence and references and
+rendering are comparable. A mockup's presence alone is not a requirement. Explicit
+precision requirements remain binding; unavailable or unreliable required evidence
+is a gap, never an automatic pass. Routine method choice requires no human reply;
+only blocking requirements or inputs become questions.
+
+The worker records `plan.ui.validation`: chosen checks/reasons, whether
+`pixel_comparison` is needed and why, actual source/reference baseline identities,
+target controls/states, allowed changes, appearance/behavior to preserve and
+optional checks skipped with reasons. Parent task instructions and successor
+attempts retain the decision and baseline, reassessing changed requirements or
+dependencies. An interrupted candidate is not a new before state.
+
+Preservation checks use the actual pre-change implementation; requested appearance
+changes use relevant design references. Comparisons cover affected regions/states
+and necessary regressions; whole-screen comparison needs a scope-based reason.
+Historical mockups are unnecessary when source/behavior evidence suffices. Before
+and after images use the same renderer/font/settings where available; missing
+reliable images remain explicit gaps supported by source/diff evidence. Unrelated
+fonts, outlines, colors, spacing, art and shared styles stay unchanged. Approximate
+renderer, font-substitution, anti-aliasing and unsupported-effect differences alone
+do not justify source-style changes. Visual iteration stops once required checks
+are satisfied; incidental differences are recorded without repair or a request to
+expand the issue.
+
+These are worker instruction limits, not an automatic pixel or source-diff scope
+validator. Mandatory repository checks still run. Method selection keeps the same named
+human visual approval, certified export/installation, dependency guards, exact-commit
+loading, behavior and publication gates; the fix worker retains its existing
+separate export authority. No CLI flag, plan top-level key or schema migration is
+added. Existing jobs re-evaluate visual scope on their next instructed attempt
+without resetting candidates, review identities or prior approval evidence.
 
 Native hydration is verified from actual file OIDs/sizes. An already supplied
 verified process filter may restore explicit scoped committed pointer files from
@@ -1861,7 +1914,7 @@ for a structural defect or change. If the intended UI is unclear, ask in Linear 
 `feature` runs only on an instance whose `enabled_skills` names it. One work item and one Linear
 session carry a delegated Bot/Code card through repository stages, one fresh Codex worker per root:
 the Farm-Contract change (stage A, the initial root), farm-common declarations (stage B), config
-verification (stage C), the farm-hive server (stage D), human UI readiness (stage E), the Client
+verification (stage C), the farm-hive server (stage D), UI readiness evidence (stage E), the Client
 (stage F) and the closing steps (stage G). The worker follows
 each repository's own rules and `skills/feature/SKILL.md`; the `feature` part of the dispatch
 AUTHORITY states its grants (see Authority).
@@ -1899,7 +1952,9 @@ AUTHORITY states its grants (see Authority).
   read-only checkouts of their default branches for the client half of the gap list; runs Farm-Contract's twelve
   gates with CI's pinned tool versions; opens the contract draft PR; asks the owner to merge it; and hands off
   without waiting for the merge. FarmBot's `handoff-repository` is the handoff (交棒) Farm-Contract's rules
-  describe; it creates no other task or issue.
+  describe; it creates no other task or issue. It posts a question round only for necessary unresolved
+  human decisions, inputs or approvals; already applicable rulings need no duplicate question. Required
+  Farm-Contract review remains, and unreviewed gaps cannot back proto fields or server behavior.
 - Stage B declares the change's tables, columns, fields and enums in farm-common's definition layer, regenerates
   its inventory and updates its count constants, never data rows or global-key values, and opens the declarations
   draft PR. It then posts the config-needed comment, which mentions the owner and the creator, and parks with
@@ -1920,15 +1975,23 @@ AUTHORITY states its grants (see Authority).
 - Stage D implements and verifies the server change. When its consumer inputs require protocol changes, it
   syncs snapshots from the item's unmerged Farm-Contract worktree (marked `-unreachable`) and registers new
   messages. For required config work it pins designer data to the config commit with a locally computed digest
-  and placeholder archive checksum, and generates `config/pb`. It runs the build job's local gates and opens
+  and placeholder archive checksum, and generates `config/pb`. It runs the required change-scoped gates and opens
   the hive draft PR. It follows farm-hive's own instructions for the designer-data
   mechanism (the three `DESIGNER_SOURCE_*` values on 2026-09-28) and says in the PR which one it used. That PR's CI
   stays red or incomplete until required contract re-sync and published-pin work passes. A server change needing
-  no protocol-input update retains its verified snapshots and records why sync is unnecessary.
-- Stage E asks once, with a durable owner/request/body, for explicit UI-ready confirmation when the change has
-  UI. A resumed worker checks actual farmgui main component identities and Client main exports/dependencies.
-  Existing packages and silence do not satisfy it; missing exports cause a new scoped waiting request. A no-UI
-  change records E skipped. The worker never authors or exports farmgui, and honours limits before Client entry.
+  no protocol-input update retains its verified snapshots and records why sync is unnecessary. A server
+  lease is needed only for required service-backed evidence that is missing or invalid, not merely because
+  the pool is configured. Service-independent checks run locally; valid same-candidate/input reports are
+  reusable. Required service-skipped checks remain gaps; coverage and race requirements are preserved.
+- Stage E first checks the current UI requirements against artifacts and retained approval/verification
+  evidence. It verifies actual farmgui main component identities and Client main exports/dependencies,
+  recording full main SHAs, paths and why reused evidence remains applicable. A task status, existing
+  folder or old ready message alone is insufficient. When all required evidence and approvals are valid,
+  it continues without a new UI-ready question. Only concrete missing decisions, approvals, inputs or
+  external actions cause a scoped question/wait; partial replies do not clear other gaps. No-UI changes
+  record E skipped. Named visual approvals, export/provenance, loading and Client behavior gates remain.
+  Legacy feature gains no access to unmerged task outputs; general `work` uses its certified task join
+  instead. The worker never authors or exports farmgui, and honours limits before Client entry.
 - Stage F lazily receives the owned Client branch and controller baseline. When generation is required, it uses
   supported headless network and config commands with clean committed inputs and complete atomic metadata;
   otherwise it retains the actual existing input identity and skip evidence. It implements client behavior.

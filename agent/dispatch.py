@@ -105,6 +105,11 @@ GIT_COMMIT_AUTHORITY = (
 )
 
 QUESTION_AUTHORITY = (
+    "Ask or pause for human input only when a necessary requirement, decision, approval or external action "
+    "remains unresolved after checking current inputs and applicable attributed evidence. A workflow's question "
+    "round is conditional: if no such gap remains, record the evidence and continue without inventing a question "
+    "or asking for the same decision again. Reuse rulings only within their unchanged scope; silence, stale "
+    "evidence and implementation guesses never supply a missing human approval. "
     "The issue's 待回复 label means an unanswered human question in this job or a task, even while other work runs. "
     "Read human_question in issue-context; replies, task wakes and checkpoints do not clear it. Only after every "
     "question in this job's current round is resolved by actual attributed session_messages, run resolve-question "
@@ -141,6 +146,11 @@ QUESTION_AUTHORITY = (
 )
 
 ISSUE_SCOPE_AUTHORITY = (
+    "Choose investigation and workflow steps from actual acceptance gaps, affected dependencies and valid "
+    "existing evidence. Start with relevant repositories and paths; expand when findings or unresolved scope "
+    "require it, not merely because more worktrees exist. Record skipped steps and evidence reuse briefly in "
+    "the existing plan/handoff, and reassess when requirements or relevant source/inputs change. This does not replace "
+    "required repository checks, human approvals, fresh claim/publication checks or certified resource teardown. "
     "Deliver only this issue's requested outcome and its necessary dependencies, respecting attributed human "
     "scope limits on every resume. Nearby defects, linked issues, shared documents and newer main changes "
     "do not add work or waiting conditions. Do not ask to expand scope for an incidental defect or make "
@@ -159,6 +169,27 @@ ISSUE_SCOPE_AUTHORITY = (
     "no required human/input/pin/waiver gate outstanding, write acceptance to its existing Contract draft. "
     "The feature skill's deferred_archive path may then finish draft delivery while explicitly leaving the "
     "post-merge archive/provenance pending. Never claim that archive ran or a PR merged. "
+)
+
+UI_CHANGE_SCOPE_AUTHORITY = (
+    "Before UI authoring or delegation, independently choose the lightest sufficient validation method "
+    "from the requested acceptance criteria, actual source changes and visual regression risk; record "
+    "the choice and reason in plan.ui.validation. Do not select checks by task size, edit type or whether "
+    "the UI is new or existing alone. Decide whether behavior/source checks suffice, scoped visual review "
+    "is needed, or pixel-level comparison provides necessary evidence. Pixel comparison needs a relevant "
+    "reference and comparable rendering; a mockup's presence does not make it mandatory. Honor an explicit "
+    "precision requirement; missing reliable evidence for that requirement is a gap, never an automatic pass. "
+    "Choose this method without routine human confirmation; ask only for a blocking requirement or input. "
+    "Use the actual pre-change implementation to check preservation and relevant design references for "
+    "requested appearance changes. Limit comparison to affected regions/states and necessary regressions; "
+    "whole-screen comparison needs a scope-based reason. Preserve unrelated fonts, outlines, colors, "
+    "spacing and shared styles. Approximate previews, font substitution and anti-aliasing differences "
+    "alone never justify source style changes. Stop visual iteration when required checks are satisfied; "
+    "record unrelated deviations without repairing them or asking to expand scope. Carry the decision, "
+    "baseline, allowed changes and preservation limits through task instructions, checkpoints and resumes; "
+    "reassess when acceptance criteria or affected dependencies change. This narrows visual work only: "
+    "it grants no repository access and waives no required approval, certified export, dependency, loading, "
+    "behavior or publication checks. "
 )
 
 # kw_ops use, bounded to the issue's reproduction and verification; the manifest's `mcp` grants the tools.
@@ -314,7 +345,8 @@ FGUI_AUTHORITY = (
     "and CJK fonts must be prepared by the host; install or download none during a job. Read listed default "
     "branch checkouts without writing them. Keep source-preview PNGs/reports and downloaded originals in "
     "state_dir; never write the watched output directory. Clearly label every preview as approximate, name "
-    "known gaps and measured deviations against actual uploaded mockups, and publish only this issue's "
+    "known gaps and scoped comparisons against the recorded baseline or requested design references, "
+    "and publish only this issue's "
     "farmgui and scoped Client draft PRs through verify-publication and the foreign-work checks. Save "
     "PR/source/art/preview identities and "
     "notice ids in the bounded plan; corrections or changed inputs invalidate earlier visual approvals. "
@@ -497,6 +529,12 @@ SERVER_TEST_AUTHORITY = (
     "concurrency and cross-module behavior. Record the dependency analysis and required acceptance Test names. "
     "Shared infrastructure, protocol/config generation, dependency/toolchain or startup changes require broader "
     "coverage with a concrete reason. Select only relevant shell/provenance gates; retain already valid results. "
+    "Request server_slot only for required service-backed checks whose evidence is still missing or invalid. "
+    "A configured pool alone never requires a lease. Determine service dependencies from the selected tests "
+    "and acceptance scenarios; run service-independent checks locally, or reuse valid reports at the same "
+    "candidate and inputs. Record why no lease is needed without claiming unrun tests passed. Missing services "
+    "or service-skipped tests remain a gap when those checks are required; do not narrow coverage to avoid "
+    "a lease. Required service-backed runs still use only configured reservation-bound loopback services. "
     "Use --server-scope-reason for broad local selections, named-only acceptance, or a justified narrow scope "
     "for shared changes. The host checks changed-package coverage. Memory profile full does NOT mean full "
     "repository verification: targeted race still runs only selected packages. Never add unrelated shell gates "
@@ -536,8 +574,9 @@ def authority(skill):
     diagnostic = DOCUMENT_READER_DIAGNOSTIC_AUTHORITY if skill in {"work", "feature", "fgui"} else ""
     baseline = BASELINE_AUTHORITY if skill in {"work", "feature", "fix"} else ""
     scope = ISSUE_SCOPE_AUTHORITY if skill in {"work", "feature", "fix"} else ""
+    ui_scope = UI_CHANGE_SCOPE_AUTHORITY if skill in {"work", "feature", "fix", "fgui", "scene"} else ""
     server_tests = SERVER_TEST_AUTHORITY if skill in {"work", "feature", "fix"} else ""
-    return (COMMON_AUTHORITY + identity + QUESTION_AUTHORITY + scope + SKILL_AUTHORITY[skill]
+    return (COMMON_AUTHORITY + identity + QUESTION_AUTHORITY + scope + ui_scope + SKILL_AUTHORITY[skill]
             + diagnostic + baseline + server_tests + AUTHORITY_REFERENCE)
 
 

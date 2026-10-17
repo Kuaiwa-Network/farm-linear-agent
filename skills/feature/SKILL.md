@@ -1,6 +1,6 @@
 ---
 name: feature
-description: Carry one delegated Bot/Code card through contract, config, server and client stages with fresh scoped workers, human UI-ready confirmation and committed-HEAD verification; open draft PRs, never merge or deploy.
+description: Carry one delegated Bot/Code card through contract, config, server and client stages with fresh scoped workers, evidence-based UI readiness and committed-HEAD verification; open draft PRs, never merge or deploy.
 ---
 
 # FarmBot feature worker
@@ -9,8 +9,9 @@ This is FarmBot's Code worker, the `feature` skill; in Linear you speak as `bot_
 One job carries one delegated Bot/Code card through repository stages, over days, with a fresh worker for each
 stage: the Farm-Contract change (stage A), farm-common declarations (stage B), config verification once 策划
 report the config ready (stage C), the farm-hive server (stage D), UI-ready verification (stage E), the client
-(stage F) and closing (stage G). Never write or export farmgui UI. The feature's UI authoring/export is a human
-step this job waits for; existing package presence is never confirmation that it is finished.
+(stage F) and closing (stage G). Never write or export farmgui UI. Check whether current artifacts and valid
+approval/verification evidence satisfy the required UI; wait only for actual missing human input or external
+work. Existing package presence alone cannot establish readiness.
 
 Your launch message holds `item_id`, the ledger `database`, the readable `worktrees` (Farm-Contract, common and
 farm-hive, each on this card's issue branch), `reads` (detached checkouts of Farm-Contract's, Farm-Client's and
@@ -261,9 +262,10 @@ to files under STATE_DIR. This skill writes these keys:
   in ISO 8601 UTC; absent otherwise. Remove it at the first checkpoint after a resume that ends the pause.
 - `change`: `{"name": CHANGE_NAME, "path": "openspec/changes/CHANGE_NAME"}`.
 - `ui`: `{"has_ui": BOOL, "packages": [...], "components": [...]}`, from the change's UI section.
-  `ui.ready_notice` records the waiting request id, exact body and named owner before publication; repeated
-  attempts reuse it. `ui.ready_event` names the explicit human confirmation; `ui.evidence` records both main
-  commits and the actual package/component/export paths checked, not private host paths.
+  `ui.ready_notice` records a necessary question/wait's request id, exact body and named owner before publication;
+  repeated attempts reuse it. `ui.ready_event` names an actual applicable human confirmation when one exists;
+  never synthesize it to fill a checklist. `ui.evidence` records both main commits, the actual checked
+  package/component/export paths and why reused checks/approvals remain valid, not private host paths.
 - `client`: the controller baseline/branch copied as evidence, exact contract and config input commits/digest,
   the committed verification HEAD and each typecheck/unit/Unity outcome; never substitute this plan for `target`.
   `client.inputs.network` records whether protocol generation is required and the inspected source/base/consumer
@@ -587,9 +589,14 @@ there. FarmBot adds:
    evidence commands. Ask only what people decide: which values 策划 tune and what they mean (ranges, semantics),
    whether the feature has new UI and which panels, and which repositories have work. Define the names of tables,
    columns, fields and enum members yourself and write them into `tasks.md` under 配表下游.
-4. Post the round (`questions-N`, "Questions and deciders") and pause (`answers`). On resume, transcribe each ruling
-   with its author and link into the proposal and the spec; repeat until no gap backing a proto field or server
-   behaviour is unreviewed. `[UNREVIEWED]` never backs a proto field.
+4. Check the gap table against current inputs and applicable attributed rulings. Only when a necessary
+   human decision, input or approval remains unresolved, post the remaining questions (`questions-N`,
+   "Questions and deciders") and pause (`answers`). When no human gap remains, record the supporting
+   evidence and continue without a question round. Resolve implementation choices within your authority
+   yourself. On resume, transcribe each actual ruling with its author and link into the proposal and spec;
+   reuse it only for unchanged requirements and ask again only about a new or still unresolved gap.
+   Required Farm-Contract review is preserved: no gap backing a proto field or server behaviour may remain
+   unreviewed, and `[UNREVIEWED]` never backs a proto field. Never invent approval to avoid a question.
 5. Write the delta spec (Requirement and Scenario blocks, a marker on every scenario, the `##` tail sections
    客户端侧要求 and, while anything is open, 待裁决), `proto/` with `bash tools/gen-manifest.sh`, the README
    inventory row, the authority-table rows, and `tasks.md`: its 契约侧 part; one 交棒 entry each for farm-hive and
@@ -805,7 +812,12 @@ section. A contract change enters farm-hive at its plan: its behaviour is settle
    MongoDB, Redis and cluster services: the PR body lists every step and service-backed variant not run. A step that
    cannot run in your sandbox (a module download refused, a tool missing or at another version) is named there as
    not run, with its error; never skip one silently.
-   When `tools.server_tests.status` is `configured`, commit the intended server candidate,
+   First determine whether the selected required checks depend on services and whether valid reports at the
+   same candidate and inputs already cover them. Run service-independent checks locally. If no required
+   service-backed evidence is missing or invalid, record why no lease is needed and continue; do not label
+   unrun tests passed. A configured pool alone is not a reason to reserve it. Required service-skipped tests
+   remain verification gaps; do not narrow the required selection to avoid a lease.
+   When a required service-backed run remains and `tools.server_tests.status` is `configured`, commit the intended server candidate,
    checkpoint its SHA and service-backed test selection, request
    `await-resource --resource server_slot --mode batch --commit FULL_HEAD_SHA --server-test-plan STATE_DIR/server-tests.json`, and
    exit. This starts a fixed server verification round: keep that candidate through queue waits,
@@ -827,7 +839,7 @@ section. A contract change enters farm-hive at its plan: its behaviour is settle
    processes outside worker containment. Save every outcome and platform skip,
    stop the game processes, release quiescent and exit through a normal checkpoint
    handoff/park. A next resource request waits for this attempt's verified exit.
-   A host without server slots records these checks as pending; it grants no fallback
+   A host without server slots records required uncovered service-backed checks as pending; it grants no fallback
    to a shared environment. See `references/worker-cli.md` for leases and recovery.
 7. When the new pin turns unrelated tests red, adjust only failures shown to be plain data moves. Suspected designer
    defects (lost defaults, deleted events, empty tables) are listed for the owner, in the style of farm-hive's
@@ -858,24 +870,37 @@ human stage limit before asking, inspecting exports or handing off. If `ui.has_u
 `stages.E: "skipped: no UI in the recorded change"`, post `stage-E`, and continue to F when it has work, otherwise
 Closing. Do not request UI work for a no-UI card.
 
-For UI, always ask once after server/config work: an existing package or component cannot establish readiness.
-Post a `waiting` notice `ui-needed` from `feature UI needed`, mentioning the named owner and listing the exact
-packages/components and client exports the accepted change requires. Save `ui.ready_notice` with its exact
-request id/body before preparing it; retries reuse both, and a new failed verification round uses `ui-needed-N`
-from 2. Set `pause` to `ui_ready`/`waiting`, checkpoint, `await-input --reason waiting`, and exit. Author or export
-no UI yourself. Never infer an answer from a repository, silence or a timer.
+For UI, first compare the accepted requirements with current artifacts and applicable retained evidence.
+An unchanged, previously approved UI or a verified delivery may already cover the required presentation.
+Check its exact scope, source/export identities, dependencies and required approvals; a task status, package
+name, folder existence or old "ready" message alone is insufficient. Reuse valid evidence for unchanged
+artifacts; rerun only checks invalidated by changed requirements, relevant contents or dependencies.
+Never infer a human approval from repository contents, silence or a timer. Author or export no UI yourself.
 
-On an explicit resume, find the named person's confirmation in session messages or human replies after that
-notice, attribute its author/message/time in `events` and `ui.ready_event`, then verify both refreshed defaults:
-the actual farmgui components in `reads["farmgui"]` and each required published package/component export in
+Verify both refreshed defaults: the actual farmgui components in `reads["farmgui"]` and each required published package/component export in
 `reads["Farm-Client"]` under `Assets/GameRes/FairyRes/<Pkg>/`. Follow the repositories' own package descriptor,
 component ID and generated binding rules; inspect actual file contents, component identities and dependencies,
-not folder existence alone. Record the two full main commits and inspected repository-relative paths. A missing
-read checkout, LFS pointer instead of a required descriptor, wrong identity or absent client export is a measured
-gap: say what was inspected and ask in a new scoped `ui-needed-N` round, then park again. A reply requesting a
-different change is steering to resolve, not UI-ready confirmation.
+not folder existence alone. Record the two full main commits, inspected paths and supporting evidence in
+`ui.evidence`, including why any reused checks/approvals still cover the current artifacts. This legacy path
+still requires published main exports; it gains no access to another job's branch or unmerged task output.
+The general `work` job instead follows its certified same-issue task join and owned Client branch rules.
 
-Only after human confirmation and both repository checks pass set E done, save the evidence/checkpoint and
+If the evidence satisfies every required UI gate, set E done without a new `ui-needed` notice or human pause.
+If a necessary decision, approval or artifact is missing, name only that gap and who must resolve it. A missing
+read checkout, LFS pointer, wrong identity or absent required export remains a gap; never mark it passed.
+Use `await-input --reason question` for a missing decision/approval/input, or a `waiting` notice `ui-needed`
+and `await-input --reason waiting` for an actual external publish/action. The `feature UI needed` template
+is used only for that required action. Save `ui.ready_notice` with its exact request id/body before posting;
+retries reuse it, and a new unresolved round uses `ui-needed-N` from 2. Save the concrete gap in `pause`
+(`ui_ready`, with the actual reason), checkpoint and exit. Do not post an empty readiness request.
+
+On resume, re-read the current requirements and attributed replies. Record an actual relevant confirmation
+with its author/message/time in `events` and `ui.ready_event`; never fabricate that field when proceeding on
+existing evidence. A reply resolves only its stated gap and does not replace artifact checks. A changed
+request needs reassessment; partial answers leave the remaining gaps open. Keep required named visual
+approvals, export/provenance, loading and later Client behavior gates.
+
+Once required approvals and both repository checks are satisfied, set E done, save the evidence/checkpoint and
 hand off to Farm-Client when F has work. A limit after E parks there before the handoff. When F has no work,
 record its skip and continue Closing; never create a client branch merely for a skipped stage.
 

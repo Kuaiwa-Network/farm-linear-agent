@@ -200,6 +200,38 @@ class FeatureClientJourneyTests(unittest.TestCase):
                          ("awaiting_input", "skipped: no UI"))
         self.assertEqual(j.context(item)["published_prs"], sorted([journey.PRS["Farm-Contract"], CLIENT_PR]))
 
+    def test_existing_ui_approval_and_checked_exports_allow_client_entry_without_new_question(self):
+        """A scripted worker can reuse scoped evidence without a synthetic waiting/reply round."""
+        item, j = self.begin_client_only(ui=True), self.j
+        identity = {"package": "pkg-bonus", "component": "button-bonus"}
+        for repo, relative in (("farmgui", "packages/Bonus/component.json"),
+                               ("Farm-Client", "Assets/GameRes/FairyRes/Bonus.export.json")):
+            root = j.origins / f"{repo}.git"
+            artifact = root / relative
+            artifact.parent.mkdir(parents=True)
+            artifact.write_text(json.dumps(identity), encoding="utf-8")
+            journey.git("add", ".", cwd=root)
+            journey.git("commit", "-qm", "Approved UI artifacts", cwd=root)
+        source, client = j.origin_head("farmgui", "main"), j.origin_head("Farm-Client", "main")
+        j.human_comment(f"Approved Bonus/button-bonus for this issue at {source}, exported at {client}.",
+                        author=journey.OWNER)
+        approval = j.fields["comments"][-1]
+        j.plan["ui"]["ready_event"] = approval["id"]
+        j.plan["ui"]["evidence"] = {"farmgui": source, "client": client, "approval": approval["url"],
+            "paths": ["packages/Bonus/component.json", "Assets/GameRes/FairyRes/Bonus.export.json"],
+            "reason": "Approved scope and component/export identities match current requirements."}
+        j.plan["stages"]["E"] = "done"
+        steps = [*j.intake(), ["python", str(self.helper), "ui", str(j.reads(item, "farmgui")), "unused",
+                              str(j.reads(item, "Farm-Client"))],
+                 ["revalidate", "--item", "{item}", "--token", "{token}", "--fingerprint", "{fingerprint}"],
+                 *j.save("existing-ui-pass", stage="ui", next_action="Client implementation"),
+                 *j.handoff("Farm-Client")]
+        j.settled(item, j.attempt(item, steps, "reuse verified UI"))
+        self.assertEqual(j.context(item)["plan"]["stages"]["E"], "done")
+        self.assertFalse(any(n[0].startswith("ui-needed") for n in j.notices(item)))
+        self.assertNotIn("pause", j.plan)
+        self.verify_client(item)
+
     def test_ui_confirmation_rechecks_real_main_exports_and_reasks_without_client_entry(self):
         item, j = self.begin_client_only(ui=True), self.j
         package = j.origins / "farmgui.git" / "packages/Bonus/component.json"

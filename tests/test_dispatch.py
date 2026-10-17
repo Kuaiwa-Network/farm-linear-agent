@@ -482,6 +482,31 @@ class SkillAuthorityTests(unittest.TestCase):
         for skill in ("chat", "fgui", "scene"):
             self.assertNotIn(dispatch.ISSUE_SCOPE_AUTHORITY, dispatch.authority(skill))
 
+    def test_ui_scope_reaches_parent_and_presentation_workers_without_new_grants(self):
+        for skill in ("work", "feature", "fix", "fgui", "scene"):
+            with self.subTest(skill=skill):
+                message = self.message({"id": "i", "skill": skill})
+                authority = message.split("\n\n", 1)[0]
+                for phrase in ("independently choose the lightest sufficient validation method",
+                               "acceptance criteria, actual source changes and visual regression risk",
+                               "Do not select checks by task size, edit type",
+                               "Decide whether behavior/source checks suffice, scoped visual review",
+                               "Pixel comparison needs a relevant reference and comparable rendering",
+                               "a mockup's presence does not make it mandatory",
+                               "missing reliable evidence for that requirement is a gap",
+                               "Choose this method without routine human confirmation",
+                               "whole-screen comparison needs a scope-based reason",
+                               "Preserve unrelated fonts, outlines",
+                               "anti-aliasing differences alone never justify source style changes",
+                               "Stop visual iteration when required checks are satisfied",
+                               "through task instructions, checkpoints and resumes",
+                               "reassess when acceptance criteria or affected dependencies change",
+                               "grants no repository access and waives no required approval"):
+                    self.assertIn(phrase, authority)
+                self.assertEqual(payload_of(message)["stage"]["write_repositories"], [])
+                self.assertIsNone(payload_of(message)["resource"])
+        self.assertNotIn(dispatch.UI_CHANGE_SCOPE_AUTHORITY, dispatch.authority("chat"))
+
     def message(self, item):
         return dispatch_message(item=item, issue={"identifier": "FARM-1", "url": "u"},
                                 skill_path=ROOT / "skills" / "fix" / "SKILL.md", worktrees={}, db_path="/db",
@@ -514,7 +539,7 @@ class SkillAuthorityTests(unittest.TestCase):
         with the fixed per-command commit identity supplied to write workers."""
         reference = dispatch.AUTHORITY_REFERENCE
         self.assertEqual(self.message({"id": "i", "skill": "fix"}).split("\n\n", 1)[0],
-                         dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.QUESTION_AUTHORITY + dispatch.ISSUE_SCOPE_AUTHORITY + dispatch.KW_OPS_AUTHORITY
+                         dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.QUESTION_AUTHORITY + dispatch.ISSUE_SCOPE_AUTHORITY + dispatch.UI_CHANGE_SCOPE_AUTHORITY + dispatch.KW_OPS_AUTHORITY
                          + FGUI_EXPORT_AT_D18 + dispatch.BASELINE_AUTHORITY + dispatch.SERVER_TEST_AUTHORITY + reference)
         self.assertEqual(dispatch.FGUI_EXPORT_AUTHORITY, FGUI_EXPORT_AT_D18)
         self.assertNotIn("FairyGUI", dispatch.COMMON_AUTHORITY + dispatch.SKILL_AUTHORITY["chat"])
@@ -528,7 +553,7 @@ class SkillAuthorityTests(unittest.TestCase):
         self.assertIs(dispatch.SKILL_AUTHORITY["feature"], dispatch.FEATURE_AUTHORITY)
         self.assertEqual(self.message({"id": "i", "skill": "feature"}).split("\n\n", 1)[0],
                          dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.QUESTION_AUTHORITY
-                         + dispatch.ISSUE_SCOPE_AUTHORITY + FEATURE_AUTHORITY_WITH_SCOPED_INPUTS + dispatch.DOCUMENT_READER_DIAGNOSTIC_AUTHORITY
+                         + dispatch.ISSUE_SCOPE_AUTHORITY + dispatch.UI_CHANGE_SCOPE_AUTHORITY + FEATURE_AUTHORITY_WITH_SCOPED_INPUTS + dispatch.DOCUMENT_READER_DIAGNOSTIC_AUTHORITY
                          + dispatch.BASELINE_AUTHORITY + dispatch.SERVER_TEST_AUTHORITY + dispatch.AUTHORITY_REFERENCE)
 
     def test_the_feature_part_states_its_limits_and_carries_no_other_skills_grants(self):
@@ -566,10 +591,10 @@ class SkillAuthorityTests(unittest.TestCase):
     def test_ui_authority_is_pinned_to_certified_export_client_and_unity_loading(self):
         part = dispatch.FGUI_AUTHORITY
         self.assertEqual(hashlib.sha256(part.encode("utf-8")).hexdigest(),
-                         "f6c403dde6ae2d13a07ab42388e0e03f16caee0e5b363133d43829b4755a1395")
+                         "26b54d983aba5248a11db5e3a031c8f0b2415b24c6c02fa7d0b07475dd69108b")
         self.assertIs(dispatch.SKILL_AUTHORITY["fgui"], part)
         self.assertEqual(self.message({"id":"i", "skill":"fgui"}).split("\n\n", 1)[0],
-                         dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.QUESTION_AUTHORITY + part
+                         dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.QUESTION_AUTHORITY + dispatch.UI_CHANGE_SCOPE_AUTHORITY + part
                          + dispatch.DOCUMENT_READER_DIAGNOSTIC_AUTHORITY + dispatch.AUTHORITY_REFERENCE)
         self.assertNotIn("\n", part)
         for phrase in ("starting in its farmgui worktree", "read-only integration context", "review-ui",
@@ -629,7 +654,7 @@ class SkillAuthorityTests(unittest.TestCase):
                 baseline = dispatch.BASELINE_AUTHORITY if name == "feature" else ""
                 scope = dispatch.ISSUE_SCOPE_AUTHORITY if name == "feature" else ""
                 self.assertEqual(text, dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.QUESTION_AUTHORITY
-                                 + scope + "Own grants. " + dispatch.DOCUMENT_READER_DIAGNOSTIC_AUTHORITY + baseline
+                                 + scope + dispatch.UI_CHANGE_SCOPE_AUTHORITY + "Own grants. " + dispatch.DOCUMENT_READER_DIAGNOSTIC_AUTHORITY + baseline
                                  + (dispatch.SERVER_TEST_AUTHORITY if name == "feature" else "") + dispatch.AUTHORITY_REFERENCE)
                 self.assertNotIn("kw_ops", text)
 
@@ -638,6 +663,7 @@ class SkillAuthorityTests(unittest.TestCase):
         the space the next part expects."""
         parts = {"common": dispatch.COMMON_AUTHORITY, "git_commit": dispatch.GIT_COMMIT_AUTHORITY, "question": dispatch.QUESTION_AUTHORITY,
                  "issue_scope": dispatch.ISSUE_SCOPE_AUTHORITY,
+                 "ui_change_scope": dispatch.UI_CHANGE_SCOPE_AUTHORITY,
                  "document_reader_diagnostic": dispatch.DOCUMENT_READER_DIAGNOSTIC_AUTHORITY,
                  **dispatch.SKILL_AUTHORITY}
         for name, part in {**parts, "reference": dispatch.AUTHORITY_REFERENCE}.items():
