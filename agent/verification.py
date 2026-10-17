@@ -6,6 +6,9 @@ from .ledger import LedgerError
 from .test_baseline import ComparisonError, _read, compare
 
 STAGES = {
+    'preparation': 'client-preparing-verification',
+    'testing': 'client-running-tests',
+    'presentation-qa': 'client-presentation-qa',
     'failure-review': 'client-reviewing-test-failures',
     'comparison': 'client-comparing-test-results',
     'comparison-passed': 'client-verified-awaiting-publication',

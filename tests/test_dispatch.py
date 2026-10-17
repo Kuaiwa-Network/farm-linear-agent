@@ -672,3 +672,29 @@ class BotNameTests(unittest.TestCase):
 
     def test_a_named_instance_tells_its_worker_its_own_name(self):
         self.assertEqual(payload_of(self.message(bot_name="TestBot"))["bot_name"], "TestBot")
+
+    def test_verification_resume_selects_remaining_work_without_claiming_a_verdict(self):
+        item = {'skill': 'work', 'root_repo': 'Farm-Client', 'stage': 'unity-verifying'}
+        for resource, action in (
+                ({'verification_role': 'baseline'}, 'collect-baseline-continue-candidate'),
+                ({'verification_role': 'baseline', 'reuse_candidate_reservation': 'completed'},
+                 'collect-baseline-release-compare-retained-candidate'),
+                ({'commit': 'c'*40}, 'candidate-tests-and-planned-qa-before-release'),
+                (None, 'inspect-saved-evidence-and-run-only-missing-gates')):
+            with self.subTest(resource=resource):
+                brief = dispatch.verification_resume(item, resource, ROOT)
+                self.assertEqual(brief['next_action'], action)
+                self.assertFalse(brief['evidence_is_authority'])
+                self.assertTrue(Path(brief['guide']).is_file())
+        self.assertIsNone(dispatch.verification_resume({'skill': 'chat'}, None, ROOT))
+
+    def test_latency_instructions_preserve_gates_and_bound_same_candidate_work(self):
+        text = dispatch.BASELINE_AUTHORITY
+        for phrase in ('--reuse-candidate-reservation ID', 'same worker; do not queue or rerun the candidate',
+                       'local harness and required inputs', 'draft_eligible', 'controller settlement',
+                       'test, publication and completion gates remain required',
+                       'presentation QA in the candidate reservation'):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, text)
+        self.assertIn('no required human/input/pin/waiver gate outstanding', dispatch.ISSUE_SCOPE_AUTHORITY)
+        self.assertIn('Never claim that archive ran or a PR merged', dispatch.ISSUE_SCOPE_AUTHORITY)

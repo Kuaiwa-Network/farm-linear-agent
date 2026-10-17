@@ -55,6 +55,47 @@ worker instructions and records, not a new controller input-diff classifier or
 database schema. No migration is required; downgrading loses these instructions
 and requires settled review of unfinished jobs before resuming old workers.
 
+For a docs-only Contract change whose required consumer inputs remain sufficient,
+the worker can publish measured acceptance to the existing Contract draft and
+finish draft delivery without waiting solely for that draft's merge/archive.
+All other required closing and human gates must be satisfied. The explicit
+`closing.deferred_archive` remains `pending_contract_merge`, `writeback_opened`
+remains false, and the public draft/delivery records the remaining archive and
+provenance obligation. `closing.acceptance` names the published head and evidence.
+The controller validates the deferred record's shape, stage completion and input
+decisions at finish; it does not independently classify a Contract diff as docs-only.
+Actual introduced unmerged inputs, config pins, waivers and missing acceptance
+cannot use this path. No post-delivery background worker or merge grant is added.
+
+Client candidate admission records its host-verified upstream SHA. A candidate
+with a cleanly released run in the current generation and no comparison round
+can use that pin for remaining focused checks/publication; it need not invent a
+comparison baseline merely to freeze main. An unclean/incomplete newer run or an
+existing comparison round prevents falling back to that candidate-only record.
+This records ancestry, not a passing result; required tests and acceptance remain.
+A candidate
+that ran before its first comparison baseline may be explicitly bound with
+`await-resource --baseline --commit CANDIDATE --reuse-candidate-reservation ID`.
+The controller requires the same item/generation/SHA/mode, clean release and no
+earlier comparison round for that candidate/mode. It records the binding in the
+reservation audit, carries it through bounded recovery and accepts that exact
+candidate's earlier report once the baseline settles. It does not infer a pass:
+all environment, input, selection, complete-result and affected-test checks remain.
+The upstream pin must still be an ancestor of actual remote main and the candidate;
+legacy reservations without a pin retain current-main validation. A later round
+without an explicit valid binding cannot borrow an older run. These are additive
+audit fields, not a migration; older code ignores them and may request redundant
+work, so a downgrade requires settling/reviewing unfinished rounds first.
+
+Verification workers receive a short resume guide and batch evidence reads. They
+prepare local test inputs before requesting resources and perform planned issue
+presentation QA in the candidate reservation when safe, then release and keep the
+claim for offline comparison/publication. Baseline workers with a retained
+candidate compare existing reports after release instead of queuing another run.
+Monitor distinguishes preparation, test execution, presentation QA, comparison
+and publication; these progress labels are not verdicts. Runtime instructions
+take effect only for new installed attempts or an authorized safe handoff.
+
 After the shared behavior is settled, the general job may delegate durable `fgui`
 or `scene` tasks and continue independent server/config work. Each has separate
 claim tokens, checkpoints, human gates and run evidence, sharing the job's owned

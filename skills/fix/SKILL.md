@@ -186,12 +186,15 @@ carry no `author`.
 
 ## Verification ladder
 
-Before a new Client Unity request or source publication, fetch and integrate the repository's current main
-on the owned issue branch. These CLI gates check the actual remote default HEAD, including legacy Client
-requests without `--commit`; changing tracking refs cannot satisfy them. Preserve the immutable baseline
-and retained work. If main advances, commit the integration and rerun required checks at the new clean HEAD.
-Reservation-bound retries keep their granted commit until the reservation settles. Never reset or force-push
-to satisfy synchronization, and never treat prior-HEAD verification as evidence for an integrated candidate.
+Before initial verification of a new Client candidate, fetch and integrate the required main ancestry on
+the owned issue branch. The CLI validates actual remote main; changing tracking refs cannot satisfy it.
+Preserve the immutable baseline and retained work. Once a controller-recorded verification round exists,
+keep that candidate and its selected upstream for remaining checks and publication even if main advances.
+A cleanly settled candidate-only run can retain its admission base without inventing a comparison baseline;
+a comparison round uses its exact pair. Legacy requests without a recorded pin still require current main.
+Do not merge or rerun tests solely because of a newer tip or worker restart. Changed required source/inputs
+need a new committed candidate and affected checks. Never reset or force-push to satisfy synchronization,
+and never treat prior-HEAD verification as evidence for an integrated candidate.
 
 Host policy takes precedence: when `tools.unity_pool.mode` is `interactive`, every
 Unity test below (EditMode and PlayMode included) requests `--mode interactive`.
@@ -263,6 +266,11 @@ Run each check in the repository's own stage. Cheapest sufficient check first, a
    observed state (`clear_stuck` requires evidence that the job is orphaned).
    Recheck state after that attempt; if it still cannot settle, save a checkpoint and release `unclean`. Never start or kill
    the shared Editor. A reload that restores progress does not establish why the stall occurred.
+   Prepare the issue acceptance checklist and harness before reserving Unity, following
+   [verification resume](../../references/client-verification-resume.md). After candidate tests, run the
+   planned presentation QA in this same reservation when safe; do not release just to create a separate QA
+   worker. A concrete regression/unsafe runtime stops dependent QA; offline analysis and human waits require
+   release. Report `verification-progress --phase testing` and then `--phase presentation-qa` for actual work.
    Leave the Editor in Edit Mode with nothing compiling, then
    `release-resource --outcome quiescent`; if you cannot, `--outcome unclean`, which quarantines the slot,
    revokes your claim and resource token, and queues automatic controller recovery. **Exit immediately
@@ -354,6 +362,11 @@ may also print `Unable to create '…/packed-refs.lock'` after a commit, fetch o
 succeeded; that line is harmless, so check the exit status and the result instead.
 For completed Client full-suite failures outside this issue, use [baseline comparison](../../references/test-baseline.md)
 before blocking delivery. Request trusted remote main with `await-resource --baseline --commit CANDIDATE`;
+when the exact candidate already completed its first run, add `--reuse-candidate-reservation ID` to retain
+that cleanly released run and its recorded admission upstream. For a grant carrying
+`resource.reuse_candidate_reservation`, save complete baseline results, release quiescently and compare
+the existing pair after controller settlement in this same worker; never continue/retest that candidate.
+For a baseline without that retained binding, follow the continuation path below:
 preserve the source branch/HEAD and immutable target. Test the reserved baseline, retain complete leaf outcomes,
 checkpoint and confirm quiescence. Use `continue-verification --commit CANDIDATE` with the claim token and
 `--reservation-token-file resource.token_file`, then exit. The controller admits the original candidate on the

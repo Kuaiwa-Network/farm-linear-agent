@@ -114,10 +114,13 @@ def parser():
     resource.add_argument("--commit", help="full SHA of the clean Farm-Client worktree HEAD to verify; default: baseline")
     resource.add_argument("--baseline", action="store_true",
                           help="test trusted remote main for comparison; --commit still names the owned candidate")
+    resource.add_argument('--reuse-candidate-reservation',
+                          help='bind a completed candidate-first run to its first comparison baseline')
     continuation = cmd('continue-verification', '--item', '--commit', '--reservation-token-file', token=True)
     continuation.set_defaults(resource='unity_slot', mode='interactive', baseline=False, server_test_plan=None)
     progress = cmd('verification-progress', '--item', token=True)
-    progress.add_argument('--phase', required=True, choices=['failure-review', 'comparison', 'publication', 'delivery'])
+    progress.add_argument('--phase', required=True, choices=['preparation', 'testing', 'presentation-qa',
+                                                           'failure-review', 'comparison', 'publication', 'delivery'])
     cmd('compare-verification', '--item', '--baseline', '--candidate', '--scope', token=True)
     release = cmd("release-resource", "--item", token=True)
     release.add_argument("--outcome", required=True, choices=["quiescent", "unclean"])
@@ -944,6 +947,11 @@ def run(args, ledger, api_factory):
                     raise LedgerError("verification must use the configured host ledger")
                 mode = "interactive"
         request_options = {}
+        retained_candidate = getattr(args, 'reuse_candidate_reservation', None)
+        if retained_candidate is not None:
+            if not args.baseline:
+                raise LedgerError('--reuse-candidate-reservation requires --baseline')
+            request_options['reuse_candidate_reservation'] = retained_candidate
         if args.server_test_plan:
             if args.resource != "server_slot":
                 raise LedgerError("--server-test-plan requires server_slot")
@@ -990,6 +998,12 @@ def run(args, ledger, api_factory):
             from .workflow import JobWorktrees
             trees = JobWorktrees(Worktrees(paths.repos, paths.worktrees, config.repos), ledger)
             if args.baseline:
+                if retained_candidate is not None:
+                    # Authenticate and validate the binding before using its controller-recorded base.
+                    ledger._validate_retained_candidate(item, retained_candidate, args.commit, mode)
+                    pinned = ledger.candidate_verification_base(retained_candidate)
+                    if pinned:
+                        options['verified_base'] = pinned
                 selected_commit = trees.verification_baseline(
                     "Farm-Client", args.item, args.commit, **options)
                 request_options["comparison_candidate"] = args.commit
@@ -1004,8 +1018,16 @@ def run(args, ledger, api_factory):
                         pair = ledger.client_verification_pair(args.item, args.commit)
                         if pair:
                             options['verified_base'] = pair['baseline_commit']
-                trees.verification_commit("farm-hive" if server_request else "Farm-Client",
-                                          args.item, args.commit, require_main=not server_request, **options)
+                        else:
+                            candidate_round = ledger.client_candidate_round(args.item, args.commit)
+                            if candidate_round:
+                                options['verified_base'] = candidate_round['base_commit']
+                if not server_request and item['skill'] in ('work', 'fix', 'feature'):
+                    request_options['client_base_commit'] = trees.verification_baseline(
+                        'Farm-Client', args.item, args.commit, **options)
+                else:
+                    trees.verification_commit("farm-hive" if server_request else "Farm-Client",
+                                              args.item, args.commit, require_main=not server_request, **options)
                 if server_request:
                     server_round = ledger.server_verification_round(args.item, args.commit)
                     request_options['server_base_commit'] = trees.server_verification_base(

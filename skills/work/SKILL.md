@@ -186,7 +186,10 @@ existing foreign-work, destination, claim and resource checks. Stop/withdrawal
 ends the whole job including its tasks and retains recovery evidence. Workers
 never merge or deploy.
 For Client verification, use feature stage F's reviewed baseline comparison.
-Use `continue-verification` for a completed quiescent baseline's original candidate and `compare-verification`
+Use `continue-verification` only when the completed quiescent baseline's candidate still needs testing.
+If `resource.reuse_candidate_reservation` is present, release the baseline quiescently and compare its
+complete report with that already completed candidate after settlement, in the same worker; do not queue
+the candidate again. Use `compare-verification`
 for the retained evidence. Follow the exact token, exit and phase-reporting procedure in
 [baseline comparison](../../references/test-baseline.md). The eligible verdict
 permits delivery with unchanged outside-scope baseline failures recorded after the remaining required work is complete.
@@ -195,6 +198,11 @@ fixture/directory/loader or unknown shared-state cause alone does not make all i
 scope only with a concrete changed behavior/dependency or observed regression. Retain matching outside-scope
 failures without proving whole-package independence or diagnosing old debt; do not request resources for that.
 Re-review inherited broad affected lists offline and reuse valid QA/reviews instead of repeating them.
+Use [the verification resume guide](../../references/client-verification-resume.md) to prepare inputs
+before leasing Unity and run planned issue QA in the candidate reservation when safe. Retain the
+controller-selected upstream for the unchanged candidate, including a cleanly settled candidate-only
+run; a newer main tip does not restart verification. Feature Closing's explicit docs-only acceptance
+path can finish draft delivery while publicly retaining the pending post-merge archive obligation.
 Do not wait for a green baseline or unrelated main fixes, re-ask draft-delivery permission, or repeat a
 completed unchanged pair for diagnostic-only differences; use the documented offline comparison review.
 The legacy code capability's E gate becomes this verified task join; a separate

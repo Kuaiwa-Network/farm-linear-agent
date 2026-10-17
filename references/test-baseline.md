@@ -16,6 +16,17 @@ then reserves actual remote main. It does not reset source or the immutable targ
 save complete results and checkpoint. When the same candidate is ready and no test, PlayMode or compile is
 active, continue on the same slot using both independent tokens:
 
+**Candidate already tested first:** add `--reuse-candidate-reservation ID` to the baseline request.
+Only this generation's exact cleanly released candidate in the same mode, with no previous comparison
+round, is eligible. The controller retains its recorded admission upstream SHA (which must still belong
+to actual main); a legacy run without this pin requires current-main validation. The baseline grant
+includes `reuse_candidate_reservation`. In that case, save the full baseline report, release cleanly,
+wait for controller settlement and compare the existing reports in the same worker. Skip the continuation
+command below; the candidate does not need a later timestamp or another full test run. Complete selection,
+environment, affected-test and evidence checks are unchanged. This binding itself is not a test verdict.
+
+**Candidate still needs tests:**
+
 ```text
 <selected-python> -m agent --db DATABASE continue-verification --item ITEM --token-file STATE_DIR/token --reservation-token-file RESOURCE_TOKEN_FILE --commit CANDIDATE
 ```

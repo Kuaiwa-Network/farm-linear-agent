@@ -116,6 +116,9 @@ the controller still checks actual upstream ancestry. Changed source needs a new
 round. Compare complete failures and either deliver an eligible draft, fix an
 attributable failure at a new commit, or retain a concrete blocker. Repeating the
 same failing run requires a diagnosed reason to expect a different result.
+A cleanly settled candidate-only run can retain its recorded admission base for
+remaining checks/publication without creating a comparison baseline solely to pin main.
+This pins ancestry, not a passing test result; every actual acceptance gate remains.
 
 Record the decision under `client.inputs.network` (and `closing.inputs.hive` for
 server protocol inputs): `required`, `reason`, inspected full source/base/consumer
@@ -882,18 +885,22 @@ Root Farm-Client. Follow its own AGENTS/CLAUDE, the accepted change's client 交
 `references/repo-map.md`'s client tooling section. The controller's `target` is this stage's immutable main
 baseline, not the issue's intake commit or the revision that later tests will verify. Confirm your actual branch
 equals `target.issue_branch`; preserve it and any recovery work. Record it in `plan.prs.Farm-Client` only after
-"Other people's work" passes. Fetch and integrate main drift without resetting or force-pushing, and ask about
-newer designer data rather than reverting it. Respect all stage limits, withdrawal and current claim fences.
+"Other people's work" passes. Before initial verification, fetch and integrate required main ancestry
+without resetting or force-pushing. A resumed unchanged candidate keeps its controller-recorded round;
+do not repeat integration solely for a newer tip. Ask about newer designer data rather than reverting it.
+Respect all stage limits, withdrawal and current claim fences.
 
-New Unity requests and `verify-publication` enforce ancestry of the actual remote main HEAD. If refused,
+Initial Unity requests and `verify-publication` enforce ancestry of actual remote main or the controller-pinned
+verification base for the exact candidate. If refused for a real missing required ancestry/input,
 integrate main on the preserved issue branch, commit, and repeat required checks at the new HEAD. Do not reset
 the baseline, alter tracking refs to claim synchronization, or reuse old-HEAD results. Reservation-bound
-resumes keep their granted commit; perform integration after that reservation has settled if main advanced.
+resumes keep their granted commit; a newer main tip alone does not require integration or repeated tests.
 
 A reservation-bound resume starts at step 8, without regenerating assets or changing the committed input.
 After a clean release, keep your current claim and continue at step 9 only when the saved verification names the same clean HEAD
 and unchanged input pins, the required verification verdict below is satisfied, and the controller has settled the reservation. Otherwise
-repeat verification at a new committed HEAD. Persist `client.verification` (phase, HEAD, input pins, reservation
+continue only the missing required check on the same candidate; a changed source/input needs a new committed
+HEAD and affected verification. Persist `client.verification` (phase, HEAD, input pins, reservation
 id, result/evidence) before requesting, releasing or publishing, so retries cannot duplicate or invent evidence.
 
 1. Read the 策划案 again, the client requirements and scenario acceptance, and the recorded UI evidence. Verify
@@ -926,8 +933,12 @@ id, result/evidence) before requesting, releasing or publishing, so retries cann
    `tools.client_typecheck.reference_checkout`. No `--no-tests` for the gate. macOS may retain its shell entry
    with an explicit readonly reference. Missing matching Unity-generated projects or hydrated references are
    BLOCKED host capabilities; never start Unity or inspect another personal checkout to obtain them.
-6. Run the repository's full .NET unit command with the verified `FARM_CONFIG_ARTIFACT_ROOT` when applicable.
+6. Use [verification preparation](../../references/client-verification-resume.md) to preflight required LFS
+   inputs and the repository-supported test output layout before executing tests. Arbitrary external
+   `BaseOutputPath` can break tests that discover source roots; retain the supported ignored bin/obj layout.
+   Run the repository's full .NET unit command with the verified `FARM_CONFIG_ARTIFACT_ROOT` when applicable.
    Keep raw UTF-8 logs privately; record discovered/pass/failure/skip counts, every skip and input/tool identities.
+   Read counts from original TRX leaves/counters including NotExecuted, not only the shortened console line.
    Typecheck compiles both test assemblies without executing Unity tests; it cannot stand in for them.
 7. When `tools.unity_pool.mode` is `interactive`, all Unity tests use the fixed
    Editor pool: request `--mode interactive`, follow the reservation-bound MCP
@@ -944,6 +955,10 @@ id, result/evidence) before requesting, releasing or publishing, so retries cann
    For candidate verification, confirm `resource.commit` equals the saved client HEAD. Read the pool's
    `batch_result`/results, or use only the held interactive Unity MCP per the fix verification rules. Run the
    appropriate tests/PlayMode checks for changed behavior; retained results must name this reservation and commit.
+   Prepare the actual acceptance checklist/harness before requesting Unity. Use the linked resume guide to run
+   planned presentation QA in this candidate reservation before release when safe, without repeating setup in
+   another worker. Report `verification-progress --phase testing` and then `--phase presentation-qa`.
+   No QA on a concrete unsafe regression, no holding Unity for offline comparison or a human wait.
    A gap, failed setup/test or untested behavior is reported explicitly. Release the reservation with the actual
    clean/unclean verdict and token procedure in `references/worker-cli.md`; save the results/checkpoint before
    releasing. A clean release does not retire your worker claim: use read-only `slots`/`reservations` to wait for
@@ -954,11 +969,16 @@ id, result/evidence) before requesting, releasing or publishing, so retries cann
    a new committed HEAD and new verification, not reuse of old evidence.
    A comparison reservation is explicitly marked `resource.verification_role=baseline`; its commit is trusted
    remote main, and `resource.candidate_commit` preserves the owned candidate. Run the same complete suite on
-   that reserved baseline without changing source, save all leaf results and checkpoint. When quiescent, use
+   that reserved baseline without changing source, save all leaf results and checkpoint. If
+   `resource.reuse_candidate_reservation` is present, release quiescently and compare the retained candidate
+   after controller settlement in this same worker; do not request the candidate again. Otherwise, when quiescent, use
    `continue-verification --commit CANDIDATE` with the claim token and `--reservation-token-file resource.token_file`,
    then exit. The controller settles the baseline and admits the original candidate for the same slot's next
    turn after worker teardown/capacity checks. If already released, request the original candidate normally;
    never repeat a baseline for priority. Never substitute baseline results for candidate results.
+   If the candidate completed before its first comparison baseline, request that baseline with
+   `--reuse-candidate-reservation CANDIDATE_RESERVATION_ID`; it binds the exact cleanly released run and
+   its recorded upstream. Existing rounds must reuse their pair instead of requesting another baseline.
    When a completed full suite fails outside the issue, follow [baseline comparison](../../references/test-baseline.md)
    before stopping delivery. Use `verification-progress --phase failure-review`, then `compare-verification`
    with complete evidence/scope under this item's state_dir; it updates Monitor immediately. A matching failure
@@ -996,9 +1016,41 @@ id, result/evidence) before requesting, releasing or publishing, so retries cann
 
 ## Closing
 
-After the last required stage, pause for the named human merge/publish steps. Workers never merge or run Jenkins.
+After the last required stage, first apply "Draft acceptance before archive" below; pause only for
+actually required human merge/publish steps. Workers never merge or run Jenkins.
 Closing handles required waivers, consumer re-sync, the published server pin and the Contract acceptance/archive
 draft, one fresh worker per writable root. Keep all unmerged drafts and untested/human acceptance explicit.
+
+### Draft acceptance before archive
+
+Before asking for a Contract merge solely to archive this change, inspect the actual diff and saved input
+decisions. A docs-only Contract change with sufficient retained consumer inputs can complete draft delivery
+before that merge. This does not skip Client behavior verification or Contract acceptance/write-back:
+write the measured acceptance to this issue's existing Contract draft first. All mandatory issue gates,
+required human acceptance, waiver removal, consumer sync and config publishing/pin work must already be
+complete or explicitly not required. Never apply this path to introduced unmerged generation inputs,
+unresolved decisions, stage limits, a closed-unmerged Contract PR or failed/missing mandatory checks.
+
+Save a fresh handoff and enter Farm-Contract once, select the recorded issue branch, verify its clean saved
+HEAD and current PR state, then update only this issue's tasks/scenarios with exact tested commits,
+report links, actual acceptance and unmerged/unaccepted consumer steps. Use existing evidence rather than
+rerunning Client or server suites. Run the required Contract gates, perform the normal publication checks,
+push/update/register the existing draft. No main spec/archive/provenance mutation happens before merge.
+
+Record `closing.acceptance` with `status: recorded`, `contract_pr`, the published full `head` and `evidence`.
+Record `closing.deferred_archive` with `status: pending_contract_merge`, `docs_only: true`, the same
+`contract_pr` and the inspected `reason`. Keep `closing.writeback_opened: false`; never call the archive
+complete or use `not_required` for work that remains due. Clear a superseded archive-only `pause`, not an
+actual unresolved human/input gate. A through F must be done or explicitly skipped with reasons; the
+other four closing flags must be true with the required evidence. A performed consumer stage needs its
+recorded `required: false` input decision, full base/source/consumer identities and evidence. A performed C
+still needs `config.pin: published`. The controller validates this explicit deferred shape at finish.
+
+Then continue Delivery, stating that this is draft delivery and post-merge archive/provenance remains
+pending in the existing Contract PR. Include that follow-up in the draft and delivery, not only a private
+checkpoint. No automatic post-delivery worker is created. If later asked to archive after merge, verify
+the actual merge and resume the existing writeback procedure with retained evidence. This path avoids an
+archive-only human wait; it grants no merge, release or approval waiver. If ineligible, follow normal Closing.
 
 ### The closing comment
 
@@ -1048,7 +1100,7 @@ FarmBot learns of a merge only when told, and then checks GitHub; it polls nothi
    closing branch" before either step. When the next step needs another root, save the plan and a fresh handoff, run `handoff-repository --to`
    that root and exit; the next attempt continues from the plan. A contract PR closed without merging is a
    question: reopen, revise or abandon.
-4. When every `closing` step is true, continue at "Delivery". Otherwise post `closing-N` from the `feature still
+4. When every `closing` step is true, or "Draft acceptance before archive" is fully satisfied, continue at "Delivery". Otherwise post `closing-N` from the `feature still
    waiting` template (what you did, what is still missing and what you looked for), set `pause` again and park.
 
 ### Waivers
@@ -1067,7 +1119,8 @@ plan, and continue with the next closing step, usually a handoff to Farm-Client.
 
 This section applies to consumers that require re-sync. A consumer retaining its verified existing inputs keeps
 their actual provenance; a docs-only change does not create a new generated-input dependency. Verify this issue's
-Contract merge for acceptance/write-back even when no consumer needs regeneration.
+Contract merge before archive/provenance write-back. Docs-only draft acceptance may use the separate
+"Draft acceptance before archive" path without claiming merged provenance.
 
 After a human reports the Contract merge, verify GitHub's state/merge commit and merge versus squash history.
 From the refreshed `reads["Farm-Contract"]`, require `git merge-base --is-ancestor MERGE_SHA HEAD` before
@@ -1201,14 +1254,17 @@ Commit, "Other people's work", verify/push, open/register the writeback draft wh
 `merge-writeback` from `feature merge request`, mentioning the owner and remaining human preconditions. Save its
 head/URL and `closing.writeback_opened`, then return to the recorded Contract issue branch before a sibling reads
 that worktree. Every retry checks the saved head/draft and notice id instead of repeating archive or publication.
+If this resolves a previously deferred archive, move the pending entry to `closing.archive_history` with
+the actual writeback head/PR and remove `closing.deferred_archive` only after that publication succeeds.
+Keep `closing.acceptance` as the earlier draft evidence; an interrupted archive retains the pending record.
 The draft can remain unmerged at delivery; the worker never merges it or any consumer PR.
 
 ## Delivery
 
-When every `closing` step is true, post the delivery comment from the `feature delivery` template
+When every `closing` step is true, or the explicit deferred archive path is fully satisfied, post the delivery comment from the `feature delivery` template
 (`prepare-comment --kind delivery`, `post-comment`). It names every PR with its state, the merges still to do in
 order, the client/config/main input and verification HEADs, UI evidence or skip reason, the writeback/archive
-draft and every human merge/acceptance or untested check still remaining. Local completion does not imply a
+draft (or the explicit pending post-merge archive with the acceptance draft) and every human merge/acceptance or untested check still remaining. Local completion does not imply a
 production release. Set `stages.G` to done, then finish delivered
 ("Outcomes") with every PR this job opened in `prs`.
 

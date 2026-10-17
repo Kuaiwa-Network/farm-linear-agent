@@ -1,9 +1,120 @@
 """Only the exact settled controller-recorded verification round may pin main."""
 from test_server_slots import ServerPoolFixture, SKILLS
+from agent.ledger import LedgerError
 
 
 class VerificationPairTests(ServerPoolFixture):
     BASE, CANDIDATE = "b" * 40, "c" * 40
+
+    def candidate_first(self):
+        item = self.request(root='Farm-Client', reserve=False)
+        token = self.ledger.claim(item, worker_id='fixture')['token']
+        self.ledger.ensure_slot('unity_slot:1', kind='unity_slot', host='test', folder=str(self.root.parent/'editor'))
+        self.ledger.await_resource(item, token, 'unity_slot', 'interactive', skill=SKILLS['fix'],
+                                   commit_sha=self.CANDIDATE, client_base_commit=self.BASE)
+        candidate = self.ledger.acquire('unity_slot', owner='fixture', host='test')
+        return item, self.settled(item, candidate), candidate
+
+    def reuse(self, item, token, candidate):
+        return self.ledger.await_resource(item, token, 'unity_slot', 'interactive', skill=SKILLS['fix'],
+            commit_sha=self.BASE, comparison_candidate=self.CANDIDATE,
+            reuse_candidate_reservation=candidate['reservation_id'])
+
+    def test_candidate_first_pair_needs_no_second_candidate_run(self):
+        item, token, candidate = self.candidate_first()
+        self.assertEqual(self.ledger.candidate_verification_base(candidate['reservation_id']), self.BASE)
+        self.reuse(item, token, candidate)
+        baseline = self.ledger.acquire('unity_slot', owner='fixture', host='test')
+        self.assertEqual(self.ledger.reservation_comparison(baseline['reservation_id'])['reuse_candidate_reservation'],
+                         candidate['reservation_id'])
+        self.assertIsNone(self.ledger.client_verification_pair(item, self.CANDIDATE, require_candidate=True))
+        self.settled(item, baseline)
+        pair = self.ledger.client_verification_pair(item, self.CANDIDATE, require_candidate=True,
+                                                   candidate_reservation=candidate['reservation_id'])
+        self.assertEqual(pair['baseline_reservation'], baseline['reservation_id'])
+        self.assertEqual(pair['candidate_reservation'], candidate['reservation_id'])
+        self.assertEqual(len(self.ledger.reservations()), 2)
+        self.ledger.fail(item, 'maintenance')
+        self.ledger.retry(item, 'retain reports')
+        self.assertEqual(self.ledger.client_verification_pair(item, self.CANDIDATE, require_candidate=True), pair)
+
+    def test_candidate_first_cannot_bypass_identity_generation_or_quiescence(self):
+        item, token, candidate = self.candidate_first()
+        other = self.request(root='Farm-Client', reserve=False)
+        identity = candidate['reservation_id']
+        original = self.ledger.reservation(identity)
+        for field, value in (('item_id', other), ('generation', original['generation'] + 1),
+                             ('commit_sha', 'd'*40), ('mode', 'batch'), ('kind', 'server_slot'),
+                             ('state', 'active'), ('release_reason', 'operator recovery')):
+            with self.subTest(field=field):
+                self.ledger.connection.execute(f'UPDATE reservations SET {field}=? WHERE reservation_id=?', (value, identity))
+                try:
+                    with self.assertRaises(LedgerError):
+                        self.reuse(item, token, candidate)
+                finally:
+                    self.ledger.connection.execute(f'UPDATE reservations SET {field}=? WHERE reservation_id=?', (original[field], identity))
+        for invalid in ('', 'missing', None):
+            with self.subTest(invalid=invalid), self.assertRaises(LedgerError):
+                self.reuse(item, token, {'reservation_id': invalid}) if invalid is not None else self.ledger.await_resource(
+                    item, token, 'unity_slot', 'interactive', skill=SKILLS['fix'],
+                    commit_sha=self.CANDIDATE, reuse_candidate_reservation=identity)
+        self.assertEqual(len(self.ledger.reservations()), 1)
+
+    def test_explicit_reuse_cannot_repeat_an_existing_round(self):
+        item, token, candidate = self.candidate_first()
+        self.reuse(item, token, candidate)
+        baseline = self.ledger.acquire('unity_slot', owner='fixture', host='test')
+        token = self.settled(item, baseline)
+        with self.assertRaisesRegex(LedgerError, 'already has a comparison round'):
+            self.reuse(item, token, candidate)
+        # An ordinary new round still cannot borrow the retained candidate.
+        _, fresh = self.baseline(item=item, token=token)
+        self.settled(item, fresh)
+        self.assertIsNone(self.ledger.client_verification_pair(item, self.CANDIDATE, require_candidate=True))
+
+    def test_candidate_first_binding_survives_controller_requeue(self):
+        item, token, candidate = self.candidate_first()
+        self.reuse(item, token, candidate)
+        baseline = self.ledger.acquire('unity_slot', owner='fixture', host='test')
+        self.ledger.release(baseline['reservation_id'], baseline['token'], 'preparation interrupted')
+        fresh = self.ledger.requeue_reservation(baseline['reservation_id'], 'retry preparation')
+        self.ledger.set_slot_state('unity_slot:1', 'idle_open')
+        baseline = self.ledger.acquire('unity_slot', owner='fixture', host='test')
+        self.assertEqual(baseline['reservation_id'], fresh)
+        self.settled(item, baseline)
+        self.assertEqual(self.ledger.client_verification_pair(item, self.CANDIDATE, require_candidate=True)
+                         ['candidate_reservation'], candidate['reservation_id'])
+
+    def test_retained_candidate_cannot_change_base_or_queue_continuation(self):
+        item, token, candidate = self.candidate_first()
+        with self.assertRaisesRegex(LedgerError, 'recorded upstream'):
+            self.ledger.await_resource(item, token, 'unity_slot', 'interactive', skill=SKILLS['fix'],
+                commit_sha='d'*40, comparison_candidate=self.CANDIDATE,
+                reuse_candidate_reservation=candidate['reservation_id'])
+        self.reuse(item, token, candidate)
+        baseline = self.ledger.acquire('unity_slot', owner='fixture', host='test')
+        self.ledger.resume(item, 'baseline prepared')
+        token = self.ledger.claim(item, worker_id='baseline')['token']
+        with self.assertRaisesRegex(LedgerError, 'candidate already tested'):
+            self.ledger.continuation_baseline(item, token, baseline['token'], self.CANDIDATE)
+        self.assertEqual(self.ledger.reservation(baseline['reservation_id'])['state'], 'active')
+        self.assertEqual(len(self.ledger.reservations()), 2)
+
+    def test_candidate_only_pin_requires_clean_current_generation_and_yields_to_comparison(self):
+        item, token, candidate = self.candidate_first()
+        self.assertEqual(self.ledger.client_candidate_round(item, self.CANDIDATE)['base_commit'], self.BASE)
+        self.assertIsNone(self.ledger.client_candidate_round(item, 'd'*40))
+        original = self.ledger.reservation(candidate['reservation_id'])
+        for field, value in (('state', 'cancelled'), ('release_reason', 'uncertain'),
+                             ('generation', original['generation'] + 1)):
+            with self.subTest(field=field):
+                self.ledger.connection.execute(f'UPDATE reservations SET {field}=? WHERE reservation_id=?',
+                                               (value, candidate['reservation_id']))
+                self.assertIsNone(self.ledger.client_candidate_round(item, self.CANDIDATE))
+                self.ledger.connection.execute(f'UPDATE reservations SET {field}=? WHERE reservation_id=?',
+                                               (original[field], candidate['reservation_id']))
+        self.reuse(item, token, candidate)
+        self.assertIsNone(self.ledger.client_candidate_round(item, self.CANDIDATE))
 
     def baseline(self, *, item=None, token=None):
         item = item or self.request(root="Farm-Client", reserve=False)

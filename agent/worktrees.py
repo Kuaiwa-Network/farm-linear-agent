@@ -726,11 +726,11 @@ class Worktrees:
                             env={**GIT_ENV, 'GIT_NO_REPLACE_OBJECTS': '1'})
         return changed_scope([name for name in names.split('\0') if name])
 
-    def verification_baseline(self, repo, item_id, candidate, *, expected_branch=None):
-        """Select actual remote main for comparison without changing the owned candidate."""
+    def verification_baseline(self, repo, item_id, candidate, *, expected_branch=None, verified_base=None):
+        """Validate current main or a recorded upstream pin without changing the owned candidate."""
         self.verification_commit(repo, item_id, candidate, expected_branch=expected_branch)
         path = self.worktrees_root.resolve() / item_id / repo
-        main = self.require_main_integration(repo, path, candidate)
+        main = self.require_main_integration(repo, path, candidate, verified_base=verified_base)
         self.verification_commit(repo, item_id, candidate, expected_branch=expected_branch)
         return main["commit"]
 

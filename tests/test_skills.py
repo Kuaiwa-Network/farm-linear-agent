@@ -857,6 +857,18 @@ class IssueScopeInstructionTests(unittest.TestCase):
         self.assertNotIn("true only when F was skipped", closing)
         self.assertIn("newer tip alone does not invalidate the selected verified snapshot", closing)
 
+    def test_verification_entrypoints_do_not_restart_rounds_for_a_new_main_tip(self):
+        fix = self.text('skills/fix/SKILL.md')
+        feature = self.text('skills/feature/SKILL.md')
+        self.assertIn('Do not merge or rerun tests solely because of a newer tip or worker restart', fix)
+        self.assertIn('A resumed unchanged candidate keeps its controller-recorded round', feature)
+        for text in (fix, feature):
+            self.assertIn('candidate-only run can retain its', text)
+        self.assertNotIn('If main advances, commit the integration and rerun required checks', fix)
+        work = self.text('skills/work/SKILL.md')
+        self.assertIn('If `resource.reuse_candidate_reservation` is present', work)
+        self.assertIn('a newer main tip does not restart verification', work)
+
     def test_required_generation_and_unmerged_provenance_are_not_waived(self):
         text = self.text("skills/feature/SKILL.md")
         for phrase in ("actual generator input inventory", "schemas, message IDs, registry/manifest inputs",
