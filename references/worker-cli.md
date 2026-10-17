@@ -1,5 +1,48 @@
 # Worker CLI and checkpoints
 
+## Continuing a diagnosed Client repair
+
+After committing a narrow repair descending from the original tested candidate,
+request `await-resource --resource unity_slot --mode interactive --commit NEW_SHA
+--repair-candidate-reservation ORIGINAL_CANDIDATE_RESERVATION` with the current
+claim. Use the original complete comparison's candidate reservation, not a later
+diagnostic or another repair. Preserve the baseline and all raw failed evidence.
+The controller checks clean owned ancestry, no new merges, same item/mode and
+clean settlement; it retains the trusted baseline across unrelated main updates.
+Normal resource ownership, quiescence and publication gates remain required.
+
+For an existing C# test-fixture-only repair with causal evidence, run the whole
+changed fixture(s), necessary predecessor/cleanup cases and all new regressions
+at the new SHA. Save the actual complete focused report. Compare using the
+original baseline, the new focused candidate, `--repair-original ORIGINAL_FULL_JSON`,
+and the original comparison scope extended with this `repair` object:
+
+```json title="repair-scope"
+{
+  "reason": "Observed cause and why only the fixture changed",
+  "evidence": "Retained diagnostic and source-review paths",
+  "changed_paths": ["Assets/Scripts/Tests/PlayMode/PinchTests.cs"],
+  "fixtures": {"Assets/Scripts/Tests/PlayMode/PinchTests.cs": "Farm.Tests.PinchTests"},
+  "expected_tests": ["Farm.Tests.PinchTests.Zoom", "Farm.Tests.PinchTests.OverlayBlocks"]
+}
+```
+
+`changed_paths` is the exact sorted original-to-repair delta. `fixtures` names
+the actual namespace/class in both Git versions; ambiguous layouts require
+normal candidate evidence. Focused `selection.test_names` must include every
+whole fixture, and `expected_tests` must enumerate every returned leaf, including
+predecessors and new regressions. No original fixture leaf may disappear, and
+all focused leaves must pass exactly once. Retain the original scope's commit
+identities and changed/affected paths; do not rewrite old reports to the new SHA.
+The comparator preserves the old full verdict and counts separately, reports
+the new focused counts, and sets `full_suite_passed=false`. All unmatched original
+failures must be covered by the repaired fixtures. Other blockers still block.
+Runtime/asset changes cannot use this focused-report composition.
+
+If rejected, retain the exact gap; never merge newer main, rerun the baseline,
+or repeat unchanged tests merely to bypass it. Check `draft_eligible`, not exit
+status. This grants no merge, deployment, approval or skipped-test waiver.
+
 During operator maintenance, item responses from `claim`, `renew` and `checkpoint`
 include `maintenance_requested: true`. Renew before a new expensive operation or
 test as well as at the normal interval. Finish an already running operation,

@@ -36,6 +36,11 @@ Exit immediately: the claim is retired. The controller still verifies the old wo
 memory and a worker seat before switching/preparing and resuming candidate verification. Distinct reservations,
 test jobs and complete evidence remain mandatory. The priority expires if another reservation uses that slot;
 it cannot be chained from the candidate. A failed settlement does not grant access to a held Editor.
+For a diagnosed descendant repair, use `--repair-candidate-reservation` as described
+in [the worker CLI](worker-cli.md#continuing-a-diagnosed-client-repair). Preserve the
+original baseline and failed full pair. Test-fixture-only causal repairs can use
+the explicit retained-full plus fresh-focused comparison, never a relabeled full pass.
+
 If the baseline was already released, request the unchanged candidate normally after settlement; never repeat
 the baseline just to gain priority. Incomplete results, source changes or human input use normal release and
 diagnosis. An environment mismatch cannot waive a failure. Do not edit a slot or operate its Editor processes.

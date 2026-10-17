@@ -81,6 +81,32 @@ decisions at finish; it does not independently classify a Contract diff as docs-
 Actual introduced unmerged inputs, config pins, waivers and missing acceptance
 cannot use this path. No post-delivery background worker or merge grant is added.
 
+An explicit `await-resource --repair-candidate-reservation ORIGINAL_ID --commit
+REPAIRED_SHA` continues a diagnosed repair from this item's original, cleanly
+settled comparison. The controller validates a clean owned descendant with no
+new merge commits and records the actual diff and original baseline in its audit.
+Main must still contain that baseline; current-main drift alone does not require
+merging or repeating the baseline. Ordinary requests do not inherit unrelated
+rounds. Repair identity is rechecked atomically at admission and survives
+certified retry/requeue. This is ancestry evidence, never a test pass.
+
+For changes confined to existing C# test fixtures under `Assets/**/Tests/**`,
+`compare-verification --repair-original` may retain the original complete pair
+and compare a fresh, completed whole-fixture run on the repaired SHA. The Git
+delta and fixture identities, environment/package inputs, complete expected
+selection, original fixture leaves, and all unmatched failures are checked.
+Every new focused result must pass; new skips/failures, lost tests, ambiguous
+identities and unrelated blockers cannot be waived. A causal source/diagnostic
+review remains required. The report preserves original failed counts and SHAs,
+names repaired failures, reports only actually executed focused candidate counts,
+and keeps `full_suite_passed=false`. Runtime/asset changes require normal
+candidate evidence; they cannot use this focused evidence composition.
+
+These records use existing audit storage; there is no database schema migration.
+Downgrading does not erase records but older controllers cannot interpret repair
+continuations. Settle and pause these jobs before rollback; retain all reports and
+do not resume an older controller into automatic fresh-main retries.
+
 Client candidate admission records its host-verified upstream SHA. A candidate
 with a cleanly released run in the current generation and no comparison round
 can use that pin for remaining focused checks/publication; it need not invent a

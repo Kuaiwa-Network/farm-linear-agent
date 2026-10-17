@@ -113,8 +113,12 @@ For a controller-recorded baseline/candidate comparison, finish that exact round
 after its baseline settles even if main advances while queued. Do not merge merely
 to chase a newer tip. The exact unchanged candidate may use that settled baseline
 for its remaining verification and, after both leases settle, draft publication;
-the controller still checks actual upstream ancestry. Changed source needs a new
-round. Compare complete failures and either deliver an eligible draft, fix an
+the controller still checks actual upstream ancestry. A diagnosed descendant repair
+may continue this original round with `await-resource --repair-candidate-reservation`
+naming the original settled candidate lease. Follow `references/worker-cli.md`:
+retain the original reports, verify the repair, and use `compare-verification
+--repair-original` only for its strictly checked test-fixture-only evidence reuse.
+Other changed source still needs fresh affected verification. Compare complete failures and either deliver an eligible draft, fix an
 attributable failure at a new commit, or retain a concrete blocker. Repeating the
 same failing run requires a diagnosed reason to expect a different result.
 A cleanly settled candidate-only run can retain its recorded admission base for
@@ -912,6 +916,7 @@ baseline, not the issue's intake commit or the revision that later tests will ve
 equals `target.issue_branch`; preserve it and any recovery work. Record it in `plan.prs.Farm-Client` only after
 "Other people's work" passes. Before initial verification, fetch and integrate required main ancestry
 without resetting or force-pushing. A resumed unchanged candidate keeps its controller-recorded round;
+an explicitly admitted descendant repair also retains that round's baseline.
 do not repeat integration solely for a newer tip. Ask about newer designer data rather than reverting it.
 Respect all stage limits, withdrawal and current claim fences.
 

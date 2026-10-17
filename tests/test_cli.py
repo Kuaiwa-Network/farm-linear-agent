@@ -24,6 +24,63 @@ def expected_question(body):
 
 
 class CliTests(unittest.TestCase):
+    def test_repaired_candidate_uses_recorded_base_without_integrating_new_main(self):
+        from agent.ledger import Ledger
+        from test_worktrees import git
+        item, token, baseline, fixed, path = self.verification_fixture()
+        target = path/'Assets/Tests/Pinch.cs'
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text('namespace Farm { class Pinch { /* original */ } }', encoding='utf-8')
+        git('add', '.', cwd=path)
+        git('commit', '-qm', 'original fixture', cwd=path)
+        fixed = git('rev-parse', 'HEAD', cwd=path)
+        for flags in (['--baseline'], []):
+            self.run_cli('await-resource', '--item', item, '--token', token, '--resource', 'unity_slot',
+                         '--mode', 'interactive', '--commit', fixed, *flags)
+            with closing(Ledger(self.db)) as ledger:
+                token = self.settle_test_reservation(ledger, item)
+                source = ledger.reservations()[-1]['reservation_id']
+        origin = self.root / 'origin'
+        (origin/'advance.txt').write_text('unrelated main', encoding='utf-8')
+        git('add', '.', cwd=origin)
+        git('commit', '-qm', 'new main', cwd=origin)
+        target.write_text('namespace Farm { class Pinch { /* controlled input */ } }', encoding='utf-8')
+        git('add', '.', cwd=path)
+        git('commit', '-qm', 'repair', cwd=path)
+        repaired = git('rev-parse', 'HEAD', cwd=path)
+        args = ['await-resource', '--item', item, '--token', token, '--resource', 'unity_slot',
+                '--mode', 'interactive', '--commit', repaired]
+        self.run_cli(*args, success=False)
+        self.assertEqual(self.run_cli(*args, '--repair-candidate-reservation', source)['state'], 'awaiting_resource')
+        with closing(Ledger(self.db)) as ledger:
+            token = self.settle_test_reservation(ledger, item)
+            pair = ledger.client_verification_pair(item, repaired, require_candidate=True)
+            self.assertEqual(pair['baseline_commit'], baseline)
+            self.assertEqual(pair['repair']['changed_paths'], ['Assets/Tests/Pinch.cs'])
+        self.assertEqual(git('rev-parse', 'HEAD', cwd=path), repaired)
+        from agent.config import load_config, Paths
+        from test_test_baseline import run as evidence, test as leaf
+        root = Paths(load_config(self.env['FARMBOT_CONFIG'])).runs / item
+        root.mkdir(parents=True)
+        base = evidence('a', [leaf('Issue.Feature'), leaf('Farm.Pinch.Out')])
+        old = evidence('b', [leaf('Issue.Feature'), leaf('Farm.Pinch.Out', 'Failed', 'pointer hit')])
+        new = evidence('c', [leaf('Farm.Pinch.Out'), leaf('Farm.Pinch.Overlay')])
+        base.update(commit=baseline, reservation_id=pair['baseline_reservation'])
+        old.update(commit=fixed, reservation_id=source)
+        new.update(commit=repaired, reservation_id=pair['candidate_reservation'], selection={'test_names': ['Farm.Pinch']})
+        scope = {'affected_tests': ['Issue.Feature'], 'changed_paths': ['Assets/Feature.cs'], 'unrelated_failures': {},
+                 'repair': {'reason': 'controlled pointer reproduction', 'evidence': 'real hit/no-hit samples',
+                            'changed_paths': ['Assets/Tests/Pinch.cs'], 'fixtures': {'Assets/Tests/Pinch.cs': 'Farm.Pinch'},
+                            'expected_tests': ['Farm.Pinch.Out', 'Farm.Pinch.Overlay']}}
+        for name, data in [('base', base), ('old', old), ('new', new), ('scope', scope)]:
+            (root/(name+'.json')).write_text(json.dumps(data), encoding='utf-8')
+        report = self.run_cli('compare-verification', '--item', item, '--token', token,
+                             '--baseline', str(root/'base.json'), '--candidate', str(root/'new.json'),
+                             '--scope', str(root/'scope.json'), '--repair-original', str(root/'old.json'))
+        self.assertTrue(report['draft_eligible'])
+        self.assertFalse(report['full_suite_passed'])
+        self.assertEqual(report['retained_original']['commit'], fixed)
+
     def test_fixed_pool_cli_converts_unity_batch_request_before_enqueueing(self):
         self.db = self.root / "host" / "agent" / "ledger.sqlite3"
         config_path = self.root / "fixed-profile.json"
