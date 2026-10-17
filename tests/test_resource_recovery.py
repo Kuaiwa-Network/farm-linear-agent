@@ -128,11 +128,28 @@ class RecoveryTests(LedgerBase):
         return RecoveryStore(ledger or self.ledger)
 
     def test_interrupted_baseline_recovery_retains_comparison_role_and_candidate(self):
+        self.check_interrupted_baseline_recovery(candidate_first=False)
+
+    def test_interrupted_baseline_recovery_preserves_candidate_first_binding(self):
+        self.check_interrupted_baseline_recovery(candidate_first=True)
+
+    def check_interrupted_baseline_recovery(self, *, candidate_first):
         item = self.new_item()
         self.ledger.connection.execute("UPDATE work_items SET root_repo='Farm-Client' WHERE id=?", (item['id'],))
         claim = self.ledger.claim(item['id'], worker_id='before-baseline')
+        options = {}
+        if candidate_first:
+            self.ledger.ensure_slot('unity_slot:1', kind='unity_slot', host='test', folder=str(self.path.parent / 'slot-1'))
+            self.ledger.await_resource(item['id'], claim['token'], 'unity_slot', 'interactive',
+                commit_sha='b'*40, client_base_commit='a'*40, skill=SKILLS['fix'])
+            tested = self.ledger.acquire('unity_slot', owner='controller', host='test')
+            self.ledger.release(tested['reservation_id'], tested['token'], 'worker reported quiescent')
+            self.ledger.set_slot_state('unity_slot:1', 'idle_open')
+            self.ledger.resume(item['id'], 'candidate completed')
+            claim = self.ledger.claim(item['id'], worker_id='after-candidate')
+            options['reuse_candidate_reservation'] = tested['reservation_id']
         self.ledger.await_resource(item['id'], claim['token'], 'unity_slot', 'interactive',
-            commit_sha='a' * 40, comparison_candidate='b' * 40, skill=SKILLS['fix'])
+            commit_sha='a' * 40, comparison_candidate='b' * 40, skill=SKILLS['fix'], **options)
         self.ledger.ensure_slot('unity_slot:1', kind='unity_slot', host='test', folder=str(self.path.parent / 'slot-1'))
         original = self.ledger.acquire('unity_slot', owner='old-controller', host='test')
         store = self.store()
@@ -142,9 +159,9 @@ class RecoveryTests(LedgerBase):
         [replacement] = self.ledger.reservations(states=('queued',))
         self.assertEqual(replacement['commit_sha'], 'a' * 40)
         self.assertEqual(self.ledger.reservation_comparison(replacement['reservation_id']),
-                         {'verification_role': 'baseline', 'candidate_commit': 'b' * 40})
+                         {'verification_role': 'baseline', 'candidate_commit': 'b' * 40, **options})
         self.assertEqual(self.ledger.reservation_comparison(original['reservation_id']),
-                         {'verification_role': 'baseline', 'candidate_commit': 'b' * 40})
+                         {'verification_role': 'baseline', 'candidate_commit': 'b' * 40, **options})
         store.detach(recovery['id'], recovery['attempts'])
         self.assertEqual(len(self.ledger.reservations(states=('queued',))), 1)
         self.assertIsNone(self.ledger.client_verification_pair(item['id'], 'b' * 40))

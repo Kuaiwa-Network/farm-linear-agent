@@ -618,19 +618,37 @@ class CliTests(unittest.TestCase):
         self.run_cli(*args, success=False)
 
     def test_compare_verification_cli_updates_phase_without_overwriting_checkpoint(self):
+        self.check_comparison_cli(candidate_first=False)
+
+    def test_candidate_first_cli_reuses_reports_after_main_advances(self):
+        self.check_comparison_cli(candidate_first=True)
+
+    def check_comparison_cli(self, *, candidate_first):
         from agent.ledger import Ledger
         from agent.config import load_config, Paths
         from test_test_baseline import run as evidence, test as leaf
         item, token, baseline, fixed, path = self.verification_fixture()
         self.run_cli('await-resource', '--item', item, '--token', token, '--resource', 'unity_slot',
-                     '--mode', 'interactive', '--commit', fixed, '--baseline')
+                     '--mode', 'interactive', '--commit', fixed, *([] if candidate_first else ['--baseline']))
         with closing(Ledger(self.db)) as ledger:
             token = self.settle_test_reservation(ledger, item)
+            first = ledger.reservations()[0]['reservation_id']
+        if candidate_first:
+            from test_worktrees import git
+            origin = self.root / 'origin'
+            (origin / 'new-main.txt').write_text('unrelated main advances while tests run', encoding='utf-8')
+            git('add', '.', cwd=origin)
+            git('commit', '-qm', 'main advanced', cwd=origin)
         self.run_cli('await-resource', '--item', item, '--token', token, '--resource', 'unity_slot',
-                     '--mode', 'interactive', '--commit', fixed)
+                     '--mode', 'interactive', '--commit', fixed,
+                     *(['--baseline', '--reuse-candidate-reservation', first] if candidate_first else []))
         with closing(Ledger(self.db)) as ledger:
             token = self.settle_test_reservation(ledger, item)
             pair = ledger.client_verification_pair(item, fixed, require_candidate=True)
+            self.assertEqual(len(ledger.reservations()), 2)
+            self.assertEqual(pair['baseline_commit'], baseline)
+            if candidate_first:
+                self.assertEqual(pair['candidate_reservation'], first)
             ledger.checkpoint(item, token, {'retained_note': 'preserve this evidence'})
         root = Paths(load_config(self.env['FARMBOT_CONFIG'])).runs / item
         root.mkdir(parents=True)
@@ -656,7 +674,8 @@ class CliTests(unittest.TestCase):
                      '--mode', 'interactive', '--commit', fixed)
         with closing(Ledger(self.db)) as ledger:
             token = self.settle_test_reservation(ledger, item)
-        self.run_cli('verification-progress', '--item', item, '--token', token, '--phase', 'failure-review')
+        for phase in ('preparation', 'testing', 'presentation-qa', 'failure-review'):
+            self.run_cli('verification-progress', '--item', item, '--token', token, '--phase', phase)
         report = self.run_cli('compare-verification', '--item', item, '--token', token,
                              '--baseline', str(root / 'baseline.json'), '--candidate', str(root / 'candidate.json'),
                              '--scope', str(root / 'scope.json'))
@@ -758,11 +777,11 @@ class CliTests(unittest.TestCase):
         args = parser().parse_args(["--db", str(self.db), "await-resource", "--item", item, "--token", token,
                                    "--resource", "unity_slot", "--mode", "batch", "--commit", fixed])
         def cancelled(*_, **options):
-            self.assertEqual(options, {"expected_branch": "farmbot/farm-1", "require_main": True})
+            self.assertEqual(options, {"expected_branch": "farmbot/farm-1"})
             ledger.cancel(item, "withdrawn during Git reads")
-            return fixed
+            return baseline
         with patch("agent.__main__.load_config", return_value=config), \
-                patch("agent.worktrees.Worktrees.verification_commit", side_effect=cancelled):
+                patch("agent.worktrees.Worktrees.verification_baseline", side_effect=cancelled):
             with self.assertRaises(LedgerError):
                 run(args, ledger, lambda: None)
         self.assertEqual((ledger.item(item)["state"], ledger.reservations()), ("cancelled", []))

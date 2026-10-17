@@ -1803,7 +1803,8 @@ class Ledger:
         return result
 
     def await_resource(self, item_id, token, resource, mode, *, skill, commit_sha=None, issue_prefix="FARM",
-                       comparison_candidate=None, server_test_plan=None, continuation=None, server_base_commit=None):
+                       comparison_candidate=None, server_test_plan=None, continuation=None, server_base_commit=None,
+                       reuse_candidate_reservation=None, client_base_commit=None):
         """Park the claimed item until the pool grants `resource`.
 
         The ledger reads no manifests: `skill` is the item's loaded skill, which the worker CLI passes, as for
@@ -1813,6 +1814,11 @@ class Ledger:
         root is its stored root, the rules are the ones it always had.
         """
         _text(resource, "resource")
+        if reuse_candidate_reservation is not None and comparison_candidate is None:
+            raise LedgerError('candidate reuse requires an explicit comparison baseline')
+        if client_base_commit is not None and (resource != 'unity_slot' or comparison_candidate is not None
+                or not isinstance(client_base_commit, str) or not COMMIT_SHA.fullmatch(client_base_commit)):
+            raise LedgerError('candidate base requires a full host-verified Client SHA')
         if continuation is not None and (resource != 'unity_slot' or mode != 'interactive'
                 or comparison_candidate is not None or not isinstance(continuation, tuple) or len(continuation) != 2):
             raise LedgerError('only an interactive candidate can continue its completed baseline')
@@ -1886,6 +1892,11 @@ class Ledger:
                         or target["repository"] != "Farm-Client" or root != "Farm-Client"):
                     raise LedgerError("only a write worker may select a Farm-Client Unity verification commit")
             selected_commit = target["commit_sha"] if commit_sha is None else commit_sha
+            if reuse_candidate_reservation is not None:
+                self._validate_retained_candidate(row, reuse_candidate_reservation, comparison_candidate, mode)
+                pinned = self.candidate_verification_base(reuse_candidate_reservation)
+                if pinned is not None and pinned != selected_commit:
+                    raise LedgerError('retained candidate requires its controller-recorded upstream baseline')
             from .resource_recovery import RecoveryStore
             if resource == 'unity_slot' and RecoveryStore(self).rejected_candidate(row['id'], row['generation'], selected_commit):
                 raise LedgerError('This Unity candidate already failed preparation. Diagnose the saved candidate_repair, '
@@ -1917,8 +1928,46 @@ class Ledger:
             self._audit(row["id"], "reservation", "queued", details={"reservation_id": reservation_id, "mode": mode,
                         "commit_sha": selected_commit, "baseline_commit": target["commit_sha"],
                         **({"comparison_candidate": comparison_candidate} if comparison_candidate else {}),
+                        **({'reuse_candidate_reservation': reuse_candidate_reservation}
+                           if reuse_candidate_reservation is not None else {}),
+                        **({'client_base_commit': client_base_commit} if client_base_commit else {}),
                         **({'continuation_of': continuation[0]} if continuation else {})})
             return self._view(self._row(row["id"]))
+
+    def _validate_retained_candidate(self, item, reservation_id, candidate, mode):
+        """Bind a candidate-first run once; never let a new round borrow a previous pair."""
+        if not isinstance(reservation_id, str) or not reservation_id:
+            raise LedgerError('candidate reuse requires a reservation ID')
+        tested = self.reservation(reservation_id)
+        if (not tested or tested['item_id'] != item['id'] or tested['generation'] != item['generation']
+                or tested['kind'] != 'unity_slot' or tested['mode'] != mode
+                or tested['commit_sha'] != candidate or tested['state'] != 'released'
+                or tested['release_reason'] != 'worker reported quiescent'
+                or self.reservation_comparison(reservation_id) is not None):
+            raise LedgerError('candidate reuse requires this generation exact cleanly released candidate')
+        for reservation in self.reservations():
+            if reservation['item_id'] != item['id'] or reservation['kind'] != 'unity_slot':
+                continue
+            comparison = self.reservation_comparison(reservation['reservation_id'])
+            if (comparison and comparison['candidate_commit'] == candidate and reservation['mode'] == mode):
+                raise LedgerError('candidate already has a comparison round; reuse its reports instead of requesting a new baseline')
+
+    def candidate_verification_base(self, reservation_id):
+        """Upstream captured at admission, not a worker-supplied report or moving tracking ref."""
+        reservation = self.reservation(reservation_id)
+        if not reservation:
+            return None
+        for row in self.connection.execute(
+                "SELECT details FROM audit WHERE item_id=? AND kind='reservation' "
+                "AND reason IN ('queued','requeued') ORDER BY id DESC", (reservation['item_id'],)):
+            details = json.loads(row['details'])
+            if details.get('reservation_id') == reservation_id:
+                base = details.get('client_base_commit')
+                if base is not None and (not isinstance(base, str) or not COMMIT_SHA.fullmatch(base)
+                        or details.get('commit_sha') != reservation['commit_sha']):
+                    raise LedgerError('candidate base evidence is damaged; preserve recovery evidence')
+                return base
+        return None
 
     def _continuation_baseline(self, item, resource_token, candidate):
         source = self.active_reservation(item['id'])
@@ -1926,6 +1975,8 @@ class Ledger:
             raise LedgerError('continuation requires the still-owned comparison baseline')
         source = self._reservation_owned(source['reservation_id'], resource_token)
         comparison = self.reservation_comparison(source['reservation_id'])
+        if comparison and comparison.get('reuse_candidate_reservation'):
+            raise LedgerError('candidate already tested; release the baseline quiescently and compare retained reports')
         slot = self.slot(source['resource'])
         if (item['skill'] not in ('work', 'feature', 'fix') or item['root_repo'] != 'Farm-Client'
                 or source['generation'] != item['generation'] or source['state'] != 'active'
@@ -1979,7 +2030,11 @@ class Ledger:
                 if (not isinstance(candidate, str) or not COMMIT_SHA.fullmatch(candidate)
                         or details.get("commit_sha") != reservation["commit_sha"]):
                     raise LedgerError("baseline comparison identity is damaged; preserve recovery evidence")
-                return {"verification_role": "baseline", "candidate_commit": candidate}
+                retained = details.get('reuse_candidate_reservation')
+                if retained is not None and (not isinstance(retained, str) or not retained):
+                    raise LedgerError('retained candidate identity is damaged; preserve recovery evidence')
+                return {"verification_role": "baseline", "candidate_commit": candidate,
+                        **({'reuse_candidate_reservation': retained} if retained is not None else {})}
         return None
 
     def server_verification_round(self, item_id, candidate, *, require_released=False):
@@ -2027,7 +2082,10 @@ class Ledger:
                 continue
             if baseline["state"] != "released" or baseline["release_reason"] != "worker reported quiescent":
                 return None  # A newer unfinished/unclean round cannot borrow older evidence.
-            tested = next((r for r in reversed(rows) if r["sequence"] > baseline["sequence"]
+            retained = comparison.get('reuse_candidate_reservation')
+            tested = next((r for r in reversed(rows) if (r["sequence"] > baseline["sequence"] or
+                           (r['reservation_id'] == retained and r['sequence'] < baseline['sequence']
+                            and r['generation'] == baseline['generation']))
                            and (candidate_reservation is None or r["reservation_id"] == candidate_reservation)
                            and r["commit_sha"] == candidate and r["state"] == "released"
                            and r["mode"] == baseline["mode"]
@@ -2320,6 +2378,7 @@ class Ledger:
             if row is None or row["state"] not in ("released", "cancelled"):
                 raise LedgerError("only a closed reservation can be re-queued")
             comparison = self.reservation_comparison(reservation_id)
+            client_base = self.candidate_verification_base(reservation_id)
             fresh = str(uuid4())
             self.connection.execute(
                 """INSERT INTO reservations(reservation_id,item_id,generation,kind,mode,commit_sha,state,
@@ -2327,8 +2386,11 @@ class Ledger:
                 (fresh, row["item_id"], row["generation"], row["kind"], row["mode"], row["commit_sha"],
                  row["attempts"] + 1, self.clock(), row["server_test_plan"]))
             self._audit(row["item_id"], "reservation", "requeued", details={"reservation_id": fresh,
+                **({'client_base_commit': client_base, 'commit_sha': row['commit_sha']} if client_base else {}),
                 "reason": reason[:200], **({"commit_sha": row["commit_sha"],
-                "comparison_candidate": comparison["candidate_commit"]} if comparison else {})})
+                "comparison_candidate": comparison["candidate_commit"],
+                **({'reuse_candidate_reservation': comparison['reuse_candidate_reservation']}
+                   if comparison.get('reuse_candidate_reservation') else {})} if comparison else {})})
             return fresh
 
     def recover_slot(self, slot_id, reason):
@@ -3308,6 +3370,12 @@ class Ledger:
         with self._transaction():
             self.require_valid_checkpoint(item_id, token)
             row = self._owned(item_id, token)
+            if row['skill'] in ('work', 'feature') and outcome == 'delivered':
+                from .closing import validate_deferred_archive
+                try:
+                    validate_deferred_archive(json.loads(row['checkpoint']).get('plan') or {}, evidence.get('prs'))
+                except ValueError as exc:
+                    raise LedgerError(str(exc)) from exc
             if row["skill"] == "work":
                 from .workflow import task_views
                 tasks = task_views(self, item_id)

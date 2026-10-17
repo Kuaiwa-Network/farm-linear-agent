@@ -123,6 +123,8 @@ stage (the skill's "A stage limit"); leave it out otherwise.
 请 <owner.person.url> 决定：改用这个 commit 重新核对配置再 pin（若它不在 <Jenkins 分支> 之后，我会另推一个 Jenkins 分支），还是从 <Jenkins 分支> 重新发布？我不会自行改用别的 commit。
 
 ## feature delivery
+（采用 docs-only 草稿交付时，契约条目写现有 PR 中的验收记录和精确 HEAD；明确“归档／provenance 待契约合并后处理”，
+不填虚构的 writeback PR，不写归档已完成。“仍待人工完成”保留这个后续事项；此交付不会自动启动合并后归档任务。）
 （服务端阶段跳过时，标题和条目不写服务端已完成；删掉服务端、发布 pin 的描述，配表条目保留配置 commit，说明客户端阶段仍需使用它。）
 <bot_name> 已完成这张功能卡需要的契约、配表、服务端和客户端阶段（未需要的阶段及原因单列；草稿 PR 与合并状态见下）：
 - 契约：<PR 链接>（<状态>）；change <名称>；回账／归档草稿 <writeback PR 链接与状态>，待裁决和人工验收 <仍未完成的内容>

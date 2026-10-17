@@ -155,6 +155,10 @@ ISSUE_SCOPE_AUTHORITY = (
     "sync, hand-edit generated output, ignore mandatory repository gates or call untested checks passed. "
     "Record each unnecessary closing step with its reason; proceed with this issue's required acceptance "
     "write-back and finish when its required work and gates are satisfied, without waiting for unrelated features. "
+    "For a docs-only Contract change with retained sufficient consumer inputs, completed issue acceptance, "
+    "no required human/input/pin/waiver gate outstanding, write acceptance to its existing Contract draft. "
+    "The feature skill's deferred_archive path may then finish draft delivery while explicitly leaving the "
+    "post-merge archive/provenance pending. Never claim that archive ran or a PR merged. "
 )
 
 # kw_ops use, bounded to the issue's reproduction and verification; the manifest's `mcp` grants the tools.
@@ -376,9 +380,15 @@ BASELINE_AUTHORITY = (
     "The draft must say full_suite_passed=false and list every retained failure and skip with both SHAs. "
     "This grants neither merge nor deployment authority. Request a comparison baseline with await-resource "
     "--baseline --commit CANDIDATE; the controller selects actual remote main without changing the owned "
-    "candidate, branch or immutable target. A resource with verification_role=baseline intentionally differs "
+    "candidate. If this exact candidate already completed its first run, add --reuse-candidate-reservation ID "
+    "to bind that cleanly released run. Its controller-recorded upstream is retained when available and must "
+    "still belong to actual main; legacy runs without that record require current-main validation. Reuse is "
+    "not allowed to borrow a candidate from a previous comparison round. This preserves the "
+    "candidate, branch and immutable target. A resource with verification_role=baseline intentionally differs "
     "from the source candidate: test only resource.commit, preserve candidate_commit, record complete outcomes, "
-    "checkpoint complete results, confirm no test/PlayMode/compile is active, then use continue-verification "
+    "checkpoint complete results, confirm no test/PlayMode/compile is active. If resource.reuse_candidate_reservation "
+    "is present, release quiescently, wait for controller settlement and compare the existing reports in this "
+    "same worker; do not queue or rerun the candidate. Otherwise use continue-verification "
     "--commit CANDIDATE with the claim token and --reservation-token-file resource.token_file and exit. "
     "This atomically releases the baseline and queues the exact candidate for that slot's next turn, still "
     "requiring controller quiescence, old-worker teardown and an available worker seat. Do not edit the "
@@ -414,8 +424,17 @@ BASELINE_AUTHORITY = (
     "Use verification-progress --phase publication before publication checks and --phase delivery before "
     "recording final delivery; these update display only and never replace checks or grant authority. "
     "If the baseline is already released, use normal await-resource for the original candidate; do not rerun "
+    "a completed candidate when the pair already contains its recorded evidence. Do not rerun "
     "a baseline to obtain continuation priority. If evidence is incomplete, source must change or input is "
     "needed, release normally and diagnose instead of continuing. "
+    "Before reserving Unity, prepare the exact issue acceptance checklist, local harness and required inputs. "
+    "On a verification resume, use verification_resume below to find the current skill section and next action. "
+    "Read the current repository's required instructions and that section plus its referenced gates; do not "
+    "re-read unrelated completed stage procedures or every historical test log on each tool call. "
+    "Run required presentation QA in the candidate reservation immediately after tests when safe, before "
+    "release; do not create a separate QA worker/reservation merely to compare reports first. Stop for a "
+    "concrete regression or unsafe runtime; release rather than holding Unity for offline analysis or human input. "
+    "Use verification-progress --phase preparation, testing and presentation-qa for the actual subphase. "
 )
 
 # Per-skill grants, chosen by the item's skill. A skill without an entry is refused when its launch message
@@ -517,6 +536,23 @@ def authority(skill):
     server_tests = SERVER_TEST_AUTHORITY if skill in {"work", "feature", "fix"} else ""
     return (COMMON_AUTHORITY + identity + QUESTION_AUTHORITY + scope + SKILL_AUTHORITY[skill]
             + diagnostic + baseline + server_tests + AUTHORITY_REFERENCE)
+
+
+def verification_resume(item, resource, root):
+    """Small navigation hint, never an evidence verdict or replacement for human context."""
+    if item.get('skill') not in ('work', 'feature', 'fix') or item.get('root_repo') != 'Farm-Client':
+        return None
+    resource = resource or {}
+    if resource.get('verification_role') == 'baseline':
+        next_action = ('collect-baseline-release-compare-retained-candidate'
+                       if resource.get('reuse_candidate_reservation') else 'collect-baseline-continue-candidate')
+    elif resource:
+        next_action = 'candidate-tests-and-planned-qa-before-release'
+    else:
+        next_action = 'inspect-saved-evidence-and-run-only-missing-gates'
+    return {'guide': str(root / 'references' / 'client-verification-resume.md'),
+            'stage': item.get('stage'), 'next_action': next_action,
+            'context': 'issue-context --view resume', 'evidence_is_authority': False}
 
 
 def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, guidance, budget, repo_root=None,
@@ -673,6 +709,7 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
         # The reservation this worker holds, or None. It carries the token's *path* and never the token, and
         # in neither mode does it carry an argv or the Editor's own path: a worker never starts Unity.
         "resource": resource,
+        "verification_resume": verification_resume(item, resource, root),
         # Standing tool grants beside the reservation: tools.kw_ops is {"access": ...} or {"status": "unavailable",
         # "reason": ...}. A token is never here; the worker's CLI reads it from the environment by name. For a skill
         # that reads the 策划案, tools.lark_cli is {"profile", optional "home"} or unavailable, never an app ID or secret.

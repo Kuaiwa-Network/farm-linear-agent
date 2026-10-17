@@ -48,7 +48,7 @@ python3 -m agent --db DATABASE checkpoint --help
 | `document-reader-status` | Document-reading profiles only: same claim-token arguments; sanitized offline credential availability, never authentication or document acceptance |
 | `release-resource` | `--item ITEM_ID --token-file RESOURCE_TOKEN_FILE`, using `resource.token_file`, plus `--outcome quiescent` or `--outcome unclean` |
 | `continue-verification` | `--item ITEM_ID --token-file CLAIM_TOKEN_FILE --reservation-token-file RESOURCE_TOKEN_FILE --commit CANDIDATE`; completed interactive Client comparison baseline only; retires the claim, then exit |
-| `verification-progress` | `--item ITEM_ID --token-file CLAIM_TOKEN_FILE --phase failure-review\|comparison\|publication\|delivery`; display only, preserves checkpoint |
+| `verification-progress` | `--item ITEM_ID --token-file CLAIM_TOKEN_FILE --phase preparation\|testing\|presentation-qa\|failure-review\|comparison\|publication\|delivery`; display only, preserves checkpoint |
 | `compare-verification` | `--item ITEM_ID --token-file CLAIM_TOKEN_FILE --baseline STATE_DIR/baseline.json --candidate STATE_DIR/candidate.json --scope STATE_DIR/scope.json`; validates the recorded pair and updates comparison status; inspect output `draft_eligible` |
 | `withdraw` | `--item ITEM_ID --token-file STATE_DIR/token`; releases your claim after the delegation was removed or superseded; a general coordinator may park for running children's grace; save a checkpoint first; exit after it succeeds |
 | `tasks` | `--item ITEM_ID`; reads this logical job's durable presentation tasks |
@@ -797,14 +797,21 @@ Fix's existing neutral optional baseline request is unchanged. In an owned Clien
 can add `--baseline --commit CANDIDATE` to reserve trusted remote main for a comparison, while retaining the
 clean candidate, recorded issue branch and immutable target. A comparison resource carries
 `verification_role=baseline` and `candidate_commit`; verify its actual `resource.commit`, retain complete evidence
-and checkpoint. When quiescent and ready, use `continue-verification` with both tokens, then exit: it atomically
+and checkpoint. If the candidate has already completed its first run, add
+`--reuse-candidate-reservation ID` to the baseline request: the controller validates its exact
+item/generation/commit/mode and clean release, records the binding and retains its admission upstream
+SHA when available. Legacy runs without that pin still require current-main validation. Existing
+comparison rounds cannot borrow an older candidate by requesting another baseline. The grant carries
+`resource.reuse_candidate_reservation`; release that baseline quiescently and compare existing reports
+after settlement in this same worker, without `continue-verification` or a second candidate run.
+Otherwise, when quiescent and ready, use `continue-verification` with both tokens, then exit: it atomically
 releases the baseline and queues that exact candidate for the same slot's next turn. Worker admission, teardown,
 Git identity and controller settlement still apply. Already released baselines use a normal candidate request;
 never rerun them for priority. See [comparison evidence and draft verdict](test-baseline.md).
 
 Finish this exact controller-recorded round when remote main advances during the queue.
 After a quiescently settled baseline, the unchanged candidate request uses that selected
-baseline; do not merge solely to chase the latest tip. After both baseline and a subsequent
+baseline; do not merge solely to chase the latest tip. After both baseline and its subsequent or explicitly bound earlier
 candidate reservation in the same mode settle quiescently, `verify-publication` also returns
 `verification_pair` and `main_integration.current_main` separately from the selected baseline.
 The selected baseline must still belong to actual remote main. This permits an eligible
@@ -934,6 +941,13 @@ such a reason means not required, not that a test or export passed. Keep introdu
 unmerged inputs subject to verified-main provenance/re-sync and all mandatory
 gates. Recheck old plans and waits on resume; unrelated features do not become
 dependencies. No top-level plan key, CLI flag or schema migration is added.
+
+For docs-only draft acceptance before a Contract merge, the feature Closing procedure defines
+`closing.acceptance` and `closing.deferred_archive`. Keep `writeback_opened: false` and explicitly
+record `pending_contract_merge`; an archive is pending, not unnecessary or passed. Finish validates
+this explicit deferred record, completed stages, consumer input decisions and remaining closing flags.
+Required human/input/pin/waiver gates cannot be deferred. The public draft/delivery must retain the
+post-merge archive obligation. No automatic post-delivery work or merge authority is created.
 
 An entry of `plan.prs` with `"role": "issue"` names your own branch in that repository, the name
 `git branch --show-current` prints in its worktree, which is always this issue's `farmbot/<key>` or
