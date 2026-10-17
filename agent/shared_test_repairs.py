@@ -1,6 +1,7 @@
 """Discover diagnosed fixture repairs across jobs, without borrowing a passing verdict."""
 import json
 import re
+from contextlib import nullcontext
 
 from .test_baseline import ComparisonError, _path, _run, _signature
 from .worktrees import GIT_ENV, WorktreeError, _git
@@ -20,7 +21,7 @@ def blob(trees, commit, path):
     return value
 
 
-def record(ledger, trees, item_id, original, candidate, report):
+def record(ledger, trees, item_id, original, candidate, report, *, token=None):
     """Called only after the normal claim-fenced repair comparison succeeds."""
     if not report.get('draft_eligible') or report.get('validation_scope') != 'test-only-repair-with-retained-full-evidence':
         return
@@ -53,10 +54,16 @@ def record(ledger, trees, item_id, original, candidate, report):
                 'reason': review['reason'], 'evidence': review['evidence'],
                 'focused_tests': review['expected_tests']}
     # Immutable controller audit events; no new schema or worker-writable registry.
-    previous = ledger.connection.execute("SELECT details FROM audit WHERE item_id=? "
-        "AND kind='shared_test_repair' ORDER BY id DESC LIMIT 1", (item_id,)).fetchone()
-    if not previous or json.loads(previous['details']) != document:
-        ledger._audit(item_id, 'shared_test_repair', 'verified fixture repair', details=document)
+    # Git reads precede this short transaction. A stop/withdrawal during those reads
+    # must revoke the worker's ability to publish a new shared record too.
+    with ledger._transaction() if token is not None else nullcontext():
+        if token is not None:
+            owned = ledger._owned(item_id, token)
+            ledger._refuse_withdrawn(owned)
+        previous = ledger.connection.execute("SELECT details FROM audit WHERE item_id=? "
+            "AND kind='shared_test_repair' ORDER BY id DESC LIMIT 1", (item_id,)).fetchone()
+        if not previous or json.loads(previous['details']) != document:
+            ledger._audit(item_id, 'shared_test_repair', 'verified fixture repair', details=document)
 
 
 def lookup(ledger, trees, candidate):

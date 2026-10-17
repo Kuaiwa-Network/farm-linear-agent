@@ -101,6 +101,16 @@ class SharedRepairTests(unittest.TestCase):
         self.assertEqual(result['matches'][0]['status'], 'review_required')
         self.assertFalse(result['current_tests_passed'])
 
+    def test_stop_during_source_reads_revokes_record_publication(self):
+        from contextlib import nullcontext
+        from unittest.mock import Mock
+        from agent.ledger import LedgerError
+        self.ledger._transaction = nullcontext
+        self.ledger._owned = Mock(side_effect=LedgerError('claim revoked'))
+        with self.assertRaises(LedgerError):
+            record(self.ledger, None, 'source-issue', self.original, self.candidate, self.report, token='old')
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM audit').fetchone()[0], 0)
+
     def test_new_failure_names_and_ambiguous_duplicates_do_not_match(self):
         self.save()
         self.target['tests'][1]['fullName'] = 'Farm.Pinch.New'

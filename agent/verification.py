@@ -58,7 +58,7 @@ def compare_recorded_pair(args, ledger, config, token):
             verify_test_fixtures(trees, args.item, repair, scope.get('repair'))
             report = compare_test_repair(baseline, _read(files[3]), candidate, scope, repair)
             from .shared_test_repairs import record
-            record(ledger, trees, args.item, _read(files[3]), candidate, report)
+            record(ledger, trees, args.item, _read(files[3]), candidate, report, token=token)
         else:
             report = compare(baseline, candidate, **scope)
     except (ComparisonError, WorktreeError, OSError, ValueError, TypeError, AttributeError, KeyError) as exc:
