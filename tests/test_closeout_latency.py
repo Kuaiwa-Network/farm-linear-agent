@@ -116,7 +116,7 @@ class CloseoutCliTests(unittest.TestCase):
         path = self.json_file('index-input.json', {'pins': {'candidate': 'c' * 40}, 'reports': [
             {'path': 'report.json', 'purpose': 'candidate', 'summary': '7 passed'}]})
         result = self.run_cli('evidence-index', '--item', item, '--token', token, '--input', path)
-        self.assertEqual(Path(result['index']).parent, state)
+        self.assertEqual(Path(result['index']).parent, state.resolve())
         verified = self.run_cli('evidence-index', '--item', item, '--token', token, '--verify', result['index'])
         self.assertTrue(verified['hashes_verified'])
         self.assertFalse(verified['requires_issue_review'])

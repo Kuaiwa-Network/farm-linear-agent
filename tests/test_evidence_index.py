@@ -1,12 +1,27 @@
 import copy
+import os
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 
-from agent.evidence_index import create_index, verify_index
+from agent.evidence_index import _file, create_index, verify_index
 
 
 class EvidenceIndexTests(unittest.TestCase):
+    def directory_alias(self, link, target):
+        if os.name == 'nt':
+            # Junctions need no symlink privilege and exercise the native check.
+            subprocess.run(['cmd.exe', '/d', '/c', 'mklink', '/J', str(link), str(target)],
+                           check=True, capture_output=True)
+            self.addCleanup(link.rmdir)
+            self.assertTrue(link.is_junction())
+        else:
+            link.symlink_to(target, target_is_directory=True)
+            self.addCleanup(link.unlink)
+            self.assertTrue(link.is_symlink())
+        return link
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
@@ -71,3 +86,58 @@ class EvidenceIndexTests(unittest.TestCase):
         self.value['reports'][0]['path'] = 'link.json'
         with self.assertRaisesRegex(ValueError, 'links or junctions'):
             create_index(self.root, self.item, self.value)
+
+    def test_ancestor_alias_accepts_absolute_reports_and_index_without_changing_identity(self):
+        alias = self.directory_alias(self.root.parent / 'ancestor alias', self.root.parent.resolve())
+        aliased_root = alias / self.root.name
+        report = aliased_root / 'result.json'
+        self.assertNotEqual(report, report.resolve())
+        self.assertEqual(_file(self.root, str(report)), report.resolve())
+        original = create_index(self.root, self.item, self.value)
+        self.value['reports'][0]['path'] = str(report)
+        self.assertEqual(create_index(aliased_root, self.item, self.value), original)
+        verified = verify_index(self.root, self.item, str(aliased_root / Path(original['index']).name))
+        self.assertTrue(verified['hashes_verified'])
+
+    def test_alias_does_not_hide_links_at_or_below_item_boundary(self):
+        alias = self.directory_alias(self.root.parent / 'ancestor alias', self.root.parent.resolve())
+        nested = self.root / 'nested'
+        nested.mkdir()
+        (nested / 'result.json').write_text('nested', encoding='utf-8')
+        self.directory_alias(self.root / 'back-in', nested.resolve())
+        self.directory_alias(self.root / 'back-root', self.root.resolve())
+        self.directory_alias(self.root.parent / 'root-link', self.root.resolve())
+        for path in (self.root / 'back-in' / 'result.json',
+                     alias / self.root.name / 'back-in' / 'result.json',
+                     alias / self.root.name / 'back-root' / 'result.json',
+                     self.root.parent / 'root-link' / 'result.json'):
+            with self.subTest(path=path), self.assertRaisesRegex(ValueError, 'links or junctions'):
+                _file(self.root, str(path))
+
+    def test_alias_cannot_import_foreign_report_or_traverse_parent(self):
+        alias = self.directory_alias(self.root.parent / 'ancestor alias', self.root.parent.resolve())
+        foreign = self.root.parent / 'foreign'
+        foreign.mkdir()
+        (foreign / 'result.json').write_text('foreign', encoding='utf-8')
+        self.directory_alias(self.root / 'outside', foreign.resolve())
+        for path in (alias / 'foreign' / 'result.json',
+                     alias / self.root.name / 'outside' / 'result.json',
+                     alias / self.root.name / '..' / 'foreign' / 'result.json',
+                     alias / self.root.name / 'outside' / '..' / 'result.json'):
+            with self.subTest(path=path), self.assertRaisesRegex(ValueError, 'inside this item'):
+                _file(self.root, str(path))
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows 8.3 path aliases')
+    def test_windows_short_name_report_has_same_canonical_identity(self):
+        import ctypes
+        get_short = ctypes.WinDLL('kernel32', use_last_error=True).GetShortPathNameW
+        get_short.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32]
+        get_short.restype = ctypes.c_uint32
+        target = self.root / 'result.json'
+        buffer = ctypes.create_unicode_buffer(32768)
+        size = get_short(str(target), buffer, len(buffer))
+        self.assertTrue(0 < size < len(buffer), ctypes.get_last_error())
+        short = Path(buffer.value)
+        if short == target.resolve():
+            self.skipTest('8.3 names unavailable on this volume')
+        self.assertEqual(_file(self.root, str(short)), target.resolve())

@@ -788,6 +788,10 @@ certifies live authorization or creates missing external controller proofs.
 An item-local `evidence-index` retains original report paths, hashes and reviewed full
 source pins. Continuations verify integrity once and separately check current scope,
 clean pins and required inputs. The index grants no test waiver or publication rights.
+Report paths recognize OS aliases above the trusted item directory (for example
+macOS `/var` and Windows short directory names). The resolved file must remain
+inside that directory; parent traversal and symlinks/junctions at or below the
+item boundary remain rejected, including links whose targets stay inside it.
 Only changed decisions belong in continuation reports/handoffs; compare and publish in
 the current worker after Unity release, handing off only for another repository's write.
 These changes require no database migration. An older release can still read saved
