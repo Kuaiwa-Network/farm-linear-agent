@@ -1,7 +1,7 @@
 import copy
 import unittest
 
-from agent.closing import validate_deferred_archive
+from agent.closing import validate_deferred_archive, validate_closing_inputs
 from agent.ledger import LedgerError
 import test_general_delivery as delivery_fixtures
 
@@ -24,6 +24,15 @@ def deferred_plan():
 
 
 class DeferredArchiveTests(unittest.TestCase):
+    def test_consumer_preflight_precedes_acceptance_publication(self):
+        plan = deferred_plan()
+        del plan['closing']['acceptance']
+        del plan['closing']['deferred_archive']
+        validate_closing_inputs(plan)
+        del plan['client']['inputs']['network']['source_commit']
+        with self.assertRaisesRegex(ValueError, 'client.inputs.network.source_commit'):
+            validate_closing_inputs(plan)
+
     def test_complete_draft_retains_pending_archive(self):
         plan = deferred_plan()
         original = copy.deepcopy(plan)
@@ -69,6 +78,37 @@ class DeferredArchiveTests(unittest.TestCase):
 class DeferredArchiveDeliveryTests(unittest.TestCase):
     setUp = delivery_fixtures.GeneralDeliveryTests.setUp
     outcome = delivery_fixtures.GeneralDeliveryTests.outcome
+
+    def test_check_ready_finds_missing_consumer_identity_before_comment(self):
+        plan = deferred_plan()
+        del plan['client']['inputs']['network']['base_commit']
+        self.ledger.checkpoint(self.parent, self.token, {'plan': plan})
+        outcome = {'summary': 'done', 'verification': 'retained reports', 'prs': [PR]}
+        with self.assertRaisesRegex(LedgerError, 'client.inputs.network.base_commit'):
+            self.ledger.finish(self.parent, self.token, 'delivered', outcome, check_only=True)
+        plan['client']['inputs']['network']['base_commit'] = 'a' * 40
+        self.ledger.checkpoint(self.parent, self.token, {'plan': plan})
+        before = self.ledger.item(self.parent)
+        result = self.ledger.finish(self.parent, self.token, 'delivered', outcome, check_only=True)
+        self.assertTrue(result['local_completion_checked'])
+        self.assertFalse(result['completion_checked'])
+        self.assertEqual(self.ledger.item(self.parent), before)
+        self.assertEqual(self.ledger.connection.execute('SELECT COUNT(*) FROM outbox').fetchone()[0], 0)
+        with self.assertRaisesRegex(LedgerError, 'comment_action_id'):
+            self.ledger.finish(self.parent, self.token, 'delivered', outcome)
+
+    def test_check_ready_rejects_changed_or_withdrawn_work(self):
+        self.ledger.checkpoint(self.parent, self.token, {'plan': deferred_plan()})
+        outcome = {'summary': 'done', 'verification': 'retained reports', 'prs': [PR]}
+        for field, value, message in [('requeue_requested', 1, 'issue changed'),
+                                       ('withdraw_deadline', 9999999999, 'withdrawn')]:
+            with self.subTest(field=field):
+                self.ledger.connection.execute(f'UPDATE work_items SET {field}=? WHERE id=?', (value, self.parent))
+                with self.assertRaisesRegex(LedgerError, message):
+                    self.ledger.finish(self.parent, self.token, 'delivered', outcome, check_only=True)
+                self.ledger.connection.execute(f'UPDATE work_items SET {field}=? WHERE id=?',
+                                               (0 if field == 'requeue_requested' else None, self.parent))
+
 
     def test_finish_checks_deferred_record_and_preserves_unfinished_archive(self):
         plan = deferred_plan()

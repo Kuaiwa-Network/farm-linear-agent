@@ -736,7 +736,7 @@ class SchedulerTests(unittest.TestCase):
     def payload(self, launch=-1):
         return json.loads(self.launcher.spawned[launch][1].split("\n\n", 1)[1])
 
-    def test_a_staged_skill_starts_at_its_initial_root_and_restarts_there_after_retry(self):
+    def test_a_staged_skill_retries_at_its_saved_repository(self):
         staged = self.use_staged_skill()
         item = self.item(skill=staged.name)
         self.scheduler.tick()
@@ -758,15 +758,16 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(self.payload()["stage"]["write_repositories"], ["farm-hive"])
         self.assertEqual(self.payload()["stage"]["root_repository"], "farm-hive")
         self.assertEqual(self.payload()["prior_context"]["content"]["next_actions"], ["Build the server"])
-        # A budget kill fails the job; retry restarts it at the initial root, not at farm-hive or neutral.
+        # A budget kill retains the current repository; retry avoids an unnecessary Contract handoff.
         self.ledger.claim(item["id"], worker_id="second")
         self.launcher.finished.append(Finished(item["id"], -9, "", True, "budget", None, 102))
         self.scheduler.tick()
         self.assertEqual(self.ledger.item(item["id"])["state"], "failed")
         self.ledger.retry(item["id"], "operator retry")
         self.assertEqual(self.scheduler.tick()["launched"], 1)
-        self.assertEqual(self.payload()["stage"]["root_repository"], "Farm-Contract")
-        self.assertEqual(self.launcher.spawned[-1][4], str(contract))
+        self.assertEqual(self.payload()["stage"]["root_repository"], "farm-hive")
+        self.assertEqual(self.payload()["stage"]["write_repositories"], ["farm-hive"])
+        self.assertEqual(self.launcher.spawned[-1][4], str(contract.parent / 'farm-hive'))
 
     def test_the_controller_completes_a_handoff_only_as_the_manifest_allows(self):
         staged = self.use_staged_skill()

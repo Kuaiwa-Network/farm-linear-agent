@@ -141,8 +141,8 @@ fingerprint is unchanged. Read `--view full` for a stale handoff, a decision ref
 omitted text, or any missing required fact. No omitted record implies approval or a
 passed check. The default full view and all stored evidence remain unchanged.
 
-Prepare the final PR body, checkpoint and outcome files together. Before preparing
-a delivery comment, run `finish --outcome delivered --input OUTCOME.json --check-input`
+Prepare the final PR body, checkpoint and outcome files together. For early shape checking,
+run `finish --outcome delivered --input OUTCOME.json --check-input`
 with the ordinary item/claim-token arguments. `summary` and `verification` must be
 nonempty **strings**, `prs` an array of canonical PR URLs (or a `no_change` reason).
 The preflight allows the not-yet-created `comment_action_id` to be absent. It renews
@@ -151,6 +151,23 @@ no network call, posts nothing, and does not complete or certify the job. A resp
 of `input_valid=true, completion_checked=false` is not permission to skip any gate.
 After confirmed delivery, add its actual action ID, fetch the current issue and run
 normal `finish`. Its checkpoint, ownership, task, proof and comment gates still apply.
+
+Before preparing delivery, save the final checkpoint and run the mutually exclusive
+`--check-ready` mode instead. It also checks the existing local finish gates (including
+deferred-archive consumer identities, acceptance evidence, settled presentation tasks
+and controller proofs), without requiring a posted comment. It returns
+`local_completion_checked=true, completion_checked=false`; external UI proofs must
+already exist. It makes no network call and cannot certify live readiness.
+
+For docs-only Contract closeout, run `closing-preflight --item ITEM` with the claim
+token after saving consumer stages/inputs, before handing off to Contract. It checks
+the shared deferred-archive consumer prerequisites before acceptance is published.
+`evidence-index --item ITEM --input JSON` creates an immutable item-local report index;
+`--verify INDEX` checks it on continuation. Both require the current claim and the
+configured host ledger. Indexes accept up to 32 files (64 MiB each, 256 MiB total),
+full source pins and bounded summaries. No symlinks, junctions or paths outside the
+item state are accepted. Neither hashes nor supplied pins establish a passing test.
+See [closeout reuse](closeout-reuse.md) for the input shape and reuse boundaries.
 
 `verify-publication` already refreshes issue/delegation and returns `foreign_work`
 for the chosen repository. Inspect that result instead of immediately repeating the

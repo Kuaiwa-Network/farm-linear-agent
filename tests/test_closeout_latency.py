@@ -1,6 +1,7 @@
 import copy
 from contextlib import closing
 import json
+from pathlib import Path
 import unittest
 
 import test_cli as fixtures
@@ -86,6 +87,45 @@ class CloseoutCliTests(unittest.TestCase):
                                  '--input', path, *flags, success=False)
             self.assertIn('verification must be a nonempty string', error.stderr)
         self.assertEqual(self.calls(), calls)
+
+    def test_check_ready_reuses_local_gates_without_network_or_comment(self):
+        item, token, path = self.prepare()
+        calls = self.calls()
+        result = self.run_cli('finish', '--item', item, '--token', token, '--outcome', 'delivered',
+                              '--input', path, '--check-ready')
+        self.assertTrue(result['local_completion_checked'])
+        self.assertFalse(result['completion_checked'])
+        self.assertEqual(self.calls(), calls)
+        self.run_cli('finish', '--item', item, '--token', 'wrong', '--outcome', 'delivered',
+                     '--input', path, '--check-ready', success=False)
+
+    def test_consumer_preflight_and_index_use_current_claim_and_configured_item_root(self):
+        from test_closing import deferred_plan
+        self.db = self.root / 'host' / 'agent' / 'ledger.sqlite3'
+        config = self.json_file('config.json', {'client_id': 'c', 'client_secret': 's', 'webhook_secret': 'w',
+                                               'runtime': 'fake', 'local_root': str(self.root / 'host')})
+        self.env['FARMBOT_CONFIG'] = str(config)
+        item, token, _ = self.prepare()
+        with closing(Ledger(self.db)) as ledger:
+            ledger.checkpoint(item, token, {'plan': deferred_plan()})
+        calls = self.calls()
+        self.assertTrue(self.run_cli('closing-preflight', '--item', item, '--token', token)['consumer_inputs_checked'])
+        state = self.root / 'host' / 'runs' / item
+        state.mkdir(parents=True, exist_ok=True)
+        (state / 'report.json').write_text('{"passed":7}', encoding='utf-8')
+        path = self.json_file('index-input.json', {'pins': {'candidate': 'c' * 40}, 'reports': [
+            {'path': 'report.json', 'purpose': 'candidate', 'summary': '7 passed'}]})
+        result = self.run_cli('evidence-index', '--item', item, '--token', token, '--input', path)
+        self.assertEqual(Path(result['index']).parent, state)
+        verified = self.run_cli('evidence-index', '--item', item, '--token', token, '--verify', result['index'])
+        self.assertTrue(verified['hashes_verified'])
+        self.assertFalse(verified['requires_issue_review'])
+        self.assertEqual(self.calls(), calls)
+        with closing(Ledger(self.db)) as ledger:
+            ledger.connection.execute('UPDATE work_items SET requeue_requested=1 WHERE id=?', (item,))
+        self.run_cli('closing-preflight', '--item', item, '--token', token, success=False)
+        self.run_cli('evidence-index', '--item', item, '--token', token, '--input', path, success=False)
+
 
     def test_resume_cli_is_opt_in_and_leaves_the_complete_view_available(self):
         item, token, _ = self.prepare()

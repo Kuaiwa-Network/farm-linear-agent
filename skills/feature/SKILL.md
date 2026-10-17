@@ -1061,6 +1061,9 @@ required human acceptance, waiver removal, consumer sync and config publishing/p
 complete or explicitly not required. Never apply this path to introduced unmerged generation inputs,
 unresolved decisions, stage limits, a closed-unmerged Contract PR or failed/missing mandatory checks.
 
+Before this docs-only handoff, checkpoint completed consumer stages and exact retained input identities,
+then run `closing-preflight` with the current claim. Follow `references/closeout-reuse.md` to retain
+original reports through one evidence index and inspect remote issue-branch history before editing.
 Save a fresh handoff and enter Farm-Contract once, select the recorded issue branch, verify its clean saved
 HEAD and current PR state, then update only this issue's tasks/scenarios with exact tested commits,
 report links, actual acceptance and unmerged/unaccepted consumer steps. Use existing evidence rather than
@@ -1300,11 +1303,14 @@ production release. Set `stages.G` to done, then finish delivered
 
 ## Outcomes
 
+Follow `references/closeout-reuse.md`: retain original reports through an evidence
+index, keep handoffs compact and do not restart a worker for offline comparison.
+
 Prepare the final draft body, checkpoint and outcome together. Before posting delivery,
-run `finish --outcome delivered --input OUTCOME.json --check-input` with the claim token
+save the final checkpoint and run `finish --outcome delivered --input OUTCOME.json --check-ready` with the claim token
 file. `summary` and `verification` are nonempty strings, not objects; add the actual
-`comment_action_id` after confirmed delivery. Input preflight neither finishes the job
-nor checks its live gates. Use the foreign-work evidence already returned by fresh
+`comment_action_id` after confirmed delivery. This preflight checks local completion
+gates but neither finishes the job nor checks live authorization. Use the foreign-work evidence already returned by fresh
 `verify-publication`, without an immediate duplicate query for the same repository.
 
 Before retiring your claim, save a useful lesson through the item-authenticated memory CLI
@@ -1322,6 +1328,8 @@ Before retiring your claim, save a useful lesson through the item-authenticated 
   `response`.
 
 Write your run report to `STATE_DIR/report.md` or, when an earlier attempt left one there, to the first unused
-`STATE_DIR/report-2.md`, `report-3.md`, …, naming the report it supersedes. Never create, stage, commit or push a
+`STATE_DIR/report-2.md`, `report-3.md`, …, naming the report it supersedes. A continuation report records only
+new decisions and remaining work, linking original reports and `plan.evidence_index`.
+Update the current attempt's prepared report rather than preparing it again. Never create, stage, commit or push a
 run report in any repository. Return at most 1,500 characters: item id, ledger outcome, PR and comment links, the
 stage reached and the checks run.

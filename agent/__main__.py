@@ -53,6 +53,11 @@ def parser():
     cmd("maintenance-handoff", "--item", token=True)
     cmd("document-reader-status", "--item", token=True)
     cmd("checkpoint", "--item", "--input", token=True)
+    cmd('closing-preflight', '--item', token=True)
+    index = cmd('evidence-index', '--item', token=True)
+    mode = index.add_mutually_exclusive_group(required=True)
+    mode.add_argument('--input', help='JSON with pins and selected report paths, purposes and summaries')
+    mode.add_argument('--verify', help='existing immutable evidence index in this item state directory')
     cmd("handoff-repository", "--item", "--to", token=True)
     cmd("revalidate", "--item", "--fingerprint", token=True)
     context = cmd("issue-context", "--item")
@@ -132,8 +137,11 @@ def parser():
     cmd("recover-slot", "--slot", "--reason")
     finish = cmd("finish", "--item", "--input", token=True)
     finish.add_argument("--outcome", required=True, choices=["blocked", "delivered"])
-    finish.add_argument("--check-input", action="store_true",
+    checks = finish.add_mutually_exclusive_group()
+    checks.add_argument("--check-input", action="store_true",
                         help="validate local outcome shape before preparing delivery; does not finish or verify live gates")
+    checks.add_argument('--check-ready', action='store_true',
+                        help='check saved completion gates before posting delivery, without finishing')
     for name in ("cancel", "recover", "retry"):
         cmd(name, "--item", "--reason")
     return root
@@ -547,6 +555,38 @@ def run(args, ledger, api_factory):
     if c == "maintenance-handoff":
         from .maintenance import Maintenance
         return Maintenance(ledger).handoff(args.item, resolve_token(args))
+    if c in ('closing-preflight', 'evidence-index'):
+        token = resolve_token(args)
+        ledger.renew(args.item, token)
+        item = ledger.item(args.item)
+        refuse_withdrawn(item)
+        ledger.require_valid_checkpoint(args.item, token)
+        owned = ledger._owned(args.item, token)
+        fingerprint = ledger._issue_row(owned['issue_id'])['fingerprint']
+        changed = owned['requeue_requested'] or fingerprint != owned['claimed_fingerprint']
+        if changed and (c == 'closing-preflight' or not args.verify):
+            raise LedgerError('issue changed; revalidate before preparing closeout evidence')
+        if c == 'closing-preflight':
+            from .closing import validate_closing_inputs
+            try:
+                validate_closing_inputs(item['checkpoint'].get('plan') or {})
+            except ValueError as exc:
+                raise LedgerError(str(exc)) from exc
+            return {'consumer_inputs_checked': True, 'completion_checked': False,
+                    'next': 'Reuse the reports for required acceptance writeback; check-ready before delivery.'}
+        from .evidence_index import create_index, verify_index
+        config = load_config(secure_permissions=False)
+        paths = Paths(config)
+        if Path(args.db).resolve() != paths.ledger.resolve():
+            raise LedgerError('evidence index must use the configured host ledger')
+        state = paths.runs / args.item
+        identity = {'id': item['id'], 'claimed_fingerprint': owned['claimed_fingerprint'],
+                    'current_fingerprint': fingerprint, 'requires_issue_review': bool(changed)}
+        try:
+            return (verify_index(state, identity, args.verify) if args.verify else
+                    create_index(state, identity, read_json(args.input)))
+        except (ValueError, OSError) as exc:
+            raise LedgerError(str(exc)) from exc
     if c == "checkpoint":
         progress = read_json(args.input)
         if isinstance(progress, dict):
@@ -1142,6 +1182,9 @@ def run(args, ledger, api_factory):
             return {'input_valid': True, 'completion_checked': False,
                     'maintenance_requested': item['maintenance_requested'],
                     'next': 'Complete live gates and confirmed delivery, then run finish without --check-input.'}
+        if args.check_ready:
+            return {**ledger.finish(args.item, token, args.outcome, evidence, check_only=True),
+                    'maintenance_requested': item['maintenance_requested']}
         if item["skill"] == "fgui" and args.outcome == "delivered" and not evidence.get("no_change"):
             from .fgui_workflow import UiWorkflow
             from .fgui_delivery import verify_delivery

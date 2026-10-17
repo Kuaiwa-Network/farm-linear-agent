@@ -10,20 +10,14 @@ def _object(value):
     return value if isinstance(value, dict) else {}
 
 
-def validate_deferred_archive(plan, prs):
+def validate_closing_inputs(plan):
+    """Check completed consumer stages before a docs-only acceptance handoff.
+
+    Does not assert that acceptance is published or that the job can finish.
+    """
     closing = _object(plan.get('closing'))
-    if 'deferred_archive' not in closing:
-        return
-    record = closing['deferred_archive']
-    if not isinstance(record, dict) or record.get('status') != 'pending_contract_merge':
-        raise ValueError('deferred archive must remain pending_contract_merge')
-    if closing.get('writeback_opened') is not False:
-        raise ValueError('deferred archive must not claim writeback_opened')
     if plan.get('pause'):
         raise ValueError('resolve the actual pause before draft delivery')
-    for step in ('waivers_removed', 'client_resynced', 'hive_resynced', 'pin_written'):
-        if closing.get(step) is not True:
-            raise ValueError(f'deferred archive cannot skip closing.{step}')
     stages = _object(plan.get('stages'))
     for stage in 'ABCDEF':
         state = stages.get(stage)
@@ -38,11 +32,27 @@ def validate_deferred_archive(plan, prs):
             raise ValueError('deferred archive requires reviewed retained consumer inputs')
         for key in ('base_commit', 'source_commit', 'consumer_commit'):
             if not isinstance(decision.get(key), str) or not re.fullmatch('[0-9a-f]{40}', decision[key]):
-                raise ValueError('deferred archive requires exact reviewed consumer input identities')
+                field = 'client.inputs.network' if stage == 'F' else 'closing.inputs.hive'
+                raise ValueError(f'deferred archive requires exact reviewed consumer input identities: {field}.{key}')
         if not decision.get('evidence'):
             raise ValueError('deferred archive requires retained input evidence')
     if stages['C'] == 'done' and _object(plan.get('config')).get('pin') != 'published':
         raise ValueError('deferred archive cannot bypass the published config pin')
+
+
+def validate_deferred_archive(plan, prs):
+    closing = _object(plan.get('closing'))
+    if 'deferred_archive' not in closing:
+        return
+    record = closing['deferred_archive']
+    if not isinstance(record, dict) or record.get('status') != 'pending_contract_merge':
+        raise ValueError('deferred archive must remain pending_contract_merge')
+    if closing.get('writeback_opened') is not False:
+        raise ValueError('deferred archive must not claim writeback_opened')
+    for step in ('waivers_removed', 'client_resynced', 'hive_resynced', 'pin_written'):
+        if closing.get(step) is not True:
+            raise ValueError(f'deferred archive cannot skip closing.{step}')
+    validate_closing_inputs(plan)
     if record.get('docs_only') is not True or not isinstance(record.get('reason'), str) or not record['reason'].strip():
         raise ValueError('deferred archive requires a reviewed docs-only Contract reason')
     acceptance = closing.get('acceptance')
