@@ -31,6 +31,14 @@ wait for controller settlement and compare the existing reports in the same work
 command below; the candidate does not need a later timestamp or another full test run. Complete selection,
 environment, affected-test and evidence checks are unchanged. This binding itself is not a test verdict.
 
+**Maintenance interrupted the baseline:** after its clean release and certified
+worker handoff, use `--resume-baseline-reservation ORIGINAL_BASELINE_ID` instead
+of `--reuse-candidate-reservation`. The original candidate and upstream remain
+fixed even if main moved. Any candidate binding is copied from the controller's
+original record. Completed evidence is still reused; never rerun a reviewed
+comparison. Changed generations, later Unity reservations, unclean release and
+unfinished handoff require diagnosis rather than a fallback to current main.
+
 **Candidate still needs tests:**
 
 ```text

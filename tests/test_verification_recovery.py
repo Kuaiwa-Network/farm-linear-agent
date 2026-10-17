@@ -62,6 +62,24 @@ class ComparisonRecoveryTests(unittest.TestCase):
             self.resume()
         ledger.assert_not_called()
 
+    def test_host_resumes_only_certified_pending_baseline_gap_without_reset(self):
+        from test_baseline_resume import interrupt_baseline
+        f = self.f
+        Maintenance(f.ledger).resume()
+        self.item, source = f.baseline()
+        interrupt_baseline(f, self.item, source)
+        f.ledger.fail(self.item, 'missing original baseline resume capability')
+        f.ledger.connection.execute("UPDATE work_items SET state='blocked',stage='client-pinned-baseline-requeue-gap' WHERE id=?", (self.item,))
+        Maintenance(f.ledger).pause('deploy recovery')
+        self.api.fetch_issue.return_value = {**f.ledger.issue(f.ledger.item(self.item)['issue_id']), 'delegate_id':self.api.app_user_id}
+        before = f.ledger.item(self.item)
+        result = self.resume()
+        self.assertEqual(result['stage'], 'client-baseline-resume')
+        self.assertEqual(result['verification_pair']['baseline_reservation'], source['reservation_id'])
+        self.assertIsNone(result['verification_pair']['candidate_reservation'])
+        for field in ('generation','checkpoint','evidence','target','capacity_retries','publication_retries'):
+            self.assertEqual(f.ledger.item(self.item)[field],before[field],field)
+
     def test_failed_recheck_preserves_same_round_and_budgets(self):
         self.resume()
         self.f.ledger.claim(self.item, worker_id='recovered')

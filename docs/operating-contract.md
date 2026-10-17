@@ -1444,6 +1444,17 @@ If that resumed attempt fails in `client-comparison-recheck` or stops blocked in
 operator comparison-resume audit matches the current generation and original retained pair. A later
 same-candidate diagnostic does not replace the audited report reservation; a newer baseline invalidates it.
 The same maintenance, delegation and settlement checks apply, with no automatic retry or budget reset.
+For `client-pinned-baseline-requeue-gap`, the same host command can restore the
+latest maintenance-interrupted comparison as `client-baseline-resume`. The worker
+requests `await-resource --baseline --commit CANDIDATE --resume-baseline-reservation ID`.
+The controller rechecks same item/generation/mode, clean release, certified
+maintenance handoff, absence of later Unity reservations or a reviewed comparison,
+clean owned candidate and original upstream ancestry. It creates a new reservation
+at the original base, retaining any candidate-first binding and every old report.
+Only missing checks run; release/ancestry proves no test pass. Candidate, target,
+budgets and questions are not rewritten. No schema migration is required. Older
+code cannot start this recovery path; settle workers before rollback and retain
+all reservation/audit evidence. No automatic baseline replay follows deployment.
 Rollback requires stopping safely; older code may reject repeated names again, but no database/report rewrite
 or automatic test retry follows from this change.
 Completed valid evidence remains usable after a checkpoint/restart at the same exact inputs. A diagnostic
