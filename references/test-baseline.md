@@ -1,7 +1,7 @@
 # Comparing existing Unity failures
 
 Full suites still run. A draft may retain unrelated failures only when complete comparable baseline and
-candidate evidence proves no new failures, the issue's affected tests pass, and all other required checks pass.
+candidate evidence proves no unresolved regressions, the issue's affected tests pass, and all other required checks pass.
 This is a draft-delivery verdict, never a claim that the full suite passed or permission to merge/deploy.
 
 From the owned Client stage, save the candidate SHA and checkpoint, then request:
@@ -95,7 +95,9 @@ not only one convenient passing case. A shared export package, directory, fixtur
 shared-state coupling alone does not expand the mandatory acceptance boundary. Record concrete evidence
 when a changed behavior or observed regression does expand it. Failures whose stack points into a changed
 path, affected failures, changed failure signatures, new/changed skips, removed tests and mismatched input
-identity are blocked. New tests must pass. Known failures require the same state/message/failure site,
+identity are blocked by default. Proven unrelated shared defects can use the explicit
+[causal review and independent maintenance](shared-test-findings.md) exception, without repair or
+baseline reruns as business prerequisites. New tests must pass. Known failures require the same state/message/failure site,
 except for the narrowly reviewed absolute-clock diagnostic below. Failure messages retain path/URL
 differences; by default only line endings and outer whitespace are normalized.
 Stack normalization ignores checkout paths, C# line shifts, IL offsets and assembly IDs.
@@ -132,6 +134,8 @@ an unchanged outside-scope failure. Keep clock review when only absolute operand
 that names a changed source path remains a concrete association and blocks. New/changed failures, failed
 or missing affected checks, new/changed skips, removed tests, ambiguous duplicate executions, unreviewed
 resource changes, different settings/config/lock/host and incomplete results all retain their gates.
+Only the explicitly verified [shared-finding exception](shared-test-findings.md) can retain new/changed
+failure signatures; it keeps failed results and records independent maintenance without blocking the issue.
 
 Output `scope_policy=issue-delta-v1` records `issue_scope` and exact `retained_baseline_failures`. These mean
 unchanged failures outside the reviewed issue scope, not proven root causes or passing tests. Keep them in

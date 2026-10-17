@@ -2,6 +2,8 @@
 
 ## Continuing a diagnosed Client repair
 
+Confirmed unrelated shared defects can be recorded as [independent maintenance](shared-test-findings.md)
+without repairing them or rerunning baseline to deliver the business issue.
 First consult [shared test repairs](shared-test-repairs.md) for an already diagnosed
 matching fixture failure. Reuse a verified mechanism after current-diff review,
 rather than repeating the same investigation for each issue.

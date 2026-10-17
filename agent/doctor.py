@@ -89,7 +89,8 @@ def _report(now):
     return {"schema_version": 1, "checked_at": now, "status": "ok", "host": None,
             "scope": "local ledger snapshot and recorded worker PIDs; no service, tunnel or Linear health probe",
             "counts": {}, "jobs": [], "slots": [], "reservations": [],
-            "cleanup_pending": [], "issue_status_errors": [], "resource_recoveries": [], "findings": []}
+            "cleanup_pending": [], "issue_status_errors": [], "resource_recoveries": [],
+            "shared_test_followups": [], "findings": []}
 
 
 def _finding(report, code, hint, *, incomplete=False, **evidence):
@@ -113,6 +114,14 @@ def _snapshot(path):
             raise _SchemaMismatch(missing)
         def rows(query):
             return [dict(row) for row in db.execute(query)]
+        # Independent debt, including delivered source jobs. Do not expose causal
+        # prose/private file paths or turn it into an unhealthy business job.
+        shared_followups = rows("""SELECT json_extract(details,'$.followup_id') AS followup_id,
+            json_extract(details,'$.fullName') AS test_name,json_extract(details,'$.kind') AS kind,
+            'open' AS status,0 AS blocks_business_delivery,COUNT(DISTINCT item_id) AS observed_jobs,
+            MAX(created_at) AS last_seen
+            FROM audit WHERE kind='shared_test_followup' AND json_extract(details,'$.schema')=1
+            GROUP BY json_extract(details,'$.followup_id') ORDER BY last_seen DESC LIMIT 200""") if 'audit' in tables else []
         # Read for the plan summary of a job with an initial root and dropped from every job entry (diagnose); a
         # ledger older than root_repo reads as having none.
         root_repo = "w.root_repo" if "root_repo" in columns else "NULL"
@@ -161,6 +170,7 @@ def _snapshot(path):
             "_withdrawal": withdrawal,
             "_unclosed": unclosed,
             "_silent": silent,
+            "shared_test_followups": shared_followups,
             "counts": {row["state"]: row["count"] for row in rows(
                 "SELECT state,COUNT(*) AS count FROM work_items GROUP BY state")},
             "jobs": rows(f"""SELECT w.id AS item_id,w.issue_id,json_extract(i.metadata,'$.identifier') AS identifier,

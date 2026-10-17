@@ -2048,6 +2048,8 @@ class Ledger:
                                     (STAGES[phase], _json(checkpoint), self.clock(), item_id))
             self._audit(item_id, 'verification_progress', phase)
             if report is not None:
+                from .shared_test_findings import record
+                record(self, item_id, report)
                 self._audit(item_id, 'verification_comparison', report['verdict'], details={
                     key: report[key] for key in ('draft_eligible', 'full_suite_passed', 'baseline_commit',
                                                 'candidate_commit') if key in report})

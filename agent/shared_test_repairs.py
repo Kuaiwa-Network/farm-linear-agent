@@ -112,8 +112,12 @@ def lookup(ledger, trees, candidate):
                 'dependencies': saved['dependencies'], 'reason': saved['reason'], 'evidence': saved['evidence'],
                 'repair_reservation': saved['repair_reservation'], 'repair_job': saved['repair_job'],
                 'focused_tests': saved['focused_tests']})
-    return {'matches': matches, 'evidence_is_authority': False, 'current_tests_passed': False,
-            'next': 'Review current issue diff and causal applicability; port only the fixture repair, then '
+    from .shared_test_findings import lookup as findings
+    return {'matches': matches, 'maintenance_findings': findings(ledger, trees, candidate),
+            'evidence_is_authority': False, 'current_tests_passed': False,
+            'next': 'First review current issue diff and causal applicability. Confirmed unrelated failures '
+                    'use references/shared-test-findings.md and separate maintenance; do not require a fixture repair '
+                    'for business delivery. If repair is actually required or separately authorized, port only the fixture repair, then '
                     'validate whole changed fixtures at the new candidate using the original baseline and reports. '
                     'Reuse matching diagnosis, not historical execution results. Do not merge newer main.'}
 
