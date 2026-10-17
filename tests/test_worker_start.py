@@ -29,6 +29,8 @@ class WorkerStartTests(unittest.TestCase):
                 self.assertEqual(payload['stage']['write_repositories'], ['Farm-Contract'])
                 self.assertIn('Fetch the live issue before acting', authority)
                 self.assertFalse(payload['startup']['evidence_is_authority'])
+                self.assertNotIn('claim_', json.dumps(payload['startup']))
+                self.assertEqual(payload['startup']['context_flag'], '--context')
 
     def test_neutral_and_chat_do_not_gain_repository_or_closeout_authority(self):
         _, neutral = self.launch(root=None)

@@ -682,7 +682,7 @@ def startup_navigation(item, root, skill_path, worktrees, root_repository):
     current = worktrees.get(root_repository)
     files = ([str(Path(current) / 'AGENTS.md')] if current else [])
     files += [str(skill_path), str(root / 'references' / 'worker-start.md')]
-    return {'read_together': files, 'claim_context_flag': '--context',
+    return {'read_together': files, 'context_flag': '--context',
             'stage': item.get('stage'), 'guide': str(root / 'references' / 'closeout-reuse.md'),
             'full_context_when_stale': 'issue-context --view full', 'evidence_is_authority': False}
 
