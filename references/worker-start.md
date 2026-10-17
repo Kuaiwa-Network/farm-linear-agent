@@ -9,7 +9,7 @@ of the capability guide, not every other repository/stage. Missing files or
 unclear rules require inspection; do not silently omit a mandatory instruction.
 For a fresh intake, read the operating contract and repository map as usual.
 
-Then execute `startup.claim_argv` as an argument list using the configured
+Then execute `startup.start_argv` as an argument list using the configured
 Python and ledger from dispatch (`claim --context --save-token STATE_DIR/token`).
 It exclusively creates the configured item token file with mode 0600 on POSIX
 and inherited DACL on Windows, refusing existing files, links and other paths.

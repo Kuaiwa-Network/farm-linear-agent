@@ -591,6 +591,39 @@ class WorktreeTests(unittest.TestCase):
                              allow_failure=True), "")
         self.assertEqual(self.origin_fetches(lambda: self.trees.fetch("Farm-Client")), 1)  # outside a block: always
 
+    def test_launch_read_copy_uses_advertised_tip_and_fetches_if_remote_moves_after_clone_fetch(self):
+        with self.trees.one_fetch_per_clone():
+            self.trees.fetch('Farm-Client')
+            clone = self.trees.clone_path('Farm-Client')
+            tip = git('rev-parse', 'HEAD', cwd=self.origin)
+            # A controller-written remote identity is required even if a worker
+            # has deleted the shared clone's writable tracking ref.
+            git('update-ref', '-d', 'refs/remotes/origin/main', cwd=clone)
+            read = self.trees.read_checkout('Farm-Client', 'same-launch')
+            self.assertEqual(git('rev-parse', 'HEAD', cwd=read), tip)
+            (self.origin / 'new-input.txt').write_text('fresh input', encoding='utf-8')
+            git('add', '.', cwd=self.origin)
+            git('commit', '-qm', 'move remote after launch fetch', cwd=self.origin)
+            new = git('rev-parse', 'HEAD', cwd=self.origin)
+            self.assertFalse(self.trees.has_commit('Farm-Client', new))
+            updated = self.trees.read_checkout('Farm-Client', 'same-launch')
+            self.assertEqual(git('rev-parse', 'HEAD', cwd=updated), new)
+
+    def test_same_launch_borrowed_checkout_failure_falls_back_to_actual_fetch(self):
+        calls = []
+        real = agent.worktrees._git
+        def once(*args, **kwargs):
+            calls.append(args[0])
+            if args[0] == 'checkout' and calls.count('checkout') == 1:
+                raise WorktreeError('borrowed tree missing')
+            return real(*args, **kwargs)
+        with self.trees.one_fetch_per_clone():
+            self.trees.fetch('Farm-Client')
+            with patch('agent.worktrees._git', once):
+                path = self.trees.read_checkout('Farm-Client', 'missing-input')
+            self.assertEqual((calls.count('fetch'), calls.count('checkout')), (1, 2))
+            self.assertEqual(git('rev-parse', 'HEAD', cwd=path), git('rev-parse', 'HEAD', cwd=self.origin))
+
     def test_a_failed_fetch_is_not_recorded_and_another_threads_fetch_is_never_skipped(self):
         self.trees.ensure_clone("Farm-Client")
         real, failed = agent.worktrees._git, []

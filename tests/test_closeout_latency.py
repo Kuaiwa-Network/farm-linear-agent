@@ -103,7 +103,7 @@ class CloseoutCliTests(unittest.TestCase):
         result = startup_navigation({'id': 'item', 'skill': 'work', 'stage': 'unity-verifying'},
             self.root, self.root / 'skill.md', {'Farm-Client': current}, 'Farm-Client',
             self.root / 'database with spaces.sqlite3', self.root / 'state with spaces')
-        argv = result['claim_argv']
+        argv = result['start_argv']
         self.assertEqual(argv[0], sys.executable)
         self.assertEqual(argv[argv.index('--save-token') + 1], str(self.root / 'state with spaces' / 'token'))
         self.assertIn(str(current / 'CLAUDE.md'), result['read_together'])

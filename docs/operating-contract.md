@@ -1,7 +1,7 @@
 # FarmBot operating contract
 
 Continuation startup uses the current root's instructions, skill and bounded
-`references/worker-start.md` read batch. `startup.claim_argv` uses
+`references/worker-start.md` read batch. `startup.start_argv` uses
 `claim --context --save-token STATE_DIR/token` to store the secret exclusively at
 the configured item path and return a secret-free compact resume view. Existing
 files/links, wrong ledger/path and storage failure refuse startup; an uncertain

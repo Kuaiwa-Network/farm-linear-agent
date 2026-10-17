@@ -627,7 +627,7 @@ SERVER_TEST_AUTHORITY = (
 
 
 CLOSEOUT_AUTHORITY = (
-    " For a continuation, use startup.read_together in one local read batch, then startup.claim_argv. "
+    " For a continuation, use startup.read_together in one local read batch, then startup.start_argv. "
     "claim --context --save-token exclusively stores the token and returns a secret-free resume context; "
     "do not write another token-storage script or read the whole CLI reference just to start. "
     "Fetch the live issue before acting. Read the "
@@ -694,7 +694,7 @@ def startup_navigation(item, root, skill_path, worktrees, root_repository, db_pa
         files.append(str(Path(current) / 'CLAUDE.md'))
     files += [str(skill_path), str(root / 'references' / 'worker-start.md')]
     return {'read_together': files, 'context_flag': '--context',
-            'claim_argv': ([sys.executable, '-m', 'agent', '--db', str(db_path), 'claim',
+            'start_argv': ([sys.executable, '-m', 'agent', '--db', str(db_path), 'claim',
                             '--item', item['id'], '--worker-id', item['id'] + ':worker', '--context',
                             '--save-token', str(Path(state_dir) / 'token')] if db_path and state_dir else None),
             'stage': item.get('stage'), 'guide': str(root / 'references' / 'closeout-reuse.md'),
