@@ -215,6 +215,20 @@ FEATURE_AUTHORITY_WITH_SCOPED_INPUTS = FEATURE_AUTHORITY_WITH_SERVER_SLOTS.repla
     "metadata installation; draft network outputs",
     "metadata installation when required consumer inputs change; draft network outputs")
 
+FEATURE_AUTHORITY_WITH_CI_REGISTRATION = FEATURE_AUTHORITY_WITH_SCOPED_INPUTS.replace(
+    "any pull request, never run a Jenkins job, never re-run or dispatch a CI workflow, never change CI "
+    "configuration or workflow files in any repository, never create Linear issues or labels, and never send ",
+    "any pull request, never run a Jenkins job, never re-run or dispatch a CI workflow. Within this issue's "
+    "stage.write_repositories you may update existing CI registrations required by its actual business change: "
+    "explicit entry-point inventories and their matching negative-test injection anchors, in the same commit. "
+    "Prove the registered entry exists and is required by this issue; preserve exact-set checks and demonstrate "
+    "the existing negative case still fails for the intended reason. This is not permission to edit workflow "
+    "or pipeline definitions, triggers, permissions, credentials, runners, gate implementations, scan scope, "
+    "thresholds, skips, exclusions or expected failure results. Never add a bypass or unrelated registration. "
+    "Record the source-to-registration mapping, exact diff and positive/negative verification in the handoff. "
+    "A CI path alone is not a reason to request human permission for this narrow registration. Other CI changes "
+    "remain forbidden. Never create Linear issues or labels, and never send ")
+
 def payload_of(message):
     return json.loads(message.split("\n\n", 1)[1])
 
@@ -549,18 +563,18 @@ class SkillAuthorityTests(unittest.TestCase):
         the common restrictions and chat's bytes stay as the tests above pin them."""
         self.assertEqual(hashlib.sha256(FEATURE_AUTHORITY_WITH_SHEETS.encode("utf-8")).hexdigest(),
                          FEATURE_AUTHORITY_WITH_SHEETS_SHA256)
-        self.assertEqual(dispatch.FEATURE_AUTHORITY, FEATURE_AUTHORITY_WITH_SCOPED_INPUTS)
+        self.assertEqual(dispatch.FEATURE_AUTHORITY, FEATURE_AUTHORITY_WITH_CI_REGISTRATION)
         self.assertIs(dispatch.SKILL_AUTHORITY["feature"], dispatch.FEATURE_AUTHORITY)
         self.assertEqual(self.message({"id": "i", "skill": "feature"}).split("\n\n", 1)[0],
                          dispatch.COMMON_AUTHORITY + dispatch.GIT_COMMIT_AUTHORITY + dispatch.QUESTION_AUTHORITY
-                         + dispatch.ISSUE_SCOPE_AUTHORITY + dispatch.UI_CHANGE_SCOPE_AUTHORITY + FEATURE_AUTHORITY_WITH_SCOPED_INPUTS + dispatch.DOCUMENT_READER_DIAGNOSTIC_AUTHORITY
+                         + dispatch.ISSUE_SCOPE_AUTHORITY + dispatch.UI_CHANGE_SCOPE_AUTHORITY + FEATURE_AUTHORITY_WITH_CI_REGISTRATION + dispatch.DOCUMENT_READER_DIAGNOSTIC_AUTHORITY
                          + dispatch.BASELINE_AUTHORITY + dispatch.SERVER_TEST_AUTHORITY + dispatch.CLOSEOUT_AUTHORITY + dispatch.AUTHORITY_REFERENCE)
 
     def test_the_feature_part_states_its_limits_and_carries_no_other_skills_grants(self):
         part = dispatch.SKILL_AUTHORITY["feature"]
         # The launch message is the AUTHORITY, a blank line, then the payload: a line break inside would split it.
         self.assertNotIn("\n", part)
-        for phrase in ("Never merge any pull request", "never run a Jenkins job", "never change CI",
+        for phrase in ("Never merge any pull request", "never run a Jenkins job", "Other CI changes remain forbidden",
                        "only through FarmBot's worker CLI commands for this claimed item",
                        "lark-cli --profile PROFILE docs +fetch --as bot",
                        "lark-cli --profile PROFILE wiki +node-get --as bot",
@@ -587,6 +601,38 @@ class SkillAuthorityTests(unittest.TestCase):
                 self.assertIn(phrase, part)
         self.assertNotIn("tools.kw_ops.access", part)  # D16: no operator-tool grant
         self.assertNotIn("FairyGUI", part)  # the export grant is fix's alone (D18 h)
+
+    def test_ci_registration_grant_reaches_work_and_feature_without_expanding_other_profiles(self):
+        for skill in ("work", "feature"):
+            with self.subTest(skill=skill):
+                authority = self.message({"id": "i", "skill": skill}).split("\n\n", 1)[0]
+                for phrase in ("stage.write_repositories you may update existing CI registrations",
+                               "required by its actual business change", "in the same commit",
+                               "preserve exact-set checks", "negative case still fails for the intended reason",
+                               "not permission to edit workflow or pipeline definitions",
+                               "triggers, permissions, credentials, runners, gate implementations, scan scope",
+                               "thresholds, skips, exclusions or expected failure results",
+                               "Never add a bypass or unrelated registration",
+                               "never re-run or dispatch a CI workflow", "Never force-push",
+                               "Unverified or absent destinations grant no publishing authority"):
+                    self.assertIn(phrase, authority)
+                self.assertNotIn("never change CI configuration or workflow files in any repository", authority)
+        for skill in ("chat", "fix", "fgui", "scene"):
+            self.assertNotIn("you may update existing CI registrations", dispatch.authority(skill))
+
+    def test_server_causal_review_requires_evidence_and_retains_failures(self):
+        for skill in ("work", "feature", "fix"):
+            authority = self.message({"id": "i", "skill": skill}).split("\n\n", 1)[0]
+            for phrase in ("references/server-evidence.md", "including changed shared test helpers",
+                           "never call it a matched baseline failure", "Keep original failures and gaps visible",
+                           "unresolved causality or a failure affecting required behavior still blocks"):
+                self.assertIn(phrase, authority)
+        self.assertNotIn("references/server-evidence.md", dispatch.authority("chat"))
+        guide = (ROOT / "references/server-evidence.md").read_text(encoding="utf-8")
+        for phrase in ("A registration-only follow-up commit does not relabel old reports",
+                       "all source/fixture/toolchain inputs", "existing bounded diagnosis",
+                       "execute the affected registration gate", "not a Unity compare-verification verdict"):
+            self.assertIn(phrase, guide)
 
     def test_ui_authority_is_pinned_to_certified_export_client_and_unity_loading(self):
         part = dispatch.FGUI_AUTHORITY

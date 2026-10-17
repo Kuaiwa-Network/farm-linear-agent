@@ -605,9 +605,16 @@ class FeatureInstructionTests(unittest.TestCase):
 
     def test_the_job_publishes_drafts_and_never_merges(self):
         self.assert_phrases((
-            "They do not let you merge, deploy, run Jenkins or any CI job, change CI",
+            "They do not let you merge, deploy, run Jenkins or dispatch any CI job",
             "Never force-push and never rewrite a published branch", "Only `status: verified` authorizes the push",
             "--draft"))
+
+    def test_same_issue_ci_registration_preserves_the_negative_gate(self):
+        self.assert_phrases((
+            "minimal existing CI registration", "both injection anchors",
+            "retain the extra non-transaction", "negative case fails for its intended",
+            "does not authorize workflow/pipeline definitions", "weakened assertions or unrelated entries",
+            "never dispatch CI", "do not fabricate a human answer"))
 
     def test_every_issue_branch_is_recorded_at_intake_after_the_foreign_work_check(self):
         self.assert_phrases((
