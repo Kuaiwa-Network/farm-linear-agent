@@ -915,7 +915,8 @@ Root Farm-Client. Follow its own AGENTS/CLAUDE, the accepted change's client 交
 baseline, not the issue's intake commit or the revision that later tests will verify. Confirm your actual branch
 equals `target.issue_branch`; preserve it and any recovery work. Record it in `plan.prs.Farm-Client` only after
 "Other people's work" passes. Before initial verification, fetch and integrate required main ancestry
-without resetting or force-pushing. A resumed unchanged candidate or explicitly admitted descendant repair keeps its controller-recorded round;
+without resetting or force-pushing. A resumed unchanged candidate keeps its controller-recorded round;
+an explicitly admitted descendant repair also retains that round's baseline.
 do not repeat integration solely for a newer tip. Ask about newer designer data rather than reverting it.
 Respect all stage limits, withdrawal and current claim fences.
 

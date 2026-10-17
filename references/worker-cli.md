@@ -17,7 +17,7 @@ at the new SHA. Save the actual complete focused report. Compare using the
 original baseline, the new focused candidate, `--repair-original ORIGINAL_FULL_JSON`,
 and the original comparison scope extended with this `repair` object:
 
-```json
+```json title="repair-scope"
 {
   "reason": "Observed cause and why only the fixture changed",
   "evidence": "Retained diagnostic and source-review paths",
