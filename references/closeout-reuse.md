@@ -77,6 +77,15 @@ decisions. Reuse the prepared PR body/outcome/checkpoint files for publication a
 delivery, updating actual URLs and confirmations rather than rebuilding equivalent
 copies after each step. Do not treat an index or packet as a completion verdict.
 
+Pass the saved packet as `--checkpoint FILE` to `handoff-repository`,
+`await-resource` or `continue-verification` to save it and perform the handoff
+in one invocation. It runs the ordinary checkpoint gates first, then all ordinary
+handoff/resource gates. If the second step refuses, the checkpoint remains saved
+and the current claim/resource remains owned; diagnose the refusal. A successful
+handoff retires the claim: exit immediately, with no final report rewrite or wait
+for the next reservation. The controller still verifies descendant teardown and
+Editor quiescence before switching. It never trusts worker-reported release alone.
+
 `verify-publication` returns `push_argv` using the verified remote name and explicit
 issue ref, plus `execution_hint`. On Windows use normal automatic approval for that
 exact push outside the restricted shell on its first attempt: MSYS hooks can fail

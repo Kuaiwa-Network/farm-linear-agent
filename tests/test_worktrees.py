@@ -574,6 +574,7 @@ class WorktreeTests(unittest.TestCase):
                     self.trees.add("Farm-Client", "item-2", "farmbot/farm-2")
                 baseline = self.trees.stage_base("Farm-Client", "item-3", "farmbot/farm-3")
                 self.trees.add_stage("Farm-Client", "item-3", "farmbot/farm-3", baseline)
+                self.trees.read_checkout('Farm-Client', 'item-3')
         self.assertEqual(self.origin_fetches(first_launch), 1)
         git("branch", "gone", cwd=self.origin)
 

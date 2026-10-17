@@ -23,7 +23,8 @@ def blob(trees, commit, path):
 
 def record(ledger, trees, item_id, original, candidate, report, *, token=None):
     """Called only after the normal claim-fenced repair comparison succeeds."""
-    if not report.get('draft_eligible') or report.get('validation_scope') != 'test-only-repair-with-retained-full-evidence':
+    if (not report.get('draft_eligible') or not report.get('repaired_failures')
+            or report.get('validation_scope') != 'test-only-repair-with-retained-full-evidence'):
         return
     review = report['repair_review']
     dependencies = review.get('shared_dependencies', [])

@@ -14,7 +14,8 @@ For fresh intake read the operating contract, worker CLI, repository map and the
 instructions. On continuation use `startup.read_together` and `references/worker-start.md`
 first, then the required current-phase rules; do not reread every unrelated stage.
 Use `execution.python` and native argument lists. Follow the
-claim-token storage procedure in `references/worker-cli.md`:
+startup command in `references/worker-start.md` for exclusive claim-token storage;
+plain legacy claim uses the procedure in `references/worker-cli.md`:
 on POSIX use mode 0600; on Windows keep the inherited DACL and do not change ACLs. Never share
 a claim token with a presentation task.
 

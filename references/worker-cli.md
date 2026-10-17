@@ -45,6 +45,35 @@ the new focused counts, and sets `full_suite_passed=false`. All unmatched origin
 failures must be covered by the repaired fixtures. Other blockers still block.
 Runtime/asset changes cannot use this focused-report composition.
 
+If an intentional test rename removed a baseline identity, restore that identity
+with meaningful current-behavior assertions in the existing fixture. Add
+`"restored_tests": ["Full.Fixture.OriginalTest"]` to `repair` and run the whole
+changed fixture at the repaired SHA. Every declared identity must actually have
+been missing, belong to the reviewed changed fixture, and pass exactly once in
+the fresh report; all original candidate fixture leaves must remain. The comparator
+can resolve that missing-identity blocker even without an unmatched failure.
+Undeclared missing tests, changed skips, environment drift and unrelated blockers
+remain blockers. No name alias or fabricated result is accepted. Preserve the
+baseline and original reports from other modes with their actual SHAs; review
+their continued applicability to the test-only delta instead of rerunning all
+EditMode/PlayMode suites just to restore a name. New runtime/asset/input changes
+still invalidate affected evidence. Identity restoration is not a shared failure
+diagnosis and does not create an empty shared-repair record.
+
+## Startup and combined handoff commands
+
+`claim --item ITEM --worker-id WORKER --context --save-token STATE_DIR/token`
+creates the token exclusively at the configured item path and returns `token_file`
+and resume context without printing the token. It requires the configured ledger;
+existing files/links and storage failures stop startup. Preserve failure evidence,
+never retry a possibly successful claim. Plain claim remains compatible.
+See [worker-start](worker-start.md) for current issue refresh and required reads.
+
+`handoff-repository`, `await-resource` and `continue-verification` accept optional
+`--checkpoint FILE`. This saves through normal checkpoint/PR checks before the
+ordinary transition. A transition refusal retains that checkpoint; it does not
+undo saved progress or release the current resource. On success exit immediately.
+
 If rejected, retain the exact gap; never merge newer main, rerun the baseline,
 or repeat unchanged tests merely to bypass it. Check `draft_eligible`, not exit
 status. This grants no merge, deployment, approval or skipped-test waiver.

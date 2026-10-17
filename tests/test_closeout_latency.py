@@ -3,6 +3,8 @@ from contextlib import closing
 import json
 from pathlib import Path
 import unittest
+import os
+from unittest.mock import patch
 
 import test_cli as fixtures
 from agent.ledger import Ledger
@@ -47,6 +49,100 @@ class CloseoutCliTests(unittest.TestCase):
     seeded_item = fixtures.CliTests.seeded_item
     json_file = fixtures.CliTests.json_file
     calls = fixtures.CliTests.calls
+
+    def test_saved_claim_is_secret_free_exclusive_and_immediately_usable(self):
+        self.db = self.root / 'host' / 'agent' / 'ledger.sqlite3'
+        self.env['FARMBOT_CONFIG'] = str(self.json_file('config.json', {
+            'client_id': 'c', 'client_secret': 's', 'webhook_secret': 'w', 'runtime': 'fake',
+            'local_root': str(self.root / 'host')}))
+        item = self.seeded_item()
+        state = self.root / 'host' / 'runs' / item
+        state.mkdir(parents=True)
+        path = state / 'token'
+        args = ('claim', '--item', item, '--worker-id', 'saved', '--context', '--save-token', str(path))
+        bad = self.run_cli(*args[:-1], str(self.root / 'token'), success=False)
+        self.assertIn('state_dir/token', bad.stderr)
+        with closing(Ledger(self.db)) as ledger:
+            self.assertEqual(ledger.item(item)['state'], 'queued')
+        result = self.run_cli(*args)
+        token = path.read_text(encoding='utf-8')
+        self.assertNotIn('token', result)
+        self.assertNotIn(token, json.dumps(result))
+        self.assertEqual(result['token_file'], str(path))
+        self.assertEqual(result['context']['context_view']['name'], 'resume')
+        if os.name != 'nt':
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        self.run_cli('renew', '--item', item, '--token-file', str(path))
+        self.run_cli(*args, success=False)
+        self.assertEqual(path.read_text(encoding='utf-8'), token)
+
+    def test_saved_claim_refuses_links_and_storage_failure_before_claim(self):
+        from agent.worker_start import claim_to_file
+        from agent.config import Config
+        from agent.ledger import LedgerError
+        item = self.seeded_item()
+        config = Config('c', 's', 'w', local_root=self.root / 'host')
+        state = self.root / 'host' / 'runs' / item
+        state.mkdir(parents=True)
+        with closing(Ledger(self.db)) as ledger:
+            with patch('agent.worker_start.os.open', side_effect=PermissionError):
+                with self.assertRaises(LedgerError):
+                    claim_to_file(ledger, item, 'w', state / 'token', config)
+            self.assertEqual(ledger.item(item)['state'], 'queued')
+            (state / 'token').mkdir()
+            with self.assertRaises(LedgerError):
+                claim_to_file(ledger, item, 'w', state / 'token', config)
+            self.assertEqual(ledger.item(item)['state'], 'queued')
+
+    def test_startup_argv_uses_configured_interpreter_paths_and_one_claim(self):
+        from agent.dispatch import startup_navigation
+        import sys
+        current = self.root / '中文 Client'
+        current.mkdir()
+        (current / 'CLAUDE.md').write_text('required repository rules', encoding='utf-8')
+        result = startup_navigation({'id': 'item', 'skill': 'work', 'stage': 'unity-verifying'},
+            self.root, self.root / 'skill.md', {'Farm-Client': current}, 'Farm-Client',
+            self.root / 'database with spaces.sqlite3', self.root / 'state with spaces')
+        argv = result['claim_argv']
+        self.assertEqual(argv[0], sys.executable)
+        self.assertEqual(argv[argv.index('--save-token') + 1], str(self.root / 'state with spaces' / 'token'))
+        self.assertIn(str(current / 'CLAUDE.md'), result['read_together'])
+        self.assertEqual(argv.count('claim'), 1)
+
+    def test_uncertain_token_write_preserves_file_and_never_reclaims(self):
+        from agent.worker_start import claim_to_file
+        from agent.config import Config
+        from agent.ledger import LedgerError
+        item = self.seeded_item()
+        config = Config('c', 's', 'w', local_root=self.root / 'host')
+        state = self.root / 'host' / 'runs' / item
+        state.mkdir(parents=True)
+        with closing(Ledger(self.db)) as ledger:
+            with patch('agent.worker_start.os.fsync', side_effect=OSError):
+                with self.assertRaises(LedgerError):
+                    claim_to_file(ledger, item, 'w', state / 'token', config)
+            secret = (state / 'token').read_text(encoding='utf-8')
+            self.assertTrue(secret)
+            self.assertEqual(ledger.item(item)['state'], 'running')
+            with self.assertRaises(LedgerError):
+                claim_to_file(ledger, item, 'w', state / 'token', config)
+            self.assertEqual((state / 'token').read_text(encoding='utf-8'), secret)
+
+    def test_combined_resource_handoff_saves_checkpoint_but_keeps_claim_on_refusal(self):
+        item = self.seeded_item()
+        token = self.run_cli('claim', '--item', item, '--worker-id', 'w')['token']
+        checkpoint = self.json_file('handoff.json', {'stage': 'prepared', 'summary': 'original reports retained'})
+        args = ('await-resource', '--item', item, '--token', token, '--resource', 'unity_slot',
+                '--mode', 'interactive', '--checkpoint', str(checkpoint))
+        # fix's legacy candidate validation needs configured Git. The checkpoint
+        # persists, but no resource is acquired and the current claim remains valid.
+        self.run_cli(*args, success=False)
+        with closing(Ledger(self.db)) as ledger:
+            self.assertEqual(ledger.item(item)['stage'], 'prepared')
+            self.assertEqual(ledger.item(item)['state'], 'running')
+            self.assertFalse(ledger.reservations())
+        self.run_cli('renew', '--item', item, '--token', token)
+        self.run_cli(*args[:4], 'wrong', *args[5:], success=False)
 
     def test_claim_can_return_resume_context_without_a_second_call_or_live_api(self):
         item = self.seeded_item()
