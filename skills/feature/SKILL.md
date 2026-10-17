@@ -166,8 +166,9 @@ actually prevents this issue's required behavior or verification. Diagnose those
 blockers within scope. Record proven unrelated findings without implementing or
 waiting for another feature; do not offer a scope-preserving option that secretly
 keeps that external wait. Unresolved attribution remains a gap and cannot bypass
-mandatory checks. Existing full-suite failures still need the reviewed baseline
-comparison below; no skip, pass or acceptance may be invented. If a required full
+mandatory checks. Existing full-suite failures need the reviewed candidate-only
+assessment or, when attribution requires it, the baseline comparison below;
+no skip, pass or acceptance may be invented. If a required full
 generation exposes an incompatible upstream dependency, retain the failing
 snapshot/logs privately and ask only the concrete necessary dependency decision;
 never publish a failing snapshot or silently declare generation unnecessary.
@@ -1025,8 +1026,16 @@ id, result/evidence) before requesting, releasing or publishing, so retries cann
    If the candidate completed before its first comparison baseline, request that baseline with
    `--reuse-candidate-reservation CANDIDATE_RESERVATION_ID`; it binds the exact cleanly released run and
    its recorded upstream. Existing rounds must reuse their pair instead of requesting another baseline.
-   When a completed full suite fails outside the issue, follow [baseline comparison](../../references/test-baseline.md)
-   before stopping delivery. Use `verification-progress --phase failure-review`, then `compare-verification`
+   Default to [candidate-first assessment](../../references/candidate-verification.md): run required
+   checks at the actual issue scope, then use `verify-candidate` after clean settlement. Do not run main
+   preemptively or run identical source/inputs twice merely to label a baseline. Preserve repository
+   completion gates and all actual failures/skips. The command validates the real source delta, current
+   reservation and explicit scope/causal evidence; required affected tests must pass. An eligible
+   single-run assessment completes this gate without inventing a tested baseline.
+   Only if failure attribution remains unresolved and a named source/input difference can be distinguished,
+   save the hypothesis/selection and follow [baseline comparison](../../references/test-baseline.md).
+   Already completed pairs, including same commits with empty diff and explicit scope, remain valid inputs.
+   Use `verification-progress --phase failure-review`, then `compare-verification`
    with complete evidence/scope under this item's state_dir; it updates Monitor immediately. A matching failure
    count alone is insufficient. The affected fixtures and other
    mandatory local checks must pass. New/changed failures, affected failures, new skips and evidence gaps block.
@@ -1039,7 +1048,9 @@ id, result/evidence) before requesting, releasing or publishing, so retries cann
    dependency or observed regression. Matching failures outside this boundary remain disclosed baseline debt,
    without per-failure root-cause investigation or whole-package independence proof. Re-review inherited broad
    scopes offline and reuse valid checks/QA. Do not request diagnostics merely for unknown outside-scope debt.
-   Only the comparator's `draft_eligible=true` allows `passed_with_existing_failures` for draft delivery. Keep `full_suite_passed=false`; list all failures
+   Only `verify-candidate` or the pair comparator's `draft_eligible=true` allows the scoped draft-delivery
+   exception. A single-run review records `baseline_executed=false`, not a matching baseline result.
+   Keep `full_suite_passed=false`; list all failures
    and skips, both SHAs, same-environment identity and comparison evidence in the draft. No merge/deploy waiver.
    Absolute Unity clock operands in an otherwise identical timeout assertion may use the documented
    `clock_diagnostic` review; never erase arbitrary numbers or change the raw results. Correct/re-run the

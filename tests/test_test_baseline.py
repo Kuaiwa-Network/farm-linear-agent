@@ -407,7 +407,7 @@ class BaselineTests(unittest.TestCase):
         self.candidate["tests"].pop(); self.candidate["summary"].update(total=2, skipped=0)
         self.assertFalse(self.compare()["draft_eligible"])
         self.candidate["commit"] = self.baseline["commit"]
-        self.assertIn("baseline and candidate commits must be distinct", self.compare()["blockers"])
+        self.assertIn("identical source requires an empty diff and explicit issue scope", self.compare()["blockers"])
 
     def test_complete_nonzero_validated_leaf_results_are_required(self):
         for change in ({"completed": False}, {"tests": []}, {"summary": {"total": 3, "passed": 3}},

@@ -1,8 +1,14 @@
 # Comparing existing Unity failures
 
-Full suites still run. A draft may retain unrelated failures only when complete comparable baseline and
+Start with [candidate-first verification](candidate-verification.md). Baseline testing is on demand,
+not a mandatory second full suite. Preserve required gates and complete actual selections. Request
+a pair only for unresolved attribution with a concrete source/input difference it can distinguish.
+Never run identical source/inputs twice solely to obtain two labels. For an actual comparison,
+a draft may retain unrelated failures when complete comparable baseline and
 candidate evidence proves no unresolved regressions, the issue's affected tests pass, and all other required checks pass.
 This is a draft-delivery verdict, never a claim that the full suite passed or permission to merge/deploy.
+Existing same-commit pairs remain reviewable with an empty diff and explicit issue scope;
+they still require two real distinct jobs/reservations. Do not invent a second execution.
 
 From the owned Client stage, save the candidate SHA and checkpoint, then request:
 

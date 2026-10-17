@@ -883,7 +883,7 @@ class IssueScopeInstructionTests(unittest.TestCase):
                        "Never cherry-pick generated files, partially sync, hand-edit output or weaken a gate",
                        "Unresolved attribution remains a gap and cannot bypass mandatory checks",
                        "never publish a failing snapshot or silently declare generation unnecessary",
-                       "Only the comparator's `draft_eligible=true`"):
+                       "Only `verify-candidate` or the pair comparator's `draft_eligible=true`"):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, text)
 

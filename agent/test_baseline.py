@@ -275,8 +275,8 @@ def compare(baseline, candidate, *, affected_tests, unrelated_failures, changed_
         if key != "package_digest" and baseline["environment"].get(key) != candidate["environment"].get(key):
             blockers.append(f"environment.{key} differs; failure attribution unresolved")
     comparable = not blockers
-    if baseline["commit"] == candidate["commit"]:
-        blockers.append("baseline and candidate commits must be distinct")
+    if baseline["commit"] == candidate["commit"] and (changed_paths or issue_scope is None):
+        blockers.append("identical source requires an empty diff and explicit issue scope")
     if (baseline["reservation_id"] == candidate["reservation_id"] or baseline["job_id"] == candidate["job_id"]):
         blockers.append("baseline and candidate must name distinct reservations and test jobs")
     missing = sorted(before.keys() - after.keys())

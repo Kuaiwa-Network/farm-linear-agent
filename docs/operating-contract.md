@@ -33,8 +33,9 @@ to keep scope never means waiting for another feature. Workers establish whether
 a blocker was caused by their change or actually prevents the issue's required
 behavior or verification. Proven unrelated findings remain recorded limitations;
 unresolved attribution remains explicit and cannot waive required gates. Existing
-full-suite failures still require the reviewed baseline comparison for draft
-eligibility. Missing assets are questions only for required presentation work.
+full-suite failures require reviewed candidate evidence or, when attribution
+needs it, a baseline comparison for draft eligibility. Missing assets are
+questions only for required presentation work.
 
 Client workers complete one bounded diagnostic attempt before stopping solely
 for unresolved failure attribution when their existing authority and tools allow
@@ -1326,6 +1327,40 @@ publication is not refused on it.
 
 ### Existing failures and draft delivery
 
+Client work/fix/feature verification is candidate-first. Workers select checks
+from changed behavior and affected dependencies while retaining repository gates.
+They do not automatically run main or duplicate full suites. `verify-candidate`
+authenticates the claim, requires the configured ledger and item-private evidence,
+validates the clean owned candidate/branch, current generation's cleanly released
+reservation and admission source base, and checks the complete real Git diff
+against reviewed acceptance scope. All affected executions must pass. Partial or
+missing reports, invalid/ambiguous nonpassing tests and unreviewed skips block.
+Focused evidence never becomes a full-suite pass or replaces other required gates.
+
+An exact same-source/empty-diff run can retain individually reviewed failures
+outside acceptance as `unchanged_source_failures`. This proves no source delta,
+not a healthy environment or empirically matched baseline. A changed candidate
+needs concrete causal evidence for each independent defect: exact failure identity,
+fixture, unchanged dependencies, cause/exclusion/maintenance action and retained
+evidence file/hash. Existing shared-test source/evidence verification and separate
+maintenance recording apply. Required acceptance failures cannot use either
+exception. Skips need explicit non-applicability evidence and cannot excuse missing
+required work. Single-run results record `baseline_executed=false` and retain real
+failure/skip counts. See [candidate-first verification](../references/candidate-verification.md).
+
+Only unresolved attribution with a named source/input difference that comparison
+can distinguish justifies new baseline tests. Environment uncertainty calls for
+bounded focused diagnosis when necessary, not an identical full suite under
+another label. Existing pairs keep their reports and budgets; candidate-only
+review cannot bypass an unfinished/blocked pair. Completed identical-commit pairs
+are supported with an empty diff, explicit issue scope, distinct actual jobs and
+reservations and normal per-test/environment checks. Existing round ordering and
+explicit retained-candidate generation checks remain; an authorized retry does
+not invalidate a settled baseline or completed pair.
+No schema migration is introduced. Rollback retains
+reports; old code may require paired review again, never reinterpret an audit as
+a fabricated pass. Deploy through the separately authorized maintenance process.
+
 Client work/fix/feature jobs may request `await-resource --baseline --commit CANDIDATE` for a comparison.
 The CLI validates the same clean owned candidate/branch, configured clone and actual remote-main ancestry,
 then queues trusted remote main without resetting the candidate or immutable target. Controller audit records
@@ -1334,7 +1369,7 @@ bind the baseline reservation to the candidate; dispatch marks it `verification_
 settlement before requesting the candidate normally. Claim, delegation, process and resource fencing remain.
 
 A complete full suite with unrelated existing failures need not block a draft when
-`python -m agent.test_baseline` returns `draft_eligible=true`: distinct recorded commits, identical selection
+`python -m agent.test_baseline` returns `draft_eligible=true`: recorded commits, distinct actual jobs, identical selection
 and stable environment/config/package identities, complete nonzero leaf outcomes, no unresolved regressions or new skips,
 no removed tests, all affected tests passed, an explicit issue acceptance/diff scope reviewed, and all
 other required local checks passed. Missing/incomparable results remain gaps. The comparator is a read-only

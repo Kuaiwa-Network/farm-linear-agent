@@ -131,6 +131,7 @@ def parser():
                                                            'failure-review', 'comparison', 'publication', 'delivery'])
     comparison = cmd('compare-verification', '--item', '--baseline', '--candidate', '--scope', token=True)
     comparison.add_argument('--repair-original', help='retained original full candidate report for test-only repair')
+    cmd('verify-candidate', '--item', '--candidate', '--scope', token=True)
     release = cmd("release-resource", "--item", token=True)
     release.add_argument("--outcome", required=True, choices=["quiescent", "unclean"])
     cmd("withdraw", "--item", token=True)
@@ -971,6 +972,9 @@ def run(args, ledger, api_factory):
     if c == 'compare-verification':
         from .verification import compare_recorded_pair
         return compare_recorded_pair(args, ledger, load_config(secure_permissions=False), resolve_token(args))
+    if c == 'verify-candidate':
+        from .verification import verify_recorded_candidate
+        return verify_recorded_candidate(args, ledger, load_config(secure_permissions=False), resolve_token(args))
     if c in ("await-resource", 'continue-verification'):
         from .config import ROOT
         from .skills import load_skills

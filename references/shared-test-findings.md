@@ -15,7 +15,12 @@ bounded focused observation or matching prior diagnosis. A later passing retry,
 another issue failing the same test, guessed flakiness or unchanged fixture alone
 is insufficient. Unresolved attribution and affected failures still block.
 
-First compare the original pair. `failure_evidence_ids` binds exact leaf signatures
+For a candidate-only round, start with [verify-candidate](candidate-verification.md).
+Its `failure_evidence_ids` binds the actual run, environment, selection and source
+base without inventing a baseline execution. Use the same causal finding fields
+below; source/evidence validation and separate maintenance recording still apply.
+Unchanged source alone is not a root-cause diagnosis. For an existing pair, compare
+the original pair. `failure_evidence_ids` binds exact leaf signatures
 and both commit/reservation/job identities. Add this entry to `unrelated_failures`,
 retaining the bound `issue_scope`, full Git `changed_paths` and all required
 `affected_tests`:

@@ -268,7 +268,9 @@ Run each check in the repository's own stage. Cheapest sufficient check first, a
    Attribute a failure to the baseline only after comparing that individual test and failure signature
    on the pinned baseline and fix, recording both full SHAs, the same test mode, selection and environment.
    A historical failure count or memory note does not establish that today's failures are unrelated.
-   Without that comparison, report observed failures with attribution unresolved. If you need another run, `release-resource --outcome
+   Without that comparison, never call a failure baseline-matched. Use the reviewed candidate-only
+   assessment for proven independent failures; otherwise retain unresolved attribution. Request another
+   run only for a concrete missing check or diagnostic hypothesis, then `release-resource --outcome
    quiescent` and request a fresh batch reservation: one grant is one run. Otherwise release and move on.
 5. Behaviour no test covers needs an interactive slot: `await-resource --resource unity_slot --mode
    interactive --commit FIX_SHA`. The fresh worker gets an MCP server named `unity`; call `set_active_instance` with the
@@ -309,13 +311,14 @@ outside, before you are started. You never edit the slot folder either, and no s
 build — slots budget an import-only `Library/` and a player build triples it.
 
 Record any behaviour you could not verify as a verification gap and finish blocked or deliver with the gap
-named. Never describe a source-only check as runtime evidence. Show a testable logic bug failing before the
-fix and passing after, or, for a requested change with testable logic, a test of its new behaviour failing
-on the baseline and passing on the change, under comparable conditions; a UI change gets a
-before-and-after check or a named gap. Missing dependencies, unhydrated LFS pointers, typecheck setup
+named. Never describe a source-only check as runtime evidence. Validate the actual changed behavior on
+the candidate. When before/after evidence is needed to establish the fix or diagnose a regression, use
+a focused reproduction under comparable conditions and reuse existing valid evidence; this does not
+require two full suites. UI work follows its recorded validation decision. Missing dependencies,
+unhydrated LFS pointers, typecheck setup
 failures, compilation failures before the intended test, and zero-test runs leave that
-test unverified; they are not the product's red test. Establish prerequisites, then obtain a controlled
-before/after result. Follow `references/evidence-format.md` when classifying results. A draft delivery
+test unverified; they are not the product's red test. Establish prerequisites before claiming the
+required behavior was verified. Follow `references/evidence-format.md` when classifying results. A draft delivery
 may include unresolved verification gaps, but its comment, report and outcome must name those gaps and
 must not claim the behavior or full suite passed.
 
@@ -379,8 +382,13 @@ FarmBot's clone behind your worktree is partly read-only to you: its config and 
 cannot be written, so `git push -u`, `git config`, deleting a branch and a full `git gc` fail. Git
 may also print `Unable to create '…/packed-refs.lock'` after a commit, fetch or rebase that
 succeeded; that line is harmless, so check the exit status and the result instead.
-For completed Client full-suite failures outside this issue, use [baseline comparison](../../references/test-baseline.md)
-before blocking delivery. Request trusted remote main with `await-resource --baseline --commit CANDIDATE`;
+For Client checks, default to [candidate-first verification](../../references/candidate-verification.md)
+and `verify-candidate` at the issue's actual scope, preserving mandatory gates and complete outcomes.
+Do not automatically run two suites. Reviewed unchanged-source or causally independent failures can
+accompany scoped delivery without a new baseline; missing/failed affected tests still block.
+For unresolved attribution where a named source/input difference makes a comparison useful, record
+the hypothesis and selection, then use [baseline comparison](../../references/test-baseline.md).
+Request trusted remote main with `await-resource --baseline --commit CANDIDATE`;
 when the exact candidate already completed its first run, add `--reuse-candidate-reservation ID` to retain
 that cleanly released run and its recorded admission upstream. For a grant carrying
 `resource.reuse_candidate_reservation`, save complete baseline results, release quiescently and compare

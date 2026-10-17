@@ -22,16 +22,23 @@ def review_failure(review, baseline, candidate, name, old, row, changed_paths):
     finding = review.get('confirmed_unrelated') if isinstance(review, dict) else None
     if finding is None:
         return None
+    if (old is None or not (old['state'] == 'Passed' or old['state'].startswith('Failed'))):
+        raise ComparisonError('shared finding must bind both actual executions; new tests cannot be deferred')
+    return review_finding(review, name, row, changed_paths,
+                          evidence_id(baseline, candidate, name, old, row))
+
+
+def review_finding(review, name, row, changed_paths, expected_id):
+    """Shared source-causal validation, with the caller's actual execution identity."""
+    finding = review.get('confirmed_unrelated') if isinstance(review, dict) else None
     if not _reviewed(review) or not isinstance(finding, dict):
         raise ComparisonError('confirmed unrelated failure requires a causal review')
     fields = {'evidence_id', 'kind', 'fixture_path', 'dependencies', 'cause', 'exclusion',
               'maintenance_action', 'evidence_file', 'evidence_sha256'}
     if set(finding) != fields:
         raise ComparisonError('shared finding must contain only the documented causal review fields')
-    if (old is None or not (old['state'] == 'Passed' or old['state'].startswith('Failed'))
-            or row['state'] == 'Failed:Invalid'
-            or finding.get('evidence_id') != evidence_id(baseline, candidate, name, old, row)):
-        raise ComparisonError('shared finding must bind both actual executions; new/invalid tests cannot be deferred')
+    if row['state'] == 'Failed:Invalid' or finding.get('evidence_id') != expected_id:
+        raise ComparisonError('shared finding must bind actual execution evidence; invalid tests cannot be deferred')
     if finding.get('kind') not in ('shared_test_defect', 'shared_environment_defect'):
         raise ComparisonError('shared finding requires a diagnosed test or shared environment defect')
     for key in ('cause', 'exclusion', 'maintenance_action', 'evidence_file', 'evidence_sha256'):
@@ -106,8 +113,10 @@ def record(ledger, item_id, report):
     if not report['draft_eligible']:
         return
     for finding in report.get('confirmed_unrelated_failures', []):
-        document = {**finding, 'schema': 1, 'source_item': item_id, 'baseline_commit': report['baseline_commit'],
+        document = {**finding, 'schema': 1, 'source_item': item_id, 'baseline_commit': report.get('baseline_commit'),
                     'candidate_commit': report['candidate_commit']}
+        if 'source_base_commit' in report:
+            document.update(source_base_commit=report['source_base_commit'], baseline_executed=False)
         previous = ledger.connection.execute("SELECT details FROM audit WHERE item_id=? "
             "AND kind='shared_test_followup' ORDER BY id DESC LIMIT 200", (item_id,))
         if any(json.loads(row['details']) == document for row in previous):
