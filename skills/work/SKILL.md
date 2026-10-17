@@ -28,9 +28,12 @@ issue facts, named human decisions and checkpoint evidence on every continuation
 Start with `issue-context --view resume`; use the full view when stale, when a decision
 references omitted text, or when a required fact is missing. Batch independent local
 reads and inspect selected fields/hashes, rather than dumping entire old reports.
-Before preparing delivery, validate the outcome with `finish --check-input` as documented
-in the worker CLI. Reuse `verify-publication.foreign_work` for that repository; preserve
-fresh publication checks and the final issue refresh. Preflight is shape validation only.
+Follow `references/closeout-reuse.md` for an immutable report index and compact handoffs.
+Before a docs-only Contract acceptance handoff, save consumer inputs and run
+`closing-preflight`. Before delivery, save the final checkpoint and validate it with
+`finish --check-ready` as documented in the worker CLI. Reuse
+`verify-publication.foreign_work` for that repository; preserve fresh publication checks
+and the final issue refresh. Local preflight does not certify live readiness.
 
 ## Shared behavior first
 
