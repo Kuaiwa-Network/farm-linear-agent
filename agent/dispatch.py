@@ -84,8 +84,9 @@ COMMON_AUTHORITY = MAINTENANCE_AUTHORITY + (
     "unparseable or zero-total result — batch_result.state of 'gap' or 'timeout' — as a verification gap "
     "rather than as a pass or a failure. Attribute a failure to the baseline only with per-test evidence "
     "from recorded baseline and fix SHAs under the same mode, selection and environment; historical "
-    "failure counts do not establish that current failures are unrelated. Report unmatched failures "
-    "with attribution unresolved. Check every mutation's exit status and returned state; repair a "
+    "failure counts do not establish that current failures are unrelated. Apply the skill's reviewed "
+    "candidate-first or source-causal policy for independent failures without inventing baseline results; "
+    "otherwise report unresolved attribution. Check every mutation's exit status and returned state; repair a "
     "rejected checkpoint handoff and save it successfully before await-input, await-resource or finish. "
     # Withdrawn-work design §7.3. A conversation follows its skill's rule instead: it answers once and finishes.
     "In a write job, if fetch-issue reports delegated false or withdrawn true, or a ledger command refuses with "
