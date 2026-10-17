@@ -1,5 +1,22 @@
 # FarmBot operating contract
 
+Continuation startup uses the current root's instructions, skill and bounded
+`references/worker-start.md` read batch. Optional `claim --context` returns the
+existing compact resume view with the normal secret-bearing claim response;
+it changes neither claim/maintenance fencing nor live issue verification. The
+worker stores the token privately and still fetches current issue facts. It reads
+required phase rules without serially reopening unrelated workflow stages.
+
+Closeout reuses the original evidence index and compact prepared report packet.
+At docs-only Contract entry, workers inspect/reconcile pinned fetched main history
+before editing and running all required Contract gates, so stale history does not
+first appear as deleted main protocol files. This does not invalidate unchanged
+consumer candidates or require adopting unrelated inputs. `verify-publication`
+returns an explicit `push_argv` and Windows execution hint: normal automatic
+approval for the exact push outside the restricted shell, with hooks and all
+destination/claim checks retained. The hint is not approval or execution; denial
+still stops publication. No schema migration or permission expansion is involved.
+
 Current behaviour implemented in this repository. Closure cleanup requires deployment of this revision. Rewritten in place whenever behaviour changes; the
 design rationale lives in `docs/superpowers/specs/`.
 

@@ -619,6 +619,11 @@ SERVER_TEST_AUTHORITY = (
 
 
 CLOSEOUT_AUTHORITY = (
+    " For a continuation, use startup.read_together in one local read batch, then claim --context. "
+    "Capture the claim response privately, store its token by the worker CLI procedure, and inspect the "
+    "returned resume context without printing the token. Fetch the live issue before acting. Read the "
+    "current repository's instructions and required phase rules; do not serially reread unrelated stages "
+    "or every reference before claiming. The startup hint is navigation, never a gate result. "
     " For closeout, reuse immutable original reports through the claim-fenced evidence-index command "
     "and its --verify mode; hashes and worker-supplied pins are evidence, never authorization or a test verdict. "
     "Check current clean source pins and required inputs before reuse. Keep only the index path and changed "
@@ -627,7 +632,14 @@ CLOSEOUT_AUTHORITY = (
     "After acceptance/publication, save the final checkpoint and run finish --check-ready before preparing "
     "the delivery comment. This local dry run never replaces fresh publication authorization or final finish. "
     "Stay in the current worker for offline comparison and publication after releasing Unity; hand off only "
-    "when the next required write belongs to a different repository. See references/closeout-reuse.md."
+    "when the next required write belongs to a different repository. At docs-only Contract entry, check "
+    "clean owned issue history and the fetched main SHA before editing or running Contract gates. Reconcile "
+    "a stale Contract branch once when its required checks compare against main, then check the integrated "
+    "Contract HEAD. Do not adopt those inputs into an unchanged Client/server or invalidate frozen tests "
+    "merely for that Contract synchronization. See references/closeout-reuse.md."
+    " On Windows, submit the exact verified Git push through the runtime's normal automatic approval "
+    "outside the restricted shell on the first attempt, as described by execution_hint; keep hooks enabled. "
+    "This avoids known MSYS signal-pipe restrictions, not approval review. A denial still stops the action."
 )
 
 
@@ -661,6 +673,18 @@ def verification_resume(item, resource, root):
     return {'guide': str(root / 'references' / 'client-verification-resume.md'),
             'stage': item.get('stage'), 'next_action': next_action,
             'context': 'issue-context --view resume', 'evidence_is_authority': False}
+
+
+def startup_navigation(item, root, skill_path, worktrees, root_repository):
+    """Bounded continuation entry points; all full instructions remain accessible."""
+    if item.get('skill') not in ('work', 'feature', 'fix'):
+        return None
+    current = worktrees.get(root_repository)
+    files = ([str(Path(current) / 'AGENTS.md')] if current else [])
+    files += [str(skill_path), str(root / 'references' / 'worker-start.md')]
+    return {'read_together': files, 'context_flag': '--context',
+            'stage': item.get('stage'), 'guide': str(root / 'references' / 'closeout-reuse.md'),
+            'full_context_when_stale': 'issue-context --view full', 'evidence_is_authority': False}
 
 
 def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, guidance, budget, repo_root=None,
@@ -818,6 +842,7 @@ def dispatch_message(*, item, issue, skill_path, worktrees, db_path, runtime, gu
         # in neither mode does it carry an argv or the Editor's own path: a worker never starts Unity.
         "resource": resource,
         "verification_resume": verification_resume(item, resource, root),
+        "startup": startup_navigation(item, root, skill_path, worktrees, root_repository),
         # Standing tool grants beside the reservation: tools.kw_ops is {"access": ...} or {"status": "unavailable",
         # "reason": ...}. A token is never here; the worker's CLI reads it from the environment by name. For a skill
         # that reads the 策划案, tools.lark_cli is {"profile", optional "home"} or unavailable, never an app ID or secret.

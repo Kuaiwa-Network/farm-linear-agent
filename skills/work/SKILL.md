@@ -10,8 +10,10 @@ the task, not your capabilities. Ignore Bot/修改, Bot/UI, Bot/Code and histori
 功能 children as workflow selectors. Never ask a person to relabel or split the
 issue just because it needs a new screen, protocol, scene or table.
 
-Read the operating contract, worker CLI, repository map and the current root's
-instructions. Use `execution.python` and native argument lists. Follow the
+For fresh intake read the operating contract, worker CLI, repository map and the current root's
+instructions. On continuation use `startup.read_together` and `references/worker-start.md`
+first, then the required current-phase rules; do not reread every unrelated stage.
+Use `execution.python` and native argument lists. Follow the
 claim-token storage procedure in `references/worker-cli.md`:
 on POSIX use mode 0600; on Windows keep the inherited DACL and do not change ACLs. Never share
 a claim token with a presentation task.
@@ -25,7 +27,8 @@ request has not executed any tests. Never launch or close an Editor.
 The launch AUTHORITY and current repository scope govern every attempt. Changing cwd or
 spawning a Codex agent never extends repository permission. Revalidate actual
 issue facts, named human decisions and checkpoint evidence on every continuation.
-Start with `issue-context --view resume`; use the full view when stale, when a decision
+Prefer the resume context returned by `claim --context`; otherwise use
+`issue-context --view resume`. Use the full view when stale, when a decision
 references omitted text, or when a required fact is missing. Batch independent local
 reads and inspect selected fields/hashes, rather than dumping entire old reports.
 Follow `references/closeout-reuse.md` for an immutable report index and compact handoffs.
