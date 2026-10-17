@@ -3,7 +3,7 @@ import json
 import re
 
 from .test_baseline import ComparisonError, _path, _run, _signature
-from .worktrees import GIT_ENV, _git
+from .worktrees import GIT_ENV, WorktreeError, _git
 
 
 def blob(trees, commit, path):
@@ -14,7 +14,8 @@ def blob(trees, commit, path):
     clone = trees._clone('Farm-Client')
     value = _git('rev-parse', '--verify', commit + ':' + path, cwd=clone,
                  env={**GIT_ENV, 'GIT_NO_REPLACE_OBJECTS': '1'}).strip()
-    if _git('cat-file', '-t', value, cwd=clone, env=GIT_ENV).strip() != 'blob':
+    if _git('cat-file', '-t', value, cwd=clone,
+            env={**GIT_ENV, 'GIT_NO_REPLACE_OBJECTS': '1'}).strip() != 'blob':
         raise ComparisonError('shared repair inputs must be files')
     return value
 
@@ -63,7 +64,15 @@ def lookup(ledger, trees, candidate):
     rows = _run(candidate)
     failed = {name: list(_signature(group[0])) for name, group in rows.items()
               if len(group) == 1 and group[0]['state'].startswith('Failed')}
-    matches, seen = [], set()
+    matches, seen, inputs = [], set(), {}
+
+    def current_blob(path):
+        if path not in inputs:
+            try:
+                inputs[path] = blob(trees, candidate['commit'], path)
+            except WorktreeError:
+                inputs[path] = None  # Missing historical source is a review gap, never a match.
+        return inputs[path]
     for event in ledger.connection.execute("SELECT id,details FROM audit WHERE kind='shared_test_repair' "
                                            "ORDER BY id DESC LIMIT 200"):
         saved = json.loads(event['details'])
@@ -78,14 +87,14 @@ def lookup(ledger, trees, candidate):
             reasons = []
             if any(failed[n] != fixture['failures'][n] for n in names):
                 reasons.append('failure signature differs')
-            if blob(trees, candidate['commit'], path) != fixture['before']:
+            if current_blob(path) != fixture['before']:
                 reasons.append('fixture source differs')
             if any(candidate['environment'].get(k) != v for k, v in saved['engine'].items()):
                 reasons.append('engine/toolchain differs')
             if not saved['dependencies']:
                 reasons.append('dependency review not recorded')
             drift = [p for p, expected in saved['dependencies'].items()
-                     if blob(trees, candidate['commit'], p) != expected]
+                     if current_blob(p) != expected]
             if drift:
                 reasons.append('reviewed dependency source differs')
             matches.append({'audit_id': event['id'], 'source_item': saved['source_item'],
@@ -121,4 +130,6 @@ def discover(args, ledger, config, token):
                                           candidate_reservation=candidate.get('reservation_id'))
     if not pair:
         raise ComparisonError('lookup requires this item settled candidate report')
-    return lookup(ledger, Worktrees(paths.repos, paths.worktrees, config.repos), candidate)
+    trees = Worktrees(paths.repos, paths.worktrees, config.repos)
+    trees._clone('Farm-Client')  # A clone trust violation must fail before lookup's missing-object handling.
+    return lookup(ledger, trees, candidate)

@@ -93,6 +93,14 @@ class SharedRepairTests(unittest.TestCase):
             self.save()
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM audit').fetchone()[0], 0)
 
+    def test_missing_dependency_is_a_review_gap_not_a_match_or_a_retry(self):
+        from agent.worktrees import WorktreeError
+        self.save()
+        with patch('agent.shared_test_repairs.blob', side_effect=WorktreeError('missing object')):
+            result = lookup(self.ledger, None, self.target)
+        self.assertEqual(result['matches'][0]['status'], 'review_required')
+        self.assertFalse(result['current_tests_passed'])
+
     def test_new_failure_names_and_ambiguous_duplicates_do_not_match(self):
         self.save()
         self.target['tests'][1]['fullName'] = 'Farm.Pinch.New'
