@@ -1451,6 +1451,10 @@ The controller rechecks same item/generation/mode, clean release, certified
 maintenance handoff, absence of later Unity reservations or a reviewed comparison,
 clean owned candidate and original upstream ancestry. It creates a new reservation
 at the original base, retaining any candidate-first binding and every old report.
+Completed partial baseline reports retain their actual reservation/job IDs and
+can compare through the explicit clean resume chain at identical source, mode,
+host and generation. A new unrelated round at the same SHA cannot inherit them;
+all complete-run, environment, selection and failure checks still apply.
 Only missing checks run; release/ancestry proves no test pass. Candidate, target,
 budgets and questions are not rewritten. No schema migration is required. Older
 code cannot start this recovery path; settle workers before rollback and retain

@@ -2,7 +2,7 @@
 import unittest
 from unittest.mock import Mock
 
-from agent.baseline_resume import pinned_baseline
+from agent.baseline_resume import pinned_baseline, retained_baseline_report
 from agent.ledger import LedgerError
 from agent.maintenance import Maintenance
 import test_verification_pair as fixtures
@@ -114,3 +114,23 @@ class BaselineResumeTests(unittest.TestCase):
         self.assertIn('--resume-baseline-reservation', text)
         self.assertIn('not a passing baseline', text)
         self.assertIn('not a human reply, retry reset or test verdict', text)
+
+    def test_partial_baseline_report_keeps_old_identity_only_through_clean_resume_chain(self):
+        f = self.f
+        self.request()
+        res = f.ledger.acquire('unity_slot', owner='fixture', host='test')
+        token = f.settled(self.item, res)
+        f.ledger.await_resource(self.item, token, 'unity_slot', 'interactive', skill=fixtures.SKILLS['fix'],
+                               commit_sha=f.CANDIDATE)
+        candidate = f.ledger.acquire('unity_slot', owner='fixture', host='test')
+        f.settled(self.item, candidate)
+        pair = f.ledger.client_verification_pair(self.item, f.CANDIDATE, require_candidate=True)
+        self.assertTrue(retained_baseline_report(f.ledger, self.item, pair, self.source['reservation_id']))
+        self.assertFalse(retained_baseline_report(f.ledger, self.item, pair, 'unrelated'))
+        self.assertFalse(retained_baseline_report(f.ledger, 'other-item', pair, self.source['reservation_id']))
+        f.ledger.connection.execute("UPDATE reservations SET release_reason='uncertain' WHERE reservation_id=?", (self.source['reservation_id'],))
+        self.assertFalse(retained_baseline_report(f.ledger, self.item, pair, self.source['reservation_id']))
+        f.ledger.connection.execute("UPDATE reservations SET release_reason='worker reported quiescent' WHERE reservation_id=?", (self.source['reservation_id'],))
+        # A genuinely new round at exactly the same SHA is still not a resume.
+        f.ledger.connection.execute("UPDATE audit SET details=json_remove(details,'$.baseline_resume_of') WHERE item_id=? AND kind='reservation' AND reason='queued'", (self.item,))
+        self.assertFalse(retained_baseline_report(f.ledger, self.item, pair, self.source['reservation_id']))

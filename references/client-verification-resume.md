@@ -26,7 +26,9 @@ only when a missing dependency, changed input or actual handoff requires them.
    controller-recorded comparison in this generation, not a supplied base SHA or
    newer main. It retains any already bound candidate report. Read retained
    reports first; do not repeat completed checks or a reviewed comparison. A
-   no-test release proves no test result. Once acquired, on a baseline reservation,
+   completed report from the original baseline keeps its original reservation/job
+   IDs; the comparator accepts only the explicit clean maintenance-resume chain.
+   A no-test release proves no test result. Once acquired, on a baseline reservation,
    test only its reserved SHA. If
    `resource.reuse_candidate_reservation` exists, retain all baseline leaves,
    release quiescently and compare them against that candidate's existing report

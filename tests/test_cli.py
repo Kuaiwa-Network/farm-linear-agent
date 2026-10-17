@@ -699,6 +699,29 @@ class CliTests(unittest.TestCase):
         self.run_cli('await-resource', '--item', item, '--token', token, '--resource', 'unity_slot',
                      '--mode', 'interactive', '--commit', fixed)
         self.assertEqual(self.run_cli('reservations')[-1]['commit_sha'], fixed)
+        with closing(Ledger(self.db)) as ledger:
+            token = self.settle_test_reservation(ledger, item)
+            pair = ledger.client_verification_pair(item, fixed, require_candidate=True)
+        from agent.config import load_config, Paths
+        from test_test_baseline import run as evidence, test as leaf
+        root = Paths(load_config(self.env['FARMBOT_CONFIG'])).runs / item
+        root.mkdir(parents=True)
+        base = evidence('a', [leaf('Issue.Required')]); new = evidence('b', [leaf('Issue.Required')])
+        base.update(commit=baseline, reservation_id=source['reservation_id'])
+        new.update(commit=fixed, reservation_id=pair['candidate_reservation'])
+        scope = {'affected_tests':['Issue.Required'],'changed_paths':[],'unrelated_failures':{}}
+        for name, data in (('old-base',base),('candidate',new),('scope',scope)):
+            (root/(name+'.json')).write_text(json.dumps(data),encoding='utf-8')
+        report = self.run_cli('compare-verification','--item',item,'--token',token,
+            '--baseline',str(root/'old-base.json'),'--candidate',str(root/'candidate.json'),'--scope',str(root/'scope.json'))
+        self.assertTrue(report['draft_eligible'])
+        self.assertEqual(report['baseline_reservation'],source['reservation_id'])
+        new = evidence('b', [leaf('Issue.Required','Failed','real issue regression')])
+        new.update(commit=fixed, reservation_id=pair['candidate_reservation'])
+        (root/'candidate.json').write_text(json.dumps(new),encoding='utf-8')
+        blocked = self.run_cli('compare-verification','--item',item,'--token',token,
+            '--baseline',str(root/'old-base.json'),'--candidate',str(root/'candidate.json'),'--scope',str(root/'scope.json'))
+        self.assertFalse(blocked['draft_eligible'])
 
     def test_continuation_validates_clean_candidate_and_two_tokens_without_chasing_main(self):
         from agent.ledger import Ledger
