@@ -635,7 +635,25 @@ needs them; grants a worker needs belong in the dispatch AUTHORITY. That text is
 a per-skill part chosen by the item's skill (`agent/dispatch.py`); `fix` and `chat` share the kw_ops
 terms below, and `fix`'s part adds the FairyGUI export grant (UI source ownership), which the
 reviewer would not otherwise see. `feature`'s part carries its own grants and limits and no kw_ops
-terms: never merge, run Jenkins or change CI; Linear credentials only through FarmBot's CLI for the
+terms: never merge, run Jenkins or dispatch CI. Work/feature workers may update an existing entry-point
+inventory and its negative-test injection anchors together when required by this issue's actual business
+change, within the stage's writable repositories. They must prove the entry's necessity and retain exact-set
+checks, with a passing positive and an intentionally failing negative case. This grants no changes to
+workflow/pipeline definitions, triggers, permissions, credentials, runners, gate implementations, scan scope,
+thresholds, skips, exclusions or expected failure results. The source mapping, diff and verification belong
+in the handoff. A CI directory name alone does not require a separate maintainer approval; other CI edits
+remain forbidden. This is a runtime instruction change, with no new filesystem grant or schema migration.
+Server failure review follows `references/server-evidence.md`: exact assertions, immutable inputs and a
+concrete causal chain may establish an independent defect without pretending an unexecuted baseline
+passed. Changed shared helpers must be reviewed. Original failures stay disclosed; unresolved or affected
+failures still block. A registration-only repair reuses unchanged behavior evidence with its original SHA
+and verified input identities, and runs the corrected gate and negative case; it does not waive publication.
+For the existing farm-hive transaction inventory/A25 anchors, publication can retain the last quiescent
+server round's base after a clean linear registration-only descendant. The controller checks exact blob
+edits (sorted additions, both anchors, retained negative entry, unchanged surrounding code), file modes,
+item/generation and real-main ancestry. It returns ancestry-only evidence, never a new test verdict or
+reservation; arbitrary CI edits and business-code changes cannot use this path.
+Linear credentials remain available only through FarmBot's CLI for the
 claimed item; lark-cli only as `lark-cli --profile PROFILE docs +fetch --as bot`, `wiki +node-get
 --as bot` to resolve a linked wiki URL's object type and token, `drive +download --as bot`, and, for
 a linked spreadsheet only, `sheets +workbook-info --as bot` and `sheets +cells-get --as bot` with
