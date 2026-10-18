@@ -840,7 +840,7 @@ class OlderLedgerTests(unittest.TestCase):
         self.assertIsNone(document["unity_queue"])
         self.assertEqual(set(document["ledger"]["missing_optional"]),
                          {"audit", "published_prs", "slots", "reservations", "resource_recoveries", "job_cleanup",
-                          "issue_checks", "webhook_events"})
+                          "issue_checks", "webhook_events", "outbox"})
         self.assertEqual(document["verdict"], "attention")  # old service provides no heartbeat to verify its loops
         self.assertEqual([item["code"] for item in document["attention"]], ["heartbeat_missing"])
 

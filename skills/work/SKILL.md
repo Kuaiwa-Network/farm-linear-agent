@@ -60,6 +60,9 @@ If a terminal `get_test_job` response has no result, use `unity-test-result` wit
 the exact job ID while still owning the reservation. It reads retained results
 without rerunning tests; unavailable or truncated evidence must be stated honestly.
 Save the report and release safely before PR drafting or remote CI waiting.
+Refresh the checkpoint when results are collected/released and before delivery:
+state the actual results, retained reports and next action, replacing old waiting
+text. Resource readiness/release alone is never evidence that tests passed.
 If a resource is held for recovery, preserve reports, checkpoint and exit as
 instructed by the resource response; do not repeatedly poll or start another test.
 If maintenance arrives while a request is still queued, cancel that request;

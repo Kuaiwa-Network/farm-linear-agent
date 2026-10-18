@@ -21,6 +21,83 @@ PR = 'https://github.com/example-org/Farm-Client/pull/123'
 
 
 class SingleWorkerTests(LedgerBase):
+    def displayed(self):
+        from agent.monitor_view import build_status
+        from test_monitor_view import beat, HEALTHY, INSTANCE
+        doc = build_status(self.path, heartbeat=('fresh', beat()), health=HEALTHY, instance=INSTANCE,
+            monitor_revision=('a' * 12, False), now=self.now, failing_since=None, renew_seconds={'work': 600})
+        return doc['active'][0]
+
+    def test_host_progress_replaces_stale_wait_through_release_and_delivery_without_writing_checkpoint(self):
+        from agent.session_progress import SessionProgress
+        self.claim_owner()
+        self.ledger.checkpoint(self.key, self.token, {'summary': 'Waiting for Unity verification', 'reports': ['PRIVATE']})
+        grant = self.reservation()
+        original = self.ledger.item(self.key)['checkpoint']
+        progress = SessionProgress(self.ledger, Mock())
+        key = progress._current(self.key)[1]
+        self.assertEqual(self.displayed()['display_state'], 'resource_in_use')
+        self.now += 1
+        self.ledger.release(grant['reservation_id'], grant['token'], 'worker reported quiescent')
+        self.assertEqual(self.displayed()['display_state'], 'resource_released')
+        self.assertIn('释放不代表测试通过', progress._content(self.ledger.item(self.key))['body'])
+        self.assertNotEqual(key, progress._current(self.key)[1])
+        self.now += 1
+        action = self.ledger.prepare_comment(self.key, self.token, 'delivery', 'Actual scoped results')
+        self.assertEqual(self.displayed()['display_state'], 'preparing_delivery')
+        key = progress._current(self.key)[1]
+        self.ledger.confirm_comment(action['action_id'], 'remote-comment')
+        self.assertEqual(self.displayed()['display_state'], 'delivery_posted')
+        self.assertNotEqual(key, progress._current(self.key)[1])
+        self.assertEqual(self.ledger.item(self.key)['state'], 'running')
+        self.assertEqual(self.ledger.item(self.key)['checkpoint'], original)
+        self.assertNotIn('PRIVATE', json.dumps(self.displayed()))
+        self.assertNotIn(self.token, json.dumps(self.displayed()))
+
+    def test_new_request_overrides_old_delivery_and_cancelled_request_is_not_a_test_result(self):
+        self.claim_owner()
+        action = self.ledger.prepare_comment(self.key, self.token, 'delivery', 'Saved earlier delivery')
+        self.ledger.confirm_comment(action['action_id'], 'remote')
+        self.now += 1
+        queued = queue_resource(self.ledger, self.key, self.token, 'unity_slot', 'interactive', SHA)
+        self.assertEqual(self.displayed()['display_state'], 'awaiting_resource')
+        cancel_queued_resource(self.ledger, self.key, self.token, queued['reservation_id'])
+        self.assertEqual(self.displayed()['display_state'], 'running')
+
+    def test_held_resource_never_displays_release_or_delivery(self):
+        self.claim_owner()
+        grant = self.reservation()
+        self.ledger.prepare_comment(self.key, self.token, 'delivery', 'Premature text is not acceptance')
+        self.ledger.hold(grant['reservation_id'], 'quiescence uncertain')
+        self.assertEqual(self.displayed()['display_state'], 'waiting_for_recovery')
+        self.assertEqual(self.ledger.reservation(grant['reservation_id'])['state'], 'active')
+
+    def test_progress_does_not_borrow_previous_generation_or_changed_input_delivery(self):
+        self.claim_owner()
+        grant = self.reservation()
+        self.ledger.release(grant['reservation_id'], grant['token'], 'worker reported quiescent')
+        action = self.ledger.prepare_comment(self.key, self.token, 'delivery', 'Saved delivery')
+        self.ledger.confirm_comment(action['action_id'], 'remote')
+        self.ledger.connection.execute('UPDATE outbox SET fingerprint=? WHERE action_id=?', ('different', action['action_id']))
+        self.assertEqual(self.displayed()['display_state'], 'resource_released')
+        self.ledger.connection.execute('UPDATE work_items SET generation=generation+1 WHERE id=?', (self.key,))
+        self.assertEqual(self.displayed()['display_state'], 'running')
+
+    def test_progress_read_does_not_write_or_weaken_maintenance_and_terminal_state(self):
+        from agent.work_status import current_stage
+        self.claim_owner()
+        grant = self.reservation()
+        self.ledger.release(grant['reservation_id'], grant['token'], 'worker reported quiescent')
+        before = self.ledger.connection.total_changes
+        self.assertEqual(self.displayed()['stage'], 'resource-released')
+        self.assertEqual(self.ledger.connection.total_changes, before)
+        item = self.ledger.item(self.key)
+        self.assertEqual(current_stage(self.ledger.connection, item, {}), item['stage'])
+        for state in ('delivered', 'blocked', 'cancelled', 'awaiting_input'):
+            self.assertEqual(current_stage(self.ledger.connection, {**item, 'state': state}), item['stage'])
+        Maintenance(self.ledger).pause('deploy')
+        self.assertEqual(self.displayed()['display_state'], 'maintenance_handoff')
+
     def test_default_registry_is_chat_and_one_general_owner(self):
         from agent.dispatch import SKILL_AUTHORITY
         from agent.skills import enabled_skills

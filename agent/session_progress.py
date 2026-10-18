@@ -90,12 +90,17 @@ class SessionProgress:
             body = f"工作仍在处理中；已记录阶段：{item['stage'][:120]}。"
             from .execution import single
             if single(item):
+                from .work_status import current_stage
                 body = {'waiting-for-unity_slot': '同一 worker 正在等待 Unity 资源，候选和已完成报告保持不变。',
                         'waiting-for-unity': '同一 worker 正在等待 Unity 资源。',
                         'waiting-for-server_slot': '同一 worker 正在等待隔离的测试服务；具体容量等待原因见 Monitor。',
                         'unity-preparing': 'Unity 已分配，正在准备原候选；worker 保持运行。',
                         'resource-ready': '资源已就绪，由同一 worker 继续使用；就绪不代表测试通过。',
-                        'resource-preparation-failed': '资源准备失败，worker 正在检查原因和已保存证据。'}.get(item['stage'], body)
+                        'resource-preparation-failed': '资源准备失败，worker 正在检查原因和已保存证据。',
+                        'resource-held': '资源已隔离，等待安全恢复；当前不能继续使用。',
+                        'resource-released': '资源已释放，同一 worker 继续处理报告或交付；释放不代表测试通过。',
+                        'delivery-prepared': '交付说明已准备，正在发布；尚未完成 finish。',
+                        'delivery-posted': '交付说明已确认发布，正在完成 finish。'}.get(current_stage(self.db, item), body)
             checkpoint = self.db.execute("SELECT max(created_at) FROM audit WHERE item_id=? AND kind='checkpoint'",
                                          (item["id"],)).fetchone()[0]
             body += (f"最近保存检查点距今 {max(0, int((self.ledger.clock() - checkpoint) / 60))} 分钟。"
@@ -131,7 +136,9 @@ class SessionProgress:
         # Flags can change while the item remains awaiting_input, including between a question's reservation and
         # its retry. Reevaluate that content instead of sending an obsolete elicitation during withdrawal grace.
         tasks = [(t['id'], t['state'], t['generation'], t['stage']) for t in self._tasks(item)]
-        return item, f"{item['id']}:{item['state']}:{item['generation']}:{item['stage']}:{item['worker_pid']}:{item['withdraw_reason']}:{item['withdraw_deadline']}:{tasks}"
+        from .work_status import current_stage
+        stage = current_stage(self.db, item)
+        return item, f"{item['id']}:{item['state']}:{item['generation']}:{stage}:{item['worker_pid']}:{item['withdraw_reason']}:{item['withdraw_deadline']}:{tasks}"
 
     def _reserve(self, item_id, content, status_key):
         """The new send's activity id, or None when the item's row is gone: a cancellation that posted its own

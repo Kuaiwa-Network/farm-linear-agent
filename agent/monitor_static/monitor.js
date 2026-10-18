@@ -37,6 +37,10 @@
     waiting_worker_cleanup: ["等待 worker 清理", "neutral"],
     resource_ready: ["Unity 已就绪，等待启动", "info"],
     resource_in_use: ["资源已就绪，同一 worker 继续", "info"],
+    resource_released: ["资源已释放，worker 继续处理", "info"],
+    resource_held: ["资源已隔离，等待恢复", "warn"],
+    preparing_delivery: ["正在发布交付说明", "info"],
+    delivery_posted: ["交付说明已发布，正在完成 finish", "info"],
     legacy_paused: ["旧流程暂停，等待显式接续", "neutral"],
   };
   const OUTCOME = {

@@ -21,6 +21,7 @@ DISPLAY_STATES = ("queued", "launching", "switching_repo", "retry_wait", "runnin
                   "awaiting_resource", "waiting_for_recovery", "maintenance_paused", "maintenance_handoff",
                   "acceptance_paused", 'waiting_presentation', 'waiting_parent_repair',
                   'legacy_paused', 'resource_in_use', 'preparing_resource', 'waiting_worker', 'waiting_worker_cleanup')
+DISPLAY_STATES += ('resource_released', 'resource_held', 'preparing_delivery', 'delivery_posted')
 OUTCOMES = ("delivered", "no_change", "blocked", "failed", "cancelled")
 FAILURE_CODES = ("worker_launch_failed", "worker_start_failed", "worker_claim_timeout", "worker_exit_failed",
                  "model_capacity_exhausted", "skill_disabled", "job_failed")
@@ -47,11 +48,11 @@ UNTRACKED_GRACE = 30
 LOOP_LIMITS = {"receive": 120, "lifecycle": 600, "progress": 600, "schedule": 1800,
                "resource_recovery": 1800, "pool": 5400}
 KNOWN_TABLES = ("work_items", "issues", "audit", "published_prs", "slots", "reservations",
-                "resource_recoveries", "job_cleanup", "issue_checks", "webhook_events")
+                "resource_recoveries", "job_cleanup", "issue_checks", "webhook_events", "outbox")
 REQUIRED = {"work_items": ("id", "issue_id", "skill", "state", "stage", "created_at", "updated_at"),
             "issues": ("id", "metadata")}
 OPTIONAL_ITEM_COLUMNS = ("priority", "worker_pid", "next_root_repo", "root_repo", "retry_not_before",
-                         "lease_expires_at", "execution_contract")
+                         "lease_expires_at", "execution_contract", "generation")
 SLOT_FIELDS = ("slot_id", "kind", "state", "commit", "holder", "mode", "recovery")
 HEALTH_FIELDS = ("ok", "status", "latency_ms", "error_type", "checked_at")
 INSTANCE_FIELDS = ("environment", "instance_id", "bot_name", "host")
@@ -185,6 +186,10 @@ def _display_state(row, now):
     if row['stage'] == 'legacy-adoption-required':
         return 'legacy_paused'
     if row['state'] == 'running' and row.get('execution_contract') == 'single-worker-v1':
+        phases = {'resource-released': 'resource_released', 'resource-held': 'resource_held',
+                  'delivery-prepared': 'preparing_delivery', 'delivery-posted': 'delivery_posted'}
+        if row['stage'] in phases:
+            return phases[row['stage']]
         if row['stage'] in ('waiting-for-unity_slot', 'waiting-for-server_slot', 'waiting-for-unity'):
             return 'awaiting_resource'
         if row['stage'] == 'unity-preparing':
@@ -478,6 +483,9 @@ def _ledger_attention(db, schema, rows, slots, now):
 def _read_ledger(db, now, beat_state, beat, renew_seconds):
     schema = _schema(db)
     rows = _active_rows(db, schema)
+    from .work_status import current_stage
+    for row in rows:
+        row['stage'] = current_stage(db, row, schema)
     recent = _recent_rows(db, schema, now)
     failed = _unresolved_failures(db, schema, now)
     failure_ids = list(dict.fromkeys([row["id"] for row in recent if row["state"] == "failed"]
